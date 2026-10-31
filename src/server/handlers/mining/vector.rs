@@ -1,20 +1,20 @@
 use super::*;
 use super::{input::*, writeback::*};
-use eg_compute::mining::{
+use medulla_compute::mining::{
     anomaly,
     classify::{self, FittedClassifier},
     cluster, reduce,
 };
-use eg_types::compute_result::mining::{
+use medulla_types::compute_result::mining::{
     AnomalyMiningResult, AnomalyRow, ClassificationMiningResult, ClassifiedRow,
     ClassifierFitResult, ClusterMiningResult, ClusterRow, ReducedRow, ReductionMiningResult,
     RowRef,
 };
-use eg_types::result_contract::compute as results;
+use medulla_types::result_contract::compute as results;
 
 // ─────────────────────────── Clustering ───────────────────────────
 
-/// Handle `MineCluster` (CONCEPT:EG-KG.mining.dbscan-density): build the feature
+/// Handle `MineCluster` (CONCEPT:MEDULLA-KG.mining.dbscan-density): build the feature
 /// rows (explicit or node embeddings), run the chosen clustering engine, return
 /// `{clusters, labels, ...}`, and optionally write `:Cluster` nodes back.
 pub(crate) struct ClusterRequest {
@@ -134,7 +134,7 @@ pub(super) fn to_linkage(l: Linkage) -> cluster::Linkage {
     }
 }
 
-/// Materialize each non-noise cluster as a typed `:Cluster` node (CONCEPT:EG-KG.mining.cluster-writeback),
+/// Materialize each non-noise cluster as a typed `:Cluster` node (CONCEPT:MEDULLA-KG.mining.cluster-writeback),
 /// id = a deterministic digest of `algo` + its sorted member node-ids (idempotent
 /// replay). Members that are resident nodes are linked via `CLUSTER_MEMBER` edges.
 pub(super) fn materialize_clusters(
@@ -202,7 +202,7 @@ pub(super) fn cluster_node_id(algo: &str, member_ids: &[String]) -> String {
 
 // ─────────────────────────── Anomaly detection ───────────────────────────
 
-/// Handle `MineAnomaly` (CONCEPT:EG-KG.mining.isolation-forest): build rows
+/// Handle `MineAnomaly` (CONCEPT:MEDULLA-KG.mining.isolation-forest): build rows
 /// (explicit features, a 1-D values series, or node embeddings), run the detector,
 /// return per-row `{id, anomaly_score, is_anomaly}`, and optionally write `:Anomaly`
 /// nodes back for the flagged rows.
@@ -329,7 +329,7 @@ pub(super) fn anomaly_algo(
     }
 }
 
-/// Materialize each FLAGGED row as a typed `:Anomaly` node (CONCEPT:EG-KG.mining.anomaly-writeback),
+/// Materialize each FLAGGED row as a typed `:Anomaly` node (CONCEPT:MEDULLA-KG.mining.anomaly-writeback),
 /// id = a deterministic digest of `algo` + the source node-id / row index. Linked
 /// to its source node via an `ANOMALY_OF` edge when that node is resident.
 pub(super) fn materialize_anomalies(
@@ -397,7 +397,7 @@ pub(super) fn anomaly_node_id(algo: &str, source: &str) -> String {
 
 // ─────────────────────────── Classification (fit / predict) ───────────────────────────
 
-/// Handle `MineClassifyFit` (CONCEPT:EG-KG.mining.naive-bayes): build the feature rows
+/// Handle `MineClassifyFit` (CONCEPT:MEDULLA-KG.mining.naive-bayes): build the feature rows
 /// (explicit or node embeddings — the cross-modal "classify these nodes using their
 /// embeddings + ontology features" hook), fit the chosen classifier, and return the
 /// serializable model blob. PREDICTIVE + read-only (no graph mutation).
@@ -473,7 +473,7 @@ pub(super) fn handle_classify_fit(
     }
 }
 
-/// Handle `MineClassifyPredict` (CONCEPT:EG-KG.mining.naive-bayes): build rows, run the
+/// Handle `MineClassifyPredict` (CONCEPT:MEDULLA-KG.mining.naive-bayes): build rows, run the
 /// fitted model, return per-row `{id, label, proba}`, and optionally write
 /// `:Classification` nodes back for each prediction.
 pub(crate) struct ClassifyPredictRequest {
@@ -583,7 +583,7 @@ pub(super) fn classify_classes(model: &FittedClassifier) -> Vec<i64> {
     }
 }
 
-/// Materialize each prediction as a typed `:Classification` node (CONCEPT:EG-KG.mining.classify-writeback),
+/// Materialize each prediction as a typed `:Classification` node (CONCEPT:MEDULLA-KG.mining.classify-writeback),
 /// id = a deterministic digest of the source node-id / row index. Linked to its source
 /// node via a `CLASSIFIED_AS` edge when that node is resident.
 pub(super) fn materialize_classifications(
@@ -617,7 +617,7 @@ pub(super) fn classification_node_id(source: &str) -> String {
 
 // ─────────────────────────── Dimensionality reduction ───────────────────────────
 
-/// Handle `MineReduce` (CONCEPT:EG-KG.mining.truncated-svd): build rows (explicit or
+/// Handle `MineReduce` (CONCEPT:MEDULLA-KG.mining.truncated-svd): build rows (explicit or
 /// node embeddings — reduce node vectors for the graphviz), run the chosen reduction,
 /// return per-row `{id, coords}`, and optionally write `:Embedding2D` nodes back.
 pub(crate) struct ReduceRequest {
@@ -749,7 +749,7 @@ pub(super) fn reduce_algo_name(a: ReduceAlgorithm) -> &'static str {
 }
 
 /// Materialize each row's reduced vector as a typed `:Embedding2D` node
-/// (CONCEPT:EG-KG.mining.reduce-writeback), id = a deterministic digest of the source
+/// (CONCEPT:MEDULLA-KG.mining.reduce-writeback), id = a deterministic digest of the source
 /// node-id / row index. Linked to its source node via a `REDUCED_FROM` edge when that
 /// node is resident — feeding the web-UI graphviz + downstream clustering.
 pub(super) fn materialize_embeddings(

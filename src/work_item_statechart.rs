@@ -5,7 +5,7 @@
 //! (`submitted → ready → leased → running → {succeeded|failed|cancelled|dead_letter}`)
 //! is enforced today by ~20 hand-rolled `matches!`/`if` state-literal sites inside
 //! `redb_store.rs`'s five native WorkItem handlers. This module expresses that lifecycle
-//! ONCE as a reusable, content-addressed [`eg_statechart::StatechartDef`] — a closed
+//! ONCE as a reusable, content-addressed [`medulla_statechart::StatechartDef`] — a closed
 //! state vocabulary + guarded δ — so the lifecycle has a single, formally-checkable
 //! source of truth.
 //!
@@ -22,18 +22,18 @@
 //! ## Phase 1 (this wave): dual-write mirror, NOT a flip
 //!
 //! In phase 1 the redb row's hand-computed `status` remains the AUTHORITY. Each of the
-//! five native handlers additionally drives a co-located [`eg_statechart::MachineInstance`]
+//! five native handlers additionally drives a co-located [`medulla_statechart::MachineInstance`]
 //! mirror (stored on the SAME WorkItem node, in the SAME redb write transaction — so a
 //! `kill -9` mid-transition can never split the row from its mirror) via
 //! [`mirror_outcome`], and compares the chart's independently-computed next state against
 //! the authority's. A disagreement raises the [`emit_divergence`] alarm (a structured
 //! `tracing::warn!` + a Prometheus counter). Phase 2 flips authority to the chart; phase 3
 //! deletes the Python enum vocabulary. See
-//! `plans/_archive/au-eg-program/wave2/w2_2-statechart-phase-plan.md`.
+//! `plans/_archive/au-medulla-program/wave2/w2_2-statechart-phase-plan.md`.
 //!
 //! ## Fencing / retry / DLQ policy is DATA on the event, not code here (ADR-5 §1)
 //!
-//! `eg_statechart::Guard` is a closed language that can compare a context/event field to a
+//! `medulla_statechart::Guard` is a closed language that can compare a context/event field to a
 //! **constant**, but NOT one field to another (there is no `context.x == event.y` guard).
 //! So — exactly as [`crate::loop_statechart`]'s correction (3) does — the caller passes the
 //! booleans it has ALREADY computed at the call site as event-payload fields the chart
@@ -54,7 +54,7 @@
 
 use std::sync::LazyLock;
 
-use eg_statechart::{transition, Context, EventInput, Guard, State, StatechartDef, Transition};
+use medulla_statechart::{transition, Context, EventInput, Guard, State, StatechartDef, Transition};
 
 /// The four non-final states.
 const NON_FINAL_STATES: &[&str] = &["submitted", "ready", "leased", "running"];
@@ -88,7 +88,7 @@ fn event_true(key: &str) -> Guard {
 /// Build the WorkItem `StatechartDef` (ADR-5 §1). Pure, deterministic, content-addressed
 /// via [`StatechartDef::def_id`] — calling it twice yields byte-identical bytes.
 ///
-/// The transition list order is the evaluation order: `eg-statechart` fires the FIRST
+/// The transition list order is the evaluation order: `medulla-statechart` fires the FIRST
 /// guard that holds, so the three `commit_failed` rows are declared retry → DLQ → fail to
 /// mirror `redb_store.rs`'s `if retryable && attempt < max { ready } else if retryable
 /// { dead_letter } else { failed }` branch order exactly.
@@ -265,7 +265,7 @@ pub fn mirror_outcome(
             // transition the authority took. Report the authority's own next state (or the
             // pre-state) so the mirror row never carries an un-decodable value, and flag it.
             tracing::warn!(
-                target: "epistemic_graph::statechart_divergence",
+                target: "medulla::statechart_divergence",
                 pre_status,
                 event,
                 error = %error,
@@ -282,7 +282,7 @@ pub fn mirror_outcome(
 
 /// Raise the phase-1 divergence ALARM: a structured, targeted `tracing::warn!` carrying
 /// the exact fields an operator needs to triage a chart bug, plus the
-/// `epistemic_graph_statechart_divergence_total{machine="work_item"}` counter. A
+/// `medulla_statechart_divergence_total{machine="work_item"}` counter. A
 /// first-class deliverable of the dual-write migration (ADR-5 §4) — a silent mirror would
 /// defeat the whole point of running one before the authority flip.
 pub fn emit_divergence(
@@ -294,7 +294,7 @@ pub fn emit_divergence(
 ) {
     crate::metrics::statechart_divergence("work_item");
     tracing::warn!(
-        target: "epistemic_graph::statechart_divergence",
+        target: "medulla::statechart_divergence",
         work_item_id,
         machine = "work_item",
         pre_status,
@@ -308,7 +308,7 @@ pub fn emit_divergence(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_statechart::validate;
+    use medulla_statechart::validate;
 
     fn def() -> StatechartDef {
         work_item_statechart_def()
@@ -327,7 +327,7 @@ mod tests {
     #[test]
     fn definition_is_structurally_valid_and_content_addressed() {
         let d = def();
-        validate(&d).expect("work_item chart must pass eg-statechart's own validator");
+        validate(&d).expect("work_item chart must pass medulla-statechart's own validator");
         assert_eq!(d.def_id(), def().def_id(), "def_id must be deterministic");
         assert_eq!(d.initial, "submitted");
         assert_eq!(d.states.len(), 8, "the ONE 8-value lifecycle vocabulary");

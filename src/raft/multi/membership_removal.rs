@@ -14,7 +14,7 @@ use openraft::async_runtime::watch::WatchReceiver;
 use super::super::membership_shrink::{
     MembershipShrinkEvidence, MembershipShrinkJournal, MembershipShrinkPhase,
 };
-use super::{EgRaft, GroupId, MultiRaft, NodeId};
+use super::{MedullaRaft, GroupId, MultiRaft, NodeId};
 
 impl MultiRaft {
     /// Remove one voter only through the durable drain/safety state machine.
@@ -70,7 +70,7 @@ struct LiveMembership {
 }
 
 impl LiveMembership {
-    fn observe(raft: &EgRaft, observed_learner: Option<NodeId>) -> Self {
+    fn observe(raft: &MedullaRaft, observed_learner: Option<NodeId>) -> Self {
         let metrics = raft.metrics();
         let watched = metrics.borrow_watched();
         let learner_index = observed_learner.and_then(|learner| {
@@ -215,7 +215,7 @@ async fn persist_safety_phases(
 /// Re-observe the committed membership: it must be exactly the retained voters
 /// with the removed node not leading. Returns the evidence of that commit.
 fn committed_removal_evidence(
-    raft: &EgRaft,
+    raft: &MedullaRaft,
     retained: &BTreeSet<NodeId>,
     node: NodeId,
     evidence: MembershipShrinkEvidence,

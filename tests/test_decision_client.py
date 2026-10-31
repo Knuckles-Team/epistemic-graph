@@ -8,8 +8,8 @@ from typing import Any
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from epistemic_graph import decision_client as dc
-from epistemic_graph.generated import models
+from medulla import decision_client as dc
+from medulla.generated import models
 
 pytestmark = pytest.mark.no_engine
 
@@ -100,12 +100,12 @@ def test_the_client_sends_through_the_generated_senders() -> None:
     assert [m for m, _ in sent] == ["Decide", "DecisionLog"]
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R076")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R076")
 def test_decide_can_opt_into_the_nested_pydantic_decision_batch_model() -> None:
-    """EG-DECISION-ENGINE-R076: as_model=True yields the nested DecisionBatch
+    """MEDULLA-DECISION-ENGINE-R076: as_model=True yields the nested DecisionBatch
     model; the default (as_model=False, exercised above) stays the raw
     payload, so other callers of this client are unaffected."""
-    from epistemic_graph.generated.models import DecisionBatch
+    from medulla.generated.models import DecisionBatch
 
     class _Client:
         async def _send(self, method: str, params: Any, graph: Any, **_: Any) -> Any:

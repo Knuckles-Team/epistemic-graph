@@ -15,7 +15,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-modality/src/served.rs::ServedModalityRuntime"],
+      "implementation_refs": ["crates/medulla-modality/src/served.rs::ServedModalityRuntime"],
       "rows": [
         {"row_id": "G37-HP-001", "equivalence_checks": ["stream_matches_sequential", "rollback_restores_snapshot"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 32, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 50}},
         {"row_id": "G37-HP-002", "equivalence_checks": ["cursor_page_matches_reference"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 16, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 30}},
@@ -30,7 +30,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-jobs/src/store.rs::JobStore"],
+      "implementation_refs": ["crates/medulla-jobs/src/store.rs::JobStore"],
       "rows": [
         {"row_id": "G37-HP-006", "equivalence_checks": ["restart_next_id_monotonic", "scheduler_index_marker_valid"], "thresholds": {"maximum_work_units": 64, "maximum_work_growth_ratio": 3, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 8, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 15}},
         {"row_id": "G37-HP-007", "equivalence_checks": ["repeated_claim_same_fence", "worker_index_matches_job"], "thresholds": {"maximum_work_units": 128, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 8, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 20}}
@@ -42,7 +42,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-epistemic/src/recompute.rs::TruthMaintenance"],
+      "implementation_refs": ["crates/medulla-epistemic/src/recompute.rs::TruthMaintenance"],
       "rows": [
         {"row_id": "G37-HP-008", "equivalence_checks": ["retired_generator_changes_exact_closure", "unrelated_materializations_unchanged"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 12, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 25}}
       ]
@@ -53,7 +53,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-epistemic/src/incremental.rs::IncrementalReasoningIndex"],
+      "implementation_refs": ["crates/medulla-epistemic/src/incremental.rs::IncrementalReasoningIndex"],
       "rows": [
         {"row_id": "G37-HP-009", "equivalence_checks": ["canonical_target_order_independent", "mixed_provenance_ignored"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 12, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 25}}
       ]
@@ -64,7 +64,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-jobs/src/store.rs::JobStore"],
+      "implementation_refs": ["crates/medulla-jobs/src/store.rs::JobStore"],
       "rows": [
         {"row_id": "G37-HP-010", "equivalence_checks": ["selected_job_matches_full_reference", "unsatisfied_anchors_not_decoded"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 50}},
         {"row_id": "G37-HP-011", "equivalence_checks": ["tenant_counters_match_active_jobs"], "thresholds": {"maximum_work_units": 256, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 8, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 20}},
@@ -77,7 +77,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 7,
       "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-core/src/result_cache.rs::ResultCache"],
+      "implementation_refs": ["crates/medulla-core/src/result_cache.rs::ResultCache"],
       "rows": [
         {"row_id": "G37-HP-012", "equivalence_checks": ["lru_victim_matches_reference", "capacity_never_exceeded"], "thresholds": {"maximum_work_units": 256, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 25}},
         {"row_id": "G37-HP-013", "equivalence_checks": ["hit_payload_exact", "payload_copy_outside_lock"], "thresholds": {"maximum_work_units": 256, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 25}}
@@ -89,7 +89,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 7,
       "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-tsdb/src/promql.rs::Evaluator"],
+      "implementation_refs": ["crates/medulla-tsdb/src/promql.rs::Evaluator"],
       "rows": [
         {"row_id": "G37-HP-014", "equivalence_checks": ["tail_matches_binary_search_reference", "defensive_wide_slice_matches"], "thresholds": {"maximum_work_units": 128, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 8, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 20}}
       ]
@@ -100,7 +100,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-core/src/graph.rs::GraphCore"],
+      "implementation_refs": ["crates/medulla-core/src/graph.rs::GraphCore"],
       "rows": [
         {"row_id": "G37-HP-015", "equivalence_checks": ["edge_count_matches_enumeration", "parallel_edges_counted"], "thresholds": {"maximum_work_units": 16, "maximum_work_growth_ratio": 2, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 4, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 10}},
         {"row_id": "G37-HP-016", "equivalence_checks": ["logical_delete_matches_reference", "unrelated_edges_preserved"], "thresholds": {"maximum_work_units": 100000, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 12, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 25}},
@@ -113,7 +113,7 @@
       "scales": [1, 100, 10000],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-core/src/graph.rs::GraphTxn"],
+      "implementation_refs": ["crates/medulla-core/src/graph.rs::GraphTxn"],
       "rows": [
         {"row_id": "G37-HP-018", "equivalence_checks": ["all_parallel_rows_removed_once", "adjacency_consistent"], "thresholds": {"maximum_work_units": 20000, "maximum_work_growth_ratio": 12000, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 12000, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 12000}}
       ]
@@ -124,7 +124,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-core/src/graph.rs::GraphCore", "crates/eg-core/src/index.rs::PropertyIndex"],
+      "implementation_refs": ["crates/medulla-core/src/graph.rs::GraphCore", "crates/medulla-core/src/index.rs::PropertyIndex"],
       "rows": [
         {"row_id": "G37-HP-019", "equivalence_checks": ["induced_nodes_edges_match_reference", "parallel_rows_preserved"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 20, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 35}},
         {"row_id": "G37-HP-020", "equivalence_checks": ["posting_intersection_matches_hash_reference", "output_sorted_unique"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 40}}
@@ -136,7 +136,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-core/src/graph.rs::GraphCore"],
+      "implementation_refs": ["crates/medulla-core/src/graph.rs::GraphCore"],
       "rows": [
         {"row_id": "G37-HP-021", "equivalence_checks": ["warm_page_matches_cold_reference", "cursor_has_no_duplicates"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 25}},
         {"row_id": "G37-HP-022", "equivalence_checks": ["edge_write_retains_node_caches", "field_write_invalidates_covering_only"], "thresholds": {"maximum_work_units": 10000, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 8, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 20}}
@@ -148,7 +148,7 @@
       "scales": [1000, 4000, 16000],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-ann/src/flat.rs::FlatIndex", "benches/eg096_massive_scale_bench.rs"],
+      "implementation_refs": ["crates/medulla-ann/src/flat.rs::FlatIndex", "benches/eg096_massive_scale_bench.rs"],
       "rows": [
         {"row_id": "G37-HP-023", "equivalence_checks": ["lookup_delete_matches_scan_reference", "rerank_matches_full_sort"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 30}}
       ]
@@ -159,7 +159,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-tsdb/src/store.rs::SeriesStore", "crates/eg-tsdb/src/query.rs::time_bucket"],
+      "implementation_refs": ["crates/medulla-tsdb/src/store.rs::SeriesStore", "crates/medulla-tsdb/src/query.rs::time_bucket"],
       "rows": [
         {"row_id": "G37-HP-024", "equivalence_checks": ["reverse_append_matches_sorted_reference", "equal_timestamp_order_preserved"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 32, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 50}},
         {"row_id": "G37-HP-025", "equivalence_checks": ["bounded_range_matches_filter_reference", "future_chunks_not_examined"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 20, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 40}},
@@ -172,7 +172,7 @@
       "scales": [8, 32, 128],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-tsdb/src/query.rs::sensor_fuse"],
+      "implementation_refs": ["crates/medulla-tsdb/src/query.rs::sensor_fuse"],
       "rows": [
         {"row_id": "G37-HP-027", "equivalence_checks": ["fusion_matches_sort_asof_reference", "output_clock_sorted_unique"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 32, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 50}}
       ]
@@ -183,7 +183,7 @@
       "scales": [1000, 4000, 16000],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-ann/src/flat.rs::FlatIndex", "crates/eg-ann/benches/recall.rs"],
+      "implementation_refs": ["crates/medulla-ann/src/flat.rs::FlatIndex", "crates/medulla-ann/benches/recall.rs"],
       "rows": [
         {"row_id": "G37-HP-028", "equivalence_checks": ["topk_matches_full_total_order", "nan_last_order_preserved"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}}
       ]
@@ -194,7 +194,7 @@
       "scales": [1000, 4000, 16000],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 180000, "maximum_peak_rss_mib": 4096, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-ann/src/ivfpq.rs::IvfPq", "benches/eg096_massive_scale_bench.rs"],
+      "implementation_refs": ["crates/medulla-ann/src/ivfpq.rs::IvfPq", "benches/eg096_massive_scale_bench.rs"],
       "rows": [
         {"row_id": "G37-HP-029", "equivalence_checks": ["selected_prefix_matches_full_total_order", "adc_and_refined_modes_covered"], "thresholds": {"maximum_work_units": 1000000000, "maximum_work_growth_ratio": 32, "maximum_peak_memory_bytes": 4294967296, "maximum_memory_growth_ratio": 32, "maximum_latency_p99_ms": 120000, "maximum_latency_growth_ratio": 60}}
       ]
@@ -205,7 +205,7 @@
       "scales": [1000, 4000, 16000],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 180000, "maximum_peak_rss_mib": 4096, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-ann/src/hnsw.rs::HnswIndex", "crates/eg-ann/benches/recall.rs"],
+      "implementation_refs": ["crates/medulla-ann/src/hnsw.rs::HnswIndex", "crates/medulla-ann/benches/recall.rs"],
       "rows": [
         {"row_id": "G37-HP-030", "equivalence_checks": ["neighbor_prefix_matches_full_order", "result_prefix_matches_full_order"], "thresholds": {"maximum_work_units": 1000000000, "maximum_work_growth_ratio": 32, "maximum_peak_memory_bytes": 4294967296, "maximum_memory_growth_ratio": 32, "maximum_latency_p99_ms": 120000, "maximum_latency_growth_ratio": 60}},
         {"row_id": "G37-HP-031", "equivalence_checks": ["small_set_exact_matches_reference", "cosine_order_deterministic"], "thresholds": {"maximum_work_units": 1000000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 4294967296, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 120000, "maximum_latency_growth_ratio": 50}}
@@ -217,7 +217,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-plan/src/leanrag.rs"],
+      "implementation_refs": ["crates/medulla-plan/src/leanrag.rs"],
       "rows": [
         {"row_id": "G37-HP-032", "equivalence_checks": ["bounded_prefix_matches_full_order", "leaf_budget_respected"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}}
       ]
@@ -262,7 +262,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-tsdb/src/traces.rs::SpanStore"],
+      "implementation_refs": ["crates/medulla-tsdb/src/traces.rs::SpanStore"],
       "rows": [
         {"row_id": "G37-HP-038", "equivalence_checks": ["newest_results_match_full_reference", "equal_time_order_deterministic", "assembled_traces_exact"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}}
       ]
@@ -273,7 +273,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-query/src/sql/exec.rs", "crates/eg-query/src/sql/catalog.rs"],
+      "implementation_refs": ["crates/medulla-query/src/sql/exec.rs", "crates/medulla-query/src/sql/catalog.rs"],
       "rows": [
         {"row_id": "G37-HP-039", "equivalence_checks": ["conflict_outcomes_match_scan_reference", "rollback_preserves_table"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}},
         {"row_id": "G37-HP-040", "equivalence_checks": ["warm_lookup_matches_linear_reference", "invalid_schema_rejected"], "thresholds": {"maximum_work_units": 100000, "maximum_work_growth_ratio": 3, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 20}}
@@ -285,7 +285,7 @@
       "scales": [1, 16, 256],
       "repetitions": 7,
       "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-core/src/graph.rs::ChangeNotifier"],
+      "implementation_refs": ["crates/medulla-core/src/graph.rs::ChangeNotifier"],
       "rows": [
         {"row_id": "G37-HP-041", "equivalence_checks": ["fanout_exactly_once", "reentrant_subscribe_no_deadlock", "slow_sink_does_not_hold_registry_lock"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 300, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 300, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 300}}
       ]
@@ -296,7 +296,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-plan/src/knowledge_batch.rs", "scripts/certify_exact_knowledge_batch.py"],
+      "implementation_refs": ["crates/medulla-plan/src/knowledge_batch.rs", "scripts/certify_exact_knowledge_batch.py"],
       "rows": [
         {"row_id": "G37-HP-042", "equivalence_checks": ["projection_matches_name_reference", "missing_reordered_duplicate_cases_checked"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}}
       ]
@@ -307,7 +307,7 @@
       "scales": [8, 32, 128],
       "repetitions": 7,
       "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-core/src/broker.rs::topic_matches", "crates/eg-core/src/broker.rs::route"],
+      "implementation_refs": ["crates/medulla-core/src/broker.rs::topic_matches", "crates/medulla-core/src/broker.rs::route"],
       "rows": [
         {"row_id": "G37-HP-043", "equivalence_checks": ["wildcards_match_dynamic_reference", "adversarial_hash_chain_terminates"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 300, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 150, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 300}},
         {"row_id": "G37-HP-044", "equivalence_checks": ["queue_set_matches_reference", "first_binding_order_preserved"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 20, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 35}}
@@ -319,7 +319,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-stream/src"],
+      "implementation_refs": ["crates/medulla-stream/src"],
       "rows": [
         {"row_id": "G37-HP-045", "equivalence_checks": ["bounded_page_matches_full_order", "offset_limit_exact"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}},
         {"row_id": "G37-HP-046", "equivalence_checks": ["retention_set_matches_reference", "deletion_order_deterministic"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}}
@@ -343,7 +343,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 180000, "maximum_peak_rss_mib": 4096, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["crates/eg-compute/src/mining/subgraph.rs", "crates/eg-compute/src/graph_algos/similarity.rs", "crates/eg-core/src/compute/semantic.rs"],
+      "implementation_refs": ["crates/medulla-compute/src/mining/subgraph.rs", "crates/medulla-compute/src/graph_algos/similarity.rs", "crates/medulla-core/src/compute/semantic.rs"],
       "rows": [
         {"row_id": "G37-HP-049", "equivalence_checks": ["extensions_match_reference", "canonical_forms_stable"], "thresholds": {"maximum_work_units": 1000000000, "maximum_work_growth_ratio": 32, "maximum_peak_memory_bytes": 4294967296, "maximum_memory_growth_ratio": 32, "maximum_latency_p99_ms": 120000, "maximum_latency_growth_ratio": 60}},
         {"row_id": "G37-HP-050", "equivalence_checks": ["prepared_neighbors_match_reference", "directed_and_undirected_covered"], "thresholds": {"maximum_work_units": 1000000000, "maximum_work_growth_ratio": 300, "maximum_peak_memory_bytes": 4294967296, "maximum_memory_growth_ratio": 300, "maximum_latency_p99_ms": 120000, "maximum_latency_growth_ratio": 300}},
@@ -357,7 +357,7 @@
       "scales": [64, 256, 1024],
       "repetitions": 5,
       "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
-      "implementation_refs": ["src/server/obs/search.rs", "crates/eg-compute/src/parser/tree_sitter.rs"],
+      "implementation_refs": ["src/server/obs/search.rs", "crates/medulla-compute/src/parser/tree_sitter.rs"],
       "rows": [
         {"row_id": "G37-HP-053", "equivalence_checks": ["observability_prefix_matches_full_order", "equal_timestamp_stability"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}},
         {"row_id": "G37-HP-054", "equivalence_checks": ["callsite_prefix_matches_full_set", "deduplication_exact"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 8, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 35}}

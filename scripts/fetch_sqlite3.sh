@@ -2,11 +2,11 @@
 # Fetch the official SQLite command-line shell that the differential conformance
 # tests run against, and print its path.
 #
-#   export EG_SQLITE3="$(scripts/fetch_sqlite3.sh)"
-#   cargo test -p eg-sqlite-format --test differential
-#   cargo test -p epistemic-graph --features full test_sqlite_file_roundtrip
+#   export MEDULLA_SQLITE3="$(scripts/fetch_sqlite3.sh)"
+#   cargo test -p medulla-sqlite-format --test differential
+#   cargo test -p medulla-engine --features full test_sqlite_file_roundtrip
 #
-# Those tests use `$EG_SQLITE3` when it is set, otherwise `sqlite3` on `$PATH`.
+# Those tests use `$MEDULLA_SQLITE3` when it is set, otherwise `sqlite3` on `$PATH`.
 # When neither runs they FAIL; they never skip. A distribution package
 # (`apt install sqlite3`) works as well as this script. The script exists for
 # hosts without one, such as the build hosts.
@@ -14,7 +14,7 @@
 # The archive is the sqlite.org precompiled "sqlite-tools" bundle for linux
 # x86_64, checked against a pinned sha256 before use.
 #
-# Optional argument: cache directory (default: $XDG_CACHE_HOME/eg-sqlite3).
+# Optional argument: cache directory (default: $XDG_CACHE_HOME/medulla-sqlite3).
 set -euo pipefail
 
 VERSION=3500400
@@ -26,7 +26,7 @@ if [ "$(uname -s)-$(uname -m)" != "Linux-x86_64" ]; then
   exit 1
 fi
 
-dest="${1:-${XDG_CACHE_HOME:-$HOME/.cache}/eg-sqlite3}"
+dest="${1:-${XDG_CACHE_HOME:-$HOME/.cache}/medulla-sqlite3}"
 name="sqlite-tools-linux-x64-$VERSION"
 bin="$dest/$name/sqlite3"
 

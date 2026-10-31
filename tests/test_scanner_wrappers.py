@@ -87,7 +87,7 @@ def test_exclusions_match_root_and_nested_junk_without_erasing_dot_names(contrac
 
 
 def test_directory_exclusions_are_root_anchored_unless_recursive(contract):
-    assert not contract.is_excluded("crates/eg-types/src/contract/crypto.rs")
+    assert not contract.is_excluded("crates/medulla-types/src/contract/crypto.rs")
     assert not contract.is_excluded("nested/contract/generated.rs")
 
 
@@ -96,7 +96,7 @@ def test_scanner_source_manifest_uses_only_supported_census_inputs(contract):
     manifest = load_script("list_scanner_sources")
     paths = [
         "src/main.rs",
-        "crates/eg-core/src/lib.rs",
+        "crates/medulla-core/src/lib.rs",
         "src/client.cpp",
         "src/client.cs",
         "src/query.scala",
@@ -105,11 +105,11 @@ def test_scanner_source_manifest_uses_only_supported_census_inputs(contract):
     ]
 
     assert manifest.select(paths, "cccc", contract) == [
-        "crates/eg-core/src/lib.rs",
+        "crates/medulla-core/src/lib.rs",
         "src/main.rs",
     ]
     assert manifest.select(paths, "kiss", contract) == [
-        "crates/eg-core/src/lib.rs",
+        "crates/medulla-core/src/lib.rs",
         "src/main.rs",
     ]
 
@@ -202,10 +202,10 @@ def test_kiss_census_package_roots_cover_the_facade_and_each_crate():
     census = _load_kiss_census()
 
     roots = census.package_roots(
-        ["src/lib.rs", "crates/eg-core/src/lib.rs", "crates/eg-core/tests/t.rs"]
+        ["src/lib.rs", "crates/medulla-core/src/lib.rs", "crates/medulla-core/tests/t.rs"]
     )
 
-    assert roots == ["crates/eg-core", "src"]
+    assert roots == ["crates/medulla-core", "src"]
     with pytest.raises(SystemExit):
         census.package_roots(["tests/stray.rs"])
 
@@ -423,7 +423,7 @@ def test_complexity_terms_require_zero_is_opt_in_and_fails_actionable_backlog(
     assert "REAL BACKLOG" in capsys.readouterr().out
 
 
-@pytest.mark.spec("EG-CONTRACT-R034")
+@pytest.mark.spec("MEDULLA-CONTRACT-R034")
 def test_complexity_terms_keeps_accepted_dispatch_visible_and_zero_gate_passes(
     tmp_path, capsys
 ):
@@ -559,8 +559,8 @@ def test_contract_rejects_unknown_scanner_keys(tmp_path):
     scanner_contract = load_script("scanner_contract")
     source = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     changed = source.replace(
-        "[tool.epistemic_graph.scanners]\n",
-        "[tool.epistemic_graph.scanners]\nunknown_scanner_key = true\n",
+        "[tool.medulla.scanners]\n",
+        "[tool.medulla.scanners]\nunknown_scanner_key = true\n",
         1,
     )
     path = tmp_path / "pyproject.toml"

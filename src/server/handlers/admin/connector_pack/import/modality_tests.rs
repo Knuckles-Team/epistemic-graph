@@ -1,13 +1,13 @@
 //! R043 modality regressions. Full served acceptance remains open in the owning spec.
 
 use super::*;
-use eg_types::connector_pack::digest::annotations_digest;
+use medulla_types::connector_pack::digest::annotations_digest;
 
 fn annotated(field: &str, terms: &[&str]) -> PackAnnotations {
     serde_json::from_value(serde_json::json!({field: terms})).unwrap()
 }
 
-// spec: EG-TYPED-PACKS-R043
+// spec: MEDULLA-TYPED-PACKS-R043
 #[test]
 fn modalities_accept_native_terms_for_tools_prompts_and_skills() {
     for field in ["modalities_in", "modalities_out"] {
@@ -30,7 +30,7 @@ fn modalities_accept_native_terms_for_tools_prompts_and_skills() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R043
+// spec: MEDULLA-TYPED-PACKS-R043
 #[test]
 fn modalities_refuse_foreign_roots_typos_and_wrong_kinds() {
     for field in ["modalities_in", "modalities_out"] {
@@ -59,7 +59,7 @@ fn modalities_refuse_foreign_roots_typos_and_wrong_kinds() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R043
+// spec: MEDULLA-TYPED-PACKS-R043
 #[test]
 fn modality_lists_enforce_wire_types_and_both_size_edges() {
     for field in ["modalities_in", "modalities_out"] {
@@ -85,10 +85,10 @@ fn modality_lists_enforce_wire_types_and_both_size_edges() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R043
+// spec: MEDULLA-TYPED-PACKS-R043
 #[test]
 fn modality_digest_replay_is_canonical_and_direction_sensitive() {
-    let annotations = eg_types::test_support::contract_wave::pack::annotations();
+    let annotations = medulla_types::test_support::contract_wave::pack::annotations();
     assert_eq!(
         annotations_digest(&annotations).unwrap().to_hex(),
         // The golden digest Python's connector-pack client must also produce.

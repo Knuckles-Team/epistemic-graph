@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 # Pure/static test -- never needs the shared native engine (see
-# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# conftest.py's session-scoped `start_medulla_server` fixture,
 # which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
@@ -26,15 +26,15 @@ def _gate_module():
 
 
 def _m1_sources(module):
-    # crates/eg-mutation-store is deleted; module.mutation_kernel_source() is
-    # its current-only successor (the union of eg-storage's StorageKernel
-    # and eg-transaction's MutationKernel module trees). See that helper's
+    # crates/medulla-mutation-store is deleted; module.mutation_kernel_source() is
+    # its current-only successor (the union of medulla-storage's StorageKernel
+    # and medulla-transaction's MutationKernel module trees). See that helper's
     # docstring in scripts/check_persisted_mutation_contract.py.
     return (
-        module.read_module_tree("crates/eg-types/src/mutation_batch.rs"),
+        module.read_module_tree("crates/medulla-types/src/mutation_batch.rs"),
         module.mutation_kernel_source(),
         module.read_module_tree(
-            "crates/eg-types/src/mutation_batch.rs", include_tests=True
+            "crates/medulla-types/src/mutation_batch.rs", include_tests=True
         ),
         module.mutation_kernel_source(include_tests=True),
         module.read_module_tree("src/graph_delta.rs"),
@@ -77,7 +77,7 @@ def test_persisted_mutation_contract_gate() -> None:
 
 def test_persisted_contract_follows_mutation_batch_facade_tree() -> None:
     module = _gate_module()
-    source = module.read_module_tree("crates/eg-types/src/mutation_batch.rs")
+    source = module.read_module_tree("crates/medulla-types/src/mutation_batch.rs")
 
     assert "pub struct MutationOperation" in source
     assert "pub domain: DurabilityDomain" in source
@@ -244,7 +244,7 @@ def test_mutation_receipts_bind_typed_scope_identity() -> None:
 
 def test_semantic_coordinator_has_one_closed_native_domain() -> None:
     module = _gate_module()
-    contract = module.read_module_tree("crates/eg-types/src/mutation_batch.rs")
+    contract = module.read_module_tree("crates/medulla-types/src/mutation_batch.rs")
 
     assert "SemanticIndex = 8" in contract
     assert '"analytics_job",\n    "semantic_index",\n    "broker"' in contract
@@ -280,7 +280,7 @@ def test_m1_semantic_inventory_rejects_storage_bypass() -> None:
             (
                 "pub fn activate_one(",
                 "maybe_activate_after_write(",
-                "eg_transaction::begin_partial();",
+                "medulla_transaction::begin_partial();",
             )
         ),
     }
@@ -797,7 +797,7 @@ def test_row_delta_retired_identities_cannot_hide_in_production(stale: str) -> N
 def _blob_sources(module):
     blob_store = module.read_compiler_family("src/server/blob/store.rs")
     blob_shared = module.read_compiler_family(
-        "crates/eg-storage/src/owner/blob_shared.rs"
+        "crates/medulla-storage/src/owner/blob_shared.rs"
     )
     return blob_store.production, blob_shared.production, blob_store.with_tests
 
@@ -1679,7 +1679,7 @@ def test_served_carrier_bypass_fails_closed(
     ("source_name", "injected"),
     [
         ("cargo", '\ndataset-handle = ["server"]\n'),
-        ("main", '\nconst EPISTEMIC_GRAPH_DATASET_ADDR: &str = "retired";\n'),
+        ("main", '\nconst MEDULLA_DATASET_ADDR: &str = "retired";\n'),
         ("state", "\nstruct ReturnedSurface { dataset_addr: String }\n"),
         ("server", '\nconst ROUTE: &str = "/dataset/export";\n'),
         ("dispatch", "\nfn coordinated_dataset_result_commit() {}\n"),

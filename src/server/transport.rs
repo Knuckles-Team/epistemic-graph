@@ -121,7 +121,7 @@ impl Drop for ConnGuard {
 }
 
 /// Watch the active-connection count and fire the shutdown signal once it has been
-/// 0 continuously for `idle_secs` seconds (CONCEPT:EG-KG.backend.tiny-shared — the tiny shared
+/// 0 continuously for `idle_secs` seconds (CONCEPT:MEDULLA-KG.backend.tiny-shared — the tiny shared
 /// daemon self-terminates a grace period after its last client disconnects, the
 /// auto-bundled-engine mode agent-utilities' EngineResolver opts into by passing
 /// `--idle-shutdown-secs`). A connection arriving DURING the grace period resets
@@ -162,7 +162,7 @@ pub async fn run_idle_watcher(coord: Arc<ShutdownCoordinator>, idle_secs: u64) {
     }
 }
 
-/// Per-connection in-flight cap (CONCEPT:EG-KG.backend.framed-response). Bounds how many requests ONE
+/// Per-connection in-flight cap (CONCEPT:MEDULLA-KG.backend.framed-response). Bounds how many requests ONE
 /// connection may have dispatching CONCURRENTLY, so a single client cannot spawn
 /// unbounded server tasks/memory — the global `ServerState::max_in_flight`
 /// semaphore remains the box-wide admission cap (which sheds `BUSY`). Auto-sized
@@ -173,14 +173,14 @@ fn per_connection_inflight_limit() -> usize {
     crate::autosize::detect_capacity().per_connection_inflight()
 }
 
-/// Run one dispatch under the hard deadline (CONCEPT:EG-KG.coordination.backpressure-busy-signal).
+/// Run one dispatch under the hard deadline (CONCEPT:MEDULLA-KG.coordination.backpressure-busy-signal).
 ///
 /// Returns the dispatch's own `Response` when it completes in time. When it does NOT,
 /// the future is dropped (releasing whatever it borrowed) and a typed error `Response`
 /// is synthesized for `req_id`, so the caller returns, its permits drop, and the client
 /// learns the request was abandoned instead of waiting forever on a reply that will
 /// never come. Fails LOUDLY: the expiry is logged at `error` and counted
-/// (`epistemic_graph_dispatch_deadline_exceeded_total`) — a silently-shed request is how
+/// (`medulla_dispatch_deadline_exceeded_total`) — a silently-shed request is how
 /// this stall stayed invisible for days.
 ///
 /// EH-536: the dispatch runs as `cancel`'s request scope. `cancel` is tripped
@@ -211,7 +211,7 @@ where
                 req_id,
                 deadline_secs = deadline.as_secs(),
                 "dispatch exceeded the hard per-request deadline; abandoning it and \
-                 releasing its admission permits (CONCEPT:EG-KG.coordination.backpressure-busy-signal)"
+                 releasing its admission permits (CONCEPT:MEDULLA-KG.coordination.backpressure-busy-signal)"
             );
             Response::err(
                 req_id,
@@ -240,7 +240,7 @@ where
 
 fn tls_handshake_timeout() -> std::time::Duration {
     seconds_from_env(
-        "EPISTEMIC_GRAPH_TLS_HANDSHAKE_TIMEOUT_SECS",
+        "MEDULLA_TLS_HANDSHAKE_TIMEOUT_SECS",
         DEFAULT_TLS_HANDSHAKE_TIMEOUT_SECS,
         1..=120,
     )
@@ -249,7 +249,7 @@ fn tls_handshake_timeout() -> std::time::Duration {
 /// The admission permits a request was granted (held by the dispatch task and
 /// dropped when it completes), or `Busy` if it must be shed. The three permit slots
 /// are mutually exclusive paths: a NORMAL admission holds `global`+`per_graph`; a
-/// RESERVED-read admission (CONCEPT:EG-KG.coordination.reserved-read-lane) holds only `read`.
+/// RESERVED-read admission (CONCEPT:MEDULLA-KG.coordination.reserved-read-lane) holds only `read`.
 enum Admission {
     Granted {
         global: Option<tokio::sync::OwnedSemaphorePermit>,
@@ -260,7 +260,7 @@ enum Admission {
 }
 
 /// Admit one request against the global pool + per-graph fairness cap, with a
-/// RESERVED READ LANE (CONCEPT:EG-KG.coordination.reserved-read-lane) so an ingestion WRITE firehose that saturates
+/// RESERVED READ LANE (CONCEPT:MEDULLA-KG.coordination.reserved-read-lane) so an ingestion WRITE firehose that saturates
 /// both can never shed an interactive read/query to BUSY.
 ///
 /// * Both reads and writes try the NORMAL path first: a global in-flight permit AND
@@ -500,7 +500,7 @@ async fn dispatch_reserved_request(
 }
 
 /// Handle one client connection with single-connection request PIPELINING
-/// (CONCEPT:EG-KG.backend.framed-response): length-prefixed MessagePack frames, per-request backpressure
+/// (CONCEPT:MEDULLA-KG.backend.framed-response): length-prefixed MessagePack frames, per-request backpressure
 /// admission (per-connection + global + per-graph), and CONCURRENT dispatch whose
 /// id-tagged responses are written back OUT OF ORDER.
 ///
@@ -640,7 +640,7 @@ pub async fn serve_uds(
 }
 
 /// Bind the private UDS listener WITHOUT accepting — the startup-ordering
-/// hook (EG-DURABLE-KERNEL-R006.4): the post-bind maintenance tasks are
+/// hook (MEDULLA-DURABLE-KERNEL-R006.4): the post-bind maintenance tasks are
 /// spawned between this and the accept loop, so the listener is already up
 /// when they start.
 #[cfg(unix)]
@@ -721,7 +721,7 @@ pub async fn serve_tcp(
 }
 
 /// Bind the native TCP listener WITHOUT accepting — the startup-ordering
-/// hook (EG-DURABLE-KERNEL-R006.4), the TCP half of [`bind_uds`].
+/// hook (MEDULLA-DURABLE-KERNEL-R006.4), the TCP half of [`bind_uds`].
 pub async fn bind_tcp(addr: &str, tls: &Option<PreparedTcpTls>) -> std::io::Result<TcpListener> {
     #[cfg(feature = "server-tls")]
     let acceptor = tls.as_ref().map(|value| value.acceptor.clone());

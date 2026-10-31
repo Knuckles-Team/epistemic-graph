@@ -45,13 +45,13 @@ fn build_submit_policy(
         quota_cpu_ms: spec.quota_cpu_ms,
         deadline_unix_ms: spec.deadline_unix_ms,
         policy_fingerprint: policy_fingerprint.to_string(),
-        resources: eg_jobs::ResourceBudget {
+        resources: medulla_jobs::ResourceBudget {
             cpu_ms: spec.quota_cpu_ms,
             memory_bytes: spec.memory_bytes,
             io_bytes: spec.io_bytes,
             output_bytes: spec.output_bytes,
         },
-        placement: eg_jobs::JobPlacement {
+        placement: medulla_jobs::JobPlacement {
             pool: worker_pool,
             region: worker_region,
             required_capabilities,
@@ -153,7 +153,7 @@ pub(super) fn handle_cancel_op(
     let outcome = store.request_cancel_retrying(&job_id, || {
         compile_job_batch(store, req_id, authority, attempt_nonce, &method).map_err(|error| {
             compile_error = Some(error);
-            eg_jobs::JobError::Codec("cancel batch compile failed".into())
+            medulla_jobs::JobError::Codec("cancel batch compile failed".into())
         })
     });
     if let Some(error) = compile_error {
@@ -161,7 +161,7 @@ pub(super) fn handle_cancel_op(
     }
     match outcome {
         Ok((job, _)) => {
-            job_response::<eg_types::result_contract::coordination::JobCancel>(req_id, &job)
+            job_response::<medulla_types::result_contract::coordination::JobCancel>(req_id, &job)
         }
         Err(e) => Response::err(req_id, job_refusal(&e)),
     }
@@ -372,12 +372,12 @@ pub(super) fn submit_job_program_optimize(
     request_msgpack: Vec<u8>,
     required_capabilities: &mut Vec<String>,
 ) -> Result<(JobKind, String, String, serde_json::Value), Response> {
-    let request: OptimizationRequest = match eg_types::msgpack::decode_bounded(
+    let request: OptimizationRequest = match medulla_types::msgpack::decode_bounded(
         &request_msgpack,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_JOB_INPUT_BYTES,
             MAX_JOB_INPUT_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     ) {
         Ok(request) => request,
@@ -455,7 +455,7 @@ pub(super) fn ensure_program_optimization_capability(
 mod tests {
     use super::MAX_ASSOCIATION_DISTINCT_ITEMS;
 
-    // spec: EG-PLACEMENT-R003.1
+    // spec: MEDULLA-PLACEMENT-R003.1
     #[test]
     fn association_distinct_item_limit_matches_rule_mask_width() {
         assert_eq!(MAX_ASSOCIATION_DISTINCT_ITEMS, 31);
@@ -466,7 +466,7 @@ mod tests {
 mod association_refusal_tests {
     use super::{validate_association_cardinality, validate_association_thresholds};
 
-    // spec: EG-PLACEMENT-R003.2
+    // spec: MEDULLA-PLACEMENT-R003.2
     #[test]
     fn cardinality_and_threshold_payloads_have_distinct_typed_refusals() {
         for (count, support, confidence, expected) in [

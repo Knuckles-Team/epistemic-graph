@@ -1,10 +1,10 @@
-//! Neo4j Bolt wire-protocol listener (CONCEPT:EG-KG.query.bolt-wire-protocol) — a native Bolt v4.4 server so
+//! Neo4j Bolt wire-protocol listener (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol) — a native Bolt v4.4 server so
 //! Neo4j drivers with custom auth-token support connect DIRECTLY to the engine's
 //! Cypher surface, with NO Neo4j server in the loop.
 //!
 //! ## What this is (and is NOT)
-//! Unlike the SQL wires (pgwire / mysql-wire / mssql-wire, CONCEPT:EG-KG.compute.subsystems-reference), Bolt
-//! speaks **Cypher**, not SQL. `RUN` uses the same eg-query Cypher executor as
+//! Unlike the SQL wires (pgwire / mysql-wire / mssql-wire, CONCEPT:MEDULLA-KG.compute.subsystems-reference), Bolt
+//! speaks **Cypher**, not SQL. `RUN` uses the same medulla-query Cypher executor as
 //! `Method::CypherQuery`; every write is applied to a detached graph and committed
 //! through the common authoritative `MutationBatch` gateway before acknowledgement.
 //!
@@ -18,7 +18,7 @@
 //!   * mapping a Cypher result (`QueryResult { columns, rows }`, each row a MessagePack
 //!     `Vec<serde_json::Value>`) into PackStream `RECORD` structures.
 //!
-//! ## Protocol subset (CONCEPT:EG-KG.query.bolt-wire-protocol)
+//! ## Protocol subset (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol)
 //! LANDED: Bolt 4.4 handshake + the request/response messages above, auto-commit
 //! (`RUN`+`PULL`) AND explicit transactions (`BEGIN`/`RUN`/`COMMIT`|`ROLLBACK`), the
 //! Bolt-5 `LOGON`/`LOGOFF` messages, current `eg2.` signed-session authentication,
@@ -55,7 +55,7 @@ use session::BoltReply;
 /// Env var: when set (and the binary is built `--features bolt-wire`), the Bolt listener
 /// binds this address (documented Neo4j default loopback `127.0.0.1:7687`). Unset ⇒ no
 /// listener.
-pub const BOLT_ADDR_ENV: &str = "EPISTEMIC_GRAPH_BOLT_ADDR";
+pub const BOLT_ADDR_ENV: &str = "MEDULLA_BOLT_ADDR";
 /// Fail-closed startup policy for the direct Bolt listener. Bolt does not
 /// terminate TLS, so it is a loopback backend only. The non-empty engine key is
 /// used solely by the shared current-envelope verifier.
@@ -88,7 +88,7 @@ const MSG_IGNORED: u8 = 0x7E;
 const MSG_FAILURE: u8 = 0x7F;
 
 /// The advertised server-agent string (Bolt clients parse this in HELLO SUCCESS).
-const SERVER_AGENT: &str = "Neo4j/4.4.0-epistemic-graph";
+const SERVER_AGENT: &str = "Neo4j/4.4.0-medulla";
 
 static CONN_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -109,7 +109,7 @@ struct PendingResult {
 #[derive(Clone)]
 struct BufferedCypher {
     query: String,
-    params: eg_query::Params,
+    params: medulla_query::Params,
 }
 
 struct BoltTransaction {
@@ -118,7 +118,7 @@ struct BoltTransaction {
     writes: Vec<BufferedCypher>,
 }
 
-/// Per-connection Bolt session state (CONCEPT:EG-KG.query.bolt-wire-protocol).
+/// Per-connection Bolt session state (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol).
 struct BoltSession {
     state: Arc<RwLock<ServerState>>,
     /// Graph cryptographically bound by the current signed session request.
@@ -237,7 +237,7 @@ async fn authenticate_session(
         query: "MATCH (n) RETURN n LIMIT 0".to_string(),
         mode: crate::protocol::CypherMode::Read,
     };
-    let action = eg_capabilities::policy(&probe).authz_action;
+    let action = medulla_capabilities::policy(&probe).authz_action;
     if !verified.allows_method(action, false) && !verified.allows_method(action, true) {
         return Err(BoltFailure::client(
             "Neo.ClientError.Security.Forbidden",
@@ -411,7 +411,7 @@ fn authorize_cypher(
             crate::protocol::CypherMode::Read
         },
     };
-    let action = eg_capabilities::policy(&method).authz_action;
+    let action = medulla_capabilities::policy(&method).authz_action;
     if !verified.allows_method(action, is_write) {
         crate::metrics::access_denied();
         return Err(BoltFailure::client(
@@ -459,12 +459,12 @@ fn query_result_to_pending(
 ) -> Result<PendingResult, BoltFailure> {
     let mut records = Vec::with_capacity(result.rows.len());
     for blob in &result.rows {
-        let cells: Vec<serde_json::Value> = eg_types::msgpack::decode_bounded(
+        let cells: Vec<serde_json::Value> = medulla_types::msgpack::decode_bounded(
             blob,
-            eg_types::msgpack::MsgpackLimits::new(
-                eg_types::msgpack::MAX_PROPERTY_BYTES,
-                eg_types::msgpack::MAX_PROPERTY_ITEMS,
-                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::MsgpackLimits::new(
+                medulla_types::msgpack::MAX_PROPERTY_BYTES,
+                medulla_types::msgpack::MAX_PROPERTY_ITEMS,
+                medulla_types::msgpack::DEFAULT_MAX_DEPTH,
             ),
         )
         .map_err(|_| {
@@ -495,12 +495,12 @@ fn response_query_result(response: Response) -> Result<QueryResult, BoltFailure>
             "Cypher commit returned an invalid result",
         ));
     };
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         &bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             64 * 1024 * 1024,
-            eg_types::msgpack::MAX_PROPERTY_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::MAX_PROPERTY_ITEMS,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| {
@@ -538,7 +538,7 @@ fn commit_cypher_writes(
     }
     let mut last = None;
     for write in writes {
-        last = Some(eg_query::exec_cypher_write_params(
+        last = Some(medulla_query::exec_cypher_write_params(
             &staged,
             &write.query,
             &write.params,
@@ -548,7 +548,7 @@ fn commit_cypher_writes(
     let bytes = rmp_serde::to_vec_named(&result)
         .map_err(|_| "Cypher result could not be encoded".to_string())?;
     Ok(ResultPayload::of_encoded::<
-        eg_types::result_contract::query::CypherQuery,
+        medulla_types::result_contract::query::CypherQuery,
     >(bytes))
 }
 
@@ -606,7 +606,7 @@ async fn commit_writes(
 async fn run_read(
     session: &BoltSession,
     query: String,
-    params: eg_query::Params,
+    params: medulla_query::Params,
 ) -> Result<QueryResult, BoltFailure> {
     let verified = session.authority.as_ref().ok_or_else(|| {
         BoltFailure::client(
@@ -629,7 +629,7 @@ async fn run_read(
         read_authority.filter_view(&mut view);
         view
     };
-    tokio::task::spawn_blocking(move || eg_query::exec_cypher_params(&view, &query, &params))
+    tokio::task::spawn_blocking(move || medulla_query::exec_cypher_params(&view, &query, &params))
         .await
         .map_err(|_| {
             BoltFailure::client(
@@ -666,14 +666,14 @@ async fn run_transaction_statement(
     let result = tokio::task::spawn_blocking(move || {
         let staged = GraphCore::from_snapshot(snapshot, version)?;
         for write in prior {
-            eg_query::exec_cypher_write_params(&staged, &write.query, &write.params)?;
+            medulla_query::exec_cypher_write_params(&staged, &write.query, &write.params)?;
         }
         if is_write {
-            eg_query::exec_cypher_write_params(&staged, &current.query, &current.params)
+            medulla_query::exec_cypher_write_params(&staged, &current.query, &current.params)
         } else {
             let mut view = staged.analysis_snapshot();
             read_authority.filter_view(&mut view);
-            eg_query::exec_cypher_params(&view, &current.query, &current.params)
+            medulla_query::exec_cypher_params(&view, &current.query, &current.params)
         }
     })
     .await
@@ -718,9 +718,9 @@ async fn run_cypher(
     cypher: &str,
     params: &HashMap<String, PackValue>,
 ) -> Result<PendingResult, BoltFailure> {
-    let is_write = match eg_query::classify_cypher(cypher) {
-        Ok(eg_query::CypherStatementKind::Read) => false,
-        Ok(eg_query::CypherStatementKind::Write) => true,
+    let is_write = match medulla_query::classify_cypher(cypher) {
+        Ok(medulla_query::CypherStatementKind::Read) => false,
+        Ok(medulla_query::CypherStatementKind::Write) => true,
         Err(message) => {
             return Err(BoltFailure::client(
                 "Neo.ClientError.Statement.SyntaxError",
@@ -763,7 +763,7 @@ fn require_signed_graph(
 
 /// Drive ONE Bolt connection: the handshake, then the message loop until GOODBYE or the
 /// socket closes. Generic over the byte stream so an in-process test can drive it over
-/// any duplex transport (CONCEPT:EG-KG.query.bolt-wire-protocol).
+/// any duplex transport (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol).
 async fn handle_connection<S>(s: &mut S, mut session: BoltSession) -> std::io::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -826,7 +826,7 @@ where
     }
 }
 
-/// Read ONE complete chunked Bolt message off the stream (CONCEPT:EG-KG.query.bolt-wire-protocol): read
+/// Read ONE complete chunked Bolt message off the stream (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol): read
 /// length-prefixed chunks, appending bodies, until a zero-length chunk ends the message.
 /// Returns `Ok(None)` on a clean EOF before any chunk.
 async fn read_message<S: AsyncRead + Unpin>(s: &mut S) -> std::io::Result<Option<Vec<u8>>> {
@@ -873,9 +873,9 @@ async fn write_msg<S: AsyncWrite + Unpin>(s: &mut S, msg: &PackValue) -> std::io
 
 // ── the listener ────────────────────────────────────────────────────────────────
 
-/// Bind `addr` and serve Bolt connections until the process exits (CONCEPT:EG-KG.query.bolt-wire-protocol).
+/// Bind `addr` and serve Bolt connections until the process exits (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol).
 /// Spawned by `main.rs` only when built `--features bolt-wire` AND
-/// `EPISTEMIC_GRAPH_BOLT_ADDR` is set. Each connection gets a fresh [`BoltSession`] so its
+/// `MEDULLA_BOLT_ADDR` is set. Each connection gets a fresh [`BoltSession`] so its
 /// signed graph / authority / transaction stay isolated.
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let auth_secret = state.read().await.auth_secret.clone();
@@ -898,7 +898,7 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
 
 #[cfg(test)]
 mod tests {
-    //! Message-level Bolt driver tests (CONCEPT:EG-KG.query.bolt-wire-protocol): an in-process duplex stream
+    //! Message-level Bolt driver tests (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol): an in-process duplex stream
     //! drives the real `handle_connection` through the handshake + a full HELLO → RUN →
     //! PULL → SUCCESS auto-commit round-trip against the Cypher engine, plus BEGIN/COMMIT
     //! and FAILURE/RESET flows — no external Neo4j driver.
@@ -977,7 +977,7 @@ mod tests {
         {
             state.persistence = Some(std::sync::Arc::new(
                 crate::server::persistence::redb_backend::RedbBackend::open(
-                    crate::server::unique_temp_dir("eg-bolt-server-test")
+                    crate::server::unique_temp_dir("medulla-bolt-server-test")
                         .to_string_lossy()
                         .into_owned(),
                     256,
@@ -997,7 +997,7 @@ mod tests {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let sequence = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         std::env::temp_dir().join(format!(
-            "eg-bolt-wire-{tag}-{}-{sequence}",
+            "medulla-bolt-wire-{tag}-{}-{sequence}",
             std::process::id()
         ))
     }
@@ -1107,7 +1107,7 @@ mod tests {
         let claims = RequestContextClaims {
             principal: "service:bolt-test".to_string(),
             tenant: "tenant-other".to_string(),
-            audience: "epistemic-graph-test".to_string(),
+            audience: "medulla-test".to_string(),
             agent_id: "service:bolt-test".to_string(),
             roles: vec!["test".to_string()],
             scopes: vec!["query:cypher".to_string()],
@@ -1425,7 +1425,7 @@ mod tests {
         // Held for the whole test: this test opens a `RedbBackend`, then DROPS it and
         // reopens the SAME persist dir below ("survives_backend_restart"). A
         // `RedbBackend` resolves+caches its cipher ONCE per `open()` call from
-        // `EPISTEMIC_GRAPH_ENCRYPTION_KEY`, so the two opens must observe the SAME env
+        // `MEDULLA_ENCRYPTION_KEY`, so the two opens must observe the SAME env
         // var value or the reopen panics with "encrypted durable value is missing
         // sealed framing" (or, with a different key, "decryption failed"). Without
         // this lock, a concurrent `crypto::tests::EnvGuard`-protected test elsewhere in

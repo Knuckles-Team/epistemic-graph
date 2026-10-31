@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use eg_types::policy_evolution::{
+use medulla_types::policy_evolution::{
     OpenWeightPolicyCapability, PolicyCapture, PolicyEvolutionRecord, PolicyRefusal, TrainingRun,
 };
 use serde_json::{json, Value};

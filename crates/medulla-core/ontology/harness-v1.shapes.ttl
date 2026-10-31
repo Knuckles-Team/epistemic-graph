@@ -1,0 +1,66 @@
+# SHACL shapes for the typed model facts (MEDULLA-TYPED-PACKS-R066.1).
+#
+# The Rust contract represents shell proficiency and stopping behaviour as
+# MeasuredFact values.  Their RDF projection keeps each measured value in a
+# node so the value and the evaluation that produced it cannot be separated.
+
+@prefix :   <http://knuckles.team/kg#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:ModelProfileShape a sh:NodeShape ;
+    sh:targetClass :ModelProfile ;
+    sh:property [
+        sh:path :contextWindowTokens ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 1 ;
+        sh:message "A model profile contextWindowTokens value must be at least 1."
+    ] ;
+    sh:property [
+        sh:path :shellProficiency ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node :ShellProficiencyFactShape ;
+        sh:message "shellProficiency is a measured fact with a closed value vocabulary and evaluationRun."
+    ] ;
+    sh:property [
+        sh:path :stoppingBehaviour ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:node :StoppingBehaviourFactShape ;
+        sh:message "stoppingBehaviour is a measured fact with a closed value vocabulary and evaluationRun."
+    ] .
+
+:ShellProficiencyFactShape a sh:NodeShape ;
+    sh:property [
+        sh:path :value ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "low" "medium" "high" ) ;
+        sh:message "shellProficiency value must be low, medium or high."
+    ] ;
+    sh:property [
+        sh:path :evaluationRun ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:message "A shellProficiency value must cite its evaluationRun."
+    ] .
+
+:StoppingBehaviourFactShape a sh:NodeShape ;
+    sh:property [
+        sh:path :value ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "stops_early" "balanced" "over_verifies" ) ;
+        sh:message "stoppingBehaviour value must be stops_early, balanced or over_verifies."
+    ] ;
+    sh:property [
+        sh:path :evaluationRun ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:nodeKind sh:IRI ;
+        sh:message "A stoppingBehaviour value must cite its evaluationRun."
+    ] .

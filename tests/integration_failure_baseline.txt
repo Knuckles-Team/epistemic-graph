@@ -4,7 +4,7 @@
 #
 # This file exists because of a measurement failure, not a quality decision.
 # The integration suite could never run: conftest.py's
-# `start_epistemic_graph_server` falls back to `cargo build --features full`
+# `start_medulla_server` falls back to `cargo build --features full`
 # inside a fixture, and fixture setup runs inside pytest-timeout's per-test 60s
 # window, so a cold cargo target produced ~500 `Timeout (>60.0s)` errors. Every
 # one was about the build. None was about the code. Building the engine before
@@ -47,7 +47,7 @@ tests/test_persisted_mutation_contract.py::test_inventory_drift_fails_closed  # 
 
 # --- Viz client ⇄ engine encoding (5) ---------------------------------------
 # Every viz round-trip is refused by the live engine with
-# `INVALID_ARGUMENT: invalid request encoding` (epistemic_graph/client.py:13353).
+# `INVALID_ARGUMENT: invalid request encoding` (medulla/client.py:13353).
 # tests/test_viz_client.py, src/server/viz.rs and the client's viz methods are
 # all unchanged since origin/main, so this is the V4 viz integration landing
 # incomplete rather than anything on this branch.

@@ -19,10 +19,10 @@
 # Published ports (all bound to 127.0.0.1 — bind a routable host explicitly and put
 # TLS at the edge before exposing beyond localhost):
 #   5433  Postgres wire (psql / DBeaver / BI / ORMs)
-#   9100  MessagePack RPC (native epistemic_graph client — optional)
+#   9100  MessagePack RPC (native medulla client — optional)
 #   9101  Prometheus /metrics
 #
-# The durable redb-authoritative store lives in the named volume `eg-standalone-data`
+# The durable redb-authoritative store lives in the named volume `medulla-standalone-data`
 # and survives `docker compose down` (it is removed only by `down -v`).
 # ─────────────────────────────────────────────────────────────────────────────
 services:
@@ -39,9 +39,9 @@ services:
     cpus: ${MCP_CONTAINER_CPU_LIMIT:-1.0}
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
-    image: ${EG_IMAGE:-medulla:local}
+    image: ${MEDULLA_IMAGE:-medulla:local}
     # Build the main image locally from the repo. Comment `build` out and set
-    # EG_IMAGE=<registry>/medulla@sha256:<digest> to pull a prebuilt image.
+    # MEDULLA_IMAGE=<registry>/medulla@sha256:<digest> to pull a prebuilt image.
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -52,29 +52,29 @@ services:
       # Safe only because ports below publish on host loopback. Replace both
       # settings with native TLS/mTLS for a routable deployment.
       - GRAPH_SERVICE_TCP_ADDR=0.0.0.0:9100
-      - EPISTEMIC_GRAPH_ALLOW_PLAINTEXT_TCP=true
+      - MEDULLA_ALLOW_PLAINTEXT_TCP=true
       # Turn ON the Postgres wire listener inside the container (0.0.0.0 so the
       # published port reaches it). Unset ⇒ no pgwire listener.
-      - EPISTEMIC_GRAPH_PGWIRE_ADDR=0.0.0.0:5433
+      - MEDULLA_PGWIRE_ADDR=0.0.0.0:5433
       - GRAPH_SERVICE_METRICS_ADDR=0.0.0.0:9101
       # Required two-key acknowledgement for container-interface auxiliary
       # binds. Safe here only because every published host port stays loopback-only.
-      - EPISTEMIC_GRAPH_ALLOW_NONLOOPBACK_AUXILIARY=true
-      - EPISTEMIC_GRAPH_AUXILIARY_INGRESS_ACKNOWLEDGED=true
+      - MEDULLA_ALLOW_NONLOOPBACK_AUXILIARY=true
+      - MEDULLA_AUXILIARY_INGRESS_ACKNOWLEDGED=true
       # pgwire auth. DEFAULT (unset) = scram because a secret is set above; the
       # per-user password is hex(HMAC-SHA256(secret, "pgwire:"+user)). Set to
       # `trust` for a password-less DEV instance (localhost only!).
-      - EPISTEMIC_GRAPH_PGWIRE_AUTH=${EPISTEMIC_GRAPH_PGWIRE_AUTH:-scram}
+      - MEDULLA_PGWIRE_AUTH=${MEDULLA_PGWIRE_AUTH:-scram}
       # Default graph a fresh pgwire connection binds when the libpq `database`
       # param is unset (any client can `SET graph = '<name>'` per session).
-      - EPISTEMIC_GRAPH_PGWIRE_GRAPH=${EPISTEMIC_GRAPH_PGWIRE_GRAPH:-__commons__}
+      - MEDULLA_PGWIRE_GRAPH=${MEDULLA_PGWIRE_GRAPH:-__commons__}
     ports:
       - "127.0.0.1:5433:5433"   # Postgres wire (psql / DBeaver / drivers)
       - "127.0.0.1:9100:9100"   # MessagePack RPC (native client — optional)
       - "127.0.0.1:9101:9101"   # Prometheus /metrics
     volumes:
-      - eg-standalone-data:/var/lib/epistemic-graph/data
+      - medulla-standalone-data:/var/lib/medulla/data
     restart: unless-stopped
 
 volumes:
-  eg-standalone-data:
+  medulla-standalone-data:

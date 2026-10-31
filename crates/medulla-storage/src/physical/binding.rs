@@ -1,0 +1,261 @@
+use crate::codec::{decode_ledger_record, encode_bounded};
+use crate::owner::{validate_declared_owner_tables, validate_manifest_read};
+use crate::physical::incarnation::{
+    require_persisted_root, StoreIdentityDigest, STORAGE_KERNEL_SCHEMA_VERSION,
+};
+use crate::physical::root::{
+    reject_prototype_names, validate_handle_write, PhysicalStore, StoreHandle, ValidatedWrite,
+};
+use crate::tables::{SCOPE_BINDINGS, STORE_ROOT, VERSIONS};
+use medulla_types::MutationScopeIdentity;
+use redb::{ReadTransaction, ReadableTable, TableHandle, WriteTransaction};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ScopeBinding {
+    pub schema_version: u16,
+    pub store_identity_digest: StoreIdentityDigest,
+    pub identity: MutationScopeIdentity,
+    pub initial_version: u64,
+}
+
+/// Bind a logical scope once. Exact re-entry is idempotent; any generation,
+/// tenant, domain, resource, store-root, or initial-version mismatch fails closed.
+pub(crate) fn bind_scope_in(
+    handle: &StoreHandle,
+    wtx: &WriteTransaction,
+    identity: &MutationScopeIdentity,
+    initial_version: u64,
+) -> Result<bool, String> {
+    validate_handle_write(handle, wtx)?;
+    identity.validate_digest()?;
+    let key = identity.binding_digest().to_hex();
+    let proposed = ScopeBinding {
+        schema_version: STORAGE_KERNEL_SCHEMA_VERSION,
+        store_identity_digest: handle.incarnation.identity_digest(),
+        identity: identity.clone(),
+        initial_version,
+    };
+    let existing = read_scope_binding(wtx, &key)?;
+    match existing {
+        Some(stored) if stored == proposed => {
+            require_existing_version(wtx, &key)?;
+            Ok(false)
+        }
+        Some(_) => Err("mutation scope rebinding mismatch".to_string()),
+        None => {
+            persist_new_binding(wtx, &key, &proposed)?;
+            Ok(true)
+        }
+    }
+}
+
+/// Read-only twin of [`bind_scope_in`]'s exact-re-entry case: `true` only when
+/// the binding is already persisted, equals what binding would write, and has
+/// its version row. Any other state (absent, different, half-written) is
+/// `false`/`Err` so the caller falls back to the write path, which owns the
+/// refusal and creation semantics. Writes nothing.
+pub(crate) fn scope_binding_is_current(
+    handle: &StoreHandle,
+    rtx: &ReadTransaction,
+    identity: &MutationScopeIdentity,
+    initial_version: u64,
+) -> Result<bool, String> {
+    identity.validate_digest()?;
+    let key = identity.binding_digest().to_hex();
+    let proposed = ScopeBinding {
+        schema_version: STORAGE_KERNEL_SCHEMA_VERSION,
+        store_identity_digest: handle.incarnation.identity_digest(),
+        identity: identity.clone(),
+        initial_version,
+    };
+    let bindings = rtx
+        .open_table(SCOPE_BINDINGS)
+        .map_err(|error| error.to_string())?;
+    let stored = bindings
+        .get(key.as_str())
+        .map_err(|error| error.to_string())?
+        .map(|bytes| decode_binding(bytes.value()))
+        .transpose()?;
+    if stored.as_ref() != Some(&proposed) {
+        return Ok(false);
+    }
+    let versions = rtx
+        .open_table(VERSIONS)
+        .map_err(|error| error.to_string())?;
+    let has_version = versions
+        .get(key.as_str())
+        .map_err(|error| error.to_string())?
+        .is_some();
+    Ok(has_version)
+}
+
+fn read_scope_binding(wtx: &WriteTransaction, key: &str) -> Result<Option<ScopeBinding>, String> {
+    let table = wtx
+        .open_table(SCOPE_BINDINGS)
+        .map_err(|error| error.to_string())?;
+    // Bind before returning: the `AccessGuard` returned by `get` borrows
+    // `table`, and a tail expression's temporaries outlive the local, so
+    // returning this directly fails borrowck (E0597).
+    let binding = table
+        .get(key)
+        .map_err(|error| error.to_string())?
+        .map(|bytes| decode_binding(bytes.value()))
+        .transpose();
+    binding
+}
+
+fn require_existing_version(wtx: &WriteTransaction, key: &str) -> Result<(), String> {
+    let table = wtx
+        .open_table(VERSIONS)
+        .map_err(|error| error.to_string())?;
+    if table.get(key).map_err(|error| error.to_string())?.is_none() {
+        return Err("mutation scope binding is missing its version row".to_string());
+    }
+    Ok(())
+}
+
+fn persist_new_binding(
+    wtx: &WriteTransaction,
+    key: &str,
+    binding: &ScopeBinding,
+) -> Result<(), String> {
+    let mut versions = wtx
+        .open_table(VERSIONS)
+        .map_err(|error| error.to_string())?;
+    if versions
+        .get(key)
+        .map_err(|error| error.to_string())?
+        .is_some()
+    {
+        return Err("mutation version row exists without a scope binding".to_string());
+    }
+    let bytes = encode_bounded(binding, "mutation scope binding")?;
+    wtx.open_table(SCOPE_BINDINGS)
+        .map_err(|error| error.to_string())?
+        .insert(key, bytes.as_slice())
+        .map_err(|error| error.to_string())?;
+    versions
+        .insert(key, binding.initial_version)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// Retire one logical scope: remove its binding and its authoritative version
+/// row together, inside a transaction the caller already holds.
+///
+/// Both rows are written together by [`bind_scope_in`], so they are retired
+/// together; removing one alone leaves the other unrebindable
+/// ("mutation version row exists without a scope binding").
+pub(crate) fn retire_scope_in(
+    store: &PhysicalStore,
+    wtx: &WriteTransaction,
+    identity: &MutationScopeIdentity,
+) -> Result<(), String> {
+    validate_handle_write(&store.handle, wtx)?;
+    identity.validate_digest()?;
+    let key = identity.binding_digest().to_hex();
+    wtx.open_table(SCOPE_BINDINGS)
+        .map_err(|error| error.to_string())?
+        .remove(key.as_str())
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(VERSIONS)
+        .map_err(|error| error.to_string())?
+        .remove(key.as_str())
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// Read and validate one scope's binding inside a write transaction opened by
+/// [`PhysicalStore::begin_write`].
+///
+/// The store authority (persisted root, owner manifest, declared census) is
+/// NOT re-proved here: `begin_write` proved it once for this transaction and
+/// nothing can change it before commit (EH-390, see
+/// [`crate::physical::write_authority`]). The [`ValidatedWrite`] parameter is
+/// the proof: only `begin_write` constructs one.
+pub(crate) fn binding_for_write(
+    store: &PhysicalStore,
+    wtx: &ValidatedWrite,
+    identity: &MutationScopeIdentity,
+) -> Result<ScopeBinding, String> {
+    store.validations().scope_binding_checked();
+    let handle = &store.handle;
+    identity.validate_digest()?;
+    let key = identity.binding_digest().to_hex();
+    let table = wtx
+        .open_table(SCOPE_BINDINGS)
+        .map_err(|error| error.to_string())?;
+    let bytes = table
+        .get(key.as_str())
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "mutation scope is not bound to this store".to_string())?;
+    validate_binding(decode_binding(bytes.value())?, handle, identity)
+}
+
+pub(crate) fn binding_for_read(
+    store: &PhysicalStore,
+    rtx: &ReadTransaction,
+    identity: &MutationScopeIdentity,
+) -> Result<ScopeBinding, String> {
+    store.validate_physical_root()?;
+    let handle = &store.handle;
+    let cached = store.manifest();
+    let persisted = validate_manifest_read(rtx, &cached.physical_identity, cached.layout)?;
+    if persisted != *cached {
+        return Err("mutation read manifest authority changed".to_string());
+    }
+    validate_declared_owner_tables(rtx, persisted.layout)?;
+    reject_prototype_names(
+        rtx.list_tables()
+            .map_err(|error| error.to_string())?
+            .map(|table| table.name().to_string()),
+    )?;
+    let table = rtx
+        .open_table(STORE_ROOT)
+        .map_err(|error| error.to_string())?;
+    let stored = require_persisted_root(&table)?;
+    if stored != handle.incarnation {
+        return Err("mutation store handle does not match persisted root".to_string());
+    }
+    identity.validate_digest()?;
+    let key = identity.binding_digest().to_hex();
+    let table = rtx
+        .open_table(SCOPE_BINDINGS)
+        .map_err(|error| error.to_string())?;
+    let bytes = table
+        .get(key.as_str())
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "mutation scope is not bound to this store".to_string())?;
+    validate_binding(decode_binding(bytes.value())?, handle, identity)
+}
+
+fn validate_binding(
+    binding: ScopeBinding,
+    handle: &StoreHandle,
+    identity: &MutationScopeIdentity,
+) -> Result<ScopeBinding, String> {
+    if binding.identity != *identity
+        || binding.store_identity_digest != handle.incarnation.identity_digest()
+    {
+        return Err("mutation scope binding identity mismatch".to_string());
+    }
+    Ok(binding)
+}
+
+/// The one durable ledger scope key: the scope *binding* digest, which is what
+/// `SCOPE_BINDINGS` and `VERSIONS` are keyed by. Every ledger table uses it, so
+/// any ledger row can resolve its own binding without a second key domain.
+pub fn ledger_scope_key(identity: &MutationScopeIdentity) -> String {
+    identity.binding_digest().to_hex()
+}
+
+pub(crate) fn decode_binding(bytes: &[u8]) -> Result<ScopeBinding, String> {
+    let binding: ScopeBinding = decode_ledger_record(bytes)?;
+    if binding.schema_version != STORAGE_KERNEL_SCHEMA_VERSION {
+        return Err("unsupported mutation scope-binding schema".to_string());
+    }
+    binding.identity.validate_digest()?;
+    Ok(binding)
+}

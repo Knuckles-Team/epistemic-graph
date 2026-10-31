@@ -1,7 +1,7 @@
 # Soak / Chaos Benchmarks (measured) — SCALE-P2-1, engine scope
 
 > **Status: MEASURED.** Every number below comes from an actual run of the real
-> `epistemic-graph-server` binary via `scripts/soak_scale.py` in a controlled
+> `medulla-server` binary via `scripts/soak_scale.py` in a controlled
 > reference run. Nothing is modeled or extrapolated. Scale and the limits
 > of the run are stated plainly in "Scope" and "Execution conditions" — read them before
 > trusting any number.

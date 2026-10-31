@@ -328,15 +328,15 @@ fn cursor_replay_is_idempotent_but_policy_replacement_is_denied() {
 #[cfg(all(feature = "security", feature = "redb"))]
 pub(super) struct DurableReadLease {
     pub(super) directory: std::path::PathBuf,
-    pub(super) policy: eg_core::rbac::RbacPolicy,
-    pub(super) identities: std::collections::BTreeMap<String, eg_types::acl::AgentIdentity>,
-    pub(super) grant: eg_types::acl::Grant,
+    pub(super) policy: medulla_core::rbac::RbacPolicy,
+    pub(super) identities: std::collections::BTreeMap<String, medulla_types::acl::AgentIdentity>,
+    pub(super) grant: medulla_types::acl::Grant,
     pub(super) isolation: crate::isolation::IsolationLayer,
     pub(super) claims: RequestContextClaims,
     pub(super) carrier: CarrierAuthority,
     pub(super) verified_context: crate::server::auth::VerifiedRequestContext,
     pub(super) lease: std::sync::Arc<crate::isolation::PolicyDecisionLease>,
-    pub(super) policy_store: std::sync::Arc<dyn eg_core::rbac_persist::RbacPolicyStore>,
+    pub(super) policy_store: std::sync::Arc<dyn medulla_core::rbac_persist::RbacPolicyStore>,
 }
 
 #[cfg(all(feature = "security", feature = "redb"))]
@@ -345,14 +345,14 @@ pub(super) fn durable_read_lease(graph: &str, agent: &str) -> DurableReadLease {
     use std::sync::Arc;
 
     use crate::isolation::IsolationLayer;
-    use eg_core::rbac::RbacPolicy;
-    use eg_core::rbac_persist::{IdentityBootstrapState, RbacStore};
-    use eg_types::acl::{
+    use medulla_core::rbac::RbacPolicy;
+    use medulla_core::rbac_persist::{IdentityBootstrapState, RbacStore};
+    use medulla_types::acl::{
         AgentIdentity, AgentRole, Grant, GrantEffect, RbacAction, ResourceSelector, Role,
     };
 
     let directory = std::env::temp_dir().join(format!(
-        "eg-knowledge-stream-lease-{}-{}",
+        "medulla-knowledge-stream-lease-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -450,7 +450,7 @@ pub(super) fn durable_read_lease(graph: &str, agent: &str) -> DurableReadLease {
 }
 
 /// EH-352: the KnowledgeStream SQL read lists the request graph's edge indexes
-/// in `information_schema.eg_index_status` exactly as Method::Sql and pgwire
+/// in `information_schema.medulla_index_status` exactly as Method::Sql and pgwire
 /// do (one shared projection builder), installing the tenant's registered edge
 /// indexes into the served graph first.
 #[cfg(all(
@@ -472,8 +472,8 @@ async fn knowledge_stream_sql_lists_the_request_graph_edge_indexes() {
     let state = crate::server::test_state_with_services(
         "ks-edge-status-secret",
         fixture.isolation.clone(),
-        "eg-ks-edge-status-test",
-        "eg-ks-edge-status-tsdb-test",
+        "medulla-ks-edge-status-test",
+        "medulla-ks-edge-status-tsdb-test",
     );
     let persist_dir = std::path::PathBuf::from(state.read().await.persist_dir.clone().unwrap());
     let tenant = fixture.carrier.tenant_scope();
@@ -513,7 +513,7 @@ async fn knowledge_stream_sql_lists_the_request_graph_edge_indexes() {
 #[cfg(all(feature = "security", feature = "redb"))]
 #[test]
 fn durable_lease_revocation_rejects_resume_before_any_cursor_metadata() {
-    use eg_core::rbac_persist::IdentityBootstrapState;
+    use medulla_core::rbac_persist::IdentityBootstrapState;
 
     let DurableReadLease {
         directory,

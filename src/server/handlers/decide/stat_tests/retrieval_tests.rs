@@ -5,7 +5,7 @@
 
 use super::consumer_tests::declared_abstention;
 use super::*;
-use eg_types::decision::statistical::retrieval::{
+use medulla_types::decision::statistical::retrieval::{
     LearningRecorded, LearningWrite, PathEdge, PathRank, RetrievalOutcome, RetrievalPathTemplate,
     ReturnedEvidence,
 };
@@ -56,7 +56,7 @@ pub(super) async fn sql(h: &Harness, who: &str, query: &str) -> Vec<Vec<Value>> 
                     &request_graph,
                 )
                 .unwrap();
-                eg_query::exec_sql_typed_with_tables(&graph, projection.store(), query)
+                medulla_query::exec_sql_typed_with_tables(&graph, projection.store(), query)
                     .unwrap()
                     .rows
             })
@@ -102,7 +102,7 @@ pub(super) fn grant(h: &Harness, record_id: &str, evaluator: &str, span: (u64, u
         now_ms: span.0,
         server_secret: b"",
     };
-    let named = eg_types::decision::statistical::log::NamedEvaluator {
+    let named = medulla_types::decision::statistical::log::NamedEvaluator {
         principal: Some(principal_of(evaluator)),
         role: None,
         expires_at_ms: span.1,
@@ -205,7 +205,7 @@ async fn attest_private(h: &Harness, template_entry: &DecisionLogEntry) {
     assert!(learn(h, "decider", attest(private)).await.is_ok());
 }
 
-// spec: EG-DECISION-ENGINE-R100
+// spec: MEDULLA-DECISION-ENGINE-R100
 #[tokio::test]
 async fn outcomes_teach_nothing_until_an_independent_verdict_joins_them() {
     let h = Harness::new().await;

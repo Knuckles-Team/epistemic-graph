@@ -1,20 +1,20 @@
-// Package epgthin is a DELIBERATELY THIN Go client (CONCEPT:EG-328) for the
+// Package epgthin is a DELIBERATELY THIN Go client (CONCEPT:MEDULLA-328) for the
 // Medulla Program-B engine Methods that had no client surface: the native
-// broker + append-log streams (EG-275..284/314), RBAC admin (EG-092), online
-// backup/restore (EG-090), and NL->query (EG-080).
+// broker + append-log streams (MEDULLA-275..284/314), RBAC admin (MEDULLA-092), online
+// backup/restore (MEDULLA-090), and NL->query (MEDULLA-080).
 //
 // It is NOT a full SDK — the canonical, full-featured client is the Python one in
-// epistemic_graph/client.py. This binding speaks the SAME framed-MessagePack transport
+// medulla/client.py. This binding speaks the SAME framed-MessagePack transport
 // (4-byte big-endian length prefix + a msgpack {id, graph, auth_token, method, params}
 // request; responses demuxed by id; auth = the current signed request-context
 // envelope, bound to the canonical method body and replay controls).
 //
 // The method surface is GENERATED-FROM-THE-Method-LIST: each method maps 1:1 to a Rust
-// Method variant in crates/eg-types/src/protocol.rs, using the exact serde field names
+// Method variant in crates/medulla-types/src/protocol.rs, using the exact serde field names
 // that enum destructures.
 //
 // The signed body is the engine's own canonical re-encoding of the request, computed
-// by the embedded WebAssembly build of crates/eg-method-codec (see codec.go).
+// by the embedded WebAssembly build of crates/medulla-method-codec (see codec.go).
 //
 // Pi-contract: thin. Two pure-Go deps: github.com/vmihailenco/msgpack/v5 for framing
 // and github.com/tetratelabs/wazero to run the embedded codec; stdlib net +
@@ -221,7 +221,7 @@ func (c *Client) seal(id int64, graph, method string, body []byte, idempotencyKe
 	timestamp, nonce := seal.Timestamp, seal.Nonce
 
 	canonical := make([]byte, 0, 512)
-	canonical = appendText(canonical, "eg-envelope-v2")
+	canonical = appendText(canonical, "medulla-envelope-v2")
 	var requestID [8]byte
 	binary.BigEndian.PutUint64(requestID[:], uint64(id))
 	canonical = append(canonical, requestID[:]...)
@@ -473,7 +473,7 @@ func (c *Client) RegisterIdentity(agentID string, role any, teams, roles []strin
 		AgentID: agentID, Role: role, Teams: teams, Signature: "", Roles: roles,
 	}
 	signature, err := c.signContextOperation(
-		"eg-register-identity-v2", "RegisterIdentity", params, "__commons__",
+		"medulla-register-identity-v2", "RegisterIdentity", params, "__commons__",
 		idempotencyKey, signerID, signerKey, true,
 	)
 	if err != nil {
@@ -523,7 +523,7 @@ func (c *Client) ApplyMultisigMutation(signerKeys map[string]string, threshold u
 		unsigned := params
 		unsigned.Signatures = []string{}
 		signature, signErr := c.signContextOperation(
-			"eg-multisig-mutation-v2", "ApplyMultisigMutation", unsigned, "__commons__",
+			"medulla-multisig-mutation-v2", "ApplyMultisigMutation", unsigned, "__commons__",
 			idempotencyKey, signerID, signerKeys[signerID], false,
 		)
 		if signErr != nil {
@@ -534,7 +534,7 @@ func (c *Client) ApplyMultisigMutation(signerKeys map[string]string, threshold u
 	return c.sendWithIdempotency("ApplyMultisigMutation", params, "__commons__", idempotencyKey)
 }
 
-// ── Broker admin (EG-275..278) ──────────────────────────────────────────────
+// ── Broker admin (MEDULLA-275..278) ──────────────────────────────────────────────
 
 type declareExchangeParams struct {
 	Exchange string `msgpack:"exchange"`
@@ -717,8 +717,8 @@ func (c *Client) UnbindQueue(exchange, queue, routingKey string) (any, error) {
 	return c.send("UnbindQueue", bindingParams{Exchange: exchange, Queue: queue, RoutingKey: routingKey}, "")
 }
 
-// QueuePolicy carries the optional DLQ/TTL/priority fields (EG-276/277/278); nil fields
-// are sent as msgpack nil (an all-nil policy is a no-op that keeps EG-275 behavior).
+// QueuePolicy carries the optional DLQ/TTL/priority fields (MEDULLA-276/277/278); nil fields
+// are sent as msgpack nil (an all-nil policy is a no-op that keeps MEDULLA-275 behavior).
 type QueuePolicy struct {
 	DLExchange       *string
 	DLRoutingKey     *string
@@ -736,7 +736,7 @@ func (c *Client) DeclareQueue(queue string, p QueuePolicy) (any, error) {
 	}, "")
 }
 
-// ── Broker publish (EG-275/279/284/314) ─────────────────────────────────────
+// ── Broker publish (MEDULLA-275/279/284/314) ─────────────────────────────────────
 
 func (c *Client) Publish(exchange, routingKey string, payload []byte) (any, error) {
 	return c.send("Publish", publishParams{Exchange: exchange, RoutingKey: routingKey, Payload: payload}, "")
@@ -771,7 +771,7 @@ func (c *Client) PublishIdempotent(exchange, routingKey string, payload []byte, 
 	}, "")
 }
 
-// ── Consume / ack / reject (EG-280/276/284) ─────────────────────────────────
+// ── Consume / ack / reject (MEDULLA-280/276/284) ─────────────────────────────────
 
 func (c *Client) BrokerConsume(queue, group, consumer string, nowMs, leaseMs uint64, prefetch uint32) (any, error) {
 	return c.send("BrokerConsume", brokerConsumeParams{
@@ -812,7 +812,7 @@ func (c *Client) SweepExpired(nowMs uint64) (any, error) {
 	return c.send("SweepExpired", nowParams{NowMs: nowMs}, "")
 }
 
-// ── Replayable append-log streams (EG-283) ──────────────────────────────────
+// ── Replayable append-log streams (MEDULLA-283) ──────────────────────────────────
 
 func (c *Client) StreamDeclare(stream string, maxMessages, maxAgeMs *uint64) (any, error) {
 	return c.send("StreamDeclare", streamDeclareParams{
@@ -846,7 +846,7 @@ func (c *Client) StreamCommittedOffset(stream, group string) (any, error) {
 	return c.send("StreamCommittedOffset", streamGroupParams{Stream: stream, Group: group}, "")
 }
 
-// ── RBAC admin (EG-092) — externally-tagged RbacAdminOp / ResourceSelector ───
+// ── RBAC admin (MEDULLA-092) — externally-tagged RbacAdminOp / ResourceSelector ───
 //
 // A ResourceSelector is either the string "All" or a single-key map:
 // {"Pattern": s} / {"Label": s} / {"Graph": s}. Pass it as `any` accordingly.
@@ -934,7 +934,7 @@ func (c *Client) RbacList() (any, error) {
 	return c.send("RbacAdmin", rbacAdminParams{Op: "List"}, "")
 }
 
-// ── Ops: online backup / restore (EG-090) ───────────────────────────────────
+// ── Ops: online backup / restore (MEDULLA-090) ───────────────────────────────────
 
 func (c *Client) Backup(destination string, label *string) (any, error) {
 	return c.send("Backup", backupParams{Destination: destination, Label: label}, "")
@@ -951,7 +951,7 @@ func (c *Client) Restore(source string, targetShards uint64) (any, error) {
 	)
 }
 
-// ── NL->query (EG-080) ──────────────────────────────────────────────────────
+// ── NL->query (MEDULLA-080) ──────────────────────────────────────────────────────
 
 func (c *Client) NlQuery(text, graph string) (any, error) {
 	targetGraph := graph
@@ -962,7 +962,7 @@ func (c *Client) NlQuery(text, graph string) (any, error) {
 }
 
 // NlQueryExplain answers {uql, rows}: the executed UQL with the same rows as NlQuery
-// (EG-FEDERATED-QUERY-R058.2.2.1).
+// (MEDULLA-FEDERATED-QUERY-R058.2.2.1).
 func (c *Client) NlQueryExplain(text, graph string) (any, error) {
 	targetGraph := graph
 	if targetGraph == "" {

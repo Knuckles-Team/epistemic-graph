@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The base a differential gate compares against: origin/main (EG-CONTRACT-R039).
+# The base a differential gate compares against: origin/main (MEDULLA-CONTRACT-R039).
 # The gate measures the full accumulated change set against main, the same base
 # the release workflow checks, so a duplicate pair split across incremental
 # pushes cannot escape by comparing against the branch's own pushed tip.

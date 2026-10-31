@@ -43,7 +43,7 @@
 The main build provides the connected data, semantic reasoning, analytical,
 temporal, and multimodal surfaces shown above. Compatibility is published per
 operation: the [capability matrix](capabilities.md) explains supported behavior,
-while the generated method ledger (`crates/eg-capabilities/src/domains/`) records exact
+while the generated method ledger (`crates/medulla-capabilities/src/domains/`) records exact
 authority, durability, audit, CDC, and transaction properties.
 
 !!! info "Capability truth is part of the product"
@@ -123,7 +123,7 @@ needs no server, port, certificate, or background process:
 python -m pip install medulla
 python - <<'PY'
 import msgpack
-from epistemic_graph.engine import Engine
+from medulla.engine import Engine
 
 engine = Engine(persist_dir=":memory:")
 engine.create_graph("demo")

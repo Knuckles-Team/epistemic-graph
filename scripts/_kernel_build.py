@@ -20,7 +20,7 @@ from pathlib import Path
 
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TARGET_PACKAGE = REPO_ROOT / "epistemic_graph"
+TARGET_PACKAGE = REPO_ROOT / "medulla"
 TARGET_DIR = REPO_ROOT / "target-isolated"
 EXTENSION_SUFFIXES = (".so", ".pyd")
 
@@ -110,7 +110,7 @@ def verify(spec: KernelSpec, destination: Path) -> None:
     sys.path.insert(0, str(REPO_ROOT))
     try:
         try:
-            kernel = importlib.import_module(f"epistemic_graph.{spec.module}")
+            kernel = importlib.import_module(f"medulla.{spec.module}")
         except Exception as exc:  # pragma: no cover - platform dependent
             print(f"WARNING: built {destination.name} but cannot load it here: {exc}")
             return

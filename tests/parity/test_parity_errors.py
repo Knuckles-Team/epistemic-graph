@@ -2,7 +2,7 @@
 
 Missing graph targets and duplicate creates are invalid arguments. Unknown or
 uncoded failures still normalize to sanitized INTERNAL; the pure Rust tests in
-crates/eg-pyengine/src/errors.rs retain that separate regression coverage.
+crates/medulla-pyengine/src/errors.rs retain that separate regression coverage.
 These tests require the installed binding and the existing shared socket server.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 import msgpack
 import pytest
 
-from epistemic_graph.client import EngineResponseError
+from medulla.client import EngineResponseError
 
 from ._harness import _try_send
 

@@ -1,0 +1,2185 @@
+# Wire models for the engine methods, maintained by hand alongside the Rust
+# serde types in crates/medulla-types (the source of truth).
+"""Generated storage engine-contract client surface."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from pydantic import BaseModel, ConfigDict, TypeAdapter
+
+from . import decision_commit as _decision_commit
+from ._runtime import (
+    OpaqueResult,
+    decode_result,
+    expect_bool,
+    expect_count,
+    expect_string,
+    models,
+)
+from .agent_component import (
+    AgentComponentContentRequest,
+    AgentComponentContentResult,
+    AgentComponentEntry,
+    AgentComponentOp,
+    AgentComponentOpCurrent,
+    AgentComponentSearchPage,
+    AgentComponentSearchRequest,
+)
+from .connector_pack import (
+    ConnectorPackImportRequest,
+    ConnectorPackOp,
+    ConnectorPackStatus,
+    ConnectorPackStatusRequest,
+    McpCatalogAuthorityStatusRequest,
+    McpCatalogSnapshotBinding,
+    McpSelfServedCatalogAttestRequest,
+    PackImportResult,
+)
+from .decision import (
+    AssemblyRequest,
+    AssemblyResult,
+)
+from .decision_commit import (
+    DecisionCommitResult,
+)
+from .write_back import (
+    WriteBackOp,
+)
+
+if TYPE_CHECKING:
+    from . import models as _models
+
+    FromMsgpackRequest = _models.MethodFromMsgpackParams
+    ApplyLedgerRequest = _models.MethodApplyLedgerParams
+    BackupRequest = _models.MethodBackupParams
+    RestoreRequest = _models.MethodRestoreParams
+    AgentLibraryRequest = _models.MethodAgentLibraryParams
+    AgentGraphRequest = _models.MethodAgentGraphParams
+    AgentTemplateRequest = _models.MethodAgentTemplateParams
+    CapabilityCoverageRequest = _models.MethodCapabilityCoverageParams
+    GuardrailEntailmentRequest = _models.MethodGuardrailEntailmentParams
+    TsAppendRequest = _models.MethodTsAppendParams
+    TsRangeRequest = _models.MethodTsRangeParams
+    TsAsofJoinRequest = _models.MethodTsAsofJoinParams
+    TsWindowRequest = _models.MethodTsWindowParams
+    TsGapFillRequest = _models.MethodTsGapFillParams
+    TsEvictRequest = _models.MethodTsEvictParams
+    TsDeleteSeriesRequest = _models.MethodTsDeleteSeriesParams
+    TsDefineSeriesRequest = _models.MethodTsDefineSeriesParams
+    BlobBeginRequest = _models.MethodBlobBeginParams
+    BlobChunkPutRequest = _models.MethodBlobChunkPutParams
+    BlobCommitRequest = _models.MethodBlobCommitParams
+    BlobFetchBeginRequest = _models.MethodBlobFetchBeginParams
+    BlobChunkGetRequest = _models.MethodBlobChunkGetParams
+    BlobFetchEndRequest = _models.MethodBlobFetchEndParams
+    BlobRefRequest = _models.MethodBlobRefParams
+    BlobUnrefRequest = _models.MethodBlobUnrefParams
+    KvGetRequest = _models.MethodKvGetParams
+    KvPutRequest = _models.MethodKvPutParams
+    KvDeleteRequest = _models.MethodKvDeleteParams
+    KvScanRequest = _models.MethodKvScanParams
+    KvCasRequest = _models.MethodKvCasParams
+    SqlSourceBatchRequest = _models.MethodSqlSourceBatchParams
+    ImportSqliteFileRequest = _models.MethodImportSqliteFileParams
+    ExportSqliteFileRequest = _models.MethodExportSqliteFileParams
+
+
+class ToMsgpackRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        ToMsgpack
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/ToMsgpack
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Method::ToMsgpack carries no request fields.
+
+
+async def send_to_msgpack(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ToMsgpack
+    Authorization:
+        graph:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/ToMsgpack
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    ToMsgpackRequest.model_validate(params or {})
+    payload = await client._send(
+        "ToMsgpack",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ToMsgpack", payload)
+
+
+def decode_to_msgpack(result: OpaqueResult) -> _models.ToMsgpackResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ToMsgpack", models().ToMsgpackResult, result)
+
+
+async def send_from_msgpack(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> str:
+    """Send one engine-contract request.
+
+    Method:
+        FromMsgpack
+    Authorization:
+        graph:admin
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::String
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/FromMsgpack
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodFromMsgpackParams.model_validate(params or {})
+    payload = await client._send(
+        "FromMsgpack",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_string("FromMsgpack", payload)
+
+
+class ClearLedgerRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        ClearLedger
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/ClearLedger
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Method::ClearLedger carries no request fields.
+
+
+async def send_clear_ledger(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> str:
+    """Send one engine-contract request.
+
+    Method:
+        ClearLedger
+    Authorization:
+        ledger:admin
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::String
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/ClearLedger
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    ClearLedgerRequest.model_validate(params or {})
+    payload = await client._send(
+        "ClearLedger",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_string("ClearLedger", payload)
+
+
+async def send_apply_ledger(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> str:
+    """Send one engine-contract request.
+
+    Method:
+        ApplyLedger
+    Authorization:
+        ledger:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::String
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/ApplyLedger
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodApplyLedgerParams.model_validate(params or {})
+    payload = await client._send(
+        "ApplyLedger",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_string("ApplyLedger", payload)
+
+
+async def send_backup(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        Backup
+    Authorization:
+        admin:backup
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/Backup
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodBackupParams.model_validate(params or {})
+    payload = await client._send(
+        "Backup",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("Backup", payload)
+
+
+def decode_backup(result: OpaqueResult) -> _models.BackupReceipt:
+    """Validate this method's result against its contract model."""
+    return decode_result("Backup", models().BackupReceipt, result)
+
+
+async def send_restore(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        Restore
+    Authorization:
+        admin:backup
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/Restore
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodRestoreParams.model_validate(params or {})
+    payload = await client._send(
+        "Restore",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("Restore", payload)
+
+
+def decode_restore(result: OpaqueResult) -> _models.RestoreReceipt:
+    """Validate this method's result against its contract model."""
+    return decode_result("Restore", models().RestoreReceipt, result)
+
+
+async def send_agent_library(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        AgentLibrary
+    Authorization:
+        agent:library-write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/AgentLibrary
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodAgentLibraryParams.model_validate(params or {})
+    payload = await client._send(
+        "AgentLibrary",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("AgentLibrary", payload)
+
+
+async def send_agent_graph(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        AgentGraph
+    Authorization:
+        agent:graph-write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/AgentGraph
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodAgentGraphParams.model_validate(params or {})
+    payload = await client._send(
+        "AgentGraph",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("AgentGraph", payload)
+
+
+class AgentComponentRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        AgentComponent
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/AgentComponent
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: AgentComponentOp
+
+
+async def send_agent_component(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        AgentComponent
+    Authorization:
+        agent:component-write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/AgentComponent
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    AgentComponentRequest.model_validate(params or {})
+    payload = await client._send(
+        "AgentComponent",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("AgentComponent", payload)
+
+
+async def send_agent_component_search(
+    client: Any,
+    request: AgentComponentSearchRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> AgentComponentSearchPage:
+    """Send typed AgentComponent.search through the existing AgentComponent method."""
+    request = AgentComponentSearchRequest.model_validate(request)
+    if request.task is None and not request.capabilities and not request.kinds:
+        raise ValueError("AgentComponent.Search requires a task, capability, or kind")
+    if request.limit is not None and not 1 <= request.limit <= 256:
+        raise ValueError("AgentComponent.Search limit must be in 1..=256")
+    if request.cursor is not None and (
+        not request.cursor or len(request.cursor.encode("utf-8")) > 16384
+    ):
+        raise ValueError("AgentComponent.Search cursor is outside its byte bound")
+    params = {
+        "op": {
+            "op": "search",
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
+        },
+    }
+    payload = await client._send(
+        "AgentComponent",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return AgentComponentSearchPage.model_validate(payload)
+
+
+async def send_agent_component_content(
+    client: Any,
+    request: AgentComponentContentRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> AgentComponentContentResult:
+    """Send typed AgentComponent.content through the existing AgentComponent method."""
+    request = AgentComponentContentRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "content",
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
+        },
+    }
+    payload = await client._send(
+        "AgentComponent",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return AgentComponentContentResult.model_validate(payload)
+
+
+async def send_agent_component_current(
+    client: Any,
+    request: AgentComponentOpCurrent,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> AgentComponentEntry | None:
+    """Send typed AgentComponent.current through the existing AgentComponent method."""
+    request = AgentComponentOpCurrent.model_validate(request)
+    params = {
+        "op": request.model_dump(mode="json", exclude_unset=True, exclude_none=True)
+    }
+    payload = await client._send(
+        "AgentComponent",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return TypeAdapter(AgentComponentEntry | None).validate_python(payload)
+
+
+async def send_agent_template(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        AgentTemplate
+    Authorization:
+        agent:template-write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/AgentTemplate
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodAgentTemplateParams.model_validate(params or {})
+    payload = await client._send(
+        "AgentTemplate",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("AgentTemplate", payload)
+
+
+class AgentAssembleRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        AgentAssemble
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/AgentAssemble
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: AssemblyRequest
+
+
+async def send_agent_assemble(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> AssemblyResult:
+    """Send one engine-contract request.
+
+    Method:
+        AgentAssemble
+    Authorization:
+        agent:assemble-read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/AgentAssemble
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    AgentAssembleRequest.model_validate(params or {})
+    payload = await client._send(
+        "AgentAssemble",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return AssemblyResult.model_validate(payload)
+
+
+async def send_capability_coverage(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        CapabilityCoverage
+    Authorization:
+        agent:assemble-read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/CapabilityCoverage
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodCapabilityCoverageParams.model_validate(params or {})
+    payload = await client._send(
+        "CapabilityCoverage",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("CapabilityCoverage", payload)
+
+
+def decode_capability_coverage(
+    result: OpaqueResult,
+) -> _models.CapabilityCoverageResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "CapabilityCoverage", models().CapabilityCoverageResult, result
+    )
+
+
+async def send_guardrail_entailment(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GuardrailEntailment
+    Authorization:
+        agent:assemble-read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/GuardrailEntailment
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodGuardrailEntailmentParams.model_validate(params or {})
+    payload = await client._send(
+        "GuardrailEntailment",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GuardrailEntailment", payload)
+
+
+def decode_guardrail_entailment(
+    result: OpaqueResult,
+) -> _models.GuardrailEntailmentResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "GuardrailEntailment", models().GuardrailEntailmentResult, result
+    )
+
+
+class DecisionCommitRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        DecisionCommit
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/DecisionCommit
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: _decision_commit.DecisionCommitRequest
+
+
+async def send_decision_commit(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> DecisionCommitResult:
+    """Send one engine-contract request.
+
+    Method:
+        DecisionCommit
+    Authorization:
+        agent:decision-write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/DecisionCommit
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    DecisionCommitRequest.model_validate(params or {})
+    payload = await client._send(
+        "DecisionCommit",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return DecisionCommitResult.model_validate(payload)
+
+
+class ConnectorPackRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        ConnectorPack
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/ConnectorPack
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: ConnectorPackOp
+
+
+async def send_connector_pack(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ConnectorPack
+    Authorization:
+        agent:pack-control
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/ConnectorPack
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    ConnectorPackRequest.model_validate(params or {})
+    payload = await client._send(
+        "ConnectorPack",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ConnectorPack", payload)
+
+
+async def send_connector_pack_status(
+    client: Any,
+    request: ConnectorPackStatusRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> ConnectorPackStatus:
+    """Send typed ConnectorPack.status through the existing ConnectorPack method."""
+    request = ConnectorPackStatusRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "status",
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
+        },
+    }
+    payload = await client._send(
+        "ConnectorPack",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return ConnectorPackStatus.model_validate(payload)
+
+
+async def send_connector_pack_import(
+    client: Any,
+    request: ConnectorPackImportRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> PackImportResult:
+    """Send typed ConnectorPack.import through the existing ConnectorPack method."""
+    request = ConnectorPackImportRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "import",
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
+        },
+    }
+    payload = await client._send(
+        "ConnectorPack",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return TypeAdapter(PackImportResult).validate_python(payload)
+
+
+async def send_connector_pack_attest_self_served_catalog(
+    client: Any,
+    request: McpSelfServedCatalogAttestRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> McpCatalogSnapshotBinding:
+    """Send typed ConnectorPack.attest_self_served_catalog.
+
+    Routed through the existing ConnectorPack method.
+    """
+    request = McpSelfServedCatalogAttestRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "attest_self_served_catalog",
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
+        },
+    }
+    payload = await client._send(
+        "ConnectorPack",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return McpCatalogSnapshotBinding.model_validate(payload)
+
+
+async def send_connector_pack_catalog_authority_status(
+    client: Any,
+    request: McpCatalogAuthorityStatusRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> McpCatalogSnapshotBinding | None:
+    """Send typed ConnectorPack.catalog_authority_status.
+
+    Routed through the existing ConnectorPack method.
+    """
+    request = McpCatalogAuthorityStatusRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "catalog_authority_status",
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
+        },
+    }
+    payload = await client._send(
+        "ConnectorPack",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return TypeAdapter(McpCatalogSnapshotBinding | None).validate_python(payload)
+
+
+class WriteBackRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        WriteBack
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/WriteBack
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: WriteBackOp
+
+
+async def send_write_back(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        WriteBack
+    Authorization:
+        connector:write-back
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/WriteBack
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    WriteBackRequest.model_validate(params or {})
+    payload = await client._send(
+        "WriteBack",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("WriteBack", payload)
+
+
+async def send_ts_append(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> int:
+    """Send one engine-contract request.
+
+    Method:
+        TsAppend
+    Authorization:
+        timeseries:write
+    Durability:
+        SeriesRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Count
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/TsAppend
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTsAppendParams.model_validate(params or {})
+    payload = await client._send(
+        "TsAppend",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_count("TsAppend", payload)
+
+
+async def send_ts_range(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        TsRange
+    Authorization:
+        timeseries:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/TsRange
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodTsRangeParams.model_validate(params or {})
+    payload = await client._send(
+        "TsRange",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("TsRange", payload)
+
+
+def decode_ts_range(result: OpaqueResult) -> _models.TsRangeResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("TsRange", models().TsRangeResult, result)
+
+
+async def send_ts_asof_join(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        TsAsofJoin
+    Authorization:
+        timeseries:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/TsAsofJoin
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodTsAsofJoinParams.model_validate(params or {})
+    payload = await client._send(
+        "TsAsofJoin",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("TsAsofJoin", payload)
+
+
+def decode_ts_asof_join(result: OpaqueResult) -> _models.TsAsofJoinResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("TsAsofJoin", models().TsAsofJoinResult, result)
+
+
+async def send_ts_window(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        TsWindow
+    Authorization:
+        timeseries:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/TsWindow
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodTsWindowParams.model_validate(params or {})
+    payload = await client._send(
+        "TsWindow",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("TsWindow", payload)
+
+
+def decode_ts_window(result: OpaqueResult) -> _models.TsWindowResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("TsWindow", models().TsWindowResult, result)
+
+
+async def send_ts_gap_fill(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        TsGapFill
+    Authorization:
+        timeseries:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/TsGapFill
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodTsGapFillParams.model_validate(params or {})
+    payload = await client._send(
+        "TsGapFill",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("TsGapFill", payload)
+
+
+def decode_ts_gap_fill(result: OpaqueResult) -> _models.TsGapFillResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("TsGapFill", models().TsGapFillResult, result)
+
+
+async def send_ts_evict(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> int:
+    """Send one engine-contract request.
+
+    Method:
+        TsEvict
+    Authorization:
+        timeseries:write
+    Durability:
+        SeriesRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Count
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/TsEvict
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTsEvictParams.model_validate(params or {})
+    payload = await client._send(
+        "TsEvict",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_count("TsEvict", payload)
+
+
+async def send_ts_delete_series(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> int:
+    """Send one engine-contract request.
+
+    Method:
+        TsDeleteSeries
+    Authorization:
+        timeseries:write
+    Durability:
+        SeriesRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Count
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/TsDeleteSeries
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTsDeleteSeriesParams.model_validate(params or {})
+    payload = await client._send(
+        "TsDeleteSeries",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_count("TsDeleteSeries", payload)
+
+
+class TsListSeriesRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        TsListSeries
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/TsListSeries
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Method::TsListSeries carries no request fields.
+
+
+async def send_ts_list_series(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        TsListSeries
+    Authorization:
+        timeseries:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/TsListSeries
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    TsListSeriesRequest.model_validate(params or {})
+    payload = await client._send(
+        "TsListSeries",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("TsListSeries", payload)
+
+
+def decode_ts_list_series(result: OpaqueResult) -> _models.TsListSeriesResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("TsListSeries", models().TsListSeriesResult, result)
+
+
+async def send_ts_define_series(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        TsDefineSeries
+    Authorization:
+        timeseries:write
+    Durability:
+        SeriesRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/TsDefineSeries
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTsDefineSeriesParams.model_validate(params or {})
+    payload = await client._send(
+        "TsDefineSeries",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("TsDefineSeries", payload)
+
+
+def decode_ts_define_series(result: OpaqueResult) -> _models.DerivedSeriesReceipt:
+    """Validate this method's result against its contract model."""
+    return decode_result("TsDefineSeries", models().DerivedSeriesReceipt, result)
+
+
+async def send_blob_begin(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> int:
+    """Send one engine-contract request.
+
+    Method:
+        BlobBegin
+    Authorization:
+        blob:write
+    Durability:
+        BlobRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Count
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/BlobBegin
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodBlobBeginParams.model_validate(params or {})
+    payload = await client._send(
+        "BlobBegin",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_count("BlobBegin", payload)
+
+
+async def send_blob_chunk_put(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> int:
+    """Send one engine-contract request.
+
+    Method:
+        BlobChunkPut
+    Authorization:
+        blob:write
+    Durability:
+        BlobRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Count
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/BlobChunkPut
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodBlobChunkPutParams.model_validate(params or {})
+    payload = await client._send(
+        "BlobChunkPut",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_count("BlobChunkPut", payload)
+
+
+async def send_blob_commit(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> str:
+    """Send one engine-contract request.
+
+    Method:
+        BlobCommit
+    Authorization:
+        blob:write
+    Durability:
+        BlobRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::String
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/BlobCommit
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodBlobCommitParams.model_validate(params or {})
+    payload = await client._send(
+        "BlobCommit",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_string("BlobCommit", payload)
+
+
+async def send_blob_fetch_begin(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        BlobFetchBegin
+    Authorization:
+        blob:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/BlobFetchBegin
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodBlobFetchBeginParams.model_validate(params or {})
+    payload = await client._send(
+        "BlobFetchBegin",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("BlobFetchBegin", payload)
+
+
+def decode_blob_fetch_begin(result: OpaqueResult) -> _models.BlobFetchBeginResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("BlobFetchBegin", models().BlobFetchBeginResult, result)
+
+
+async def send_blob_chunk_get(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        BlobChunkGet
+    Authorization:
+        blob:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw, caller-shaped: opaque bytes the caller wrote or a
+        caller-supplied program produced
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/BlobChunkGet
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodBlobChunkGetParams.model_validate(params or {})
+    payload = await client._send(
+        "BlobChunkGet",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("BlobChunkGet", payload)
+
+
+async def send_blob_fetch_end(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send one engine-contract request.
+
+    Method:
+        BlobFetchEnd
+    Authorization:
+        blob:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Bool
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/BlobFetchEnd
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodBlobFetchEndParams.model_validate(params or {})
+    payload = await client._send(
+        "BlobFetchEnd",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_bool("BlobFetchEnd", payload)
+
+
+async def send_blob_ref(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> int:
+    """Send one engine-contract request.
+
+    Method:
+        BlobRef
+    Authorization:
+        blob:write
+    Durability:
+        BlobRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Count
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/BlobRef
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodBlobRefParams.model_validate(params or {})
+    payload = await client._send(
+        "BlobRef",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_count("BlobRef", payload)
+
+
+async def send_blob_unref(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> int:
+    """Send one engine-contract request.
+
+    Method:
+        BlobUnref
+    Authorization:
+        blob:write
+    Durability:
+        BlobRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Count
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/BlobUnref
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodBlobUnrefParams.model_validate(params or {})
+    payload = await client._send(
+        "BlobUnref",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_count("BlobUnref", payload)
+
+
+class BlobGcRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        BlobGc
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/BlobGc
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Method::BlobGc carries no request fields.
+
+
+async def send_blob_gc(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        BlobGc
+    Authorization:
+        blob:admin
+    Durability:
+        BlobRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/BlobGc
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    BlobGcRequest.model_validate(params or {})
+    payload = await client._send(
+        "BlobGc",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("BlobGc", payload)
+
+
+def decode_blob_gc(result: OpaqueResult) -> _models.BlobGcResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("BlobGc", models().BlobGcResult, result)
+
+
+async def send_kv_get(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        KvGet
+    Authorization:
+        kv:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/KvGet
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodKvGetParams.model_validate(params or {})
+    payload = await client._send(
+        "KvGet",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("KvGet", payload)
+
+
+def decode_kv_get(result: OpaqueResult) -> _models.KvGetResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("KvGet", models().KvGetResult, result)
+
+
+async def send_kv_put(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        KvPut
+    Authorization:
+        kv:write
+    Durability:
+        KvRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/KvPut
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodKvPutParams.model_validate(params or {})
+    payload = await client._send(
+        "KvPut",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("KvPut", payload)
+
+
+def decode_kv_put(result: OpaqueResult) -> _models.KvWriteReceipt:
+    """Validate this method's result against its contract model."""
+    return decode_result("KvPut", models().KvWriteReceipt, result)
+
+
+async def send_kv_delete(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send one engine-contract request.
+
+    Method:
+        KvDelete
+    Authorization:
+        kv:write
+    Durability:
+        KvRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Bool
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/KvDelete
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodKvDeleteParams.model_validate(params or {})
+    payload = await client._send(
+        "KvDelete",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_bool("KvDelete", payload)
+
+
+async def send_kv_scan(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        KvScan
+    Authorization:
+        kv:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/KvScan
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodKvScanParams.model_validate(params or {})
+    payload = await client._send(
+        "KvScan",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("KvScan", payload)
+
+
+def decode_kv_scan(result: OpaqueResult) -> _models.KvScanPage:
+    """Validate this method's result against its contract model."""
+    return decode_result("KvScan", models().KvScanPage, result)
+
+
+async def send_kv_cas(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        KvCas
+    Authorization:
+        kv:write
+    Durability:
+        KvRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/KvCas
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodKvCasParams.model_validate(params or {})
+    payload = await client._send(
+        "KvCas",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("KvCas", payload)
+
+
+def decode_kv_cas(result: OpaqueResult) -> _models.KvCasOutcome:
+    """Validate this method's result against its contract model."""
+    return decode_result("KvCas", models().KvCasOutcome, result)
+
+
+async def send_sql_source_batch(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        SqlSourceBatch
+    Authorization:
+        query:sql
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/SqlSourceBatch
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    if not isinstance((params or {}).get("batch"), bytes):
+        models().MethodSqlSourceBatchParams.model_validate(params or {})
+    payload = await client._send(
+        "SqlSourceBatch",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("SqlSourceBatch", payload)
+
+
+def decode_sql_source_batch(result: OpaqueResult) -> _models.SqlSourceBatchResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("SqlSourceBatch", models().SqlSourceBatchResult, result)
+
+
+async def send_import_sqlite_file(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ImportSqliteFile
+    Authorization:
+        admin:sqlite-file
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/ImportSqliteFile
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodImportSqliteFileParams.model_validate(params or {})
+    payload = await client._send(
+        "ImportSqliteFile",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ImportSqliteFile", payload)
+
+
+def decode_import_sqlite_file(result: OpaqueResult) -> _models.SqliteImportReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("ImportSqliteFile", models().SqliteImportReport, result)
+
+
+async def send_export_sqlite_file(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ExportSqliteFile
+    Authorization:
+        admin:sqlite-file
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/ExportSqliteFile
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodExportSqliteFileParams.model_validate(params or {})
+    payload = await client._send(
+        "ExportSqliteFile",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ExportSqliteFile", payload)
+
+
+def decode_export_sqlite_file(result: OpaqueResult) -> _models.SqliteExportReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("ExportSqliteFile", models().SqliteExportReport, result)
+
+
+# Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
+_REQUEST_METHODS = frozenset(
+    {
+        "FromMsgpack",
+        "ApplyLedger",
+        "Backup",
+        "Restore",
+        "AgentLibrary",
+        "AgentGraph",
+        "AgentTemplate",
+        "CapabilityCoverage",
+        "GuardrailEntailment",
+        "TsAppend",
+        "TsRange",
+        "TsAsofJoin",
+        "TsWindow",
+        "TsGapFill",
+        "TsEvict",
+        "TsDeleteSeries",
+        "TsDefineSeries",
+        "BlobBegin",
+        "BlobChunkPut",
+        "BlobCommit",
+        "BlobFetchBegin",
+        "BlobChunkGet",
+        "BlobFetchEnd",
+        "BlobRef",
+        "BlobUnref",
+        "KvGet",
+        "KvPut",
+        "KvDelete",
+        "KvScan",
+        "KvCas",
+        "SqlSourceBatch",
+        "ImportSqliteFile",
+        "ExportSqliteFile",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a ``{Id}Request`` name to its generated model on first use."""
+    method = name.removesuffix("Request")
+    if name == method or method not in _REQUEST_METHODS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(models(), f"Method{method}Params")

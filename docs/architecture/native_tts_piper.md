@@ -1,7 +1,7 @@
 # Native Piper provider status
 
-`crates/eg-tts-piper` remains an internal, opt-in Piper/ONNX provider library.
-The root `tts-piper` feature links that provider and `eg-audio/tts`, but it does
+`crates/medulla-tts-piper` remains an internal, opt-in Piper/ONNX provider library.
+The root `tts-piper` feature links that provider and `medulla-audio/tts`, but it does
 not add a public wire method, capability-policy row, dispatch arm, or server
 handler.
 
@@ -36,7 +36,7 @@ their declared SHA-256 digests before loading them.
 
 ## Running the synthesis tests
 
-`crates/eg-tts-piper/tests/piper_synthesis.rs` drives real ONNX inference. Its
+`crates/medulla-tts-piper/tests/piper_synthesis.rs` drives real ONNX inference. Its
 fixture voice is a tiny ONNX graph generated in Rust at test time (no committed
 binary, no trained weights), so the only external prerequisite is the runtime.
 
@@ -45,7 +45,7 @@ loads the runtime from `ORT_DYLIB_PATH`:
 
 ```bash
 export ORT_DYLIB_PATH="$(scripts/fetch_onnxruntime.sh)"
-cargo test -p eg-tts-piper --all-features
+cargo test -p medulla-tts-piper --all-features
 ```
 
 A missing or unreadable runtime FAILS every inference test. It never skips them.

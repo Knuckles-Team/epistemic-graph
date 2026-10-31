@@ -1,321 +1,321 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-UNIFIED-DATA-PLANE",
+  "spec_id": "MEDULLA-UNIFIED-DATA-PLANE",
   "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "EG-UNIFIED-DATA-PLANE-R001",
-    "EG-UNIFIED-DATA-PLANE-R002",
-    "EG-UNIFIED-DATA-PLANE-R002.1",
-    "EG-UNIFIED-DATA-PLANE-R002.2",
-    "EG-UNIFIED-DATA-PLANE-R002.3",
-    "EG-UNIFIED-DATA-PLANE-R003",
-    "EG-UNIFIED-DATA-PLANE-R003.1",
-    "EG-UNIFIED-DATA-PLANE-R004",
-    "EG-UNIFIED-DATA-PLANE-R004.1",
-    "EG-UNIFIED-DATA-PLANE-R005",
-    "EG-UNIFIED-DATA-PLANE-R005.1",
-    "EG-UNIFIED-DATA-PLANE-R006",
-    "EG-UNIFIED-DATA-PLANE-R006.1",
-    "EG-UNIFIED-DATA-PLANE-R007",
-    "EG-UNIFIED-DATA-PLANE-R008",
-    "EG-UNIFIED-DATA-PLANE-R008.1",
-    "EG-UNIFIED-DATA-PLANE-R007.1",
-    "EG-UNIFIED-DATA-PLANE-R009",
-    "EG-UNIFIED-DATA-PLANE-R010",
-    "EG-UNIFIED-DATA-PLANE-R010.1",
-    "EG-UNIFIED-DATA-PLANE-R009.1",
-    "EG-UNIFIED-DATA-PLANE-R011",
-    "EG-UNIFIED-DATA-PLANE-R011.1",
-    "EG-UNIFIED-DATA-PLANE-R012",
-    "EG-UNIFIED-DATA-PLANE-R012.1",
-    "EG-UNIFIED-DATA-PLANE-R013",
-    "EG-UNIFIED-DATA-PLANE-R014",
-    "EG-UNIFIED-DATA-PLANE-R014.1",
-    "EG-UNIFIED-DATA-PLANE-R014.2",
-    "EG-UNIFIED-DATA-PLANE-R014.2.1",
-    "EG-UNIFIED-DATA-PLANE-R014.2.2",
-    "EG-UNIFIED-DATA-PLANE-R015",
-    "EG-UNIFIED-DATA-PLANE-R015.1",
-    "EG-UNIFIED-DATA-PLANE-R015.2",
-    "EG-UNIFIED-DATA-PLANE-R015.2.1",
-    "EG-UNIFIED-DATA-PLANE-R015.2.2",
-    "EG-UNIFIED-DATA-PLANE-R015.2.2.1",
-    "EG-UNIFIED-DATA-PLANE-R015.2.2.2",
-    "EG-UNIFIED-DATA-PLANE-R015.2.2.3",
-    "EG-UNIFIED-DATA-PLANE-R016",
-    "EG-UNIFIED-DATA-PLANE-R016.1",
-    "EG-UNIFIED-DATA-PLANE-R016.2",
-    "EG-UNIFIED-DATA-PLANE-R016.2.1",
-    "EG-UNIFIED-DATA-PLANE-R016.2.2",
-    "EG-UNIFIED-DATA-PLANE-R017",
-    "EG-UNIFIED-DATA-PLANE-R017.1",
-    "EG-UNIFIED-DATA-PLANE-R017.2",
-    "EG-UNIFIED-DATA-PLANE-R017.2.1",
-    "EG-UNIFIED-DATA-PLANE-R017.2.2",
-    "EG-UNIFIED-DATA-PLANE-R018",
-    "EG-UNIFIED-DATA-PLANE-R018.1",
-    "EG-UNIFIED-DATA-PLANE-R018.2",
-    "EG-UNIFIED-DATA-PLANE-R018.2.1",
-    "EG-UNIFIED-DATA-PLANE-R018.2.2",
-    "EG-UNIFIED-DATA-PLANE-R019",
-    "EG-UNIFIED-DATA-PLANE-R019.1",
-    "EG-UNIFIED-DATA-PLANE-R019.2",
-    "EG-UNIFIED-DATA-PLANE-R019.2.1",
-    "EG-UNIFIED-DATA-PLANE-R019.2.2",
-    "EG-UNIFIED-DATA-PLANE-R019.3",
-    "EG-UNIFIED-DATA-PLANE-R019.3.1",
-    "EG-UNIFIED-DATA-PLANE-R019.3.2",
-    "EG-UNIFIED-DATA-PLANE-R020",
-    "EG-UNIFIED-DATA-PLANE-R020.1",
-    "EG-UNIFIED-DATA-PLANE-R020.2",
-    "EG-UNIFIED-DATA-PLANE-R020.2.1",
-    "EG-UNIFIED-DATA-PLANE-R020.2.2",
-    "EG-UNIFIED-DATA-PLANE-R020.3",
-    "EG-UNIFIED-DATA-PLANE-R020.3.1",
-    "EG-UNIFIED-DATA-PLANE-R020.3.2",
-    "EG-UNIFIED-DATA-PLANE-R021",
-    "EG-UNIFIED-DATA-PLANE-R021.1",
-    "EG-UNIFIED-DATA-PLANE-R021.2",
-    "EG-UNIFIED-DATA-PLANE-R021.3",
-    "EG-UNIFIED-DATA-PLANE-R022",
-    "EG-UNIFIED-DATA-PLANE-R022.1",
-    "EG-UNIFIED-DATA-PLANE-R022.2",
-    "EG-UNIFIED-DATA-PLANE-R022.3",
-    "EG-UNIFIED-DATA-PLANE-R022.3.1",
-    "EG-UNIFIED-DATA-PLANE-R022.3.2",
-    "EG-UNIFIED-DATA-PLANE-R022.4",
-    "EG-UNIFIED-DATA-PLANE-R022.4.1",
-    "EG-UNIFIED-DATA-PLANE-R023",
-    "EG-UNIFIED-DATA-PLANE-R023.1",
-    "EG-UNIFIED-DATA-PLANE-R023.2",
-    "EG-UNIFIED-DATA-PLANE-R023.2.1",
-    "EG-UNIFIED-DATA-PLANE-R023.2.2",
-    "EG-UNIFIED-DATA-PLANE-R023.3",
-    "EG-UNIFIED-DATA-PLANE-R023.3.1",
-    "EG-UNIFIED-DATA-PLANE-R023.3.2",
-    "EG-UNIFIED-DATA-PLANE-R024",
-    "EG-UNIFIED-DATA-PLANE-R024.1",
-    "EG-UNIFIED-DATA-PLANE-R024.2",
-    "EG-UNIFIED-DATA-PLANE-R024.2.1",
-    "EG-UNIFIED-DATA-PLANE-R024.3",
-    "EG-UNIFIED-DATA-PLANE-R024.3.1",
-    "EG-UNIFIED-DATA-PLANE-R025",
-    "EG-UNIFIED-DATA-PLANE-R025.1",
-    "EG-UNIFIED-DATA-PLANE-R025.2",
-    "EG-UNIFIED-DATA-PLANE-R025.2.1",
-    "EG-UNIFIED-DATA-PLANE-R025.3",
-    "EG-UNIFIED-DATA-PLANE-R025.3.1",
-    "EG-UNIFIED-DATA-PLANE-R025.3.2",
-    "EG-UNIFIED-DATA-PLANE-R026",
-    "EG-UNIFIED-DATA-PLANE-R026.1",
-    "EG-UNIFIED-DATA-PLANE-R026.2",
-    "EG-UNIFIED-DATA-PLANE-R026.2.1",
-    "EG-UNIFIED-DATA-PLANE-R026.2.2",
-    "EG-UNIFIED-DATA-PLANE-R026.3",
-    "EG-UNIFIED-DATA-PLANE-R026.3.1",
-    "EG-UNIFIED-DATA-PLANE-R026.3.2",
-    "EG-UNIFIED-DATA-PLANE-R027",
-    "EG-UNIFIED-DATA-PLANE-R027.1",
-    "EG-UNIFIED-DATA-PLANE-R027.2",
-    "EG-UNIFIED-DATA-PLANE-R027.2.1",
-    "EG-UNIFIED-DATA-PLANE-R027.3",
-    "EG-UNIFIED-DATA-PLANE-R027.3.1",
-    "EG-UNIFIED-DATA-PLANE-R028",
-    "EG-UNIFIED-DATA-PLANE-R028.1",
-    "EG-UNIFIED-DATA-PLANE-R028.2",
-    "EG-UNIFIED-DATA-PLANE-R028.2.1",
-    "EG-UNIFIED-DATA-PLANE-R028.3",
-    "EG-UNIFIED-DATA-PLANE-R029",
-    "EG-UNIFIED-DATA-PLANE-R029.1",
-    "EG-UNIFIED-DATA-PLANE-R029.2",
-    "EG-UNIFIED-DATA-PLANE-R030",
-    "EG-UNIFIED-DATA-PLANE-R030.1",
-    "EG-UNIFIED-DATA-PLANE-R030.2",
-    "EG-UNIFIED-DATA-PLANE-R030.3",
-    "EG-UNIFIED-DATA-PLANE-R031",
-    "EG-UNIFIED-DATA-PLANE-R031.1",
-    "EG-UNIFIED-DATA-PLANE-R031.2",
-    "EG-UNIFIED-DATA-PLANE-R032",
-    "EG-UNIFIED-DATA-PLANE-R032.1",
-    "EG-UNIFIED-DATA-PLANE-R032.2",
-    "EG-UNIFIED-DATA-PLANE-R033",
-    "EG-UNIFIED-DATA-PLANE-R033.1",
-    "EG-UNIFIED-DATA-PLANE-R033.2",
-    "EG-UNIFIED-DATA-PLANE-R034",
-    "EG-UNIFIED-DATA-PLANE-R035",
-    "EG-UNIFIED-DATA-PLANE-R036",
-    "EG-UNIFIED-DATA-PLANE-R760",
-    "EG-UNIFIED-DATA-PLANE-R760.1",
-    "EG-UNIFIED-DATA-PLANE-R760.2",
-    "EG-UNIFIED-DATA-PLANE-R760.3",
-    "EG-UNIFIED-DATA-PLANE-R760.4",
-    "EG-UNIFIED-DATA-PLANE-R760.5",
-    "EG-UNIFIED-DATA-PLANE-R760.6",
-    "EG-UNIFIED-DATA-PLANE-R037",
-    "EG-UNIFIED-DATA-PLANE-R038",
-    "EG-UNIFIED-DATA-PLANE-R038.1",
-    "EG-UNIFIED-DATA-PLANE-R038.2",
-    "EG-UNIFIED-DATA-PLANE-R038.3",
-    "EG-UNIFIED-DATA-PLANE-R038.3.1",
-    "EG-UNIFIED-DATA-PLANE-R038.3.2",
-    "EG-UNIFIED-DATA-PLANE-R038.3.3",
-    "EG-UNIFIED-DATA-PLANE-R038.3.4",
-    "EG-UNIFIED-DATA-PLANE-R038.3.5",
-    "EG-UNIFIED-DATA-PLANE-R038.3.6",
-    "EG-UNIFIED-DATA-PLANE-R038.4",
-    "EG-UNIFIED-DATA-PLANE-R038.4.1",
-    "EG-UNIFIED-DATA-PLANE-R038.4.2",
-    "EG-UNIFIED-DATA-PLANE-R038.4.3",
-    "EG-UNIFIED-DATA-PLANE-R038.4.4",
-    "EG-UNIFIED-DATA-PLANE-R038.4.5",
-    "EG-UNIFIED-DATA-PLANE-R038.4.6",
-    "EG-UNIFIED-DATA-PLANE-R038.5",
-    "EG-UNIFIED-DATA-PLANE-R038.5.1",
-    "EG-UNIFIED-DATA-PLANE-R038.5.2",
-    "EG-UNIFIED-DATA-PLANE-R038.5.3",
-    "EG-UNIFIED-DATA-PLANE-R038.5.4",
-    "EG-UNIFIED-DATA-PLANE-R038.5.5",
-    "EG-UNIFIED-DATA-PLANE-R038.5.6",
-    "EG-UNIFIED-DATA-PLANE-R038.6",
-    "EG-UNIFIED-DATA-PLANE-R038.6.1",
-    "EG-UNIFIED-DATA-PLANE-R038.6.2",
-    "EG-UNIFIED-DATA-PLANE-R038.6.3",
-    "EG-UNIFIED-DATA-PLANE-R038.6.4",
-    "EG-UNIFIED-DATA-PLANE-R038.6.5",
-    "EG-UNIFIED-DATA-PLANE-R038.6.6",
-    "EG-UNIFIED-DATA-PLANE-R038.7",
-    "EG-UNIFIED-DATA-PLANE-R038.7.1",
-    "EG-UNIFIED-DATA-PLANE-R038.7.2",
-    "EG-UNIFIED-DATA-PLANE-R038.7.3",
-    "EG-UNIFIED-DATA-PLANE-R038.7.4",
-    "EG-UNIFIED-DATA-PLANE-R038.7.5",
-    "EG-UNIFIED-DATA-PLANE-R038.7.6",
-    "EG-UNIFIED-DATA-PLANE-R038.7.7",
-    "EG-UNIFIED-DATA-PLANE-R039",
-    "EG-UNIFIED-DATA-PLANE-R039.1",
-    "EG-UNIFIED-DATA-PLANE-R039.2",
-    "EG-UNIFIED-DATA-PLANE-R039.3",
-    "EG-UNIFIED-DATA-PLANE-R039.4",
-    "EG-UNIFIED-DATA-PLANE-R039.5",
-    "EG-UNIFIED-DATA-PLANE-R040",
-    "EG-UNIFIED-DATA-PLANE-R040.1",
-    "EG-UNIFIED-DATA-PLANE-R040.2",
-    "EG-UNIFIED-DATA-PLANE-R040.3",
-    "EG-UNIFIED-DATA-PLANE-R040.4",
-    "EG-UNIFIED-DATA-PLANE-R040.5",
-    "EG-UNIFIED-DATA-PLANE-R040.6",
-    "EG-UNIFIED-DATA-PLANE-R026.4",
-    "EG-UNIFIED-DATA-PLANE-R026.4.1",
-    "EG-UNIFIED-DATA-PLANE-R026.4.2",
-    "EG-UNIFIED-DATA-PLANE-R026.4.3",
-    "EG-UNIFIED-DATA-PLANE-R612",
-    "EG-UNIFIED-DATA-PLANE-R612.1",
-    "EG-UNIFIED-DATA-PLANE-R612.2",
-    "EG-UNIFIED-DATA-PLANE-R612.3",
-    "EG-UNIFIED-DATA-PLANE-R612.4",
-    "EG-UNIFIED-DATA-PLANE-R612.5",
-    "EG-UNIFIED-DATA-PLANE-R612.6",
-    "EG-UNIFIED-DATA-PLANE-R750",
-    "EG-UNIFIED-DATA-PLANE-R750.750",
-    "EG-UNIFIED-DATA-PLANE-R750.751",
-    "EG-UNIFIED-DATA-PLANE-R750.752",
-    "EG-UNIFIED-DATA-PLANE-R750.753",
-    "EG-UNIFIED-DATA-PLANE-R650",
-    "EG-UNIFIED-DATA-PLANE-R650.1",
-    "EG-UNIFIED-DATA-PLANE-R650.2",
-    "EG-UNIFIED-DATA-PLANE-R650.3",
-    "EG-UNIFIED-DATA-PLANE-R650.4",
-    "EG-UNIFIED-DATA-PLANE-R650.5",
-    "EG-UNIFIED-DATA-PLANE-R650.6",
-    "EG-UNIFIED-DATA-PLANE-R651",
-    "EG-UNIFIED-DATA-PLANE-R651.1",
-    "EG-UNIFIED-DATA-PLANE-R651.2",
-    "EG-UNIFIED-DATA-PLANE-R651.3",
-    "EG-UNIFIED-DATA-PLANE-R651.4",
-    "EG-UNIFIED-DATA-PLANE-R651.5",
-    "EG-UNIFIED-DATA-PLANE-R651.6",
-    "EG-UNIFIED-DATA-PLANE-R651.7",
-    "EG-UNIFIED-DATA-PLANE-R651.7.1",
-    "EG-UNIFIED-DATA-PLANE-R651.7.2",
-    "EG-UNIFIED-DATA-PLANE-R651.7.3",
-    "EG-UNIFIED-DATA-PLANE-R651.7.4",
-    "EG-UNIFIED-DATA-PLANE-R651.7.5",
-    "EG-UNIFIED-DATA-PLANE-R651.7.6",
-    "EG-UNIFIED-DATA-PLANE-R651.7.7",
-    "EG-UNIFIED-DATA-PLANE-R700",
-    "EG-UNIFIED-DATA-PLANE-R700.1",
-    "EG-UNIFIED-DATA-PLANE-R700.2",
-    "EG-UNIFIED-DATA-PLANE-R700.3",
-    "EG-UNIFIED-DATA-PLANE-R700.4",
-    "EG-UNIFIED-DATA-PLANE-R700.5",
-    "EG-UNIFIED-DATA-PLANE-R700.6",
-    "EG-UNIFIED-DATA-PLANE-R701",
-    "EG-UNIFIED-DATA-PLANE-R701.1",
-    "EG-UNIFIED-DATA-PLANE-R701.2",
-    "EG-UNIFIED-DATA-PLANE-R701.3",
-    "EG-UNIFIED-DATA-PLANE-R701.4",
-    "EG-UNIFIED-DATA-PLANE-R701.5",
-    "EG-UNIFIED-DATA-PLANE-R701.6",
-    "EG-UNIFIED-DATA-PLANE-R702",
-    "EG-UNIFIED-DATA-PLANE-R702.1",
-    "EG-UNIFIED-DATA-PLANE-R702.2",
-    "EG-UNIFIED-DATA-PLANE-R702.3",
-    "EG-UNIFIED-DATA-PLANE-R702.4",
-    "EG-UNIFIED-DATA-PLANE-R702.5",
-    "EG-UNIFIED-DATA-PLANE-R702.6",
-    "EG-UNIFIED-DATA-PLANE-R710",
-    "EG-UNIFIED-DATA-PLANE-R711",
-    "EG-UNIFIED-DATA-PLANE-R030.700",
-    "EG-UNIFIED-DATA-PLANE-R030.701",
-    "EG-UNIFIED-DATA-PLANE-R038.2.1",
-    "EG-UNIFIED-DATA-PLANE-R038.2.2",
-    "EG-UNIFIED-DATA-PLANE-R038.2.3",
-    "EG-UNIFIED-DATA-PLANE-R038.4.2.1",
-    "EG-UNIFIED-DATA-PLANE-R038.4.2.2",
-    "EG-UNIFIED-DATA-PLANE-R038.4.2.3",
-    "EG-UNIFIED-DATA-PLANE-R750.754",
-    "EG-UNIFIED-DATA-PLANE-R761",
-    "EG-UNIFIED-DATA-PLANE-R761.1",
-    "EG-UNIFIED-DATA-PLANE-R761.2",
-    "EG-UNIFIED-DATA-PLANE-R761.3",
-    "EG-UNIFIED-DATA-PLANE-R761.4",
-    "EG-UNIFIED-DATA-PLANE-R761.5",
-    "EG-UNIFIED-DATA-PLANE-R761.6",
-    "EG-UNIFIED-DATA-PLANE-R762",
-    "EG-UNIFIED-DATA-PLANE-R762.1",
-    "EG-UNIFIED-DATA-PLANE-R762.2",
-    "EG-UNIFIED-DATA-PLANE-R762.3",
-    "EG-UNIFIED-DATA-PLANE-R762.4",
-    "EG-UNIFIED-DATA-PLANE-R762.5",
-    "EG-UNIFIED-DATA-PLANE-R762.6",
-    "EG-UNIFIED-DATA-PLANE-R762.7",
-    "EG-UNIFIED-DATA-PLANE-R762.8",
-    "EG-UNIFIED-DATA-PLANE-R763",
-    "EG-UNIFIED-DATA-PLANE-R763.1",
-    "EG-UNIFIED-DATA-PLANE-R763.2",
-    "EG-UNIFIED-DATA-PLANE-R763.3",
-    "EG-UNIFIED-DATA-PLANE-R763.4",
-    "EG-UNIFIED-DATA-PLANE-R763.5",
-    "EG-UNIFIED-DATA-PLANE-R763.6",
-    "EG-UNIFIED-DATA-PLANE-R763.7",
-    "EG-UNIFIED-DATA-PLANE-R764",
-    "EG-UNIFIED-DATA-PLANE-R764.1",
-    "EG-UNIFIED-DATA-PLANE-R764.2",
-    "EG-UNIFIED-DATA-PLANE-R764.3",
-    "EG-UNIFIED-DATA-PLANE-R764.3.1",
-    "EG-UNIFIED-DATA-PLANE-R764.4",
-    "EG-UNIFIED-DATA-PLANE-R764.5",
-    "EG-UNIFIED-DATA-PLANE-R764.6",
-    "EG-UNIFIED-DATA-PLANE-R764.7",
-    "EG-UNIFIED-DATA-PLANE-R764.8",
-    "EG-UNIFIED-DATA-PLANE-R765",
-    "EG-UNIFIED-DATA-PLANE-R766",
-    "EG-UNIFIED-DATA-PLANE-R767"
+    "MEDULLA-UNIFIED-DATA-PLANE-R001",
+    "MEDULLA-UNIFIED-DATA-PLANE-R002",
+    "MEDULLA-UNIFIED-DATA-PLANE-R002.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R002.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R002.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R003",
+    "MEDULLA-UNIFIED-DATA-PLANE-R003.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R004",
+    "MEDULLA-UNIFIED-DATA-PLANE-R004.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R005",
+    "MEDULLA-UNIFIED-DATA-PLANE-R005.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R006",
+    "MEDULLA-UNIFIED-DATA-PLANE-R006.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R007",
+    "MEDULLA-UNIFIED-DATA-PLANE-R008",
+    "MEDULLA-UNIFIED-DATA-PLANE-R008.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R007.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R009",
+    "MEDULLA-UNIFIED-DATA-PLANE-R010",
+    "MEDULLA-UNIFIED-DATA-PLANE-R010.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R009.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R011",
+    "MEDULLA-UNIFIED-DATA-PLANE-R011.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R012",
+    "MEDULLA-UNIFIED-DATA-PLANE-R012.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R013",
+    "MEDULLA-UNIFIED-DATA-PLANE-R014",
+    "MEDULLA-UNIFIED-DATA-PLANE-R014.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R014.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R014.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R014.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R015",
+    "MEDULLA-UNIFIED-DATA-PLANE-R015.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R015.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R015.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R016",
+    "MEDULLA-UNIFIED-DATA-PLANE-R016.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R016.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R016.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R016.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R017",
+    "MEDULLA-UNIFIED-DATA-PLANE-R017.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R017.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R017.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R017.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R018",
+    "MEDULLA-UNIFIED-DATA-PLANE-R018.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R018.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R018.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R018.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R019",
+    "MEDULLA-UNIFIED-DATA-PLANE-R019.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R019.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R019.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R019.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R019.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R019.3.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R019.3.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R020",
+    "MEDULLA-UNIFIED-DATA-PLANE-R020.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R020.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R020.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R020.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R020.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R020.3.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R020.3.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R021",
+    "MEDULLA-UNIFIED-DATA-PLANE-R021.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R021.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R021.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R022",
+    "MEDULLA-UNIFIED-DATA-PLANE-R022.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R022.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R022.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R022.3.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R022.3.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R022.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R022.4.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R023",
+    "MEDULLA-UNIFIED-DATA-PLANE-R023.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R023.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R023.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R023.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R023.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R023.3.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R023.3.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R024",
+    "MEDULLA-UNIFIED-DATA-PLANE-R024.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R024.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R024.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R024.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R024.3.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R025",
+    "MEDULLA-UNIFIED-DATA-PLANE-R025.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R025.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R025.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R025.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R025.3.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R025.3.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R026",
+    "MEDULLA-UNIFIED-DATA-PLANE-R026.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R026.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R026.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R026.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R026.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R026.3.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R026.3.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R027",
+    "MEDULLA-UNIFIED-DATA-PLANE-R027.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R027.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R027.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R027.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R027.3.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R028",
+    "MEDULLA-UNIFIED-DATA-PLANE-R028.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R028.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R028.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R028.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R029",
+    "MEDULLA-UNIFIED-DATA-PLANE-R029.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R029.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R030",
+    "MEDULLA-UNIFIED-DATA-PLANE-R030.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R030.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R030.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R031",
+    "MEDULLA-UNIFIED-DATA-PLANE-R031.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R031.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R032",
+    "MEDULLA-UNIFIED-DATA-PLANE-R032.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R032.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R033",
+    "MEDULLA-UNIFIED-DATA-PLANE-R033.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R033.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R034",
+    "MEDULLA-UNIFIED-DATA-PLANE-R035",
+    "MEDULLA-UNIFIED-DATA-PLANE-R036",
+    "MEDULLA-UNIFIED-DATA-PLANE-R760",
+    "MEDULLA-UNIFIED-DATA-PLANE-R760.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R760.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R760.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R760.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R760.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R760.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R037",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.3.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.3.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.3.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.3.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.3.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.3.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.4.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.4.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.4.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.4.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.4.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.5.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.5.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.5.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.5.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.5.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.5.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.6.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.6.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.6.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.6.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.6.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.6.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.7",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.7.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.7.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.7.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.7.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.7.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.7.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.7.7",
+    "MEDULLA-UNIFIED-DATA-PLANE-R039",
+    "MEDULLA-UNIFIED-DATA-PLANE-R039.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R039.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R039.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R039.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R039.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R040",
+    "MEDULLA-UNIFIED-DATA-PLANE-R040.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R040.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R040.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R040.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R040.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R040.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R026.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R026.4.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R026.4.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R026.4.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R612",
+    "MEDULLA-UNIFIED-DATA-PLANE-R612.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R612.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R612.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R612.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R612.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R612.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R750",
+    "MEDULLA-UNIFIED-DATA-PLANE-R750.750",
+    "MEDULLA-UNIFIED-DATA-PLANE-R750.751",
+    "MEDULLA-UNIFIED-DATA-PLANE-R750.752",
+    "MEDULLA-UNIFIED-DATA-PLANE-R750.753",
+    "MEDULLA-UNIFIED-DATA-PLANE-R650",
+    "MEDULLA-UNIFIED-DATA-PLANE-R650.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R650.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R650.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R650.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R650.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R650.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R651",
+    "MEDULLA-UNIFIED-DATA-PLANE-R651.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R651.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R651.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R651.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R651.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R651.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R651.7",
+    "MEDULLA-UNIFIED-DATA-PLANE-R651.7.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R651.7.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R651.7.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R651.7.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R651.7.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R651.7.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R651.7.7",
+    "MEDULLA-UNIFIED-DATA-PLANE-R700",
+    "MEDULLA-UNIFIED-DATA-PLANE-R700.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R700.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R700.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R700.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R700.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R700.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R701",
+    "MEDULLA-UNIFIED-DATA-PLANE-R701.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R701.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R701.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R701.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R701.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R701.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R702",
+    "MEDULLA-UNIFIED-DATA-PLANE-R702.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R702.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R702.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R702.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R702.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R702.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R710",
+    "MEDULLA-UNIFIED-DATA-PLANE-R711",
+    "MEDULLA-UNIFIED-DATA-PLANE-R030.700",
+    "MEDULLA-UNIFIED-DATA-PLANE-R030.701",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.2.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R750.754",
+    "MEDULLA-UNIFIED-DATA-PLANE-R761",
+    "MEDULLA-UNIFIED-DATA-PLANE-R761.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R761.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R761.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R761.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R761.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R761.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R762",
+    "MEDULLA-UNIFIED-DATA-PLANE-R762.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R762.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R762.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R762.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R762.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R762.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R762.7",
+    "MEDULLA-UNIFIED-DATA-PLANE-R762.8",
+    "MEDULLA-UNIFIED-DATA-PLANE-R763",
+    "MEDULLA-UNIFIED-DATA-PLANE-R763.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R763.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R763.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R763.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R763.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R763.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R763.7",
+    "MEDULLA-UNIFIED-DATA-PLANE-R764",
+    "MEDULLA-UNIFIED-DATA-PLANE-R764.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R764.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R764.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R764.3.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R764.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R764.5",
+    "MEDULLA-UNIFIED-DATA-PLANE-R764.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R764.7",
+    "MEDULLA-UNIFIED-DATA-PLANE-R764.8",
+    "MEDULLA-UNIFIED-DATA-PLANE-R765",
+    "MEDULLA-UNIFIED-DATA-PLANE-R766",
+    "MEDULLA-UNIFIED-DATA-PLANE-R767"
   ],
   "requirements": [
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R001",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R001",
       "title": "Record attached-source and native-hosting decisions",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -328,7 +328,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R002",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R002",
       "title": "One owner-scoped attached-source registry (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -346,13 +346,13 @@
         "src/server/handlers/rdf/obda.rs:666"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R002.1",
-        "EG-UNIFIED-DATA-PLANE-R002.2",
-        "EG-UNIFIED-DATA-PLANE-R002.3"
+        "MEDULLA-UNIFIED-DATA-PLANE-R002.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R002.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R002.3"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R002.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R002.1",
       "title": "Verify the outbound target before persisting a `ForeignSourceSpec::Sql` registration (producer path)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -367,7 +367,7 @@
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R002.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R002.2",
       "title": "Verify the outbound target before persisting an OBDA `external_sources` registration (consumer path)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -381,7 +381,7 @@
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R002.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R002.3",
       "title": "RETIRED: mirror sinks replicate to a second store",
       "delivery_state": "RETIRED",
       "landed_in": [
@@ -391,7 +391,7 @@
       "retired_reason": "mirror sinks replicate to a second store"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R003",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R003",
       "title": "Extract typed, hashed catalog graphs per dialect",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -401,17 +401,17 @@
         "dc9533466828"
       ],
       "verified_by": [
-        "crates/eg-types/src/attached_catalog.rs:117",
-        "crates/eg-types/src/attached_catalog.rs:145",
-        "crates/eg-types/src/attached_catalog.rs:159",
-        "crates/eg-types/src/attached_catalog.rs:173"
+        "crates/medulla-types/src/attached_catalog.rs:117",
+        "crates/medulla-types/src/attached_catalog.rs:145",
+        "crates/medulla-types/src/attached_catalog.rs:159",
+        "crates/medulla-types/src/attached_catalog.rs:173"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R003.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R003.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R003.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R003.1",
       "title": "`AttachedCatalogGraph` is a versioned, typed catalog with a reorder-stable content hash, refusing an ambiguous duplicate table name",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -419,14 +419,14 @@
         "dc9533466828"
       ],
       "verified_by": [
-        "crates/eg-types/src/attached_catalog.rs:117",
-        "crates/eg-types/src/attached_catalog.rs:145",
-        "crates/eg-types/src/attached_catalog.rs:159",
-        "crates/eg-types/src/attached_catalog.rs:173"
+        "crates/medulla-types/src/attached_catalog.rs:117",
+        "crates/medulla-types/src/attached_catalog.rs:145",
+        "crates/medulla-types/src/attached_catalog.rs:159",
+        "crates/medulla-types/src/attached_catalog.rs:173"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R004",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R004",
       "title": "Infer schema structure deterministically from attached catalogs",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -435,17 +435,17 @@
         "8ef8d8e817b7"
       ],
       "verified_by": [
-        "crates/eg-types/src/schema_inference.rs:101",
-        "crates/eg-types/src/schema_inference.rs:65",
-        "crates/eg-types/src/schema_inference.rs:75",
-        "crates/eg-types/src/schema_inference.rs:88"
+        "crates/medulla-types/src/schema_inference.rs:101",
+        "crates/medulla-types/src/schema_inference.rs:65",
+        "crates/medulla-types/src/schema_inference.rs:75",
+        "crates/medulla-types/src/schema_inference.rs:88"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R004.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R004.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R004.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R004.1",
       "title": "`ColumnSamplingBudget` is a bounded, policy-gated row/byte budget, refusing a zero or unbounded declaration",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -453,14 +453,14 @@
         "8ef8d8e817b7"
       ],
       "verified_by": [
-        "crates/eg-types/src/schema_inference.rs:101",
-        "crates/eg-types/src/schema_inference.rs:65",
-        "crates/eg-types/src/schema_inference.rs:75",
-        "crates/eg-types/src/schema_inference.rs:88"
+        "crates/medulla-types/src/schema_inference.rs:101",
+        "crates/medulla-types/src/schema_inference.rs:65",
+        "crates/medulla-types/src/schema_inference.rs:75",
+        "crates/medulla-types/src/schema_inference.rs:88"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R005",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R005",
       "title": "Compile approved relational mappings to named R2RML virtual graphs",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -470,16 +470,16 @@
         "79ba71d072a5"
       ],
       "verified_by": [
-        "crates/eg-plan/src/virtual_graph_mapping.rs:120",
-        "crates/eg-plan/src/virtual_graph_mapping.rs:127",
-        "crates/eg-plan/src/virtual_graph_mapping.rs:136"
+        "crates/medulla-plan/src/virtual_graph_mapping.rs:120",
+        "crates/medulla-plan/src/virtual_graph_mapping.rs:127",
+        "crates/medulla-plan/src/virtual_graph_mapping.rs:136"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R005.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R005.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R005.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R005.1",
       "title": "`VirtualGraphMapping` carries a typed approval state, refusing a query against a proposed or model-suggested mapping",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -487,13 +487,13 @@
         "3dd56fe53283"
       ],
       "verified_by": [
-        "crates/eg-plan/src/virtual_graph_mapping.rs:120",
-        "crates/eg-plan/src/virtual_graph_mapping.rs:127",
-        "crates/eg-plan/src/virtual_graph_mapping.rs:136"
+        "crates/medulla-plan/src/virtual_graph_mapping.rs:120",
+        "crates/medulla-plan/src/virtual_graph_mapping.rs:127",
+        "crates/medulla-plan/src/virtual_graph_mapping.rs:136"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R006",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R006",
       "title": "Push down virtual-graph queries to source SQL",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -501,16 +501,16 @@
         "545b68818f0b"
       ],
       "verified_by": [
-        "crates/eg-plan/src/pushdown_plan.rs:70",
-        "crates/eg-plan/src/pushdown_plan.rs:80",
-        "crates/eg-plan/src/pushdown_plan.rs:90"
+        "crates/medulla-plan/src/pushdown_plan.rs:70",
+        "crates/medulla-plan/src/pushdown_plan.rs:80",
+        "crates/medulla-plan/src/pushdown_plan.rs:90"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R006.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R006.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R006.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R006.1",
       "title": "`PushdownDecision` names an explicit fallback reason, refusing a decision that claims both success and a fallback",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -518,13 +518,13 @@
         "545b68818f0b"
       ],
       "verified_by": [
-        "crates/eg-plan/src/pushdown_plan.rs:70",
-        "crates/eg-plan/src/pushdown_plan.rs:80",
-        "crates/eg-plan/src/pushdown_plan.rs:90"
+        "crates/medulla-plan/src/pushdown_plan.rs:70",
+        "crates/medulla-plan/src/pushdown_plan.rs:80",
+        "crates/medulla-plan/src/pushdown_plan.rs:90"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R007",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R007",
       "title": "Federate attached tables as DataFusion table providers",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -533,17 +533,17 @@
         "e8695518196e"
       ],
       "verified_by": [
-        "crates/eg-plan/src/federation_capabilities.rs:106",
-        "crates/eg-plan/src/federation_capabilities.rs:71",
-        "crates/eg-plan/src/federation_capabilities.rs:85",
-        "crates/eg-plan/src/federation_capabilities.rs:92"
+        "crates/medulla-plan/src/federation_capabilities.rs:106",
+        "crates/medulla-plan/src/federation_capabilities.rs:71",
+        "crates/medulla-plan/src/federation_capabilities.rs:85",
+        "crates/medulla-plan/src/federation_capabilities.rs:92"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R007.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R007.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R008",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R008",
       "title": "Normalize change capture into a durable, replayable framework",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -552,18 +552,18 @@
         "64f76c5b3209"
       ],
       "verified_by": [
-        "crates/eg-durable/src/change_envelope.rs:113",
-        "crates/eg-durable/src/change_envelope.rs:126",
-        "crates/eg-durable/src/change_envelope.rs:141",
-        "crates/eg-durable/src/change_envelope.rs:157",
-        "crates/eg-durable/src/change_envelope.rs:176"
+        "crates/medulla-durable/src/change_envelope.rs:113",
+        "crates/medulla-durable/src/change_envelope.rs:126",
+        "crates/medulla-durable/src/change_envelope.rs:141",
+        "crates/medulla-durable/src/change_envelope.rs:157",
+        "crates/medulla-durable/src/change_envelope.rs:176"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R008.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R008.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R008.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R008.1",
       "title": "`ChangeEnvelope`/`ChangeOp` are a typed change-capture record and a validated refusal rule, refusing a change with no durable position or a keyed table's update/delete with no key",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -571,15 +571,15 @@
         "64f76c5b3209"
       ],
       "verified_by": [
-        "crates/eg-durable/src/change_envelope.rs:113",
-        "crates/eg-durable/src/change_envelope.rs:126",
-        "crates/eg-durable/src/change_envelope.rs:141",
-        "crates/eg-durable/src/change_envelope.rs:157",
-        "crates/eg-durable/src/change_envelope.rs:176"
+        "crates/medulla-durable/src/change_envelope.rs:113",
+        "crates/medulla-durable/src/change_envelope.rs:126",
+        "crates/medulla-durable/src/change_envelope.rs:141",
+        "crates/medulla-durable/src/change_envelope.rs:157",
+        "crates/medulla-durable/src/change_envelope.rs:176"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R007.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R007.1",
       "title": "`DialectPushdownCapabilities` declares a dialect's supported pushdown operations, refusing an unknown operation name",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -587,107 +587,107 @@
         "e8695518196e"
       ],
       "verified_by": [
-        "crates/eg-plan/src/federation_capabilities.rs:106",
-        "crates/eg-plan/src/federation_capabilities.rs:71",
-        "crates/eg-plan/src/federation_capabilities.rs:85",
-        "crates/eg-plan/src/federation_capabilities.rs:92"
+        "crates/medulla-plan/src/federation_capabilities.rs:106",
+        "crates/medulla-plan/src/federation_capabilities.rs:71",
+        "crates/medulla-plan/src/federation_capabilities.rs:85",
+        "crates/medulla-plan/src/federation_capabilities.rs:92"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R009",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R009",
       "title": "Drive consumers from change capture idempotently",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "79ba71d072a5"
       ],
       "verified_by": [
-        "crates/eg-durable/src/idempotent_consumer.rs:60",
-        "crates/eg-durable/src/idempotent_consumer.rs:66",
-        "crates/eg-durable/src/idempotent_consumer.rs:74",
-        "crates/eg-durable/src/idempotent_consumer.rs:82"
+        "crates/medulla-durable/src/idempotent_consumer.rs:60",
+        "crates/medulla-durable/src/idempotent_consumer.rs:66",
+        "crates/medulla-durable/src/idempotent_consumer.rs:74",
+        "crates/medulla-durable/src/idempotent_consumer.rs:82"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R009.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R009.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R010",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R010",
       "title": "Maintain an accelerated local copy of attached data",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "343ebb9c7c6a"
       ],
       "verified_by": [
-        "crates/eg-lake/src/acceleration_policy.rs:110",
-        "crates/eg-lake/src/acceleration_policy.rs:72",
-        "crates/eg-lake/src/acceleration_policy.rs:83",
-        "crates/eg-lake/src/acceleration_policy.rs:94"
+        "crates/medulla-lake/src/acceleration_policy.rs:110",
+        "crates/medulla-lake/src/acceleration_policy.rs:72",
+        "crates/medulla-lake/src/acceleration_policy.rs:83",
+        "crates/medulla-lake/src/acceleration_policy.rs:94"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R010.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R010.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R010.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R010.1",
       "title": "`ReplicaRefreshPolicy` is a typed per-table policy, refusing a declaration its own verification could never check",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "343ebb9c7c6a"
       ],
       "verified_by": [
-        "crates/eg-lake/src/acceleration_policy.rs:110",
-        "crates/eg-lake/src/acceleration_policy.rs:72",
-        "crates/eg-lake/src/acceleration_policy.rs:83",
-        "crates/eg-lake/src/acceleration_policy.rs:94"
+        "crates/medulla-lake/src/acceleration_policy.rs:110",
+        "crates/medulla-lake/src/acceleration_policy.rs:72",
+        "crates/medulla-lake/src/acceleration_policy.rs:83",
+        "crates/medulla-lake/src/acceleration_policy.rs:94"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R009.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R009.1",
       "title": "`ConsumerCheckpoint` applies an incoming position idempotently, refusing an unnamed consumer",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "79ba71d072a5"
       ],
       "verified_by": [
-        "crates/eg-durable/src/idempotent_consumer.rs:60",
-        "crates/eg-durable/src/idempotent_consumer.rs:66",
-        "crates/eg-durable/src/idempotent_consumer.rs:74",
-        "crates/eg-durable/src/idempotent_consumer.rs:82"
+        "crates/medulla-durable/src/idempotent_consumer.rs:60",
+        "crates/medulla-durable/src/idempotent_consumer.rs:66",
+        "crates/medulla-durable/src/idempotent_consumer.rs:74",
+        "crates/medulla-durable/src/idempotent_consumer.rs:82"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R011",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R011",
       "title": "Route queries by freshness across native, live, and accelerated paths",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "bff86f252aa4"
       ],
       "verified_by": [
-        "crates/eg-plan/src/freshness_router.rs:72",
-        "crates/eg-plan/src/freshness_router.rs:79",
-        "crates/eg-plan/src/freshness_router.rs:85",
-        "crates/eg-plan/src/freshness_router.rs:91"
+        "crates/medulla-plan/src/freshness_router.rs:72",
+        "crates/medulla-plan/src/freshness_router.rs:79",
+        "crates/medulla-plan/src/freshness_router.rs:85",
+        "crates/medulla-plan/src/freshness_router.rs:91"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R011.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R011.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R011.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R011.1",
       "title": "`ReadYourWritesWait` is a bounded timeout, refusing a zero (unbounded) declaration; `FreshnessRoute` names exactly the three tiers",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "bff86f252aa4"
       ],
       "verified_by": [
-        "crates/eg-plan/src/freshness_router.rs:72",
-        "crates/eg-plan/src/freshness_router.rs:79",
-        "crates/eg-plan/src/freshness_router.rs:85",
-        "crates/eg-plan/src/freshness_router.rs:91"
+        "crates/medulla-plan/src/freshness_router.rs:72",
+        "crates/medulla-plan/src/freshness_router.rs:79",
+        "crates/medulla-plan/src/freshness_router.rs:85",
+        "crates/medulla-plan/src/freshness_router.rs:91"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R012",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R012",
       "title": "Govern write-back to attached sources",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -695,33 +695,33 @@
         "d0a69c4685f5"
       ],
       "verified_by": [
-        "crates/eg-types/src/attached_source_governance.rs:109",
-        "crates/eg-types/src/attached_source_governance.rs:120",
-        "crates/eg-types/src/attached_source_governance.rs:131",
-        "crates/eg-types/src/attached_source_governance.rs:142",
-        "crates/eg-types/src/attached_source_governance.rs:92"
+        "crates/medulla-types/src/attached_source_governance.rs:109",
+        "crates/medulla-types/src/attached_source_governance.rs:120",
+        "crates/medulla-types/src/attached_source_governance.rs:131",
+        "crates/medulla-types/src/attached_source_governance.rs:142",
+        "crates/medulla-types/src/attached_source_governance.rs:92"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R012.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R012.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R012.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R012.1",
       "title": "Typed model for attached-source write-back governance, proved by refusal tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "d0a69c4685f5"
       ],
       "verified_by": [
-        "crates/eg-types/src/attached_source_governance.rs:109",
-        "crates/eg-types/src/attached_source_governance.rs:120",
-        "crates/eg-types/src/attached_source_governance.rs:131",
-        "crates/eg-types/src/attached_source_governance.rs:142",
-        "crates/eg-types/src/attached_source_governance.rs:92"
+        "crates/medulla-types/src/attached_source_governance.rs:109",
+        "crates/medulla-types/src/attached_source_governance.rs:120",
+        "crates/medulla-types/src/attached_source_governance.rs:131",
+        "crates/medulla-types/src/attached_source_governance.rs:142",
+        "crates/medulla-types/src/attached_source_governance.rs:92"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R013",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R013",
       "title": "Implement the Postgres attached-source adapter",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -730,11 +730,11 @@
         "7e1e46d27f42"
       ],
       "verified_by": [
-        "crates/eg-types/src/postgres_adapter.rs:205"
+        "crates/medulla-types/src/postgres_adapter.rs:205"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R014",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R014",
       "title": "MySQL and MariaDB attached-source adapters (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -742,12 +742,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R014.1",
-        "EG-UNIFIED-DATA-PLANE-R014.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R014.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R014.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R014.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R014.1",
       "title": "Typed MySQL/MariaDB dialect-entry model (producer-first split of R014)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -755,46 +755,46 @@
         "3dd56fe53283"
       ],
       "verified_by": [
-        "crates/eg-types/src/attached_source_dialect.rs:127",
-        "crates/eg-types/src/attached_source_dialect.rs:146",
-        "crates/eg-types/src/attached_source_dialect.rs:96"
+        "crates/medulla-types/src/attached_source_dialect.rs:127",
+        "crates/medulla-types/src/attached_source_dialect.rs:146",
+        "crates/medulla-types/src/attached_source_dialect.rs:96"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R014.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R014.2",
       "title": "Live MySQL and MariaDB connection, catalog and type map (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R014.2.1",
-        "EG-UNIFIED-DATA-PLANE-R014.2.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R014.2.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R014.2.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R014.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R014.2.1",
       "title": "MySQL/MariaDB adapter skeleton: typed connection-config → driver-config mapping plus the connect/refusal path",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "6b382bb1a3ec"
       ],
       "verified_by": [
-        "crates/eg-types/src/mysql_mariadb_connection.rs:107",
-        "crates/eg-types/src/mysql_mariadb_connection.rs:119",
-        "crates/eg-types/src/mysql_mariadb_connection.rs:130",
-        "crates/eg-types/src/mysql_mariadb_connection.rs:141",
-        "crates/eg-types/src/mysql_mariadb_connection.rs:152"
+        "crates/medulla-types/src/mysql_mariadb_connection.rs:107",
+        "crates/medulla-types/src/mysql_mariadb_connection.rs:119",
+        "crates/medulla-types/src/mysql_mariadb_connection.rs:130",
+        "crates/medulla-types/src/mysql_mariadb_connection.rs:141",
+        "crates/medulla-types/src/mysql_mariadb_connection.rs:152"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R014.2.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R014.2.2",
       "title": "Live MySQL and MariaDB catalog read and type map",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R015",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R015",
       "title": "SQLite file attached-source adapter (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -802,12 +802,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R015.1",
-        "EG-UNIFIED-DATA-PLANE-R015.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R015.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R015.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R015.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R015.1",
       "title": "`SqliteSourceCatalog` is a typed catalog model with a WITHOUT-ROWID capture-safety refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -815,74 +815,74 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/sqlite_attached_catalog.rs:130",
-        "crates/eg-types/src/sqlite_attached_catalog.rs:147",
-        "crates/eg-types/src/sqlite_attached_catalog.rs:159",
-        "crates/eg-types/src/sqlite_attached_catalog.rs:171",
-        "crates/eg-types/src/sqlite_attached_catalog.rs:186"
+        "crates/medulla-types/src/sqlite_attached_catalog.rs:130",
+        "crates/medulla-types/src/sqlite_attached_catalog.rs:147",
+        "crates/medulla-types/src/sqlite_attached_catalog.rs:159",
+        "crates/medulla-types/src/sqlite_attached_catalog.rs:171",
+        "crates/medulla-types/src/sqlite_attached_catalog.rs:186"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R015.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R015.2",
       "title": "Lock-safe live attach and watermark capture (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R015.2.1",
-        "EG-UNIFIED-DATA-PLANE-R015.2.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R015.2.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R015.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R015.2.1",
       "title": "SQLite live-attach adapter skeleton: typed attach-config → driver-open-config mapping plus the refusal path",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "6b382bb1a3ec"
       ],
       "verified_by": [
-        "crates/eg-types/src/sqlite_live_attach.rs:102",
-        "crates/eg-types/src/sqlite_live_attach.rs:113",
-        "crates/eg-types/src/sqlite_live_attach.rs:124",
-        "crates/eg-types/src/sqlite_live_attach.rs:84",
-        "crates/eg-types/src/sqlite_live_attach.rs:95"
+        "crates/medulla-types/src/sqlite_live_attach.rs:102",
+        "crates/medulla-types/src/sqlite_live_attach.rs:113",
+        "crates/medulla-types/src/sqlite_live_attach.rs:124",
+        "crates/medulla-types/src/sqlite_live_attach.rs:84",
+        "crates/medulla-types/src/sqlite_live_attach.rs:95"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R015.2.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2",
       "title": "Live SQLite read and watermark capture (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R015.2.2.1",
-        "EG-UNIFIED-DATA-PLANE-R015.2.2.2",
-        "EG-UNIFIED-DATA-PLANE-R015.2.2.3"
+        "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.3"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R015.2.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.1",
       "title": "Lock-free WAL snapshot reader",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R015.2.2.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.2",
       "title": "Watermark polling into change envelopes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R015.2.2.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.3",
       "title": "Register, read and conformance for a SQLite file source",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R016",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R016",
       "title": "SQL Server attached source through a connector (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -891,19 +891,19 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/mssql_attached_catalog.rs:119",
-        "crates/eg-types/src/mssql_attached_catalog.rs:132",
-        "crates/eg-types/src/mssql_attached_catalog.rs:141",
-        "crates/eg-types/src/mssql_attached_catalog.rs:147",
-        "crates/eg-types/src/mssql_attached_catalog.rs:153"
+        "crates/medulla-types/src/mssql_attached_catalog.rs:119",
+        "crates/medulla-types/src/mssql_attached_catalog.rs:132",
+        "crates/medulla-types/src/mssql_attached_catalog.rs:141",
+        "crates/medulla-types/src/mssql_attached_catalog.rs:147",
+        "crates/medulla-types/src/mssql_attached_catalog.rs:153"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R016.1",
-        "EG-UNIFIED-DATA-PLANE-R016.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R016.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R016.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R016.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R016.1",
       "title": "`MssqlSourceCatalog` is a typed catalog model with a bracket-quoting identifier refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -911,49 +911,49 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/mssql_attached_catalog.rs:119",
-        "crates/eg-types/src/mssql_attached_catalog.rs:132",
-        "crates/eg-types/src/mssql_attached_catalog.rs:141",
-        "crates/eg-types/src/mssql_attached_catalog.rs:147",
-        "crates/eg-types/src/mssql_attached_catalog.rs:153"
+        "crates/medulla-types/src/mssql_attached_catalog.rs:119",
+        "crates/medulla-types/src/mssql_attached_catalog.rs:132",
+        "crates/medulla-types/src/mssql_attached_catalog.rs:141",
+        "crates/medulla-types/src/mssql_attached_catalog.rs:147",
+        "crates/medulla-types/src/mssql_attached_catalog.rs:153"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R016.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R016.2",
       "title": "T-SQL rendering for a connector-served SQL Server source",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "6b382bb1a3ec"
       ],
       "verified_by": [
-        "crates/eg-types/src/mssql_driver_connection.rs:113",
-        "crates/eg-types/src/mssql_driver_connection.rs:124",
-        "crates/eg-types/src/mssql_driver_connection.rs:135",
-        "crates/eg-types/src/mssql_driver_connection.rs:146",
-        "crates/eg-types/src/mssql_driver_connection.rs:157"
+        "crates/medulla-types/src/mssql_driver_connection.rs:113",
+        "crates/medulla-types/src/mssql_driver_connection.rs:124",
+        "crates/medulla-types/src/mssql_driver_connection.rs:135",
+        "crates/medulla-types/src/mssql_driver_connection.rs:146",
+        "crates/medulla-types/src/mssql_driver_connection.rs:157"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R016.2.1",
-        "EG-UNIFIED-DATA-PLANE-R016.2.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R016.2.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R016.2.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R016.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R016.2.1",
       "title": "MSSQL adapter skeleton: typed connection-config → tiberius-shaped driver-config mapping plus the connect/refusal path",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "6b382bb1a3ec"
       ],
       "verified_by": [
-        "crates/eg-types/src/mssql_driver_connection.rs:113",
-        "crates/eg-types/src/mssql_driver_connection.rs:124",
-        "crates/eg-types/src/mssql_driver_connection.rs:135",
-        "crates/eg-types/src/mssql_driver_connection.rs:146",
-        "crates/eg-types/src/mssql_driver_connection.rs:157"
+        "crates/medulla-types/src/mssql_driver_connection.rs:113",
+        "crates/medulla-types/src/mssql_driver_connection.rs:124",
+        "crates/medulla-types/src/mssql_driver_connection.rs:135",
+        "crates/medulla-types/src/mssql_driver_connection.rs:146",
+        "crates/medulla-types/src/mssql_driver_connection.rs:157"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R016.2.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R016.2.2",
       "title": "RETIRED: the live SQL Server driver belongs to the SQL connector",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -961,18 +961,18 @@
       "retired_reason": "the live SQL Server driver belongs to the SQL connector"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R017",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R017",
       "title": "ClickHouse attached-source adapter (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R017.1",
-        "EG-UNIFIED-DATA-PLANE-R017.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R017.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R017.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R017.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R017.1",
       "title": "`ClickHouseSourceCatalog` is a typed catalog model whose capture capability is always explicit",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -980,15 +980,15 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/clickhouse_attached_catalog.rs:142",
-        "crates/eg-types/src/clickhouse_attached_catalog.rs:150",
-        "crates/eg-types/src/clickhouse_attached_catalog.rs:159",
-        "crates/eg-types/src/clickhouse_attached_catalog.rs:167",
-        "crates/eg-types/src/clickhouse_attached_catalog.rs:178"
+        "crates/medulla-types/src/clickhouse_attached_catalog.rs:142",
+        "crates/medulla-types/src/clickhouse_attached_catalog.rs:150",
+        "crates/medulla-types/src/clickhouse_attached_catalog.rs:159",
+        "crates/medulla-types/src/clickhouse_attached_catalog.rs:167",
+        "crates/medulla-types/src/clickhouse_attached_catalog.rs:178"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R017.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R017.2",
       "title": "HTTP connection and federated pushdown (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -996,34 +996,34 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R017.2.1",
-        "EG-UNIFIED-DATA-PLANE-R017.2.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R017.2.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R017.2.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R017.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R017.2.1",
       "title": "`ClickHouseDriverConfig` builds from validated host/port/database, and `connect` refuses an unsafe or invalid destination before issuing any request",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "04791f8c77de"
       ],
       "verified_by": [
-        "crates/eg-plan/src/clickhouse_connection.rs:114",
-        "crates/eg-plan/src/clickhouse_connection.rs:124",
-        "crates/eg-plan/src/clickhouse_connection.rs:133",
-        "crates/eg-plan/src/clickhouse_connection.rs:142",
-        "crates/eg-plan/src/clickhouse_connection.rs:151"
+        "crates/medulla-plan/src/clickhouse_connection.rs:114",
+        "crates/medulla-plan/src/clickhouse_connection.rs:124",
+        "crates/medulla-plan/src/clickhouse_connection.rs:133",
+        "crates/medulla-plan/src/clickhouse_connection.rs:142",
+        "crates/medulla-plan/src/clickhouse_connection.rs:151"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R017.2.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R017.2.2",
       "title": "Live ClickHouse HTTP query and pushdown",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R018",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R018",
       "title": "Oracle and Db2 attached sources through a connector (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1034,19 +1034,19 @@
         "f3b6984f260a"
       ],
       "verified_by": [
-        "crates/eg-plan/src/relational_connection.rs:124",
-        "crates/eg-plan/src/relational_connection.rs:143",
-        "crates/eg-plan/src/relational_connection.rs:152",
-        "crates/eg-plan/src/relational_connection.rs:161",
-        "crates/eg-plan/src/relational_connection.rs:170"
+        "crates/medulla-plan/src/relational_connection.rs:124",
+        "crates/medulla-plan/src/relational_connection.rs:143",
+        "crates/medulla-plan/src/relational_connection.rs:152",
+        "crates/medulla-plan/src/relational_connection.rs:161",
+        "crates/medulla-plan/src/relational_connection.rs:170"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R018.1",
-        "EG-UNIFIED-DATA-PLANE-R018.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R018.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R018.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R018.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R018.1",
       "title": "`RelationalSourceCatalog` is a typed Oracle/Db2 catalog model with identifier and Debezium-capture refusals",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1054,15 +1054,15 @@
         "eb058c53407e"
       ],
       "verified_by": [
-        "crates/eg-types/src/relational_attached_catalog.rs:137",
-        "crates/eg-types/src/relational_attached_catalog.rs:147",
-        "crates/eg-types/src/relational_attached_catalog.rs:155",
-        "crates/eg-types/src/relational_attached_catalog.rs:163",
-        "crates/eg-types/src/relational_attached_catalog.rs:173"
+        "crates/medulla-types/src/relational_attached_catalog.rs:137",
+        "crates/medulla-types/src/relational_attached_catalog.rs:147",
+        "crates/medulla-types/src/relational_attached_catalog.rs:155",
+        "crates/medulla-types/src/relational_attached_catalog.rs:163",
+        "crates/medulla-types/src/relational_attached_catalog.rs:173"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R018.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R018.2",
       "title": "Registration gate and dialect entries for Oracle and Db2 (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1070,34 +1070,34 @@
         "f3b6984f260a"
       ],
       "verified_by": [
-        "crates/eg-plan/src/relational_connection.rs:124",
-        "crates/eg-plan/src/relational_connection.rs:143",
-        "crates/eg-plan/src/relational_connection.rs:152",
-        "crates/eg-plan/src/relational_connection.rs:161",
-        "crates/eg-plan/src/relational_connection.rs:170"
+        "crates/medulla-plan/src/relational_connection.rs:124",
+        "crates/medulla-plan/src/relational_connection.rs:143",
+        "crates/medulla-plan/src/relational_connection.rs:152",
+        "crates/medulla-plan/src/relational_connection.rs:161",
+        "crates/medulla-plan/src/relational_connection.rs:170"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R018.2.1",
-        "EG-UNIFIED-DATA-PLANE-R018.2.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R018.2.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R018.2.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R018.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R018.2.1",
       "title": "`RelationalDriverConfig` builds from a validated engine/host/port/service name, and `connect` refuses an unsafe or invalid destination before issuing any request",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "f3b6984f260a"
       ],
       "verified_by": [
-        "crates/eg-plan/src/relational_connection.rs:124",
-        "crates/eg-plan/src/relational_connection.rs:143",
-        "crates/eg-plan/src/relational_connection.rs:152",
-        "crates/eg-plan/src/relational_connection.rs:161",
-        "crates/eg-plan/src/relational_connection.rs:170"
+        "crates/medulla-plan/src/relational_connection.rs:124",
+        "crates/medulla-plan/src/relational_connection.rs:143",
+        "crates/medulla-plan/src/relational_connection.rs:152",
+        "crates/medulla-plan/src/relational_connection.rs:161",
+        "crates/medulla-plan/src/relational_connection.rs:170"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R018.2.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R018.2.2",
       "title": "RETIRED: the live driver and ODBC calls belong to the SQL connector",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -1105,7 +1105,7 @@
       "retired_reason": "the live driver and ODBC calls belong to the SQL connector"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R019",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R019",
       "title": "MongoDB and DocumentDB attached source through a connector",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1116,20 +1116,20 @@
         "bfa5ffcc7228"
       ],
       "verified_by": [
-        "crates/eg-plan/src/document_connection.rs:99",
-        "crates/eg-types/src/document_source_catalog.rs:108",
-        "crates/eg-types/src/document_source_catalog.rs:119",
-        "crates/eg-types/src/document_source_catalog.rs:128",
-        "crates/eg-types/src/document_source_catalog.rs:135"
+        "crates/medulla-plan/src/document_connection.rs:99",
+        "crates/medulla-types/src/document_source_catalog.rs:108",
+        "crates/medulla-types/src/document_source_catalog.rs:119",
+        "crates/medulla-types/src/document_source_catalog.rs:128",
+        "crates/medulla-types/src/document_source_catalog.rs:135"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R019.1",
-        "EG-UNIFIED-DATA-PLANE-R019.2",
-        "EG-UNIFIED-DATA-PLANE-R019.3"
+        "MEDULLA-UNIFIED-DATA-PLANE-R019.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R019.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R019.3"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R019.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R019.1",
       "title": "`DocumentSourceCatalog` is a typed inferred-shape model with a refusal for a malformed field path",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1137,15 +1137,15 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/document_source_catalog.rs:108",
-        "crates/eg-types/src/document_source_catalog.rs:119",
-        "crates/eg-types/src/document_source_catalog.rs:128",
-        "crates/eg-types/src/document_source_catalog.rs:135",
-        "crates/eg-types/src/document_source_catalog.rs:141"
+        "crates/medulla-types/src/document_source_catalog.rs:108",
+        "crates/medulla-types/src/document_source_catalog.rs:119",
+        "crates/medulla-types/src/document_source_catalog.rs:128",
+        "crates/medulla-types/src/document_source_catalog.rs:135",
+        "crates/medulla-types/src/document_source_catalog.rs:141"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R019.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R019.2",
       "title": "Document source registration and shape inference (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1155,26 +1155,26 @@
         "c3b87d31ac11"
       ],
       "verified_by": [
-        "crates/eg-plan/src/document_connection.rs:99"
+        "crates/medulla-plan/src/document_connection.rs:99"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R019.2.1",
-        "EG-UNIFIED-DATA-PLANE-R019.2.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R019.2.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R019.2.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R019.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R019.2.1",
       "title": "`DocumentDriverConfig` builds from a validated host/port/database, and `connect` refuses an unsafe or invalid destination before issuing any request",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "bfa5ffcc7228"
       ],
       "verified_by": [
-        "crates/eg-plan/src/document_connection.rs:99"
+        "crates/medulla-plan/src/document_connection.rs:99"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R019.2.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R019.2.2",
       "title": "RETIRED: the native driver belongs to the documentdb connector",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -1182,7 +1182,7 @@
       "retired_reason": "the native driver belongs to the documentdb connector"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R019.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R019.3",
       "title": "RETIRED: conformance runs belong to the harness",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -1190,22 +1190,22 @@
       "retired_reason": "conformance runs belong to the harness"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R019.3.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R019.3.1",
       "title": "`build_document_conformance_entry` builds a MongoDB/DocumentDB conformance entry with a fixed adapter label, refusing a malformed outcome/deviation shape",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "d6e3cf6232d8"
       ],
       "verified_by": [
-        "crates/eg-types/src/document_conformance.rs:101",
-        "crates/eg-types/src/document_conformance.rs:118",
-        "crates/eg-types/src/document_conformance.rs:65",
-        "crates/eg-types/src/document_conformance.rs:78",
-        "crates/eg-types/src/document_conformance.rs:90"
+        "crates/medulla-types/src/document_conformance.rs:101",
+        "crates/medulla-types/src/document_conformance.rs:118",
+        "crates/medulla-types/src/document_conformance.rs:65",
+        "crates/medulla-types/src/document_conformance.rs:78",
+        "crates/medulla-types/src/document_conformance.rs:90"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R019.3.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R019.3.2",
       "title": "RETIRED: the comparison run belongs to the harness",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -1213,7 +1213,7 @@
       "retired_reason": "the comparison run belongs to the harness"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R020",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R020",
       "title": "Warehouse and lake sources (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1221,13 +1221,13 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R020.1",
-        "EG-UNIFIED-DATA-PLANE-R020.2",
-        "EG-UNIFIED-DATA-PLANE-R020.3"
+        "MEDULLA-UNIFIED-DATA-PLANE-R020.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R020.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R020.3"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R020.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R020.1",
       "title": "`WarehouseSourceKind`/`WarehouseSourceConfig` are a closed source-kind vocabulary with a per-kind required-field refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1235,48 +1235,48 @@
         "74870676b1cc"
       ],
       "verified_by": [
-        "crates/eg-types/src/warehouse_federation.rs:118",
-        "crates/eg-types/src/warehouse_federation.rs:128",
-        "crates/eg-types/src/warehouse_federation.rs:136",
-        "crates/eg-types/src/warehouse_federation.rs:143",
-        "crates/eg-types/src/warehouse_federation.rs:150"
+        "crates/medulla-types/src/warehouse_federation.rs:118",
+        "crates/medulla-types/src/warehouse_federation.rs:128",
+        "crates/medulla-types/src/warehouse_federation.rs:136",
+        "crates/medulla-types/src/warehouse_federation.rs:143",
+        "crates/medulla-types/src/warehouse_federation.rs:150"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R020.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R020.2",
       "title": "Pushdown per kind (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R020.2.1",
-        "EG-UNIFIED-DATA-PLANE-R020.2.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R020.2.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R020.2.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R020.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R020.2.1",
       "title": "`plan_pushdown` decides the Arrow-Flight-SQL-vs-native transport for a validated `WarehouseSourceConfig`, refusing an invalid config or an unmet Flight SQL preference",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "d6e3cf6232d8"
       ],
       "verified_by": [
-        "crates/eg-plan/src/warehouse_pushdown.rs:111",
-        "crates/eg-plan/src/warehouse_pushdown.rs:127",
-        "crates/eg-plan/src/warehouse_pushdown.rs:145",
-        "crates/eg-plan/src/warehouse_pushdown.rs:160",
-        "crates/eg-plan/src/warehouse_pushdown.rs:173"
+        "crates/medulla-plan/src/warehouse_pushdown.rs:111",
+        "crates/medulla-plan/src/warehouse_pushdown.rs:127",
+        "crates/medulla-plan/src/warehouse_pushdown.rs:145",
+        "crates/medulla-plan/src/warehouse_pushdown.rs:160",
+        "crates/medulla-plan/src/warehouse_pushdown.rs:173"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R020.2.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R020.2.2",
       "title": "Live Iceberg and DuckDB pushdown",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R020.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R020.3",
       "title": "RETIRED: conformance runs belong to the harness",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -1284,22 +1284,22 @@
       "retired_reason": "conformance runs belong to the harness"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R020.3.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R020.3.1",
       "title": "`build_warehouse_conformance_entry` builds a warehouse/lake conformance entry whose adapter label is derived from the closed `WarehouseSourceKind`, refusing a blank engine version or a malformed outcome/deviation shape",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "d6e3cf6232d8"
       ],
       "verified_by": [
-        "crates/eg-types/src/warehouse_conformance.rs:102",
-        "crates/eg-types/src/warehouse_conformance.rs:119",
-        "crates/eg-types/src/warehouse_conformance.rs:134",
-        "crates/eg-types/src/warehouse_conformance.rs:151",
-        "crates/eg-types/src/warehouse_conformance.rs:88"
+        "crates/medulla-types/src/warehouse_conformance.rs:102",
+        "crates/medulla-types/src/warehouse_conformance.rs:119",
+        "crates/medulla-types/src/warehouse_conformance.rs:134",
+        "crates/medulla-types/src/warehouse_conformance.rs:151",
+        "crates/medulla-types/src/warehouse_conformance.rs:88"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R020.3.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R020.3.2",
       "title": "RETIRED: the comparison run belongs to the harness",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -1307,7 +1307,7 @@
       "retired_reason": "the comparison run belongs to the harness"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R021",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R021",
       "title": "Bridge Debezium Kafka events into ChangeEnvelope",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1316,20 +1316,20 @@
         "de71b5ddd2b2"
       ],
       "verified_by": [
-        "crates/eg-types/src/debezium_bridge.rs:273",
-        "crates/eg-types/src/debezium_bridge.rs:282",
-        "crates/eg-types/src/debezium_bridge.rs:291",
-        "crates/eg-types/src/debezium_bridge.rs:303",
-        "crates/eg-types/src/debezium_bridge.rs:315"
+        "crates/medulla-types/src/debezium_bridge.rs:273",
+        "crates/medulla-types/src/debezium_bridge.rs:282",
+        "crates/medulla-types/src/debezium_bridge.rs:291",
+        "crates/medulla-types/src/debezium_bridge.rs:303",
+        "crates/medulla-types/src/debezium_bridge.rs:315"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R021.1",
-        "EG-UNIFIED-DATA-PLANE-R021.2",
-        "EG-UNIFIED-DATA-PLANE-R021.3"
+        "MEDULLA-UNIFIED-DATA-PLANE-R021.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R021.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R021.3"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R021.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R021.1",
       "title": "`DebeziumChangeEvent` is a typed envelope shape with an op-code and before/after refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1337,38 +1337,38 @@
         "9cb571fb74aa"
       ],
       "verified_by": [
-        "crates/eg-types/src/debezium_bridge.rs:273",
-        "crates/eg-types/src/debezium_bridge.rs:282",
-        "crates/eg-types/src/debezium_bridge.rs:291",
-        "crates/eg-types/src/debezium_bridge.rs:303",
-        "crates/eg-types/src/debezium_bridge.rs:315"
+        "crates/medulla-types/src/debezium_bridge.rs:273",
+        "crates/medulla-types/src/debezium_bridge.rs:282",
+        "crates/medulla-types/src/debezium_bridge.rs:291",
+        "crates/medulla-types/src/debezium_bridge.rs:303",
+        "crates/medulla-types/src/debezium_bridge.rs:315"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R021.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R021.2",
       "title": "Kafka consumer plus real conversion into ChangeEnvelope records",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "de71b5ddd2b2"
       ],
       "verified_by": [
-        "crates/eg-types/src/debezium_bridge.rs:361",
-        "crates/eg-types/src/debezium_bridge.rs:402"
+        "crates/medulla-types/src/debezium_bridge.rs:361",
+        "crates/medulla-types/src/debezium_bridge.rs:402"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R021.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R021.3",
       "title": "Replay test feeding a captured Debezium event stream through the bridge",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "de71b5ddd2b2"
       ],
       "verified_by": [
-        "crates/eg-types/src/debezium_bridge.rs:417"
+        "crates/medulla-types/src/debezium_bridge.rs:417"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R022",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R022",
       "title": "Per-dialect conformance harness",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1376,14 +1376,14 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R022.1",
-        "EG-UNIFIED-DATA-PLANE-R022.2",
-        "EG-UNIFIED-DATA-PLANE-R022.3",
-        "EG-UNIFIED-DATA-PLANE-R022.4"
+        "MEDULLA-UNIFIED-DATA-PLANE-R022.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R022.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R022.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R022.4"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R022.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R022.1",
       "title": "`DialectConformanceEntry`/`ConformanceReport` are a typed per-engine-version result with a refusal for an auto-suppressed deviation",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1391,79 +1391,79 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/dialect_conformance.rs:147",
-        "crates/eg-types/src/dialect_conformance.rs:159",
-        "crates/eg-types/src/dialect_conformance.rs:171",
-        "crates/eg-types/src/dialect_conformance.rs:186",
-        "crates/eg-types/src/dialect_conformance.rs:201"
+        "crates/medulla-types/src/dialect_conformance.rs:147",
+        "crates/medulla-types/src/dialect_conformance.rs:159",
+        "crates/medulla-types/src/dialect_conformance.rs:171",
+        "crates/medulla-types/src/dialect_conformance.rs:186",
+        "crates/medulla-types/src/dialect_conformance.rs:201"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R022.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R022.2",
       "title": "Matrix manifest and runner entry per engine version",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R022.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R022.3",
       "title": "Change-capture replay comparison (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R022.3.1",
-        "EG-UNIFIED-DATA-PLANE-R022.3.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R022.3.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R022.3.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R022.3.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R022.3.1",
       "title": "`compare_replay_to_snapshot` builds a `DialectConformanceEntry` from a replayed row-state map and a source-snapshot row-state map, refusing a blank engine version",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "a4d1e790a69e"
       ],
       "verified_by": [
-        "crates/eg-types/src/replay_conformance.rs:114",
-        "crates/eg-types/src/replay_conformance.rs:124",
-        "crates/eg-types/src/replay_conformance.rs:82",
-        "crates/eg-types/src/replay_conformance.rs:96"
+        "crates/medulla-types/src/replay_conformance.rs:114",
+        "crates/medulla-types/src/replay_conformance.rs:124",
+        "crates/medulla-types/src/replay_conformance.rs:82",
+        "crates/medulla-types/src/replay_conformance.rs:96"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R022.3.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R022.3.2",
       "title": "Replay stream versus source snapshot",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R022.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R022.4",
       "title": "Source-category coverage matrix",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/dialect_conformance.rs:259"
+        "crates/medulla-types/src/dialect_conformance.rs:259"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R022.4.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R022.4.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R022.4.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R022.4.1",
       "title": "Residency column",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/dialect_conformance.rs:259"
+        "crates/medulla-types/src/dialect_conformance.rs:259"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R023",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R023",
       "title": "RETIRED: the shared relational stack is service-stack work",
       "delivery_state": "RETIRED",
       "landed_in": [
@@ -1473,7 +1473,7 @@
       "retired_reason": "the shared relational stack is service-stack work"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R023.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R023.1",
       "title": "`SharedPlatformClusterGroup` is a typed cluster-group and role-set model with engine-specific refusals",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1481,15 +1481,15 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/shared_db_platform.rs:138",
-        "crates/eg-types/src/shared_db_platform.rs:144",
-        "crates/eg-types/src/shared_db_platform.rs:155",
-        "crates/eg-types/src/shared_db_platform.rs:166",
-        "crates/eg-types/src/shared_db_platform.rs:182"
+        "crates/medulla-types/src/shared_db_platform.rs:138",
+        "crates/medulla-types/src/shared_db_platform.rs:144",
+        "crates/medulla-types/src/shared_db_platform.rs:155",
+        "crates/medulla-types/src/shared_db_platform.rs:166",
+        "crates/medulla-types/src/shared_db_platform.rs:182"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R023.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R023.2",
       "title": "RETIRED: operator wiring and PITR belong to the service stacks",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -1497,23 +1497,23 @@
       "retired_reason": "operator wiring and PITR belong to the service stacks"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R023.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R023.2.1",
       "title": "RETIRED: The PITR schedule contract has no caller",
       "delivery_state": "RETIRED",
       "landed_in": [
         "a4d1e790a69e"
       ],
       "verified_by": [
-        "crates/eg-types/src/pitr_schedule.rs:110",
-        "crates/eg-types/src/pitr_schedule.rs:116",
-        "crates/eg-types/src/pitr_schedule.rs:127",
-        "crates/eg-types/src/pitr_schedule.rs:139",
-        "crates/eg-types/src/pitr_schedule.rs:148"
+        "crates/medulla-types/src/pitr_schedule.rs:110",
+        "crates/medulla-types/src/pitr_schedule.rs:116",
+        "crates/medulla-types/src/pitr_schedule.rs:127",
+        "crates/medulla-types/src/pitr_schedule.rs:139",
+        "crates/medulla-types/src/pitr_schedule.rs:148"
       ],
       "retired_reason": "The PITR schedule contract has no caller"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R023.2.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R023.2.2",
       "title": "RETIRED: operator wiring and PITR belong to the service stacks",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -1521,7 +1521,7 @@
       "retired_reason": "operator wiring and PITR belong to the service stacks"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R023.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R023.3",
       "title": "RETIRED: restore drills belong to the service stacks",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -1529,23 +1529,23 @@
       "retired_reason": "restore drills belong to the service stacks"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R023.3.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R023.3.1",
       "title": "RETIRED: The restore drill result contract has no caller",
       "delivery_state": "RETIRED",
       "landed_in": [
         "a4d1e790a69e"
       ],
       "verified_by": [
-        "crates/eg-types/src/restore_drill.rs:108",
-        "crates/eg-types/src/restore_drill.rs:121",
-        "crates/eg-types/src/restore_drill.rs:134",
-        "crates/eg-types/src/restore_drill.rs:150",
-        "crates/eg-types/src/restore_drill.rs:166"
+        "crates/medulla-types/src/restore_drill.rs:108",
+        "crates/medulla-types/src/restore_drill.rs:121",
+        "crates/medulla-types/src/restore_drill.rs:134",
+        "crates/medulla-types/src/restore_drill.rs:150",
+        "crates/medulla-types/src/restore_drill.rs:166"
       ],
       "retired_reason": "The restore drill result contract has no caller"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R023.3.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R023.3.2",
       "title": "RETIRED: restore drills belong to the service stacks",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -1553,7 +1553,7 @@
       "retired_reason": "restore drills belong to the service stacks"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R024",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R024",
       "title": "Admit applications to the shared platform with rollback",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1562,20 +1562,20 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/platform_admission.rs:232",
-        "crates/eg-types/src/platform_admission.rs:242",
-        "crates/eg-types/src/platform_admission.rs:254",
-        "crates/eg-types/src/platform_admission.rs:262",
-        "crates/eg-types/src/platform_admission.rs:272"
+        "crates/medulla-types/src/platform_admission.rs:232",
+        "crates/medulla-types/src/platform_admission.rs:242",
+        "crates/medulla-types/src/platform_admission.rs:254",
+        "crates/medulla-types/src/platform_admission.rs:262",
+        "crates/medulla-types/src/platform_admission.rs:272"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R024.1",
-        "EG-UNIFIED-DATA-PLANE-R024.2",
-        "EG-UNIFIED-DATA-PLANE-R024.3"
+        "MEDULLA-UNIFIED-DATA-PLANE-R024.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R024.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R024.3"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R024.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R024.1",
       "title": "`ApplicationAdmission` is a typed stage machine refusing early connector retirement",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1583,69 +1583,69 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/platform_admission.rs:232",
-        "crates/eg-types/src/platform_admission.rs:242",
-        "crates/eg-types/src/platform_admission.rs:254",
-        "crates/eg-types/src/platform_admission.rs:262",
-        "crates/eg-types/src/platform_admission.rs:272"
+        "crates/medulla-types/src/platform_admission.rs:232",
+        "crates/medulla-types/src/platform_admission.rs:242",
+        "crates/medulla-types/src/platform_admission.rs:254",
+        "crates/medulla-types/src/platform_admission.rs:262",
+        "crates/medulla-types/src/platform_admission.rs:272"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R024.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R024.2",
       "title": "Admission runner and tested rollback path per candidate application",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "15a7370ecac3"
       ],
       "verified_by": [
-        "crates/eg-types/src/platform_admission.rs:292",
-        "crates/eg-types/src/platform_admission.rs:304",
-        "crates/eg-types/src/platform_admission.rs:317"
+        "crates/medulla-types/src/platform_admission.rs:292",
+        "crates/medulla-types/src/platform_admission.rs:304",
+        "crates/medulla-types/src/platform_admission.rs:317"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R024.2.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R024.2.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R024.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R024.2.1",
       "title": "`AdmissionRunner` drives `ApplicationAdmission` against a pluggable `PriorIngestConnector`, with a tested rollback path",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "15a7370ecac3"
       ],
       "verified_by": [
-        "crates/eg-types/src/platform_admission.rs:292",
-        "crates/eg-types/src/platform_admission.rs:304",
-        "crates/eg-types/src/platform_admission.rs:317"
+        "crates/medulla-types/src/platform_admission.rs:292",
+        "crates/medulla-types/src/platform_admission.rs:304",
+        "crates/medulla-types/src/platform_admission.rs:317"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R024.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R024.3",
       "title": "Per-application admission test confirming rollback and that the retired connector no longer writes",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "15a7370ecac3"
       ],
       "verified_by": [
-        "crates/eg-types/src/platform_admission.rs:352"
+        "crates/medulla-types/src/platform_admission.rs:352"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R024.3.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R024.3.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R024.3.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R024.3.1",
       "title": "One fake-connector admission test per candidate application, confirming rollback and that the retired connector no longer writes",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "15a7370ecac3"
       ],
       "verified_by": [
-        "crates/eg-types/src/platform_admission.rs:352"
+        "crates/medulla-types/src/platform_admission.rs:352"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R025",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R025",
       "title": "RETIRED: the pgrx companion is a second hosting of the engine",
       "delivery_state": "RETIRED",
       "landed_in": [
@@ -1655,7 +1655,7 @@
       "retired_reason": "the pgrx companion is a second hosting of the engine"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R025.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R025.1",
       "title": "RETIRED: The spike decision record has no caller",
       "delivery_state": "RETIRED",
       "landed_in": [
@@ -1663,16 +1663,16 @@
         "e265a52820f5"
       ],
       "verified_by": [
-        "crates/eg-types/src/pgrx_spike.rs:171",
-        "crates/eg-types/src/pgrx_spike.rs:181",
-        "crates/eg-types/src/pgrx_spike.rs:197",
-        "crates/eg-types/src/pgrx_spike.rs:207",
-        "crates/eg-types/src/pgrx_spike.rs:217"
+        "crates/medulla-types/src/pgrx_spike.rs:171",
+        "crates/medulla-types/src/pgrx_spike.rs:181",
+        "crates/medulla-types/src/pgrx_spike.rs:197",
+        "crates/medulla-types/src/pgrx_spike.rs:207",
+        "crates/medulla-types/src/pgrx_spike.rs:217"
       ],
       "retired_reason": "The spike decision record has no caller"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R025.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R025.2",
       "title": "RETIRED: The spike runner is not needed",
       "delivery_state": "RETIRED",
       "landed_in": [
@@ -1682,20 +1682,20 @@
       "retired_reason": "The spike runner is not needed"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R025.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R025.2.1",
       "title": "`run_spike` assembles a `PgrxSpikeDecision` from one evidence source per declared area, deferring to the typed model's full-scope refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "15a7370ecac3"
       ],
       "verified_by": [
-        "crates/eg-types/src/pgrx_spike.rs:229",
-        "crates/eg-types/src/pgrx_spike.rs:242",
-        "crates/eg-types/src/pgrx_spike.rs:257"
+        "crates/medulla-types/src/pgrx_spike.rs:229",
+        "crates/medulla-types/src/pgrx_spike.rs:242",
+        "crates/medulla-types/src/pgrx_spike.rs:257"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R025.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R025.3",
       "title": "RETIRED: the pgrx companion is a second hosting of the engine",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -1703,22 +1703,22 @@
       "retired_reason": "the pgrx companion is a second hosting of the engine"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R025.3.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R025.3.1",
       "title": "Review skeleton: typed review request → approved ADR mapping plus the refusal path",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "04347dc35255"
       ],
       "verified_by": [
-        "crates/eg-types/src/pgrx_spike_review.rs:106",
-        "crates/eg-types/src/pgrx_spike_review.rs:119",
-        "crates/eg-types/src/pgrx_spike_review.rs:130",
-        "crates/eg-types/src/pgrx_spike_review.rs:141",
-        "crates/eg-types/src/pgrx_spike_review.rs:97"
+        "crates/medulla-types/src/pgrx_spike_review.rs:106",
+        "crates/medulla-types/src/pgrx_spike_review.rs:119",
+        "crates/medulla-types/src/pgrx_spike_review.rs:130",
+        "crates/medulla-types/src/pgrx_spike_review.rs:141",
+        "crates/medulla-types/src/pgrx_spike_review.rs:97"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R025.3.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R025.3.2",
       "title": "RETIRED: the pgrx companion is a second hosting of the engine",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -1726,7 +1726,7 @@
       "retired_reason": "the pgrx companion is a second hosting of the engine"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R026",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R026",
       "title": "Native-hosting gate P0 to P5 on a synthetic fixture (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1734,14 +1734,14 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R026.1",
-        "EG-UNIFIED-DATA-PLANE-R026.2",
-        "EG-UNIFIED-DATA-PLANE-R026.3",
-        "EG-UNIFIED-DATA-PLANE-R026.4"
+        "MEDULLA-UNIFIED-DATA-PLANE-R026.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R026.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R026.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R026.4"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R026.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.1",
       "title": "`GrampsPilotProgress` is a typed P0-P5 phase gate refusing a wrong, unreviewed, or out-of-order exit",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1751,81 +1751,81 @@
         "eb058c53407e"
       ],
       "verified_by": [
-        "crates/eg-types/src/gramps_pilot_phase.rs:151",
-        "crates/eg-types/src/gramps_pilot_phase.rs:157",
-        "crates/eg-types/src/gramps_pilot_phase.rs:168",
-        "crates/eg-types/src/gramps_pilot_phase.rs:176",
-        "crates/eg-types/src/gramps_pilot_phase.rs:185"
+        "crates/medulla-types/src/gramps_pilot_phase.rs:151",
+        "crates/medulla-types/src/gramps_pilot_phase.rs:157",
+        "crates/medulla-types/src/gramps_pilot_phase.rs:168",
+        "crates/medulla-types/src/gramps_pilot_phase.rs:176",
+        "crates/medulla-types/src/gramps_pilot_phase.rs:185"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R026.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.2",
       "title": "Phases P0 to P2 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R026.2.1",
-        "EG-UNIFIED-DATA-PLANE-R026.2.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R026.2.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R026.2.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R026.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.2.1",
       "title": "P0 adapter skeleton: typed baseline-digest → P0 phase-exit mapping plus the refusal path",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "04347dc35255"
       ],
       "verified_by": [
-        "crates/eg-types/src/gramps_baseline_digest.rs:100",
-        "crates/eg-types/src/gramps_baseline_digest.rs:111",
-        "crates/eg-types/src/gramps_baseline_digest.rs:121",
-        "crates/eg-types/src/gramps_baseline_digest.rs:78",
-        "crates/eg-types/src/gramps_baseline_digest.rs:89"
+        "crates/medulla-types/src/gramps_baseline_digest.rs:100",
+        "crates/medulla-types/src/gramps_baseline_digest.rs:111",
+        "crates/medulla-types/src/gramps_baseline_digest.rs:121",
+        "crates/medulla-types/src/gramps_baseline_digest.rs:78",
+        "crates/medulla-types/src/gramps_baseline_digest.rs:89"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R026.2.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.2.2",
       "title": "Live P0 to P2 on the synthetic fixture",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R026.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.3",
       "title": "Phases P3 to P5 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R026.3.1",
-        "EG-UNIFIED-DATA-PLANE-R026.3.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R026.3.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R026.3.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R026.3.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.3.1",
       "title": "P3 adapter skeleton: typed proven-gap-fix → P3 phase-exit mapping plus the refusal path",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "04347dc35255"
       ],
       "verified_by": [
-        "crates/eg-types/src/gramps_gap_fix.rs:105",
-        "crates/eg-types/src/gramps_gap_fix.rs:116",
-        "crates/eg-types/src/gramps_gap_fix.rs:127",
-        "crates/eg-types/src/gramps_gap_fix.rs:138",
-        "crates/eg-types/src/gramps_gap_fix.rs:148"
+        "crates/medulla-types/src/gramps_gap_fix.rs:105",
+        "crates/medulla-types/src/gramps_gap_fix.rs:116",
+        "crates/medulla-types/src/gramps_gap_fix.rs:127",
+        "crates/medulla-types/src/gramps_gap_fix.rs:138",
+        "crates/medulla-types/src/gramps_gap_fix.rs:148"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R026.3.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.3.2",
       "title": "Live P4 restore and P5 schema understanding",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R027",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R027",
       "title": "Fix Postgres compatibility gaps proven by captured traffic",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1834,20 +1834,20 @@
         "e8b99c7db914"
       ],
       "verified_by": [
-        "crates/eg-types/src/pg_compat_feature.rs:193",
-        "crates/eg-types/src/pg_compat_feature.rs:204",
-        "crates/eg-types/src/pg_compat_feature.rs:215",
-        "crates/eg-types/src/pg_compat_feature.rs:228",
-        "crates/eg-types/src/pg_compat_feature.rs:240"
+        "crates/medulla-types/src/pg_compat_feature.rs:193",
+        "crates/medulla-types/src/pg_compat_feature.rs:204",
+        "crates/medulla-types/src/pg_compat_feature.rs:215",
+        "crates/medulla-types/src/pg_compat_feature.rs:228",
+        "crates/medulla-types/src/pg_compat_feature.rs:240"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R027.1",
-        "EG-UNIFIED-DATA-PLANE-R027.2",
-        "EG-UNIFIED-DATA-PLANE-R027.3"
+        "MEDULLA-UNIFIED-DATA-PLANE-R027.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R027.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R027.3"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R027.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R027.1",
       "title": "`FeatureFixRecord` is a typed inventory entry refusing a fix without complete captured-traffic/test proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1855,71 +1855,71 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/pg_compat_feature.rs:193",
-        "crates/eg-types/src/pg_compat_feature.rs:204",
-        "crates/eg-types/src/pg_compat_feature.rs:215",
-        "crates/eg-types/src/pg_compat_feature.rs:228",
-        "crates/eg-types/src/pg_compat_feature.rs:240"
+        "crates/medulla-types/src/pg_compat_feature.rs:193",
+        "crates/medulla-types/src/pg_compat_feature.rs:204",
+        "crates/medulla-types/src/pg_compat_feature.rs:215",
+        "crates/medulla-types/src/pg_compat_feature.rs:228",
+        "crates/medulla-types/src/pg_compat_feature.rs:240"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R027.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R027.2",
       "title": "Capture application traffic per feature and record the proof reference",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "e8b99c7db914"
       ],
       "verified_by": [
-        "crates/eg-types/src/pg_compat_feature.rs:262",
-        "crates/eg-types/src/pg_compat_feature.rs:272",
-        "crates/eg-types/src/pg_compat_feature.rs:280"
+        "crates/medulla-types/src/pg_compat_feature.rs:262",
+        "crates/medulla-types/src/pg_compat_feature.rs:272",
+        "crates/medulla-types/src/pg_compat_feature.rs:280"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R027.2.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R027.2.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R027.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R027.2.1",
       "title": "`capture_feature_fix` assembles a `FeatureFixRecord` from a pluggable `TrafficCaptureSource`, refusing an unproven or incomplete capture",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "e8b99c7db914"
       ],
       "verified_by": [
-        "crates/eg-types/src/pg_compat_feature.rs:262",
-        "crates/eg-types/src/pg_compat_feature.rs:272",
-        "crates/eg-types/src/pg_compat_feature.rs:280"
+        "crates/medulla-types/src/pg_compat_feature.rs:262",
+        "crates/medulla-types/src/pg_compat_feature.rs:272",
+        "crates/medulla-types/src/pg_compat_feature.rs:280"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R027.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R027.3",
       "title": "Implement each proven feature with its failing-then-passing test",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "e8b99c7db914"
       ],
       "verified_by": [
-        "crates/eg-types/src/pg_compat_feature.rs:295",
-        "crates/eg-types/src/pg_compat_feature.rs:311"
+        "crates/medulla-types/src/pg_compat_feature.rs:295",
+        "crates/medulla-types/src/pg_compat_feature.rs:311"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R027.3.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R027.3.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R027.3.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R027.3.1",
       "title": "`apply_proven_fix` applies a feature's fix only once its record is proven fixed, refusing -- without invoking the fix -- an unproven record",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "e8b99c7db914"
       ],
       "verified_by": [
-        "crates/eg-types/src/pg_compat_feature.rs:295",
-        "crates/eg-types/src/pg_compat_feature.rs:311"
+        "crates/medulla-types/src/pg_compat_feature.rs:295",
+        "crates/medulla-types/src/pg_compat_feature.rs:311"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R028",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R028",
       "title": "Postgres-equivalence differential harness",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1928,20 +1928,20 @@
         "e8b99c7db914"
       ],
       "verified_by": [
-        "crates/eg-types/src/pg_diff_baseline.rs:141",
-        "crates/eg-types/src/pg_diff_baseline.rs:149",
-        "crates/eg-types/src/pg_diff_baseline.rs:157",
-        "crates/eg-types/src/pg_diff_baseline.rs:166",
-        "crates/eg-types/src/pg_diff_baseline.rs:177"
+        "crates/medulla-types/src/pg_diff_baseline.rs:141",
+        "crates/medulla-types/src/pg_diff_baseline.rs:149",
+        "crates/medulla-types/src/pg_diff_baseline.rs:157",
+        "crates/medulla-types/src/pg_diff_baseline.rs:166",
+        "crates/medulla-types/src/pg_diff_baseline.rs:177"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R028.1",
-        "EG-UNIFIED-DATA-PLANE-R028.2",
-        "EG-UNIFIED-DATA-PLANE-R028.3"
+        "MEDULLA-UNIFIED-DATA-PLANE-R028.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R028.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R028.3"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R028.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R028.1",
       "title": "`DeviationBaseline::reconcile` refuses a baseline update that drops a deviation without an explicit resolution",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1949,44 +1949,44 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/pg_diff_baseline.rs:141",
-        "crates/eg-types/src/pg_diff_baseline.rs:149",
-        "crates/eg-types/src/pg_diff_baseline.rs:157",
-        "crates/eg-types/src/pg_diff_baseline.rs:166",
-        "crates/eg-types/src/pg_diff_baseline.rs:177"
+        "crates/medulla-types/src/pg_diff_baseline.rs:141",
+        "crates/medulla-types/src/pg_diff_baseline.rs:149",
+        "crates/medulla-types/src/pg_diff_baseline.rs:157",
+        "crates/medulla-types/src/pg_diff_baseline.rs:166",
+        "crates/medulla-types/src/pg_diff_baseline.rs:177"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R028.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R028.2",
       "title": "Run the Postgres regression suite and generated metamorphic query corpora against Medulla",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "e8b99c7db914"
       ],
       "verified_by": [
-        "crates/eg-types/src/pg_diff_baseline.rs:210",
-        "crates/eg-types/src/pg_diff_baseline.rs:233",
-        "crates/eg-types/src/pg_diff_baseline.rs:245"
+        "crates/medulla-types/src/pg_diff_baseline.rs:210",
+        "crates/medulla-types/src/pg_diff_baseline.rs:233",
+        "crates/medulla-types/src/pg_diff_baseline.rs:245"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R028.2.1"
+        "MEDULLA-UNIFIED-DATA-PLANE-R028.2.1"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R028.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R028.2.1",
       "title": "`run_differential_harness` assembles a run's `DeviationBaseline` from one evaluator per declared corpus source and reconciles it against the prior baseline",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "e8b99c7db914"
       ],
       "verified_by": [
-        "crates/eg-types/src/pg_diff_baseline.rs:210",
-        "crates/eg-types/src/pg_diff_baseline.rs:233",
-        "crates/eg-types/src/pg_diff_baseline.rs:245"
+        "crates/medulla-types/src/pg_diff_baseline.rs:210",
+        "crates/medulla-types/src/pg_diff_baseline.rs:233",
+        "crates/medulla-types/src/pg_diff_baseline.rs:245"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R028.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R028.3",
       "title": "RETIRED: the captured traffic corpus is the P1 and P2 corpus",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -1994,7 +1994,7 @@
       "retired_reason": "the captured traffic corpus is the P1 and P2 corpus"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R029",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R029",
       "title": "Expose a schema_context query surface",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2004,19 +2004,19 @@
         "efcab03c2fa8"
       ],
       "verified_by": [
-        "crates/eg-types/src/schema_context.rs:146",
-        "crates/eg-types/src/schema_context.rs:156",
-        "crates/eg-types/src/schema_context.rs:163",
-        "crates/eg-types/src/schema_context.rs:170",
-        "crates/eg-types/src/schema_context.rs:179"
+        "crates/medulla-types/src/schema_context.rs:146",
+        "crates/medulla-types/src/schema_context.rs:156",
+        "crates/medulla-types/src/schema_context.rs:163",
+        "crates/medulla-types/src/schema_context.rs:170",
+        "crates/medulla-types/src/schema_context.rs:179"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R029.1",
-        "EG-UNIFIED-DATA-PLANE-R029.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R029.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R029.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R029.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R029.1",
       "title": "`SchemaContextCatalog::schema_context` is a typed answer lookup refusing an unknown table",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2024,14 +2024,14 @@
         "d9b702c9e7e2"
       ],
       "verified_by": [
-        "crates/eg-types/src/schema_context.rs:146",
-        "crates/eg-types/src/schema_context.rs:156",
-        "crates/eg-types/src/schema_context.rs:163",
-        "crates/eg-types/src/schema_context.rs:170"
+        "crates/medulla-types/src/schema_context.rs:146",
+        "crates/medulla-types/src/schema_context.rs:156",
+        "crates/medulla-types/src/schema_context.rs:163",
+        "crates/medulla-types/src/schema_context.rs:170"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R029.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R029.2",
       "title": "Wire the schema_context entry point through the served query path",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2039,12 +2039,12 @@
         "efcab03c2fa8"
       ],
       "verified_by": [
-        "crates/eg-types/src/schema_context.rs:179",
-        "crates/eg-types/src/schema_context.rs:202"
+        "crates/medulla-types/src/schema_context.rs:179",
+        "crates/medulla-types/src/schema_context.rs:202"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R030",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R030",
       "title": "Cross-application entity link proposals",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -2052,15 +2052,15 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R030.1",
-        "EG-UNIFIED-DATA-PLANE-R030.2",
-        "EG-UNIFIED-DATA-PLANE-R030.3",
-        "EG-UNIFIED-DATA-PLANE-R030.700",
-        "EG-UNIFIED-DATA-PLANE-R030.701"
+        "MEDULLA-UNIFIED-DATA-PLANE-R030.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R030.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R030.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R030.700",
+        "MEDULLA-UNIFIED-DATA-PLANE-R030.701"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R030.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R030.1",
       "title": "`EntityLinkProposal::assert_same_as` refuses an unapproved or non-Match candidate",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2068,48 +2068,48 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/entity_link_proposal.rs:129",
-        "crates/eg-types/src/entity_link_proposal.rs:136",
-        "crates/eg-types/src/entity_link_proposal.rs:143",
-        "crates/eg-types/src/entity_link_proposal.rs:150",
-        "crates/eg-types/src/entity_link_proposal.rs:157"
+        "crates/medulla-types/src/entity_link_proposal.rs:129",
+        "crates/medulla-types/src/entity_link_proposal.rs:136",
+        "crates/medulla-types/src/entity_link_proposal.rs:143",
+        "crates/medulla-types/src/entity_link_proposal.rs:150",
+        "crates/medulla-types/src/entity_link_proposal.rs:157"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R030.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R030.2",
       "title": "Blocking and field-similarity candidate generation across Gramps/Immich/Twenty/Firefly",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/entity_resolution.rs:368"
+        "crates/medulla-types/src/entity_resolution.rs:368"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R030.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R030.3",
       "title": "Real Fellegi-Sunter scoring and the approval workflow",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/entity_resolution.rs:385"
+        "crates/medulla-types/src/entity_resolution.rs:385"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R031",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R031",
       "title": "Consolidation safety across attached applications (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R031.1",
-        "EG-UNIFIED-DATA-PLANE-R031.2"
+        "MEDULLA-UNIFIED-DATA-PLANE-R031.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R031.2"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R031.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R031.1",
       "title": "`ApplicationAdmission`/`ConsolidationIsolationRegistry` are a typed admission model with identity and quota refusals",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2117,22 +2117,22 @@
         "eb058c53407e"
       ],
       "verified_by": [
-        "crates/eg-types/src/consolidation_isolation.rs:160",
-        "crates/eg-types/src/consolidation_isolation.rs:170",
-        "crates/eg-types/src/consolidation_isolation.rs:178",
-        "crates/eg-types/src/consolidation_isolation.rs:193",
-        "crates/eg-types/src/consolidation_isolation.rs:206"
+        "crates/medulla-types/src/consolidation_isolation.rs:160",
+        "crates/medulla-types/src/consolidation_isolation.rs:170",
+        "crates/medulla-types/src/consolidation_isolation.rs:178",
+        "crates/medulla-types/src/consolidation_isolation.rs:193",
+        "crates/medulla-types/src/consolidation_isolation.rs:206"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R031.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R031.2",
       "title": "Per-source quota metering and fault isolation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R032",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R032",
       "title": "RETIRED: the connector pilot belongs to the connector repository",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2140,7 +2140,7 @@
       "retired_reason": "the connector pilot belongs to the connector repository"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R032.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R032.1",
       "title": "RETIRED: The typed `immich_pilot_phase` model has no caller",
       "delivery_state": "RETIRED",
       "landed_in": [
@@ -2148,16 +2148,16 @@
         "eb058c53407e"
       ],
       "verified_by": [
-        "crates/eg-types/src/immich_pilot_phase.rs:158",
-        "crates/eg-types/src/immich_pilot_phase.rs:167",
-        "crates/eg-types/src/immich_pilot_phase.rs:178",
-        "crates/eg-types/src/immich_pilot_phase.rs:186",
-        "crates/eg-types/src/immich_pilot_phase.rs:198"
+        "crates/medulla-types/src/immich_pilot_phase.rs:158",
+        "crates/medulla-types/src/immich_pilot_phase.rs:167",
+        "crates/medulla-types/src/immich_pilot_phase.rs:178",
+        "crates/medulla-types/src/immich_pilot_phase.rs:186",
+        "crates/medulla-types/src/immich_pilot_phase.rs:198"
       ],
       "retired_reason": "The typed `immich_pilot_phase` model has no caller"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R032.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R032.2",
       "title": "RETIRED: client generation belongs to the connector scaffold",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2165,7 +2165,7 @@
       "retired_reason": "client generation belongs to the connector scaffold"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R033",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R033",
       "title": "RETIRED: a synced replica is a second database",
       "delivery_state": "RETIRED",
       "landed_in": [
@@ -2175,7 +2175,7 @@
       "retired_reason": "a synced replica is a second database"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R033.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R033.1",
       "title": "RETIRED: The cutover gate model has no caller",
       "delivery_state": "RETIRED",
       "landed_in": [
@@ -2183,16 +2183,16 @@
         "9a7674d1bae5"
       ],
       "verified_by": [
-        "crates/eg-types/src/gramps_cutover_gate.rs:101",
-        "crates/eg-types/src/gramps_cutover_gate.rs:107",
-        "crates/eg-types/src/gramps_cutover_gate.rs:121",
-        "crates/eg-types/src/gramps_cutover_gate.rs:132",
-        "crates/eg-types/src/gramps_cutover_gate.rs:143"
+        "crates/medulla-types/src/gramps_cutover_gate.rs:101",
+        "crates/medulla-types/src/gramps_cutover_gate.rs:107",
+        "crates/medulla-types/src/gramps_cutover_gate.rs:121",
+        "crates/medulla-types/src/gramps_cutover_gate.rs:132",
+        "crates/medulla-types/src/gramps_cutover_gate.rs:143"
       ],
       "retired_reason": "The cutover gate model has no caller"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R033.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R033.2",
       "title": "RETIRED: the replica and dual-store window are deleted",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2200,7 +2200,7 @@
       "retired_reason": "the replica and dual-store window are deleted"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R034",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R034",
       "title": "RETIRED: a build gate is not engine behavior",
       "delivery_state": "RETIRED",
       "landed_in": [
@@ -2210,7 +2210,7 @@
       "retired_reason": "a build gate is not engine behavior"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R035",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R035",
       "title": "Share the compiled ontology cache with attached-schema graphs",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2224,7 +2224,7 @@
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R036",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R036",
       "title": "Derive HealthAnomaly and Incident facts with conformance checking",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2232,88 +2232,88 @@
         "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-stream/src/telemetry/tests/derive.rs:108",
-        "crates/eg-stream/src/telemetry/tests/derive.rs:121",
-        "crates/eg-stream/src/telemetry/tests/derive.rs:139",
-        "crates/eg-stream/src/telemetry/tests/derive.rs:28",
-        "crates/eg-stream/src/telemetry/tests/derive.rs:48"
+        "crates/medulla-stream/src/telemetry/tests/derive.rs:108",
+        "crates/medulla-stream/src/telemetry/tests/derive.rs:121",
+        "crates/medulla-stream/src/telemetry/tests/derive.rs:139",
+        "crates/medulla-stream/src/telemetry/tests/derive.rs:28",
+        "crates/medulla-stream/src/telemetry/tests/derive.rs:48"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R760",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R760",
       "title": "Served incident authority (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R760.1",
-        "EG-UNIFIED-DATA-PLANE-R760.2",
-        "EG-UNIFIED-DATA-PLANE-R760.3",
-        "EG-UNIFIED-DATA-PLANE-R760.4",
-        "EG-UNIFIED-DATA-PLANE-R760.5",
-        "EG-UNIFIED-DATA-PLANE-R760.6"
+        "MEDULLA-UNIFIED-DATA-PLANE-R760.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R760.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R760.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R760.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R760.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R760.6"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R760.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R760.1",
       "title": "Model: served incident authority",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "bfa5ffcc7228"
       ],
       "verified_by": [
-        "crates/eg-stream/src/telemetry/incident_authority.rs:252"
+        "crates/medulla-stream/src/telemetry/incident_authority.rs:252"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R760.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R760.2",
       "title": "Behavior: served incident authority",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "56d38c583ffd"
       ],
       "verified_by": [
-        "crates/eg-stream/src/telemetry/incident_authority.rs:277"
+        "crates/medulla-stream/src/telemetry/incident_authority.rs:277"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R760.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R760.3",
       "title": "Wiring: five served methods over the incident authority",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R760.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R760.4",
       "title": "Refusal: served incident authority",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "56d38c583ffd"
       ],
       "verified_by": [
-        "crates/eg-stream/src/telemetry/incident_authority.rs:315"
+        "crates/medulla-stream/src/telemetry/incident_authority.rs:315"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R760.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R760.5",
       "title": "Evidence: served incident authority",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "56d38c583ffd"
       ],
       "verified_by": [
-        "crates/eg-stream/src/telemetry/incident_authority.rs:348"
+        "crates/medulla-stream/src/telemetry/incident_authority.rs:348"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R760.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R760.6",
       "title": "Hot-path proof: correlate 100,000 anomalies in one pass",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R037",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R037",
       "title": "Virtual-graph vocabulary is a Medulla core schema source",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2329,513 +2329,513 @@
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038",
       "title": "Metadata is materialized, entity rows stay at the source, and only a watermark-bound cache holds copies (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R038.1",
-        "EG-UNIFIED-DATA-PLANE-R038.2",
-        "EG-UNIFIED-DATA-PLANE-R038.3",
-        "EG-UNIFIED-DATA-PLANE-R038.4",
-        "EG-UNIFIED-DATA-PLANE-R038.5",
-        "EG-UNIFIED-DATA-PLANE-R038.6",
-        "EG-UNIFIED-DATA-PLANE-R038.7"
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.6",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.7"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.1",
       "title": "`MetadataContract`/`AccelerationPolicy` are typed models with a capability refusal and a watermark-missing live fallback",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "9a7674d1bae5"
       ],
       "verified_by": [
-        "crates/eg-types/src/metadata_acceleration.rs:208",
-        "crates/eg-types/src/metadata_acceleration.rs:214",
-        "crates/eg-types/src/metadata_acceleration.rs:222",
-        "crates/eg-types/src/metadata_acceleration.rs:234",
-        "crates/eg-types/src/metadata_acceleration.rs:241"
+        "crates/medulla-types/src/metadata_acceleration.rs:208",
+        "crates/medulla-types/src/metadata_acceleration.rs:214",
+        "crates/medulla-types/src/metadata_acceleration.rs:222",
+        "crates/medulla-types/src/metadata_acceleration.rs:234",
+        "crates/medulla-types/src/metadata_acceleration.rs:241"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.2",
       "title": "Per-kind discovery, copy bound and EXPLAIN route reporting (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R038.2.1",
-        "EG-UNIFIED-DATA-PLANE-R038.2.2",
-        "EG-UNIFIED-DATA-PLANE-R038.2.3"
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.2.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.2.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.2.3"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.3",
       "title": "Transactional row stores answer through one consistent snapshot (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R038.3.1",
-        "EG-UNIFIED-DATA-PLANE-R038.3.2",
-        "EG-UNIFIED-DATA-PLANE-R038.3.3",
-        "EG-UNIFIED-DATA-PLANE-R038.3.4",
-        "EG-UNIFIED-DATA-PLANE-R038.3.5",
-        "EG-UNIFIED-DATA-PLANE-R038.3.6"
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.3.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.3.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.3.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.3.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.3.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.3.6"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.3.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.3.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/metadata_acceleration.rs:262"
+        "crates/medulla-types/src/metadata_acceleration.rs:262"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.3.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.3.2",
       "title": "Behavior: one read-only transaction per source per query",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.3.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.3.3",
       "title": "Wiring: `foreign_scan` opens the snapshot and the capability row declares it",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.3.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.3.4",
       "title": "Refusal: no snapshot, stale replica, or reachable write path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.3.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.3.5",
       "title": "Evidence: EXPLAIN and provenance name the snapshot",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.3.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.3.6",
       "title": "Hot-path proof: a concurrent writer does not split the answer",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4",
       "title": "Metastore catalogs and ORC and Avro files answer in place (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R038.4.1",
-        "EG-UNIFIED-DATA-PLANE-R038.4.2",
-        "EG-UNIFIED-DATA-PLANE-R038.4.3",
-        "EG-UNIFIED-DATA-PLANE-R038.4.4",
-        "EG-UNIFIED-DATA-PLANE-R038.4.5",
-        "EG-UNIFIED-DATA-PLANE-R038.4.6"
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.4.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.4.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.4.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.4.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.4.6"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.4.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.1",
       "title": "Model: metastore spec, file formats and table metadata",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.4.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2",
       "title": "Behavior: catalog listing, partition pruning, ORC and Avro reads (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R038.4.2.1",
-        "EG-UNIFIED-DATA-PLANE-R038.4.2.2",
-        "EG-UNIFIED-DATA-PLANE-R038.4.2.3"
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.3"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.4.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.3",
       "title": "Wiring: the `hive()` table function and discovery",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.4.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.4",
       "title": "Refusal: schema mismatch, unsupported layout, unreachable catalog",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.4.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.5",
       "title": "Evidence: the scan receipt counts partitions, files, stripes and bytes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.4.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.6",
       "title": "Hot-path proof: a pruned scan over a recorded metastore",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.5",
       "title": "Search-index sources answer with relevance pushdown (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R038.5.1",
-        "EG-UNIFIED-DATA-PLANE-R038.5.2",
-        "EG-UNIFIED-DATA-PLANE-R038.5.3",
-        "EG-UNIFIED-DATA-PLANE-R038.5.4",
-        "EG-UNIFIED-DATA-PLANE-R038.5.5",
-        "EG-UNIFIED-DATA-PLANE-R038.5.6"
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.5.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.5.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.5.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.5.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.5.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.5.6"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.5.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.5.1",
       "title": "Model: `SearchIndexCapability` on the operation-bound source",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.5.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.5.2",
       "title": "Behavior: push text match, nearest-neighbour search, filters and top-k",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.5.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.5.3",
       "title": "Wiring: the search remote joins the shared fusion",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.5.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.5.4",
       "title": "Refusal: vector-space mismatch, page overflow, invented scores",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.5.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.5.5",
       "title": "Evidence: each fragment receipt names the index request",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.5.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.5.6",
       "title": "Hot-path proof: pushed relevance with k replenished",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.6",
       "title": "openCypher answers over relational and lake sources through the virtual view, without a copy (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R038.6.1",
-        "EG-UNIFIED-DATA-PLANE-R038.6.2",
-        "EG-UNIFIED-DATA-PLANE-R038.6.3",
-        "EG-UNIFIED-DATA-PLANE-R038.6.4",
-        "EG-UNIFIED-DATA-PLANE-R038.6.5",
-        "EG-UNIFIED-DATA-PLANE-R038.6.6"
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.6.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.6.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.6.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.6.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.6.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.6.6"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.6.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.6.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/virtual_graph_view.rs:137"
+        "crates/medulla-types/src/virtual_graph_view.rs:137"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.6.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.6.2",
       "title": "Behavior: compile node and relationship patterns to the virtual SPARQL path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.6.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.6.3",
       "title": "Wiring: a named view routes the read through view compilation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.6.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.6.4",
       "title": "Refusal: view writes, unmapped labels, over-deep paths, unsupported clauses",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.6.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.6.5",
       "title": "Evidence: EXPLAIN names the pushed statement and mapping digest per fragment",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.6.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.6.6",
       "title": "Hot-path proof: openCypher and SPARQL agree over one relational source",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.7",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.7",
       "title": "Web metasearch sources answer at query time through a cached connector query (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R038.7.1",
-        "EG-UNIFIED-DATA-PLANE-R038.7.2",
-        "EG-UNIFIED-DATA-PLANE-R038.7.3",
-        "EG-UNIFIED-DATA-PLANE-R038.7.4",
-        "EG-UNIFIED-DATA-PLANE-R038.7.5",
-        "EG-UNIFIED-DATA-PLANE-R038.7.6",
-        "EG-UNIFIED-DATA-PLANE-R038.7.7"
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.7.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.7.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.7.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.7.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.7.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.7.6",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.7.7"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.7.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.7.1",
       "title": "Model: `WebSearchCapability` and `WebResult`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.7.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.7.2",
       "title": "Behavior: push query arguments and cache by argument digest with a time-to-live",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.7.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.7.3",
       "title": "Wiring: web search reaches the connector call and the shared cache",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.7.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.7.4",
       "title": "Refusal: unsupported arguments, expired entries, unreachable connector",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.7.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.7.5",
       "title": "Evidence: each row carries connector, argument digest, engine, rank and retrieval time",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.7.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.7.6",
       "title": "Hot-path proof: one connector call inside the TTL",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.7.7",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.7.7",
       "title": "Candidate handoff: web results are fetch candidates, not stored records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R039",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R039",
       "title": "The Iceberg REST catalog refuses unauthenticated, under-scoped and cross-tenant requests (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R039.1",
-        "EG-UNIFIED-DATA-PLANE-R039.2",
-        "EG-UNIFIED-DATA-PLANE-R039.3",
-        "EG-UNIFIED-DATA-PLANE-R039.4",
-        "EG-UNIFIED-DATA-PLANE-R039.5"
+        "MEDULLA-UNIFIED-DATA-PLANE-R039.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R039.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R039.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R039.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R039.5"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R039.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R039.1",
       "title": "`CatalogPrincipal` typed model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3d0e56ca6010"
       ],
       "verified_by": [
-        "crates/eg-lake/src/catalog.rs:342"
+        "crates/medulla-lake/src/catalog.rs:342"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R039.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R039.2",
       "title": "Catalog authorization refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3d0e56ca6010"
       ],
       "verified_by": [
-        "crates/eg-lake/src/catalog.rs:359",
-        "crates/eg-lake/src/catalog.rs:373"
+        "crates/medulla-lake/src/catalog.rs:359",
+        "crates/medulla-lake/src/catalog.rs:373"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R039.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R039.3",
       "title": "Every catalog route passes the carrier gate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R039.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R039.4",
       "title": "Partition spec and per-partition field summaries in emitted Iceberg metadata",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R039.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R039.5",
       "title": "End-to-end external read through the authenticated catalog",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R040",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R040",
       "title": "A per-modality retrieval gate blocks promotion of a shared embedding space (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R040.1",
-        "EG-UNIFIED-DATA-PLANE-R040.2",
-        "EG-UNIFIED-DATA-PLANE-R040.3",
-        "EG-UNIFIED-DATA-PLANE-R040.4",
-        "EG-UNIFIED-DATA-PLANE-R040.5",
-        "EG-UNIFIED-DATA-PLANE-R040.6"
+        "MEDULLA-UNIFIED-DATA-PLANE-R040.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R040.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R040.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R040.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R040.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R040.6"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R040.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R040.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/embedding_promotion.rs:170"
+        "crates/medulla-types/src/embedding_promotion.rs:170"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R040.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R040.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/embedding_promotion.rs:181",
-        "crates/eg-types/src/embedding_promotion.rs:207"
+        "crates/medulla-types/src/embedding_promotion.rs:181",
+        "crates/medulla-types/src/embedding_promotion.rs:207"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R040.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R040.3",
       "title": "Wiring: the gate runs before a binding with a new model version goes `Live`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R040.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R040.4",
       "title": "Refusal: a blocked promotion leaves the prior version active",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R040.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R040.5",
       "title": "Evidence: each `PromotionVerdict` is a graph node linked to the model and version",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R040.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R040.6",
       "title": "Hot-path proof: a regressed image check blocks a served promotion",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R026.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.4",
       "title": "Graph-backed relational projections, read-only (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R026.4.1",
-        "EG-UNIFIED-DATA-PLANE-R026.4.2",
-        "EG-UNIFIED-DATA-PLANE-R026.4.3"
+        "MEDULLA-UNIFIED-DATA-PLANE-R026.4.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R026.4.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R026.4.3"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R026.4.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.4.1",
       "title": "Projection read binds mapping and graph revisions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R026.4.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.4.2",
       "title": "Projected tables refuse every SQL write",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R026.4.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.4.3",
       "title": "Graph changes reach the projection only through MutationBatch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R612",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R612",
       "title": "RETIRED: one registry, no parallel connection model",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2843,7 +2843,7 @@
       "retired_reason": "one registry, no parallel connection model"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R612.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R612.1",
       "title": "RETIRED: types invented beside the attached catalog model",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2851,7 +2851,7 @@
       "retired_reason": "types invented beside the attached catalog model"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R612.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R612.2",
       "title": "RETIRED: behaviour restated from the registry",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2859,7 +2859,7 @@
       "retired_reason": "behaviour restated from the registry"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R612.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R612.3",
       "title": "RETIRED: wiring names no call site",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2867,7 +2867,7 @@
       "retired_reason": "wiring names no call site"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R612.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R612.4",
       "title": "RETIRED: refusal folded into the registry",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2875,7 +2875,7 @@
       "retired_reason": "refusal folded into the registry"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R612.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R612.5",
       "title": "RETIRED: evidence row without fields",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2883,7 +2883,7 @@
       "retired_reason": "evidence row without fields"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R612.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R612.6",
       "title": "RETIRED: benchmark of a template kernel",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2891,61 +2891,61 @@
       "retired_reason": "benchmark of a template kernel"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R750",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R750",
       "title": "Conversation history source, run audit rows and step store (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R750.750",
-        "EG-UNIFIED-DATA-PLANE-R750.751",
-        "EG-UNIFIED-DATA-PLANE-R750.752",
-        "EG-UNIFIED-DATA-PLANE-R750.753",
-        "EG-UNIFIED-DATA-PLANE-R750.754"
+        "MEDULLA-UNIFIED-DATA-PLANE-R750.750",
+        "MEDULLA-UNIFIED-DATA-PLANE-R750.751",
+        "MEDULLA-UNIFIED-DATA-PLANE-R750.752",
+        "MEDULLA-UNIFIED-DATA-PLANE-R750.753",
+        "MEDULLA-UNIFIED-DATA-PLANE-R750.754"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R750.750",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R750.750",
       "title": "Model: Conversation history source, run audit rows and step store",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/run_history.rs:232"
+        "crates/medulla-types/src/run_history.rs:232"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R750.751",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R750.751",
       "title": "Behavior: Conversation history source, run audit rows and step store",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/run_history.rs:255"
+        "crates/medulla-types/src/run_history.rs:255"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R750.752",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R750.752",
       "title": "Refusal: Conversation history source, run audit rows and step store",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/run_history.rs:302"
+        "crates/medulla-types/src/run_history.rs:302"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R750.753",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R750.753",
       "title": "Hot-path proof: scoped history search over one million steps",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R650",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R650",
       "title": "RETIRED: a second phase registry beside the semantic stages",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2953,7 +2953,7 @@
       "retired_reason": "a second phase registry beside the semantic stages"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R650.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R650.1",
       "title": "RETIRED: types duplicate `SemanticStage` and the lane model",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2961,7 +2961,7 @@
       "retired_reason": "types duplicate `SemanticStage` and the lane model"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R650.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R650.2",
       "title": "RETIRED: behaviour duplicates stage ordering",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2969,7 +2969,7 @@
       "retired_reason": "behaviour duplicates stage ordering"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R650.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R650.3",
       "title": "RETIRED: wiring has no caller beyond the stages",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2977,7 +2977,7 @@
       "retired_reason": "wiring has no caller beyond the stages"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R650.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R650.4",
       "title": "RETIRED: refusals are owned by the stage lease and quarantine rows",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2985,7 +2985,7 @@
       "retired_reason": "refusals are owned by the stage lease and quarantine rows"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R650.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R650.5",
       "title": "RETIRED: evidence duplicates stage receipts",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -2993,7 +2993,7 @@
       "retired_reason": "evidence duplicates stage receipts"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R650.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R650.6",
       "title": "RETIRED: benchmark of a registry that does not exist",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -3001,65 +3001,65 @@
       "retired_reason": "benchmark of a registry that does not exist"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R651",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R651",
       "title": "A document delete cascades across the record, vectors and graph with no orphan (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R651.1",
-        "EG-UNIFIED-DATA-PLANE-R651.2",
-        "EG-UNIFIED-DATA-PLANE-R651.3",
-        "EG-UNIFIED-DATA-PLANE-R651.4",
-        "EG-UNIFIED-DATA-PLANE-R651.5",
-        "EG-UNIFIED-DATA-PLANE-R651.6",
-        "EG-UNIFIED-DATA-PLANE-R651.7"
+        "MEDULLA-UNIFIED-DATA-PLANE-R651.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R651.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R651.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R651.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R651.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R651.6",
+        "MEDULLA-UNIFIED-DATA-PLANE-R651.7"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R651.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.1",
       "title": "Model: cascade plan, orphan report and delete receipt",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R651.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.2",
       "title": "Behavior: plan from back-references, apply as one batch, verify the orphan report",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R651.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.3",
       "title": "Wiring: the served `DocumentDelete` method reaches the cascade",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R651.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.4",
       "title": "Refusal: missing document, live external references, oversized or partial cascade",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R651.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.5",
       "title": "Evidence: the delete receipt and a content-free deletion record",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R651.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.6",
       "title": "Hot-path proof: a 500-chunk delete leaves no orphan",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R651.7",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.7",
       "title": "Fetched web pages enrich through the one document path (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -3067,43 +3067,43 @@
         "tests/web_document_enrich_served.rs:218"
       ],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R651.7.1",
-        "EG-UNIFIED-DATA-PLANE-R651.7.2",
-        "EG-UNIFIED-DATA-PLANE-R651.7.3",
-        "EG-UNIFIED-DATA-PLANE-R651.7.4",
-        "EG-UNIFIED-DATA-PLANE-R651.7.5",
-        "EG-UNIFIED-DATA-PLANE-R651.7.6",
-        "EG-UNIFIED-DATA-PLANE-R651.7.7"
+        "MEDULLA-UNIFIED-DATA-PLANE-R651.7.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R651.7.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R651.7.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R651.7.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R651.7.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R651.7.6",
+        "MEDULLA-UNIFIED-DATA-PLANE-R651.7.7"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R651.7.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.7.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b3d7b62e5f61"
       ],
       "verified_by": [
-        "crates/eg-types/src/source_ingestion/web_document.rs:94"
+        "crates/medulla-types/src/source_ingestion/web_document.rs:94"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R651.7.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.7.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b3d7b62e5f61"
       ],
       "verified_by": [
-        "crates/eg-document/src/processing.rs:371",
-        "crates/eg-document/src/processing.rs:384",
-        "crates/eg-document/src/processing.rs:403",
+        "crates/medulla-document/src/processing.rs:371",
+        "crates/medulla-document/src/processing.rs:384",
+        "crates/medulla-document/src/processing.rs:403",
         "src/server/handlers/web_ingest/embedder.rs:212",
         "src/server/handlers/web_ingest_tests.rs:44"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R651.7.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.7.3",
       "title": "Wiring",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -3117,7 +3117,7 @@
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R651.7.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.7.4",
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -3126,13 +3126,13 @@
         "d715658809da"
       ],
       "verified_by": [
-        "crates/eg-document/src/processing.rs:416",
+        "crates/medulla-document/src/processing.rs:416",
         "src/server/handlers/web_ingest_tests.rs:113",
         "tests/web_document_enrich_served.rs:421"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R651.7.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.7.5",
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -3143,7 +3143,7 @@
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R651.7.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.7.6",
       "title": "Hot-path proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -3154,560 +3154,560 @@
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R651.7.7",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.7.7",
       "title": "Extraction: a worker submits facts for the enriched chunks and the engine grounds them",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R700",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R700",
       "title": "Governed Actions: typed parameters, submission criteria, effects and write-back (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R700.1",
-        "EG-UNIFIED-DATA-PLANE-R700.2",
-        "EG-UNIFIED-DATA-PLANE-R700.3",
-        "EG-UNIFIED-DATA-PLANE-R700.4",
-        "EG-UNIFIED-DATA-PLANE-R700.5",
-        "EG-UNIFIED-DATA-PLANE-R700.6"
+        "MEDULLA-UNIFIED-DATA-PLANE-R700.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R700.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R700.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R700.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R700.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R700.6"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R700.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R700.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/action_spec.rs:385"
+        "crates/medulla-types/src/action_spec.rs:385"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R700.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R700.2",
       "title": "Behavior: parameters, ordered criteria, one-pass templates, one mutation batch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R700.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R700.3",
       "title": "Wiring: `ActionRegister` and `ActionSubmit` reach the apply path and the outbox",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R700.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R700.4",
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/action_spec.rs:403"
+        "crates/medulla-types/src/action_spec.rs:403"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R700.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R700.5",
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/action_spec.rs:437"
+        "crates/medulla-types/src/action_spec.rs:437"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R700.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R700.6",
       "title": "Hot-path proof: a failed criterion applies no effect",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R701",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R701",
       "title": "Standards conformance: cohorts, drift scores and consolidation recommendations (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R701.1",
-        "EG-UNIFIED-DATA-PLANE-R701.2",
-        "EG-UNIFIED-DATA-PLANE-R701.3",
-        "EG-UNIFIED-DATA-PLANE-R701.4",
-        "EG-UNIFIED-DATA-PLANE-R701.5",
-        "EG-UNIFIED-DATA-PLANE-R701.6"
+        "MEDULLA-UNIFIED-DATA-PLANE-R701.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R701.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R701.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R701.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R701.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R701.6"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R701.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R701.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/standards_drift.rs:229"
+        "crates/medulla-types/src/standards_drift.rs:229"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R701.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R701.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/standards_drift.rs:244"
+        "crates/medulla-types/src/standards_drift.rs:244"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R701.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R701.3",
       "title": "Wiring: `StandardsDrift` reads the graph and stays a proposal across attached applications",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R701.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R701.4",
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/standards_drift.rs:273"
+        "crates/medulla-types/src/standards_drift.rs:273"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R701.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R701.5",
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/standards_drift.rs:285"
+        "crates/medulla-types/src/standards_drift.rs:285"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R701.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R701.6",
       "title": "Hot-path proof: a missing standard scores unscored, never zero",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R702",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R702",
       "title": "ETL runs record lineage and consume external lineage run events (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R702.1",
-        "EG-UNIFIED-DATA-PLANE-R702.2",
-        "EG-UNIFIED-DATA-PLANE-R702.3",
-        "EG-UNIFIED-DATA-PLANE-R702.4",
-        "EG-UNIFIED-DATA-PLANE-R702.5",
-        "EG-UNIFIED-DATA-PLANE-R702.6"
+        "MEDULLA-UNIFIED-DATA-PLANE-R702.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R702.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R702.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R702.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R702.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R702.6"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R702.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R702.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/lineage.rs:242"
+        "crates/medulla-types/src/lineage.rs:242"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R702.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R702.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/lineage.rs:266"
+        "crates/medulla-types/src/lineage.rs:266"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R702.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R702.3",
       "title": "Wiring: `LineageIngest` is called by the lake sweep and the arbora route; lineage reads are plain graph queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R702.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R702.4",
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/lineage.rs:296"
+        "crates/medulla-types/src/lineage.rs:296"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R702.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R702.5",
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/lineage.rs:317"
+        "crates/medulla-types/src/lineage.rs:317"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R702.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R702.6",
       "title": "Hot-path proof: replay adds no edges and malformed events quarantine",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R710",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R710",
       "title": "Message-stream records normalize into a `ChangeEnvelope`: model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R711",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R711",
       "title": "Message-stream records normalize into a `ChangeEnvelope`: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R030.700",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R030.700",
       "title": "Identity evidence kinds and merge decisions for candidate links: model and behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/src/entity_resolution.rs:416"
+        "crates/medulla-types/src/entity_resolution.rs:416"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R030.701",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R030.701",
       "title": "Identity evidence kinds and merge decisions: refusal, evidence and hot path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.2.1",
       "title": "Discovery writes one `MetadataContract` per registered source kind",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.2.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.2.2",
       "title": "The copy route is bounded by rows and by watermark",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.2.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.2.3",
       "title": "EXPLAIN states whether each fragment ran live or from a copy",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.4.2.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.1",
       "title": "Listing pages at the knob size and partitions prune by pushed predicates",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.4.2.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.2",
       "title": "ORC scans skip stripes by stripe statistics",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R038.4.2.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.3",
       "title": "Avro scans project the reader schema",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R750.754",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R750.754",
       "title": "Wiring: terminal commit writes audit rows and steps; `HistorySearch` reads them",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R761",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R761",
       "title": "Dataset and column profiling (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R761.1",
-        "EG-UNIFIED-DATA-PLANE-R761.2",
-        "EG-UNIFIED-DATA-PLANE-R761.3",
-        "EG-UNIFIED-DATA-PLANE-R761.4",
-        "EG-UNIFIED-DATA-PLANE-R761.5",
-        "EG-UNIFIED-DATA-PLANE-R761.6"
+        "MEDULLA-UNIFIED-DATA-PLANE-R761.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R761.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R761.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R761.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R761.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R761.6"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R761.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R761.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/tests/profile.rs:28"
+        "crates/medulla-types/tests/profile.rs:28"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R761.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R761.2",
       "title": "Behavior: pushed aggregates where the dialect allows, sampling otherwise, sketch for distinct counts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R761.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R761.3",
       "title": "Wiring: the `DatasetProfile` job kind attaches profiles to the catalog",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R761.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R761.4",
       "title": "Refusal: out-of-scope dataset, unsupported source",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R761.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R761.5",
       "title": "Evidence: each profile records its method and sample size",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R761.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R761.6",
       "title": "Hot-path proof: profile ten columns of a native dataset",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R762",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R762",
       "title": "Data quality rules, scores and quality incidents (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R762.1",
-        "EG-UNIFIED-DATA-PLANE-R762.2",
-        "EG-UNIFIED-DATA-PLANE-R762.3",
-        "EG-UNIFIED-DATA-PLANE-R762.4",
-        "EG-UNIFIED-DATA-PLANE-R762.5",
-        "EG-UNIFIED-DATA-PLANE-R762.6",
-        "EG-UNIFIED-DATA-PLANE-R762.7",
-        "EG-UNIFIED-DATA-PLANE-R762.8"
+        "MEDULLA-UNIFIED-DATA-PLANE-R762.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R762.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R762.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R762.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R762.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R762.6",
+        "MEDULLA-UNIFIED-DATA-PLANE-R762.7",
+        "MEDULLA-UNIFIED-DATA-PLANE-R762.8"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R762.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R762.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/tests/quality.rs:14"
+        "crates/medulla-types/tests/quality.rs:14"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R762.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R762.2",
       "title": "Behavior: compile each rule kind, score it, count consecutive failures",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R762.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R762.3",
       "title": "Wiring: `QualityRulePut` and the `QualityEvaluate` job kind",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R762.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R762.4",
       "title": "Refusal: invalid rule, invalid threshold, unapproved rule",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R762.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R762.5",
       "title": "Evidence: each score records the compiled query digest and the row counts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R762.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R762.6",
       "title": "Hot-path proof: evaluate 100 rules over a native dataset",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R762.7",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R762.7",
       "title": "Rule proposals from profiles",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/tests/quality.rs:46"
+        "crates/medulla-types/tests/quality.rs:46"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R762.8",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R762.8",
       "title": "Quality results from outside checkers arrive through `SourceIngest`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R763",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R763",
       "title": "Column-level lineage from SQL text (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R763.1",
-        "EG-UNIFIED-DATA-PLANE-R763.2",
-        "EG-UNIFIED-DATA-PLANE-R763.3",
-        "EG-UNIFIED-DATA-PLANE-R763.4",
-        "EG-UNIFIED-DATA-PLANE-R763.5",
-        "EG-UNIFIED-DATA-PLANE-R763.6",
-        "EG-UNIFIED-DATA-PLANE-R763.7"
+        "MEDULLA-UNIFIED-DATA-PLANE-R763.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R763.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R763.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R763.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R763.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R763.6",
+        "MEDULLA-UNIFIED-DATA-PLANE-R763.7"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R763.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R763.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/tests/lineage.rs:3"
+        "crates/medulla-types/tests/lineage.rs:3"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R763.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R763.2",
       "title": "Derive column edges from SQL with the shared parser",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R763.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R763.3",
       "title": "Wire column lineage into the catalog reader, the lineage drain and impact queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R763.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R763.4",
       "title": "Quarantine SQL that does not parse",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R763.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R763.5",
       "title": "Record query digest and parser version on each column edge",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R763.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R763.6",
       "title": "Hot-path proof for column lineage",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R763.7",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R763.7",
       "title": "Catalog carries view definitions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R764",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R764",
       "title": "Asset usage statistics and catalog search (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R764.1",
-        "EG-UNIFIED-DATA-PLANE-R764.2",
-        "EG-UNIFIED-DATA-PLANE-R764.3",
-        "EG-UNIFIED-DATA-PLANE-R764.4",
-        "EG-UNIFIED-DATA-PLANE-R764.5",
-        "EG-UNIFIED-DATA-PLANE-R764.6",
-        "EG-UNIFIED-DATA-PLANE-R764.7",
-        "EG-UNIFIED-DATA-PLANE-R764.8"
+        "MEDULLA-UNIFIED-DATA-PLANE-R764.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R764.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R764.3",
+        "MEDULLA-UNIFIED-DATA-PLANE-R764.4",
+        "MEDULLA-UNIFIED-DATA-PLANE-R764.5",
+        "MEDULLA-UNIFIED-DATA-PLANE-R764.6",
+        "MEDULLA-UNIFIED-DATA-PLANE-R764.7",
+        "MEDULLA-UNIFIED-DATA-PLANE-R764.8"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R764.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R764.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/tests/asset_usage.rs:3"
+        "crates/medulla-types/tests/asset_usage.rs:3"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R764.2",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R764.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "af17a97c3f89"
       ],
       "verified_by": [
-        "crates/eg-types/tests/asset_usage.rs:32"
+        "crates/medulla-types/tests/asset_usage.rs:32"
       ]
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R764.3",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R764.3",
       "title": "RETIRED: CatalogSearch is not a served method",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -3715,63 +3715,63 @@
       "retired_reason": "CatalogSearch is not a served method"
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R764.3.1",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R764.3.1",
       "title": "Record asset usage from the server's own query dispatch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R764.4",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R764.4",
       "title": "Refuse unauthorized hits and oversized catalog queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R764.5",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R764.5",
       "title": "List score components on each catalog hit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R764.6",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R764.6",
       "title": "Hot-path proof for catalog search",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R764.7",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R764.7",
       "title": "Usage from attached-source query logs",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R764.8",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R764.8",
       "title": "Frequent users and usage suggestions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R765",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R765",
       "title": "Serve the foreign source catalog: list, get, probe, share and unshare",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R766",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R766",
       "title": "Engine work item kind for web research",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-UNIFIED-DATA-PLANE-R767",
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R767",
       "title": "Tenant context view over approved sources",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

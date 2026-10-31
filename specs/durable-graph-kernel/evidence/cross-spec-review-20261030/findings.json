@@ -2,67 +2,67 @@
  "method": "2026-10-30 cross-spec review. review.jsonl grades every open row (verdict, tier, entry point, proof kind, cross-spec interfaces, overlap, gap, fix). orphan_verified lists VERIFIED rows whose tested module has no public item named by non-test code under src/. group_summary is the reviewer summary for the review group that held this spec.",
  "orphan_verified": [
   {
-   "row": "EG-DURABLE-KERNEL-R003",
-   "module": "crates/eg-storage/src/owner/lineage_fixture_tests.rs"
+   "row": "MEDULLA-DURABLE-KERNEL-R003",
+   "module": "crates/medulla-storage/src/owner/lineage_fixture_tests.rs"
   },
   {
-   "row": "EG-DURABLE-KERNEL-R022",
-   "module": "crates/eg-core/src/isolation/elevation_tests.rs"
+   "row": "MEDULLA-DURABLE-KERNEL-R022",
+   "module": "crates/medulla-core/src/isolation/elevation_tests.rs"
   },
   {
-   "row": "EG-DURABLE-KERNEL-R024.1",
-   "module": "crates/eg-plan/src/federation_age.rs"
+   "row": "MEDULLA-DURABLE-KERNEL-R024.1",
+   "module": "crates/medulla-plan/src/federation_age.rs"
   },
   {
-   "row": "EG-DURABLE-KERNEL-R024.6",
-   "module": "crates/eg-plan/src/federation_brain_guarded.rs"
+   "row": "MEDULLA-DURABLE-KERNEL-R024.6",
+   "module": "crates/medulla-plan/src/federation_brain_guarded.rs"
   },
   {
-   "row": "EG-DURABLE-KERNEL-R024.7",
-   "module": "crates/eg-plan/src/federation_trino.rs"
+   "row": "MEDULLA-DURABLE-KERNEL-R024.7",
+   "module": "crates/medulla-plan/src/federation_trino.rs"
   },
   {
-   "row": "EG-DURABLE-KERNEL-R024.8",
-   "module": "crates/eg-plan/src/federation_spark.rs"
+   "row": "MEDULLA-DURABLE-KERNEL-R024.8",
+   "module": "crates/medulla-plan/src/federation_spark.rs"
   },
   {
-   "row": "EG-DURABLE-KERNEL-R034.1",
-   "module": "crates/eg-types/src/cross_store_scope.rs"
+   "row": "MEDULLA-DURABLE-KERNEL-R034.1",
+   "module": "crates/medulla-types/src/cross_store_scope.rs"
   },
   {
-   "row": "EG-DURABLE-KERNEL-R035.1",
-   "module": "crates/eg-types/src/pg_operational_surface.rs"
+   "row": "MEDULLA-DURABLE-KERNEL-R035.1",
+   "module": "crates/medulla-types/src/pg_operational_surface.rs"
   },
   {
-   "row": "EG-DURABLE-KERNEL-R038.1",
-   "module": "crates/eg-types/src/durability_class.rs"
+   "row": "MEDULLA-DURABLE-KERNEL-R038.1",
+   "module": "crates/medulla-types/src/durability_class.rs"
   },
   {
-   "row": "EG-DURABLE-KERNEL-R038.2",
-   "module": "crates/eg-storage/src/physical/mod.rs"
+   "row": "MEDULLA-DURABLE-KERNEL-R038.2",
+   "module": "crates/medulla-storage/src/physical/mod.rs"
   },
   {
-   "row": "EG-DURABLE-KERNEL-R042.1",
-   "module": "crates/eg-types/src/benchmark_claim.rs"
+   "row": "MEDULLA-DURABLE-KERNEL-R042.1",
+   "module": "crates/medulla-types/src/benchmark_claim.rs"
   },
   {
-   "row": "EG-DURABLE-KERNEL-R060",
-   "module": "crates/eg-storage/src/owner/lineage_tests.rs"
+   "row": "MEDULLA-DURABLE-KERNEL-R060",
+   "module": "crates/medulla-storage/src/owner/lineage_tests.rs"
   },
   {
-   "row": "EG-DURABLE-KERNEL-R063.1",
-   "module": "crates/eg-storage/src/direct_state/mod.rs"
+   "row": "MEDULLA-DURABLE-KERNEL-R063.1",
+   "module": "crates/medulla-storage/src/direct_state/mod.rs"
   },
   {
-   "row": "EG-DURABLE-KERNEL-R082.6",
-   "module": "crates/eg-compute/src/mining/association/parity_tests.rs"
+   "row": "MEDULLA-DURABLE-KERNEL-R082.6",
+   "module": "crates/medulla-compute/src/mining/association/parity_tests.rs"
   },
   {
-   "row": "EG-DURABLE-KERNEL-R084.1",
-   "module": "crates/eg-types/src/write_conflict.rs"
+   "row": "MEDULLA-DURABLE-KERNEL-R084.1",
+   "module": "crates/medulla-types/src/write_conflict.rs"
   }
  ],
  "group_summary": [
-  "# Group x01: EG-DURABLE-KERNEL (294 rows graded; 287 SPECIFIED, 7 LANDED)\n## 1. Verdict and tier counts\n- Verdicts: THIN 133, OWNER 73, READY 34, DUP 28, EXISTS 11, BLANK 11, DECISION 4.\n- Tiers: sonnet 136, opus 136, vllm 16, bind 6. Only 34 rows (12%) are one-slice READY.\n- The spec holds 428 rows; 133 are VERIFIED (50 crate, 49 facade, 17 served). Open rows are mostly later additions: templated Model/Behavior/Wiring/Refusal/Evidence/Hot-path children (R035, R043, R091-R098, R700, R750-R752, R850-R852).\n- 73 OWNER rows (R087-R098, R011, R082.11) belong in other specs; they inflate this spec.\n## 2. Cross-spec contracts\n| consumer row | provider spec | missing provider row (proposed text) |\n|---|---|---|\n| DECISION-ENGINE (memory authority), FEDERATED-QUERY (R101 memory admission), DURABLE-KERNEL-R028.1 | DURABLE-KERNEL-R085 | R085.1 must create `MemorySnapshot`/`SyncMemorySnapshot` (absent from src/ and crates/). Consumers call R085 \"existing\"; reword to \"to be created\" and land R085.1 first. |\n| DECISION-ENGINE-R044 (A2A routing reads peer table) | DURABLE-KERNEL-R851 | R044 declares no `peer.list` read. Add: \"R044 reads AgentPeer records through served `peer.list` (DURABLE-KERNEL-R851.3).\" agent_peer.rs has no production caller. |\n| EG-INGEST-WORKER-R604.1 (SchedulerConfig, WorkerRegistry) | DURABLE-KERNEL-R074/R076 | R604.1 redefines both types in `ingest_lanes.rs`; add \"imports crates/eg-types scheduler_config.rs and worker_registry.rs; defines only Lane, QueueClass, LaneMetrics\". |\n| EG-PLACEMENT-R002.4 (`AdmitWorkerTask` returns `WorkerGrant{slots,...}`) | DURABLE-KERNEL-R075 | R075 says \"admit or typed refusal\". Replace with the WorkerGrant shape. |\n| EG-ENGINE-PARITY-R003 (batch extends version-checked writes) | DURABLE-KERNEL-R084 | R084.3 cites crates/eg-jobs/src/store.rs:2537 (blank line; job plane, not graph write). Name the MutationBatch version check. |\n| EG-ORCH-VOCAB-R081 (uses R078/R081 stamps) | DURABLE-KERNEL-R078-R081 | Declared on both sides, but R609.2 defines the same stamp: see section 3. |\n| DURABLE-KERNEL-R042.5 (listeners) | R860.* | Declared; but R042.5 cannot start before R860 lands all four. |\n| DURABLE-KERNEL-R030/R039.x pending-call | ARBORA-* | No Arbora row declares consuming `IssueHostStartGrant` or the paired pending consumption. Add ARBORA rows. |\n| R043.100 change feed | consumers (CDC, mirror sinks R100) | No consumer row declares `ReadGraphChanges`; R100.3 uses MutationOutbox instead. |\n| R087.2, R089.2, R095, R096, R820.3 | SCM, meristem, ARBORA | Consumer sides undeclared; templated rows. |\n- Sides correctly paired: EG-SCM -> R057/R089.1, UNIFIED-DATA-PLANE -> R024, FEDERATED-QUERY -> R024.1/.3, R101 consumers, EG-BRANCH-MERGE -> R003/R009/R019/R029.\n## 3. Overlaps and duplicate authority\n- Bitemporal stamp: R078-R081 vs R609.1-R609.6 (`versioning.rs` absent). Owner: R078-R081 for served methods, R609.1 for types only; move KgCommit/KgDiff to EG-BRANCH-MERGE.\n- SchedulerConfig / WorkerRegistry: R074/R076 (files exist) vs EG-INGEST-WORKER-R604.1. Owner: DURABLE-KERNEL.\n- Lane-aware claim: R071.600 vs EG-INGEST-WORKER-R604.2. Owner: R604.\n- Task queue vs dispatch queue vs bus vs topic log: R072, R750, R095.1000-1005 (agent bus), R850 (topic log; crates/eg-durable/src/topic.rs already has TopicCursor). Owner: one store, R850 plus R072; delete R095.1000+.\n- Analytics payload cap: R082.3 vs EG-PLACEMENT-R003 (closes it). Owner: PLACEMENT.\n- Mirror registration: R024.4/R100.3 vs EG-UNIFIED-DATA-PLANE-R024. Owner: UNIFIED-DATA-PLANE registry, this spec drivers.\n- Benchmark records: R042.1/.100 vs EG-ENGINE-PARITY-R005. Owner: ENGINE-PARITY.\n- Identifier registry: R094.700/.701 vs EG-IDENTITY-R006. Owner: IDENTITY.\n- Wire listeners: R035/R860 vs ENGINE-PARITY and public-engine-contract. Owner: R860 for listeners, R035 per-capability children only.\n- Misfiled families (73 OWNER rows): finance (R057.1, R092, R093) -> finance-primitives; reasoner (R097, R098) -> federated-query; changeset review (R087) -> source-changesets; rules/verdicts (R088, R089) -> decision-engine/meristem; schema import (R090) -> typed-packs; policy source (R091) -> source-authority; inbox (R095) -> ARBORA; CI gate (R011) -> pipelines.\n## 4. Hot paths\n- Entry points: `ApplyMutation` (src/mutation_apply.rs), `ApplyChangeEnvelope` (src/audit/control_lines.rs:167), `MultiGraphBatchUpdate` (dispatch/change_envelope/multi_graph.rs), `ClaimWorkItem`, `IssueHostStartGrant`, `SupersedeEdge`, `EvictLRU`/`GetNodeProperties`, `MineAssociate` executor_loop.rs, pgwire/bolt_wire/redis_wire/s3 listeners in src/main.rs.\n- Rows that never reach one: R071 (types, no TaskQueue RPC), R092-R098 (no crate named), R700 (python test path tests/durable/ missing), R750-R752 (benchmark only), R851-R852 (no served method), R083.* (kvcache is a feature-gated crate with no served call proven).\n## 5. VERIFIED isolation spot check (crate-only proof; src/ and other crates' production code grepped)\nNo production consumer found (only defining file and its tests) for:\n1. R033 `HotStoreEngine` crates/eg-types/src/hot_store_engine.rs: no caller.\n2. R034 `CrossStoreScope` cross_store_scope.rs: no caller.\n3. R036 `MirrorSinkKind` mirror_sink.rs: no caller in src/ or crates/*/src (only tests in eg-plan).\n4. R037 `WorkloadClass` workload_class.rs: no caller.\n5. R040 `PipelineBatch` pipeline_batch.rs: no caller.\n6. R041 `PlanCacheKey::lookup` plan_cache_key.rs:49: no caller outside its tests.\n7. R032 `fast_path` fast_path.rs: matches in src are test names only.\n8. R027 control_lease/governed_change tests: audit/control_lines.rs formats the methods but never calls the eg-types policy functions I grepped.\nConnected: R001/R004 outbox (eg-transaction claim.rs, used by the outbox runtime), R006 physical storage, R054/R013 raft harness. R046 geo and R022 isolation not traced. Pure eg-types contract modules (R033-R041) are verified by unit tests of types nobody uses.\n## 6. Five most common gaps\n1. No production call site / served proof (R071, R750-R752, R851, R852, R100.2).\n2. Stale or wrong anchors: main.rs:1154/1367/1391/1461, eg-jobs store.rs:2537, recovery/validate.rs path (R860, R084.3, R063.2).\n3. Test paths that do not exist or use python in a Rust repo: tests/durable/*.py (R700, R820), tests/safe_eviction_read_through.rs.\n4. Templated children with no file, symbol or value (R035.2-.6, R043.1-.6, R091-R098).\n5. Row owned by another repo/spec (73 rows).\n## 7. Decisions needed (recommended first)\n1. Reparent or delete the 73 OWNER rows and 11 BLANK rows. Recommend: move to owning specs, delete templated children.\n2. R085: create the memory contract before any consumer cites it. Recommend: land R085.1 and rename \"existing\" to \"to be created\" in R028.1 and consumers.\n3. One queue/log: recommend R850 topic log + eg-jobs queue behind R072; drop R095.1000-1005 and R750 dispatch queue duplicates.\n4. Bitemporal: R609 types only; R078-R081 served; commit/diff to branch-merge.\n5. R084 conflict check: recommend the MutationBatch version check, strategies Refuse/Merge, rename `resolve_conflict` (clashes with the query-planner symbol).\n6. R053 AVX2: recommend a labelled x86 runner (homelab has no AVX2) or retire.\n7. Isolated eg-types modules (R033-R041): either wire (served setting or planner call) or mark isolated; do not leave VERIFIED.\n"
+  "# Group x01: MEDULLA-DURABLE-KERNEL (294 rows graded; 287 SPECIFIED, 7 LANDED)\n## 1. Verdict and tier counts\n- Verdicts: THIN 133, OWNER 73, READY 34, DUP 28, EXISTS 11, BLANK 11, DECISION 4.\n- Tiers: sonnet 136, opus 136, vllm 16, bind 6. Only 34 rows (12%) are one-slice READY.\n- The spec holds 428 rows; 133 are VERIFIED (50 crate, 49 facade, 17 served). Open rows are mostly later additions: templated Model/Behavior/Wiring/Refusal/Evidence/Hot-path children (R035, R043, R091-R098, R700, R750-R752, R850-R852).\n- 73 OWNER rows (R087-R098, R011, R082.11) belong in other specs; they inflate this spec.\n## 2. Cross-spec contracts\n| consumer row | provider spec | missing provider row (proposed text) |\n|---|---|---|\n| DECISION-ENGINE (memory authority), FEDERATED-QUERY (R101 memory admission), DURABLE-KERNEL-R028.1 | DURABLE-KERNEL-R085 | R085.1 must create `MemorySnapshot`/`SyncMemorySnapshot` (absent from src/ and crates/). Consumers call R085 \"existing\"; reword to \"to be created\" and land R085.1 first. |\n| DECISION-ENGINE-R044 (A2A routing reads peer table) | DURABLE-KERNEL-R851 | R044 declares no `peer.list` read. Add: \"R044 reads AgentPeer records through served `peer.list` (DURABLE-KERNEL-R851.3).\" agent_peer.rs has no production caller. |\n| MEDULLA-INGEST-WORKER-R604.1 (SchedulerConfig, WorkerRegistry) | DURABLE-KERNEL-R074/R076 | R604.1 redefines both types in `ingest_lanes.rs`; add \"imports crates/medulla-types scheduler_config.rs and worker_registry.rs; defines only Lane, QueueClass, LaneMetrics\". |\n| MEDULLA-PLACEMENT-R002.4 (`AdmitWorkerTask` returns `WorkerGrant{slots,...}`) | DURABLE-KERNEL-R075 | R075 says \"admit or typed refusal\". Replace with the WorkerGrant shape. |\n| MEDULLA-ENGINE-PARITY-R003 (batch extends version-checked writes) | DURABLE-KERNEL-R084 | R084.3 cites crates/medulla-jobs/src/store.rs:2537 (blank line; job plane, not graph write). Name the MutationBatch version check. |\n| MEDULLA-ORCH-VOCAB-R081 (uses R078/R081 stamps) | DURABLE-KERNEL-R078-R081 | Declared on both sides, but R609.2 defines the same stamp: see section 3. |\n| DURABLE-KERNEL-R042.5 (listeners) | R860.* | Declared; but R042.5 cannot start before R860 lands all four. |\n| DURABLE-KERNEL-R030/R039.x pending-call | ARBORA-* | No Arbora row declares consuming `IssueHostStartGrant` or the paired pending consumption. Add ARBORA rows. |\n| R043.100 change feed | consumers (CDC, mirror sinks R100) | No consumer row declares `ReadGraphChanges`; R100.3 uses MutationOutbox instead. |\n| R087.2, R089.2, R095, R096, R820.3 | SCM, meristem, ARBORA | Consumer sides undeclared; templated rows. |\n- Sides correctly paired: MEDULLA-SCM -> R057/R089.1, UNIFIED-DATA-PLANE -> R024, FEDERATED-QUERY -> R024.1/.3, R101 consumers, MEDULLA-BRANCH-MERGE -> R003/R009/R019/R029.\n## 3. Overlaps and duplicate authority\n- Bitemporal stamp: R078-R081 vs R609.1-R609.6 (`versioning.rs` absent). Owner: R078-R081 for served methods, R609.1 for types only; move KgCommit/KgDiff to MEDULLA-BRANCH-MERGE.\n- SchedulerConfig / WorkerRegistry: R074/R076 (files exist) vs MEDULLA-INGEST-WORKER-R604.1. Owner: DURABLE-KERNEL.\n- Lane-aware claim: R071.600 vs MEDULLA-INGEST-WORKER-R604.2. Owner: R604.\n- Task queue vs dispatch queue vs bus vs topic log: R072, R750, R095.1000-1005 (agent bus), R850 (topic log; crates/medulla-durable/src/topic.rs already has TopicCursor). Owner: one store, R850 plus R072; delete R095.1000+.\n- Analytics payload cap: R082.3 vs MEDULLA-PLACEMENT-R003 (closes it). Owner: PLACEMENT.\n- Mirror registration: R024.4/R100.3 vs MEDULLA-UNIFIED-DATA-PLANE-R024. Owner: UNIFIED-DATA-PLANE registry, this spec drivers.\n- Benchmark records: R042.1/.100 vs MEDULLA-ENGINE-PARITY-R005. Owner: ENGINE-PARITY.\n- Identifier registry: R094.700/.701 vs MEDULLA-IDENTITY-R006. Owner: IDENTITY.\n- Wire listeners: R035/R860 vs ENGINE-PARITY and public-engine-contract. Owner: R860 for listeners, R035 per-capability children only.\n- Misfiled families (73 OWNER rows): finance (R057.1, R092, R093) -> finance-primitives; reasoner (R097, R098) -> federated-query; changeset review (R087) -> source-changesets; rules/verdicts (R088, R089) -> decision-engine/meristem; schema import (R090) -> typed-packs; policy source (R091) -> source-authority; inbox (R095) -> ARBORA; CI gate (R011) -> pipelines.\n## 4. Hot paths\n- Entry points: `ApplyMutation` (src/mutation_apply.rs), `ApplyChangeEnvelope` (src/audit/control_lines.rs:167), `MultiGraphBatchUpdate` (dispatch/change_envelope/multi_graph.rs), `ClaimWorkItem`, `IssueHostStartGrant`, `SupersedeEdge`, `EvictLRU`/`GetNodeProperties`, `MineAssociate` executor_loop.rs, pgwire/bolt_wire/redis_wire/s3 listeners in src/main.rs.\n- Rows that never reach one: R071 (types, no TaskQueue RPC), R092-R098 (no crate named), R700 (python test path tests/durable/ missing), R750-R752 (benchmark only), R851-R852 (no served method), R083.* (kvcache is a feature-gated crate with no served call proven).\n## 5. VERIFIED isolation spot check (crate-only proof; src/ and other crates' production code grepped)\nNo production consumer found (only defining file and its tests) for:\n1. R033 `HotStoreEngine` crates/medulla-types/src/hot_store_engine.rs: no caller.\n2. R034 `CrossStoreScope` cross_store_scope.rs: no caller.\n3. R036 `MirrorSinkKind` mirror_sink.rs: no caller in src/ or crates/*/src (only tests in medulla-plan).\n4. R037 `WorkloadClass` workload_class.rs: no caller.\n5. R040 `PipelineBatch` pipeline_batch.rs: no caller.\n6. R041 `PlanCacheKey::lookup` plan_cache_key.rs:49: no caller outside its tests.\n7. R032 `fast_path` fast_path.rs: matches in src are test names only.\n8. R027 control_lease/governed_change tests: audit/control_lines.rs formats the methods but never calls the medulla-types policy functions I grepped.\nConnected: R001/R004 outbox (medulla-transaction claim.rs, used by the outbox runtime), R006 physical storage, R054/R013 raft harness. R046 geo and R022 isolation not traced. Pure medulla-types contract modules (R033-R041) are verified by unit tests of types nobody uses.\n## 6. Five most common gaps\n1. No production call site / served proof (R071, R750-R752, R851, R852, R100.2).\n2. Stale or wrong anchors: main.rs:1154/1367/1391/1461, medulla-jobs store.rs:2537, recovery/validate.rs path (R860, R084.3, R063.2).\n3. Test paths that do not exist or use python in a Rust repo: tests/durable/*.py (R700, R820), tests/safe_eviction_read_through.rs.\n4. Templated children with no file, symbol or value (R035.2-.6, R043.1-.6, R091-R098).\n5. Row owned by another repo/spec (73 rows).\n## 7. Decisions needed (recommended first)\n1. Reparent or delete the 73 OWNER rows and 11 BLANK rows. Recommend: move to owning specs, delete templated children.\n2. R085: create the memory contract before any consumer cites it. Recommend: land R085.1 and rename \"existing\" to \"to be created\" in R028.1 and consumers.\n3. One queue/log: recommend R850 topic log + medulla-jobs queue behind R072; drop R095.1000-1005 and R750 dispatch queue duplicates.\n4. Bitemporal: R609 types only; R078-R081 served; commit/diff to branch-merge.\n5. R084 conflict check: recommend the MutationBatch version check, strategies Refuse/Merge, rename `resolve_conflict` (clashes with the query-planner symbol).\n6. R053 AVX2: recommend a labelled x86 runner (homelab has no AVX2) or retire.\n7. Isolated medulla-types modules (R033-R041): either wire (served setting or planner call) or mark isolated; do not leave VERIFIED.\n"
  ]
 }

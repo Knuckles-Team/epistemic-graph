@@ -1,0 +1,207 @@
+[package]
+name = "medulla-query"
+version = "0.31.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "SQL/Cypher query surface (CONCEPT:KG-2.178) over the medulla-engine engine — DataFusion behind the `sql` feature"
+license = "MIT"
+
+[lib]
+name = "medulla_query"
+
+[features]
+# `sql` pulls DataFusion + Arrow (heavy). A default build links NONE of them so
+# the engine stays lean for a Raspberry Pi.
+default = []
+# `medulla-types/query` surfaces the `Pred`/`JsonPathOp` wire enums the SQL classifier lowers
+# the Postgres/Mongo JSON operators onto (CONCEPT:MEDULLA-084) — additive, always on with `sql`.
+sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:tracing", "dep:async-trait", "dep:redb", "dep:medulla-storage", "dep:medulla-transaction", "dep:medulla-text", "dep:medulla-ann", "dep:futures-util", "dep:md-5", "dep:sha1", "dep:sha2", "dep:hex", "dep:base64", "dep:ipnet", "medulla-types/query", "iceberg-federation"]
+# The development/test composition root for the SQL store's scope grants
+# (`tables::store::dev_scope_grant`, and the `TableStore::open_temp` that uses
+# it). OFF by default and folded into NO tier aggregate: RF-RULING-004 puts the
+# scope-grant proof authority in the composition root, so a production build of
+# `medulla-query` must not be able to link a verifier of its own.
+dev-scope-grant = ["sql"]
+# Dep-free Cypher subset (CONCEPT:KG-2.179): a hand-written parser compiled to the
+# engine's own primitives (label index, VF2, BFS). Pulls only `petgraph` for the
+# variable-length-path BFS — already in the tree via medulla-core, NOT a new heavy dep —
+# and NO DataFusion/Arrow, so it ships in the lean Pi build.
+cypher = ["dep:petgraph"]
+# CONCEPT:MEDULLA-KG.query.gds-procedure-routing — the two `CALL gds.*` procedures that
+# route to a heavier-than-graph_algos medulla-compute domain instead of always-on
+# kernels, kept OUT of the base `cypher` feature so a lean Pi/`cypher`-only build
+# doesn't pay for them unless asked (same posture as `finance`/`numeric` below).
+# `cypher-mining` backs `gds.dbscan` (`medulla-compute::mining::cluster::dbscan` — no
+# heavy dep, `medulla-types/mining` only). `cypher-graphlearn` backs
+# `gds.linkPrediction` (`medulla-compute::graphlearn::link_predict` — implies
+# `datascience`, pulling `rand_chacha`; still no BLAS/GPU dep).
+cypher-mining = ["cypher", "medulla-compute/mining"]
+cypher-graphlearn = ["cypher", "medulla-compute/graphlearn"]
+# CONCEPT:MEDULLA-KG.query.named-graph-projection-catalog (W4.5/N5) — `gds.graph.project`/`.drop`/
+# `.exists`/`.list` plus named-projection reuse in the OTHER `gds.*` algorithm procedures (an
+# optional `graphName` config key that materializes/reuses a catalog entry instead of always
+# re-scanning the view). Needs `medulla-core`'s `result-cache` feature: the `DepClock` this reuses for
+# invalidation (CONCEPT:MEDULLA-KG.coordination.dependency-scoped-cache-invalidation, W1.6/P7) and the
+# `GraphView::projection_scope` handle that carries it both live ONLY there, module-gated
+# identically. Kept OUT of the base `cypher` feature (same posture as `cypher-mining`/
+# `cypher-graphlearn` above) so a lean Pi/`cypher`-only build pays nothing extra.
+result-cache = ["cypher", "medulla-core/result-cache"]
+# CONCEPT:MEDULLA-KG.query.cypher-engine-shadow — the `MEDULLA_CYPHER_ENGINE`
+# rollout surface (legacy | plan | shadow): a cost-based start/traversal-order
+# `plan` engine over the SAME binding-table walk, plus SHADOW mode that dual-executes
+# and diffs the two engines and logs each divergence with `tracing`. Kept OUT of the
+# lean Pi `cypher` build (which stays legacy-only, dep-identical) — `full` carries it.
+# `tracing` is already an optional dep (used by `sql`) and is present transitively via
+# medulla-core, so this adds no NEW crate to the tree.
+cypher-plan = ["cypher", "dep:tracing"]
+# Finance aggregate UDFs (`var`, `cvar`) — forward to medulla-compute's finance kernels.
+# Gated (and implies `sql`) so a no-finance build skips them AND keeps nalgebra out
+# of the default tree (CONCEPT:KG-2.184).
+finance = ["sql", "medulla-compute/finance"]
+# CONCEPT:MEDULLA-329 — Analytics-Program Surface-B numeric SQL operators. Registers the
+# medulla-numeric-backed DataFusion UDFs/UDAFs (`cosine_sim`, `l2_normalize`, `zscore`,
+# `covariance`) so analytics run in-engine over resident columns (compute-near-data,
+# no fetch-to-Python). Implies `sql` (the only place UDFs compile) and pulls the pure
+# nalgebra/ndarray kernel rlib — NO pyo3 (medulla-numeric's `python` feature stays off), so the
+# Pi-contract holds (numeric is out of `pi`; `cargo tree --features pi` links neither
+# medulla-numeric nor nalgebra).
+numeric = ["sql", "dep:medulla-numeric", "dep:ndarray", "dep:medulla-tsdb", "medulla-tsdb/derive"]
+# CA-19 (GOC-77 W01-W05, BUG-224) — the `iceberg('namespace.table'[, snapshot_id])`
+# federated table function (`sql/iceberg_federation.rs`), registered alongside
+# `nodes`/`edges` so ONE UQL/SQL query joins an external Iceberg-REST table
+# (Lakekeeper-cataloged today; eg's OWN catalog once DEC-CA-01's W0 reachability note
+# is resolved for a given deployment). Listed as its OWN feature (not folded directly
+# into `sql`'s array) so the gate this codebase enforces — "feature-gate anything only
+# used behind a feature" — stays literal: the module is `cfg(feature =
+# "iceberg-federation")`, a real, individually-nameable feature, not an unconditional
+# `sql` extra. `sql` (above) IMPLIES it so it stays reachable under the root crate's
+# `--features full` (full -> query -> medulla-query/sql) WITHOUT a root Cargo.toml edit —
+# this lane never touches that file (LANE-SPECS). Pulls the OFFICIAL apache/iceberg-rust
+# REST-catalog client alongside the `iceberg`/`iceberg-storage-opendal` crates CA-18
+# already adopted under medulla-lake's `lake` feature at the SAME `0.10` line — `cargo tree -d`
+# resolves all three (and medulla-lake's copies) to ONE `arrow = "58.3"`, so this is not a new
+# ABI-isolation boundary, matching CA-18's own precedent note in its Cargo.toml comment.
+# `tokio/rt-multi-thread` is added explicitly (rather than assumed transitively via
+# reqwest/hyper) because `sql/iceberg_federation.rs` bridges the sync
+# `TableFunctionImpl::call_with_args` callback to the async REST-catalog client on a
+# throwaway multi-thread runtime of its own (see that module's doc for why).
+iceberg-federation = ["dep:iceberg", "dep:iceberg-catalog-rest", "dep:iceberg-storage-opendal", "tokio/rt-multi-thread"]
+
+[dependencies]
+medulla-types = { path = "../medulla-types" }
+medulla-core = { path = "../medulla-core" }
+medulla-compute = { path = "../medulla-compute" }
+# CONCEPT:MEDULLA-311 — the real (dep-free) BM25 scorer/snippeter behind the `bm25_score`/
+# `bm25_snippet` UDFs. OPTIONAL, only under `sql` (the sole place the UDFs compile);
+# medulla-text's DEFAULT build is Tantivy-free, so this adds nothing heavy to the tree and
+# stays out of a Pi/`cypher`-only medulla-query build.
+medulla-text = { path = "../medulla-text", optional = true }
+# CONCEPT:MEDULLA-313 — the real HNSW/IVF-PQ + exact-rerank ANN indices behind the
+# pgvector `ORDER BY col <-> $1 LIMIT k` pushdown. OPTIONAL, only under `sql` (the
+# sole place the exec pushdown compiles). medulla-ann's DEFAULT build links no heavy/GPU
+# deps (pure-Rust, Pi-lean), so this stays out of a `cypher`-only medulla-query build.
+medulla-ann = { path = "../medulla-ann", optional = true }
+# RF-RULING-004/006: `medulla-storage` is the sole physical authority for the SQL
+# owner file and `medulla-transaction` its sole writer. `TableStore` opens through
+# `StorageKernel` under `OwnerLayout::Sql` and every write it makes is an
+# admitted mutation. Both are optional under `sql` for the same reason `redb`
+# is: a lean Pi/`cypher`-only build links neither.
+medulla-storage = { path = "../medulla-storage", optional = true }
+medulla-transaction = { path = "../medulla-transaction", optional = true }
+# CONCEPT:MEDULLA-329 — the pure BLAS/LAPACK-free numeric kernel (nalgebra + ndarray) behind the
+# Surface-B SQL UDFs. OPTIONAL, only under `numeric`; the engine links it WITHOUT pyo3
+# (medulla-numeric's `python` feature stays off), preserving the Pi-contract (out of `pi`).
+medulla-numeric = { path = "../medulla-numeric", optional = true }
+# EH-522 — the `eg_<func>` SQL window functions run the SAME derived-series program a UQL
+# `DERIVE` column runs (`medulla_tsdb::derive`). Only under `numeric`. medulla-tsdb sits beside
+# medulla-query (both above medulla-compute; medulla-tsdb links no medulla-query), so the edge is acyclic.
+medulla-tsdb = { path = "../medulla-tsdb", optional = true }
+# CONCEPT:MEDULLA-329 — marshal Arrow columns into `ndarray` views the kernel consumes.
+# Only under `numeric`; already in the tree via medulla-numeric, so no new heavy dep.
+ndarray = { version = "0.17", optional = true }
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = "1.0"
+rmp-serde = "1.3"
+
+# Heavy SQL deps — optional, gated behind `sql`. DataFusion re-exports its SQL
+# parser (datafusion::sql), so NO standalone sqlparser-rs dep.
+# CONCEPT:MEDULLA-104 — `nested_expressions` turns on DataFusion's native array/`List`
+# function package (`datafusion-functions-nested`): `make_array`/`array[...]` literals,
+# `unnest`, `array_length`, `array_has`/`array_has_all`/`array_has_any`, `array_append`,
+# the `||` array concat, and `= ANY`/`ALL (array)`. Without it a `default-features =
+# false` DataFusion links NONE of these (the crate is off), so ORMs/BI array SQL fails to
+# plan. Additive: only affects builds that already compile DataFusion (the `sql` feature).
+datafusion = { version = "54", default-features = false, optional = true, features = [
+    "nested_expressions",
+    "sql",
+] }
+arrow = { version = "58.4", optional = true }
+arrow-schema = { version = "58.4", optional = true }
+# CA-19 (GOC-77 W01-W04) — the official apache/iceberg-rust reader + REST-catalog client,
+# gated behind `iceberg-federation` (implied by `sql`, see that feature's comment above).
+# SAME `0.10` line medulla-lake's `lake` feature already pins (CA-18); the three RUSTSEC
+# advisories CA-18 accepted (`.config/cargo-audit-allow.txt`, time-bounded expires=2026-11-24)
+# cover this resolution too — no NEW advisory is introduced by adding a second crate that
+# resolves to the identical dependency versions.
+iceberg = { version = "0.10", optional = true }
+# The REST-catalog client specifically (a separate crate from `iceberg` itself as of the
+# 0.10 line) — medulla-lake's own `lake` feature never needed it (medulla-lake only WRITES/serves a
+# catalog; it never calls OUT to one). No Cargo features of its own to select (its
+# `reqwest` dep is pinned internally to `default-features = false, features = ["json"]`
+# by the crate itself — nothing for a downstream Cargo.toml to opt into or out of).
+iceberg-catalog-rest = { version = "0.10", optional = true }
+# Same crate CA-18 pinned under medulla-lake's `lake` feature, `opendal-s3` ONLY (matches that
+# precedent exactly) — the federated leg only ever reads from an S3-compatible object
+# store (SeaweedFS today), never local-fs/memory, so `opendal-fs`/`opendal-memory` stay
+# off.
+iceberg-storage-opendal = { version = "0.10", optional = true, default-features = false, features = [
+    "opendal-s3",
+] }
+# Durable embedded KV for the user-defined table store (CONCEPT:MEDULLA-018). Same pin as
+# the engine's server-side durable tier so a `query`/`full` build links one redb.
+redb = { workspace = true, optional = true }
+# Shared by `sql` (EdgeRef/IntoEdgeReferences edge-table topology iteration over
+# GraphView's StableDiGraph) and `cypher` (variable-length-path BFS). Already
+# linked transitively via medulla-core; pin the same minor. `serde-1` is the superset
+# both features tolerate — not in a default build (CONCEPT:KG-2.184).
+petgraph = { version = "0.8.3", features = ["serde-1"], optional = true }
+# Current-thread runtime to drive DataFusion's async `collect()` inside the
+# blocking pool (the `compute_off_lock` idiom). Only the `rt` feature is needed —
+# the caller already runs us under `spawn_blocking`.
+tokio = { version = "1.53", features = ["rt"], optional = true }
+# Debug-log the never-error result-cell decoder fallback (CONCEPT:KG-2.196). Gated
+# with `sql` — the only place it is used — so a default Pi build links no tracing.
+tracing = { version = "0.1", optional = true }
+# `#[async_trait]` for the custom `nodes` TableProvider (CONCEPT:KG-2.199 predicate
+# pushdown). DataFusion's `TableProvider` trait is itself `#[async_trait]`; pulled
+# only under `sql`, so it stays out of the lean Pi build.
+async-trait = { version = "0.1", optional = true }
+# CONCEPT:MEDULLA-KG.query.streaming-spillable-collect (MEDULLA-P1-4) — `StreamExt::next()` to drive
+# DataFusion's `SendableRecordBatchStream` batch-at-a-time instead of `DataFrame::collect()`'s
+# eager whole-result buffering. Already resolved transitively (DataFusion itself depends on
+# it) at the SAME version, so this adds NO new crate to the tree — only a direct `use` path
+# for the trait. `default-features = false` + `std` only: no need for `futures-util`'s
+# executor/io/sink/alloc extras just to call `.next()` on an already-Send stream.
+futures-util = { version = "0.3", optional = true, default-features = false, features = [
+    "std",
+] }
+
+# CONCEPT:MEDULLA-KG.query.sqlite-compat-scalar-udfs (turso-assimilation rank 14) — the
+# `md5`/`sha1`/`sha256`/`base64_encode`/`base64_decode`/`ip*` scalar UDFs. All four
+# are already resolved transitively (sha2 via other crates, md-5/sha1/base64/ipnet
+# via DataFusion/Arrow's own tree), so this adds no new dependency FAMILY to the
+# tree — only a direct `use` path, gated behind `sql` (the only place these UDFs
+# register) so a lean Pi/`cypher`-only build stays untouched.
+md-5 = { version = "0.10", optional = true }
+sha1 = { version = "0.10", optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
+base64 = { version = "0.23", optional = true }
+ipnet = { version = "2.12", optional = true }
+
+[dev-dependencies]
+# The spike's OUTER reactor mimics the server's multi-thread runtime; the inner
+# DataFusion driver uses only the current-thread runtime from the `sql` dep.
+tokio = { version = "1.53", features = ["rt", "rt-multi-thread", "macros"] }
+# Shared SQL source batch fixture (`medulla_types::test_support::sql_source`).
+medulla-types = { path = "../medulla-types", features = ["test-support"] }

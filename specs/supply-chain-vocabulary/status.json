@@ -1,82 +1,82 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-SUPPLY-VOCAB",
+  "spec_id": "MEDULLA-SUPPLY-VOCAB",
   "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "EG-SUPPLY-VOCAB-R001",
-    "EG-SUPPLY-VOCAB-R001.1",
-    "EG-SUPPLY-VOCAB-R001.1.1",
-    "EG-SUPPLY-VOCAB-R001.1.2",
-    "EG-SUPPLY-VOCAB-R001.2",
-    "EG-SUPPLY-VOCAB-R001.3",
-    "EG-SUPPLY-VOCAB-R001.4",
-    "EG-SUPPLY-VOCAB-R002",
-    "EG-SUPPLY-VOCAB-R002.1",
-    "EG-SUPPLY-VOCAB-R002.2",
-    "EG-SUPPLY-VOCAB-R002.3",
-    "EG-SUPPLY-VOCAB-R002.4",
-    "EG-SUPPLY-VOCAB-R002.5",
-    "EG-SUPPLY-VOCAB-R002.6",
-    "EG-SUPPLY-VOCAB-R002.7",
-    "EG-SUPPLY-VOCAB-R003",
-    "EG-SUPPLY-VOCAB-R003.1",
-    "EG-SUPPLY-VOCAB-R003.2",
-    "EG-SUPPLY-VOCAB-R003.3",
-    "EG-SUPPLY-VOCAB-R003.4",
-    "EG-SUPPLY-VOCAB-R003.5",
-    "EG-SUPPLY-VOCAB-R003.6",
-    "EG-SUPPLY-VOCAB-R003.7",
-    "EG-SUPPLY-VOCAB-R003.8",
-    "EG-SUPPLY-VOCAB-R003.9",
-    "EG-SUPPLY-VOCAB-R003.10",
-    "EG-SUPPLY-VOCAB-R003.11",
-    "EG-SUPPLY-VOCAB-R003.12",
-    "EG-SUPPLY-VOCAB-R003.13",
-    "EG-SUPPLY-VOCAB-R003.14",
-    "EG-SUPPLY-VOCAB-R003.15",
-    "EG-SUPPLY-VOCAB-R003.16",
-    "EG-SUPPLY-VOCAB-R003.17",
-    "EG-SUPPLY-VOCAB-R004",
-    "EG-SUPPLY-VOCAB-R004.1",
-    "EG-SUPPLY-VOCAB-R004.2",
-    "EG-SUPPLY-VOCAB-R004.3",
-    "EG-SUPPLY-VOCAB-R005",
-    "EG-SUPPLY-VOCAB-R005.1",
-    "EG-SUPPLY-VOCAB-R005.2",
-    "EG-SUPPLY-VOCAB-R005.3",
-    "EG-SUPPLY-VOCAB-R005.4",
-    "EG-SUPPLY-VOCAB-R005.5",
-    "EG-SUPPLY-VOCAB-R005.6",
-    "EG-SUPPLY-VOCAB-R005.7",
-    "EG-SUPPLY-VOCAB-R005.8",
-    "EG-SUPPLY-VOCAB-R005.9",
-    "EG-SUPPLY-VOCAB-R006",
-    "EG-SUPPLY-VOCAB-R006.1",
-    "EG-SUPPLY-VOCAB-R006.2",
-    "EG-SUPPLY-VOCAB-R006.3",
-    "EG-SUPPLY-VOCAB-R006.4",
-    "EG-SUPPLY-VOCAB-R006.5",
-    "EG-SUPPLY-VOCAB-R006.6",
-    "EG-SUPPLY-VOCAB-R006.7",
-    "EG-SUPPLY-VOCAB-R007",
-    "EG-SUPPLY-VOCAB-R007.1",
-    "EG-SUPPLY-VOCAB-R007.2",
-    "EG-SUPPLY-VOCAB-R008",
-    "EG-SUPPLY-VOCAB-R008.1",
-    "EG-SUPPLY-VOCAB-R008.2",
-    "EG-SUPPLY-VOCAB-R008.3",
-    "EG-SUPPLY-VOCAB-R009",
-    "EG-SUPPLY-VOCAB-R009.1",
-    "EG-SUPPLY-VOCAB-R009.2",
-    "EG-SUPPLY-VOCAB-R009.3",
-    "EG-SUPPLY-VOCAB-R009.4",
-    "EG-SUPPLY-VOCAB-R009.5",
-    "EG-SUPPLY-VOCAB-R009.6"
+    "MEDULLA-SUPPLY-VOCAB-R001",
+    "MEDULLA-SUPPLY-VOCAB-R001.1",
+    "MEDULLA-SUPPLY-VOCAB-R001.1.1",
+    "MEDULLA-SUPPLY-VOCAB-R001.1.2",
+    "MEDULLA-SUPPLY-VOCAB-R001.2",
+    "MEDULLA-SUPPLY-VOCAB-R001.3",
+    "MEDULLA-SUPPLY-VOCAB-R001.4",
+    "MEDULLA-SUPPLY-VOCAB-R002",
+    "MEDULLA-SUPPLY-VOCAB-R002.1",
+    "MEDULLA-SUPPLY-VOCAB-R002.2",
+    "MEDULLA-SUPPLY-VOCAB-R002.3",
+    "MEDULLA-SUPPLY-VOCAB-R002.4",
+    "MEDULLA-SUPPLY-VOCAB-R002.5",
+    "MEDULLA-SUPPLY-VOCAB-R002.6",
+    "MEDULLA-SUPPLY-VOCAB-R002.7",
+    "MEDULLA-SUPPLY-VOCAB-R003",
+    "MEDULLA-SUPPLY-VOCAB-R003.1",
+    "MEDULLA-SUPPLY-VOCAB-R003.2",
+    "MEDULLA-SUPPLY-VOCAB-R003.3",
+    "MEDULLA-SUPPLY-VOCAB-R003.4",
+    "MEDULLA-SUPPLY-VOCAB-R003.5",
+    "MEDULLA-SUPPLY-VOCAB-R003.6",
+    "MEDULLA-SUPPLY-VOCAB-R003.7",
+    "MEDULLA-SUPPLY-VOCAB-R003.8",
+    "MEDULLA-SUPPLY-VOCAB-R003.9",
+    "MEDULLA-SUPPLY-VOCAB-R003.10",
+    "MEDULLA-SUPPLY-VOCAB-R003.11",
+    "MEDULLA-SUPPLY-VOCAB-R003.12",
+    "MEDULLA-SUPPLY-VOCAB-R003.13",
+    "MEDULLA-SUPPLY-VOCAB-R003.14",
+    "MEDULLA-SUPPLY-VOCAB-R003.15",
+    "MEDULLA-SUPPLY-VOCAB-R003.16",
+    "MEDULLA-SUPPLY-VOCAB-R003.17",
+    "MEDULLA-SUPPLY-VOCAB-R004",
+    "MEDULLA-SUPPLY-VOCAB-R004.1",
+    "MEDULLA-SUPPLY-VOCAB-R004.2",
+    "MEDULLA-SUPPLY-VOCAB-R004.3",
+    "MEDULLA-SUPPLY-VOCAB-R005",
+    "MEDULLA-SUPPLY-VOCAB-R005.1",
+    "MEDULLA-SUPPLY-VOCAB-R005.2",
+    "MEDULLA-SUPPLY-VOCAB-R005.3",
+    "MEDULLA-SUPPLY-VOCAB-R005.4",
+    "MEDULLA-SUPPLY-VOCAB-R005.5",
+    "MEDULLA-SUPPLY-VOCAB-R005.6",
+    "MEDULLA-SUPPLY-VOCAB-R005.7",
+    "MEDULLA-SUPPLY-VOCAB-R005.8",
+    "MEDULLA-SUPPLY-VOCAB-R005.9",
+    "MEDULLA-SUPPLY-VOCAB-R006",
+    "MEDULLA-SUPPLY-VOCAB-R006.1",
+    "MEDULLA-SUPPLY-VOCAB-R006.2",
+    "MEDULLA-SUPPLY-VOCAB-R006.3",
+    "MEDULLA-SUPPLY-VOCAB-R006.4",
+    "MEDULLA-SUPPLY-VOCAB-R006.5",
+    "MEDULLA-SUPPLY-VOCAB-R006.6",
+    "MEDULLA-SUPPLY-VOCAB-R006.7",
+    "MEDULLA-SUPPLY-VOCAB-R007",
+    "MEDULLA-SUPPLY-VOCAB-R007.1",
+    "MEDULLA-SUPPLY-VOCAB-R007.2",
+    "MEDULLA-SUPPLY-VOCAB-R008",
+    "MEDULLA-SUPPLY-VOCAB-R008.1",
+    "MEDULLA-SUPPLY-VOCAB-R008.2",
+    "MEDULLA-SUPPLY-VOCAB-R008.3",
+    "MEDULLA-SUPPLY-VOCAB-R009",
+    "MEDULLA-SUPPLY-VOCAB-R009.1",
+    "MEDULLA-SUPPLY-VOCAB-R009.2",
+    "MEDULLA-SUPPLY-VOCAB-R009.3",
+    "MEDULLA-SUPPLY-VOCAB-R009.4",
+    "MEDULLA-SUPPLY-VOCAB-R009.5",
+    "MEDULLA-SUPPLY-VOCAB-R009.6"
   ],
   "requirements": [
     {
-      "id": "EG-SUPPLY-VOCAB-R001",
+      "id": "MEDULLA-SUPPLY-VOCAB-R001",
       "title": "Physical and commercial supply chain terms (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -87,21 +87,21 @@
         "ee2a3497659c"
       ],
       "verified_by": [
-        "crates/eg-core/tests/commercial_vocabulary.rs:299",
-        "crates/eg-core/tests/supply_chain_vocab.rs:268",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:112",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:167",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:499"
+        "crates/medulla-core/tests/commercial_vocabulary.rs:299",
+        "crates/medulla-core/tests/supply_chain_vocab.rs:268",
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:112",
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:167",
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:499"
       ],
       "rollup_of": [
-        "EG-SUPPLY-VOCAB-R001.1",
-        "EG-SUPPLY-VOCAB-R001.2",
-        "EG-SUPPLY-VOCAB-R001.3",
-        "EG-SUPPLY-VOCAB-R001.4"
+        "MEDULLA-SUPPLY-VOCAB-R001.1",
+        "MEDULLA-SUPPLY-VOCAB-R001.2",
+        "MEDULLA-SUPPLY-VOCAB-R001.3",
+        "MEDULLA-SUPPLY-VOCAB-R001.4"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R001.1",
+      "id": "MEDULLA-SUPPLY-VOCAB-R001.1",
       "title": "Shared supplier and item vocabulary (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -109,80 +109,80 @@
         "ee2a3497659c"
       ],
       "verified_by": [
-        "crates/eg-core/tests/commercial_vocabulary.rs:299",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:112",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:62",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:94",
+        "crates/medulla-core/tests/commercial_vocabulary.rs:299",
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:112",
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:62",
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:94",
         "src/server/graph_schema/compose.rs:701"
       ],
       "rollup_of": [
-        "EG-SUPPLY-VOCAB-R001.1.1",
-        "EG-SUPPLY-VOCAB-R001.1.2"
+        "MEDULLA-SUPPLY-VOCAB-R001.1.1",
+        "MEDULLA-SUPPLY-VOCAB-R001.1.2"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R001.1.1",
+      "id": "MEDULLA-SUPPLY-VOCAB-R001.1.1",
       "title": "Declare shared supplier and item terms",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "ee2a3497659c"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:112",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:62",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:94"
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:112",
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:62",
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:94"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R001.1.2",
+      "id": "MEDULLA-SUPPLY-VOCAB-R001.1.2",
       "title": "Install shared terms in the core catalog and prove native entailment",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "43bbb7464e07"
       ],
       "verified_by": [
-        "crates/eg-core/tests/commercial_vocabulary.rs:299",
+        "crates/medulla-core/tests/commercial_vocabulary.rs:299",
         "src/server/graph_schema/compose.rs:701"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R001.2",
+      "id": "MEDULLA-SUPPLY-VOCAB-R001.2",
       "title": "Add `:realizedByAsset` and `:assetHost`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:167"
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:167"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R001.3",
+      "id": "MEDULLA-SUPPLY-VOCAB-R001.3",
       "title": "Add `:suppliesService` and the physical chain sub-property",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "340d0c252754"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:499",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:578",
-        "crates/eg-rdf/tests/supply_chain_reasoning.rs:102",
-        "crates/eg-rdf/tests/supply_chain_reasoning.rs:128"
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:499",
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:578",
+        "crates/medulla-rdf/tests/supply_chain_reasoning.rs:102",
+        "crates/medulla-rdf/tests/supply_chain_reasoning.rs:128"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R001.4",
+      "id": "MEDULLA-SUPPLY-VOCAB-R001.4",
       "title": "SHACL shapes for supplier and item",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:268"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:268"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R002",
+      "id": "MEDULLA-SUPPLY-VOCAB-R002",
       "title": "Software supply chain terms (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -193,24 +193,24 @@
         "a87da41458a1"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:156",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:197",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:273",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:303",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:351"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:156",
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:197",
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:273",
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:303",
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:351"
       ],
       "rollup_of": [
-        "EG-SUPPLY-VOCAB-R002.1",
-        "EG-SUPPLY-VOCAB-R002.2",
-        "EG-SUPPLY-VOCAB-R002.3",
-        "EG-SUPPLY-VOCAB-R002.4",
-        "EG-SUPPLY-VOCAB-R002.5",
-        "EG-SUPPLY-VOCAB-R002.6",
-        "EG-SUPPLY-VOCAB-R002.7"
+        "MEDULLA-SUPPLY-VOCAB-R002.1",
+        "MEDULLA-SUPPLY-VOCAB-R002.2",
+        "MEDULLA-SUPPLY-VOCAB-R002.3",
+        "MEDULLA-SUPPLY-VOCAB-R002.4",
+        "MEDULLA-SUPPLY-VOCAB-R002.5",
+        "MEDULLA-SUPPLY-VOCAB-R002.6",
+        "MEDULLA-SUPPLY-VOCAB-R002.7"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R002.1",
+      "id": "MEDULLA-SUPPLY-VOCAB-R002.1",
       "title": "Add `:SoftwareComponent`, `:ComponentVersion`, shared `:versionOf`, constrained `:supplyChainVersionOf` and `:versionString`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -219,79 +219,79 @@
         "a87da41458a1"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:197",
-        "crates/eg-rdf/tests/supply_chain_reasoning.rs:197"
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:197",
+        "crates/medulla-rdf/tests/supply_chain_reasoning.rs:197"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R002.2",
+      "id": "MEDULLA-SUPPLY-VOCAB-R002.2",
       "title": "Declare `infra:ContainerImage` a `kg:SoftwareComponent`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "9421614f7ae7"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_reasoning.rs:38"
+        "crates/medulla-rdf/tests/supply_chain_reasoning.rs:38"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R002.3",
+      "id": "MEDULLA-SUPPLY-VOCAB-R002.3",
       "title": "Add `:containsComponent` and `:publishedBy`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:273"
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:273"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R002.4",
+      "id": "MEDULLA-SUPPLY-VOCAB-R002.4",
       "title": "Add `:usesImage` and `:deployedAs`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:303"
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:303"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R002.5",
+      "id": "MEDULLA-SUPPLY-VOCAB-R002.5",
       "title": "Add `:usesComponent` with the runtime chain axiom",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:351",
-        "crates/eg-rdf/tests/supply_chain_reasoning.rs:172"
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:351",
+        "crates/medulla-rdf/tests/supply_chain_reasoning.rs:172"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R002.6",
+      "id": "MEDULLA-SUPPLY-VOCAB-R002.6",
       "title": "Add `:Vulnerability` with `:cveId`, `:severity`, `:fixedInVersion`, `:affectsComponent` and `:hasVulnerability`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:604"
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:604"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R002.7",
+      "id": "MEDULLA-SUPPLY-VOCAB-R002.7",
       "title": "SHACL shapes for component version, vulnerability and `usesComponent`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:156"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:156"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003",
       "title": "Commercial and capability terms (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -302,45 +302,45 @@
         "c6c185bfdb23"
       ],
       "verified_by": [
-        "crates/eg-core/tests/commercial_vocabulary.rs:136",
-        "crates/eg-core/tests/commercial_vocabulary.rs:200",
-        "crates/eg-core/tests/commercial_vocabulary.rs:228",
-        "crates/eg-core/tests/commercial_vocabulary.rs:49",
-        "crates/eg-core/tests/commercial_vocabulary.rs:92"
+        "crates/medulla-core/tests/commercial_vocabulary.rs:136",
+        "crates/medulla-core/tests/commercial_vocabulary.rs:200",
+        "crates/medulla-core/tests/commercial_vocabulary.rs:228",
+        "crates/medulla-core/tests/commercial_vocabulary.rs:49",
+        "crates/medulla-core/tests/commercial_vocabulary.rs:92"
       ],
       "rollup_of": [
-        "EG-SUPPLY-VOCAB-R003.1",
-        "EG-SUPPLY-VOCAB-R003.2",
-        "EG-SUPPLY-VOCAB-R003.3",
-        "EG-SUPPLY-VOCAB-R003.4",
-        "EG-SUPPLY-VOCAB-R003.5",
-        "EG-SUPPLY-VOCAB-R003.6",
-        "EG-SUPPLY-VOCAB-R003.7",
-        "EG-SUPPLY-VOCAB-R003.8",
-        "EG-SUPPLY-VOCAB-R003.9",
-        "EG-SUPPLY-VOCAB-R003.10",
-        "EG-SUPPLY-VOCAB-R003.11",
-        "EG-SUPPLY-VOCAB-R003.12",
-        "EG-SUPPLY-VOCAB-R003.13",
-        "EG-SUPPLY-VOCAB-R003.14",
-        "EG-SUPPLY-VOCAB-R003.15",
-        "EG-SUPPLY-VOCAB-R003.16",
-        "EG-SUPPLY-VOCAB-R003.17"
+        "MEDULLA-SUPPLY-VOCAB-R003.1",
+        "MEDULLA-SUPPLY-VOCAB-R003.2",
+        "MEDULLA-SUPPLY-VOCAB-R003.3",
+        "MEDULLA-SUPPLY-VOCAB-R003.4",
+        "MEDULLA-SUPPLY-VOCAB-R003.5",
+        "MEDULLA-SUPPLY-VOCAB-R003.6",
+        "MEDULLA-SUPPLY-VOCAB-R003.7",
+        "MEDULLA-SUPPLY-VOCAB-R003.8",
+        "MEDULLA-SUPPLY-VOCAB-R003.9",
+        "MEDULLA-SUPPLY-VOCAB-R003.10",
+        "MEDULLA-SUPPLY-VOCAB-R003.11",
+        "MEDULLA-SUPPLY-VOCAB-R003.12",
+        "MEDULLA-SUPPLY-VOCAB-R003.13",
+        "MEDULLA-SUPPLY-VOCAB-R003.14",
+        "MEDULLA-SUPPLY-VOCAB-R003.15",
+        "MEDULLA-SUPPLY-VOCAB-R003.16",
+        "MEDULLA-SUPPLY-VOCAB-R003.17"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.1",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.1",
       "title": "Add `:Customer`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/commercial_declarations.rs:24"
+        "crates/medulla-rdf/tests/commercial_declarations.rs:24"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.2",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.2",
       "title": "Add `:CustomerContract`, `:contractCustomer`, `:coversService`, `:contractStatus` and `:contractEnd`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -348,22 +348,22 @@
         "c6c185bfdb23"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/commercial_declarations.rs:151"
+        "crates/medulla-rdf/tests/commercial_declarations.rs:151"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.3",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.3",
       "title": "Add `:affectsService`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:310"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:310"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.4",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.4",
       "title": "Add `:supportsCapability`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -371,46 +371,46 @@
         "c6c185bfdb23"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:386",
-        "crates/eg-rdf/tests/commercial_declarations.rs:205"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:386",
+        "crates/medulla-rdf/tests/commercial_declarations.rs:205"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.5",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.5",
       "title": "SHACL shapes for contract and capability link",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:448"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:448"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.6",
-      "title": "Record the amendments to `EG-CQ-XSRC-R002.1` and `EG-CQ-XSRC-R008.3.1`",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.6",
+      "title": "Record the amendments to `MEDULLA-CQ-XSRC-R002.1` and `MEDULLA-CQ-XSRC-R008.3.1`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "8fd835eb199a",
         "cf97853f7c39"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/commercial_declarations.rs:90"
+        "crates/medulla-rdf/tests/commercial_declarations.rs:90"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.7",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.7",
       "title": "Declare party links on `kg:Organization` (no `:Party` class)",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:550"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:550"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.8",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.8",
       "title": "Add `:PurchaseOrder`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -418,100 +418,100 @@
         "c6c185bfdb23"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:593",
-        "crates/eg-rdf/tests/commercial_declarations.rs:231"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:593",
+        "crates/medulla-rdf/tests/commercial_declarations.rs:231"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.9",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.9",
       "title": "Add `:PurchaseInvoice`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:632"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:632"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.10",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.10",
       "title": "Add `:Opportunity`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/commercial_declarations.rs:57"
+        "crates/medulla-rdf/tests/commercial_declarations.rs:57"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.11",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.11",
       "title": "Reuse `:Person` for `:Contact` and declare the link",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:657"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:657"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.12",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.12",
       "title": "Add `:customerLastActivityAt`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "340d0c252754"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:1995"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1995"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.13",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.13",
       "title": "Register the commercial module",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-core/tests/commercial_vocabulary.rs:49"
+        "crates/medulla-core/tests/commercial_vocabulary.rs:49"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.14",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.14",
       "title": "Register the commercial shapes companion",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-core/tests/commercial_vocabulary.rs:92"
+        "crates/medulla-core/tests/commercial_vocabulary.rs:92"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.15",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.15",
       "title": "Preserve canonical commercial namespaces",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-core/tests/commercial_vocabulary.rs:136"
+        "crates/medulla-core/tests/commercial_vocabulary.rs:136"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.16",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.16",
       "title": "Declare the Opportunity date property",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-core/tests/commercial_vocabulary.rs:200"
+        "crates/medulla-core/tests/commercial_vocabulary.rs:200"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R003.17",
+      "id": "MEDULLA-SUPPLY-VOCAB-R003.17",
       "title": "Restore the Opportunity date constraint",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -519,11 +519,11 @@
         "c6c185bfdb23"
       ],
       "verified_by": [
-        "crates/eg-core/tests/commercial_vocabulary.rs:228"
+        "crates/medulla-core/tests/commercial_vocabulary.rs:228"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R004",
+      "id": "MEDULLA-SUPPLY-VOCAB-R004",
       "title": "Host limit terms (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -531,91 +531,91 @@
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:704",
-        "crates/eg-core/tests/supply_chain_vocab.rs:793",
-        "crates/eg-rdf/tests/infrastructure_host_limits.rs:49"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:704",
+        "crates/medulla-core/tests/supply_chain_vocab.rs:793",
+        "crates/medulla-rdf/tests/infrastructure_host_limits.rs:49"
       ],
       "rollup_of": [
-        "EG-SUPPLY-VOCAB-R004.1",
-        "EG-SUPPLY-VOCAB-R004.2",
-        "EG-SUPPLY-VOCAB-R004.3"
+        "MEDULLA-SUPPLY-VOCAB-R004.1",
+        "MEDULLA-SUPPLY-VOCAB-R004.2",
+        "MEDULLA-SUPPLY-VOCAB-R004.3"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R004.1",
+      "id": "MEDULLA-SUPPLY-VOCAB-R004.1",
       "title": "Add `infra:HostLimit`, `:limitOf`, `:limitKind`, `:readingValue`, `:limitValue`, `:limitUnit`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/infrastructure_host_limits.rs:49"
+        "crates/medulla-rdf/tests/infrastructure_host_limits.rs:49"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R004.2",
+      "id": "MEDULLA-SUPPLY-VOCAB-R004.2",
       "title": "SHACL shape for `HostLimit`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:704"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:704"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R004.3",
+      "id": "MEDULLA-SUPPLY-VOCAB-R004.3",
       "title": "Declared-threshold fixture for capacity limits",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:793"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:793"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R005",
+      "id": "MEDULLA-SUPPLY-VOCAB-R005",
       "title": "Virtual mappings: procurement, commercial, change and capability sources (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SUPPLY-VOCAB-R005.1",
-        "EG-SUPPLY-VOCAB-R005.2",
-        "EG-SUPPLY-VOCAB-R005.3",
-        "EG-SUPPLY-VOCAB-R005.4",
-        "EG-SUPPLY-VOCAB-R005.5",
-        "EG-SUPPLY-VOCAB-R005.6",
-        "EG-SUPPLY-VOCAB-R005.7",
-        "EG-SUPPLY-VOCAB-R005.8",
-        "EG-SUPPLY-VOCAB-R005.9"
+        "MEDULLA-SUPPLY-VOCAB-R005.1",
+        "MEDULLA-SUPPLY-VOCAB-R005.2",
+        "MEDULLA-SUPPLY-VOCAB-R005.3",
+        "MEDULLA-SUPPLY-VOCAB-R005.4",
+        "MEDULLA-SUPPLY-VOCAB-R005.5",
+        "MEDULLA-SUPPLY-VOCAB-R005.6",
+        "MEDULLA-SUPPLY-VOCAB-R005.7",
+        "MEDULLA-SUPPLY-VOCAB-R005.8",
+        "MEDULLA-SUPPLY-VOCAB-R005.9"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R005.1",
+      "id": "MEDULLA-SUPPLY-VOCAB-R005.1",
       "title": "Mapping fixture: erpnext `Supplier` to `kg:Supplier`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:825"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:825"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R005.2",
+      "id": "MEDULLA-SUPPLY-VOCAB-R005.2",
       "title": "Mapping fixture: erpnext `Item` and `Purchase Order` to `kg:SupplyChainItem` and `kg:suppliesItem`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:901"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:901"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R005.3",
+      "id": "MEDULLA-SUPPLY-VOCAB-R005.3",
       "title": "RETIRED: Moved to the owner connector",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -623,40 +623,40 @@
       "retired_reason": "Moved to the owner connector"
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R005.4",
+      "id": "MEDULLA-SUPPLY-VOCAB-R005.4",
       "title": "Mapping fixture: leanix `Provider` to `kg:Supplier` (rank 2) and `supports` to `kg:supportsCapability`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:964"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:964"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R005.5",
+      "id": "MEDULLA-SUPPLY-VOCAB-R005.5",
       "title": "Mapping fixture: servicenow `Incident`, `Change` and CI relation to `kg:affectsService`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:1033"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1033"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R005.6",
+      "id": "MEDULLA-SUPPLY-VOCAB-R005.6",
       "title": "Mapping fixture: salesforce `Account` to `kg:Customer` and `Contract` to `kg:CustomerContract`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:1102"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1102"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R005.7",
+      "id": "MEDULLA-SUPPLY-VOCAB-R005.7",
       "title": "RETIRED: Moved to the owner connector",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -664,25 +664,25 @@
       "retired_reason": "Moved to the owner connector"
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R005.8",
+      "id": "MEDULLA-SUPPLY-VOCAB-R005.8",
       "title": "Mapping fixture: twenty `Company` to `kg:Customer` (rank 2)",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:1170"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1170"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R005.9",
+      "id": "MEDULLA-SUPPLY-VOCAB-R005.9",
       "title": "Curated contract-to-service link",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R006",
+      "id": "MEDULLA-SUPPLY-VOCAB-R006",
       "title": "Virtual mappings: software, runtime and host sources (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -690,24 +690,24 @@
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:1223",
-        "crates/eg-core/tests/supply_chain_vocab.rs:1311",
-        "crates/eg-core/tests/supply_chain_vocab.rs:1374",
-        "crates/eg-core/tests/supply_chain_vocab.rs:1468",
-        "crates/eg-core/tests/supply_chain_vocab.rs:1895"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1223",
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1311",
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1374",
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1468",
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1895"
       ],
       "rollup_of": [
-        "EG-SUPPLY-VOCAB-R006.1",
-        "EG-SUPPLY-VOCAB-R006.2",
-        "EG-SUPPLY-VOCAB-R006.3",
-        "EG-SUPPLY-VOCAB-R006.4",
-        "EG-SUPPLY-VOCAB-R006.5",
-        "EG-SUPPLY-VOCAB-R006.6",
-        "EG-SUPPLY-VOCAB-R006.7"
+        "MEDULLA-SUPPLY-VOCAB-R006.1",
+        "MEDULLA-SUPPLY-VOCAB-R006.2",
+        "MEDULLA-SUPPLY-VOCAB-R006.3",
+        "MEDULLA-SUPPLY-VOCAB-R006.4",
+        "MEDULLA-SUPPLY-VOCAB-R006.5",
+        "MEDULLA-SUPPLY-VOCAB-R006.6",
+        "MEDULLA-SUPPLY-VOCAB-R006.7"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R006.1",
+      "id": "MEDULLA-SUPPLY-VOCAB-R006.1",
       "title": "RETIRED: Moved to the owner connector",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -715,7 +715,7 @@
       "retired_reason": "Moved to the owner connector"
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R006.2",
+      "id": "MEDULLA-SUPPLY-VOCAB-R006.2",
       "title": "RETIRED: Moved to the owner connector",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -723,62 +723,62 @@
       "retired_reason": "Moved to the owner connector"
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R006.3",
+      "id": "MEDULLA-SUPPLY-VOCAB-R006.3",
       "title": "Mapping fixture: container-manager workload and image to `kg:deployedAs` and `kg:usesImage`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:1223"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1223"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R006.4",
+      "id": "MEDULLA-SUPPLY-VOCAB-R006.4",
       "title": "Mapping fixture: uptime monitor to service health",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:1311"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1311"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R006.5",
+      "id": "MEDULLA-SUPPLY-VOCAB-R006.5",
       "title": "Mapping fixture: dockerhub image, SBOM and Scout CVEs to `containsComponent` and `Vulnerability`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:1374"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1374"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R006.6",
+      "id": "MEDULLA-SUPPLY-VOCAB-R006.6",
       "title": "Mapping fixture: gitlab `dependencies` and github Dependabot alerts (rank 2)",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "340d0c252754"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:1895"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1895"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R006.7",
+      "id": "MEDULLA-SUPPLY-VOCAB-R006.7",
       "title": "Mapping fixture: fan-manager and systems-manager to `infra:HostLimit`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:1468"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1468"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R007",
+      "id": "MEDULLA-SUPPLY-VOCAB-R007",
       "title": "Entity resolution blocking keys (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -786,16 +786,16 @@
         "c6c185bfdb23"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_blocking_keys.rs:12",
-        "crates/eg-core/tests/supply_chain_vocab.rs:1561"
+        "crates/medulla-core/tests/supply_chain_blocking_keys.rs:12",
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1561"
       ],
       "rollup_of": [
-        "EG-SUPPLY-VOCAB-R007.1",
-        "EG-SUPPLY-VOCAB-R007.2"
+        "MEDULLA-SUPPLY-VOCAB-R007.1",
+        "MEDULLA-SUPPLY-VOCAB-R007.2"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R007.1",
+      "id": "MEDULLA-SUPPLY-VOCAB-R007.1",
       "title": "Blocking-key fixture for supplier, service, host, image and customer",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -803,139 +803,139 @@
         "c6c185bfdb23"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_blocking_keys.rs:12"
+        "crates/medulla-core/tests/supply_chain_blocking_keys.rs:12"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R007.2",
+      "id": "MEDULLA-SUPPLY-VOCAB-R007.2",
       "title": "Test: a digest key is exact; a name-only key is a proposal",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:1561"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1561"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R008",
+      "id": "MEDULLA-SUPPLY-VOCAB-R008",
       "title": "Impact traversal and acceptance (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:1681",
-        "crates/eg-core/tests/supply_chain_vocab.rs:1809",
-        "crates/eg-core/tests/supply_chain_vocab.rs:1840"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1681",
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1809",
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1840"
       ],
       "rollup_of": [
-        "EG-SUPPLY-VOCAB-R008.1",
-        "EG-SUPPLY-VOCAB-R008.2",
-        "EG-SUPPLY-VOCAB-R008.3"
+        "MEDULLA-SUPPLY-VOCAB-R008.1",
+        "MEDULLA-SUPPLY-VOCAB-R008.2",
+        "MEDULLA-SUPPLY-VOCAB-R008.3"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R008.1",
+      "id": "MEDULLA-SUPPLY-VOCAB-R008.1",
       "title": "Class-only impact query fixture",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:1681"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1681"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R008.2",
+      "id": "MEDULLA-SUPPLY-VOCAB-R008.2",
       "title": "Recorded-response fixture: one row per source concept",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:1809"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1809"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R008.3",
+      "id": "MEDULLA-SUPPLY-VOCAB-R008.3",
       "title": "Blocked-register test",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/supply_chain_vocab.rs:1840"
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1840"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R009",
+      "id": "MEDULLA-SUPPLY-VOCAB-R009",
       "title": "Ecosystem packages carry transitive dependency and risk (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SUPPLY-VOCAB-R009.1",
-        "EG-SUPPLY-VOCAB-R009.2",
-        "EG-SUPPLY-VOCAB-R009.3",
-        "EG-SUPPLY-VOCAB-R009.4",
-        "EG-SUPPLY-VOCAB-R009.5",
-        "EG-SUPPLY-VOCAB-R009.6"
+        "MEDULLA-SUPPLY-VOCAB-R009.1",
+        "MEDULLA-SUPPLY-VOCAB-R009.2",
+        "MEDULLA-SUPPLY-VOCAB-R009.3",
+        "MEDULLA-SUPPLY-VOCAB-R009.4",
+        "MEDULLA-SUPPLY-VOCAB-R009.5",
+        "MEDULLA-SUPPLY-VOCAB-R009.6"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R009.1",
+      "id": "MEDULLA-SUPPLY-VOCAB-R009.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "75dd94362178"
       ],
       "verified_by": [
-        "crates/eg-core/tests/ecosystem_dependency.rs:21"
+        "crates/medulla-core/tests/ecosystem_dependency.rs:21"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R009.2",
+      "id": "MEDULLA-SUPPLY-VOCAB-R009.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0688fd6d557d"
       ],
       "verified_by": [
-        "crates/eg-core/tests/ecosystem_dependency.rs:157"
+        "crates/medulla-core/tests/ecosystem_dependency.rs:157"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R009.3",
+      "id": "MEDULLA-SUPPLY-VOCAB-R009.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R009.4",
+      "id": "MEDULLA-SUPPLY-VOCAB-R009.4",
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0688fd6d557d"
       ],
       "verified_by": [
-        "crates/eg-core/tests/ecosystem_dependency.rs:198"
+        "crates/medulla-core/tests/ecosystem_dependency.rs:198"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R009.5",
+      "id": "MEDULLA-SUPPLY-VOCAB-R009.5",
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0688fd6d557d"
       ],
       "verified_by": [
-        "crates/eg-core/tests/ecosystem_dependency.rs:211"
+        "crates/medulla-core/tests/ecosystem_dependency.rs:211"
       ]
     },
     {
-      "id": "EG-SUPPLY-VOCAB-R009.6",
+      "id": "MEDULLA-SUPPLY-VOCAB-R009.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

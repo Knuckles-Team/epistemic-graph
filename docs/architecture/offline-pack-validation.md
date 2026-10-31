@@ -7,7 +7,7 @@ authorization.
 
 ## First stage: shared engine code
 
-`eg_rdf::pack` (feature `rdf`) now owns the former connector-pack server helpers:
+`medulla_rdf::pack` (feature `rdf`) now owns the former connector-pack server helpers:
 
 | API | Preserved behavior |
 | --- | --- |
@@ -29,10 +29,10 @@ helpers as a complete bounded validator.
 
 ## Remaining work before a CLI can be a CI gate
 
-1. Establish the versioned profile in an EG-owned component above `eg-rdf` and
-   `eg-shacl`. Move the existing `validate_rdf_unions` / `validate_shapes_union`
+1. Establish the versioned profile in an EG-owned component above `medulla-rdf` and
+   `medulla-shacl`. Move the existing `validate_rdf_unions` / `validate_shapes_union`
    orchestration out of the server and have server admission and the CLI invoke
-   that same implementation. Reuse `eg_rdf::tableau::check_pack_ontology` for
+   that same implementation. Reuse `medulla_rdf::tableau::check_pack_ontology` for
    class and ABox checks and the existing SHACL/ICV evaluator; do not implement
    a second semantics stack. Runtime storage, auth and server startup are not
    prerequisites for this library call.

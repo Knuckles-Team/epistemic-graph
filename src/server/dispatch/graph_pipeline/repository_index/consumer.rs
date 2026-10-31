@@ -8,13 +8,13 @@ use std::collections::BTreeMap;
 #[cfg(feature = "blob")]
 use std::{future::Future, sync::Arc};
 
-use eg_types::epistemic_operations::RequestContext;
-use eg_types::mutation_batch::MutationOutboxIntent;
+use medulla_types::epistemic_operations::RequestContext;
+use medulla_types::mutation_batch::MutationOutboxIntent;
 #[cfg(feature = "blob")]
-use eg_types::mutation_batch::MutationOutboxLease;
+use medulla_types::mutation_batch::MutationOutboxLease;
 #[cfg(feature = "blob")]
-use eg_types::native_control::EnrichmentBudgetPark;
-use eg_types::native_control::{
+use medulla_types::native_control::EnrichmentBudgetPark;
+use medulla_types::native_control::{
     EnrichmentBudgetCheckpoint as DurableBudgetCheckpoint, EnrichmentBudgetReservation,
     NativeControlSchemaVersion, SubmitWorkItemsRequest, MAX_SUBMIT_BATCH,
 };
@@ -67,9 +67,9 @@ pub(crate) fn decode_pending_intent(
     if intent.topic != PENDING_TOPIC || intent.payload.len() > MAX_PENDING_INTENT_BYTES {
         return Err("CONFLICT: repository enrichment outbox intent is invalid".into());
     }
-    let pending: PendingSnapshot = eg_types::msgpack::decode_bounded(
+    let pending: PendingSnapshot = medulla_types::msgpack::decode_bounded(
         &intent.payload,
-        eg_types::msgpack::MsgpackLimits::new(MAX_PENDING_INTENT_BYTES, 100_000, 64),
+        medulla_types::msgpack::MsgpackLimits::new(MAX_PENDING_INTENT_BYTES, 100_000, 64),
     )
     .map_err(|_| "CONFLICT: repository enrichment outbox payload is invalid")?;
     let PendingBudgetStatus::Unreserved = pending.budget_status;
@@ -460,7 +460,7 @@ where
         .subscribe_mutation_outbox(graph_fname, CONSUMER, PENDING_TOPIC)
         .await?;
     let now_ms = crate::server::dispatch::authoritative_now_ms();
-    let mut budget = eg_transaction::OutboxClaimBudget::new(1, 60 * 60 * 1_000, now_ms)?;
+    let mut budget = medulla_transaction::OutboxClaimBudget::new(1, 60 * 60 * 1_000, now_ms)?;
     let outcome = persistence
         .claim_mutation_outbox(graph_fname, CONSUMER, &mut budget)
         .await?;
@@ -514,7 +514,7 @@ pub(crate) enum DrainOutcome {
 async fn classify_dead_letter(
     persistence: &dyn PersistenceBackend,
     graph_fname: &str,
-    position: &eg_transaction::OutboxPosition,
+    position: &medulla_transaction::OutboxPosition,
 ) -> Result<String, String> {
     let records = persistence
         .read_mutation_outbox(graph_fname, &position.batch_id)
@@ -725,13 +725,13 @@ mod tests {
     use super::*;
     #[cfg(feature = "blob")]
     use crate::server::blob::store::ChunkStore;
-    use eg_types::epistemic_operations::{
+    use medulla_types::epistemic_operations::{
         RequestContextAuthenticationMethod, RequestContextSchemaVersion,
     };
 
     #[cfg(feature = "blob")]
     struct DeadLetterProbe {
-        row: eg_types::MutationOutboxRecord,
+        row: medulla_types::MutationOutboxRecord,
         superseded: bool,
     }
 
@@ -742,7 +742,7 @@ mod tests {
             &self,
             _graph_fname: &str,
             batch_id: &str,
-        ) -> Result<Vec<eg_types::MutationOutboxRecord>, String> {
+        ) -> Result<Vec<medulla_types::MutationOutboxRecord>, String> {
             Ok((self.row.batch_id == batch_id)
                 .then(|| self.row.clone())
                 .into_iter()
@@ -766,18 +766,18 @@ mod tests {
     async fn dead_letter_requires_exact_ordered_operator_rewind() {
         let source = snapshot(1, 1);
         let intent = super::super::enrichment::intent_for_snapshot(source).unwrap();
-        let identity = eg_types::MutationScopeIdentity::fixed_graph(
+        let identity = medulla_types::MutationScopeIdentity::fixed_graph(
             "tenant",
             "code",
-            eg_types::mutation_batch::COMPILED_BATCH_INCARNATION,
+            medulla_types::mutation_batch::COMPILED_BATCH_INCARNATION,
         )
         .unwrap();
-        let row = eg_types::MutationOutboxRecord {
-            schema_version: eg_types::MUTATION_BATCH_VERSION,
+        let row = medulla_types::MutationOutboxRecord {
+            schema_version: medulla_types::MUTATION_BATCH_VERSION,
             batch_id: "source-batch".into(),
             ordinal: 0,
             identity,
-            committed_version: eg_types::CommittedVersion::Graph {
+            committed_version: medulla_types::CommittedVersion::Graph {
                 source: 0,
                 target: 1,
             },
@@ -785,7 +785,7 @@ mod tests {
             intent,
             created_at_ms: 1,
         };
-        let position = eg_transaction::OutboxPosition {
+        let position = medulla_transaction::OutboxPosition {
             sequence: 1,
             created_at_ms: 1,
             batch_id: row.batch_id.clone(),
@@ -811,11 +811,11 @@ mod tests {
         forged.sequence += 1;
         assert!(classify_dead_letter(&live, "code", &forged).await.is_err());
         let wrong_graph = DeadLetterProbe {
-            row: eg_types::MutationOutboxRecord {
-                identity: eg_types::MutationScopeIdentity::fixed_graph(
+            row: medulla_types::MutationOutboxRecord {
+                identity: medulla_types::MutationScopeIdentity::fixed_graph(
                     "tenant",
                     "other-graph",
-                    eg_types::mutation_batch::COMPILED_BATCH_INCARNATION,
+                    medulla_types::mutation_batch::COMPILED_BATCH_INCARNATION,
                 )
                 .unwrap(),
                 ..live.row
@@ -891,7 +891,7 @@ mod tests {
         let verified = crate::server::auth::VerifiedRequestContext::from_verified_claims_with_nonce(
             fixture.claims().clone(),
             page_key.to_string(),
-            Some(eg_types::contract::Nonce::minted()),
+            Some(medulla_types::contract::Nonce::minted()),
         );
         let mut wire = service_context("tenant", "code", page_key);
         wire.agent_id = verified.agent_id().to_string();
@@ -1111,7 +1111,7 @@ mod tests {
 
         let store = crate::server::blob::store::RedbChunkStore::open_temp().unwrap();
         let body = b"verified repository source";
-        let source_digest = eg_types::contract::Digest256::from_bytes(Sha256::digest(body).into());
+        let source_digest = medulla_types::contract::Digest256::from_bytes(Sha256::digest(body).into());
         let stored = store
             .put_repository_bodies(
                 "tenant",

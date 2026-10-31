@@ -7,8 +7,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use eg_types::ingestion_wire::IndexResult;
-use eg_types::mutation_batch::MutationOutboxIntent;
+use medulla_types::ingestion_wire::IndexResult;
+use medulla_types::mutation_batch::MutationOutboxIntent;
 use serde::{Deserialize, Serialize};
 
 use super::super::*;
@@ -82,10 +82,10 @@ struct Policy {
 impl Policy {
     fn configured() -> Result<Option<Self>, String> {
         let names = [
-            "EG_REPOSITORY_ENRICHMENT_POLICY_DIGEST",
-            "EG_REPOSITORY_ENRICHMENT_MODEL_DIGEST",
-            "EG_REPOSITORY_ENRICHMENT_BUDGET_UNITS",
-            "EG_REPOSITORY_ENRICHMENT_UNIT_COST",
+            "MEDULLA_REPOSITORY_ENRICHMENT_POLICY_DIGEST",
+            "MEDULLA_REPOSITORY_ENRICHMENT_MODEL_DIGEST",
+            "MEDULLA_REPOSITORY_ENRICHMENT_BUDGET_UNITS",
+            "MEDULLA_REPOSITORY_ENRICHMENT_UNIT_COST",
         ];
         let values: Vec<_> = names
             .iter()
@@ -120,7 +120,7 @@ impl Policy {
         }
         // This ceiling is committed with the source policy revision. Changing
         // an environment variable later cannot authorize a larger top-up.
-        let max_total_units = match std::env::var("EG_REPOSITORY_ENRICHMENT_MAX_BUDGET_UNITS") {
+        let max_total_units = match std::env::var("MEDULLA_REPOSITORY_ENRICHMENT_MAX_BUDGET_UNITS") {
             Ok(value) => value
                 .parse::<u64>()
                 .map_err(|_| "CONFLICT: repository enrichment maximum budget is invalid")?,
@@ -388,7 +388,7 @@ pub(super) async fn pending_intent(
         source_envelope: envelope_id.into(),
         source_commit_ref: envelope_id.into(),
         policy_digest: policy.digest.to_ascii_lowercase(),
-        catalog_digest: eg_capabilities::contract_catalog_digest().into(),
+        catalog_digest: medulla_capabilities::contract_catalog_digest().into(),
         model_digest: policy.model_digest.to_ascii_lowercase(),
         budget_units: policy.budget_units,
         units,
@@ -418,8 +418,8 @@ mod tests {
     #[cfg(feature = "blob")]
     use crate::server::blob::store::ChunkStore;
     #[cfg(feature = "blob")]
-    use eg_types::ingestion_wire::ExtractedNode;
-    use eg_types::ingestion_wire::{IndexFileOutcome, IndexFileStatus, NativeRungEvidence};
+    use medulla_types::ingestion_wire::ExtractedNode;
+    use medulla_types::ingestion_wire::{IndexFileOutcome, IndexFileStatus, NativeRungEvidence};
 
     #[test]
     fn pending_snapshot_collects_beyond_one_native_page() {
@@ -508,8 +508,8 @@ mod tests {
         let store = crate::server::blob::store::RedbChunkStore::open_temp().unwrap();
         let body = b"source bytes";
         let other = b"different source bytes";
-        let source_digest = eg_types::contract::Digest256::from_bytes(Sha256::digest(body).into());
-        let other_digest = eg_types::contract::Digest256::from_bytes(Sha256::digest(other).into());
+        let source_digest = medulla_types::contract::Digest256::from_bytes(Sha256::digest(body).into());
+        let other_digest = medulla_types::contract::Digest256::from_bytes(Sha256::digest(other).into());
         let stored = store
             .put_repository_bodies(
                 "tenant",

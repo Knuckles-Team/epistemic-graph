@@ -7,10 +7,10 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from epistemic_graph.generated.agent_component import AgentComponentFactsModelProfile
-from epistemic_graph.generated.connector_pack import PackModelFacts
+from medulla.generated.agent_component import AgentComponentFactsModelProfile
+from medulla.generated.connector_pack import PackModelFacts
 
-pytestmark = [pytest.mark.no_engine, pytest.mark.spec("EG-DECISION-ENGINE-R050.2")]
+pytestmark = [pytest.mark.no_engine, pytest.mark.spec("MEDULLA-DECISION-ENGINE-R050.2")]
 
 
 def _profile(component: bool) -> dict[str, Any]:

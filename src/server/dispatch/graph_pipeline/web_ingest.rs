@@ -1,5 +1,5 @@
-//! The graph-scoped routes of `EnrichDocument` (EG-UNIFIED-DATA-PLANE-R651.7)
-//! and `SelectWebPages` (EG-DECISION-ENGINE-R802).
+//! The graph-scoped routes of `EnrichDocument` (MEDULLA-UNIFIED-DATA-PLANE-R651.7)
+//! and `SelectWebPages` (MEDULLA-DECISION-ENGINE-R802).
 //!
 //! Both arrive after graph ACL, tenant binding, lazy-open and placement
 //! lookup. Enrichment reads one RLS-visible Document, embeds off the reactor
@@ -33,7 +33,7 @@ fn visible(ctx: &GraphOpRouting<'_>, node_id: &str) -> bool {
 #[cfg(all(feature = "query", feature = "modality-serving"))]
 async fn enrich(
     ctx: GraphOpRouting<'_>,
-    request: eg_types::source_ingestion::web_document::EnrichDocumentRequest,
+    request: medulla_types::source_ingestion::web_document::EnrichDocumentRequest,
 ) -> Response {
     use handlers::web_ingest as web;
     let req_id = ctx.req_id;
@@ -93,7 +93,7 @@ async fn enrich(
 async fn commit(
     ctx: GraphOpRouting<'_>,
     write_set: handlers::repository_index::IndexWriteSet,
-    receipt: eg_types::source_ingestion::web_document::EnrichDocumentReceipt,
+    receipt: medulla_types::source_ingestion::web_document::EnrichDocumentReceipt,
 ) -> Response {
     let (placement_epoch, fencing_token) = match source_ingestion_route_fence(&ctx).await {
         Ok(fence) => fence,
@@ -119,18 +119,18 @@ async fn commit(
 #[cfg(all(feature = "query", feature = "modality-serving"))]
 fn respond(
     req_id: u64,
-    receipt: eg_types::source_ingestion::web_document::EnrichDocumentReceipt,
+    receipt: medulla_types::source_ingestion::web_document::EnrichDocumentReceipt,
 ) -> Response {
     Response::ok(
         req_id,
-        ResultPayload::of::<eg_types::result_contract::ingestion::EnrichDocument>(receipt),
+        ResultPayload::of::<medulla_types::result_contract::ingestion::EnrichDocument>(receipt),
     )
 }
 
 #[cfg(not(all(feature = "query", feature = "modality-serving")))]
 async fn enrich(
     ctx: GraphOpRouting<'_>,
-    _request: eg_types::source_ingestion::web_document::EnrichDocumentRequest,
+    _request: medulla_types::source_ingestion::web_document::EnrichDocumentRequest,
 ) -> Response {
     Response::err(
         ctx.req_id,
@@ -141,7 +141,7 @@ async fn enrich(
 #[cfg(all(feature = "query", feature = "modality-serving", feature = "decide"))]
 async fn select(
     ctx: GraphOpRouting<'_>,
-    request: eg_types::decision::web_fetch_selection::SelectWebPagesRequest,
+    request: medulla_types::decision::web_fetch_selection::SelectWebPagesRequest,
 ) -> Response {
     use handlers::web_ingest as web;
     let documents: Vec<_> = ctx
@@ -155,12 +155,12 @@ async fn select(
         .now_ms
         .unwrap_or_else(crate::server::dispatch::authoritative_now_ms);
     let digest = web::query_digest(&request.query);
-    match eg_numeric::decision::web_fetch_selection::select_web_pages(
+    match medulla_numeric::decision::web_fetch_selection::select_web_pages(
         &request, &held, &digests, now_ms, digest,
     ) {
         Ok(answer) => Response::ok(
             ctx.req_id,
-            ResultPayload::of::<eg_types::result_contract::query::SelectWebPages>(answer),
+            ResultPayload::of::<medulla_types::result_contract::query::SelectWebPages>(answer),
         ),
         Err(error) => Response::err(ctx.req_id, error),
     }
@@ -169,7 +169,7 @@ async fn select(
 #[cfg(not(all(feature = "query", feature = "modality-serving", feature = "decide")))]
 async fn select(
     ctx: GraphOpRouting<'_>,
-    _request: eg_types::decision::web_fetch_selection::SelectWebPagesRequest,
+    _request: medulla_types::decision::web_fetch_selection::SelectWebPagesRequest,
 ) -> Response {
     Response::err(
         ctx.req_id,

@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
-use eg_modality::{
+use medulla_modality::{
     export_all, verify_round_trip, ExportedRows, GovernedModality, OccurrenceId, OpaqueRef,
     ServedModalityRuntime, ServedRecord,
 };
-use eg_types::ServedModalityKind;
+use medulla_types::ServedModalityKind;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::{delta_row_node_id, load_runtime, DeltaManifest, ModalityAuthority};

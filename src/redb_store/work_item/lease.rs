@@ -46,7 +46,7 @@ pub(crate) fn apply_renew_work_item_lease_row(
     // graph permanently read-only (INCIDENT-kg-readonly-2026-07-31).
     let Some(bytes) = current else {
         return lease_renewal_refused(
-            eg_types::result_contract::coordination::LeaseRenewalRefusal::Missing,
+            medulla_types::result_contract::coordination::LeaseRenewalRefusal::Missing,
         )
         .map(Some);
     };
@@ -59,7 +59,7 @@ pub(crate) fn apply_renew_work_item_lease_row(
         && property_f64(&props, "lease_expires_at") >= now_ms as f64 / 1000.0;
     if !valid {
         return lease_renewal_refused(
-            eg_types::result_contract::coordination::LeaseRenewalRefusal::Fenced,
+            medulla_types::result_contract::coordination::LeaseRenewalRefusal::Fenced,
         )
         .map(Some);
     }
@@ -101,8 +101,8 @@ fn lease_renewed(
     fencing_token: u64,
     lease_expires_at_ms: u64,
 ) -> Result<crate::protocol::ResultPayload, String> {
-    crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::RenewWorkItemLease>(
-        eg_types::result_contract::coordination::WorkItemLeaseRenewal {
+    crate::protocol::ResultPayload::of::<medulla_types::result_contract::coordination::RenewWorkItemLease>(
+        medulla_types::result_contract::coordination::WorkItemLeaseRenewal {
             renewed: true,
             reason: None,
             work_item_id: Some(work_item_id.to_string()),
@@ -116,10 +116,10 @@ fn lease_renewed(
 
 /// A `RenewWorkItemLease` that renewed nothing and changed no row.
 fn lease_renewal_refused(
-    reason: eg_types::result_contract::coordination::LeaseRenewalRefusal,
+    reason: medulla_types::result_contract::coordination::LeaseRenewalRefusal,
 ) -> Result<crate::protocol::ResultPayload, String> {
-    crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::RenewWorkItemLease>(
-        eg_types::result_contract::coordination::WorkItemLeaseRenewal {
+    crate::protocol::ResultPayload::of::<medulla_types::result_contract::coordination::RenewWorkItemLease>(
+        medulla_types::result_contract::coordination::WorkItemLeaseRenewal {
             renewed: false,
             reason: Some(reason),
             work_item_id: None,
@@ -135,8 +135,8 @@ fn lease_renewal_refused(
 pub(super) fn unchanged_transition<Status>(
     status: Status,
     work_item_id: Option<&str>,
-) -> eg_types::result_contract::coordination::WorkItemTransition<Status> {
-    eg_types::result_contract::coordination::WorkItemTransition {
+) -> medulla_types::result_contract::coordination::WorkItemTransition<Status> {
+    medulla_types::result_contract::coordination::WorkItemTransition {
         status,
         work_item_id: work_item_id.map(str::to_string),
         lease_epoch: None,
@@ -146,21 +146,21 @@ pub(super) fn unchanged_transition<Status>(
 }
 
 pub(super) fn commit_transition_result(
-    transition: eg_types::result_contract::coordination::WorkItemTransition<
-        eg_types::result_contract::coordination::WorkItemCommitStatus,
+    transition: medulla_types::result_contract::coordination::WorkItemTransition<
+        medulla_types::result_contract::coordination::WorkItemCommitStatus,
     >,
 ) -> Result<crate::protocol::ResultPayload, String> {
     crate::protocol::ResultPayload::of::<
-        eg_types::result_contract::coordination::CommitWorkItemResult,
+        medulla_types::result_contract::coordination::CommitWorkItemResult,
     >(transition)
 }
 
 pub(super) fn cancel_transition_result(
-    transition: eg_types::result_contract::coordination::WorkItemTransition<
-        eg_types::result_contract::coordination::WorkItemCancelStatus,
+    transition: medulla_types::result_contract::coordination::WorkItemTransition<
+        medulla_types::result_contract::coordination::WorkItemCancelStatus,
     >,
 ) -> Result<crate::protocol::ResultPayload, String> {
-    crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::CancelWorkItem>(
+    crate::protocol::ResultPayload::of::<medulla_types::result_contract::coordination::CancelWorkItem>(
         transition,
     )
 }
@@ -168,16 +168,16 @@ pub(super) fn cancel_transition_result(
 /// The declared status of an applied commit.
 pub(super) fn declared_commit_status(
     status: &str,
-) -> Result<eg_types::result_contract::coordination::WorkItemCommitStatus, String> {
+) -> Result<medulla_types::result_contract::coordination::WorkItemCommitStatus, String> {
     match status {
-        "succeeded" => Ok(eg_types::result_contract::coordination::WorkItemCommitStatus::Succeeded),
-        "failed" => Ok(eg_types::result_contract::coordination::WorkItemCommitStatus::Failed),
-        "cancelled" => Ok(eg_types::result_contract::coordination::WorkItemCommitStatus::Cancelled),
+        "succeeded" => Ok(medulla_types::result_contract::coordination::WorkItemCommitStatus::Succeeded),
+        "failed" => Ok(medulla_types::result_contract::coordination::WorkItemCommitStatus::Failed),
+        "cancelled" => Ok(medulla_types::result_contract::coordination::WorkItemCommitStatus::Cancelled),
         "dead_letter" => {
-            Ok(eg_types::result_contract::coordination::WorkItemCommitStatus::DeadLetter)
+            Ok(medulla_types::result_contract::coordination::WorkItemCommitStatus::DeadLetter)
         }
         "retry_scheduled" => {
-            Ok(eg_types::result_contract::coordination::WorkItemCommitStatus::RetryScheduled)
+            Ok(medulla_types::result_contract::coordination::WorkItemCommitStatus::RetryScheduled)
         }
         other => Err(format!(
             "CommitWorkItemResult produced an undeclared status '{other}'"
@@ -317,7 +317,7 @@ pub(crate) fn apply_cas_work_item_metadata_row(
 
     let respond = |outcome: CasWorkItemMetadataOutcome, changed: Vec<String>| {
         Ok(Some(crate::protocol::ResultPayload::of::<
-            eg_types::result_contract::coordination::CasWorkItemMetadata,
+            medulla_types::result_contract::coordination::CasWorkItemMetadata,
         >(CasWorkItemMetadataResult {
             schema_version: CasWorkItemMetadataResultSchemaVersion::V1,
             outcome,

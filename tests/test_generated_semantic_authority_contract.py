@@ -5,8 +5,8 @@ import asyncio
 import pytest
 from _client_fixtures import PayloadTransport
 
-from epistemic_graph.generated import reasoning
-from epistemic_graph.generated.reasoning import (
+from medulla.generated import reasoning
+from medulla.generated.reasoning import (
     DatalogReasoningResult,
     OwlExplainResult,
     OwlPropertyFact,

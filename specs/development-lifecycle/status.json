@@ -1,509 +1,509 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-SDLC",
+  "spec_id": "MEDULLA-SDLC",
   "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "EG-SDLC-R001",
-    "EG-SDLC-R001.1",
-    "EG-SDLC-R001.2",
-    "EG-SDLC-R001.3",
-    "EG-SDLC-R001.4",
-    "EG-SDLC-R001.5",
-    "EG-SDLC-R001.6",
-    "EG-SDLC-R002",
-    "EG-SDLC-R002.1",
-    "EG-SDLC-R002.2",
-    "EG-SDLC-R002.3",
-    "EG-SDLC-R002.4",
-    "EG-SDLC-R002.5",
-    "EG-SDLC-R002.6",
-    "EG-SDLC-R003",
-    "EG-SDLC-R003.1",
-    "EG-SDLC-R003.2",
-    "EG-SDLC-R003.3",
-    "EG-SDLC-R003.4",
-    "EG-SDLC-R003.5",
-    "EG-SDLC-R003.6",
-    "EG-SDLC-R004",
-    "EG-SDLC-R004.1",
-    "EG-SDLC-R004.2",
-    "EG-SDLC-R004.3",
-    "EG-SDLC-R004.4",
-    "EG-SDLC-R004.5",
-    "EG-SDLC-R004.6",
-    "EG-SDLC-R004.7",
-    "EG-SDLC-R004.8",
-    "EG-SDLC-R005",
-    "EG-SDLC-R005.1",
-    "EG-SDLC-R005.2",
-    "EG-SDLC-R005.3",
-    "EG-SDLC-R005.4",
-    "EG-SDLC-R005.5",
-    "EG-SDLC-R005.6",
-    "EG-SDLC-R006",
-    "EG-SDLC-R006.1",
-    "EG-SDLC-R006.2",
-    "EG-SDLC-R006.3",
-    "EG-SDLC-R006.4",
-    "EG-SDLC-R006.5",
-    "EG-SDLC-R006.6",
-    "EG-SDLC-R006.7",
-    "EG-SDLC-R007",
-    "EG-SDLC-R008",
-    "EG-SDLC-R009",
-    "EG-SDLC-R010",
-    "EG-SDLC-R011"
+    "MEDULLA-SDLC-R001",
+    "MEDULLA-SDLC-R001.1",
+    "MEDULLA-SDLC-R001.2",
+    "MEDULLA-SDLC-R001.3",
+    "MEDULLA-SDLC-R001.4",
+    "MEDULLA-SDLC-R001.5",
+    "MEDULLA-SDLC-R001.6",
+    "MEDULLA-SDLC-R002",
+    "MEDULLA-SDLC-R002.1",
+    "MEDULLA-SDLC-R002.2",
+    "MEDULLA-SDLC-R002.3",
+    "MEDULLA-SDLC-R002.4",
+    "MEDULLA-SDLC-R002.5",
+    "MEDULLA-SDLC-R002.6",
+    "MEDULLA-SDLC-R003",
+    "MEDULLA-SDLC-R003.1",
+    "MEDULLA-SDLC-R003.2",
+    "MEDULLA-SDLC-R003.3",
+    "MEDULLA-SDLC-R003.4",
+    "MEDULLA-SDLC-R003.5",
+    "MEDULLA-SDLC-R003.6",
+    "MEDULLA-SDLC-R004",
+    "MEDULLA-SDLC-R004.1",
+    "MEDULLA-SDLC-R004.2",
+    "MEDULLA-SDLC-R004.3",
+    "MEDULLA-SDLC-R004.4",
+    "MEDULLA-SDLC-R004.5",
+    "MEDULLA-SDLC-R004.6",
+    "MEDULLA-SDLC-R004.7",
+    "MEDULLA-SDLC-R004.8",
+    "MEDULLA-SDLC-R005",
+    "MEDULLA-SDLC-R005.1",
+    "MEDULLA-SDLC-R005.2",
+    "MEDULLA-SDLC-R005.3",
+    "MEDULLA-SDLC-R005.4",
+    "MEDULLA-SDLC-R005.5",
+    "MEDULLA-SDLC-R005.6",
+    "MEDULLA-SDLC-R006",
+    "MEDULLA-SDLC-R006.1",
+    "MEDULLA-SDLC-R006.2",
+    "MEDULLA-SDLC-R006.3",
+    "MEDULLA-SDLC-R006.4",
+    "MEDULLA-SDLC-R006.5",
+    "MEDULLA-SDLC-R006.6",
+    "MEDULLA-SDLC-R006.7",
+    "MEDULLA-SDLC-R007",
+    "MEDULLA-SDLC-R008",
+    "MEDULLA-SDLC-R009",
+    "MEDULLA-SDLC-R010",
+    "MEDULLA-SDLC-R011"
   ],
   "requirements": [
     {
-      "id": "EG-SDLC-R001",
+      "id": "MEDULLA-SDLC-R001",
       "title": "Lifecycle record vocabulary and derived edges (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SDLC-R001.1",
-        "EG-SDLC-R001.2",
-        "EG-SDLC-R001.3",
-        "EG-SDLC-R001.4",
-        "EG-SDLC-R001.5",
-        "EG-SDLC-R001.6"
+        "MEDULLA-SDLC-R001.1",
+        "MEDULLA-SDLC-R001.2",
+        "MEDULLA-SDLC-R001.3",
+        "MEDULLA-SDLC-R001.4",
+        "MEDULLA-SDLC-R001.5",
+        "MEDULLA-SDLC-R001.6"
       ]
     },
     {
-      "id": "EG-SDLC-R001.1",
+      "id": "MEDULLA-SDLC-R001.1",
       "title": "Model: lifecycle kinds, edges and shapes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R001.2",
+      "id": "MEDULLA-SDLC-R001.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "e93f418c3966"
       ],
       "verified_by": [
-        "crates/eg-core/tests/lifecycle_derive.rs:80"
+        "crates/medulla-core/tests/lifecycle_derive.rs:80"
       ]
     },
     {
-      "id": "EG-SDLC-R001.3",
+      "id": "MEDULLA-SDLC-R001.3",
       "title": "Wiring: derive edges when a changeset is accepted or a commit is indexed",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R001.4",
+      "id": "MEDULLA-SDLC-R001.4",
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "e93f418c3966"
       ],
       "verified_by": [
-        "crates/eg-core/tests/lifecycle_derive.rs:160"
+        "crates/medulla-core/tests/lifecycle_derive.rs:160"
       ]
     },
     {
-      "id": "EG-SDLC-R001.5",
+      "id": "MEDULLA-SDLC-R001.5",
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "e93f418c3966"
       ],
       "verified_by": [
-        "crates/eg-core/tests/lifecycle_derive.rs:192"
+        "crates/medulla-core/tests/lifecycle_derive.rs:192"
       ]
     },
     {
-      "id": "EG-SDLC-R001.6",
+      "id": "MEDULLA-SDLC-R001.6",
       "title": "Hot-path proof: served derivation and nightly budget",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R002",
+      "id": "MEDULLA-SDLC-R002",
       "title": "Release and deployment records (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SDLC-R002.1",
-        "EG-SDLC-R002.2",
-        "EG-SDLC-R002.3",
-        "EG-SDLC-R002.4",
-        "EG-SDLC-R002.5",
-        "EG-SDLC-R002.6"
+        "MEDULLA-SDLC-R002.1",
+        "MEDULLA-SDLC-R002.2",
+        "MEDULLA-SDLC-R002.3",
+        "MEDULLA-SDLC-R002.4",
+        "MEDULLA-SDLC-R002.5",
+        "MEDULLA-SDLC-R002.6"
       ]
     },
     {
-      "id": "EG-SDLC-R002.1",
+      "id": "MEDULLA-SDLC-R002.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "34a85d665c7d"
       ],
       "verified_by": [
-        "crates/eg-types/tests/lifecycle_records.rs:31"
+        "crates/medulla-types/tests/lifecycle_records.rs:31"
       ]
     },
     {
-      "id": "EG-SDLC-R002.2",
+      "id": "MEDULLA-SDLC-R002.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "34a85d665c7d"
       ],
       "verified_by": [
-        "crates/eg-types/tests/lifecycle_records.rs:47"
+        "crates/medulla-types/tests/lifecycle_records.rs:47"
       ]
     },
     {
-      "id": "EG-SDLC-R002.3",
+      "id": "MEDULLA-SDLC-R002.3",
       "title": "Wiring: record releases and deployments through served methods",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R002.4",
+      "id": "MEDULLA-SDLC-R002.4",
       "title": "Refusal: unknown head and duplicate version",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R002.5",
+      "id": "MEDULLA-SDLC-R002.5",
       "title": "Evidence: sealed release records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R002.6",
+      "id": "MEDULLA-SDLC-R002.6",
       "title": "Hot-path proof: served deployment records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R003",
+      "id": "MEDULLA-SDLC-R003",
       "title": "Defect records and intake (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SDLC-R003.1",
-        "EG-SDLC-R003.2",
-        "EG-SDLC-R003.3",
-        "EG-SDLC-R003.4",
-        "EG-SDLC-R003.5",
-        "EG-SDLC-R003.6"
+        "MEDULLA-SDLC-R003.1",
+        "MEDULLA-SDLC-R003.2",
+        "MEDULLA-SDLC-R003.3",
+        "MEDULLA-SDLC-R003.4",
+        "MEDULLA-SDLC-R003.5",
+        "MEDULLA-SDLC-R003.6"
       ]
     },
     {
-      "id": "EG-SDLC-R003.1",
+      "id": "MEDULLA-SDLC-R003.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "34a85d665c7d"
       ],
       "verified_by": [
-        "crates/eg-types/tests/lifecycle_records.rs:75"
+        "crates/medulla-types/tests/lifecycle_records.rs:75"
       ]
     },
     {
-      "id": "EG-SDLC-R003.2",
+      "id": "MEDULLA-SDLC-R003.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "e93f418c3966"
       ],
       "verified_by": [
-        "crates/eg-core/tests/defect_intake.rs:15"
+        "crates/medulla-core/tests/defect_intake.rs:15"
       ]
     },
     {
-      "id": "EG-SDLC-R003.3",
+      "id": "MEDULLA-SDLC-R003.3",
       "title": "Wiring: intake callers file defects",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R003.4",
+      "id": "MEDULLA-SDLC-R003.4",
       "title": "Refusal: illegal status move and unverified fix",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R003.5",
+      "id": "MEDULLA-SDLC-R003.5",
       "title": "Evidence: symptom list per defect",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R003.6",
+      "id": "MEDULLA-SDLC-R003.6",
       "title": "Hot-path proof: served intake",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R004",
+      "id": "MEDULLA-SDLC-R004",
       "title": "Defect triage decision (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SDLC-R004.1",
-        "EG-SDLC-R004.2",
-        "EG-SDLC-R004.3",
-        "EG-SDLC-R004.4",
-        "EG-SDLC-R004.5",
-        "EG-SDLC-R004.6",
-        "EG-SDLC-R004.7",
-        "EG-SDLC-R004.8"
+        "MEDULLA-SDLC-R004.1",
+        "MEDULLA-SDLC-R004.2",
+        "MEDULLA-SDLC-R004.3",
+        "MEDULLA-SDLC-R004.4",
+        "MEDULLA-SDLC-R004.5",
+        "MEDULLA-SDLC-R004.6",
+        "MEDULLA-SDLC-R004.7",
+        "MEDULLA-SDLC-R004.8"
       ]
     },
     {
-      "id": "EG-SDLC-R004.1",
+      "id": "MEDULLA-SDLC-R004.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "34a85d665c7d"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/defect_triage.rs:126"
+        "crates/medulla-types/src/decision/defect_triage.rs:126"
       ]
     },
     {
-      "id": "EG-SDLC-R004.2",
+      "id": "MEDULLA-SDLC-R004.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "34a85d665c7d"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/defect_triage.rs:179"
+        "crates/medulla-types/src/decision/defect_triage.rs:179"
       ]
     },
     {
-      "id": "EG-SDLC-R004.3",
+      "id": "MEDULLA-SDLC-R004.3",
       "title": "Wiring: `DefectTriage` question kind and `TriageDefect` method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R004.4",
+      "id": "MEDULLA-SDLC-R004.4",
       "title": "Refusal: unknown and closed defects",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R004.5",
+      "id": "MEDULLA-SDLC-R004.5",
       "title": "Evidence: premises and replay",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R004.6",
+      "id": "MEDULLA-SDLC-R004.6",
       "title": "Hot-path proof: served triage journey",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R004.7",
+      "id": "MEDULLA-SDLC-R004.7",
       "title": "Model: triage knobs",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R004.8",
+      "id": "MEDULLA-SDLC-R004.8",
       "title": "Behaviour: kernel in the numeric crate, bounded by knobs",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R005",
+      "id": "MEDULLA-SDLC-R005",
       "title": "Requirement state derived from the graph (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SDLC-R005.1",
-        "EG-SDLC-R005.2",
-        "EG-SDLC-R005.3",
-        "EG-SDLC-R005.4",
-        "EG-SDLC-R005.5",
-        "EG-SDLC-R005.6"
+        "MEDULLA-SDLC-R005.1",
+        "MEDULLA-SDLC-R005.2",
+        "MEDULLA-SDLC-R005.3",
+        "MEDULLA-SDLC-R005.4",
+        "MEDULLA-SDLC-R005.5",
+        "MEDULLA-SDLC-R005.6"
       ]
     },
     {
-      "id": "EG-SDLC-R005.1",
+      "id": "MEDULLA-SDLC-R005.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "34a85d665c7d"
       ],
       "verified_by": [
-        "crates/eg-types/tests/lifecycle_records.rs:101"
+        "crates/medulla-types/tests/lifecycle_records.rs:101"
       ]
     },
     {
-      "id": "EG-SDLC-R005.2",
+      "id": "MEDULLA-SDLC-R005.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "e93f418c3966"
       ],
       "verified_by": [
-        "crates/eg-core/tests/spec_status_derive.rs:40"
+        "crates/medulla-core/tests/spec_status_derive.rs:40"
       ]
     },
     {
-      "id": "EG-SDLC-R005.3",
+      "id": "MEDULLA-SDLC-R005.3",
       "title": "Wiring: `SpecStatus` method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R005.4",
+      "id": "MEDULLA-SDLC-R005.4",
       "title": "Refusal: unknown revision and absent spec tree",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R005.5",
+      "id": "MEDULLA-SDLC-R005.5",
       "title": "Evidence: landing changesets, test ids and generator equality",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R005.6",
+      "id": "MEDULLA-SDLC-R005.6",
       "title": "Hot-path proof: served status journey",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R006",
+      "id": "MEDULLA-SDLC-R006",
       "title": "Lifecycle competency queries (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SDLC-R006.1",
-        "EG-SDLC-R006.2",
-        "EG-SDLC-R006.3",
-        "EG-SDLC-R006.4",
-        "EG-SDLC-R006.5",
-        "EG-SDLC-R006.6",
-        "EG-SDLC-R006.7"
+        "MEDULLA-SDLC-R006.1",
+        "MEDULLA-SDLC-R006.2",
+        "MEDULLA-SDLC-R006.3",
+        "MEDULLA-SDLC-R006.4",
+        "MEDULLA-SDLC-R006.5",
+        "MEDULLA-SDLC-R006.6",
+        "MEDULLA-SDLC-R006.7"
       ]
     },
     {
-      "id": "EG-SDLC-R006.1",
+      "id": "MEDULLA-SDLC-R006.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "34a85d665c7d"
       ],
       "verified_by": [
-        "crates/eg-types/tests/lifecycle_records.rs:125"
+        "crates/medulla-types/tests/lifecycle_records.rs:125"
       ]
     },
     {
-      "id": "EG-SDLC-R006.2",
+      "id": "MEDULLA-SDLC-R006.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "e93f418c3966"
       ],
       "verified_by": [
-        "crates/eg-core/tests/lifecycle_trace.rs:25"
+        "crates/medulla-core/tests/lifecycle_trace.rs:25"
       ]
     },
     {
-      "id": "EG-SDLC-R006.3",
+      "id": "MEDULLA-SDLC-R006.3",
       "title": "Wiring: `LifecycleTrace` method and four competency questions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R006.4",
+      "id": "MEDULLA-SDLC-R006.4",
       "title": "Refusal: kind, depth and tenant",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R006.5",
+      "id": "MEDULLA-SDLC-R006.5",
       "title": "Evidence: rules, versions and limits",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R006.6",
+      "id": "MEDULLA-SDLC-R006.6",
       "title": "Hot-path proof: served trace journey",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R006.7",
+      "id": "MEDULLA-SDLC-R006.7",
       "title": "Model: trace limits are knobs",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R007",
+      "id": "MEDULLA-SDLC-R007",
       "title": "Combined quality-gate script",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R008",
+      "id": "MEDULLA-SDLC-R008",
       "title": "Zero-backlog census gates",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R009",
+      "id": "MEDULLA-SDLC-R009",
       "title": "Governed documentation projection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R010",
+      "id": "MEDULLA-SDLC-R010",
       "title": "Landing gate runs the complete test suite",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SDLC-R011",
+      "id": "MEDULLA-SDLC-R011",
       "title": "Signal-killed test binaries rerun in isolation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

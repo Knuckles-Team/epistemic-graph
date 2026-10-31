@@ -15,11 +15,11 @@
 
 #![cfg(feature = "lake")]
 
-use eg_lake::{LakeField, LakeType};
-use eg_tsdb::point::Point;
-use eg_tsdb::store::SeriesStore;
-use epistemic_graph::server::blob::store::RedbChunkStore;
-use epistemic_graph::server::lake::{
+use medulla_lake::{LakeField, LakeType};
+use medulla_tsdb::point::Point;
+use medulla_tsdb::store::SeriesStore;
+use medulla::server::blob::store::RedbChunkStore;
+use medulla::server::lake::{
     LakeManager, LakeVisibility, LoadTableAsOfError, DEFAULT_NAMESPACE,
 };
 
@@ -33,7 +33,7 @@ fn store() -> RedbChunkStore {
 
 fn tsdb_dir(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
-        "eg-lake-adopt-asof-{tag}-{}-{}",
+        "medulla-lake-adopt-asof-{tag}-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -69,9 +69,9 @@ fn as_of_reads_current_historical_and_empty_history_but_denies_uncommitted_lsns(
     let s = store();
     let tsdb = SeriesStore::open_in_dir(
         &tsdb_dir("history"),
-        epistemic_graph::store_authority::process_verifier(),
-        epistemic_graph::store_authority::process_authority().principal(),
-        &epistemic_graph::store_authority::process_authority().proof(),
+        medulla::store_authority::process_verifier(),
+        medulla::store_authority::process_authority().principal(),
+        &medulla::store_authority::process_authority().proof(),
     )
     .expect("open series store");
     let series_id = "adopt-asof-history";
@@ -85,7 +85,7 @@ fn as_of_reads_current_historical_and_empty_history_but_denies_uncommitted_lsns(
     .expect("append first points");
 
     let mgr = LakeManager::new();
-    let unrelated_schema = eg_lake::LakeSchema::new(vec![LakeField::new("v", LakeType::Double)]);
+    let unrelated_schema = medulla_lake::LakeSchema::new(vec![LakeField::new("v", LakeType::Double)]);
     let before = mgr
         .create_table(
             &s,
@@ -269,7 +269,7 @@ fn as_of_reads_current_historical_and_empty_history_but_denies_uncommitted_lsns(
 fn as_of_applies_owner_visibility_before_lsn_validation() {
     let s = store();
     let mgr = LakeManager::new();
-    let schema = eg_lake::LakeSchema::new(vec![LakeField::new("v", LakeType::Double)]);
+    let schema = medulla_lake::LakeSchema::new(vec![LakeField::new("v", LakeType::Double)]);
     let table = "adopt-asof-owner";
     let created = mgr
         .create_table(&s, DEFAULT_NAMESPACE, table, schema, Some("tenant-a"))

@@ -10,9 +10,9 @@ Read, mutation, and Federation operations use the authenticated native
 subscription-only SSE carrier; it is not a second query/mutation endpoint.
 
 > Status snapshot: read queries and mutations (`createNode`/`updateNode`/`deleteNode`/`addEdge`/`removeEdge`)
-> are supported, along with CDC subscriptions (EG-064), fragments / variables / directives (EG-KG.query.fragments-variables-directives), relay
-> pagination (EG-KG.query.graphql-cursors), **Apollo Federation v2** subgraph support (EG-295), and production hardening
-> (APQ + depth/complexity limits, EG-KG.domains.graphql-enterprise-hardening). See the [capability matrix](../capabilities.md#graphql-eg-graphql).
+> are supported, along with CDC subscriptions (MEDULLA-064), fragments / variables / directives (MEDULLA-KG.query.fragments-variables-directives), relay
+> pagination (MEDULLA-KG.query.graphql-cursors), **Apollo Federation v2** subgraph support (MEDULLA-295), and production hardening
+> (APQ + depth/complexity limits, MEDULLA-KG.domains.graphql-enterprise-hardening). See the [capability matrix](../capabilities.md#graphql-medulla-graphql).
 
 ## Supported queries
 
@@ -43,12 +43,12 @@ mutation {
 }
 ```
 
-`createNode`/`updateNode`/`deleteNode`/`addEdge`/`removeEdge` map to native eg-core mutations and bump the
+`createNode`/`updateNode`/`deleteNode`/`addEdge`/`removeEdge` map to native medulla-core mutations and bump the
 OCC version once per batch; returned objects are shaped by the same resolver the query path uses.
 
-## Subscriptions — authenticated SSE (EG-064) {#subscriptions-authenticated-sse}
+## Subscriptions — authenticated SSE (MEDULLA-064) {#subscriptions-authenticated-sse}
 
-`EPISTEMIC_GRAPH_GRAPHQL_ADDR` starts the loopback-only SSE listener. It accepts one
+`MEDULLA_GRAPHQL_ADDR` starts the loopback-only SSE listener. It accepts one
 current request contract:
 
 ```http
@@ -101,23 +101,23 @@ Sessions are deliberately bounded and must reauthenticate.
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `EPISTEMIC_GRAPH_GRAPHQL_ADDR` / `--graphql-addr` | disabled; `on` resolves to `127.0.0.1:7879` | Loopback SSE listener. Invalid or non-loopback addresses fail startup. |
-| `EPISTEMIC_GRAPH_GRAPHQL_MAX_CONNECTIONS` / `--graphql-max-connections` | `128` | Process-wide cap across in-flight handshakes and SSE sessions; valid range `1..=10000`. |
-| `EPISTEMIC_GRAPH_GRAPHQL_MAX_SESSION_SECS` / `--graphql-max-session-secs` | `300` | Maximum session lifetime before fresh authentication is required; valid range `1..=3600`. |
+| `MEDULLA_GRAPHQL_ADDR` / `--graphql-addr` | disabled; `on` resolves to `127.0.0.1:7879` | Loopback SSE listener. Invalid or non-loopback addresses fail startup. |
+| `MEDULLA_GRAPHQL_MAX_CONNECTIONS` / `--graphql-max-connections` | `128` | Process-wide cap across in-flight handshakes and SSE sessions; valid range `1..=10000`. |
+| `MEDULLA_GRAPHQL_MAX_SESSION_SECS` / `--graphql-max-session-secs` | `300` | Maximum session lifetime before fresh authentication is required; valid range `1..=3600`. |
 
 The listener does not stop TLS. For remote clients, place a TLS reverse proxy on
 the same host and forward the `Authorization` and `X-Epistemic-Request-Id` headers to
 the loopback listener.
 
-## Fragments, variables, directives & pagination (EG-KG.query.fragments-variables-directives/066)
+## Fragments, variables, directives & pagination (MEDULLA-KG.query.fragments-variables-directives/066)
 
-- **Fragments** (EG-KG.query.fragments-variables-directives): named fragment-spreads and inline fragments (`... on Type`).
-- **Variables** (EG-KG.query.fragments-variables-directives): `$var` definitions/refs, resolved from the request variables.
-- **Directives** (EG-KG.query.fragments-variables-directives): `@skip(if:)` / `@include(if:)`.
-- **Relay pagination** (EG-KG.query.graphql-cursors): `first`/`after`/`before`/cursor args with an
+- **Fragments** (MEDULLA-KG.query.fragments-variables-directives): named fragment-spreads and inline fragments (`... on Type`).
+- **Variables** (MEDULLA-KG.query.fragments-variables-directives): `$var` definitions/refs, resolved from the request variables.
+- **Directives** (MEDULLA-KG.query.fragments-variables-directives): `@skip(if:)` / `@include(if:)`.
+- **Relay pagination** (MEDULLA-KG.query.graphql-cursors): `first`/`after`/`before`/cursor args with an
   `edges`/`node`/`cursor`/`pageInfo` envelope over a deterministic sort.
 
-## Apollo Federation subgraph (EG-295)
+## Apollo Federation subgraph (MEDULLA-295)
 
 The engine is a **federated subgraph** in an Apollo supergraph: it serves `_service { sdl }` and
 `_entities(representations: [_Any!]!)` resolvers, and parses `@key`/`@shareable`/`@external` directives in
@@ -127,7 +127,7 @@ the emitted SDL.
 { _service { sdl } }
 ```
 
-## Production hardening — APQ + limits (EG-KG.domains.graphql-enterprise-hardening)
+## Production hardening — APQ + limits (MEDULLA-KG.domains.graphql-enterprise-hardening)
 
 For production the surface adds: **automatic persisted queries** (APQ — a sha256 hash registry so clients
 send hash-only requests), query **depth + complexity/cost** analysis with configurable limits (over-budget

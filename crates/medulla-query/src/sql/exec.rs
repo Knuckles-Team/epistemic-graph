@@ -1,0 +1,1862 @@
+//! SQL execution entry (CONCEPT:MEDULLA-KG.query.read-only-sql-query). Takes a `&GraphView` + a SQL string,
+//! builds a SessionContext, registers the `nodes` provider + the `json_get*` UDFs,
+//! runs the query, and materializes the result as `QueryResult { columns, rows }`.
+//!
+//! DataFusion's executor is async and the engine server runs on a multi-thread
+//! Tokio reactor. Per the de-risk spike, we drive `collect()` on a dedicated
+//! CURRENT-THREAD runtime built inside the call — the handler invokes this from
+//! `spawn_blocking` (the `compute_off_lock` idiom), so no DataFusion work ever runs
+//! on a reactor worker.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use arrow::array::Array;
+use arrow::datatypes::SchemaRef;
+use datafusion::catalog::TableProvider;
+use datafusion::datasource::MemTable;
+use datafusion::execution::context::SessionContext;
+use datafusion::prelude::SessionConfig;
+use medulla_core::graph::GraphView;
+// The wire DTO lives at the bottom of the DAG (medulla-types); the algorithm stays here.
+pub use medulla_types::protocol::QueryResult;
+
+use super::ann_pushdown::{
+    ann_pushdown_decision, ann_pushdown_may_apply, maintained_top_k, AnnPushdown,
+};
+use super::catalog::register_system_catalogs;
+use super::pgfamily::AnnIndexPlan;
+use super::providers::{infer_nodes, EdgesTableProvider, NodesTableProvider, SqlCache};
+use super::spill::CancellationToken;
+use super::store_catalog::{reads_index_status, StoreCatalog};
+use super::tablefuncs::{BetweennessFunc, GenerateSeriesFunc, PagerankFunc};
+use super::udfs::{
+    base64_decode_udf, base64_encode_udf, bm25_match_udf, bm25_score_udf, bm25_snippet_udf,
+    epistemic_decay_udf, greatest_udf, int4range_udf, ipcontains_udf, ipfamily_udf, iphost_udf,
+    ipmasklen_udf, json_get_f64_udf, json_get_i64_udf, json_get_udf, least_udf, md5_udf,
+    range_contained_by_udf, range_contains_range_udf, range_contains_udf, range_overlaps_udf,
+    sha1_udf, sha256_udf, time_bucket_udf, tsrange_udf, vector_cosine_udf, vector_ip_udf,
+    vector_l2_udf,
+};
+use crate::tables::{StoredFunction, TableSchema, TableStore};
+
+/// One user table's registration plan for `build_ctx` (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside):
+/// [`materialize_user_tables`] chooses PER TABLE between the two variants below.
+enum UserTable {
+    /// `(name, schema, batch)` already materialized. Only [`apply_ann_pushdown`]
+    /// produces one: the maintained ANN authority's nearest `LIMIT + OFFSET` rows of
+    /// a covered table, which replace that table for this one query.
+    Eager(String, SchemaRef, arrow::record_batch::RecordBatch),
+    /// `(name, typed catalog schema, store handle)` — row materialization
+    /// deferred to a [`crate::tables::provider::UserTableProvider`], which pushes
+    /// a `SERIAL`-column equality down to a redb point-get instead of a full
+    /// table scan (see that type's own module doc for exactly what still falls
+    /// back to a scan). Every table starts here.
+    Lazy(String, TableSchema, TableStore),
+}
+
+/// Register the CONCEPT:MEDULLA-KG.query.greatest-least-int4range-tsrange Postgres common-function surface — `greatest`/`least`,
+/// the range constructors (`int4range`/`tsrange`) + predicates (`range_contains`/
+/// `range_overlaps`/`range_contains_range`/`range_contained_by`), and the
+/// `generate_series` table function — on `ctx`. Shared so the graph exec path and the
+/// tables-only obs path expose the identical function set. (DataFusion's native array
+/// functions + `unnest` come from the `nested_expressions` feature, registered by
+/// `SessionContext::new_with_config`'s default-feature set — no explicit call needed.)
+fn register_pg_common(ctx: &SessionContext) {
+    ctx.register_udf(greatest_udf());
+    ctx.register_udf(least_udf());
+    ctx.register_udf(int4range_udf());
+    ctx.register_udf(tsrange_udf());
+    ctx.register_udf(range_contains_udf());
+    ctx.register_udf(range_overlaps_udf());
+    ctx.register_udf(range_contains_range_udf());
+    ctx.register_udf(range_contained_by_udf());
+    ctx.register_udtf("generate_series", Arc::new(GenerateSeriesFunc));
+    // CA-19 (GOC-77 W01-W05, BUG-224) — `iceberg('namespace.table'[, snapshot_id])`
+    // federated read of an external Iceberg-REST catalog table, joinable in-plan with
+    // `nodes`/`edges` exactly like `pagerank()`/`generate_series(...)` are.
+    #[cfg(feature = "iceberg-federation")]
+    ctx.register_udtf("iceberg", Arc::new(super::iceberg_federation::IcebergFunc));
+    // CONCEPT:MEDULLA-KG.query.sqlite-compat-scalar-udfs (turso-assimilation rank 14) —
+    // crypto hash + base64 + ipaddr helpers turso ships as loadable extensions.
+    ctx.register_udf(md5_udf());
+    ctx.register_udf(sha1_udf());
+    ctx.register_udf(sha256_udf());
+    ctx.register_udf(base64_encode_udf());
+    ctx.register_udf(base64_decode_udf());
+    ctx.register_udf(ipfamily_udf());
+    ctx.register_udf(ipmasklen_udf());
+    ctx.register_udf(iphost_udf());
+    ctx.register_udf(ipcontains_udf());
+}
+
+/// Register the CONCEPT:MEDULLA-KG.query.surface-b-numeric-operators Analytics-Program Surface-B numeric operators — the
+/// `medulla-numeric`-backed `cosine_sim`/`l2_normalize`/`zscore` scalar UDFs + the
+/// `covariance` UDAF — so analytics run in-engine over resident columns
+/// (compute-near-data). Gated behind the `numeric` feature (out of `pi`); a no-numeric
+/// build links neither medulla-numeric nor nalgebra. Shared by the graph exec path and the
+/// tables-only obs path so both expose the identical operator set.
+#[cfg(feature = "numeric")]
+fn register_numeric(ctx: &SessionContext) {
+    use super::numeric::{
+        cosine_sim_udf, covariance_udaf, kmeans_udaf, l2_normalize_udf, pca_udaf, svd_udaf,
+        zscore_udf,
+    };
+    ctx.register_udf(cosine_sim_udf());
+    ctx.register_udf(l2_normalize_udf());
+    ctx.register_udf(zscore_udf());
+    ctx.register_udaf(covariance_udaf());
+    // CONCEPT:MEDULLA-KG.query.svd-medulla-pca-column svd / MEDULLA-335 pca — column→Array2 marshalling UDAFs (singular values /
+    // top-k principal-component directions of the aggregated vector column).
+    ctx.register_udaf(svd_udaf());
+    ctx.register_udaf(pca_udaf());
+    // CONCEPT:MEDULLA-KG.query.kmeans-clustering-half-one kmeans — the clustering half; one cluster label per aggregated row.
+    ctx.register_udaf(kmeans_udaf());
+    // EH-522 — `medulla_zscore(v, 60) OVER (PARTITION BY series ORDER BY ts)` and the rest of
+    // the `DERIVE` table, on the same kernels as UQL `DERIVE`.
+    for udwf in super::series_udwf::series_window_udfs() {
+        ctx.register_udwf(udwf);
+    }
+}
+
+/// Run `sql` over `view` (read-only, single graph), with no cache: re-scan the
+/// `nodes`/`edges` tables every call. Synchronous — builds and drives its own
+/// current-thread runtime, safe to call inside `spawn_blocking`. `cancel` is a
+/// required part of the current execution contract and is checked at each batch
+/// boundary.
+pub fn exec_sql(
+    view: &GraphView,
+    sql: &str,
+    cancel: &CancellationToken,
+) -> Result<QueryResult, String> {
+    let nodes = infer_nodes(view)?;
+    run(
+        view,
+        nodes,
+        Vec::new(),
+        StoreCatalog::default(),
+        sql,
+        cancel,
+    )
+}
+
+/// Run read-only `sql` over a set of pre-built in-memory Arrow tables — NO graph. Anything
+/// but ONE read statement is refused with `READ_ONLY_SQL` before DataFusion sees it
+/// ([`super::read_only::require_single_read`], EH-387)
+/// (CONCEPT:MEDULLA-KG.query.concept-4). Each `(name, schema, batches)` is registered as a DataFusion
+/// `MemTable`, and the `json_get*` scalar UDFs are registered so a JSON-object column
+/// (e.g. an observability log record's `attrs`) is reachable schema-on-read. This is
+/// the SQL leg the observability log-search surface (`src/server/obs`) drives: it
+/// hands the Parquet log segments + hot series it scanned out of the blob CAS as Arrow
+/// batches and runs SQL (`SELECT severity, count(*) FROM logs GROUP BY severity`, …)
+/// over them. Synchronous — builds and drives its own current-thread runtime, safe to
+/// call inside `spawn_blocking` (the `compute_off_lock` idiom).
+pub fn exec_sql_over_tables(
+    tables: Vec<(String, SchemaRef, Vec<arrow::record_batch::RecordBatch>)>,
+    sql: &str,
+) -> Result<TypedQueryResult, String> {
+    // EH-387: the chokepoint read-only gate — DDL/DML/COPY/`CREATE EXTERNAL TABLE`
+    // (a server-side file read) and multi-statement input never reach DataFusion.
+    super::read_only::require_single_read(sql)?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("runtime build: {e}"))?;
+    let sql = super::classify::desugar_vector_ops(sql);
+    rt.block_on(async move {
+        let config = SessionConfig::new().with_information_schema(true);
+        let ctx = SessionContext::new_with_config(config);
+        for (name, schema, batches) in tables {
+            // One partition; an empty `batches` registers a valid empty table so a
+            // `SELECT … FROM <name>` returns 0 rows rather than "table not found".
+            let mem = MemTable::try_new(schema, vec![batches])
+                .map_err(|e| format!("mem table `{name}`: {e}"))?;
+            ctx.register_table(name.as_str(), Arc::new(mem))
+                .map_err(|e| format!("register `{name}`: {e}"))?;
+        }
+        ctx.register_udf(json_get_udf());
+        ctx.register_udf(json_get_f64_udf());
+        ctx.register_udf(json_get_i64_udf());
+        // CONCEPT:MEDULLA-KG.query.view-pgvector-operators — the pgvector distance functions the
+        // `<->`/`<=>`/`<#>` operators the `desugar_vector_ops` call above ALREADY rewrites
+        // resolve to. Without them this path desugars an operator to a function it never
+        // registered, so a vector `ORDER BY` over an obs/Arrow table failed to plan at all.
+        ctx.register_udf(vector_l2_udf());
+        ctx.register_udf(vector_cosine_udf());
+        ctx.register_udf(vector_ip_udf());
+        // Design §9 phase 2 — `medulla_embed(text)` on the obs/tables path too, so the SAME
+        // `col <=> medulla_embed('…')` shape works over both entry points (see `build_ctx`).
+        ctx.register_udf(super::embed_udf::medulla_embed_udf());
+        // CONCEPT:MEDULLA-KG.query.continuous-aggregate-lowering/MEDULLA-119 — time_bucket + BM25 UDFs so the obs log-search SQL leg
+        // can time-bucket and lexically filter too.
+        ctx.register_udf(time_bucket_udf());
+        ctx.register_udf(bm25_match_udf());
+        ctx.register_udf(bm25_score_udf());
+        ctx.register_udf(bm25_snippet_udf());
+        // CONCEPT:MEDULLA-KG.query.greatest-least-int4range-tsrange — greatest/least, range fns, generate_series (obs path too).
+        register_pg_common(&ctx);
+        // CONCEPT:MEDULLA-KG.query.approx-distinct-cardinality (W4.5/N5) — sketch-backed aggregates over the obs
+        // Arrow tables too (e.g. `SELECT approx_distinct(trace_id) FROM logs`).
+        ctx.register_udaf(super::sketch_udfs::approx_distinct_udaf());
+        ctx.register_udaf(super::sketch_udfs::approx_frequency_udaf());
+        ctx.register_udaf(super::sketch_udfs::minhash_signature_udaf());
+        ctx.register_udf(super::sketch_udfs::minhash_similarity_udf());
+        // CONCEPT:MEDULLA-KG.query.surface-b-numeric-operators — Surface-B numeric operators over the obs Arrow tables too.
+        #[cfg(feature = "numeric")]
+        register_numeric(&ctx);
+        let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
+        let batches = super::spill::collect_default(df, &CancellationToken::new()).await?;
+        batches_to_typed(&batches)
+    })
+}
+
+/// Build the registration plan for EVERY user table in `store` so each can be
+/// registered alongside `nodes`/`edges` (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside). A table's schema is
+/// resolved here (one cheap catalog lookup — never a row scan) and its row scan is
+/// deferred entirely to [`crate::tables::provider::UserTableProvider`], which pushes a
+/// `SERIAL`-column equality down to a redb point-get instead of an eager
+/// `TableStore::scan` (see that type's own module doc for exactly what still falls back
+/// to a scan). An ANN-covered table is no exception: [`apply_ann_pushdown`] replaces it
+/// with the maintained authority's top-k rows, so it is never scanned eagerly either.
+fn materialize_user_tables(store: &TableStore) -> Result<Vec<UserTable>, String> {
+    let mut out = Vec::new();
+    for name in store.list_tables()? {
+        if let Some(schema) = store.get_schema(&name)? {
+            out.push(UserTable::Lazy(name, schema, store.clone()));
+        }
+    }
+    Ok(out)
+}
+
+/// A coarse, Postgres-mappable column type derived from the Arrow result schema.
+/// The pgwire shim (CONCEPT:AU-KG.query.raw-python) maps each to a wire type OID; the variants
+/// cover exactly the Arrow types the `nodes`/`edges` schema-on-read inference and
+/// ordinary SELECT projections produce.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PgColType {
+    Text,
+    Int8,
+    Float8,
+    Bool,
+    /// A pgvector `vector` column (CONCEPT:MEDULLA-KG.query.view-pgvector-operators) — a `List<Float32>` result column.
+    /// The pgwire shim maps it to a stable float-array wire OID and renders each value
+    /// as the pgvector text form `[1,2,3]`.
+    Vector,
+}
+
+/// One typed result column: its name plus the pg-mappable type inferred from the
+/// Arrow result schema.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedColumn {
+    pub name: String,
+    pub ty: PgColType,
+}
+
+/// The SQL result with per-column types and rows as decoded JSON values — the
+/// shape the pgwire shim needs to emit a Postgres `RowDescription` (type OIDs) +
+/// `DataRow`s. Reuses the SAME DataFusion exec path as [`exec_sql`]; the only
+/// difference is it surfaces the Arrow column types and hands back JSON cells
+/// instead of MessagePack blobs (no wire-protocol re-encode needed downstream).
+/// `Debug`/`PartialEq` (CONCEPT:MEDULLA-KG.query.served-context-cache) let a test assert two runs —
+/// e.g. the cached vs. the uncached SQL context path — produced an IDENTICAL result.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedQueryResult {
+    pub columns: Vec<TypedColumn>,
+    pub rows: Vec<Vec<serde_json::Value>>,
+}
+
+/// Run `sql` over `view` and return a [`TypedQueryResult`] (CONCEPT:AU-KG.query.raw-python).
+/// Identical execution to [`exec_sql`] — same providers, UDFs, table functions,
+/// off-lock snapshot, and current-thread runtime — but it captures the Arrow
+/// result schema so the pgwire shim can describe columns with real type OIDs.
+///
+/// A fresh, never-cancelled [`CancellationToken`] — see [`exec_sql_typed_cancellable`] for a
+/// caller that needs REAL cancellation (L36).
+pub fn exec_sql_typed(view: &GraphView, sql: &str) -> Result<TypedQueryResult, String> {
+    exec_sql_typed_cancellable(view, sql, &CancellationToken::new())
+}
+
+/// As [`exec_sql_typed`], threading `cancel` down to [`super::spill::collect_default`] (L36).
+pub fn exec_sql_typed_cancellable(
+    view: &GraphView,
+    sql: &str,
+    cancel: &CancellationToken,
+) -> Result<TypedQueryResult, String> {
+    let nodes = infer_nodes(view)?;
+    run_typed(
+        view,
+        nodes,
+        Vec::new(),
+        StoreCatalog::default(),
+        sql,
+        cancel,
+    )
+}
+
+/// Run `sql` over `view` AND the user tables in `store` (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside). Identical
+/// to [`exec_sql_typed`] but every `CREATE TABLE` user table is registered as a
+/// DataFusion `TableProvider` alongside `nodes`/`edges`, so a SELECT can read a user
+/// table, JOIN it to the graph, or both in ONE plan. This is the read path the pgwire
+/// shim calls so `psql`/ORMs see user tables and the graph in the same database.
+///
+/// A fresh, never-cancelled [`CancellationToken`] — see
+/// [`exec_sql_typed_with_tables_cancellable`] for a caller that needs REAL cancellation
+/// (L36, e.g. the served `Method::Sql` wire handler, which threads a request-scoped token a
+/// client cancel / timeout can trip).
+pub fn exec_sql_typed_with_tables(
+    view: &GraphView,
+    store: &TableStore,
+    sql: &str,
+) -> Result<TypedQueryResult, String> {
+    exec_sql_typed_with_tables_cancellable(view, store, sql, &CancellationToken::new())
+}
+
+/// Lower an already-classified bounded SQL/PGQ `GRAPH_TABLE` read to ordinary
+/// relational SQL and execute it through [`exec_sql_typed_with_tables_cancellable`].
+///
+/// `definition` must come from the authoritative property-graph catalog after
+/// tenant/ACL admission. The pure query crate does not perform that lookup or
+/// infer unresolved primary/foreign keys; [`super::pgq::lower_graph_table`]
+/// validates the supplied definition and fails closed before any SQL executes.
+pub fn exec_graph_table_typed_with_tables(
+    view: &GraphView,
+    store: &TableStore,
+    query: &super::pgq::GraphTableQuery,
+    definition: &crate::tables::property_graph::PropertyGraphDefinition,
+    verified_tenant_scope: &str,
+) -> Result<TypedQueryResult, String> {
+    exec_graph_table_typed_with_tables_cancellable(
+        view,
+        store,
+        query,
+        definition,
+        verified_tenant_scope,
+        &CancellationToken::new(),
+    )
+}
+
+/// Cancellable form of [`exec_graph_table_typed_with_tables`]. This is an
+/// adapter into the existing executor, not a second planning or execution path.
+pub fn exec_graph_table_typed_with_tables_cancellable(
+    view: &GraphView,
+    store: &TableStore,
+    query: &super::pgq::GraphTableQuery,
+    definition: &crate::tables::property_graph::PropertyGraphDefinition,
+    verified_tenant_scope: &str,
+    cancel: &CancellationToken,
+) -> Result<TypedQueryResult, String> {
+    let lowered = super::pgq::lower_graph_table(query, definition, verified_tenant_scope)?.to_sql();
+    exec_sql_typed_with_tables_cancellable(view, store, &lowered, cancel)
+}
+
+/// As [`exec_sql_typed_with_tables`], threading `cancel` all the way down to
+/// [`super::spill::collect_default`] (CONCEPT:MEDULLA-KG.query.streaming-spillable-collect, L36) — a caller
+/// holding the OTHER end of `cancel` can stop this query mid-stream, at its next batch
+/// boundary, instead of the fresh never-cancelled token every non-`_cancellable` entry point
+/// above builds internally.
+pub fn exec_sql_typed_with_tables_cancellable(
+    view: &GraphView,
+    store: &TableStore,
+    sql: &str,
+    cancel: &CancellationToken,
+) -> Result<TypedQueryResult, String> {
+    // The store's catalog objects: stored functions (CONCEPT:MEDULLA-KG.query.create-drop-function,
+    // expanded into the query text before planning), durable views, property graphs, the
+    // pgvector ANN registrations (CONCEPT:MEDULLA-KG.query.real-ann-top-k/MEDULLA-313) and the
+    // managed-index status rows (EH-352).
+    let catalog = StoreCatalog::read(store, store.index_scope())?;
+    // CONCEPT:MEDULLA-KG.query.medulla-validate-procedural-body: a bare top-level `SELECT plfn(args)` / `CALL plproc(args)` naming a
+    // `LANGUAGE plpgsql` function runs the procedural interpreter instead of DataFusion.
+    // Its embedded SQL (expression eval, `SELECT … INTO`) runs back through THIS read path
+    // — the interpreter is synchronous, so each recursive call builds its own runtime with
+    // no nesting (we are not inside a reactor here; the handler calls us on `spawn_blocking`).
+    // The recursive call reuses the SAME `cancel` token, so a cancelled outer request also
+    // stops an in-flight plpgsql-embedded SELECT.
+    if catalog.functions.iter().any(|f| f.is_plpgsql()) {
+        let run_sql = |q: &str| exec_sql_typed_with_tables_cancellable(view, store, q, cancel);
+        if let Some(res) = super::plpgsql::try_exec_call(sql, &catalog.functions, &run_sql)? {
+            return Ok(res);
+        }
+    }
+    let nodes = infer_nodes(view)?;
+    let user = materialize_user_tables(store)?;
+    run_typed(view, nodes, user, catalog, sql, cancel)
+}
+
+/// Run `sql` over `view` reusing `cache`'s `(nodes, edges)` tables when they are
+/// still valid for `version` (the GraphCore OCC `version()`, CONCEPT:MEDULLA-KG.query.version-keyed-cache).
+/// A different version (any committed write bumped it) rebuilds, so the cache never
+/// serves stale tables. `view` must be the snapshot taken at `version`.
+pub fn exec_sql_cached(
+    view: &GraphView,
+    version: u64,
+    cache: &SqlCache,
+    sql: &str,
+) -> Result<QueryResult, String> {
+    let tables = cache.tables_at(view, version)?;
+    run(
+        view,
+        tables.nodes,
+        Vec::new(),
+        StoreCatalog::default(),
+        sql,
+        &CancellationToken::new(),
+    )
+}
+
+// ── whole-`SessionContext` cache for the served SQL read path (CONCEPT:MEDULLA-KG.query.served-context-cache) ──
+//
+// `run`/`run_typed`/`run_arrow` (via `build_ctx` + `register_views` +
+// `register_system_catalogs`) rebuild the ENTIRE `SessionContext` from scratch on
+// EVERY call: ~20 UDF/UDAF/UDTF registrations, re-parsing + re-planning EVERY
+// durable view's SQL, resynthesizing the system catalogs, and (in the callers that
+// don't already share one) a fresh `tokio::runtime::Builder::new_current_thread()`
+// built + torn down per call. None of that depends on the QUERY TEXT — only on the
+// graph's row/topology snapshot, the SQL-domain catalog (tables/views/functions/
+// indexes), and the caller's RLS visibility. [`SqlContextCache`] amortizes it: a
+// repeat call sharing the same [`SqlContextEpoch`] reuses the already-built,
+// already-registered context instead of redoing any of that work.
+//
+// This is a NEW, served-path-ONLY entry point
+// ([`exec_sql_typed_with_tables_cached_cancellable`]) alongside — not replacing —
+// [`exec_sql_typed_with_tables_cancellable`]; every existing caller (the embedded
+// API, the write-path's internal reads, every pre-existing test) is unchanged.
+
+/// The cache key a served SQL context is safely amortized under. Two calls with an
+/// IDENTICAL epoch are guaranteed to see the SAME `nodes`/`edges`/user-table DATA
+/// and the SAME view/function/index/extension/hypertable CATALOG — each field below
+/// closes one specific mutation surface; see its own doc. Correctness rule: when in
+/// doubt about whether something changed, the field must change too (a false MISS
+/// only costs a rebuild; a false HIT would serve a stale or cross-agent result).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct SqlContextEpoch {
+    /// `TableStore` is one durable redb file PER (tenant, actor) (owner-scoped
+    /// catalogs — see `server::sql_tables::user_table_store`) — folding tenant into
+    /// the key makes a same-shaped key from two DIFFERENT tenants' stores
+    /// structurally impossible to collide on, rather than merely unlikely.
+    tenant: String,
+    /// `GraphCore::version()` is PER-GRAPH, not global (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid) — the bare
+    /// version number alone is not a unique key across two different graphs
+    /// sitting at the same version, so the graph name itself is part of the key.
+    graph: String,
+    /// `GraphCore::version()` at snapshot time — bumps on every committed node/edge
+    /// mutation (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`/property writes,
+    /// INCLUDING a node's `_owner`/`_visibility`/`_grants` RLS tags, since those are
+    /// ordinary node properties). Closes: graph row/topology changes.
+    graph_version: u64,
+    /// [`TableStore::catalog_fingerprint`] — a hash over EVERY durable SQL-domain
+    /// OCC counter the store holds, across every scope any served write path uses
+    /// (see that method's own doc for exactly why "every scope", not one). Closes:
+    /// `CREATE|DROP|ALTER TABLE`, `CREATE|DROP VIEW`, `CREATE|DROP FUNCTION`,
+    /// `CREATE|DROP EXTENSION`, `CREATE INDEX` (pgvector ANN registration),
+    /// `CREATE HYPERTABLE`, and `INSERT`/`UPDATE`/`DELETE` on a user table —
+    /// everything `register_views`, `materialize_user_tables`, and the
+    /// system-catalog synthesis read.
+    catalog_fingerprint: u64,
+    /// The requesting agent id `IsolationLayer::filter_view` filtered `view`
+    /// against BEFORE it ever reached this module (every served caller applies RLS
+    /// first — see `server::handlers::query`'s `Method::Sql` read arm).
+    /// `nodes`/`edges`/the planned views/the `pagerank`/`betweenness` UDTFs are ALL
+    /// built from that already-filtered snapshot, so two different callers'
+    /// contexts are NEVER interchangeable even at an otherwise-identical
+    /// graph/catalog epoch — omitting this field would let one agent's
+    /// row-filtered `nodes` table leak to a different agent through a shared cache
+    /// entry. Mirrors `server::handlers::query::rls_cache_hash`'s identical
+    /// `caller`-salting discipline for the served `UnifiedQuery` result cache (the
+    /// one KNOWN, already-accepted residual gap that discipline carries — and this
+    /// cache inherits unchanged, not newly — is a caller's EFFECTIVE visibility
+    /// changing via `RegisterIdentity`/`RbacAdmin` with NO graph or catalog write in
+    /// between; there is no existing isolation-policy epoch counter to close it, and
+    /// this module cannot see `IsolationLayer` at all — see the crate-level report
+    /// for the full accounting).
+    ///
+    /// CONCEPT:MEDULLA-KG.sharding.row-level-security, P10/W1.7-C — investigated narrowing this to a coarser
+    /// RLS-equivalence-CLASS (same visible-row-set ⇒ same class) so N distinct
+    /// callers sharing one class would amortize ONE rebuild instead of N. Finding,
+    /// worked from `IsolationLayer::can_see_row`'s own rules (`crates/medulla-core/src/isolation.rs`):
+    /// for an OWNED+PRIVATE row, visibility is `owner == agent_id || grants.contains(agent_id)
+    /// || is_manager_of(agent_id, owner)` — checked against the EXACT agent_id
+    /// string, with no coarser structural index over ownership/grants anywhere in
+    /// medulla-core. Two DIFFERENT non-`System` agents can therefore be PROVEN equivalent
+    /// ONLY by comparing their filtered views (an O(V) walk — the exact cost this
+    /// field exists to amortize) or by building NEW infrastructure (a persisted
+    /// owner/grant reverse index) — out of scope here. The ONE class that IS
+    /// provably safe with NO scan is `System`: `can_see_row` grants it every row
+    /// unconditionally, before any owner/grant/manager check ever runs, so EVERY
+    /// `System` caller's filtered view is the SAME unfiltered graph. Exploiting even
+    /// that narrow win would still require TWO further changes out of this field's
+    /// reach: (1) the facade's owner-scoped registry
+    /// (`server::sql_tables::sql_context_cache`) instantiates a SEPARATE
+    /// `SqlContextCache` per (tenant, agent_id) for an UNRELATED, stronger reason —
+    /// each instance's `BuiltCtx` also embeds that agent's OWN privately-owned
+    /// `TableStore`-derived user tables, which must never be shared regardless of
+    /// RLS class — so two `System` callers never reach the SAME `SqlContextCache`
+    /// instance to begin with; and (2) even if they did, `BuiltCtx` would need
+    /// splitting into an RLS-class-shareable graph layer and a strictly per-agent
+    /// catalog layer. Both are real, multi-file architectural changes — the RLS/
+    /// cache-architecture refactor this field's narrowing is deferred to, not
+    /// something this task ships a partial/cosmetic version of. `caller` therefore
+    /// stays the raw, per-agent identity: the one key this crate can PROVE, from
+    /// `IsolationLayer`'s own semantics, never lets two differently-visible callers
+    /// share an entry (proof exercised by
+    /// `tests/sql_context_cache_invalidation.rs`'s caller-identity + edges-specific
+    /// negative tests).
+    caller: String,
+}
+
+/// Bound on [`SqlContextCache`]'s resident entries — otherwise a cache holding one
+/// entry per distinct (tenant, graph, caller) triple could grow without bound under
+/// many-agent traffic. Overridable via `MEDULLA_SQL_CONTEXT_CACHE_SIZE`.
+fn max_cached_contexts() -> usize {
+    std::env::var("MEDULLA_SQL_CONTEXT_CACHE_SIZE")
+        .ok()
+        .and_then(|s| s.trim().parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(64)
+}
+
+/// `(caller, node_epoch)` — the key of the `nodes`-batch sub-cache (see
+/// `SqlContextCache::node_batches`).
+type NodeBatchKey = (String, u64);
+/// The cached `nodes` table: its schema + the O(V) inferred Arrow batch.
+type NodeBatchEntry = (SchemaRef, arrow::record_batch::RecordBatch);
+
+/// Amortized whole-`SessionContext` cache for the served SQL read path. Mirrors
+/// [`SqlCache`]'s staleness discipline (version/epoch-keyed, build OUTSIDE the
+/// lock, replace inside it, never serve a mismatched key) but does NOT literally
+/// compose an [`SqlCache`] instance for the `nodes`/`edges` half — see
+/// [`Self::get_or_build`]'s doc for exactly why that specific reuse would be
+/// unsafe here, discovered by this cache's own invalidation tests. Caches the
+/// fully built + registered [`BuiltCtx`] (UDFs/UDAFs/UDTFs, planned durable views,
+/// synthesized system catalogs) keyed by [`SqlContextEpoch`].
+pub struct SqlContextCache {
+    contexts: Mutex<HashMap<SqlContextEpoch, Arc<BuiltCtx>>>,
+    /// The O(V) inferred `nodes` Arrow batch, sub-cached by (CALLER, NODE EPOCH)
+    /// (CONCEPT:MEDULLA-KG.coordination.dependency-scoped-cache-invalidation, W1.6/P7 site 3). The batch depends
+    /// ONLY on node data, so when a full-`SqlContextEpoch` miss is caused by a pure-edge or
+    /// catalog-only write (the node epoch is UNCHANGED), the whole `BuiltCtx` is rebuilt but this
+    /// expensive scan is REUSED instead of re-run — turning the "every write forces a full O(V+E)
+    /// Arrow rebuild" cost into O(E)+catalog on a write that did not touch nodes. The key INCLUDES
+    /// the caller because `infer_nodes(view)` runs over the caller's ALREADY RLS-filtered view, so
+    /// the node batch is caller-specific — a shared `SqlContextCache` (one per owner file, but a
+    /// single test/embedded instance may serve several callers) must NEVER hand one caller's
+    /// narrower filtered node projection to another. Mirrors `SqlContextEpoch`'s own `caller` field.
+    node_batches: Mutex<HashMap<NodeBatchKey, Arc<NodeBatchEntry>>>,
+    hits: std::sync::atomic::AtomicU64,
+    misses: std::sync::atomic::AtomicU64,
+    /// Reuse counters for the `nodes`-batch sub-cache (the O(V) scans SKIPPED / RUN). Observability
+    /// + the site-3 regression test's proof that a pure-edge write reuses the node table.
+    node_reuses: std::sync::atomic::AtomicU64,
+    node_builds: std::sync::atomic::AtomicU64,
+}
+
+impl Default for SqlContextCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SqlContextCache {
+    pub fn new() -> Self {
+        Self {
+            contexts: Mutex::new(HashMap::new()),
+            node_batches: Mutex::new(HashMap::new()),
+            hits: std::sync::atomic::AtomicU64::new(0),
+            misses: std::sync::atomic::AtomicU64::new(0),
+            node_reuses: std::sync::atomic::AtomicU64::new(0),
+            node_builds: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    /// `(node_reuses, node_builds)` since construction (W1.6/P7 site 3): how many times the O(V)
+    /// `nodes` Arrow batch was reused across a non-node write vs re-inferred. A pure-edge write
+    /// following a warm SQL context should REUSE (reuses grows, builds does not).
+    pub fn node_stats(&self) -> (u64, u64) {
+        (
+            self.node_reuses.load(std::sync::atomic::Ordering::Relaxed),
+            self.node_builds.load(std::sync::atomic::Ordering::Relaxed),
+        )
+    }
+
+    /// `(hits, misses)` since construction — observability, and the exact hook the
+    /// invalidation tests below assert against to prove a call actually reused (or
+    /// actually rebuilt) the cached context, not just that the RESULT happened to
+    /// look right.
+    pub fn stats(&self) -> (u64, u64) {
+        (
+            self.hits.load(std::sync::atomic::Ordering::Relaxed),
+            self.misses.load(std::sync::atomic::Ordering::Relaxed),
+        )
+    }
+
+    /// Return the built context for `epoch`, rebuilding (and caching) it when
+    /// absent. The build itself — `build_ctx` + `register_views` +
+    /// `register_system_catalogs`, all async (a view's SELECT is planned via
+    /// `ctx.sql(...).await`) — runs OUTSIDE the lock, the SAME discipline
+    /// `SqlCache::tables_at` uses: a concurrent request for a DIFFERENT epoch never
+    /// blocks on this one's build. Two concurrent misses for the SAME epoch may
+    /// both build (last insert wins); both callers still get a valid, correctly
+    /// built context for that epoch — the identical race tolerance
+    /// `SqlCache::tables_at` already accepts.
+    ///
+    /// Deliberately does NOT call [`SqlCache::tables_at`] here (an earlier version
+    /// of this cache did, and its OWN invalidation test caught the bug):
+    /// `tables_at` is keyed on `version: u64` ALONE, which is only a safe cache key
+    /// when a given version always corresponds to the SAME `view` content —
+    /// TRUE for `exec_sql_cached`'s callers (never caller/RLS-aware), but FALSE
+    /// here, where `view` is ALREADY caller-filtered and two different callers can
+    /// legitimately share a `graph_version` while their view CONTENT differs. Two
+    /// different callers sharing one `SqlCache` instance at the same version would
+    /// silently hand caller B caller A's (already RLS-filtered) `nodes` batch.
+    /// Instead, `nodes` is inferred fresh on every genuine EPOCH miss — safe
+    /// because the epoch (which DOES include `caller`) is what gates reuse, not a
+    /// narrower sub-key. `edges` is never inferred here at all — `build_ctx`
+    /// constructs an `EdgesTableProvider` straight from `snap` (see its own doc);
+    /// nothing about that changes per-caller, since the provider still only ever
+    /// walks the ALREADY-caller-filtered `view`/`snap` it is handed.
+    async fn get_or_build(
+        &self,
+        epoch: SqlContextEpoch,
+        node_epoch: u64,
+        snap: Arc<GraphView>,
+        view: &GraphView,
+        store: &TableStore,
+    ) -> Result<Arc<BuiltCtx>, String> {
+        if let Some(hit) = self.contexts.lock().unwrap().get(&epoch).cloned() {
+            self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return Ok(hit);
+        }
+        self.misses
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        // Site 3 (W1.6/P7): reuse the O(V) `nodes` Arrow batch when this full-epoch miss was caused
+        // by a write that did NOT touch nodes (same `node_epoch`) — a pure-edge or catalog-only
+        // write. `RecordBatch`/`SchemaRef` are Arc-backed, so the clone is cheap; the SKIPPED work
+        // is the whole-node-store scan + Arrow column materialization.
+        let node_key = (epoch.caller.clone(), node_epoch);
+        let nodes = {
+            let cached = self.node_batches.lock().unwrap().get(&node_key).cloned();
+            match cached {
+                Some(batch) => {
+                    self.node_reuses
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    (*batch).clone()
+                }
+                None => {
+                    let inferred = infer_nodes(view)?;
+                    self.node_builds
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let mut guard = self.node_batches.lock().unwrap();
+                    // Same crude-but-correct bound as `contexts`: clear on overflow rather than
+                    // tracking recency. An extra miss only re-infers; it never serves wrong data.
+                    if guard.len() >= max_cached_contexts() && !guard.contains_key(&node_key) {
+                        guard.clear();
+                    }
+                    guard.insert(node_key, Arc::new(inferred.clone()));
+                    inferred
+                }
+            }
+        };
+        // A cached context never serves an ANN-covered query (the caller bypasses the
+        // cache for those), so every user table here stays lazy.
+        let user = materialize_user_tables(store)?;
+        let catalog = StoreCatalog::read(store, &epoch.tenant)?;
+        let built = build_ctx(snap, nodes, user)?;
+        register_views(&built.ctx, &catalog.views, &catalog.functions).await?;
+        register_system_catalogs(
+            &built.ctx,
+            &built.nodes_schema,
+            &built.edges_schema,
+            &built.user_relations,
+            &catalog.views,
+            &catalog.functions,
+            &catalog.property_graphs,
+        )
+        .await?;
+        super::index_status::register(&built.ctx, &catalog.index_status)?;
+        let built = Arc::new(built);
+
+        let mut guard = self.contexts.lock().unwrap();
+        // Crude-but-correct bound: clear the WHOLE map on overflow rather than
+        // tracking per-entry recency. An extra miss only costs a rebuild; a buggy
+        // eviction policy could serve the wrong epoch's context — simplicity here
+        // is a correctness choice, not a shortcut.
+        if guard.len() >= max_cached_contexts() && !guard.contains_key(&epoch) {
+            guard.clear();
+        }
+        guard.insert(epoch, built.clone());
+        Ok(built)
+    }
+}
+
+thread_local! {
+    /// One lazily-built `current_thread` Tokio runtime PER blocking-pool OS thread,
+    /// reused across every [`exec_sql_typed_with_tables_cached_cancellable`] call
+    /// that happens to land on that thread — instead of building + tearing one down
+    /// per call. Safe because: (1) the runtime holds no query-specific state, only
+    /// an executor — each call's `block_on` future runs to completion before the
+    /// next one starts, so there is nothing for one call to leak into the next; (2)
+    /// `thread_local` gives each OS thread its OWN runtime, so there is no
+    /// cross-thread sharing/contention to reason about; (3) `.block_on()` is only
+    /// ever invoked from the thread that owns this cell, never nested — identical to
+    /// the existing per-call `Builder::new_current_thread()...build()` idiom the
+    /// REST of this file uses; this only changes WHEN the runtime is constructed,
+    /// never who drives it or how.
+    static SQL_EXEC_RUNTIME: std::cell::RefCell<Option<tokio::runtime::Runtime>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` against this thread's lazily-built, reused current-thread runtime.
+fn with_thread_runtime<T>(f: impl FnOnce(&tokio::runtime::Runtime) -> T) -> Result<T, String> {
+    SQL_EXEC_RUNTIME.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        if slot.is_none() {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| format!("runtime build: {e}"))?;
+            *slot = Some(rt);
+        }
+        Ok(f(slot.as_ref().expect("just ensured Some above")))
+    })
+}
+
+/// As [`exec_sql_typed_with_tables_cancellable`], but amortizing the WHOLE
+/// `SessionContext` build across every call that shares an identical
+/// [`SqlContextEpoch`] (CONCEPT:MEDULLA-KG.query.served-context-cache — the served-path context cache).
+///
+/// `graph_version` MUST be the version `view` was snapshotted at
+/// (`GraphCore::analysis_snapshot_versioned`, taken atomically with the snapshot so
+/// the two can never drift out of sync); `tenant`/`graph` identify the epoch's
+/// tenant + graph; `caller` is the agent id `view` was ALREADY `filter_view`d for by
+/// the caller of this function (this function does not filter anything itself — it
+/// trusts `view` exactly like [`exec_sql_typed_with_tables_cancellable`] already
+/// does).
+///
+/// Falls back to the byte-identical UNCACHED path for the two shapes a cached
+/// context cannot safely serve: a bare `plpgsql` call (handled entirely before any
+/// context would be built) and a query [`ann_pushdown_may_apply`] to (its top-k
+/// slice is per-query, not per-epoch).
+///
+/// `node_epoch` (W1.6/P7 site 3) is the version of the most recent write that could have changed
+/// any NODE (from `GraphCore::dep_clock().node_epoch()`, which folds in the coarse floor so a
+/// follower's replicated node write is covered). It gates the O(V) `nodes`-batch sub-cache: a
+/// full-epoch miss whose `node_epoch` is unchanged (a pure-edge or catalog-only write) reuses the
+/// cached node table instead of re-scanning it. Pass `graph_version` for it where a finer epoch is
+/// unavailable (correct, just no reuse — the node batch then keys on the same counter the whole
+/// epoch does).
+#[allow(clippy::too_many_arguments)]
+pub fn exec_sql_typed_with_tables_cached_cancellable(
+    view: &GraphView,
+    graph_version: u64,
+    node_epoch: u64,
+    tenant: &str,
+    graph: &str,
+    caller: &str,
+    store: &TableStore,
+    cache: &SqlContextCache,
+    sql: &str,
+    cancel: &CancellationToken,
+) -> Result<TypedQueryResult, String> {
+    // plpgsql calls run through the procedural interpreter, never through a
+    // SessionContext at all — identical short-circuit to the uncached entry point,
+    // which this delegates to unchanged.
+    let functions = store.list_functions()?;
+    if functions.iter().any(|f| f.is_plpgsql()) {
+        return exec_sql_typed_with_tables_cancellable(view, store, sql, cancel);
+    }
+    // A durable ANN index covering this exact query shape narrows `nodes`/a user
+    // table to a query-specific top-k slice — per-query, never cacheable. Delegate
+    // to the unchanged uncached path.
+    // So does the managed-index status relation: index state moves without a
+    // catalog write, so a cached context would serve it stale.
+    let ann_indexes = store.list_ann_indexes()?;
+    if ann_pushdown_may_apply(sql, &ann_indexes) || reads_index_status(sql) {
+        return exec_sql_typed_with_tables_cancellable(view, store, sql, cancel);
+    }
+
+    let epoch = SqlContextEpoch {
+        tenant: tenant.to_string(),
+        graph: graph.to_string(),
+        graph_version,
+        catalog_fingerprint: store.catalog_fingerprint()?,
+        caller: caller.to_string(),
+    };
+
+    // Same pre-plan SQL-text transforms `run_typed` applies, in the same order —
+    // strip the `pg_catalog.` function qualifier, expand stored SQL functions, then
+    // desugar the pgvector operators. None of these depend on the epoch.
+    let sql_text = super::catalog::strip_pg_catalog_fn_qualifier(sql);
+    let sql_text = super::funcs::expand_functions(&sql_text, &functions)?;
+    let sql_text = super::classify::desugar_vector_ops(&sql_text);
+    let snap = Arc::new(view.clone());
+
+    with_thread_runtime(|rt| {
+        rt.block_on(async move {
+            let built = cache
+                .get_or_build(epoch, node_epoch, snap, view, store)
+                .await?;
+            let df = built
+                .ctx
+                .sql(&sql_text)
+                .await
+                .map_err(|e| format!("sql: {e}"))?;
+            let batches = super::spill::collect_default(df, cancel).await?;
+            batches_to_typed(&batches)
+        })
+    })?
+}
+
+/// The materialized `SessionContext` plus the live-relation Arrow schemas the
+/// system catalogs are synthesized from (CONCEPT:MEDULLA-KG.query.route-create-view-create). Returned by [`build_ctx`]
+/// so the caller can register the `pg_catalog` + `information_schema` system views
+/// AFTER the durable views are registered (their columns are read back from the
+/// registered view providers).
+struct BuiltCtx {
+    ctx: SessionContext,
+    nodes_schema: SchemaRef,
+    edges_schema: SchemaRef,
+    user_relations: Vec<(String, SchemaRef)>,
+}
+
+/// Build the shared `SessionContext` for a SQL run: register the `nodes`/`edges`
+/// tables, the scalar/aggregate UDFs, and the graph table functions. The synthetic
+/// Postgres system catalogs (`pg_catalog.*` + a fully-synthesized `information_schema.*`,
+/// CONCEPT:MEDULLA-KG.query.route-create-view-create, extending CONCEPT:MEDULLA-KG.query.datafusion) are registered SEPARATELY by
+/// [`register_system_catalogs`] AFTER the durable views are wired, so views appear as
+/// relations (`relkind='v'`) with their real columns. DataFusion's NATIVE
+/// `information_schema` is deliberately DISABLED here because the engine synthesizes the
+/// whole schema itself (native cannot be extended with `routines`/`key_column_usage`/
+/// `table_constraints`); the synthesized `information_schema.tables`/`.columns` stay in
+/// sync with the same schema-on-read inference.
+///
+/// `nodes_schema`/`edges_schema` are the inferred Arrow schemas the catalog is
+/// derived from (the catalog reports exactly the columns a SELECT returns). Both
+/// `nodes` and `edges` are index-pushdown providers (CONCEPT:MEDULLA-KG.query.concept-12): `edges`'s schema is
+/// static (no scan needed to know it — see `EdgesTableProvider`'s own doc), so it
+/// is computed here with no row materialization at all.
+fn build_ctx(
+    snap: Arc<GraphView>,
+    nodes: (SchemaRef, arrow::record_batch::RecordBatch),
+    user_tables: Vec<UserTable>,
+) -> Result<BuiltCtx, String> {
+    let nodes_schema = nodes.0.clone();
+
+    // CONCEPT:MEDULLA-KG.query.concept-12: `nodes` is a custom provider with secondary-index predicate
+    // pushdown — a `WHERE col = 'x'` narrows rows via the index instead of scanning
+    // every node. `edges` pushes src/dst equality down to an O(deg) adjacency walk
+    // over `snap` instead of ever materializing the full edge set (its own module
+    // doc has the full design) — constructed straight from the snapshot, with no
+    // `(schema, batch)` argument needed at all.
+    let nodes_table = NodesTableProvider::new(nodes.0, nodes.1);
+    let edges_table = EdgesTableProvider::new(snap.clone());
+    let edges_schema = edges_table.schema();
+
+    // CONCEPT:MEDULLA-KG.query.route-create-view-create: DataFusion's native `information_schema` is DISABLED — the engine
+    // synthesizes the whole `information_schema` (plus `pg_catalog`) itself in
+    // `register_system_catalogs`, because native cannot be extended with the
+    // `routines`/`key_column_usage`/`table_constraints` views psql/ORMs also probe.
+    let config = SessionConfig::new().with_information_schema(false);
+    let ctx = SessionContext::new_with_config(config);
+
+    ctx.register_table("nodes", Arc::new(nodes_table))
+        .map_err(|e| format!("register nodes: {e}"))?;
+    ctx.register_table("edges", Arc::new(edges_table))
+        .map_err(|e| format!("register edges: {e}"))?;
+    // CONCEPT:MEDULLA-KG.query.register-user-tables-alongside: register each user table alongside the graph projection, and
+    // remember its schema for the catalog so a reflecting driver sees it in
+    // `pg_class`/`information_schema`. CONCEPT:MEDULLA-KG.query.register-each-user-table: an `Eager` table (a durable ANN
+    // index covers it) goes through the SAME secondary-index pushdown provider
+    // `nodes` uses; every other (`Lazy`) table goes through `UserTableProvider`,
+    // which additionally pushes a `SERIAL`-column equality to a redb point-get
+    // instead of an eager `TableStore::scan` (see `materialize_user_tables`'s doc
+    // for the Eager/Lazy choice, and `UserTableProvider`'s own doc for exactly what
+    // still falls back to a scan).
+    let mut user_relations: Vec<(String, SchemaRef)> = Vec::with_capacity(user_tables.len());
+    for entry in user_tables {
+        match entry {
+            UserTable::Eager(name, schema, batch) => {
+                let table = NodesTableProvider::new(schema.clone(), batch);
+                ctx.register_table(name.as_str(), Arc::new(table))
+                    .map_err(|e| format!("register user table `{name}`: {e}"))?;
+                user_relations.push((name, schema));
+            }
+            UserTable::Lazy(name, schema, store) => {
+                let arrow_schema = crate::tables::provider::arrow_schema(&schema);
+                let table = crate::tables::provider::UserTableProvider::new(store, schema);
+                ctx.register_table(name.as_str(), Arc::new(table))
+                    .map_err(|e| format!("register user table `{name}`: {e}"))?;
+                user_relations.push((name, arrow_schema));
+            }
+        }
+    }
+    ctx.register_udf(json_get_udf());
+    ctx.register_udf(json_get_f64_udf());
+    ctx.register_udf(json_get_i64_udf());
+    ctx.register_udf(epistemic_decay_udf());
+    // CONCEPT:MEDULLA-KG.query.view-pgvector-operators — pgvector distance functions the `<->`/`<=>`/`<#>` operators
+    // desugar to (brute-force over a vector column; the medulla-ann index pushdown is MEDULLA-116).
+    ctx.register_udf(vector_l2_udf());
+    ctx.register_udf(vector_cosine_udf());
+    ctx.register_udf(vector_ip_udf());
+    // Design §9 phase 2 — `medulla_embed(text)`, the SERVER-side text→vector function the
+    // pgvector operators compose with (`col <=> medulla_embed('leaky pump')`), so a psql/ORM
+    // caller never pre-embeds client-side. Registered with the PROCESS-wide embedder
+    // source, resolved at CALL time (`embed_udf`), so registration here does not depend
+    // on the facade having bound a model yet; unbound, a call is a typed error, never a
+    // zero vector.
+    ctx.register_udf(super::embed_udf::medulla_embed_udf());
+    // CONCEPT:MEDULLA-KG.query.continuous-aggregate-lowering — TimescaleDB `time_bucket`. CONCEPT:MEDULLA-KG.query.paradedb-bm25 — ParadeDB BM25
+    // `col @@@ 'q'` / `paradedb.score()`/`snippet()` desugar targets.
+    ctx.register_udf(time_bucket_udf());
+    ctx.register_udf(bm25_match_udf());
+    ctx.register_udf(bm25_score_udf());
+    ctx.register_udf(bm25_snippet_udf());
+    ctx.register_udtf("pagerank", Arc::new(PagerankFunc::new(snap.clone())));
+    ctx.register_udtf("betweenness", Arc::new(BetweennessFunc::new(snap.clone())));
+    // CONCEPT:MEDULLA-KG.query.greatest-least-int4range-tsrange — greatest/least, int4range/tsrange + range predicates, and the
+    // generate_series table function, rounding out the Postgres common-function surface.
+    register_pg_common(&ctx);
+    // CONCEPT:MEDULLA-KG.query.approx-distinct-cardinality (W4.5/N5) — sketch-backed aggregates
+    // (HyperLogLog/Count-Min-Sketch/MinHash). Always-on: pure-Rust, no heavy dep beyond what
+    // `sql` already links.
+    ctx.register_udaf(super::sketch_udfs::approx_distinct_udaf());
+    ctx.register_udaf(super::sketch_udfs::approx_frequency_udaf());
+    ctx.register_udaf(super::sketch_udfs::minhash_signature_udaf());
+    ctx.register_udf(super::sketch_udfs::minhash_similarity_udf());
+    // CONCEPT:MEDULLA-KG.query.surface-b-numeric-operators — Surface-B numeric operators over the graph's resident columns.
+    #[cfg(feature = "numeric")]
+    register_numeric(&ctx);
+    #[cfg(feature = "finance")]
+    {
+        ctx.register_udaf(super::udfs::var_udaf());
+        ctx.register_udaf(super::udfs::cvar_udaf());
+    }
+    // CONCEPT:MEDULLA-KG.query.route-create-view-create: the `pg_catalog` + `information_schema` system views are registered
+    // by the caller via `register_system_catalogs` AFTER `register_views`, so views are
+    // synthesized as relations with their real column schemas.
+    Ok(BuiltCtx {
+        ctx,
+        nodes_schema,
+        edges_schema,
+        user_relations,
+    })
+}
+
+/// Real pgvector ANN top-k pushdown (CONCEPT:MEDULLA-KG.query.real-pgvector-ann-top, RF-019). When
+/// `sql` is a covered nearest-neighbour read (see [`super::ann_pushdown`]), narrow the
+/// target relation to its nearest `LIMIT + OFFSET` rows BEFORE the query is planned; the
+/// unchanged (desugared) statement then filters, ranks and offsets over just those rows,
+/// so projection/types/order are exactly the full scan's.
+///
+/// A user table is narrowed by the maintained ANN authority
+/// ([`TableStore::ann_top_k`]) — never by an index built here. The `nodes` projection
+/// keeps its batch slice. A no-op (the ordinary scan runs) when nothing is covered or the
+/// statement cannot be narrowed exactly; an error only when the maintained authority
+/// refuses (no servable generation and a table past the bounded exact fallback).
+///
+/// Must be called on the PRE-desugar SQL (while the `<->`/`<=>`/`<#>` operators are still
+/// intact for the planner).
+fn apply_ann_pushdown(
+    sql: &str,
+    ann_indexes: &[AnnIndexPlan],
+    nodes: &mut (SchemaRef, arrow::record_batch::RecordBatch),
+    user_tables: &mut [UserTable],
+) -> Result<(), String> {
+    let Some(pushdown) = ann_pushdown_decision(sql, ann_indexes) else {
+        return Ok(());
+    };
+    if pushdown.targets_nodes() {
+        if let Some(sliced) = pushdown.topk_slice(&nodes.0, &nodes.1) {
+            nodes.1 = sliced;
+        }
+        return Ok(());
+    }
+    narrow_user_table(&pushdown, user_tables)
+}
+
+/// Replace the user table `pushdown` names with its maintained top-k rows, in place.
+fn narrow_user_table(pushdown: &AnnPushdown, user_tables: &mut [UserTable]) -> Result<(), String> {
+    for entry in user_tables.iter_mut() {
+        let UserTable::Lazy(name, schema, store) = entry else {
+            continue;
+        };
+        if !name.eq_ignore_ascii_case(&pushdown.plan.table) {
+            continue;
+        }
+        let narrowed = maintained_top_k(pushdown, schema, store)?;
+        let name = name.clone();
+        if let Some((arrow_schema, batch)) = narrowed {
+            *entry = UserTable::Eager(name, arrow_schema, batch);
+        }
+        return Ok(());
+    }
+    Ok(())
+}
+
+/// Shared driver: register the two tables, the scalar/aggregate UDFs, and the
+/// graph table functions, then collect the query.
+type NodeBatch = (SchemaRef, arrow::record_batch::RecordBatch);
+
+fn collect_sql_batches(
+    view: &GraphView,
+    nodes: NodeBatch,
+    user_tables: Vec<UserTable>,
+    catalog: StoreCatalog,
+    sql: &str,
+    cancel: &CancellationToken,
+) -> Result<Vec<arrow::record_batch::RecordBatch>, String> {
+    // The graph table functions run their kernel over an owned snapshot; clone the
+    // topology+ids once (cheap relative to the algorithm) so they don't borrow `view`.
+    // `EdgesTableProvider` reuses this SAME snapshot (built_ctx below), so `edges`
+    // needs no separate materialization here at all.
+    let snap = Arc::new(view.clone());
+    let mut nodes = nodes;
+    let mut user_tables = user_tables;
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("runtime build: {e}"))?;
+
+    // CONCEPT:MEDULLA-KG.query.route-create-view-create — strip the `pg_catalog.` qualifier off catalog FUNCTION calls
+    // (psql `\d`/ORMs emit `pg_catalog.format_type(...)`) so the bare-name UDFs resolve;
+    // schema-qualified TABLE refs (`pg_catalog.pg_class`) are untouched.
+    let sql = super::catalog::strip_pg_catalog_fn_qualifier(sql);
+    // CONCEPT:MEDULLA-KG.query.create-drop-function — expand SQL stored-function calls into inline SQL (scalar subquery /
+    // parameterized-view subquery) BEFORE the pgvector desugar + planning, so an inlined
+    // body is itself desugared and planned. A no-op when there are no functions.
+    let sql = super::funcs::expand_functions(&sql, &catalog.functions)?;
+    // CONCEPT:MEDULLA-KG.query.real-pgvector-ann-top — real pgvector ANN top-k pushdown on the PRE-desugar SQL (the
+    // `<->`/`<=>`/`<#>` operators are still intact for the planner). Narrows the target
+    // batch to the true nearest-k via a real medulla-ann index when one is registered.
+    apply_ann_pushdown(&sql, &catalog.ann_indexes, &mut nodes, &mut user_tables)?;
+    // CONCEPT:MEDULLA-KG.query.view-pgvector-operators — rewrite pgvector distance operators (`<->`/`<=>`/`<#>`) to the
+    // registered `vector_*` UDF calls BEFORE DataFusion plans the SQL (it has no
+    // operator for them). A no-op when none are present or the SQL doesn't parse.
+    let sql = super::classify::desugar_vector_ops(&sql);
+    rt.block_on(async move {
+        let built = build_ctx(snap, nodes, user_tables)?;
+        let ctx = built.ctx;
+        register_views(&ctx, &catalog.views, &catalog.functions).await?;
+        // CONCEPT:MEDULLA-KG.query.route-create-view-create — synthesize `pg_catalog` + `information_schema` from the live
+        // relations (nodes/edges/user tables), the now-registered views, and the stored
+        // functions, so psql/ORMs can introspect the real schema.
+        register_system_catalogs(
+            &ctx,
+            &built.nodes_schema,
+            &built.edges_schema,
+            &built.user_relations,
+            &catalog.views,
+            &catalog.functions,
+            &catalog.property_graphs,
+        )
+        .await?;
+        super::index_status::register(&ctx, &catalog.index_status)?;
+        let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
+        super::spill::collect_default(df, cancel).await
+    })
+}
+
+fn run(
+    view: &GraphView,
+    nodes: (SchemaRef, arrow::record_batch::RecordBatch),
+    user_tables: Vec<UserTable>,
+    catalog: StoreCatalog,
+    sql: &str,
+    cancel: &CancellationToken,
+) -> Result<QueryResult, String> {
+    batches_to_result(&collect_sql_batches(
+        view,
+        nodes,
+        user_tables,
+        catalog,
+        sql,
+        cancel,
+    )?)
+}
+
+/// Run `sql` over `view` and return the result as real Arrow batches — no per-row
+/// JSON/MessagePack decode (CONCEPT:INT-P2-2, the Arrow dataset-handle seam for
+/// external heavy compute: engine snapshot/dataset handle → Arrow → external job →
+/// signed result artifact → transactional writeback). Shares the EXACT same
+/// providers/UDFs/table-functions/off-lock-snapshot/current-thread-runtime plumbing as
+/// [`exec_sql_typed`] — the only difference is the caller gets back the
+/// [`RecordBatch`](arrow::record_batch::RecordBatch)es DataFusion already produced
+/// (plus their shared [`SchemaRef`]) instead of a per-cell JSON decode. This is what an
+/// external heavy-compute job (data-science-mcp, a training loop) pulls typed and in
+/// bulk instead of marshalling rows through Python/JSON.
+///
+/// A fresh, never-cancelled [`CancellationToken`] — see [`exec_sql_arrow_cancellable`]
+/// for a caller that needs REAL cancellation (L36).
+pub fn exec_sql_arrow(
+    view: &GraphView,
+    sql: &str,
+) -> Result<(SchemaRef, Vec<arrow::record_batch::RecordBatch>), String> {
+    exec_sql_arrow_cancellable(view, sql, &CancellationToken::new())
+}
+
+/// As [`exec_sql_arrow`], threading `cancel` down to [`super::spill::collect_default`] (L36).
+pub fn exec_sql_arrow_cancellable(
+    view: &GraphView,
+    sql: &str,
+    cancel: &CancellationToken,
+) -> Result<(SchemaRef, Vec<arrow::record_batch::RecordBatch>), String> {
+    let nodes = infer_nodes(view)?;
+    run_arrow(
+        view,
+        nodes,
+        Vec::new(),
+        StoreCatalog::default(),
+        sql,
+        cancel,
+    )
+}
+
+/// Shared driver identical to [`run`]/[`run_typed`] up through the DataFusion collect,
+/// but returns the RAW `RecordBatch`es (plus their shared schema) instead of decoding
+/// them into rows — see [`exec_sql_arrow`] above.
+fn run_arrow(
+    view: &GraphView,
+    nodes: NodeBatch,
+    user_tables: Vec<UserTable>,
+    catalog: StoreCatalog,
+    sql: &str,
+    cancel: &CancellationToken,
+) -> Result<(SchemaRef, Vec<arrow::record_batch::RecordBatch>), String> {
+    let batches = collect_sql_batches(view, nodes, user_tables, catalog, sql, cancel)?;
+    let schema = batches
+        .first()
+        .map(|b| b.schema())
+        .unwrap_or_else(|| Arc::new(arrow::datatypes::Schema::empty()));
+    Ok((schema, batches))
+}
+
+/// Register each durable view as a DataFusion logical view (CONCEPT:MEDULLA-KG.query.durable-views): plan its
+/// stored SELECT against the already-registered `nodes`/`edges`/user tables, then
+/// register the resulting `ViewTable` under the view's name so a query that references
+/// it expands the SELECT. A view whose SELECT fails to plan (e.g. it referenced a table
+/// since dropped) is skipped with a debug log rather than failing every query.
+async fn register_views(
+    ctx: &SessionContext,
+    views: &[(String, String)],
+    functions: &[StoredFunction],
+) -> Result<(), String> {
+    for (name, select_sql) in views {
+        // CONCEPT:MEDULLA-KG.query.create-drop-function — a view body may itself call a stored function; expand it first.
+        let select_sql = super::funcs::expand_functions(select_sql, functions)
+            .unwrap_or_else(|_| select_sql.clone());
+        // CONCEPT:MEDULLA-KG.query.view-pgvector-operators — a view body may itself use the pgvector operators.
+        let select_sql = super::classify::desugar_vector_ops(&select_sql);
+        match ctx.sql(&select_sql).await {
+            Ok(df) => {
+                let provider = df.into_view();
+                if let Err(e) = ctx.register_table(name.as_str(), provider) {
+                    tracing::debug!(
+                        target: "medulla_query::sql",
+                        "skipping view `{name}`: register failed: {e}"
+                    );
+                }
+            }
+            Err(e) => tracing::debug!(
+                target: "medulla_query::sql",
+                "skipping view `{name}`: SELECT failed to plan: {e}"
+            ),
+        }
+    }
+    Ok(())
+}
+
+/// Same driver as [`run`] but returns a [`TypedQueryResult`] (column types from
+/// the Arrow schema + JSON cells). Shares the providers/UDFs/runtime verbatim so
+/// the pgwire read path is the SAME engine path as `Method::Sql`.
+fn run_typed(
+    view: &GraphView,
+    nodes: NodeBatch,
+    user_tables: Vec<UserTable>,
+    catalog: StoreCatalog,
+    sql: &str,
+    cancel: &CancellationToken,
+) -> Result<TypedQueryResult, String> {
+    batches_to_typed(&collect_sql_batches(
+        view,
+        nodes,
+        user_tables,
+        catalog,
+        sql,
+        cancel,
+    )?)
+}
+
+/// Map an Arrow column `DataType` to a coarse pg-mappable [`PgColType`]. Anything
+/// outside the small known set falls back to `Text` (stringified), so the wire
+/// surface is never lossy-dropped.
+fn pg_col_type(dt: &arrow::datatypes::DataType) -> PgColType {
+    use arrow::datatypes::DataType::*;
+    match dt {
+        Boolean => PgColType::Bool,
+        Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64 => PgColType::Int8,
+        Float16 | Float32 | Float64 => PgColType::Float8,
+        // CONCEPT:MEDULLA-KG.query.view-pgvector-operators — a `List<Float32>` result column is a pgvector `vector`.
+        List(field) | FixedSizeList(field, _) if *field.data_type() == Float32 => PgColType::Vector,
+        _ => PgColType::Text,
+    }
+}
+
+/// Convert the result RecordBatches into typed columns + JSON-per-cell rows,
+/// applying the same implicit max-rows guard as [`batches_to_result`].
+pub(super) fn batches_to_typed(
+    batches: &[arrow::record_batch::RecordBatch],
+) -> Result<TypedQueryResult, String> {
+    let columns: Vec<TypedColumn> = match batches.first() {
+        Some(b) => b
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| TypedColumn {
+                name: f.name().clone(),
+                ty: pg_col_type(f.data_type()),
+            })
+            .collect(),
+        None => Vec::new(),
+    };
+
+    let rows = decode_rows(batches, Ok)?;
+    Ok(TypedQueryResult { columns, rows })
+}
+
+/// Convert the result RecordBatches into column names + msgpack-per-row, applying
+/// the implicit max-rows guard.
+pub(super) fn batches_to_result(
+    batches: &[arrow::record_batch::RecordBatch],
+) -> Result<QueryResult, String> {
+    let columns: Vec<String> = match batches.first() {
+        Some(b) => b
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| f.name().clone())
+            .collect(),
+        None => Vec::new(),
+    };
+
+    let rows = decode_rows(batches, |cells| {
+        rmp_serde::to_vec(&cells).map_err(|e| format!("encode row: {e}"))
+    })?;
+
+    Ok(QueryResult { columns, rows })
+}
+
+fn decode_rows<T, F>(
+    batches: &[arrow::record_batch::RecordBatch],
+    mut encode: F,
+) -> Result<Vec<T>, String>
+where
+    F: FnMut(Vec<serde_json::Value>) -> Result<T, String>,
+{
+    let mut rows = Vec::new();
+    'outer: for batch in batches {
+        for r in 0..batch.num_rows() {
+            if rows.len() >= super::spill::MAX_ROWS {
+                break 'outer;
+            }
+            let mut cells: Vec<serde_json::Value> = Vec::with_capacity(batch.num_columns());
+            for c in 0..batch.num_columns() {
+                cells.push(cell_to_json(batch.column(c), r)?);
+            }
+            rows.push(encode(cells)?);
+        }
+    }
+
+    Ok(rows)
+}
+
+/// One cell at `(col, row)` to a `serde_json::Value` (CONCEPT:MEDULLA-KG.query.concept-11).
+///
+/// DataFusion 54 fully executes aggregates / GROUP BY / HAVING, window functions,
+/// CTEs, subqueries, set ops (UNION/INTERSECT/EXCEPT) and DISTINCT — but their
+/// results materialize as a much wider set of Arrow types than the `nodes`/`edges`
+/// schema-on-read produces (every Int/UInt/Float width, Decimal128/256, Date/Time/
+/// Timestamp, Utf8 variants, List/Struct/Map intermediates). This decoder covers the
+/// common numeric/string/binary fast paths natively, then degrades any remaining
+/// type to its Arrow display string via [`array_value_to_string`] — so a cell type
+/// NEVER hard-errors at result materialization (which would fail a query the compute
+/// already succeeded at). Fallback representation choices: Decimal128/256 → lossless
+/// decimal string; Date/Time/Timestamp(*)[/tz] → ISO-8601 string; List/Struct/Map →
+/// Arrow's textual rendering.
+fn cell_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value, String> {
+    use arrow::array::{
+        BinaryArray, BooleanArray, Float16Array, Float32Array, Float64Array, Int16Array,
+        Int32Array, Int64Array, Int8Array, LargeBinaryArray, LargeStringArray, StringArray,
+        StringViewArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+    };
+    use arrow::datatypes::DataType::*;
+    use arrow::util::display::array_value_to_string;
+    use serde_json::Value;
+
+    if col.is_null(row) {
+        return Ok(Value::Null);
+    }
+
+    // A binary/blob column → JSON array of byte numbers (the historical `props`
+    // escape-hatch encoding: serde_json renders a byte slice as an array of numbers).
+    let bytes_to_json = |bytes: &[u8]| -> Value {
+        Value::Array(bytes.iter().map(|b| Value::Number((*b).into())).collect())
+    };
+
+    let v = match col.data_type() {
+        // ── strings ──
+        Utf8 => Value::String(
+            col.as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap()
+                .value(row)
+                .to_string(),
+        ),
+        LargeUtf8 => Value::String(
+            col.as_any()
+                .downcast_ref::<LargeStringArray>()
+                .unwrap()
+                .value(row)
+                .to_string(),
+        ),
+        Utf8View => Value::String(
+            col.as_any()
+                .downcast_ref::<StringViewArray>()
+                .unwrap()
+                .value(row)
+                .to_string(),
+        ),
+        // ── bool ──
+        Boolean => Value::Bool(
+            col.as_any()
+                .downcast_ref::<BooleanArray>()
+                .unwrap()
+                .value(row),
+        ),
+        // ── signed ints (all widths) → JSON number ──
+        Int8 => Value::Number(
+            col.as_any()
+                .downcast_ref::<Int8Array>()
+                .unwrap()
+                .value(row)
+                .into(),
+        ),
+        Int16 => Value::Number(
+            col.as_any()
+                .downcast_ref::<Int16Array>()
+                .unwrap()
+                .value(row)
+                .into(),
+        ),
+        Int32 => Value::Number(
+            col.as_any()
+                .downcast_ref::<Int32Array>()
+                .unwrap()
+                .value(row)
+                .into(),
+        ),
+        Int64 => Value::Number(
+            col.as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap()
+                .value(row)
+                .into(),
+        ),
+        // ── unsigned ints (all widths) → JSON number ──
+        UInt8 => Value::Number(
+            col.as_any()
+                .downcast_ref::<UInt8Array>()
+                .ok_or("UInt8 cell is not a UInt8Array")?
+                .value(row)
+                .into(),
+        ),
+        UInt16 => Value::Number(
+            col.as_any()
+                .downcast_ref::<UInt16Array>()
+                .ok_or("UInt16 cell is not a UInt16Array")?
+                .value(row)
+                .into(),
+        ),
+        UInt32 => Value::Number(
+            col.as_any()
+                .downcast_ref::<UInt32Array>()
+                .ok_or("UInt32 cell is not a UInt32Array")?
+                .value(row)
+                .into(),
+        ),
+        UInt64 => Value::Number(
+            col.as_any()
+                .downcast_ref::<UInt64Array>()
+                .ok_or("UInt64 cell is not a UInt64Array")?
+                .value(row)
+                .into(),
+        ),
+        // ── floats (all widths) → JSON number; non-finite → null ──
+        Float16 => {
+            let f = col
+                .as_any()
+                .downcast_ref::<Float16Array>()
+                .ok_or("Float16 cell is not a Float16Array")?
+                .value(row);
+            serde_json::Number::from_f64(f.to_f64())
+                .map(Value::Number)
+                .unwrap_or(Value::Null)
+        }
+        Float32 => {
+            let f = col
+                .as_any()
+                .downcast_ref::<Float32Array>()
+                .ok_or("Float32 cell is not a Float32Array")?
+                .value(row);
+            serde_json::Number::from_f64(f as f64)
+                .map(Value::Number)
+                .unwrap_or(Value::Null)
+        }
+        Float64 => {
+            let f = col
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .ok_or("Float64 cell is not a Float64Array")?
+                .value(row);
+            serde_json::Number::from_f64(f)
+                .map(Value::Number)
+                .unwrap_or(Value::Null)
+        }
+        // ── binary blobs → array of byte numbers (the `props` escape hatch) ──
+        Binary => bytes_to_json(
+            col.as_any()
+                .downcast_ref::<BinaryArray>()
+                .ok_or("Binary cell is not a BinaryArray")?
+                .value(row),
+        ),
+        LargeBinary => bytes_to_json(
+            col.as_any()
+                .downcast_ref::<LargeBinaryArray>()
+                .ok_or("LargeBinary cell is not a LargeBinaryArray")?
+                .value(row),
+        ),
+        // ── pgvector `vector` (CONCEPT:MEDULLA-KG.query.view-pgvector-operators): a `List<Float32>` cell → JSON array of
+        // numbers; the pgwire shim renders that array as the pgvector text `[1,2,3]`. ──
+        List(field) | FixedSizeList(field, _) if *field.data_type() == Float32 => {
+            use arrow::array::{FixedSizeListArray, ListArray};
+            let child = if let Some(la) = col.as_any().downcast_ref::<ListArray>() {
+                la.value(row)
+            } else {
+                col.as_any()
+                    .downcast_ref::<FixedSizeListArray>()
+                    .ok_or("vector cell is not a FixedSizeListArray")?
+                    .value(row)
+            };
+            let floats = child
+                .as_any()
+                .downcast_ref::<Float32Array>()
+                .ok_or("vector child is not Float32")?;
+            Value::Array(
+                (0..floats.len())
+                    .map(|i| {
+                        serde_json::Number::from_f64(floats.value(i) as f64)
+                            .map(Value::Number)
+                            .unwrap_or(Value::Null)
+                    })
+                    .collect(),
+            )
+        }
+        // ── analytics numeric lists (CONCEPT:MEDULLA-KG.query.svd-medulla-pca-column svd / MEDULLA-335 pca / MEDULLA-344 kmeans): a
+        // `List<Float64>` (singular values), a nested `List<List<Float64>>` (principal-
+        // component vectors), or a `List<Int64>` (kmeans cluster labels) cell → JSON
+        // array(s) of numbers, so in-engine linear-algebra/clustering results deserialize
+        // STRUCTURALLY for a client rather than degrading to an Arrow text blob. Recurses
+        // through `cell_to_json` so each leaf hits the `Float64`/`Int64` number arm. ──
+        List(field) if matches!(field.data_type(), Float64 | Int64 | List(_)) => {
+            use arrow::array::ListArray;
+            let child = col
+                .as_any()
+                .downcast_ref::<ListArray>()
+                .ok_or("numeric List cell is not a ListArray")?
+                .value(row);
+            let items = (0..child.len())
+                .map(|i| cell_to_json(child.as_ref(), i))
+                .collect::<Result<Vec<_>, _>>()?;
+            Value::Array(items)
+        }
+        // ── everything else: Decimal128/256 (→ lossless decimal string), Date32/64,
+        // Time32/64, Timestamp(*)[/tz] (→ ISO-8601 string), List/LargeList/Struct/Map
+        // (→ Arrow's textual rendering), or any unforeseen type — degrade to the Arrow
+        // display string. NEVER hard-error on a cell type. ──
+        other => {
+            // `array_value_to_string` formats with `with_display_error(true)`, so even
+            // a type Arrow itself can't render yields a placeholder string rather than
+            // an Err — but guard the Result anyway and fall to the type name as a last
+            // resort so a cell decode can never fail.
+            match array_value_to_string(col, row) {
+                Ok(s) => Value::String(s),
+                Err(e) => {
+                    tracing::debug!(
+                        target: "medulla_query::sql",
+                        "cell display fallback failed for {other:?}: {e}; using type name"
+                    );
+                    Value::String(format!("{other:?}"))
+                }
+            }
+        }
+    };
+    Ok(v)
+}
+
+// ── SqlContextEpoch / ann_pushdown_may_apply unit tests (CONCEPT:MEDULLA-KG.query.served-context-cache) ──
+//
+// The end-to-end invalidation proofs (view add/alter/drop, epoch isolation across
+// graph-version AND caller, cached-vs-uncached parity, the cross-scope-commit gap)
+// live in `tests/sql_context_cache_invalidation.rs` — a crate-level integration
+// test, since they need a real `TableStore` + `MutationBatch` commit path. This
+// module covers the one PURE, side-effect-free predicate `SqlContextCache`'s
+// caller introduces: `ann_pushdown_may_apply`.
+#[cfg(test)]
+mod sql_context_cache_unit_tests {
+    use super::*;
+    use crate::sql::pgfamily::{AnnMethod, VectorMetric};
+
+    fn idx() -> AnnIndexPlan {
+        AnnIndexPlan {
+            name: None,
+            table: "nodes".to_string(),
+            column: "embedding".to_string(),
+            method: AnnMethod::Hnsw,
+            metric: VectorMetric::L2,
+            if_not_exists: false,
+        }
+    }
+
+    /// `false` is the one answer [`ann_pushdown_may_apply`] must get exactly right
+    /// (a `true` that turns out unnecessary just costs a slower uncached fallback;
+    /// a `false` that should have been `true` would let a query-specific top-k
+    /// slice be cached and served to a LATER, differently-shaped query). The
+    /// positive ("does flag a genuinely covering query") case is deliberately NOT
+    /// asserted here: it depends on `plan_ann_search` itself recognizing the SQL
+    /// shape, which is CURRENTLY BROKEN on this branch for reasons unrelated to
+    /// this cache — `sql::pgfamily::tests::eg116_ann_pushdown_chooses_ann_when_index_present`
+    /// (pre-existing, untouched by this change, using the identical query shape)
+    /// already fails the SAME way on a clean checkout. `ann_pushdown_may_apply`
+    /// only ever WEAKENS as `plan_ann_search` weakens (fewer bypasses, never more
+    /// unsafe caching), so this is a known, cited, pre-existing gap this task did
+    /// not introduce and is out of scope to fix — not a silently assumed pass.
+    #[test]
+    fn ann_pushdown_predicate_is_false_for_every_non_covering_shape() {
+        let indexes = vec![idx()];
+        assert!(
+            !ann_pushdown_may_apply(
+                "SELECT id FROM nodes ORDER BY embedding <-> '[1,2,3]' LIMIT 5",
+                &[],
+            ),
+            "no registered ANN index at all must never flag (nothing to push down)"
+        );
+        assert!(
+            !ann_pushdown_may_apply(
+                "SELECT id FROM nodes WHERE id = 'x' ORDER BY embedding <-> '[1,2,3]' LIMIT 5",
+                &indexes,
+            ),
+            "a WHERE clause changes pgvector semantics (filter THEN rank) -- never pushed \
+             down, so never cache-bypassed either"
+        );
+        assert!(
+            !ann_pushdown_may_apply("SELECT id FROM nodes", &indexes),
+            "an ordinary query with no vector ORDER BY at all must never flag"
+        );
+    }
+}
+
+// ── `medulla_embed` registration + ANN-pushdown const-fold (design §9 phase 2) ─────────
+//
+// Two things are proved here, in the order they matter:
+//
+//   1. `medulla_embed` is REACHED from the PRODUCTION `SessionContext` — the one `build_ctx`
+//      builds and `exec_sql_typed` drives, not a hand-assembled context. Registration
+//      was the whole gap: the UDF landed tested-but-never-invoked because every
+//      `register_udf` site lives in this file.
+//   2. `ORDER BY col <=> medulla_embed('literal')` now takes the ANN INDEX path. The
+//      assertions are on the pushdown DECISION (`ann_pushdown_decision_with`), never on
+//      the returned rows: the ANN path and the MEDULLA-115 brute-force fallback return the
+//      SAME rows by construction (the pushdown narrows the batch to the true nearest-k,
+//      then the identical `ORDER BY` runs over it), so a row assertion cannot tell the
+//      two apart — and telling them apart is the entire point.
+//
+// The tests fold through an EXPLICITLY bound `medulla_embed_udf_with(Some(..))` rather than
+// `bind_text_embedder`, because `embed_udf::PROCESS_EMBEDDER` is a one-shot `OnceLock`
+// shared with `embed_udf`'s own `process_wide_binding_is_resolved_at_call_time` test
+// (same test binary): whichever test bound it first would win, so binding here would
+// red that one and make both order-dependent.
+#[cfg(test)]
+mod medulla_embed_ann_pushdown_tests {
+    use super::*;
+    use crate::sql::ann_pushdown::{
+        ann_probe_sql_with, ann_pushdown_decision_with, ann_pushdown_may_apply_with,
+    };
+    use crate::sql::embed_udf::{medulla_embed_udf_with, EmbedFn};
+    use crate::sql::pgfamily::{AnnMethod, VectorMetric};
+    use arrow::array::{Float32Builder, Int64Array, ListBuilder, RecordBatch, StringArray};
+    use arrow::datatypes::{DataType, Field, Schema};
+
+    /// A deterministic, dependency-free stand-in for a real model, mirroring the one in
+    /// `embed_udf`'s tests (and `medulla_plan::HashEmbedder`, which this crate cannot name —
+    /// see `embed_udf`'s package-cycle note). Carries NO semantic meaning.
+    fn hash_embed(dim: usize) -> EmbedFn {
+        Arc::new(move |text: &str| {
+            use std::hash::{Hash, Hasher};
+            let mut v: Vec<f32> = (0..dim)
+                .map(|d| {
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    (d as u64).hash(&mut h);
+                    text.hash(&mut h);
+                    (h.finish() as f64 / u64::MAX as f64) as f32 * 2.0 - 1.0
+                })
+                .collect();
+            let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+            if norm > 0.0 {
+                for x in &mut v {
+                    *x /= norm;
+                }
+            }
+            Ok(v)
+        })
+    }
+
+    /// A registered `hnsw` cosine index over `items(emb)` — the covering registration
+    /// that makes the query below eligible to "choose ANN" at all.
+    fn items_index() -> AnnIndexPlan {
+        AnnIndexPlan {
+            name: None,
+            table: "items".to_string(),
+            column: "emb".to_string(),
+            method: AnnMethod::Hnsw,
+            metric: VectorMetric::Cosine,
+            if_not_exists: false,
+        }
+    }
+
+    /// The pgvector text literal a client that embedded CLIENT-side would have sent —
+    /// the control the `medulla_embed` form must now become indistinguishable from.
+    fn literal_of(embed: &EmbedFn, text: &str) -> String {
+        let v = embed(text).expect("embed");
+        let parts: Vec<String> = v.iter().map(|x| x.to_string()).collect();
+        format!("'[{}]'", parts.join(","))
+    }
+
+    /// (1) The PRODUCTION `SessionContext` — the one `build_ctx` assembles for every
+    /// graph SQL read — resolves `medulla_embed`. This is the gap this lane closes: before
+    /// registration the statement failed at PLAN time with DataFusion's
+    /// "Invalid function" / "not found" error; after it, the call reaches the UDF and
+    /// (with no embedder bound — the default) fails CLOSED at EXECUTION time with the
+    /// typed message, which is also acceptance criterion 4: a named error, never a panic
+    /// and never a zero vector (cosine-distance 1.0 from everything, i.e. a plausible
+    /// arbitrary top-k).
+    ///
+    /// Tolerant of the one-shot process binding in either state — if `embed_udf`'s own
+    /// binding test ran first the call also EXECUTES — because both outcomes prove the
+    /// same thing and only an unregistered function can fail at plan time.
+    #[test]
+    fn medulla_embed_resolves_in_the_production_graph_session_context() {
+        let view = GraphView::default();
+        match exec_sql_typed(&view, "SELECT medulla_embed('leaky pump') AS v") {
+            Err(e) => {
+                assert!(
+                    e.contains("no server-side text embedder is bound"),
+                    "medulla_embed must resolve in the production context and fail closed at \
+                     EXECUTION, not fail to plan: {e}"
+                );
+            }
+            Ok(r) => assert_eq!(r.rows.len(), 1, "a bound embedder must return one row"),
+        }
+    }
+
+    /// (1, obs leg) The same for `exec_sql_over_tables`, the production entry point the
+    /// observability log-search surface drives over Arrow batches.
+    #[test]
+    fn medulla_embed_resolves_in_the_production_tables_session_context() {
+        match exec_sql_over_tables(Vec::new(), "SELECT medulla_embed('leaky pump') AS v") {
+            Err(e) => {
+                assert!(
+                    e.contains("no server-side text embedder is bound"),
+                    "medulla_embed must resolve on the obs/tables path too: {e}"
+                );
+            }
+            Ok(r) => assert_eq!(r.rows.len(), 1, "a bound embedder must return one row"),
+        }
+    }
+
+    /// (2) THE ONE THAT MATTERS. `ORDER BY emb <=> medulla_embed('leaky pump') LIMIT 3` takes
+    /// the ANN INDEX path, not the brute-force fallback — asserted on the DECISION, and
+    /// asserted to be the SAME decision the hand-embedded literal form yields, down to
+    /// the query vector. Before the const-fold this decision was `None`: `medulla_embed(...)`
+    /// is a function CALL, `vector_order_key` recognises only a literal, so the pushdown
+    /// declined and the query silently paid an O(N) exact scan.
+    #[test]
+    fn ann_pushdown_fires_through_a_const_folded_eg_embed() {
+        let embed = hash_embed(8);
+        let udf = medulla_embed_udf_with(Some(embed.clone()));
+        let indexes = vec![items_index()];
+
+        let embed_sql = "SELECT id FROM items ORDER BY emb <=> medulla_embed('leaky pump') LIMIT 3";
+        let decided = ann_pushdown_decision_with(embed_sql, &indexes, &udf)
+            .expect("medulla_embed('literal') must take the ANN index path, not brute force");
+        assert_eq!(decided.plan.table, "items");
+        assert_eq!(decided.plan.column, "emb");
+        assert_eq!(decided.plan.k, 3);
+        assert_eq!(decided.plan.metric, VectorMetric::Cosine);
+        assert_eq!(decided.method, AnnMethod::Hnsw);
+        assert_eq!(
+            decided.query_vector,
+            embed("leaky pump").expect("embed"),
+            "the folded query vector must be the bound embedder's own"
+        );
+
+        // Indistinguishable from the client-side-embedded form it replaces.
+        let literal_sql = format!(
+            "SELECT id FROM items ORDER BY emb <=> {} LIMIT 3",
+            literal_of(&embed, "leaky pump")
+        );
+        let control = ann_pushdown_decision_with(&literal_sql, &indexes, &udf)
+            .expect("the literal control must push down");
+        assert_eq!(decided.query_vector, control.query_vector);
+        assert_eq!(decided.plan.k, control.plan.k);
+
+        // The served-context cache must ALSO see it, or a per-query top-k slice would be
+        // cached and replayed for a differently-shaped later query.
+        assert!(
+            ann_pushdown_may_apply_with(embed_sql, &indexes, &udf),
+            "a folded medulla_embed query is per-QUERY, so it must bypass the context cache"
+        );
+    }
+
+    /// (3a) A NON-const argument is not foldable and must keep the brute-force path: a
+    /// bind placeholder is unresolved at plan time, and a column argument is a different
+    /// vector per row — neither is a constant, and neither may be pushed down. The
+    /// literal control in the same test proves the `None`s are about foldability, not a
+    /// mis-built index or an unrecognised query shape.
+    #[test]
+    fn ann_pushdown_declines_for_a_non_const_eg_embed_argument() {
+        let embed = hash_embed(8);
+        let udf = medulla_embed_udf_with(Some(embed.clone()));
+        let indexes = vec![items_index()];
+        for sql in [
+            "SELECT id FROM items ORDER BY emb <=> medulla_embed($1) LIMIT 3",
+            "SELECT id FROM items ORDER BY emb <=> medulla_embed(txt) LIMIT 3",
+            "SELECT id FROM items ORDER BY emb <=> medulla_embed(lower('Leaky Pump')) LIMIT 3",
+        ] {
+            assert!(
+                ann_pushdown_decision_with(sql, &indexes, &udf).is_none(),
+                "a non-const medulla_embed argument must keep the brute-force path: {sql}"
+            );
+            // `ann_pushdown_may_apply` is DELIBERATELY an over-approximation (see its
+            // doc): it checks only the cheap side-effect-free prefix, so an unresolved
+            // query operand still flags and merely costs an uncached run. An unfoldable
+            // `medulla_embed(...)` is therefore treated exactly like the bare `$1` placeholder
+            // the predicate has always flagged — no behaviour change, and `false` (the
+            // one answer it must get right) is never newly returned.
+            assert_eq!(
+                ann_pushdown_may_apply_with(sql, &indexes, &udf),
+                ann_pushdown_may_apply_with(
+                    "SELECT id FROM items ORDER BY emb <=> $1 LIMIT 3",
+                    &indexes,
+                    &udf,
+                ),
+                "an unfoldable medulla_embed must be judged exactly like a bare placeholder: \
+                 {sql}"
+            );
+        }
+        let control = format!(
+            "SELECT id FROM items ORDER BY emb <=> {} LIMIT 3",
+            literal_of(&embed, "leaky pump")
+        );
+        assert!(
+            ann_pushdown_decision_with(&control, &indexes, &udf).is_some(),
+            "control: the same query shape with a literal DOES push down"
+        );
+    }
+
+    /// (4) With NO embedder bound, the fold resolves nothing, so the pushdown declines
+    /// and the query keeps the brute-force path — where `medulla_embed` itself raises its
+    /// typed error. The const-fold must never invent a vector to push down with: a zero
+    /// vector is cosine-distance 1.0 from every row and would return a plausible,
+    /// arbitrary top-k.
+    #[test]
+    fn ann_pushdown_declines_and_never_folds_a_vector_with_no_embedder_bound() {
+        let unbound = medulla_embed_udf_with(None);
+        let indexes = vec![items_index()];
+        let sql = "SELECT id FROM items ORDER BY emb <=> medulla_embed('leaky pump') LIMIT 3";
+        assert!(
+            ann_probe_sql_with(sql, &unbound).is_none(),
+            "no embedder ⇒ nothing to fold — never a substituted zero vector"
+        );
+        assert!(ann_pushdown_decision_with(sql, &indexes, &unbound).is_none());
+    }
+
+    /// (3b) The declined path still answers CORRECTLY. Driven through the same two
+    /// production stages an `exec_sql*` entry applies — `desugar_vector_ops`, then
+    /// `SessionContext::sql` — with a per-ROW `medulla_embed(txt)` argument: row 2's stored
+    /// vector IS the embedding of its own `txt`, so the brute-force cosine ranking must
+    /// put it first even though nothing was pushed down.
+    #[tokio::test]
+    async fn a_non_foldable_argument_still_ranks_correctly_via_brute_force() {
+        let embed = hash_embed(8);
+        let indexes = vec![items_index()];
+        let sql = "SELECT id FROM items ORDER BY emb <=> medulla_embed(txt) LIMIT 1";
+        assert!(
+            ann_pushdown_decision_with(sql, &indexes, &medulla_embed_udf_with(Some(embed.clone())))
+                .is_none(),
+            "precondition: these rows come from the brute-force path, not the index"
+        );
+
+        let ctx = SessionContext::new();
+        ctx.register_table("items", items_table(&embed))
+            .expect("register");
+        ctx.register_udf(vector_cosine_udf());
+        ctx.register_udf(medulla_embed_udf_with(Some(embed)));
+        let planned = crate::sql::classify::desugar_vector_ops(sql);
+        let batches = ctx
+            .sql(&planned)
+            .await
+            .expect("plan")
+            .collect()
+            .await
+            .expect("execute");
+        let ids = batches[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .expect("i64");
+        assert_eq!(
+            ids.value(0),
+            2,
+            "row 2's vector IS the embedding of its own text ⇒ distance 0"
+        );
+    }
+
+    /// `items(id, emb vector(8), txt)`: row 1's vector is NOT its text's embedding,
+    /// row 2's IS — so `emb <=> medulla_embed(txt)` is 0 for row 2 and ≈1 for row 1.
+    fn items_table(embed: &EmbedFn) -> Arc<MemTable> {
+        let mut b = ListBuilder::new(Float32Builder::new()).with_field(Arc::new(
+            arrow::datatypes::Field::new_list_field(DataType::Float32, true),
+        ));
+        for text in ["alpha", "leaky pump"] {
+            b.values().append_slice(&embed(text).expect("embed"));
+            b.append(true);
+        }
+        let emb = b.finish();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("emb", emb.data_type().clone(), true),
+            Field::new("txt", DataType::Utf8, true),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(Int64Array::from(vec![1_i64, 2])),
+                Arc::new(emb),
+                Arc::new(StringArray::from(vec!["beta", "leaky pump"])),
+            ],
+        )
+        .expect("batch");
+        Arc::new(MemTable::try_new(schema, vec![vec![batch]]).expect("memtable"))
+    }
+}

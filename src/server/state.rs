@@ -16,9 +16,9 @@ use parking_lot::Mutex;
 pub const MAX_BATCH_IDS: usize = 100_000;
 
 /// Default cap on the number of nodes a `GetNodes`-style FULL-graph dump may
-/// return before the engine refuses to build the response (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation —
+/// return before the engine refuses to build the response (CONCEPT:MEDULLA-KG.ingest.resets-socket-so-assimilation —
 /// intelligent overload backstop). Tunable via
-/// `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES`. An unbounded `GetNodes` on a large
+/// `MEDULLA_MAX_RESPONSE_NODES`. An unbounded `GetNodes` on a large
 /// graph (e.g. `__commons__` with 166K+ nodes, each carrying a 1024-dim
 /// embedding) serializes the WHOLE graph into ONE response frame — a
 /// gigabyte-scale payload that overruns/resets the client connection (the
@@ -58,11 +58,11 @@ pub(crate) fn positive_runtime_limit_from_env<T>(variable: &str, default: T) -> 
 where
     T: std::str::FromStr + PartialOrd + Default,
 {
-    eg_types::runtime_limit::positive_from_env(variable, default)
+    medulla_types::runtime_limit::positive_from_env(variable, default)
 }
 
 /// Resolve the `GetNodes` full-dump node cap, read ONCE from
-/// `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES` (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation). Cached in a
+/// `MEDULLA_MAX_RESPONSE_NODES` (CONCEPT:MEDULLA-KG.ingest.resets-socket-so-assimilation). Cached in a
 /// `OnceLock` so the env var is parsed a single time at first use, matching the
 /// "read once at startup" discipline without threading a new field through every
 /// `ServerState` construction site. Zero, absent, and non-parsable values resolve
@@ -71,15 +71,15 @@ pub fn max_response_nodes() -> usize {
     static CAP: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     cached_positive_usize_from_env(
         &CAP,
-        "EPISTEMIC_GRAPH_MAX_RESPONSE_NODES",
+        "MEDULLA_MAX_RESPONSE_NODES",
         DEFAULT_MAX_RESPONSE_NODES,
     )
 }
 
 /// Default cap on the number of edges a `GetEdges`-style FULL-graph dump may
 /// return before the engine refuses to build the response — the edge-count
-/// sibling of [`DEFAULT_MAX_RESPONSE_NODES`] (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation). Tunable via
-/// `EPISTEMIC_GRAPH_MAX_RESPONSE_EDGES`. An unbounded `GetEdges` on a large graph
+/// sibling of [`DEFAULT_MAX_RESPONSE_NODES`] (CONCEPT:MEDULLA-KG.ingest.resets-socket-so-assimilation). Tunable via
+/// `MEDULLA_MAX_RESPONSE_EDGES`. An unbounded `GetEdges` on a large graph
 /// materializes EVERY edge's property blob into ONE response frame — the same
 /// gigabyte-scale, connection-resetting payload `GetNodes` was guarded against.
 /// Past this cap the handler returns a typed `RESULT_TOO_LARGE` error telling the
@@ -127,7 +127,7 @@ pub(crate) fn placement_authority_kind(
 }
 
 /// Resolve the `GetEdges` full-dump edge cap, read ONCE from
-/// `EPISTEMIC_GRAPH_MAX_RESPONSE_EDGES` — the edge-count sibling of
+/// `MEDULLA_MAX_RESPONSE_EDGES` — the edge-count sibling of
 /// [`max_response_nodes`]. Cached in a `OnceLock` so the env var is parsed a
 /// single time at first use. Zero, absent, and non-parsable values resolve to
 /// [`DEFAULT_MAX_RESPONSE_EDGES`]; the served response bound cannot be disabled.
@@ -135,13 +135,13 @@ pub fn max_response_edges() -> usize {
     static CAP: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     cached_positive_usize_from_env(
         &CAP,
-        "EPISTEMIC_GRAPH_MAX_RESPONSE_EDGES",
+        "MEDULLA_MAX_RESPONSE_EDGES",
         DEFAULT_MAX_RESPONSE_EDGES,
     )
 }
 
 /// Read the OCC-transaction TTL + open-txn caps from the environment
-/// (CONCEPT:EG-KG.txn.multi-op-occ-acid), with the documented defaults. Centralized so every
+/// (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid), with the documented defaults. Centralized so every
 /// `ServerState` construction site gets the same knobs without re-reading env.
 /// Returns `(ttl_secs, max_per_graph, max_per_agent)`.
 pub fn txn_limits_from_env() -> (u64, usize, usize) {
@@ -152,15 +152,15 @@ pub fn txn_limits_from_env() -> (u64, usize, usize) {
             .filter(|&n| n > 0)
             .unwrap_or(default)
     }
-    let ttl = std::env::var("EPISTEMIC_GRAPH_TXN_TTL_SECS")
+    let ttl = std::env::var("MEDULLA_TXN_TTL_SECS")
         .ok()
         .and_then(|v| v.parse().ok())
         .filter(|&n| n > 0)
         .unwrap_or(300);
     (
         ttl,
-        env_usize("EPISTEMIC_GRAPH_TXN_MAX_PER_GRAPH", 256),
-        env_usize("EPISTEMIC_GRAPH_TXN_MAX_PER_AGENT", 256),
+        env_usize("MEDULLA_TXN_MAX_PER_GRAPH", 256),
+        env_usize("MEDULLA_TXN_MAX_PER_AGENT", 256),
     )
 }
 
@@ -173,7 +173,7 @@ pub struct ServerState {
     /// Explicit local anonymous store mode; never inferred from an empty secret.
     pub local_anonymous: bool,
     pub persist_dir: Option<String>,
-    /// Authoritative durable persistence tier (CONCEPT:EG-KG.storage.kg-kg).
+    /// Authoritative durable persistence tier (CONCEPT:MEDULLA-KG.storage.kg-kg).
     /// Served startup supplies this backend and every durable mutation awaits its
     /// commit barrier before acknowledgement. `None` is retained only for embedded
     /// read-only/test construction; mutation paths fail closed without a backend.
@@ -188,7 +188,7 @@ pub struct ServerState {
     #[cfg(feature = "redb")]
     pub(crate) agent_library_open:
         Arc<Mutex<Option<Arc<crate::server::persistence::agent_library::AgentLibraryStore>>>>,
-    /// Cold-tenant access tracker (CONCEPT:EG-KG.sharding.eg-r6/EG-040, R6), feature `redb`. The
+    /// Cold-tenant access tracker (CONCEPT:MEDULLA-KG.sharding.medulla-r6/MEDULLA-040, R6), feature `redb`. The
     /// dispatch read+write path calls `touch(graph)` on every graph access so the
     /// periodic cold-offload sweep (`offload_cold_tenants`) can hibernate graphs idle
     /// longer than a window to bound RAM across many tenants — recently-accessed graphs
@@ -209,7 +209,7 @@ pub struct ServerState {
     /// connections. Exhaustion yields a `BUSY` response so clients retry with
     /// jitter instead of the server queueing unbounded work (Plan 01 Step 8).
     pub max_in_flight: Arc<Semaphore>,
-    /// Reserved READ-admission lane (CONCEPT:EG-KG.coordination.reserved-read-lane). A dedicated semaphore that ONLY
+    /// Reserved READ-admission lane (CONCEPT:MEDULLA-KG.coordination.reserved-read-lane). A dedicated semaphore that ONLY
     /// read/query requests may acquire, held SEPARATELY from `max_in_flight` (which
     /// writes also contend for) and from the per-graph cap. The transport admits a
     /// read on the normal path first; if `max_in_flight` OR the per-graph cap is
@@ -227,14 +227,14 @@ pub struct ServerState {
     pub per_graph_inflight: Arc<DashMap<String, Arc<Semaphore>>>,
     /// Max concurrent in-flight requests any single graph may hold.
     pub per_graph_inflight_limit: usize,
-    /// Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer). Lazily creates one batching
+    /// Per-graph write coalescer (CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer). Lazily creates one batching
     /// writer per graph name (same lazy-keyed pattern as `per_graph_inflight`), so
     /// concurrent single-op writes to ONE hot graph (the `__commons__` ingestion
     /// firehose) collapse into one topology-lock acquisition per batch instead of
     /// serializing one-op-at-a-time. A new graph/connector gets a writer
     /// automatically with a bounded hardware-sized queue.
     pub write_coalescer: Arc<crate::write_coalescer::WriteCoalescerRegistry>,
-    /// Per-graph ROUTED-mutation coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18
+    /// Per-graph ROUTED-mutation coalescer (CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer, L18
     /// rewrite). Used by `mutation::commit_coalescable_mutation` for the five
     /// coalescable `GATEWAY_ROUTED` structural writes
     /// (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`/CAS) — the ONLY live consumer
@@ -248,7 +248,7 @@ pub struct ServerState {
     /// apply, and needs no `core` handle (each queued job carries its own).
     pub routed_write_coalescer:
         Arc<crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry>,
-    /// Open server-staged OCC transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid), keyed by the
+    /// Open server-staged OCC transactions (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid), keyed by the
     /// server-issued `txn_id`. A staged txn holds its write-set + read-set off the
     /// graph lock; the lock is taken only at commit. Each entry is behind a `Mutex`
     /// so the begin/stage/commit RPCs for one txn serialize without blocking other
@@ -258,18 +258,18 @@ pub struct ServerState {
     /// Server-issued monotonic transaction-id source (no `rand`/`Date` dep).
     pub txn_id_gen: Arc<TxnIdGen>,
     /// Idle TTL (seconds) after which an open txn is auto-rolled-back by the sweep
-    /// (`EPISTEMIC_GRAPH_TXN_TTL_SECS`, default 300).
+    /// (`MEDULLA_TXN_TTL_SECS`, default 300).
     pub txn_ttl_secs: u64,
-    /// Cap on concurrently-open txns per graph (`EPISTEMIC_GRAPH_TXN_MAX_PER_GRAPH`,
+    /// Cap on concurrently-open txns per graph (`MEDULLA_TXN_MAX_PER_GRAPH`,
     /// default 256). `BeginTxn` over the cap is rejected — bounds memory the same
     /// way `per_graph_inflight` bounds request concurrency.
     pub txn_max_per_graph: usize,
     /// Cap on concurrently-open txns per verified opaque owner scope
-    /// (`EPISTEMIC_GRAPH_TXN_MAX_PER_AGENT`, default 256). Transaction creation
+    /// (`MEDULLA_TXN_MAX_PER_AGENT`, default 256). Transaction creation
     /// rejects an absent identity before this accounting map is reached; there is
     /// no shared empty or unauthenticated bucket.
     pub txn_max_per_agent: usize,
-    /// Streamed content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace), feature `blob`.
+    /// Streamed content-addressed BLOB substrate (CONCEPT:MEDULLA-KG.storage.blob-namespace), feature `blob`.
     /// Holds the CAS chunk store + the open upload/fetch cursors (DashMap keyed by a
     /// server-issued cursor id, with a TTL reaper like `open_txns`). `Some` when the
     /// engine is built `--features blob`; `None` otherwise (the Blob* variants then
@@ -278,7 +278,7 @@ pub struct ServerState {
     #[cfg(feature = "blob")]
     pub blob: Option<Arc<crate::server::blob::BlobCursors>>,
     /// Idle TTL (seconds) after which an open blob cursor is reaped
-    /// (`EPISTEMIC_GRAPH_BLOB_CURSOR_TTL_SECS`, default 300).
+    /// (`MEDULLA_BLOB_CURSOR_TTL_SECS`, default 300).
     #[cfg(feature = "blob")]
     pub blob_cursor_ttl_secs: u64,
     /// In-engine Raft replication handle (CONCEPT:AU-KG.ingest.source-sync-canonical), cluster tier only.
@@ -288,11 +288,11 @@ pub struct ServerState {
     /// Only ever populated when built `--features raft` AND configured at startup.
     #[cfg(feature = "raft")]
     pub raft: Option<crate::raft::RaftHandle>,
-    /// The per-node [`MultiRaft`] manager (CONCEPT:EG-KG.sharding.raft-resharding/2.222/2.224), cluster tier
+    /// The per-node [`MultiRaft`] manager (CONCEPT:MEDULLA-KG.sharding.raft-resharding/2.222/2.224), cluster tier
     /// only. `Some` when a cluster is active. Held here (rather than leaked) so the
     /// USER-FACING surfaces that need cross-group routing reach it: the multi-graph
-    /// `Commit` path (CONCEPT:EG-KG.txn.routes-cross-shard-txn — routes a cross-shard txn through the 2PC
-    /// coordinator) and the online-reshard / tenant-hibernation ops (CONCEPT:EG-KG.storage.100m-tenant).
+    /// `Commit` path (CONCEPT:MEDULLA-KG.txn.routes-cross-shard-txn — routes a cross-shard txn through the 2PC
+    /// coordinator) and the online-reshard / tenant-hibernation ops (CONCEPT:MEDULLA-KG.storage.100m-tenant).
     /// `None` ⇒ single-node: a multi-graph txn falls back to applying each graph's
     /// slice locally (no consensus), and the commit path is otherwise unchanged.
     #[cfg(feature = "raft")]
@@ -305,14 +305,14 @@ pub struct ServerState {
     /// redb holds an exclusive per-process file lock, so this is its
     /// OWN file — NOT a second handle on an authoritative graph shard.
     #[cfg(feature = "tsdb")]
-    pub tsdb_store: Option<Arc<eg_tsdb::store::SeriesStore>>,
+    pub tsdb_store: Option<Arc<medulla_tsdb::store::SeriesStore>>,
     /// The in-process observability store (logs, remote-write metrics, spans;
     /// feature `obs`). `Some` once startup has opened it for the observability
     /// listener; `TelemetryDerive` (EH-408/EH-409) reads stored telemetry
     /// through this handle, never through the HTTP listener.
     #[cfg(feature = "obs")]
     pub obs: Option<Arc<crate::server::obs::ObsState>>,
-    /// Change-Data-Capture hub (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230, feature `streaming`). `Some` on
+    /// Change-Data-Capture hub (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions/230, feature `streaming`). `Some` on
     /// any `streaming` build (constructed unconditionally — it needs no persist dir,
     /// the in-memory ring IS the cursor surface). The dispatch write-side-effect block
     /// emits a `CdcEvent` into it after every successful durable mutation; the
@@ -320,7 +320,7 @@ pub struct ServerState {
     /// + triggers off it. PURE in-memory (bounded ring + Notify) — no second redb file.
     #[cfg(feature = "streaming")]
     pub cdc: Option<Arc<crate::server::cdc::CdcHub>>,
-    /// WASM-sandboxed UDF catalog (CONCEPT:EG-KG.query.rowset-execution, feature `wasm-udf`). Holds the
+    /// WASM-sandboxed UDF catalog (CONCEPT:MEDULLA-KG.query.rowset-execution, feature `wasm-udf`). Holds the
     /// compiled, cached `UdfModule`s an agent pushed via `RegisterUdf`, keyed by
     /// `(verified owner, id)` — tenant+principal (EH-374); `RunUdf` looks up + runs only
     /// the caller's own modules sandboxed (fuel + memory limits, NO host caps), so no
@@ -329,22 +329,22 @@ pub struct ServerState {
     /// handle cheaply.
     #[cfg(feature = "wasm-udf")]
     pub udf_registry: Arc<crate::server::udf_catalog::UdfCatalog>,
-    /// Materialized views of distributed-compute results (CONCEPT:EG-KG.storage.feature, feature
+    /// Materialized views of distributed-compute results (CONCEPT:MEDULLA-KG.storage.feature, feature
     /// `compute-dist`). The in-RAM index of named, incrementally-maintained matviews;
     /// the durable copy lives in redb (the handler persists + reloads on boot). Mutex
     /// because a `CreateMatView`/`RefreshMatView` mutates it off the registry lock.
     #[cfg(feature = "compute-dist")]
     pub matviews: Arc<Mutex<crate::raft::pregel::MatViewStore>>,
-    /// Registered FOREIGN sources for query federation (CONCEPT:EG-KG.query.query-federation, feature
+    /// Registered FOREIGN sources for query federation (CONCEPT:MEDULLA-KG.query.query-federation, feature
     /// `federation`), keyed by `(verified owner, name)` (EH-373), where the owner is the
     /// caller's tenant+principal (`CarrierAuthority::owner_scope`; one engine is bound to
     /// one tenant, so the principal is the working boundary). `RegisterForeignSource`
-    /// records the caller's [`eg_types::wire::ForeignSourceSpec`] under its owner, and every served
-    /// plan path builds its executor `eg_plan::federation::ForeignSourceRegistry` through
+    /// records the caller's [`medulla_types::wire::ForeignSourceSpec`] under its owner, and every served
+    /// plan path builds its executor `medulla_plan::federation::ForeignSourceRegistry` through
     /// [`crate::server::foreign_catalog::ForeignSourceCatalog::registry_for`], which copies
     /// only the caller's own entries — so a `Named` `Op::ForeignScan` / an
     /// `Op::Foreign` marker resolves only the caller's own sources
-    /// (CONCEPT:EG-KG.query.closure-backed-source). The inline-spec `Op::ForeignScan` path
+    /// (CONCEPT:MEDULLA-KG.query.closure-backed-source). The inline-spec `Op::ForeignScan` path
     /// carries its own spec and does not read it. Rows from a foreign source are NOT
     /// RLS-filtered (they are not in the local snapshot). Not per-graph; in memory only.
     /// Always present (empty) with the feature on.
@@ -354,7 +354,7 @@ pub struct ServerState {
     /// in the Agent Library; this map is only request-scoped execution state.
     #[cfg(feature = "federation")]
     pub(crate) foreign_reads: Arc<crate::server::foreign_read::ForeignReadSessions>,
-    /// Generic namespaced Key→Value store (CONCEPT:EG-KG.storage.namespaced-kv-surface, feature `kv`). `Some` on a
+    /// Generic namespaced Key→Value store (CONCEPT:MEDULLA-KG.storage.namespaced-kv-surface, feature `kv`). `Some` on a
     /// `kv` build: a durable `{persist_dir}/kv.redb` when a persist dir is set, else an
     /// in-memory scratch map. The `Kv*` handlers get/put/delete/scan/cas through it; it
     /// is independent of the graph registry + the write-coalescer (KV pairs are keyed by
@@ -363,13 +363,13 @@ pub struct ServerState {
     /// catch-all.
     #[cfg(feature = "kv")]
     pub kv: Option<Arc<crate::server::kv::KvStore>>,
-    /// LTAP lakehouse materialization manager (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns engine-side seam, feature
+    /// LTAP lakehouse materialization manager (CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns engine-side seam, feature
     /// `lake`, INT-P2-3). Owns the in-process Iceberg-REST catalog + every table's
-    /// [`eg_lake::LakeTable`] (schema + durable LSN snapshot), the blob-CAS path index
+    /// [`medulla_lake::LakeTable`] (schema + durable LSN snapshot), the blob-CAS path index
     /// for the Parquet/Delta/Iceberg bytes it writes, and the bounded OpenLineage event
     /// ring. Always present (empty) on a `lake` build — process-global, like
     /// `udf_registry`/`foreign_sources` (a lake table is not per-graph). The periodic
-    /// drain sweep (`EPISTEMIC_GRAPH_LAKE_MATERIALIZE_INTERVAL_SECS`) and the
+    /// drain sweep (`MEDULLA_LAKE_MATERIALIZE_INTERVAL_SECS`) and the
     /// `lake-rest` Iceberg-REST listener both share this ONE handle.
     #[cfg(feature = "lake")]
     pub lake: Arc<crate::server::lake::LakeManager>,

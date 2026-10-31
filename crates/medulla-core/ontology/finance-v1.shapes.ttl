@@ -1,0 +1,515 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Finance ABox shapes (EH-411): the records market connectors and the signal engine
+# write under the finance module. Closed vocabularies are sh:in lists so a typo is a
+# violation, not a new category.
+
+:FinancialInstrumentShape a sh:NodeShape ;
+    sh:description "An instrument has at most one asset class, from the closed vocabulary. stock, forex and commodity are deprecated migration aliases of equity, fx_pair and commodity_spot." ;
+    sh:name "Financial Instrument Shape" ;
+    sh:property [ sh:in ( "equity" "etf" "fund" "index" "fx_pair" "commodity_spot" "commodity_future" "crypto" "real_estate" "cash" "stock" "forex" "commodity" ) ;
+            sh:maxCount 1 ;
+            sh:message "assetClass is equity, etf, fund, index, fx_pair, commodity_spot, commodity_future, crypto, real_estate or cash (or the deprecated alias stock, forex or commodity)." ;
+            sh:path :assetClass ] ;
+    sh:targetClass :FinancialInstrument .
+
+:ListingShape a sh:NodeShape ;
+    sh:description "A listing names exactly one base instrument, one quote instrument, one venue and one listing type." ;
+    sh:name "Listing Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Listing must name exactly one listedInstrument." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :listedInstrument ],
+        [ sh:maxCount 1 ;
+            sh:message "Listing must name exactly one quoteInstrument." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :quoteInstrument ],
+        [ sh:maxCount 1 ;
+            sh:message "Listing must name exactly one venue it is listedOn." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :listedOn ],
+        [ sh:in ( "spot" "perpetual" "future" "option" "index" ) ;
+            sh:maxCount 1 ;
+            sh:message "Listing must have exactly one listingType: spot, perpetual, future, option or index." ;
+            sh:minCount 1 ;
+            sh:path :listingType ] ;
+    sh:targetClass :Listing .
+
+:BarSeriesShape a sh:NodeShape ;
+    sh:description "A bar series names its listing, timeframe, calendar, price basis and store series." ;
+    sh:name "Bar Series Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Bar series must name exactly one listing (barSeriesOf)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :barSeriesOf ],
+        [ sh:maxCount 1 ;
+            sh:message "barTimeframe is minutes (1m..), hours (1h..) or 1D, 1W, 1M." ;
+            sh:minCount 1 ;
+            sh:path :barTimeframe ;
+            sh:pattern "^([1-9][0-9]{0,3}[mh]|1[DWM])$" ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Bar series must have exactly one tradingCalendar." ;
+            sh:minCount 1 ;
+            sh:path :tradingCalendar ],
+        [ sh:in ( "trade" "mid" "adjusted" "unadjusted" ) ;
+            sh:maxCount 1 ;
+            sh:message "priceBasis is trade, mid, adjusted or unadjusted." ;
+            sh:minCount 1 ;
+            sh:path :priceBasis ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Bar series must have exactly one tsdbSeriesId." ;
+            sh:minCount 1 ;
+            sh:path :tsdbSeriesId ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:message "Bar series must have exactly one decimal tickSize." ;
+            sh:minCount 1 ;
+            sh:path :tickSize ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:message "A bar series has at most one decimal volumeStep." ;
+            sh:path :volumeStep ] ;
+    sh:targetClass :BarSeries .
+
+:IndicatorSpecShape a sh:NodeShape ;
+    sh:description "An indicator specification carries one version and one parameter hash." ;
+    sh:name "Indicator Spec Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Indicator spec must have exactly one indicatorVersion." ;
+            sh:minCount 1 ;
+            sh:path :indicatorVersion ],
+        [ sh:maxCount 1 ;
+            sh:message "parameterHash is sha256:<64 hex>." ;
+            sh:minCount 1 ;
+            sh:path :parameterHash ;
+            sh:pattern "^sha256:[0-9a-f]{64}$" ] ;
+    sh:targetClass :IndicatorSpec .
+
+:SignalStateShape a sh:NodeShape ;
+    sh:description "A signal state names its series and spec, one data status and at most one direction." ;
+    sh:name "Signal State Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Signal state must name exactly one bar series (signalOf)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :signalOf ],
+        [ sh:maxCount 1 ;
+            sh:message "Signal state must name exactly one indicator spec (signalSpec)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :signalSpec ],
+        [ sh:in ( "bullish" "bearish" ) ;
+            sh:maxCount 1 ;
+            sh:message "trendDirection is bullish or bearish, at most once." ;
+            sh:path :trendDirection ],
+        [ sh:in ( "warming" "valid" "stale" "unavailable" ) ;
+            sh:maxCount 1 ;
+            sh:message "Signal state must have exactly one dataStatus: warming, valid, stale or unavailable." ;
+            sh:minCount 1 ;
+            sh:path :dataStatus ] ;
+    sh:targetClass :SignalState .
+
+:TrendFlipShape a sh:NodeShape ;
+    sh:description "A trend flip names its signal, both directions, its bar close and its event id." ;
+    sh:name "Trend Flip Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Trend flip must name exactly one signal state (flipOf)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :flipOf ],
+        [ sh:in ( "bullish" "bearish" ) ;
+            sh:maxCount 1 ;
+            sh:message "flipFrom is bullish or bearish, exactly once." ;
+            sh:minCount 1 ;
+            sh:path :flipFrom ],
+        [ sh:in ( "bullish" "bearish" ) ;
+            sh:maxCount 1 ;
+            sh:message "flipTo is bullish or bearish, exactly once." ;
+            sh:minCount 1 ;
+            sh:path :flipTo ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Trend flip must have exactly one flipEffectiveAt." ;
+            sh:minCount 1 ;
+            sh:path :flipEffectiveAt ],
+        [ sh:maxCount 1 ;
+            sh:message "flipEventId is sha256:<64 hex>." ;
+            sh:minCount 1 ;
+            sh:path :flipEventId ;
+            sh:pattern "^sha256:[0-9a-f]{64}$" ],
+        [ sh:maxCount 1 ;
+            sh:message "A flip revises at most one prior flip." ;
+            sh:nodeKind sh:IRI ;
+            sh:path :revisesFlip ] ;
+    sh:targetClass :TrendFlip .
+
+:MacroEventShape a sh:NodeShape ;
+    sh:description "A macro event carries one policy action and one announcement time." ;
+    sh:name "Macro Event Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Macro event must have exactly one policyAction." ;
+            sh:minCount 1 ;
+            sh:path :policyAction ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Macro event must have exactly one announcedAt." ;
+            sh:minCount 1 ;
+            sh:path :announcedAt ] ;
+    sh:targetClass :MacroEvent .
+
+:AnalysisSnapshotShape a sh:NodeShape ;
+    sh:description "An analysis snapshot names one listing and carries one content digest." ;
+    sh:name "Analysis Snapshot Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Analysis snapshot must name exactly one listing (analysisOf)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :analysisOf ],
+        [ sh:maxCount 1 ;
+            sh:message "analysisDigest is sha256:<64 hex>." ;
+            sh:minCount 1 ;
+            sh:path :analysisDigest ;
+            sh:pattern "^sha256:[0-9a-f]{64}$" ] ;
+    sh:targetClass :AnalysisSnapshot .
+
+:AccountShape a sh:NodeShape ;
+    sh:description "An account has exactly one accountId and base currency, and at most one account kind from the closed vocabulary." ;
+    sh:name "Account Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Account must have exactly one accountId." ;
+            sh:minCount 1 ;
+            sh:path :accountId ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Account must have exactly one baseCurrency." ;
+            sh:minCount 1 ;
+            sh:path :baseCurrency ],
+        [ sh:in ( "taxable" "ira" "roth_ira" "401k" "hsa" "custodial" ) ;
+            sh:maxCount 1 ;
+            sh:message "accountKind is taxable, ira, roth_ira, 401k, hsa or custodial." ;
+            sh:path :accountKind ] ;
+    sh:targetClass :Account .
+
+:PositionShape a sh:NodeShape ;
+    sh:description "A position names exactly one account and one instrument, one signed quantity and at most one cost-basis method from the closed vocabulary." ;
+    sh:name "Position Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Position must name exactly one account (positionAccount)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :positionAccount ],
+        [ sh:maxCount 1 ;
+            sh:message "Position must name exactly one instrument (positionInstrument)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :positionInstrument ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:message "Position must have exactly one positionQuantity." ;
+            sh:minCount 1 ;
+            sh:path :positionQuantity ],
+        [ sh:in ( "fifo" "lifo" "specific_lot" "average_cost" ) ;
+            sh:maxCount 1 ;
+            sh:message "costBasisMethod is fifo, lifo, specific_lot or average_cost." ;
+            sh:path :costBasisMethod ] ;
+    sh:targetClass :Position .
+
+:ActivityShape a sh:NodeShape ;
+    sh:description "An activity names exactly one position, one closed-vocabulary activity kind, one signed quantity and one trade date." ;
+    sh:name "Activity Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Activity must name exactly one position (activityPosition)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :activityPosition ],
+        [ sh:in ( "buy" "sell" "dividend" "transfer_in" "transfer_out" "split" "fee" ) ;
+            sh:maxCount 1 ;
+            sh:message "activityKind is buy, sell, dividend, transfer_in, transfer_out, split or fee." ;
+            sh:minCount 1 ;
+            sh:path :activityKind ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:message "Activity must have exactly one activityQuantity." ;
+            sh:minCount 1 ;
+            sh:path :activityQuantity ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Activity must have exactly one activityTradeDate." ;
+            sh:minCount 1 ;
+            sh:path :activityTradeDate ] ;
+    sh:targetClass :Activity .
+
+:LotShape a sh:NodeShape ;
+    sh:description "A lot names exactly one position and the activity that opened it, and carries one remaining quantity and one unit cost basis." ;
+    sh:name "Lot Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Lot must name exactly one position (lotPosition)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :lotPosition ],
+        [ sh:maxCount 1 ;
+            sh:message "Lot must name exactly one opening activity (lotOpenedBy)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :lotOpenedBy ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:message "Lot must have exactly one lotQuantity." ;
+            sh:minCount 1 ;
+            sh:path :lotQuantity ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:message "Lot must have exactly one lotUnitCostBasis." ;
+            sh:minCount 1 ;
+            sh:path :lotUnitCostBasis ] ;
+    sh:targetClass :Lot .
+
+:PortfolioGroupShape a sh:NodeShape ;
+    sh:description "A portfolio group has one name, one view from the closed vocabulary, any IRI members and the versioned record fields." ;
+    sh:name "Portfolio Group Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "PortfolioGroup must have exactly one portfolioGroupName." ;
+            sh:minCount 1 ;
+            sh:path :portfolioGroupName ],
+        [ sh:in ( "basic" "holdings" ) ;
+            sh:maxCount 1 ;
+            sh:message "portfolioView is basic or holdings." ;
+            sh:minCount 1 ;
+            sh:path :portfolioView ],
+        [ sh:message "Every portfolioMember must be an IRI." ;
+            sh:nodeKind sh:IRI ;
+            sh:path :portfolioMember ],
+        [ sh:in ( "finance-v1" ) ;
+            sh:maxCount 1 ;
+            sh:message "recordSchemaVersion must be finance-v1; an unknown schema version is refused." ;
+            sh:minCount 1 ;
+            sh:path :recordSchemaVersion ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Record must name exactly one recordTenant." ;
+            sh:minCount 1 ;
+            sh:path :recordTenant ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Record must name exactly one recordSource." ;
+            sh:minCount 1 ;
+            sh:path :recordSource ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Record must have exactly one recordEffectiveAt." ;
+            sh:minCount 1 ;
+            sh:path :recordEffectiveAt ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Record must have exactly one recordKnownAt." ;
+            sh:minCount 1 ;
+            sh:path :recordKnownAt ] ;
+    sh:targetClass :PortfolioGroup .
+
+:StrategySpecShape a sh:NodeShape ;
+    sh:description "A strategy specification has one id, a positive version, a closed-vocabulary kind, a sha256 digest, one universe, one currency and the versioned record fields." ;
+    sh:name "Strategy Spec Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "StrategySpec must have exactly one strategySpecId." ;
+            sh:minCount 1 ;
+            sh:path :strategySpecId ],
+        [ sh:datatype xsd:integer ;
+            sh:maxCount 1 ;
+            sh:minInclusive 1 ;
+            sh:message "strategySpecVersion is one positive integer." ;
+            sh:minCount 1 ;
+            sh:path :strategySpecVersion ],
+        [ sh:in ( "dca_fixed_amount" "dca_fixed_shares" "value_averaging" "trend_flip" "trend_moving_average" "rebalance_calendar" "rebalance_threshold" ) ;
+            sh:maxCount 1 ;
+            sh:message "strategySpecKind is dca_fixed_amount, dca_fixed_shares, value_averaging, trend_flip, trend_moving_average, rebalance_calendar or rebalance_threshold." ;
+            sh:minCount 1 ;
+            sh:path :strategySpecKind ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "strategySpecDigest is sha256:<64 hex>." ;
+            sh:minCount 1 ;
+            sh:path :strategySpecDigest ;
+            sh:pattern "^sha256:[0-9a-f]{64}$" ],
+        [ sh:maxCount 1 ;
+            sh:message "StrategySpec must name exactly one universe (strategySpecUniverse)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :strategySpecUniverse ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "StrategySpec must have exactly one strategySpecCurrency." ;
+            sh:minCount 1 ;
+            sh:path :strategySpecCurrency ],
+        [ sh:in ( "finance-v1" ) ;
+            sh:maxCount 1 ;
+            sh:message "recordSchemaVersion must be finance-v1; an unknown schema version is refused." ;
+            sh:minCount 1 ;
+            sh:path :recordSchemaVersion ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Record must name exactly one recordTenant." ;
+            sh:minCount 1 ;
+            sh:path :recordTenant ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Record must name exactly one recordSource." ;
+            sh:minCount 1 ;
+            sh:path :recordSource ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Record must have exactly one recordEffectiveAt." ;
+            sh:minCount 1 ;
+            sh:path :recordEffectiveAt ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Record must have exactly one recordKnownAt." ;
+            sh:minCount 1 ;
+            sh:path :recordKnownAt ] ;
+    sh:targetClass :StrategySpec .
+
+:StrategyRunShape a sh:NodeShape ;
+    sh:description "A strategy run names one specification, one closed-vocabulary status, a decision time, a sha256 input digest and the versioned record fields." ;
+    sh:name "Strategy Run Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "StrategyRun must name exactly one strategy specification (strategyRunSpec)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :strategyRunSpec ],
+        [ sh:in ( "proposed" "missed" "abstained" ) ;
+            sh:maxCount 1 ;
+            sh:message "strategyRunStatus is proposed, missed or abstained." ;
+            sh:minCount 1 ;
+            sh:path :strategyRunStatus ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "StrategyRun must have exactly one strategyRunDecidedAt." ;
+            sh:minCount 1 ;
+            sh:path :strategyRunDecidedAt ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "strategyRunInputDigest is sha256:<64 hex>." ;
+            sh:minCount 1 ;
+            sh:path :strategyRunInputDigest ;
+            sh:pattern "^sha256:[0-9a-f]{64}$" ],
+        [ sh:in ( "finance-v1" ) ;
+            sh:maxCount 1 ;
+            sh:message "recordSchemaVersion must be finance-v1; an unknown schema version is refused." ;
+            sh:minCount 1 ;
+            sh:path :recordSchemaVersion ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Record must name exactly one recordTenant." ;
+            sh:minCount 1 ;
+            sh:path :recordTenant ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Record must name exactly one recordSource." ;
+            sh:minCount 1 ;
+            sh:path :recordSource ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Record must have exactly one recordEffectiveAt." ;
+            sh:minCount 1 ;
+            sh:path :recordEffectiveAt ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Record must have exactly one recordKnownAt." ;
+            sh:minCount 1 ;
+            sh:path :recordKnownAt ] ;
+    sh:targetClass :StrategyRun .
+
+:LeverageTermsShape a sh:NodeShape ;
+    sh:description "Leverage terms name one instrument, one closed-vocabulary product type, a policy version, a positive multiplier, a currency, non-negative margins and the versioned record fields." ;
+    sh:name "Leverage Terms Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "LeverageTerms must name exactly one instrument (leverageInstrument)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :leverageInstrument ],
+        [ sh:in ( "margin" "future" "daily_reset_fund" "fx" ) ;
+            sh:maxCount 1 ;
+            sh:message "leverageProductType is margin, future, daily_reset_fund or fx." ;
+            sh:minCount 1 ;
+            sh:path :leverageProductType ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "LeverageTerms must have exactly one leveragePolicyVersion." ;
+            sh:minCount 1 ;
+            sh:path :leveragePolicyVersion ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:minExclusive 0 ;
+            sh:message "leverageMultiplier is one positive decimal." ;
+            sh:minCount 1 ;
+            sh:path :leverageMultiplier ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "LeverageTerms must have exactly one leverageCurrency." ;
+            sh:minCount 1 ;
+            sh:path :leverageCurrency ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:minInclusive 0 ;
+            sh:message "leverageInitialMargin is one non-negative decimal." ;
+            sh:minCount 1 ;
+            sh:path :leverageInitialMargin ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:minInclusive 0 ;
+            sh:message "leverageMaintenanceMargin is one non-negative decimal." ;
+            sh:minCount 1 ;
+            sh:path :leverageMaintenanceMargin ],
+        [ sh:in ( "finance-v1" ) ;
+            sh:maxCount 1 ;
+            sh:message "recordSchemaVersion must be finance-v1; an unknown schema version is refused." ;
+            sh:minCount 1 ;
+            sh:path :recordSchemaVersion ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Record must name exactly one recordTenant." ;
+            sh:minCount 1 ;
+            sh:path :recordTenant ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Record must name exactly one recordSource." ;
+            sh:minCount 1 ;
+            sh:path :recordSource ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Record must have exactly one recordEffectiveAt." ;
+            sh:minCount 1 ;
+            sh:path :recordEffectiveAt ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Record must have exactly one recordKnownAt." ;
+            sh:minCount 1 ;
+            sh:path :recordKnownAt ] ;
+    sh:targetClass :LeverageTerms .
+
+# MEDULLA-CQ-CONN-R084.5: the finance method vocabulary is selected through declared
+# applicability, so a method record without either applicability axis is incomplete.
+:FinanceAlgorithmShape a sh:NodeShape ;
+    sh:description "A finance algorithm names at least one analysis type it applies to and at least one instrument or position class it operates over." ;
+    sh:name "Finance Algorithm Shape" ;
+    sh:property [ sh:minCount 1 ;
+            sh:message "A finance algorithm must name at least one analysis type (appliesToAnalysis)." ;
+            sh:nodeKind sh:IRI ;
+            sh:path :appliesToAnalysis ],
+        [ sh:minCount 1 ;
+            sh:message "A finance algorithm must name at least one instrument or position class (appliesToInstrumentType)." ;
+            sh:nodeKind sh:IRI ;
+            sh:path :appliesToInstrumentType ] ;
+    sh:targetClass :FinanceAlgorithm .

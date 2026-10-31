@@ -657,7 +657,7 @@ def _reasoning_matrix(
 
 def _run(binary: ExactBinary, binary_digest: str) -> dict[str, object]:
     authority = _new_ephemeral_authority()
-    with tempfile.TemporaryDirectory(prefix="eg-exact-reasoning-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="medulla-exact-reasoning-") as scratch:
         root = Path(scratch)
         engine = ExactEngine(binary, root, authority)
         try:
@@ -691,7 +691,7 @@ def _run(binary: ExactBinary, binary_digest: str) -> dict[str, object]:
     evidence = {
         "binary": {"sha256": binary_digest},
         "cases": list(CASES),
-        "certification": "epistemic-graph-exact-reasoning-repair",
+        "certification": "medulla-exact-reasoning-repair",
         "matrix": matrix,
         "schema_version": SCHEMA_VERSION,
         "summary": {

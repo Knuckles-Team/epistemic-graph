@@ -1,13 +1,13 @@
 //! SERVED-QUERY COMPLETENESS — the two seam gaps the use-case suites surfaced, closed on
-//! the REAL served `dispatch` surface (not just the `eg_plan::execute` engine surface):
+//! the REAL served `dispatch` surface (not just the `medulla_plan::execute` engine surface):
 //!
-//!  * CONCEPT:EG-KG.query.served-text-index-binding — a served `UnifiedQuery` whose plan
+//!  * CONCEPT:MEDULLA-KG.query.served-text-index-binding — a served `UnifiedQuery` whose plan
 //!    carries `Op::RankText` / an `Op::FuseRrf` text branch now returns REAL BM25 lexical
 //!    hits (it previously degraded to ZERO lexical hits: the
-//!    EG-KG.query.served-text-index-unbound-finding). `run_unified` binds a snapshot-derived
-//!    `eg_text::TextIndex` into the `PlanCtx`.
-//!  * CONCEPT:EG-KG.query.served-plan-optimize-routing — the served path routes the plan
-//!    through the full cost optimizer via `eg_plan::execute`'s `plan_optimize`.
+//!    MEDULLA-KG.query.served-text-index-unbound-finding). `run_unified` binds a snapshot-derived
+//!    `medulla_text::TextIndex` into the `PlanCtx`.
+//!  * CONCEPT:MEDULLA-KG.query.served-plan-optimize-routing — the served path routes the plan
+//!    through the full cost optimizer via `medulla_plan::execute`'s `plan_optimize`.
 //!
 //! Everything goes through the SERVED RPC: `Box::pin(dispatch(state, Request{ Method::* }))`.
 //! Module-gated on `query` + `text`; runs under `--features full`.
@@ -22,10 +22,10 @@ use std::sync::Arc;
 use serde_json::json;
 use tokio::sync::RwLock;
 
-use eg_plan::{Op, Plan};
-use eg_types::wire::UqlResult;
-use epistemic_graph::protocol::{Method, Response, ResultPayload};
-use epistemic_graph::server::{dispatch, ServerState};
+use medulla_plan::{Op, Plan};
+use medulla_types::wire::UqlResult;
+use medulla::protocol::{Method, Response, ResultPayload};
+use medulla::server::{dispatch, ServerState};
 
 const SECRET: &str = "served-query-completeness-secret";
 
@@ -106,7 +106,7 @@ async fn seed_corpus(state: &Arc<RwLock<ServerState>>) {
     }
 }
 
-/// CONCEPT:EG-KG.query.served-text-index-binding — a served pure-lexical `Op::RankText` plan
+/// CONCEPT:MEDULLA-KG.query.served-text-index-binding — a served pure-lexical `Op::RankText` plan
 /// returns real BM25 hits. Before the fix this degraded to ZERO hits (no index bound).
 #[tokio::test]
 async fn served_ranktext_returns_lexical_hits() {
@@ -128,7 +128,7 @@ async fn served_ranktext_returns_lexical_hits() {
     );
 }
 
-/// CONCEPT:EG-KG.query.served-text-index-binding — a served `Op::FuseRrf[RankText, Rank]`
+/// CONCEPT:MEDULLA-KG.query.served-text-index-binding — a served `Op::FuseRrf[RankText, Rank]`
 /// hybrid plan fuses REAL lexical hits with the vector leg. The text-only-relevant doc is
 /// surfaced by the RRF fusion precisely because the lexical branch now contributes.
 #[tokio::test]
@@ -169,7 +169,7 @@ async fn served_fuserrf_text_branch_contributes_lexical_hits() {
     );
 }
 
-/// CONCEPT:EG-KG.query.served-text-index-binding / EG-P1-4 — a served `RankText` pushes down
+/// CONCEPT:MEDULLA-KG.query.served-text-index-binding / MEDULLA-P1-4 — a served `RankText` pushes down
 /// into the MAINTAINED persistent `GraphTextIndex` (via `ServedTextIndex`) when a
 /// `ServerIndexFactory` is installed, instead of rebuilding a throwaway snapshot-derived
 /// index per query.
@@ -189,9 +189,9 @@ async fn served_ranktext_pushes_down_into_persistent_index_not_snapshot_fallback
     let state = state();
     // Install the SAME server-layer secondary-index factory `main.rs` wires at startup: an
     // in-memory persistent `GraphTextIndex` per graph, maintained incrementally by the write
-    // coalescer (CONCEPT:EG-KG.storage.incremental-text) — no on-disk dir needed for this test.
+    // coalescer (CONCEPT:MEDULLA-KG.storage.incremental-text) — no on-disk dir needed for this test.
     state.write().await.registry.set_secondary_index_factory(
-        epistemic_graph::server::secondary_indexes::ServerIndexFactory::new()
+        medulla::server::secondary_indexes::ServerIndexFactory::new()
             .with_text_dir(None)
             .into_arc(),
     );
@@ -311,7 +311,7 @@ fn uql_body(response: &Response) -> UqlResult {
 async fn served_filtered_ranktext_returns_every_matching_candidate() {
     let state = state();
     state.write().await.registry.set_secondary_index_factory(
-        epistemic_graph::server::secondary_indexes::ServerIndexFactory::new()
+        medulla::server::secondary_indexes::ServerIndexFactory::new()
             .with_text_dir(None)
             .into_arc(),
     );
@@ -348,7 +348,7 @@ async fn served_filtered_ranktext_returns_every_matching_candidate() {
             label: "Doc".into(),
         },
         Op::Filter {
-            preds: vec![eg_plan::Pred::Eq {
+            preds: vec![medulla_plan::Pred::Eq {
                 prop: "category".into(),
                 value: "pick".into(),
             }],
@@ -375,9 +375,9 @@ async fn served_filtered_ranktext_returns_every_matching_candidate() {
     );
 }
 
-/// EG-FEDERATED-QUERY-R027 candidate evidence: the Method::Uql route must preserve the
+/// MEDULLA-FEDERATED-QUERY-R027 candidate evidence: the Method::Uql route must preserve the
 /// plan-level multi-stage EXPLAIN/PROFILE/RETURN contract, rather than proving it only
-/// through `eg_plan::uql::serve::run_statement`.
+/// through `medulla_plan::uql::serve::run_statement`.
 #[tokio::test]
 async fn served_multistage_uql_explain_profile_and_return_channels() {
     const PROGRAM: &str = "LET docs = MATCH (:Doc); LET cited = FROM docs |> TRAVERSE CITES; \

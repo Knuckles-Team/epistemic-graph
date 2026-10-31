@@ -1,4 +1,4 @@
-"""Self-checks for the synthetic generators in `epistemic_graph.testing.synthetic`.
+"""Self-checks for the synthetic generators in `medulla.testing.synthetic`.
 
 A package (like `tests/parity/`) so these modules import under dotted names and
 cannot shadow the top-level `conftest`. Every test here is `no_engine`: each one

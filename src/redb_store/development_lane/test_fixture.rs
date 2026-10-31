@@ -172,7 +172,7 @@ impl NativeLaneFixture {
             created_at_ms: committed_at_ms,
         };
         batch
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("a fixture batch reseals its envelope over its final body");
         Ok(batch)
     }

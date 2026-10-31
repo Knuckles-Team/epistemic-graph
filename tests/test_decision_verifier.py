@@ -1,7 +1,7 @@
 """The pure-Python Decide-layer verifier agrees with the engine's golden vectors.
 
 The golden file is written by the engine's own test
-(``eg_compute::assemble::tests::golden``); these tests re-check every record
+(``medulla_compute::assemble::tests::golden``); these tests re-check every record
 in it without the engine, and prove each check refuses a planted tamper.
 """
 
@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph import decision
+from medulla import decision
 
 pytestmark = pytest.mark.no_engine
 

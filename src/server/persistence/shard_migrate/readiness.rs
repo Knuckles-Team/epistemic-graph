@@ -6,7 +6,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 pub(super) const IN_PLACE_READY_MARKER: &str = ".migration-ready";
-pub(super) const READY_MARKER_VERSION: &str = "eg-shard-migration-v2";
+pub(super) const READY_MARKER_VERSION: &str = "medulla-shard-migration-v2";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ReadyTarget {

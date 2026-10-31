@@ -1,5 +1,5 @@
 //! Served acceptance of `Method::CapabilityCoverage`
-//! (EG-DECISION-ENGINE-R126.2.1): closure, per-capability covering
+//! (MEDULLA-DECISION-ENGINE-R126.2.1): closure, per-capability covering
 //! components, premise classes, visibility filtering and the absence of
 //! invisible components, driven through the dispatcher's handler.
 
@@ -13,13 +13,13 @@ use crate::server::persistence::agent_component::test_component_draft;
 use crate::server::persistence::agent_fixtures::mutation_context;
 use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::state::ServerState;
-use eg_types::agent_component::{AgentComponentKind, AgentComponentPublishRequest};
-use eg_types::contract::BoundedVec;
-use eg_types::decision::coverage::{
+use medulla_types::agent_component::{AgentComponentKind, AgentComponentPublishRequest};
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::coverage::{
     CapabilityCoverageOutcome, CapabilityCoverageRequest, CapabilityCoverageResult,
 };
-use eg_types::decision::record::PremiseClass;
-use eg_types::decision::{AssemblyRequirements, EvidenceClass, LibraryCandidateScope};
+use medulla_types::decision::record::PremiseClass;
+use medulla_types::decision::{AssemblyRequirements, EvidenceClass, LibraryCandidateScope};
 
 const TENANT: &str = "tenant-coverage";
 const FOREIGN: &str = "tenant-foreign";
@@ -149,7 +149,7 @@ async fn ask(
     }
 }
 
-// spec: EG-DECISION-ENGINE-R126.2.1
+// spec: MEDULLA-DECISION-ENGINE-R126.2.1
 #[tokio::test]
 async fn capability_coverage_is_served_with_closure_premises_and_visibility() {
     let h = harness().await;
@@ -229,7 +229,7 @@ async fn capability_coverage_is_served_with_closure_premises_and_visibility() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R126.2.1
+// spec: MEDULLA-DECISION-ENGINE-R126.2.1
 #[tokio::test]
 async fn capability_coverage_refuses_a_foreign_tenant_and_abstains_on_unknown_tasks() {
     let h = harness().await;

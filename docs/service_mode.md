@@ -8,31 +8,31 @@ cargo build --release
 
 # 2. Load secrets/policy from deployment configuration and start durably.
 : "${GRAPH_SERVICE_AUTH_SECRET:?required}"
-: "${EPISTEMIC_GRAPH_SIGNER_KEYS_JSON:?required}"
+: "${MEDULLA_SIGNER_KEYS_JSON:?required}"
 : "${GRAPH_SERVICE_PERSIST_DIR:?required}"
 : "${GRAPH_SERVICE_SOCKET:?required}"
-export EPISTEMIC_GRAPH_AUDIENCE=epistemic-graph
-export EPISTEMIC_GRAPH_TENANT=tenant:default
-export EPISTEMIC_GRAPH_POLICY_VERSION=policy:initial
-epistemic-graph-server
+export MEDULLA_AUDIENCE=medulla
+export MEDULLA_TENANT=tenant:default
+export MEDULLA_POLICY_VERSION=policy:initial
+medulla-server
 
 # 3. Use from Python
 python -c "
-from epistemic_graph import EpistemicGraphClient
+from medulla import MedullaClient
 import asyncio
 
 async def main():
     context = {
         'principal': 'service:client',
         'tenant': 'tenant:default',
-        'audience': 'epistemic-graph',
+        'audience': 'medulla',
         'agent_id': 'service:client',
         'roles': ['graph-client'],
         'scopes': ['kg:read', 'kg:write'],
         'policy_version': 'policy:initial',
         'delegation': [],
     }
-    client = await EpistemicGraphClient.connect(verified_context=context)
+    client = await MedullaClient.connect(verified_context=context)
     await client.nodes.add('node:example', {'type': 'Entity'})
     print(await client.nodes.has('node:example'))
     await client.close()
@@ -45,19 +45,19 @@ asyncio.run(main())
 
 ```bash
 # Start the service (background daemon)
-epistemic-graph-service start [--socket-path PATH] [--tcp-addr HOST:PORT] [--auth-secret SECRET]
+medulla-service start [--socket-path PATH] [--tcp-addr HOST:PORT] [--auth-secret SECRET]
 
 # Stop the service (SIGTERM to PID)
-epistemic-graph-service stop
+medulla-service stop
 
 # Check if service is running
-epistemic-graph-service status
+medulla-service status
 
 # Send a ping
-epistemic-graph-service ping
+medulla-service ping
 
 # List registered graphs
-epistemic-graph-service graphs list
+medulla-service graphs list
 ```
 
 ## Server Binary Arguments
@@ -70,8 +70,8 @@ epistemic-graph-service graphs list
 | `--tcp-tls-cert` / `--tcp-tls-key` | `GRAPH_SERVICE_TLS_CERT` / `GRAPH_SERVICE_TLS_KEY` | — | PEM identity required together for routable native TCP |
 | `--tcp-tls-client-ca` | `GRAPH_SERVICE_TLS_CLIENT_CA` | — | Optional CA bundle enabling required client certificates |
 | `--auth-secret` | `GRAPH_SERVICE_AUTH_SECRET` | — (**required**) | Non-empty HMAC-SHA256 secret for `eg2.` envelopes |
-| — | `EPISTEMIC_GRAPH_REQUIRE_OIDC` | unset ⇒ **required** (secure by default since 2026-07-22) | OIDC identity binding is mandatory unless explicitly opted out (`false`/`0`/`no`/`off`); see [deployment.md § Migrating to OIDC-required](deployment.md#migrating-to-oidc-required) |
-| — | `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` / `EPISTEMIC_GRAPH_OIDC_JWT_AUDIENCE` / `EPISTEMIC_GRAPH_OIDC_JWKS_URL` | — (required unless opted out) | Keycloak realm issuer / audience / JWKS URL |
+| — | `MEDULLA_REQUIRE_OIDC` | unset ⇒ **required** (secure by default since 2026-07-22) | OIDC identity binding is mandatory unless explicitly opted out (`false`/`0`/`no`/`off`); see [deployment.md § Migrating to OIDC-required](deployment.md#migrating-to-oidc-required) |
+| — | `MEDULLA_OIDC_JWT_ISSUER` / `MEDULLA_OIDC_JWT_AUDIENCE` / `MEDULLA_OIDC_JWKS_URL` | — (required unless opted out) | Keycloak realm issuer / audience / JWKS URL |
 | `--persist-dir` | `GRAPH_SERVICE_PERSIST_DIR` | — (**required for served mode**) | Durable store and replay-ledger directory |
 | `--metrics-addr` | `GRAPH_SERVICE_METRICS_ADDR` | None (disabled) | Prometheus `/metrics` HTTP listener (e.g. `127.0.0.1:9101`) |
 
@@ -82,7 +82,7 @@ to loopback, and a non-loopback auxiliary address is rejected at startup.
 
 With the `metrics` cargo feature (on by default) and `--metrics-addr` /
 `GRAPH_SERVICE_METRICS_ADDR` set, the server exposes Prometheus text-format
-metrics over a minimal HTTP listener (`src/metrics.rs`, CONCEPT:EG-KG.txn.per-graph-write-isolation). The
+metrics over a minimal HTTP listener (`src/metrics.rs`, CONCEPT:MEDULLA-KG.txn.per-graph-write-isolation). The
 listener is completely separate from the MessagePack RPC transports, serves
 the full registry on any path, and stays disabled unless an address is
 configured — so multiple shards never collide on a default port. Recommended
@@ -90,15 +90,15 @@ bind: `127.0.0.1:9101` (one port per shard).
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `epistemic_graph_requests_total` | counter | `op` | Requests dispatched, per protocol operation |
-| `epistemic_graph_request_duration_seconds` | histogram | `op` | Dispatch latency (100 µs – 30 s buckets) |
-| `epistemic_graph_in_flight_requests` | gauge | — | Requests currently holding an admission permit |
-| `epistemic_graph_inflight_permits_available` | gauge | — | Admission-semaphore permits remaining. Admission is try-acquire — nothing queues; excess is shed as `BUSY` (so there is no "waiting" series) |
-| `epistemic_graph_busy_rejections_total` | counter | — | Requests shed with `BUSY` |
-| `epistemic_graph_graph_ops_total` | counter | `graph` | Graph-targeted ops admitted past the ACL |
-| `epistemic_graph_graph_nodes` / `_edges` | gauge | `graph` | Per-graph size, refreshed on mutation (O(1) counts) |
-| `epistemic_graph_auth_failures_total` | counter | — | HMAC authentication rejections |
-| `epistemic_graph_access_denied_total` | counter | — | Isolation-ACL denials |
+| `medulla_requests_total` | counter | `op` | Requests dispatched, per protocol operation |
+| `medulla_request_duration_seconds` | histogram | `op` | Dispatch latency (100 µs – 30 s buckets) |
+| `medulla_in_flight_requests` | gauge | — | Requests currently holding an admission permit |
+| `medulla_inflight_permits_available` | gauge | — | Admission-semaphore permits remaining. Admission is try-acquire — nothing queues; excess is shed as `BUSY` (so there is no "waiting" series) |
+| `medulla_busy_rejections_total` | counter | — | Requests shed with `BUSY` |
+| `medulla_graph_ops_total` | counter | `graph` | Graph-targeted ops admitted past the ACL |
+| `medulla_graph_nodes` / `_edges` | gauge | `graph` | Per-graph size, refreshed on mutation (O(1) counts) |
+| `medulla_auth_failures_total` | counter | — | HMAC authentication rejections |
+| `medulla_access_denied_total` | counter | — | Isolation-ACL denials |
 
 The `graph` label is capped at 128 distinct names; graphs beyond the cap
 aggregate under `__overflow__` (deleting a graph frees its slot), so an
@@ -152,7 +152,7 @@ Because the frame length is explicit, binary payloads containing `0x0A`
 ### Request Shape
 
 The body is a MessagePack map with this structure (shown as Python, which is
-exactly what `epistemic_graph/client.py::_send` packs):
+exactly what `medulla/client.py::_send` packs):
 
 ```python
 import msgpack
@@ -189,9 +189,9 @@ A MessagePack map with `id` plus exactly one of `result` / `error`:
 }
 ```
 
-## Postgres wire transactions (CONCEPT:EG-KG.compute.kg-transaction-is-pinned)
+## Postgres wire transactions (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned)
 
-When built `--features pgwire` and bound via `EPISTEMIC_GRAPH_PGWIRE_ADDR`, the
+When built `--features pgwire` and bound via `MEDULLA_PGWIRE_ADDR`, the
 Postgres wire shim supports `BEGIN` / `COMMIT` / `ROLLBACK` over a **mixed-store**
 transaction that buffers BOTH graph-node DML (`INSERT`/`UPDATE`/`DELETE` over
 `nodes`, including the `… SELECT` / `… FROM` join forms) and user-table DDL/DML,
@@ -205,7 +205,7 @@ applying them at `COMMIT`.
   ("current transaction is aborted…"); `COMMIT` while aborted behaves as `ROLLBACK`.
 - **One graph per transaction** — the transaction is pinned to the graph selected
   at `BEGIN`; `SET graph` is rejected while a transaction is open (a transaction
-  stays within one redb shard, CONCEPT:EG-KG.sharding.semantic-embedding-store-backed).
+  stays within one redb shard, CONCEPT:MEDULLA-KG.sharding.semantic-embedding-store-backed).
 - **`ReadyForQuery` status** — `BEGIN`/`COMMIT`/`ROLLBACK` drive the driver-visible
   `T` (in-transaction) / `E` (failed) / `I` (idle) status correctly.
 
@@ -235,17 +235,17 @@ The server refuses to open a listener unless all of these are true:
 
 - the binary includes the `security` feature;
 - `GRAPH_SERVICE_AUTH_SECRET` is non-empty;
-- `EPISTEMIC_GRAPH_AUDIENCE`, `EPISTEMIC_GRAPH_TENANT`, and
-  `EPISTEMIC_GRAPH_POLICY_VERSION` are non-empty;
+- `MEDULLA_AUDIENCE`, `MEDULLA_TENANT`, and
+  `MEDULLA_POLICY_VERSION` are non-empty;
 - `GRAPH_SERVICE_PERSIST_DIR` provides the durable replay ledger;
-- `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` contains non-empty trusted signer ids and
+- `MEDULLA_SIGNER_KEYS_JSON` contains non-empty trusted signer ids and
   keys;
-- **since 2026-07-22**, `EPISTEMIC_GRAPH_REQUIRE_OIDC` is not explicitly opted
-  out (`false`/`0`/`no`/`off`) AND `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` (plus its
+- **since 2026-07-22**, `MEDULLA_REQUIRE_OIDC` is not explicitly opted
+  out (`false`/`0`/`no`/`off`) AND `MEDULLA_OIDC_JWT_ISSUER` (plus its
   audience and JWKS URL) is configured — OIDC identity binding is required by
   default; see [deployment.md § Migrating to OIDC-required](deployment.md#migrating-to-oidc-required).
 
-`EPISTEMIC_GRAPH_ENVELOPE_SKEW_SECS` controls the accepted timestamp window and
+`MEDULLA_ENVELOPE_SKEW_SECS` controls the accepted timestamp window and
 replay-retention horizon. Nonce acceptance is committed durably before dispatch,
 so a process restart cannot make a captured envelope reusable.
 
@@ -256,7 +256,7 @@ access. It permits exactly one bootstrap mutation in `__commons__`: a trusted
 signer-backed `RegisterIdentity` request that registers the envelope's own
 principal/effective agent as `System`, with empty teams and roles, no delegation,
 and the single exact scope `security:bootstrap`. The detached operation signature
-must check against `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` and its signer id must equal
+must check against `MEDULLA_SIGNER_KEYS_JSON` and its signer id must equal
 the checked principal. Once the first rule exists, this bootstrap path closes;
 all operations, including later identity administration, require normal durable
 RBAC and capability checks.
@@ -277,7 +277,7 @@ graphs = await client.tenants.list()
 # [{"name": "__bus__", "type": "Bus"}, {"name": "agent:researcher", "type": "Agent"}]
 
 # Target a specific graph for operations
-researcher = await EpistemicGraphClient.connect(graph_name="agent:researcher")
+researcher = await MedullaClient.connect(graph_name="agent:researcher")
 await researcher.nodes.add("finding:1", {"content": "..."})
 ```
 
@@ -380,5 +380,5 @@ cargo build --release
 cargo test
 
 # Run with tracing
-RUST_LOG=info ./target/release/epistemic-graph-server --socket-path "${GRAPH_SERVICE_SOCKET:?}"
+RUST_LOG=info ./target/release/medulla-server --socket-path "${GRAPH_SERVICE_SOCKET:?}"
 ```

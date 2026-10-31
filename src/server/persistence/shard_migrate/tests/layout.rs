@@ -2,14 +2,14 @@
 
 use super::*;
 
-/// CONCEPT:EG-KG.sharding.atomic-shard-swap — migrate a K=1 store with G graphs to K=4, reopen at K=4, and
+/// CONCEPT:MEDULLA-KG.sharding.atomic-shard-swap — migrate a K=1 store with G graphs to K=4, reopen at K=4, and
 /// confirm every graph + its nodes/edges survive AND route to the shard the engine
 /// looks for them in. The round-trip proof.
 #[tokio::test(flavor = "multi_thread")]
 async fn roundtrip_k1_to_k4_preserves_all_graphs() {
     // Held for the whole test: it seeds a K=1 backend, migrates it to K=4, then
     // reopens the K=4 layout — every open must resolve the same
-    // `EPISTEMIC_GRAPH_ENCRYPTION_KEY` cipher, or the reopen panics with
+    // `MEDULLA_ENCRYPTION_KEY` cipher, or the reopen panics with
     // "decryption failed (wrong key or tampered ciphertext)". See
     // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
     #[cfg(feature = "security")]

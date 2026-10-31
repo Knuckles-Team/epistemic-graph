@@ -251,25 +251,25 @@ pub(crate) fn apply_method_rows_ref(
     Ok(())
 }
 
-// ── O(1) edge-ordinal counter (CONCEPT:EG-KG.storage.redb-store #3) ────────────────────────────
+// ── O(1) edge-ordinal counter (CONCEPT:MEDULLA-KG.storage.redb-store #3) ────────────────────────────
 //
 // **Why this exists (profiling rationale).** Assigning an edge's ordinal used to
 // RANGE-SCAN that (graph,src,tgt)'s existing edge rows on EVERY `AddEdge` to find
 // `max+1` — O(degree) B-tree walks inside the held `WriteTransaction`. On a
 // high-degree node every insert got slower as the node fan-out grew, burning the
-// now-CPU-bound writer (post EG-024). This mirrors the EG-025 audit-tail fix: keep
+// now-CPU-bound writer (post MEDULLA-024). This mirrors the MEDULLA-025 audit-tail fix: keep
 // an in-memory per-(graph,src,tgt) next-ordinal counter and chain off it with NO
 // per-op scan.
 //
-// **Why an in-memory counter is authoritative.** EG-026 gives each shard a single
-// dedicated writer thread (`eg-redb-writer*`), and a graph routes deterministically
+// **Why an in-memory counter is authoritative.** MEDULLA-026 gives each shard a single
+// dedicated writer thread (`medulla-redb-writer*`), and a graph routes deterministically
 // to exactly one shard — so that thread is the ONLY mutator of its EDGES rows.
 // Nothing can advance an ordinal behind our back, so a counter living in that
 // thread's storage is correct. We hold it in a `thread_local` rather than a threaded
 // parameter because the shared `commit_ops`/`commit_crossmodal` signatures are fixed
 // by an out-of-scope caller (`redb_backend`); a thread-local is naturally scoped to
 // the one writer thread and lives for its whole lifetime (= the `Pending` lifetime
-// that holds the EG-025 audit cache). On any OTHER thread (the embedded one-op-per-
+// that holds the MEDULLA-025 audit cache). On any OTHER thread (the embedded one-op-per-
 // txn path, tests, tooling) the counter is NOT authoritative — another thread could
 // be the real writer — so those contexts fall back to an exact bounded B-tree tail
 // seek.
@@ -288,12 +288,12 @@ pub(crate) fn apply_method_rows_ref(
 pub(crate) type EdgeOrdCache = HashMap<String, HashMap<String, HashMap<String, u64>>>;
 
 thread_local! {
-    /// True iff this thread is a dedicated redb group-commit writer (`eg-redb-writer`
-    /// / `eg-redb-writer-<i>`, CONCEPT:EG-KG.backend.sharded-k-way-durable). Computed once per thread; gates whether
+    /// True iff this thread is a dedicated redb group-commit writer (`medulla-redb-writer`
+    /// / `medulla-redb-writer-<i>`, CONCEPT:MEDULLA-KG.backend.sharded-k-way-durable). Computed once per thread; gates whether
     /// the in-RAM edge-ordinal counter below is authoritative.
     static IS_REDB_WRITER: bool = std::thread::current()
         .name()
-        .map(|n| n.starts_with("eg-redb-writer"))
+        .map(|n| n.starts_with("medulla-redb-writer"))
         .unwrap_or(false);
 
     /// `graph -> source -> target -> next ordinal to assign`. The u64 counter can
@@ -307,7 +307,7 @@ thread_local! {
 
 /// Next free edge ordinal for a (src,tgt) pair in this graph.
 ///
-/// O(1) on the dedicated writer thread (EG-026/EG-029): the in-RAM counter, seeded once
+/// O(1) on the dedicated writer thread (MEDULLA-026/MEDULLA-029): the in-RAM counter, seeded once
 /// per (graph,src,tgt) from one bounded tail seek. Off the writer thread it is NOT
 /// authoritative, so it performs the same exact O(log E) seek on every call.
 pub(crate) fn next_edge_ordinal(
@@ -425,7 +425,7 @@ pub fn exact_performance_probe_edge_ordinal(
     }
     let path = database_path.to_path_buf();
     let worker = std::thread::Builder::new()
-        .name("eg-redb-writer-g37".to_string())
+        .name("medulla-redb-writer-g37".to_string())
         .spawn(move || -> Result<(u32, u32, u32), String> {
             let shard = Shard::open(&path)?;
             let graph = "g37".to_string();
@@ -553,7 +553,7 @@ pub(crate) fn apply_batch_add_edge_row(
 
 /// `BatchOperation::AddEmbedding`.
 ///
-/// CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): `semantic_store` is
+/// CONCEPT:MEDULLA-KG.compute.rank-dim-mismatch-guard (BUG-007): `semantic_store` is
 /// a scratch decode written back durably ONLY after the whole batch loop returns
 /// `Ok` (`if semantic_dirty { write_semantic_store(...) }` in the caller), and
 /// that caller's caller drops the enclosing `WriteTransaction` without

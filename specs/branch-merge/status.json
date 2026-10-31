@@ -1,86 +1,86 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-BRANCH-MERGE",
+  "spec_id": "MEDULLA-BRANCH-MERGE",
   "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "EG-BRANCH-MERGE-R001",
-    "EG-BRANCH-MERGE-R002",
-    "EG-BRANCH-MERGE-R003",
-    "EG-BRANCH-MERGE-R004",
-    "EG-BRANCH-MERGE-R005",
-    "EG-BRANCH-MERGE-R006",
-    "EG-BRANCH-MERGE-R007",
-    "EG-BRANCH-MERGE-R008",
-    "EG-BRANCH-MERGE-R009",
-    "EG-BRANCH-MERGE-R010"
+    "MEDULLA-BRANCH-MERGE-R001",
+    "MEDULLA-BRANCH-MERGE-R002",
+    "MEDULLA-BRANCH-MERGE-R003",
+    "MEDULLA-BRANCH-MERGE-R004",
+    "MEDULLA-BRANCH-MERGE-R005",
+    "MEDULLA-BRANCH-MERGE-R006",
+    "MEDULLA-BRANCH-MERGE-R007",
+    "MEDULLA-BRANCH-MERGE-R008",
+    "MEDULLA-BRANCH-MERGE-R009",
+    "MEDULLA-BRANCH-MERGE-R010"
   ],
   "requirements": [
     {
-      "id": "EG-BRANCH-MERGE-R001",
+      "id": "MEDULLA-BRANCH-MERGE-R001",
       "title": "Typed branch model and CreateBranch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-BRANCH-MERGE-R002",
+      "id": "MEDULLA-BRANCH-MERGE-R002",
       "title": "Branch-scoped mutations on one commit chain",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-BRANCH-MERGE-R003",
+      "id": "MEDULLA-BRANCH-MERGE-R003",
       "title": "Merge base and fast-forward",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-BRANCH-MERGE-R004",
+      "id": "MEDULLA-BRANCH-MERGE-R004",
       "title": "Entity-level three-way merge",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-BRANCH-MERGE-R005",
+      "id": "MEDULLA-BRANCH-MERGE-R005",
       "title": "Epistemic conflict resolution",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-BRANCH-MERGE-R006",
+      "id": "MEDULLA-BRANCH-MERGE-R006",
       "title": "Branch diff and time-travel reads",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-BRANCH-MERGE-R007",
+      "id": "MEDULLA-BRANCH-MERGE-R007",
       "title": "Atomic merge publication",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-BRANCH-MERGE-R008",
+      "id": "MEDULLA-BRANCH-MERGE-R008",
       "title": "Line-level three-way merge for file blobs",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-BRANCH-MERGE-R009",
+      "id": "MEDULLA-BRANCH-MERGE-R009",
       "title": "Landing policy check at merge publish",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-BRANCH-MERGE-R010",
+      "id": "MEDULLA-BRANCH-MERGE-R010",
       "title": "Line-granularity file merge for source changesets",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

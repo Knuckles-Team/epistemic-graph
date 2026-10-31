@@ -1,4 +1,4 @@
-"""Correctness-gated HelixDB / Epistemic Graph comparative benchmark (EH-353).
+"""Correctness-gated HelixDB / Medulla comparative benchmark (EH-353).
 
 ``scripts/bench_helix_compare.py`` is the entry point. The package splits the
 harness by concern: ``dataset`` (seeded corpus + pinned digest), ``queries``

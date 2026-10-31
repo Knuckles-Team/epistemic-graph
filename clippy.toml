@@ -1,4 +1,4 @@
-# Clippy policy for epistemic-graph.
+# Clippy policy for medulla.
 #
 # `disallowed_methods` is warn-by-default and both clippy gates run with
 # `-D warnings`, so an entry here is ENFORCED without any further wiring.

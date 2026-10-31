@@ -1,0 +1,1059 @@
+# Wire models for the engine methods, maintained by hand alongside the Rust
+# serde types in crates/medulla-types (the source of truth).
+"""Generated transactions engine-contract client surface."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from ._runtime import (
+    OpaqueResult,
+    decode_result,
+    expect_bool,
+    expect_string,
+    models,
+)
+
+if TYPE_CHECKING:
+    from . import models as _models
+
+    BatchUpdateRequest = _models.MethodBatchUpdateParams
+    MultiGraphBatchUpdateRequest = _models.MethodMultiGraphBatchUpdateParams
+    ApplyChangeEnvelopeRequest = _models.MethodApplyChangeEnvelopeParams
+    ApplyChangeEnvelopeDraftRequest = _models.MethodApplyChangeEnvelopeDraftParams
+    ApplyChangeEnvelopesRequest = _models.MethodApplyChangeEnvelopesParams
+    ApplyChangeEnvelopeDraftsRequest = _models.MethodApplyChangeEnvelopeDraftsParams
+    ApplyMultisigMutationRequest = _models.MethodApplyMultisigMutationParams
+    BeginTxnRequest = _models.MethodBeginTxnParams
+    TxnAddNodeRequest = _models.MethodTxnAddNodeParams
+    TxnRemoveNodeRequest = _models.MethodTxnRemoveNodeParams
+    TxnAddEdgeRequest = _models.MethodTxnAddEdgeParams
+    TxnRemoveEdgeRequest = _models.MethodTxnRemoveEdgeParams
+    TxnCasRequest = _models.MethodTxnCasParams
+    TxnAddEmbeddingRequest = _models.MethodTxnAddEmbeddingParams
+    TxnBlobRefRequest = _models.MethodTxnBlobRefParams
+    TxnAddMeasurementRequest = _models.MethodTxnAddMeasurementParams
+    TxnAxiomRequest = _models.MethodTxnAxiomParams
+    TxnConstructRequest = _models.MethodTxnConstructParams
+    TxnPlanWritebackRequest = _models.MethodTxnPlanWritebackParams
+    TxnMaterializeBeliefRequest = _models.MethodTxnMaterializeBeliefParams
+    CommitRequest = _models.MethodCommitParams
+    RollbackRequest = _models.MethodRollbackParams
+    MutationOutboxRequest = _models.MethodMutationOutboxParams
+
+
+async def send_batch_update(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        BatchUpdate
+    Authorization:
+        node:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/BatchUpdate
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodBatchUpdateParams.model_validate(params or {})
+    payload = await client._send(
+        "BatchUpdate",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("BatchUpdate", payload)
+
+
+def decode_batch_update(result: OpaqueResult) -> _models.BatchUpdateReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("BatchUpdate", models().BatchUpdateReport, result)
+
+
+async def send_multi_graph_batch_update(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        MultiGraphBatchUpdate
+    Authorization:
+        node:write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/MultiGraphBatchUpdate
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodMultiGraphBatchUpdateParams.model_validate(params or {})
+    payload = await client._send(
+        "MultiGraphBatchUpdate",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("MultiGraphBatchUpdate", payload)
+
+
+def decode_multi_graph_batch_update(
+    result: OpaqueResult,
+) -> _models.MultiGraphBatchReport:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "MultiGraphBatchUpdate", models().MultiGraphBatchReport, result
+    )
+
+
+async def send_apply_change_envelope(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ApplyChangeEnvelope
+    Authorization:
+        ingest:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/ApplyChangeEnvelope
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodApplyChangeEnvelopeParams.model_validate(params or {})
+    payload = await client._send(
+        "ApplyChangeEnvelope",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ApplyChangeEnvelope", payload)
+
+
+def decode_apply_change_envelope(result: OpaqueResult) -> _models.ChangeEnvelopeApplied:
+    """Validate this method's result against its contract model."""
+    return decode_result("ApplyChangeEnvelope", models().ChangeEnvelopeApplied, result)
+
+
+async def send_apply_change_envelope_draft(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ApplyChangeEnvelopeDraft
+    Authorization:
+        ingest:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/ApplyChangeEnvelopeDraft
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodApplyChangeEnvelopeDraftParams.model_validate(params or {})
+    payload = await client._send(
+        "ApplyChangeEnvelopeDraft",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ApplyChangeEnvelopeDraft", payload)
+
+
+def decode_apply_change_envelope_draft(
+    result: OpaqueResult,
+) -> _models.ChangeEnvelopeApplied:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ApplyChangeEnvelopeDraft", models().ChangeEnvelopeApplied, result
+    )
+
+
+async def send_apply_change_envelopes(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ApplyChangeEnvelopes
+    Authorization:
+        ingest:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/ApplyChangeEnvelopes
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodApplyChangeEnvelopesParams.model_validate(params or {})
+    payload = await client._send(
+        "ApplyChangeEnvelopes",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ApplyChangeEnvelopes", payload)
+
+
+def decode_apply_change_envelopes(result: OpaqueResult) -> _models.ChangeEnvelopeBatch:
+    """Validate this method's result against its contract model."""
+    return decode_result("ApplyChangeEnvelopes", models().ChangeEnvelopeBatch, result)
+
+
+async def send_apply_change_envelope_drafts(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ApplyChangeEnvelopeDrafts
+    Authorization:
+        ingest:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/ApplyChangeEnvelopeDrafts
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodApplyChangeEnvelopeDraftsParams.model_validate(params or {})
+    payload = await client._send(
+        "ApplyChangeEnvelopeDrafts",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ApplyChangeEnvelopeDrafts", payload)
+
+
+def decode_apply_change_envelope_drafts(
+    result: OpaqueResult,
+) -> _models.ChangeEnvelopeBatch:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ApplyChangeEnvelopeDrafts", models().ChangeEnvelopeBatch, result
+    )
+
+
+async def send_apply_multisig_mutation(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ApplyMultisigMutation
+    Authorization:
+        security:admin
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/ApplyMultisigMutation
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodApplyMultisigMutationParams.model_validate(params or {})
+    payload = await client._send(
+        "ApplyMultisigMutation",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ApplyMultisigMutation", payload)
+
+
+def decode_apply_multisig_mutation(result: OpaqueResult) -> _models.SparqlUpdateReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("ApplyMultisigMutation", models().SparqlUpdateReport, result)
+
+
+async def send_begin_txn(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> str:
+    """Send one engine-contract request.
+
+    Method:
+        BeginTxn
+    Authorization:
+        txn:control
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::String
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/BeginTxn
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodBeginTxnParams.model_validate(params or {})
+    payload = await client._send(
+        "BeginTxn",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_string("BeginTxn", payload)
+
+
+async def send_txn_add_node(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send one engine-contract request.
+
+    Method:
+        TxnAddNode
+    Authorization:
+        txn:write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Bool
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/TxnAddNode
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTxnAddNodeParams.model_validate(params or {})
+    payload = await client._send(
+        "TxnAddNode",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_bool("TxnAddNode", payload)
+
+
+async def send_txn_remove_node(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send one engine-contract request.
+
+    Method:
+        TxnRemoveNode
+    Authorization:
+        txn:write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Bool
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/TxnRemoveNode
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTxnRemoveNodeParams.model_validate(params or {})
+    payload = await client._send(
+        "TxnRemoveNode",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_bool("TxnRemoveNode", payload)
+
+
+async def send_txn_add_edge(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send one engine-contract request.
+
+    Method:
+        TxnAddEdge
+    Authorization:
+        txn:write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Bool
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/TxnAddEdge
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTxnAddEdgeParams.model_validate(params or {})
+    payload = await client._send(
+        "TxnAddEdge",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_bool("TxnAddEdge", payload)
+
+
+async def send_txn_remove_edge(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send one engine-contract request.
+
+    Method:
+        TxnRemoveEdge
+    Authorization:
+        txn:write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Bool
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/TxnRemoveEdge
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTxnRemoveEdgeParams.model_validate(params or {})
+    payload = await client._send(
+        "TxnRemoveEdge",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_bool("TxnRemoveEdge", payload)
+
+
+async def send_txn_cas(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send one engine-contract request.
+
+    Method:
+        TxnCas
+    Authorization:
+        txn:write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Bool
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/TxnCas
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTxnCasParams.model_validate(params or {})
+    payload = await client._send(
+        "TxnCas",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_bool("TxnCas", payload)
+
+
+async def send_txn_add_embedding(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send one engine-contract request.
+
+    Method:
+        TxnAddEmbedding
+    Authorization:
+        txn:write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Bool
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/TxnAddEmbedding
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTxnAddEmbeddingParams.model_validate(params or {})
+    payload = await client._send(
+        "TxnAddEmbedding",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_bool("TxnAddEmbedding", payload)
+
+
+async def send_txn_blob_ref(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send one engine-contract request.
+
+    Method:
+        TxnBlobRef
+    Authorization:
+        txn:write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Bool
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/TxnBlobRef
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTxnBlobRefParams.model_validate(params or {})
+    payload = await client._send(
+        "TxnBlobRef",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_bool("TxnBlobRef", payload)
+
+
+async def send_txn_add_measurement(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send one engine-contract request.
+
+    Method:
+        TxnAddMeasurement
+    Authorization:
+        txn:write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Bool
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/TxnAddMeasurement
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTxnAddMeasurementParams.model_validate(params or {})
+    payload = await client._send(
+        "TxnAddMeasurement",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_bool("TxnAddMeasurement", payload)
+
+
+async def send_txn_axiom(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send one engine-contract request.
+
+    Method:
+        TxnAxiom
+    Authorization:
+        txn:write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Bool
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/TxnAxiom
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTxnAxiomParams.model_validate(params or {})
+    payload = await client._send(
+        "TxnAxiom",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_bool("TxnAxiom", payload)
+
+
+async def send_txn_construct(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send one engine-contract request.
+
+    Method:
+        TxnConstruct
+    Authorization:
+        txn:write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Bool
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/TxnConstruct
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTxnConstructParams.model_validate(params or {})
+    payload = await client._send(
+        "TxnConstruct",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_bool("TxnConstruct", payload)
+
+
+async def send_txn_plan_writeback(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send one engine-contract request.
+
+    Method:
+        TxnPlanWriteback
+    Authorization:
+        txn:write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Bool
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/TxnPlanWriteback
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTxnPlanWritebackParams.model_validate(params or {})
+    payload = await client._send(
+        "TxnPlanWriteback",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_bool("TxnPlanWriteback", payload)
+
+
+async def send_txn_materialize_belief(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        TxnMaterializeBelief
+    Authorization:
+        txn:write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/TxnMaterializeBelief
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodTxnMaterializeBeliefParams.model_validate(params or {})
+    payload = await client._send(
+        "TxnMaterializeBelief",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("TxnMaterializeBelief", payload)
+
+
+def decode_txn_materialize_belief(
+    result: OpaqueResult,
+) -> _models.BeliefMaterialization:
+    """Validate this method's result against its contract model."""
+    return decode_result("TxnMaterializeBelief", models().BeliefMaterialization, result)
+
+
+async def send_commit(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        Commit
+    Authorization:
+        txn:control
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/Commit
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodCommitParams.model_validate(params or {})
+    payload = await client._send(
+        "Commit",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("Commit", payload)
+
+
+def decode_commit(result: OpaqueResult) -> _models.CommitOutcome:
+    """Validate this method's result against its contract model."""
+    return decode_result("Commit", models().CommitOutcome, result)
+
+
+async def send_rollback(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send one engine-contract request.
+
+    Method:
+        Rollback
+    Authorization:
+        txn:control
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Bool
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/Rollback
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodRollbackParams.model_validate(params or {})
+    payload = await client._send(
+        "Rollback",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_bool("Rollback", payload)
+
+
+async def send_mutation_outbox(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        MutationOutbox
+    Authorization:
+        admin:outbox
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/MutationOutbox
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodMutationOutboxParams.model_validate(params or {})
+    payload = await client._send(
+        "MutationOutbox",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("MutationOutbox", payload)
+
+
+# Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
+_REQUEST_METHODS = frozenset(
+    {
+        "BatchUpdate",
+        "MultiGraphBatchUpdate",
+        "ApplyChangeEnvelope",
+        "ApplyChangeEnvelopeDraft",
+        "ApplyChangeEnvelopes",
+        "ApplyChangeEnvelopeDrafts",
+        "ApplyMultisigMutation",
+        "BeginTxn",
+        "TxnAddNode",
+        "TxnRemoveNode",
+        "TxnAddEdge",
+        "TxnRemoveEdge",
+        "TxnCas",
+        "TxnAddEmbedding",
+        "TxnBlobRef",
+        "TxnAddMeasurement",
+        "TxnAxiom",
+        "TxnConstruct",
+        "TxnPlanWriteback",
+        "TxnMaterializeBelief",
+        "Commit",
+        "Rollback",
+        "MutationOutbox",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a ``{Id}Request`` name to its generated model on first use."""
+    method = name.removesuffix("Request")
+    if name == method or method not in _REQUEST_METHODS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(models(), f"Method{method}Params")

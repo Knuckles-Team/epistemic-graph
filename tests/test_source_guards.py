@@ -80,7 +80,7 @@ class GateInvocationGuards(unittest.TestCase):
             f"{path.name}:{number}: {command}"
             for path in (_HOOKS, _RELEASE)
             for number, command in _cargo_invocations(path)
-            if "eg-capabilities" in command
+            if "medulla-capabilities" in command
             and "--locked" not in command
         ]
         self.assertEqual(unlocked, [], "\n".join(unlocked))

@@ -1,4 +1,4 @@
-"""EG-PLACEMENT-R611: the client follows the engine's placement authority."""
+"""MEDULLA-PLACEMENT-R611: the client follows the engine's placement authority."""
 
 from __future__ import annotations
 
@@ -8,11 +8,11 @@ from typing import Any
 import pytest
 from _client_fixtures import unused_reader, unused_writer
 
-import epistemic_graph.client as client_module
-from epistemic_graph import generated as _gen
-from epistemic_graph import pool as pool_module
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.placement import (
+import medulla.client as client_module
+from medulla import generated as _gen
+from medulla import pool as pool_module
+from medulla.client import MedullaClient
+from medulla.placement import (
     PLACEMENT_STALE,
     Breaker,
     PlacementDirectory,
@@ -83,10 +83,10 @@ pytestmark = pytest.mark.no_engine
 # --- R611.1 / R611.2: model and behaviour -----------------------------------
 
 
-@pytest.mark.spec("EG-PLACEMENT-R611.2")
+@pytest.mark.spec("MEDULLA-PLACEMENT-R611.2")
 def test_transport_selection_is_one_function() -> None:
-    assert select_transport("/run/eg.sock").kind == "unix"
-    assert select_transport("unix:///run/eg.sock").address == "/run/eg.sock"
+    assert select_transport("/run/medulla.sock").kind == "unix"
+    assert select_transport("unix:///run/medulla.sock").address == "/run/medulla.sock"
     assert select_transport("tcp://h:1").kind == "tcp"
     assert select_transport("tls://h:1").kind == "tls"
     assert select_transport("tls://h:1", client_cert=True).kind == "mtls"
@@ -95,7 +95,7 @@ def test_transport_selection_is_one_function() -> None:
             select_transport(bad)
 
 
-@pytest.mark.spec("EG-PLACEMENT-R611.2")
+@pytest.mark.spec("MEDULLA-PLACEMENT-R611.2")
 def test_breaker_opens_after_consecutive_failures_and_half_opens_on_timer() -> None:
     now = [0.0]
     breaker = Breaker(failure_threshold=2, reset_after_s=5.0, clock=lambda: now[0])
@@ -117,7 +117,7 @@ def test_breaker_opens_after_consecutive_failures_and_half_opens_on_timer() -> N
     assert breaker.state == "closed"
 
 
-@pytest.mark.spec("EG-PLACEMENT-R611.2")
+@pytest.mark.spec("MEDULLA-PLACEMENT-R611.2")
 @pytest.mark.asyncio
 async def test_tenant_pool_is_a_bounded_lru() -> None:
     closed: list[str] = []
@@ -141,7 +141,7 @@ async def test_tenant_pool_is_a_bounded_lru() -> None:
         TenantPool(factory, capacity=0)
 
 
-@pytest.mark.spec("EG-PLACEMENT-R611.2")
+@pytest.mark.spec("MEDULLA-PLACEMENT-R611.2")
 @pytest.mark.asyncio
 async def test_route_is_the_engine_route_never_computed() -> None:
     engine = _FakeEngine([], [_route(3)])
@@ -155,7 +155,7 @@ async def test_route_is_the_engine_route_never_computed() -> None:
 # --- R611.4: refusal --------------------------------------------------------
 
 
-@pytest.mark.spec("EG-PLACEMENT-R611.4")
+@pytest.mark.spec("MEDULLA-PLACEMENT-R611.4")
 @pytest.mark.asyncio
 async def test_stale_snapshot_is_rejected_with_code_and_refetched() -> None:
     engine = _FakeEngine(
@@ -199,7 +199,7 @@ async def test_stale_snapshot_is_rejected_with_code_and_refetched() -> None:
 # --- R611.5: evidence -------------------------------------------------------
 
 
-@pytest.mark.spec("EG-PLACEMENT-R611.5")
+@pytest.mark.spec("MEDULLA-PLACEMENT-R611.5")
 @pytest.mark.asyncio
 async def test_metrics_after_one_success_and_one_refusal() -> None:
     async def factory(tenant: str) -> str:
@@ -239,7 +239,7 @@ def _context() -> dict[str, Any]:
     }
 
 
-@pytest.mark.spec("EG-PLACEMENT-R611.3")
+@pytest.mark.spec("MEDULLA-PLACEMENT-R611.3")
 @pytest.mark.asyncio
 async def test_client_shard_topology_and_route_go_through_generated_client(
     monkeypatch: pytest.MonkeyPatch,
@@ -267,7 +267,7 @@ async def test_client_shard_topology_and_route_go_through_generated_client(
     monkeypatch.setattr(
         client_module, "_validate_placement_route", lambda answer, *_: answer
     )
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -293,7 +293,7 @@ async def test_client_shard_topology_and_route_go_through_generated_client(
     assert sent == ["ClusterMembers", "PlacementRoute"]
 
 
-@pytest.mark.spec("EG-PLACEMENT-R611.3")
+@pytest.mark.spec("MEDULLA-PLACEMENT-R611.3")
 @pytest.mark.asyncio
 async def test_connection_pool_uses_the_shared_transport_function(
     monkeypatch: pytest.MonkeyPatch,
@@ -312,13 +312,13 @@ async def test_connection_pool_uses_the_shared_transport_function(
         return object()
 
     monkeypatch.setattr(pool_module, "select_transport", spy)
-    monkeypatch.setattr(EpistemicGraphClient, "connect", connect)
+    monkeypatch.setattr(MedullaClient, "connect", connect)
     pool = pool_module.ConnectionPool(
-        "unix:///run/eg.sock",
+        "unix:///run/medulla.sock",
         verified_context=_context(),
         auth_secret="s",
         max_size=1,
     )
     await pool._create_client()
-    assert calls == ["unix:///run/eg.sock"]
-    assert captured["socket_path"] == "/run/eg.sock"
+    assert calls == ["unix:///run/medulla.sock"]
+    assert captured["socket_path"] == "/run/medulla.sock"

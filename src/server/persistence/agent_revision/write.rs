@@ -8,9 +8,9 @@
 
 use std::sync::Arc;
 
-use eg_storage::OwnedStoreHandle;
-use eg_transaction::{AdmittedMutation, Begin, MutationKernel};
-use eg_types::authority::{NonceReplayKey, OperationReplayIdentity};
+use medulla_storage::OwnedStoreHandle;
+use medulla_transaction::{AdmittedMutation, Begin, MutationKernel};
+use medulla_types::authority::{NonceReplayKey, OperationReplayIdentity};
 
 use super::super::agent_library::{
     admitted_context, agent_library_operation_identity, batch_id,
@@ -297,7 +297,7 @@ fn build_commit_plan<L: RevisionLayer>(
     let admitted_context =
         policy_admitted_context(context, &revision_operations::<L>(kind, &entry))?;
     let event_bytes = L::encode_outbox_event(kind, &entry, &admitted_context)?;
-    let entry_bytes = eg_storage::encode_bounded(&entry, &format!("{} revision", L::NOUN))?;
+    let entry_bytes = medulla_storage::encode_bounded(&entry, &format!("{} revision", L::NOUN))?;
     let (batch_id, staged) = stage_batch(
         store,
         txn,

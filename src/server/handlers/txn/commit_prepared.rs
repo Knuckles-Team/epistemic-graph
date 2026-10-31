@@ -87,7 +87,7 @@ pub(super) async fn commit_prepared(
     let s = state.read().await;
     let coordinator_id = receipt_coordinator_id(&receipt);
 
-    // ── Multi-graph span (CONCEPT:EG-KG.txn.routes-cross-shard-txn — Lane N) ────────────────────────────
+    // ── Multi-graph span (CONCEPT:MEDULLA-KG.txn.routes-cross-shard-txn — Lane N) ────────────────────────────
     // If the txn staged ops against a graph other than its default, evaluate the
     // span against the router. A span over ≥2 Raft groups routes through the 2PC
     // coordinator (cross-shard, all-or-nothing across groups). A multi-graph span
@@ -107,7 +107,7 @@ pub(super) async fn commit_prepared(
         .await;
     }
 
-    // ── Cross-modal span (CONCEPT:EG-KG.txn.reader-never-sees-node) ─────────────────────────────────────
+    // ── Cross-modal span (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node) ─────────────────────────────────────
     // If the txn staged vectors or blob-refs, its single-graph commit must land
     // graph + vectors + blob-refs in ONE redb WriteTransaction (all-or-nothing).
     if txn.is_cross_modal() {

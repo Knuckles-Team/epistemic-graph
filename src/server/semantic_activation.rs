@@ -1,4 +1,4 @@
-//! Semantic ANN index activation (W0.4, CONCEPT:EG-KG.storage.semantic-index-directory).
+//! Semantic ANN index activation (W0.4, CONCEPT:MEDULLA-KG.storage.semantic-index-directory).
 //!
 //! THREE triggers can put a graph's ANN index into service, and all three run
 //! [`activate_one`] — the one reopen-else-build-else-activate body — so they
@@ -260,7 +260,7 @@ pub(crate) async fn maybe_activate_after_write(
 /// dispatch tail). Returns the number of graphs an activation was spawned for,
 /// for the caller's log line. `pub` (not `pub(crate)`): the periodic sweep task
 /// lives in `main.rs`, a SEPARATE `[[bin]]` crate from this `[lib]`, so it
-/// reaches this through the external `epistemic_graph::server::` path like
+/// reaches this through the external `medulla::server::` path like
 /// `persistence::cold_offload` already does for the analogous cold-offload sweep.
 pub async fn sweep_resident_graphs(state: &Arc<RwLock<ServerState>>) -> usize {
     let (candidates, persist_dir) = {

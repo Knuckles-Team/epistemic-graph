@@ -24,7 +24,7 @@ def _load_script():
     scripts = str(ROOT / "scripts")
     if scripts not in sys.path:
         sys.path.insert(0, scripts)
-    name = "eg_dupehound_census_contract_test"
+    name = "medulla_dupehound_census_contract_test"
     spec = importlib.util.spec_from_file_location(
         name, ROOT / "scripts" / "check_dupehound_census.py"
     )
@@ -129,19 +129,19 @@ def test_classification_is_complete_and_precedence_is_explicit(census, contract)
     assert set(by_path) == {entry.path for entry in entries}
     assert by_path["src/main.py"].class_name == "production"
     contract_entry = _entry(census, "contract/methods.rs")
-    nested_contract_entry = _entry(census, "crates/eg-types/src/contract/crypto.rs")
+    nested_contract_entry = _entry(census, "crates/medulla-types/src/contract/crypto.rs")
     contract_result = census.classify_entries(
         [contract_entry, nested_contract_entry],
         {
             "contract/methods.rs": b"generated\n",
-            "crates/eg-types/src/contract/crypto.rs": b"fn digest_type() {}\n",
+            "crates/medulla-types/src/contract/crypto.rs": b"fn digest_type() {}\n",
         },
         contract,
     )
     by_contract_path = {entry.path: entry for entry in contract_result}
     assert by_contract_path["contract/methods.rs"].class_name == "generated"
     assert (
-        by_contract_path["crates/eg-types/src/contract/crypto.rs"].class_name
+        by_contract_path["crates/medulla-types/src/contract/crypto.rs"].class_name
         == "production"
     )
     assert by_path["tests/test_main.py"].class_name == "test"

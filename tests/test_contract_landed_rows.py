@@ -1,4 +1,4 @@
-"""Static proofs for landed EG-CONTRACT rows whose acceptance is a configuration fact.
+"""Static proofs for landed MEDULLA-CONTRACT rows whose acceptance is a configuration fact.
 
 Collected by the python-suite job. Each test parses the committed artifact the
 row names; the native gates keep their own compilation evidence.
@@ -18,7 +18,7 @@ pytestmark = pytest.mark.no_engine
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.spec("EG-CONTRACT-R024")
+@pytest.mark.spec("MEDULLA-CONTRACT-R024")
 def test_precommit_and_codespell_config_are_locked_and_consistent() -> None:
     config = yaml.safe_load((ROOT / ".config/pre-commit.yaml").read_text())
     hooks = [hook for repo in config["repos"] for hook in repo.get("hooks", [])]
@@ -44,7 +44,7 @@ def test_precommit_and_codespell_config_are_locked_and_consistent() -> None:
     assert missing == []
 
 
-@pytest.mark.spec("EG-CONTRACT-R030")
+@pytest.mark.spec("MEDULLA-CONTRACT-R030")
 def test_constrained_gate_build_step_is_not_cpu_restricted() -> None:
     lines = (ROOT / "scripts/constrained_parallelism_gate.sh").read_text().splitlines()
     code = [ln for ln in lines if not ln.lstrip().startswith("#")]
@@ -58,29 +58,29 @@ def test_constrained_gate_build_step_is_not_cpu_restricted() -> None:
     assert any("bounded_test" in ln for ln in run)
 
 
-@pytest.mark.spec("EG-CONTRACT-R033")
+@pytest.mark.spec("MEDULLA-CONTRACT-R033")
 def test_wire_method_features_move_in_lockstep_with_the_facade() -> None:
-    caps = tomllib.loads((ROOT / "crates/eg-capabilities/Cargo.toml").read_text())
+    caps = tomllib.loads((ROOT / "crates/medulla-capabilities/Cargo.toml").read_text())
     root = tomllib.loads((ROOT / "Cargo.toml").read_text())["features"]
     mirrored = {
         name: values
         for name, values in caps["features"].items()
-        if values == [f"eg-types/{name}"]
+        if values == [f"medulla-types/{name}"]
     }
-    assert mirrored, "eg-capabilities must mirror Method-gating eg-types features"
+    assert mirrored, "medulla-capabilities must mirror Method-gating medulla-types features"
     for name in mirrored:
         facades = [
             key
             for key, values in root.items()
-            if f"eg-capabilities/{name}" in {v.replace("?", "") for v in values}
+            if f"medulla-capabilities/{name}" in {v.replace("?", "") for v in values}
         ]
-        assert facades, f"no facade feature enables eg-capabilities/{name}"
+        assert facades, f"no facade feature enables medulla-capabilities/{name}"
         for key in facades:
             enabled = {v.replace("?", "") for v in root[key]}
-            assert f"eg-types/{name}" in enabled, (key, name)
+            assert f"medulla-types/{name}" in enabled, (key, name)
 
 
-@pytest.mark.spec("EG-CONTRACT-R039")
+@pytest.mark.spec("MEDULLA-CONTRACT-R039")
 def test_duplication_gate_compares_the_combined_diff_to_a_base_ref() -> None:
     config = yaml.safe_load((ROOT / ".config/pre-commit.yaml").read_text())
     hook = next(

@@ -6,14 +6,14 @@ struct SqlDispatchCtx<'a> {
     scope: SqlWriteScope<'a>,
     sql_method: Method,
     core: &'a Arc<GraphCore>,
-    store: &'a eg_query::TableStore,
+    store: &'a medulla_query::TableStore,
     read_core: Arc<GraphCore>,
     authorized_read_store: Option<crate::server::sql_catalog_acl::AuthorizedReadStore>,
 }
 
 #[cfg(feature = "query")]
-fn sql_needs_source_read(kind: &eg_query::StatementKind) -> bool {
-    use eg_query::StatementKind as K;
+fn sql_needs_source_read(kind: &medulla_query::StatementKind) -> bool {
+    use medulla_query::StatementKind as K;
     matches!(
         kind,
         K::InsertSelect(_)
@@ -28,7 +28,7 @@ fn sql_needs_source_read(kind: &eg_query::StatementKind) -> bool {
 async fn authorized_sql_read_store(
     req_id: u64,
     scope: SqlWriteScope<'_>,
-    kind: &eg_query::StatementKind,
+    kind: &medulla_query::StatementKind,
 ) -> Result<Option<crate::server::sql_catalog_acl::AuthorizedReadStore>, Response> {
     if !sql_needs_source_read(kind) {
         return Ok(None);
@@ -48,8 +48,8 @@ async fn authorized_sql_read_store(
 }
 
 #[cfg(feature = "query")]
-fn sql_is_graph_statement(kind: &eg_query::StatementKind) -> bool {
-    use eg_query::StatementKind as K;
+fn sql_is_graph_statement(kind: &medulla_query::StatementKind) -> bool {
+    use medulla_query::StatementKind as K;
     matches!(
         kind,
         K::InsertNodes(_)
@@ -68,8 +68,8 @@ pub(crate) async fn exec_sql_write(
     read_authority: &GraphReadAuthority,
     sql_method: Method,
     core: &Arc<GraphCore>,
-    store: &eg_query::TableStore,
-    kind: eg_query::StatementKind,
+    store: &medulla_query::TableStore,
+    kind: medulla_query::StatementKind,
 ) -> Response {
     let read_core = read_authority.project_core(core);
     let authorized_read_store = match authorized_sql_read_store(req_id, scope, &kind).await {
@@ -95,9 +95,9 @@ pub(crate) async fn exec_sql_write(
 #[cfg(feature = "query")]
 async fn exec_sql_graph_statement(
     ctx: SqlDispatchCtx<'_>,
-    kind: eg_query::StatementKind,
+    kind: medulla_query::StatementKind,
 ) -> Response {
-    use eg_query::StatementKind as K;
+    use medulla_query::StatementKind as K;
     let SqlDispatchCtx {
         req_id,
         core,
@@ -139,11 +139,11 @@ async fn commit_catalog_op(
     req_id: u64,
     scope: SqlWriteScope<'_>,
     sql_method: Method,
-    store: &eg_query::TableStore,
-    op: eg_query::TxnOp,
+    store: &medulla_query::TableStore,
+    op: medulla_query::TxnOp,
     tag: &'static str,
 ) -> Response {
-    let mut txn = eg_query::TableTxn::new();
+    let mut txn = medulla_query::TableTxn::new();
     txn.push(op);
     commit_sql_catalog_txn(req_id, scope, sql_method, store, txn, tag).await
 }
@@ -151,7 +151,7 @@ async fn commit_catalog_op(
 #[cfg(feature = "query")]
 async fn exec_sql_catalog_statement(
     ctx: SqlDispatchCtx<'_>,
-    kind: eg_query::StatementKind,
+    kind: medulla_query::StatementKind,
 ) -> Response {
     if sql_catalog_table_kind(&kind) {
         return exec_sql_catalog_table(ctx, kind).await;
@@ -172,26 +172,26 @@ async fn exec_sql_catalog_statement(
 }
 
 #[cfg(feature = "query")]
-fn sql_catalog_table_kind(kind: &eg_query::StatementKind) -> bool {
-    use eg_query::StatementKind as K;
+fn sql_catalog_table_kind(kind: &medulla_query::StatementKind) -> bool {
+    use medulla_query::StatementKind as K;
     matches!(kind, K::CreateTable(_) | K::AlterTable(_))
 }
 
 #[cfg(feature = "query")]
-fn sql_catalog_insert_kind(kind: &eg_query::StatementKind) -> bool {
-    use eg_query::StatementKind as K;
+fn sql_catalog_insert_kind(kind: &medulla_query::StatementKind) -> bool {
+    use medulla_query::StatementKind as K;
     matches!(kind, K::InsertTable(_) | K::InsertSelect(_))
 }
 
 #[cfg(feature = "query")]
-fn sql_catalog_row_kind(kind: &eg_query::StatementKind) -> bool {
-    use eg_query::StatementKind as K;
+fn sql_catalog_row_kind(kind: &medulla_query::StatementKind) -> bool {
+    use medulla_query::StatementKind as K;
     matches!(kind, K::UpdateTable(_) | K::DeleteTable(_))
 }
 
 #[cfg(feature = "query")]
-fn sql_catalog_drop_kind(kind: &eg_query::StatementKind) -> bool {
-    use eg_query::StatementKind as K;
+fn sql_catalog_drop_kind(kind: &medulla_query::StatementKind) -> bool {
+    use medulla_query::StatementKind as K;
     matches!(
         kind,
         K::DropTable(_)
@@ -203,8 +203,8 @@ fn sql_catalog_drop_kind(kind: &eg_query::StatementKind) -> bool {
 }
 
 #[cfg(feature = "query")]
-fn sql_catalog_create_kind(kind: &eg_query::StatementKind) -> bool {
-    use eg_query::StatementKind as K;
+fn sql_catalog_create_kind(kind: &medulla_query::StatementKind) -> bool {
+    use medulla_query::StatementKind as K;
     matches!(
         kind,
         K::CreateView(_)
@@ -219,9 +219,9 @@ fn sql_catalog_create_kind(kind: &eg_query::StatementKind) -> bool {
 #[cfg(feature = "query")]
 async fn exec_sql_catalog_table(
     ctx: SqlDispatchCtx<'_>,
-    kind: eg_query::StatementKind,
+    kind: medulla_query::StatementKind,
 ) -> Response {
-    use eg_query::StatementKind as K;
+    use medulla_query::StatementKind as K;
     let SqlDispatchCtx {
         req_id,
         scope,
@@ -243,9 +243,9 @@ async fn exec_sql_catalog_table(
 #[cfg(feature = "query")]
 async fn exec_sql_catalog_insert(
     ctx: SqlDispatchCtx<'_>,
-    kind: eg_query::StatementKind,
+    kind: medulla_query::StatementKind,
 ) -> Response {
-    use eg_query::StatementKind as K;
+    use medulla_query::StatementKind as K;
     let SqlDispatchCtx {
         req_id,
         scope,
@@ -266,7 +266,7 @@ async fn exec_sql_catalog_insert(
                 scope,
                 sql_method,
                 store,
-                eg_query::TxnOp::Insert {
+                medulla_query::TxnOp::Insert {
                     table: ins.table,
                     col_order: ins.columns,
                     rows: ins.rows,
@@ -286,8 +286,8 @@ async fn exec_sql_catalog_insert(
 }
 
 #[cfg(feature = "query")]
-async fn exec_sql_catalog_row(ctx: SqlDispatchCtx<'_>, kind: eg_query::StatementKind) -> Response {
-    use eg_query::StatementKind as K;
+async fn exec_sql_catalog_row(ctx: SqlDispatchCtx<'_>, kind: medulla_query::StatementKind) -> Response {
+    use medulla_query::StatementKind as K;
     let SqlDispatchCtx {
         req_id,
         scope,
@@ -302,7 +302,7 @@ async fn exec_sql_catalog_row(ctx: SqlDispatchCtx<'_>, kind: eg_query::Statement
                 scope,
                 sql_method,
                 store,
-                eg_query::TxnOp::Update {
+                medulla_query::TxnOp::Update {
                     table: upd.table,
                     set: upd.set,
                     selector: upd.selector.pred,
@@ -317,7 +317,7 @@ async fn exec_sql_catalog_row(ctx: SqlDispatchCtx<'_>, kind: eg_query::Statement
                 scope,
                 sql_method,
                 store,
-                eg_query::TxnOp::Delete {
+                medulla_query::TxnOp::Delete {
                     table: del.table,
                     selector: del.selector.pred,
                 },
@@ -330,8 +330,8 @@ async fn exec_sql_catalog_row(ctx: SqlDispatchCtx<'_>, kind: eg_query::Statement
 }
 
 #[cfg(feature = "query")]
-async fn exec_sql_catalog_drop(ctx: SqlDispatchCtx<'_>, kind: eg_query::StatementKind) -> Response {
-    use eg_query::StatementKind as K;
+async fn exec_sql_catalog_drop(ctx: SqlDispatchCtx<'_>, kind: medulla_query::StatementKind) -> Response {
+    use medulla_query::StatementKind as K;
     let SqlDispatchCtx {
         req_id,
         scope,
@@ -346,7 +346,7 @@ async fn exec_sql_catalog_drop(ctx: SqlDispatchCtx<'_>, kind: eg_query::Statemen
                 scope,
                 sql_method,
                 store,
-                eg_query::TxnOp::DropTable {
+                medulla_query::TxnOp::DropTable {
                     name: plan.name,
                     if_exists: plan.if_exists,
                 },
@@ -360,7 +360,7 @@ async fn exec_sql_catalog_drop(ctx: SqlDispatchCtx<'_>, kind: eg_query::Statemen
                 scope,
                 sql_method,
                 store,
-                eg_query::TxnOp::DropView {
+                medulla_query::TxnOp::DropView {
                     name: plan.name,
                     if_exists: plan.if_exists,
                 },
@@ -374,7 +374,7 @@ async fn exec_sql_catalog_drop(ctx: SqlDispatchCtx<'_>, kind: eg_query::Statemen
                 scope,
                 sql_method,
                 store,
-                eg_query::TxnOp::DropExtension { name, if_exists },
+                medulla_query::TxnOp::DropExtension { name, if_exists },
                 "DROP EXTENSION",
             )
             .await
@@ -385,7 +385,7 @@ async fn exec_sql_catalog_drop(ctx: SqlDispatchCtx<'_>, kind: eg_query::Statemen
                 scope,
                 sql_method,
                 store,
-                eg_query::TxnOp::DropFunction {
+                medulla_query::TxnOp::DropFunction {
                     name: plan.name,
                     if_exists: plan.if_exists,
                 },
@@ -400,7 +400,7 @@ async fn exec_sql_catalog_drop(ctx: SqlDispatchCtx<'_>, kind: eg_query::Statemen
                 &name,
             );
             let op = match visible {
-                Ok(Some(table)) => eg_query::IndexCatalogTxnOp::DropAnnIndex { table, name },
+                Ok(Some(table)) => medulla_query::IndexCatalogTxnOp::DropAnnIndex { table, name },
                 Ok(None) if if_exists => return sql_write_ack(req_id, "DROP INDEX", Ok(Ok(0))),
                 Ok(None) => {
                     return Response::err(
@@ -410,7 +410,7 @@ async fn exec_sql_catalog_drop(ctx: SqlDispatchCtx<'_>, kind: eg_query::Statemen
                 }
                 Err(error) => return Response::err(req_id, sql_refusal(error)),
             };
-            let op = eg_query::TxnOp::IndexCatalog(op);
+            let op = medulla_query::TxnOp::IndexCatalog(op);
             commit_catalog_op(req_id, scope, sql_method, store, op, "DROP INDEX").await
         }
         _ => unreachable!("catalog drop statement was classified before dispatch"),
@@ -420,9 +420,9 @@ async fn exec_sql_catalog_drop(ctx: SqlDispatchCtx<'_>, kind: eg_query::Statemen
 #[cfg(feature = "query")]
 async fn exec_sql_catalog_create(
     ctx: SqlDispatchCtx<'_>,
-    kind: eg_query::StatementKind,
+    kind: medulla_query::StatementKind,
 ) -> Response {
-    use eg_query::StatementKind as K;
+    use medulla_query::StatementKind as K;
     let SqlDispatchCtx {
         req_id,
         scope,
@@ -437,7 +437,7 @@ async fn exec_sql_catalog_create(
                 scope,
                 sql_method,
                 store,
-                eg_query::TxnOp::CreateView {
+                medulla_query::TxnOp::CreateView {
                     name: plan.name,
                     select_sql: plan.select_sql,
                     or_replace: plan.or_replace,
@@ -455,7 +455,7 @@ async fn exec_sql_catalog_create(
                 scope,
                 sql_method,
                 store,
-                eg_query::TxnOp::CreateExtension {
+                medulla_query::TxnOp::CreateExtension {
                     name,
                     if_not_exists,
                 },
@@ -469,7 +469,7 @@ async fn exec_sql_catalog_create(
                 scope,
                 sql_method,
                 store,
-                eg_query::TxnOp::CreateFunction {
+                medulla_query::TxnOp::CreateFunction {
                     function: plan.func,
                     or_replace: plan.or_replace,
                 },
@@ -483,7 +483,7 @@ async fn exec_sql_catalog_create(
                 scope,
                 sql_method,
                 store,
-                eg_query::TxnOp::IndexCatalog(eg_query::IndexCatalogTxnOp::PutAnnIndex { plan }),
+                medulla_query::TxnOp::IndexCatalog(medulla_query::IndexCatalogTxnOp::PutAnnIndex { plan }),
                 "CREATE INDEX",
             )
             .await
@@ -494,7 +494,7 @@ async fn exec_sql_catalog_create(
                 scope,
                 sql_method,
                 store,
-                eg_query::TxnOp::IndexCatalog(eg_query::IndexCatalogTxnOp::PutHypertable { plan }),
+                medulla_query::TxnOp::IndexCatalog(medulla_query::IndexCatalogTxnOp::PutHypertable { plan }),
                 "CREATE TABLE",
             )
             .await
@@ -505,7 +505,7 @@ async fn exec_sql_catalog_create(
                 scope,
                 sql_method,
                 store,
-                eg_query::TxnOp::CreateView {
+                medulla_query::TxnOp::CreateView {
                     name: plan.name,
                     select_sql: plan.select_sql,
                     or_replace: true,
@@ -527,8 +527,8 @@ enum SqlCatalogTerminalClass {
 }
 
 #[cfg(feature = "query")]
-fn classify_sql_catalog_terminal(kind: &eg_query::StatementKind) -> SqlCatalogTerminalClass {
-    use eg_query::StatementKind as K;
+fn classify_sql_catalog_terminal(kind: &medulla_query::StatementKind) -> SqlCatalogTerminalClass {
+    use medulla_query::StatementKind as K;
     match kind {
         K::Begin | K::Commit | K::Rollback => SqlCatalogTerminalClass::TransactionControl,
         K::CopyIn(_) => SqlCatalogTerminalClass::CopyIn,
@@ -565,7 +565,7 @@ fn classify_sql_catalog_terminal(kind: &eg_query::StatementKind) -> SqlCatalogTe
 #[cfg(feature = "query")]
 async fn exec_sql_catalog_terminal(
     ctx: SqlDispatchCtx<'_>,
-    kind: eg_query::StatementKind,
+    kind: medulla_query::StatementKind,
 ) -> Response {
     exec_classified_sql_catalog_terminal(ctx, kind).await
 }
@@ -573,7 +573,7 @@ async fn exec_sql_catalog_terminal(
 #[cfg(feature = "query")]
 async fn exec_classified_sql_catalog_terminal(
     ctx: SqlDispatchCtx<'_>,
-    kind: eg_query::StatementKind,
+    kind: medulla_query::StatementKind,
 ) -> Response {
     let SqlDispatchCtx {
         req_id,

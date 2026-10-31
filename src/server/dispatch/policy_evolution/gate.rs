@@ -2,9 +2,9 @@
 //! against what the graph already holds.
 //!
 //! Pure over [`RecordLookup`], so every refusal is unit-testable without a
-//! server. Structural checks on one body already ran in `eg-types`.
+//! server. Structural checks on one body already ran in `medulla-types`.
 
-use eg_types::policy_evolution::{
+use medulla_types::policy_evolution::{
     CaptureEligibility, ModelPolicyVersion, OpenWeightPolicyCapability, PolicyCapture,
     PolicyEvaluation, PolicyEvolutionRecord, PolicyEvolutionRecordBody, PolicyRefusal, TrainingRun,
     TrainingRunStatus, VersionOrigin,

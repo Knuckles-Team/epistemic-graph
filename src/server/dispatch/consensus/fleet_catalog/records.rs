@@ -4,8 +4,8 @@
 //! Pure: node identity, encoding, decoding, the compare-and-set decision and
 //! the visibility predicate. Nothing here touches a lock, a store or a clock.
 
-use eg_types::contract::{Digest256, ResourceId};
-use eg_types::fleet_catalog::{
+use medulla_types::contract::{Digest256, ResourceId};
+use medulla_types::fleet_catalog::{
     DiscoveryCounts, DiscoveryOutcome, DiscoveryScope, FleetOverride, FleetOverrideField,
     FleetVisibility, SkillType,
 };
@@ -148,7 +148,7 @@ pub(super) fn decode_record<B: DeserializeOwned>(
     node_type: &str,
     properties_msgpack: &[u8],
 ) -> Option<StoredRecord<B>> {
-    let value = eg_types::msgpack::decode_property_value(properties_msgpack).ok()?;
+    let value = medulla_types::msgpack::decode_property_value(properties_msgpack).ok()?;
     let node = serde_json::from_value::<StoredNode<B>>(value).ok()?;
     (node.node_type == node_type).then_some(StoredRecord {
         meta: node.meta,

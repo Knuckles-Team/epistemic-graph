@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use eg_transaction::OutboxClaimBudget;
-use eg_types::result_contract::ingestion as ingestion_results;
-use eg_types::semantic_index::{SemanticIndexOp, SemanticStageLeaseEntry, SemanticStageLeasePage};
+use medulla_transaction::OutboxClaimBudget;
+use medulla_types::result_contract::ingestion as ingestion_results;
+use medulla_types::semantic_index::{SemanticIndexOp, SemanticStageLeaseEntry, SemanticStageLeasePage};
 
 use crate::protocol::Response;
 use crate::server::semantic_index::{
@@ -78,7 +78,7 @@ async fn subscribe(ctx: &SemanticIndexContext<'_>) -> Response {
 
 async fn claim(
     ctx: &SemanticIndexContext<'_>,
-    queue_class: eg_types::semantic_index::SemanticQueueClass,
+    queue_class: medulla_types::semantic_index::SemanticQueueClass,
     limit: u32,
     lease_ms: u64,
 ) -> Response {
@@ -87,7 +87,7 @@ async fn claim(
     let now_ms = ctx.now_ms;
     let claimed = blocking(ctx.req_id, move || {
         let mut budget = OutboxClaimBudget::new(limit, lease_ms, now_ms)
-            .map_err(eg_core::compute::semantic_ann_codes::SemanticCodeError::Refused)?;
+            .map_err(medulla_core::compute::semantic_ann_codes::SemanticCodeError::Refused)?;
         let outcome = service.claim_stage_class(&consumer, queue_class, &mut budget)?;
         let mut entries = Vec::with_capacity(outcome.claims.len());
         for lease in outcome.claims {
@@ -112,16 +112,16 @@ async fn claim(
 /// foreign lease is refused before any work runs.
 async fn on_own_lease<T, F>(
     ctx: &SemanticIndexContext<'_>,
-    lease: eg_types::mutation_batch::MutationOutboxLease,
+    lease: medulla_types::mutation_batch::MutationOutboxLease,
     work: F,
 ) -> Result<T, Response>
 where
     T: Send + 'static,
     F: FnOnce(
-            &eg_core::compute::semantic_index_service::SemanticIndexService,
-            &eg_types::mutation_batch::MutationOutboxLease,
+            &medulla_core::compute::semantic_index_service::SemanticIndexService,
+            &medulla_types::mutation_batch::MutationOutboxLease,
             u64,
-        ) -> Result<T, eg_core::compute::semantic_ann_codes::SemanticCodeError>
+        ) -> Result<T, medulla_core::compute::semantic_ann_codes::SemanticCodeError>
         + Send
         + 'static,
 {
@@ -133,7 +133,7 @@ where
 
 async fn validate(
     ctx: &SemanticIndexContext<'_>,
-    lease: eg_types::mutation_batch::MutationOutboxLease,
+    lease: medulla_types::mutation_batch::MutationOutboxLease,
 ) -> Response {
     let consumer = ctx.authority.agent_id().to_string();
     let validated = on_own_lease(ctx, lease, move |service, lease, now_ms| {
@@ -144,10 +144,10 @@ async fn validate(
 
 async fn status(
     ctx: &SemanticIndexContext<'_>,
-    queue_class: eg_types::semantic_index::SemanticQueueClass,
+    queue_class: medulla_types::semantic_index::SemanticQueueClass,
 ) -> Response {
     let consumer =
-        eg_core::compute::semantic_ann_codes::stage_consumer(ctx.authority.agent_id(), queue_class);
+        medulla_core::compute::semantic_ann_codes::stage_consumer(ctx.authority.agent_id(), queue_class);
     let service = Arc::clone(&ctx.service);
     let now_ms = ctx.now_ms;
     let status = blocking(ctx.req_id, move || service.stage_status(&consumer, now_ms))
@@ -158,10 +158,10 @@ async fn status(
 
 async fn complete_stage(
     ctx: &SemanticIndexContext<'_>,
-    lease: eg_types::mutation_batch::MutationOutboxLease,
-    transition: eg_types::semantic_index::SemanticStageTransition,
-    artifact: eg_types::semantic_index::SemanticStageArtifact,
-    successor: Option<eg_types::semantic_index::SemanticStageIntent>,
+    lease: medulla_types::mutation_batch::MutationOutboxLease,
+    transition: medulla_types::semantic_index::SemanticStageTransition,
+    artifact: medulla_types::semantic_index::SemanticStageArtifact,
+    successor: Option<medulla_types::semantic_index::SemanticStageIntent>,
 ) -> Response {
     let completed = on_own_lease(ctx, lease, move |service, lease, now_ms| {
         service.complete_stage(lease, &transition, &artifact, successor.as_ref(), now_ms)
@@ -174,10 +174,10 @@ async fn complete_stage(
 
 async fn complete_generation_stage(
     ctx: &SemanticIndexContext<'_>,
-    lease: eg_types::mutation_batch::MutationOutboxLease,
-    transition: eg_types::semantic_index::SemanticStageTransition,
-    artifact: eg_types::semantic_index::SemanticGenerationArtifact,
-    successor: Option<eg_types::semantic_index::SemanticStageIntent>,
+    lease: medulla_types::mutation_batch::MutationOutboxLease,
+    transition: medulla_types::semantic_index::SemanticStageTransition,
+    artifact: medulla_types::semantic_index::SemanticGenerationArtifact,
+    successor: Option<medulla_types::semantic_index::SemanticStageIntent>,
 ) -> Response {
     let generation = on_own_lease(ctx, lease, move |service, lease, now_ms| {
         service.complete_generation_stage(lease, &transition, &artifact, successor.as_ref(), now_ms)
@@ -190,9 +190,9 @@ async fn complete_generation_stage(
 
 async fn complete_sql_source_stage(
     ctx: &SemanticIndexContext<'_>,
-    lease: eg_types::mutation_batch::MutationOutboxLease,
-    transition: eg_types::semantic_index::SemanticStageTransition,
-    successor: Option<eg_types::semantic_index::SemanticStageIntent>,
+    lease: medulla_types::mutation_batch::MutationOutboxLease,
+    transition: medulla_types::semantic_index::SemanticStageTransition,
+    successor: Option<medulla_types::semantic_index::SemanticStageIntent>,
     page_cursor: Option<String>,
 ) -> Response {
     if let Err(error) = own_lease(&lease, ctx.authority) {
@@ -233,11 +233,11 @@ async fn complete_sql_source_stage(
 
 async fn claim_sql_source(
     ctx: &SemanticIndexContext<'_>,
-    intent: eg_types::semantic_index::SemanticStageIntent,
+    intent: medulla_types::semantic_index::SemanticStageIntent,
     page_cursor: Option<Vec<u8>>,
 ) -> Result<
     (
-        eg_types::semantic_index::SemanticBinding,
+        medulla_types::semantic_index::SemanticBinding,
         AuthorizedSqlSourceClaim,
     ),
     Response,
@@ -261,16 +261,16 @@ async fn claim_sql_source(
 
 async fn replay(
     ctx: &SemanticIndexContext<'_>,
-    lease: eg_types::mutation_batch::MutationOutboxLease,
-    expected_intent: eg_types::semantic_index::SemanticStageIntent,
+    lease: medulla_types::mutation_batch::MutationOutboxLease,
+    expected_intent: medulla_types::semantic_index::SemanticStageIntent,
 ) -> Response {
     authorize_and_replay(ctx, lease, expected_intent).await
 }
 
 async fn authorize_and_replay(
     ctx: &SemanticIndexContext<'_>,
-    lease: eg_types::mutation_batch::MutationOutboxLease,
-    expected_intent: eg_types::semantic_index::SemanticStageIntent,
+    lease: medulla_types::mutation_batch::MutationOutboxLease,
+    expected_intent: medulla_types::semantic_index::SemanticStageIntent,
 ) -> Response {
     let service = match authorize_replay(ctx, &lease).await {
         Ok(service) => service,
@@ -292,8 +292,8 @@ async fn authorize_and_replay(
 
 async fn authorize_replay(
     ctx: &SemanticIndexContext<'_>,
-    lease: &eg_types::mutation_batch::MutationOutboxLease,
-) -> Result<Arc<eg_core::compute::semantic_index_service::SemanticIndexService>, Response> {
+    lease: &medulla_types::mutation_batch::MutationOutboxLease,
+) -> Result<Arc<medulla_core::compute::semantic_index_service::SemanticIndexService>, Response> {
     own_lease(lease, ctx.authority).map_err(|error| Response::err(ctx.req_id, error))?;
     let binding = current_binding(ctx.req_id, &ctx.service).await?;
     let adapter = SemanticIndexServerAdapter::new(Arc::clone(&ctx.service));
@@ -305,7 +305,7 @@ async fn authorize_replay(
 
 async fn release(
     ctx: &SemanticIndexContext<'_>,
-    lease: eg_types::mutation_batch::MutationOutboxLease,
+    lease: medulla_types::mutation_batch::MutationOutboxLease,
 ) -> Response {
     let released = on_own_lease(ctx, lease, |service, lease, _now_ms| {
         service.release_stage_lease(lease)

@@ -1,36 +1,36 @@
-# EG-SUPPLY-VOCAB — Design and implementation plan
+# MEDULLA-SUPPLY-VOCAB — Design and implementation plan
 
 Governing spec: [spec.md](spec.md).
 
 ## Problem and evidence
 
-`specs/cross-source-competency/plan.md` lists as MISSING: `:Supplier`, `:SupplyChainItem`, `:SoftwareComponent`, `:ComponentVersion`, `:Vulnerability`, `:usesComponent`, `:suppliesService`, `:CustomerContract`, `:ChangeRequest`, `:coversService`, host temperature and capacity-limit terms, and a `:Customer` class. The design-baseline audit of `crates/eg-core/ontology/` sharpened this:
+`specs/cross-source-competency/plan.md` lists as MISSING: `:Supplier`, `:SupplyChainItem`, `:SoftwareComponent`, `:ComponentVersion`, `:Vulnerability`, `:usesComponent`, `:suppliesService`, `:CustomerContract`, `:ChangeRequest`, `:coversService`, host temperature and capacity-limit terms, and a `:Customer` class. The design-baseline audit of `crates/medulla-core/ontology/` sharpened this:
 
-- `Supplier`, `SupplyChain`, `Vulnerability`, `SoftwareComponent` and `ComponentVersion` have no class declaration in any eg-core `.ttl`. `Customer` appears only in a comment (`archimate-v1.ttl:15`, "an ERPNext :Employee or :Customer").
-- The connectors already declare several of these **in the same `kg#` namespace** (`http://knuckles.team/kg#`): `erpnext.ttl` declares `:Supplier`, `:Item`, `:PurchaseOrder`, `:Customer`, `:suppliedBy` (domain `:PurchaseOrder`, range `:Supplier`); `dockerhub_api` ontology declares `:Vulnerability` and `:hasVulnerability` (`ContainerImage` to `Vulnerability`, `dockerhub_api/ontology/*.ttl:40,76`); `container-manager-mcp` `container.ttl:83` declares `:usesImage`. eg-core must declare the same IRIs so the connector ontologies merge instead of forking.
+- `Supplier`, `SupplyChain`, `Vulnerability`, `SoftwareComponent` and `ComponentVersion` have no class declaration in any medulla-core `.ttl`. `Customer` appears only in a comment (`archimate-v1.ttl:15`, "an ERPNext :Employee or :Customer").
+- The connectors already declare several of these **in the same `kg#` namespace** (`http://knuckles.team/kg#`): `erpnext.ttl` declares `:Supplier`, `:Item`, `:PurchaseOrder`, `:Customer`, `:suppliedBy` (domain `:PurchaseOrder`, range `:Supplier`); `dockerhub_api` ontology declares `:Vulnerability` and `:hasVulnerability` (`ContainerImage` to `Vulnerability`, `dockerhub_api/ontology/*.ttl:40,76`); `container-manager-mcp` `container.ttl:83` declares `:usesImage`. medulla-core must declare the same IRIs so the connector ontologies merge instead of forking.
 - `:Change` already exists (`archimate-v1.ttl:33`, a ServiceNow change request, subclass of `:BusinessProcess`), and `:Incident` exists twice: `kg#Incident` (`archimate-v1.ttl:40`, ServiceNow, subclass of `:ApplicationEvent`) and `infra:Incident` (`infrastructure-v1.ttl:98`, a correlated health event). A new `:ChangeRequest` duplicates `:Change`.
 - Namespace split: `infrastructure-v1.ttl` uses `@prefix : <http://knuckles.team/kg/infrastructure#>` (`:Service` line 614, `:Host` 520, `:Rack` 619, `:ContainerImage` 34, `:runsOn` 411, `:dependsOn` 204, `:buildsImageFor` 169, `:affectsEntity` 139), while `archimate-v1.ttl`, `trm-v1.ttl` (`:Vendor` 298, `:TechnologyProduct` 336, `:AssetInstance`) and `core-foundation-v1.ttl` (`:Organization` 660, `:supports` 575) use `kg#`. Terms below are written with `kg:` and `infra:` prefixes to avoid the ambiguity the cross-source plan has.
 - Host limits: `infrastructure-v1.ttl` has `:capacityTb` (storage arrays only) and no temperature or limit terms; fan-manager's thermal data is only referenced in comments.
 
 ## Architecture
 
-Owner of every term: `Medulla`, `crates/eg-core/ontology/`. Sources keep their data. Each source's ontology and access contract are attached and a `vg:VirtualMapping` (`virtual_graph-v1.ttl:107`, `vg:mapsOntologyClass` line 72, `vg:approved` line 94) maps its native entity to these classes. Source choice comes from `vg:SourceAuthority` rows (`EG-CQ-XSRC-R001`), planning from `EG-FEDERATED-QUERY-R072/R073`.
+Owner of every term: `Medulla`, `crates/medulla-core/ontology/`. Sources keep their data. Each source's ontology and access contract are attached and a `vg:VirtualMapping` (`virtual_graph-v1.ttl:107`, `vg:mapsOntologyClass` line 72, `vg:approved` line 94) maps its native entity to these classes. Source choice comes from `vg:SourceAuthority` rows (`MEDULLA-CQ-XSRC-R001`), planning from `MEDULLA-FEDERATED-QUERY-R072/R073`.
 
 ```
 question "how does the supply chain affect our services?"
   -> classes only: infra:Service <- kg:suppliesService / kg:usesComponent / kg:coversService
-  -> authority rows (EG-CQ-XSRC) pick one source per class
+  -> authority rows (MEDULLA-CQ-XSRC) pick one source per class
   -> access contract fetch at query time (MCP tool / SOQL / GraphQL)
-  -> join across approved owl:sameAs only (EG-UNIFIED-DATA-PLANE-R030)
-  -> rows + freshness + abstentions -> SupplyChainImpactReport (EG-CQ-XSRC-R006)
+  -> join across approved owl:sameAs only (MEDULLA-UNIFIED-DATA-PLANE-R030)
+  -> rows + freshness + abstentions -> SupplyChainImpactReport (MEDULLA-CQ-XSRC-R006)
 ```
 
 ## Shared-term delivery stages
 
-`EG-SUPPLY-VOCAB-R001.1` preserves two separate acceptance stages:
+`MEDULLA-SUPPLY-VOCAB-R001.1` preserves two separate acceptance stages:
 
-1. `EG-SUPPLY-VOCAB-R001.1.1` adds the shared ontology file and native production-parser tests for class declarations, superclass triples, labels, property domain/range and absence of a `suppliedBy` redeclaration. This producer stage does not install the file in the engine catalog.
-2. `EG-SUPPLY-VOCAB-R001.1.2` remains open until the default `GraphSchemaSources` catalog loads and validates that file and the native reasoner proves Supplier-to-Vendor and domain/range entailment, including the negative Vendor-to-Supplier case.
+1. `MEDULLA-SUPPLY-VOCAB-R001.1.1` adds the shared ontology file and native production-parser tests for class declarations, superclass triples, labels, property domain/range and absence of a `suppliedBy` redeclaration. This producer stage does not install the file in the engine catalog.
+2. `MEDULLA-SUPPLY-VOCAB-R001.1.2` remains open until the default `GraphSchemaSources` catalog loads and validates that file and the native reasoner proves Supplier-to-Vendor and domain/range entailment, including the negative Vendor-to-Supplier case.
 
 The parent remains incomplete until both stages pass. A parsed declaration is not evidence of live catalog installation or reasoner execution.
 
@@ -116,7 +116,7 @@ No `:ChangeRequest` class is added (Decision D3).
 
 ## Entity resolution across sources
 
-Mechanism: `EG-UNIFIED-DATA-PLANE-R030` (blocking, field similarity, Fellegi-Sunter, proposals inactive until approved; `crates/eg-types/src/entity_link_proposal.rs`, `assert_same_as`). Its `AttachedApplication` enum covers Gramps, Immich, Twenty and Firefly only; the consumers `EG-CQ-XSRC-R004.3/.4` extend it. This spec adds only the **blocking keys per concept** as a data fixture (`crates/eg-core/tests/fixtures/supply_chain_blocking_keys.ttl`):
+Mechanism: `MEDULLA-UNIFIED-DATA-PLANE-R030` (blocking, field similarity, Fellegi-Sunter, proposals inactive until approved; `crates/medulla-types/src/entity_link_proposal.rs`, `assert_same_as`). Its `AttachedApplication` enum covers Gramps, Immich, Twenty and Firefly only; the consumers `MEDULLA-CQ-XSRC-R004.3/.4` extend it. This spec adds only the **blocking keys per concept** as a data fixture (`crates/medulla-core/tests/fixtures/supply_chain_blocking_keys.ttl`):
 
 | Concept | Sources joined | Blocking keys (strongest first) |
 |---|---|---|
@@ -130,11 +130,11 @@ A digest match is an exact key; a name-only match is always a proposal, never au
 
 ## Wiring
 
-- Ontology load: eg-core loads every `crates/eg-core/ontology/*-v1.ttl`. New files follow the `-v1` naming and are registered wherever the existing files are enumerated (find the list with `rg -n "company_infra-v1" crates/`).
-- Mappings: `vg:VirtualMapping` fixtures under `crates/eg-core/tests/fixtures/` loaded by the same harness as `EG-CQ-XSRC-R002.7`.
-- Authority rows (which source wins per class): `EG-CQ-XSRC-R002.5/.6`, `R003.1-.3`; this spec supplies the per-concept source table below, they declare the rows.
-- Scopes: no new scope; reads use the existing federated-query read scope in `EG-IDENTITY-001`.
-- Connector side (cross-repo, agent-packages): resolve `schema_mappings.<X>.ontology_class` in each `connector_manifest.yml` to the eg-core classes; the erpnext manifest currently lists `Supplier`, `Item`, `PurchaseOrder`, `Customer` as `ontology_class = None [UNRESOLVED]` (`erpnext-agent/connector_manifest.yml` review_todos).
+- Ontology load: medulla-core loads every `crates/medulla-core/ontology/*-v1.ttl`. New files follow the `-v1` naming and are registered wherever the existing files are enumerated (find the list with `rg -n "company_infra-v1" crates/`).
+- Mappings: `vg:VirtualMapping` fixtures under `crates/medulla-core/tests/fixtures/` loaded by the same harness as `MEDULLA-CQ-XSRC-R002.7`.
+- Authority rows (which source wins per class): `MEDULLA-CQ-XSRC-R002.5/.6`, `R003.1-.3`; this spec supplies the per-concept source table below, they declare the rows.
+- Scopes: no new scope; reads use the existing federated-query read scope in `MEDULLA-IDENTITY-001`.
+- Connector side (cross-repo, agent-packages): resolve `schema_mappings.<X>.ontology_class` in each `connector_manifest.yml` to the medulla-core classes; the erpnext manifest currently lists `Supplier`, `Item`, `PurchaseOrder`, `Customer` as `ontology_class = None [UNRESOLVED]` (`erpnext-agent/connector_manifest.yml` review_todos).
 
 ## Decisions
 
@@ -142,7 +142,7 @@ A digest match is an exact key; a name-only match is always a proposal, never au
 Evidence: `:supports` (`core-foundation-v1.ttl:575`) is defined as Evidence to claim ("SUPPORTS edge convention"); reusing it for service to capability mixes two meanings. `archimate-v1.ttl` declares only element anchors (`:BusinessCapability` line 19, `:Change` 33) and **no relationship properties**; the relationships live in the archimate-mcp ontology as reified `:ArchimateRelationship` plus direct `:relRealization`/`:relServing` (`archimate-mcp/.../ontology/archimate.ttl:106,397,402`), needing two hops and a model to be loaded. LeanIX uses a connector-side `supports` (Application to BusinessCapability, `leanix-agent/connector_manifest.yml:13`). Decision: one direct property, filled by three mappings (LeanIX `supports`; ArchiMate Realization or Serving from an application element to a capability; a CMDB business-service relation). Alternative: the ArchiMate relationship as the only form, rejected because it makes the report depend on an authored model. Revisit if archimate becomes the authority; then declare `kg:supportsCapability rdfs:subPropertyOf` nothing and keep the mapping.
 
 **D2. erpnext suppliers and purchase orders: CONFIRMED, with a mapping gap.**
-Tool `erpnext_agent_resource` (`erpnext_agent/mcp/mcp_resource.py:16`), actions `list_documents`, `get_document` (dispatch to `api_client_resource.py`), doctypes `Supplier`, `Item`, `Purchase Order`. Access contracts `supplierAccess`, `itemAccess`, `purchaseOrderAccess` exist in `erpnext_agent/ontology/access_contracts.ttl` (mcp_tool, offset pagination, pushdown filter and limit). The sync presets (`connectors/mcp_source_presets.json`) cover only Item and Sales Order, which does not matter for virtual access. Gaps: Supplier/Item/PurchaseOrder `ontology_class` unresolved in the manifest (row `EG-SUPPLY-VOCAB-R005.3`, agent-packages). `list_documents` does not return PO child lines, so item to supplier needs `get_document` per PO (row R005.2).
+Tool `erpnext_agent_resource` (`erpnext_agent/mcp/mcp_resource.py:16`), actions `list_documents`, `get_document` (dispatch to `api_client_resource.py`), doctypes `Supplier`, `Item`, `Purchase Order`. Access contracts `supplierAccess`, `itemAccess`, `purchaseOrderAccess` exist in `erpnext_agent/ontology/access_contracts.ttl` (mcp_tool, offset pagination, pushdown filter and limit). The sync presets (`connectors/mcp_source_presets.json`) cover only Item and Sales Order, which does not matter for virtual access. Gaps: Supplier/Item/PurchaseOrder `ontology_class` unresolved in the manifest (row `MEDULLA-SUPPLY-VOCAB-R005.3`, agent-packages). `list_documents` does not return PO child lines, so item to supplier needs `get_document` per PO (row R005.2).
 
 **D2b. uptime service health: CONFIRMED operation, no service link.**
 `uptime_kuma_monitors` action `get_monitors`/`get_monitor` and `uptime_kuma_status` action `get_heartbeats` (`uptime_kuma_agent/mcp_server.py:74,140`). Resource `UptimeMonitor` and `HeartbeatStat` in the manifest. No access-contract `.ttl` was found under `uptime_kuma_agent/ontology/` (row R006.2 adds it, agent-packages). A monitor is not a `Service`; it resolves to one by name or URL host (blocking keys above). `lgtm-mcp` also lists `UptimeMonitor`/`HeartbeatStat` (rank 2).
@@ -150,7 +150,7 @@ Tool `erpnext_agent_resource` (`erpnext_agent/mcp/mcp_resource.py:16`), actions 
 **D2c. container-manager deployed workloads: CONFIRMED operation, no access contract.**
 `cm_k8s_workloads` actions `list_pods`, `list_statefulsets` (`mcp/mcp_k8s_workloads.py:372`), container tool action `list_containers` (`mcp_server.py:426`), `cm_image_operations` action `list_images` (`mcp_server.py:301`); `container.ttl:83` has `usesImage`; manifest resources `Pod`, `Deployment`, `K8sService`, `SwarmService`. No `ac:operation` access contract under `container_manager_mcp/ontology/` (row R006.1, agent-packages). A `list_deployments` action was not found in the workloads tool; Deployment-level data is reached through `list_pods` plus `managedByDeployment`. portainer-agent (`Service`, `Image`, `Container`) is the rank-2 source.
 
-**D3. `:ChangeRequest`: DECIDED not added commercially.** `kg:Change` (`archimate-v1.ttl:33`) is the ServiceNow change request and is a `:BusinessProcess`. The cross-source requirement `EG-CQ-XSRC-R008.3.1` reads `:CustomerContract` and `:coversService` only; `service_operations-v1.ttl` retains its distinct `:ChangeRequest` class for IT4IT `:touches` semantics. This amendment is recorded by `EG-SUPPLY-VOCAB-R003.6`. Alternative: `owl:equivalentClass`, rejected as a parallel name.
+**D3. `:ChangeRequest`: DECIDED not added commercially.** `kg:Change` (`archimate-v1.ttl:33`) is the ServiceNow change request and is a `:BusinessProcess`. The cross-source requirement `MEDULLA-CQ-XSRC-R008.3.1` reads `:CustomerContract` and `:coversService` only; `service_operations-v1.ttl` retains its distinct `:ChangeRequest` class for IT4IT `:touches` semantics. This amendment is recorded by `MEDULLA-SUPPLY-VOCAB-R003.6`. Alternative: `owl:equivalentClass`, rejected as a parallel name.
 
 **D4. Which sources can supply each concept (CONFIRMED from tool lists):**
 
@@ -169,14 +169,14 @@ Tool `erpnext_agent_resource` (`erpnext_agent/mcp/mcp_resource.py:16`), actions 
 | `deployedAs` (workload) | container-manager | portainer `Service`/`Stack` | `list_pods`, `list_containers` | |
 | `Customer` | salesforce `Account` | twenty `Company`, erpnext `Customer` | `salesforce_soql` (`mcp/mcp_salesforce.py:27`); twenty GraphQL `crm` tool | |
 | `CustomerContract` | salesforce | | `salesforce_soql` can query the standard `Contract` sObject if enabled in the org. The connector ontology declares no `Contract` class | **twenty: no contract object in manifest (Company, Opportunity, CrmNote, CrmTask, PipelineStage). Not available.** erpnext: no contract doctype in `erpnext.ttl` |
-| `coversService` | | | no connected source records which service a contract covers | **BLOCKED**: Salesforce standard `Contract` has no service field. Needs either a custom field or a curated link. Owner: operator (CRM data) plus `EG-SUPPLY-VOCAB-R005.9` mapping once the field is named. Until then the report abstains `Uncovered` for contract questions |
+| `coversService` | | | no connected source records which service a contract covers | **BLOCKED**: Salesforce standard `Contract` has no service field. Needs either a custom field or a curated link. Owner: operator (CRM data) plus `MEDULLA-SUPPLY-VOCAB-R005.9` mapping once the field is named. Until then the report abstains `Uncovered` for contract questions |
 | `Incident`, `Change`, `affectsService` | servicenow | erpnext `ErpNextIssue` (incident only) | `get_change_request_ci`, `get_cmdb_instances` | |
 | `supportsCapability` | leanix | archimate | LeanIX `supports` relation (manifest); `relRealization`/`relServing` | |
 | `HostLimit.readingValue` (temperature) | fan-manager | | `TemperatureReading.celsius`, `ThermalTrend.maxCelsius` (manifest fields) | |
 | `HostLimit.limitValue` (temperature) | fan-manager `FanControlPolicy.maxTemperature` | | manifest field `maxTemperature` | the BMC vendor critical threshold is not exposed; the limit is the operator policy ceiling (DECIDED, D6) |
 | `HostLimit` capacity (disk, memory, cpu) | systems-manager | | `HardwareNode`/`DiskVolume` fields `capacityBytes`, `freeBytes`, `memoryTotal`, `cpuCount` | no source exposes a capacity **limit**; the limit is a declared threshold (D6) |
 
-**D5. `:suppliedBy` is not redeclared;** `kg:suppliesItem` carries supplier to item (reasoning in Vocabulary). Amends `EG-CQ-XSRC-R002.1`.
+**D5. `:suppliedBy` is not redeclared;** `kg:suppliesItem` carries supplier to item (reasoning in Vocabulary). Amends `MEDULLA-CQ-XSRC-R002.1`.
 
 **D6. Limits are declared, readings are fetched.** A temperature limit comes from the fan-manager policy field; capacity limits (for example 85 percent of `capacityBytes`) are `infra:HostLimit` rows declared in a small ontology-side threshold table (`infra:limitValue` on a declared `HostLimit`), because no connected source provides one. Alternative (use IPMI sensor critical thresholds) rejected: not exposed by any connector read here.
 
@@ -196,20 +196,20 @@ SELECT ?service ?supplier ?comp ?ver ?cve ?sev WHERE {
 }
 ```
 
-Trace: `kg:Vulnerability` and `kg:ComponentVersion` select dockerhub (`hub_scout cves`, `sbom`); `infra:Service` selects container-manager plus uptime; `kg:Supplier` selects erpnext. A docker namespace "acme" and an ERPNext supplier "Acme Corp" are joined only if `EG-UNIFIED-DATA-PLANE-R030` produced an approved `owl:sameAs`; otherwise the row is returned with `abstention: UnapprovedLink`. Answer rows: `{service: "git", supplier: "Acme Corp", comp: "openssl", ver: "3.0.1", cve: "CVE-...", sev: "high", sources: [dockerhub, container-manager, erpnext]}`.
+Trace: `kg:Vulnerability` and `kg:ComponentVersion` select dockerhub (`hub_scout cves`, `sbom`); `infra:Service` selects container-manager plus uptime; `kg:Supplier` selects erpnext. A docker namespace "acme" and an ERPNext supplier "Acme Corp" are joined only if `MEDULLA-UNIFIED-DATA-PLANE-R030` produced an approved `owl:sameAs`; otherwise the row is returned with `abstention: UnapprovedLink`. Answer rows: `{service: "git", supplier: "Acme Corp", comp: "openssl", ver: "3.0.1", cve: "CVE-...", sev: "high", sources: [dockerhub, container-manager, erpnext]}`.
 
 ## Quality and release gates
 
-Ontology parse test and shape tests in `crates/eg-core/tests/`; `cargo test -p eg-core` is not run by this spec lane (spec-only); implementers run it per child. Gates: repo CCCC, jscpd, dupehound, KISS. No new Rust module is needed; fixtures are `.ttl`.
+Ontology parse test and shape tests in `crates/medulla-core/tests/`; `cargo test -p medulla-core` is not run by this spec lane (spec-only); implementers run it per child. Gates: repo CCCC, jscpd, dupehound, KISS. No new Rust module is needed; fixtures are `.ttl`.
 
 ## Out of scope
 
-Copying source data. The authority vocabulary (`EG-CQ-XSRC-R001`). The federated planner. Entity-resolution scoring. The report type. Building new connector tools (only mapping and access-contract rows in agent-packages).
+Copying source data. The authority vocabulary (`MEDULLA-CQ-XSRC-R001`). The federated planner. Entity-resolution scoring. The report type. Building new connector tools (only mapping and access-contract rows in agent-packages).
 
 ## Commercial acceptance
 
-Rows `EG-SUPPLY-VOCAB-R003.7` through `R003.17` own commercial declarations and acceptance.
-Erpnext, Salesforce, and Twenty use `commercial-v1.ttl`; `EG-CQ-CONN-R083` owns their mapping acceptance.
+Rows `MEDULLA-SUPPLY-VOCAB-R003.7` through `R003.17` own commercial declarations and acceptance.
+Erpnext, Salesforce, and Twenty use `commercial-v1.ttl`; `MEDULLA-CQ-CONN-R083` owns their mapping acceptance.
 The vocabulary reuses `kg:Organization` and `kg:Person` for Party and Contact representations.
 R003.13 registers the module and generated catalog entry.
 R003.14 registers its shapes companion; R003.15 checks namespace compatibility.
@@ -224,7 +224,7 @@ Live competency tests must abstain when required source fields or approved mappi
 
 ## Ecosystem package risk propagation (R009)
 
-Data flow: served impact operation → `handle_impact` (`src/server/handlers/mining/impact.rs:264`) → `propagate_package_risk` (new, `crates/eg-core/src/ecosystem.rs`) → `PackageImpact` list with paths.
+Data flow: served impact operation → `handle_impact` (`src/server/handlers/mining/impact.rs:264`) → `propagate_package_risk` (new, `crates/medulla-core/src/ecosystem.rs`) → `PackageImpact` list with paths.
 
 Types: `:EcosystemPackage`, `:affectsPackage`, `PackageImpact { dependent, path, severity }` and `PackageRefusal::UnknownPackage`.
 

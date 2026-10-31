@@ -1,4 +1,4 @@
-# cargo-deny configuration (CONCEPT:EG-KG.storage.cargo-dependency-cve-gate — W0.12).
+# cargo-deny configuration (CONCEPT:MEDULLA-KG.storage.cargo-dependency-cve-gate — W0.12).
 #
 # Every dependency advisory is a hard failure unless it has a justified, expiring
 # risk acceptance.
@@ -63,7 +63,7 @@ allow = [
 confidence-threshold = 0.8
 
 [licenses.private]
-# eg-* workspace crates are internal-only (never published) but not all of them
+# medulla-* workspace crates are internal-only (never published) but not all of them
 # set `publish = false`; the license field itself is what's checked above (every
 # workspace crate now carries one, matching the root package's MIT), so this can
 # stay false -- kept explicit rather than relying on the tool default.

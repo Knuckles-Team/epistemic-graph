@@ -1,0 +1,59 @@
+# medulla-shacl — pure-Rust SHACL Core validation engine (CONCEPT:MEDULLA-132).
+#
+# Validates an RDF **data graph** against an RDF **shapes graph**. Sits in the DAG
+# ABOVE medulla-rdf (it reuses medulla-rdf's re-exported oxrdf term/graph model — a shapes graph
+# and a data graph are both `oxrdf::Graph`), a NON-LEAF leaf-crate: its ONLY graph
+# dependency is medulla-rdf (feature `rdf`, which links oxrdf/oxttl — all pure Rust). It is
+# NOT depended on by medulla-rdf, so no DAG cycle.
+#
+# Pi contract: pure-Rust, no C/native dep. `regex` (for `sh:pattern` AND the `sh:sparql`
+# REGEX()/pattern-facet builtins, see `src/sparql.rs`) is already in the tree via
+# medulla-rdf's `sparql` feature (CONCEPT:MEDULLA-053), so medulla-shacl adds no NEW crate there.
+# `spargebra` (parser + algebra ONLY — no store, pure Rust) is medulla-shacl's OWN direct
+# dependency (not routed through medulla-rdf's heavier `sparql`/GraphView engine) so
+# `sh:sparql` constraint evaluation (W3C SHACL-SPARQL) works in a `shacl`-only build,
+# not just a `shacl`+`sparql` one. Folded into the engine's `shacl` serving feature
+# (which implies `rdf`).
+[package]
+name = "medulla-shacl"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Pure-Rust SHACL Core validation engine for the medulla-engine engine (CONCEPT:MEDULLA-132) — parses an RDF shapes graph (node/property shapes, targets, predicate paths, cardinality/datatype/class/nodeKind/range/string/in/hasValue/logical/node constraints) and validates an RDF data graph, producing a serde-serializable sh:ValidationReport. Reuses medulla-rdf's oxrdf term/graph model; NO C/native deps."
+license = "MIT"
+
+[lib]
+name = "medulla_shacl"
+
+[dependencies]
+# The RDF term/graph model (oxrdf) + Turtle/N-Triples parse, re-exported by medulla-rdf.
+# A shapes graph and a data graph are both `medulla_rdf::oxrdf::Graph`.
+medulla-rdf = { path = "../medulla-rdf", features = ["rdf"] }
+serde = { version = "1", features = ["derive"] }
+# ICV write-path enforcement (CONCEPT:MEDULLA-300) serializes the introduced violations into
+# the medulla-rdf `GuardRejection.details` payload. Pure Rust, already in the tree via medulla-rdf.
+serde_json = "1"
+# `sh:pattern` regex. Pure-Rust, already pulled by medulla-rdf's `sparql` feature (MEDULLA-053),
+# so this pins the SAME crate — no new dependency in a `full` build.
+regex = "1"
+# `sh:sparql` constraint evaluation (CONCEPT:MEDULLA-132, W3C SHACL-SPARQL): parses the
+# `sh:select` query text; `src/sparql.rs` supplies its OWN pre-binding-aware evaluator
+# over `medulla_rdf::oxrdf::Graph` (NOT medulla-rdf's GraphView-based `sparql` feature). Pure Rust
+# (parser + algebra only, no store) — pinned to the SAME version medulla-rdf's `sparql`
+# feature uses, so a `full` build still links exactly one copy.
+spargebra = "0.4"
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/pi/node/full build links none of it and `ValidationResult`
+# carries no new required trait. See `src/contract.rs`.
+medulla-modality = { path = "../medulla-modality", optional = true }
+
+[features]
+default = []
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for ValidationResult`
+# + the `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded
+# into any tier aggregate (pi/node/full) — it is a capability-discovery/testing seam,
+# not a serving feature. `cargo test -p medulla-shacl --features contract` runs the suite.
+contract = ["dep:medulla-modality"]
+
+[dev-dependencies]
+serde_json = "1"

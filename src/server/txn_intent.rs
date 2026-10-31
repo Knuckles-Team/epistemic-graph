@@ -1,5 +1,5 @@
 //! Durable cross-store commit-intent log for a mixed graph+user-table SQL
-//! transaction (CONCEPT:EG-TXN.mixed-commit-intent, NE-004).
+//! transaction (CONCEPT:MEDULLA-TXN.mixed-commit-intent, NE-004).
 //!
 //! One SQL `BEGIN … COMMIT` block that stages BOTH graph-node ops AND
 //! user-table ops commits through two INDEPENDENT redb authorities,
@@ -42,7 +42,7 @@
 //! ONLY ever driven by a live, already-authenticated session for the
 //! matching owner, so there is nothing identity-bearing to persist.
 //!
-//! `eg_query::TxnOp` is not `Serialize` (durable persistence has never lived
+//! `medulla_query::TxnOp` is not `Serialize` (durable persistence has never lived
 //! in that crate), so the table-side replay recipe is recorded as the
 //! ORIGINAL literal input (SQL text, or a decoded `COPY` batch) rather than
 //! the parsed op — replayed through the ordinary buffering dispatch on
@@ -61,7 +61,7 @@ const INTENT_SCHEMA_VERSION: u16 = 1;
 const MAX_INTENT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_INTENT_ITEMS: usize = 1_000_000;
 
-/// One buffered table-store statement replay step (CONCEPT:EG-TXN.mixed-commit-intent), recorded as the wire
+/// One buffered table-store statement replay step (CONCEPT:MEDULLA-TXN.mixed-commit-intent), recorded as the wire
 /// session buffers a table DML/DDL statement inside an open mixed
 /// transaction. Replayed through the ordinary buffering dispatch on
 /// recovery to rebuild an equivalent `TableTxn`.
@@ -173,7 +173,7 @@ impl CommitIntent {
     /// the same MutationBatch identity).
     pub(crate) fn compensation_operation_id(&self) -> uuid::Uuid {
         let mut hasher = Sha256::new();
-        hasher.update(b"epistemic-graph/txn-intent-compensation\0");
+        hasher.update(b"medulla/txn-intent-compensation\0");
         hasher.update(self.operation_id.as_bytes());
         let digest = hasher.finalize();
         let mut bytes = [0u8; 16];
@@ -184,7 +184,7 @@ impl CommitIntent {
 
 fn owner_dir(authority: &CarrierAuthority, persist_dir: &Path) -> PathBuf {
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph/txn-intent-owner\0");
+    digest.update(b"medulla/txn-intent-owner\0");
     digest.update(authority.tenant_scope().as_bytes());
     digest.update([0]);
     digest.update(authority.agent_id().as_bytes());
@@ -198,7 +198,7 @@ fn intent_path(dir: &Path, operation_id: uuid::Uuid) -> PathBuf {
     // every filename in this durable log the SAME shape as `sql_tables.rs`'s
     // owner files — a bare digest, never a raw identifier.
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph/txn-intent-file\0");
+    digest.update(b"medulla/txn-intent-file\0");
     digest.update(operation_id.as_bytes());
     dir.join(format!("{}.intent", hex::encode(digest.finalize())))
 }
@@ -263,9 +263,9 @@ pub(crate) fn write_intent(
     }
     let bytes = rmp_serde::to_vec_named(intent)
         .map_err(|_| "commit-intent record encode failed".to_string())?;
-    eg_types::msgpack::validate_single_value(
+    medulla_types::msgpack::validate_single_value(
         &bytes,
-        eg_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
+        medulla_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
     )
     .map_err(|_| "commit-intent record exceeds limits".to_string())?;
     let path = intent_path(&dir, intent.operation_id());
@@ -287,7 +287,7 @@ pub(crate) fn write_intent(
 
 /// Complete the temporary record before its canonical name becomes visible.
 fn write_temporary_intent(tmp_path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let mut file = eg_core::fs::create_private_new_file(tmp_path)
+    let mut file = medulla_core::fs::create_private_new_file(tmp_path)
         .map_err(|_| "commit-intent temporary file could not be created".to_string())?;
     use std::io::Write;
     file.write_all(bytes).map_err(|_| {
@@ -321,9 +321,9 @@ fn publish_intent(
             let _ = std::fs::remove_file(tmp_path);
             let existing_bytes = std::fs::read(path)
                 .map_err(|_| "existing commit-intent could not be read".to_string())?;
-            let existing = eg_types::msgpack::decode_bounded::<CommitIntent>(
+            let existing = medulla_types::msgpack::decode_bounded::<CommitIntent>(
                 &existing_bytes,
-                eg_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
+                medulla_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
             )
             .map_err(|_| "existing commit-intent is corrupt or oversized".to_string())?;
             if existing.operation_id() != intent.operation_id() {
@@ -382,9 +382,9 @@ pub(crate) fn list_intents(authority: &CarrierAuthority, persist_dir: &Path) -> 
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
-        let Ok(intent) = eg_types::msgpack::decode_bounded::<CommitIntent>(
+        let Ok(intent) = medulla_types::msgpack::decode_bounded::<CommitIntent>(
             &bytes,
-            eg_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
+            medulla_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
         ) else {
             continue;
         };
@@ -483,9 +483,9 @@ mod tests {
             "canonical intent must be absent before hard-link publication"
         );
         let staged_bytes = std::fs::read(&staged_path).expect("read fsynced temp");
-        let staged = eg_types::msgpack::decode_bounded::<CommitIntent>(
+        let staged = medulla_types::msgpack::decode_bounded::<CommitIntent>(
             &staged_bytes,
-            eg_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
+            medulla_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
         )
         .expect("fsynced temp must contain a complete recipe");
         assert!(staged
@@ -496,9 +496,9 @@ mod tests {
         set_pre_install_hook(None);
 
         let published_bytes = std::fs::read(&path).expect("read published intent");
-        let published = eg_types::msgpack::decode_bounded::<CommitIntent>(
+        let published = medulla_types::msgpack::decode_bounded::<CommitIntent>(
             &published_bytes,
-            eg_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
+            medulla_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
         )
         .expect("published intent must be complete");
         assert!(published
@@ -567,9 +567,9 @@ mod tests {
         write_intent(&authority, persist_dir.path(), &interrupted)
             .expect("retry after real pre-install crash");
         let retried_bytes = std::fs::read(&crashed_path).expect("read retried intent");
-        let retried = eg_types::msgpack::decode_bounded::<CommitIntent>(
+        let retried = medulla_types::msgpack::decode_bounded::<CommitIntent>(
             &retried_bytes,
-            eg_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
+            medulla_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
         )
         .expect("retried intent must be complete");
         assert!(retried

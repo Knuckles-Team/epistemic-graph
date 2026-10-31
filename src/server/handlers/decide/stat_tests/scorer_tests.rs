@@ -31,7 +31,7 @@ async fn evaluated(
     request_id: u64,
     (sha256, length): (String, u64),
     data: LabelledDataset,
-) -> eg_types::decision::jobs::DecisionEvalReceipt {
+) -> medulla_types::decision::jobs::DecisionEvalReceipt {
     let eval = DecisionEvalRequest {
         tenant_id: TENANT.to_string(),
         idempotency_key: format!("eval-scorer-{request_id}"),
@@ -43,7 +43,7 @@ async fn evaluated(
         source: DatasetSource::Inline {
             dataset: Box::new(data),
         },
-        mode: eg_types::decision::EvalMode::OffPolicy,
+        mode: medulla_types::decision::EvalMode::OffPolicy,
     };
     let op = DecisionEvalOp::Submit {
         request: Box::new(eval),
@@ -77,7 +77,7 @@ fn mislabelled(data: &LabelledDataset, ids: &[String]) -> LabelledDataset {
     wrong
 }
 
-// spec: EG-DECISION-ENGINE-R040
+// spec: MEDULLA-DECISION-ENGINE-R040
 #[tokio::test]
 async fn a_scorer_head_is_promoted_only_through_the_protocol_and_then_acts() {
     let h = Harness::new().await;
@@ -179,7 +179,7 @@ async fn a_scorer_head_is_promoted_only_through_the_protocol_and_then_acts() {
     decision_log_round_trip(&h, record.clone()).await;
 }
 
-/// EG-DECISION-ENGINE-R092: across distinct decision question types, the
+/// MEDULLA-DECISION-ENGINE-R092: across distinct decision question types, the
 /// statistical scorer only ever ranks within the SAME legal, structurally
 /// derived option set -- it can never introduce an option of its own -- and
 /// every option is read from structured `Q32` facts, never a serialized
@@ -187,7 +187,7 @@ async fn a_scorer_head_is_promoted_only_through_the_protocol_and_then_acts() {
 /// language. Two distinct `QuestionKind`s over the identical published head
 /// and candidates prove both properties hold ladder-wide, not just for one
 /// question.
-// spec: EG-DECISION-ENGINE-R092
+// spec: MEDULLA-DECISION-ENGINE-R092
 #[tokio::test]
 async fn select_only_and_structured_encoding_hold_across_distinct_question_kinds() {
     let h = Harness::new().await;
@@ -234,7 +234,7 @@ async fn select_only_and_structured_encoding_hold_across_distinct_question_kinds
         asked.question.kind = kind;
         let batch = decide(&h, asked).await.unwrap();
         let record = &batch.records.as_slice()[0];
-        let eg_types::decision::statistical::FeatureMatrixRef::Inline {
+        let medulla_types::decision::statistical::FeatureMatrixRef::Inline {
             candidate_ids,
             values,
             ..
@@ -263,16 +263,16 @@ async fn select_only_and_structured_encoding_hold_across_distinct_question_kinds
     }
 }
 
-/// EG-DECISION-ENGINE-R094: the resident decision scorer serves a decision
+/// MEDULLA-DECISION-ENGINE-R094: the resident decision scorer serves a decision
 /// with no GPU device, model-serving sidecar or separate inference cluster.
 /// This test runs on an ordinary hosted-CI runner with no GPU hardware and
 /// no sidecar process reachable, so fitting, promoting and reading an
 /// `OptionAttention` head end to end through the served `Decide` path here
 /// is itself the deployment proof: the resident scorer's own forward pass
-/// is a synchronous, in-process, fixed-point function (EG-DECISION-ENGINE-R090
+/// is a synchronous, in-process, fixed-point function (MEDULLA-DECISION-ENGINE-R090
 /// times its CPU cost directly), never an RPC to a model server, so nothing
 /// in this path could reach a GPU or sidecar even were one present.
-// spec: EG-DECISION-ENGINE-R094
+// spec: MEDULLA-DECISION-ENGINE-R094
 #[tokio::test]
 async fn a_resident_scorer_decision_is_served_with_no_gpu_or_model_server_present() {
     let h = Harness::new().await;
@@ -354,7 +354,7 @@ async fn belief_is_recorded_and_replayed(h: &Harness, record: &StatisticalDecisi
     }
     let mut forged = record.clone();
     forged.belief = BoundedVec::new(vec![forged.belief.as_slice()[1].clone()]).unwrap();
-    forged.record_digest = eg_types::decision::digest::statistical_record_digest(&forged);
+    forged.record_digest = medulla_types::decision::digest::statistical_record_digest(&forged);
     let op = DecisionLogOp::Commit {
         record: Box::new(forged),
         evaluator: None,

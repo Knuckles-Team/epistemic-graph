@@ -1,5 +1,5 @@
 //! Bounded background node-payload scrub (EH-384,
-//! CONCEPT:EG-KG.storage.node-payload-scrub).
+//! CONCEPT:MEDULLA-KG.storage.node-payload-scrub).
 //!
 //! Until EH-290 every graph write commit unsealed every node of its graph as a
 //! side effect of the lane-link check. That made each write O(graph size), and

@@ -40,9 +40,9 @@ mod tests;
 pub use plan::{load_watches, plan_watch, ImpactWatchSpec, WATCH_LABEL};
 
 /// Opt-in graph allowlist (comma-separated exact names). Unset ⇒ disabled.
-pub const IMPACT_ON_WRITE_ENV: &str = "EPISTEMIC_GRAPH_IMPACT_ON_WRITE";
+pub const IMPACT_ON_WRITE_ENV: &str = "MEDULLA_IMPACT_ON_WRITE";
 /// Debounce override, milliseconds.
-pub const IMPACT_DEBOUNCE_ENV: &str = "EPISTEMIC_GRAPH_IMPACT_ON_WRITE_DEBOUNCE_MS";
+pub const IMPACT_DEBOUNCE_ENV: &str = "MEDULLA_IMPACT_ON_WRITE_DEBOUNCE_MS";
 /// The service the watch writes as (principal `service:impact-watch`).
 pub(crate) const WATCH_SERVICE: &str = "impact-watch";
 
@@ -199,7 +199,7 @@ impl ImpactWatchHub {
 /// The changed seeds of `watch`: every seed candidate when a declaration changed
 /// (a new or edited watch recomputes in full), else the changed seed-labelled nodes.
 fn watch_changes(
-    view: &eg_core::graph::GraphView,
+    view: &medulla_core::graph::GraphView,
     watch: &ImpactWatchSpec,
     pending: &Pending,
 ) -> Vec<String> {
@@ -279,7 +279,7 @@ pub(crate) fn service_context(
     Ok(VerifiedRequestContext::from_verified_claims_with_nonce(
         service.claims().clone(),
         format!("{WATCH_SERVICE}:{watch_id}:{as_of_ms}"),
-        Some(eg_types::contract::Nonce::minted()),
+        Some(medulla_types::contract::Nonce::minted()),
     ))
 }
 

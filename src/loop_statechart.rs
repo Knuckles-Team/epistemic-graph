@@ -4,13 +4,13 @@
 //! `StrEnum`, 16 members) has NO durable engine-native home today: the Loop's actual
 //! persisted state is just its backing WorkItem's 8-value `status` plus a free-text
 //! `error_ref` suffix nothing parses back into a real state. This module gives Loop its
-//! FIRST durable state machine, expressed as a plain, reusable [`eg_statechart::StatechartDef`]
+//! FIRST durable state machine, expressed as a plain, reusable [`medulla_statechart::StatechartDef`]
 //! the engine instantiates via the EXISTING `Method::Statechart` wire surface — no new
-//! wire protocol, no change to `eg-statechart` itself. See
+//! wire protocol, no change to `medulla-statechart` itself. See
 //! `reports/w2_5-statechart-migration-design.md` §1 for the full derivation.
 //!
 //! `loop_statechart_def()` is the single source of truth the Rust tests below exercise
-//! directly (via [`eg_statechart::transition`], no server needed); the Python
+//! directly (via [`medulla_statechart::transition`], no server needed); the Python
 //! `agent_utilities` side authors the SAME shape as a plain dict and registers it once
 //! via `client.statechart.define(...)` (see `loops.py`).
 //!
@@ -35,7 +35,7 @@
 //!    `Guard::EventEq` reads the payload. This chart's context is (by the design
 //!    doc's own §1.3 note) always empty, so a `Guard::Ge{key:"fail_count",...}` over an
 //!    EVENT field would be vacuously `false` forever, silently disabling exit 7 (error
-//!    threshold) and exit 2 (turn cap). Rather than widen `eg-statechart`'s guard
+//!    threshold) and exit 2 (turn cap). Rather than widen `medulla-statechart`'s guard
 //!    language (out of scope — the task is to reuse the EXISTING engine), this chart
 //!    has the caller pass the already-computed booleans it already has at the call
 //!    site: `error_threshold_tripped` (`ConsecutiveFailureGuard.record_failure()`'s own
@@ -45,7 +45,7 @@
 //!    payload as a result (the caller already computed the comparison; sending the raw
 //!    numbers too would be dead data).
 //!
-//! Two more corrections, found by `eg_statechart::check::validate`'s reachability
+//! Two more corrections, found by `medulla_statechart::check::validate`'s reachability
 //! check (every declared state must be reachable from `s₀`) failing on the first
 //! draft of this def:
 //!
@@ -78,7 +78,7 @@
 //!   already exhaustively cover every terminal `callee_terminal` value ahead of row 14,
 //!   control only reaches row 14 when `callee_terminal` was already absent/non-terminal.
 
-use eg_statechart::{Action, Guard, State, StatechartDef, Transition};
+use medulla_statechart::{Action, Guard, State, StatechartDef, Transition};
 
 /// The six non-final `LoopStatus` string ids relevant to this chart's states (§1.1).
 /// `paused` is the first-class `awaitingHuman` state (§1.4); `orphaned` is the
@@ -306,9 +306,9 @@ pub fn loop_statechart_def() -> StatechartDef {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_statechart::context::{Context, EventInput};
-    use eg_statechart::instance::Configuration;
-    use eg_statechart::{transition, validate};
+    use medulla_statechart::context::{Context, EventInput};
+    use medulla_statechart::instance::Configuration;
+    use medulla_statechart::{transition, validate};
 
     fn def() -> StatechartDef {
         loop_statechart_def()
@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn definition_is_structurally_valid_and_content_addressed() {
         let d = def();
-        validate(&d).expect("loop statechart must pass eg-statechart's own validator");
+        validate(&d).expect("loop statechart must pass medulla-statechart's own validator");
         assert_eq!(d.def_id(), def().def_id(), "def_id must be deterministic");
         assert_eq!(d.initial, "submitted");
         assert_eq!(d.finals.len(), 10);
@@ -694,7 +694,7 @@ mod tests {
     fn end_to_end_through_the_durable_store_reaches_stalled() {
         let dir = tempfile::tempdir().unwrap();
         let authority = crate::store_authority::process_authority();
-        let store = eg_statechart::StatechartStore::open_in_dir(
+        let store = medulla_statechart::StatechartStore::open_in_dir(
             dir.path(),
             authority.as_ref(),
             authority.principal(),
@@ -725,7 +725,7 @@ mod tests {
             .unwrap();
         assert!(stalled.instance.in_state("stalled"));
         assert!(
-            eg_statechart::instance::InstanceStatus::Final == stalled.instance.status,
+            medulla_statechart::instance::InstanceStatus::Final == stalled.instance.status,
             "reaching a final state marks the instance Final"
         );
     }
@@ -738,7 +738,7 @@ mod tests {
         let d = def();
         let config = Configuration::atomic("submitted");
         let ctx = Context::new();
-        let out = eg_statechart::step(&d, &config, &ctx, &EventInput::new("claim")).unwrap();
+        let out = medulla_statechart::step(&d, &config, &ctx, &EventInput::new("claim")).unwrap();
         assert!(out.fired);
         assert!(out.next.contains("running"));
     }

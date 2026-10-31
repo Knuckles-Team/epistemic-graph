@@ -1,9 +1,9 @@
 use super::*;
 use crate::server::sql_catalog_acl::{create_owned_table, grant, SqlPrivilege};
-use eg_query::{Column, ColumnType, TableSchema};
-use eg_types::acl::RequestContextClaims;
-use eg_types::storage_wire::{SqlSourceCell, SqlSourceJson, SqlSourceText};
-pub(super) use eg_types::test_support::sql_source::{self, change, id, SqlSourceTarget};
+use medulla_query::{Column, ColumnType, TableSchema};
+use medulla_types::acl::RequestContextClaims;
+use medulla_types::storage_wire::{SqlSourceCell, SqlSourceJson, SqlSourceText};
+pub(super) use medulla_types::test_support::sql_source::{self, change, id, SqlSourceTarget};
 
 pub(super) struct Fixture {
     pub(super) directory: PathBuf,

@@ -1,6 +1,6 @@
 use super::*;
 use super::{association::*, classic::*, vector::*};
-use eg_compute::mining::{
+use medulla_compute::mining::{
     anomaly, association::LabeledRule, classify, cluster, reduce, sequence::LabeledPattern,
     subgraph, text,
 };
@@ -70,13 +70,13 @@ impl WritebackNodeId {
 pub(super) const CLAIM_VALIDATION_STATE: &str = "unvalidated";
 
 /// This crate's own build version — the `algo_code_version` leg of the universal
-/// writeback-lineage tuple (CONCEPT:EG-P3-1), mirroring `eg_jobs::AlgoVersion::code_version`'s
+/// writeback-lineage tuple (CONCEPT:MEDULLA-P3-1), mirroring `medulla_jobs::AlgoVersion::code_version`'s
 /// own doc ("the engine build that ran it, e.g. `CARGO_PKG_VERSION`").
 #[cfg(feature = "epistemic")]
 pub(super) const ALGO_CODE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// The runtime/feature-set fingerprint the algorithm ran under (CONCEPT:EG-P3-1) — the
-/// `algo_env_version` leg, mirroring `eg_jobs::AlgoVersion::env_version`'s own doc. Kept
+/// The runtime/feature-set fingerprint the algorithm ran under (CONCEPT:MEDULLA-P3-1) — the
+/// `algo_env_version` leg, mirroring `medulla_jobs::AlgoVersion::env_version`'s own doc. Kept
 /// simple/deterministic-per-build: target OS + architecture.
 #[cfg(feature = "epistemic")]
 pub(super) fn algo_env_version() -> String {
@@ -86,13 +86,13 @@ pub(super) fn algo_env_version() -> String {
 /// Materialize the epistemic quartet (`:Claim` + `:Evidence` + `:Activity` + their
 /// `SUPPORTS`/`GENERATED_BY` edges) for ONE mined finding whose typed node
 /// (`mined_node_id`) was just written back. Beyond the claim/evidence pair (E6), this now
-/// ALSO stamps the universal writeback-lineage tuple (CONCEPT:EG-P3-1): an input-snapshot
+/// ALSO stamps the universal writeback-lineage tuple (CONCEPT:MEDULLA-P3-1): an input-snapshot
 /// handle (the core's OCC `version()` at commit time), algo family/code/env version,
 /// a `calibration` slot (honestly `null` — no calibration signal is computed by the
 /// generic mining path today; a future family-specific caller can populate it),
 /// and `invalidation_deps` — the ids whose change/removal invalidates this claim (the
 /// mined finding + its evidence node; this is also exactly the `SUPPORTS` topology
-/// `eg_epistemic::propagate_confidence` already walks, so a change to either
+/// `medulla_epistemic::propagate_confidence` already walks, so a change to either
 /// automatically reflows through the claim's belief — this property just makes that
 /// dependency set an explicit, directly-queryable list).
 #[cfg(feature = "epistemic")]
@@ -126,7 +126,7 @@ pub(super) fn materialize_claim(
     let _ = writeback_node(core, &evidence_id, &ev_props);
     supports_edge(core, &evidence_id, &claim_id);
 
-    // CONCEPT:EG-P3-1 — the generating Activity (the mining run itself). One per
+    // CONCEPT:MEDULLA-P3-1 — the generating Activity (the mining run itself). One per
     // `(family, provenance)` (idempotent, mirrors `evidence_node_id`'s dedup-by-
     // provenance): re-running the same family+provenance converges on the SAME
     // Activity rather than accumulating a fresh one per call.
@@ -143,7 +143,7 @@ pub(super) fn materialize_claim(
 }
 
 /// The typed `:Claim` + `:Evidence` property objects for one mined finding (EH-194),
-/// carrying the universal writeback-lineage tuple (CONCEPT:EG-P3-1). `None` when either
+/// carrying the universal writeback-lineage tuple (CONCEPT:MEDULLA-P3-1). `None` when either
 /// fails validation (e.g. a non-finite confidence), so neither is written.
 #[cfg(feature = "epistemic")]
 fn claim_nodes(
@@ -154,7 +154,7 @@ fn claim_nodes(
     provenance: &str,
     evidence_id: &str,
 ) -> Option<(serde_json::Value, serde_json::Value)> {
-    use eg_types::epistemic_node::{Claim, Evidence};
+    use medulla_types::epistemic_node::{Claim, Evidence};
 
     let claim = Claim::new(family, mined_node_id, confidence, CLAIM_VALIDATION_STATE)
         .with_invalidation_deps([mined_node_id, evidence_id])
@@ -180,17 +180,17 @@ fn claim_nodes(
 }
 
 /// Write one epistemic `source --SUPPORTS--> target` edge using the canonical `relationship`
-/// property key `eg_epistemic` reads (NOT the `relation` key the structural mining edges
+/// property key `medulla_epistemic` reads (NOT the `relation` key the structural mining edges
 /// use). Both endpoints are freshly resident, so `add_edge` always binds.
 #[cfg(feature = "epistemic")]
 pub(super) fn supports_edge(core: &GraphCore, source: &str, target: &str) {
     writeback_relationship(core, source, target, "SUPPORTS");
 }
 
-/// Write one `claim --GENERATED_BY--> activity` edge (CONCEPT:EG-P3-1) — deliberately
+/// Write one `claim --GENERATED_BY--> activity` edge (CONCEPT:MEDULLA-P3-1) — deliberately
 /// NOT one of `classify_relationship`'s whitelisted values, so `BeliefGraph` ignores it
 /// (epistemically neutral, exactly like the mining handlers' `relation`-keyed structural
-/// edges). `eg-plan`'s `KnowledgeSet::from_rowset` resolves it into
+/// edges). `medulla-plan`'s `KnowledgeSet::from_rowset` resolves it into
 /// `KnowledgeRow::transformation_ids`.
 #[cfg(feature = "epistemic")]
 pub(super) fn generated_by_edge(core: &GraphCore, source: &str, target: &str) {
@@ -211,7 +211,7 @@ pub(super) fn evidence_node_id(family: &str, mined_node_id: &str, provenance: &s
     WritebackNodeId::new("evidence", &[family, mined_node_id, provenance]).into_string()
 }
 
-/// Deterministic `:Activity` node id (CONCEPT:EG-P3-1) — folds in `(family, provenance)`,
+/// Deterministic `:Activity` node id (CONCEPT:MEDULLA-P3-1) — folds in `(family, provenance)`,
 /// so repeated runs over the SAME provenance converge on the SAME generating Activity
 /// (idempotent, mirrors `evidence_node_id`'s dedup-by-provenance).
 #[cfg(feature = "epistemic")]
@@ -391,7 +391,7 @@ pub(super) fn subgraph_provenance(label: &Option<String>) -> String {
 // ratio; `lda`/`umap`/`tsne` have no such score — documented no-op, NOT fabricated).
 // MineText → claims, `lda`/`nmf` ONLY (principled: per-topic mean doc-membership
 // strength among its dominantly-assigned documents — both engines' `doc_topics`
-// are already [0,1] distributions summing to 1, see `eg_compute::mining::text`
+// are already [0,1] distributions summing to 1, see `medulla_compute::mining::text`
 // module docs; `tfidf` has no topics — documented no-op, mirroring `writeback`).
 
 /// Each prediction → a claim. Quality = the row's OWN max class probability
@@ -428,7 +428,7 @@ pub(super) fn classify_provenance(source: &Option<VectorSource>) -> String {
 /// discriminant eigenvalues aren't returned by `reduce::reduce`; UMAP/t-SNE are
 /// approximate neighborhood LAYOUTS with no reconstruction-error analogue). Quality =
 /// the retained EXPLAINED-VARIANCE RATIO `Σ singular_values² / Σ ‖row‖²` — the SAME
-/// Frobenius-energy ratio `eg_compute::mining::reduce`'s own
+/// Frobenius-energy ratio `medulla_compute::mining::reduce`'s own
 /// `truncated_svd_reconstructs_low_rank` test validates against, so it is principled
 /// and requires no extra normalization beyond the final `[0,1]` clamp (guards the
 /// pathological case where retained energy rounds slightly above total due to
@@ -476,7 +476,7 @@ pub(super) fn reduce_provenance(source: &Option<VectorSource>) -> String {
 /// (`mean(doc_topics[d][t])` over docs `d` whose argmax topic is `t`) — a topic-
 /// coherence proxy: both LDA's Dirichlet posterior and NMF's row-normalized `W` are
 /// already `[0,1]` distributions summing to 1 across topics (see
-/// `eg_compute::mining::text` module docs), so this is principled and needs no extra
+/// `medulla_compute::mining::text` module docs), so this is principled and needs no extra
 /// normalization. A topic nobody is dominantly assigned to (can happen for `nmf`,
 /// whose factors are not a hard partition) has no coherence signal — skipped rather
 /// than fabricated.

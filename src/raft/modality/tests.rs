@@ -10,8 +10,8 @@ fn authority_binding() -> (&'static str, &'static str, &'static str) {
 }
 
 fn result() -> Vec<u8> {
-    let outcome = eg_modality::ApplyOutcome {
-        disposition: eg_modality::ApplyDisposition::Applied,
+    let outcome = medulla_modality::ApplyOutcome {
+        disposition: medulla_modality::ApplyDisposition::Applied,
         observation_version: 1,
         event_sequence: 1,
     };
@@ -20,13 +20,13 @@ fn result() -> Vec<u8> {
 
 fn stream_result() -> Vec<u8> {
     let outcomes = vec![
-        eg_modality::ApplyOutcome {
-            disposition: eg_modality::ApplyDisposition::Applied,
+        medulla_modality::ApplyOutcome {
+            disposition: medulla_modality::ApplyDisposition::Applied,
             observation_version: 1,
             event_sequence: 1,
         },
-        eg_modality::ApplyOutcome {
-            disposition: eg_modality::ApplyDisposition::Applied,
+        medulla_modality::ApplyOutcome {
+            disposition: medulla_modality::ApplyDisposition::Applied,
             observation_version: 2,
             event_sequence: 2,
         },
@@ -36,8 +36,8 @@ fn stream_result() -> Vec<u8> {
 
 fn worst_case_stream_result(items: usize) -> Vec<u8> {
     let outcomes = vec![
-        eg_modality::ApplyOutcome {
-            disposition: eg_modality::ApplyDisposition::IdempotentReplay,
+        medulla_modality::ApplyOutcome {
+            disposition: medulla_modality::ApplyDisposition::IdempotentReplay,
             observation_version: u64::MAX,
             event_sequence: u64::MAX,
         };
@@ -46,16 +46,16 @@ fn worst_case_stream_result(items: usize) -> Vec<u8> {
     rmp_serde::to_vec_named(&encode_sanitized_modality_payload(&outcomes).unwrap()).unwrap()
 }
 
-const DOCUMENT_INGEST: (eg_types::ServedModalityKind, SanitizedModalityMutation) = (
-    eg_types::ServedModalityKind::Document,
+const DOCUMENT_INGEST: (medulla_types::ServedModalityKind, SanitizedModalityMutation) = (
+    medulla_types::ServedModalityKind::Document,
     SanitizedModalityMutation::Ingest,
 );
-const DOCUMENT_INGEST_STREAM: (eg_types::ServedModalityKind, SanitizedModalityMutation) = (
-    eg_types::ServedModalityKind::Document,
+const DOCUMENT_INGEST_STREAM: (medulla_types::ServedModalityKind, SanitizedModalityMutation) = (
+    medulla_types::ServedModalityKind::Document,
     SanitizedModalityMutation::IngestStream,
 );
-const AUDIO_DELETE: (eg_types::ServedModalityKind, SanitizedModalityMutation) = (
-    eg_types::ServedModalityKind::Audio,
+const AUDIO_DELETE: (medulla_types::ServedModalityKind, SanitizedModalityMutation) = (
+    medulla_types::ServedModalityKind::Audio,
     SanitizedModalityMutation::Delete,
 );
 
@@ -67,7 +67,7 @@ fn sealed_state(state: &[u8]) -> Vec<u8> {
 /// A sanitized command for `kind` under the fixture secret and authority, the
 /// canonical partition node for its modality, and a fixture receipt.
 fn fixture_command(
-    kind: (eg_types::ServedModalityKind, SanitizedModalityMutation),
+    kind: (medulla_types::ServedModalityKind, SanitizedModalityMutation),
     sealed_runtime_state: Vec<u8>,
     result_msgpack: Vec<u8>,
 ) -> Result<SanitizedModalityRaftCommand, String> {
@@ -198,7 +198,7 @@ fn unsealed_or_forged_replica_state_fails_closed() {
     assert!(fixture_command(AUDIO_DELETE, b"plaintext".to_vec(), result()).is_err());
 
     let video_restore = (
-        eg_types::ServedModalityKind::Video,
+        medulla_types::ServedModalityKind::Video,
         SanitizedModalityMutation::Restore,
     );
     let command = fixture_command(video_restore, sealed_state(b"opaque state"), result()).unwrap();
@@ -266,7 +266,7 @@ fn mutation_batch_audit_and_outbox_retain_only_the_safe_receipt() {
     let source = b"ephemeral source excluded from durable coordination";
     let sealed = sealed_state(source);
     let image_move = (
-        eg_types::ServedModalityKind::Image,
+        medulla_types::ServedModalityKind::Image,
         SanitizedModalityMutation::MoveToCold,
     );
     let command = fixture_command(image_move, sealed.clone(), result()).unwrap();

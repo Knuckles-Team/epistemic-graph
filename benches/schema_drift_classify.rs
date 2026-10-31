@@ -1,4 +1,4 @@
-//! EG-TYPED-PACKS-R712 hot-path receipt: schema-drift classification of a
+//! MEDULLA-TYPED-PACKS-R712 hot-path receipt: schema-drift classification of a
 //! 1,000-field contract.
 //!
 //! Budget (spec): p50 under 0.5 ms, p99 under 3 ms per 1,000-field contract,
@@ -18,11 +18,11 @@
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use eg_types::graph_schema::approval::approved_candidate_digest;
-use eg_types::graph_schema::drift::{
+use medulla_types::graph_schema::approval::approved_candidate_digest;
+use medulla_types::graph_schema::drift::{
     classify, DriftClass, EvolutionPolicy, InferredField, InferredRecordShape,
 };
-use eg_types::graph_schema::repair::{FieldContract, JsonType, RecordContract};
+use medulla_types::graph_schema::repair::{FieldContract, JsonType, RecordContract};
 
 const SOURCE_ID: &str = "approved:drift-bench";
 const FIELDS: usize = 1_000;

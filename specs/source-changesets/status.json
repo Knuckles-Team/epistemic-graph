@@ -1,244 +1,244 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-SCM",
+  "spec_id": "MEDULLA-SCM",
   "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "EG-SCM-R001",
-    "EG-SCM-R002",
-    "EG-SCM-R002.1",
-    "EG-SCM-R003",
-    "EG-SCM-R003.1",
-    "EG-SCM-R004",
-    "EG-SCM-R005",
-    "EG-SCM-R005.1",
-    "EG-SCM-R005.2",
-    "EG-SCM-R005.3",
-    "EG-SCM-R006",
-    "EG-SCM-R007",
-    "EG-SCM-R008",
-    "EG-SCM-R009",
-    "EG-SCM-R010",
-    "EG-SCM-R011",
-    "EG-SCM-R012",
-    "EG-SCM-R013",
-    "EG-SCM-R013.1",
-    "EG-SCM-R013.2",
-    "EG-SCM-R013.3",
-    "EG-SCM-R013.4",
-    "EG-SCM-R013.5",
-    "EG-SCM-R013.6",
-    "EG-SCM-R013.7",
-    "EG-SCM-R014"
+    "MEDULLA-SCM-R001",
+    "MEDULLA-SCM-R002",
+    "MEDULLA-SCM-R002.1",
+    "MEDULLA-SCM-R003",
+    "MEDULLA-SCM-R003.1",
+    "MEDULLA-SCM-R004",
+    "MEDULLA-SCM-R005",
+    "MEDULLA-SCM-R005.1",
+    "MEDULLA-SCM-R005.2",
+    "MEDULLA-SCM-R005.3",
+    "MEDULLA-SCM-R006",
+    "MEDULLA-SCM-R007",
+    "MEDULLA-SCM-R008",
+    "MEDULLA-SCM-R009",
+    "MEDULLA-SCM-R010",
+    "MEDULLA-SCM-R011",
+    "MEDULLA-SCM-R012",
+    "MEDULLA-SCM-R013",
+    "MEDULLA-SCM-R013.1",
+    "MEDULLA-SCM-R013.2",
+    "MEDULLA-SCM-R013.3",
+    "MEDULLA-SCM-R013.4",
+    "MEDULLA-SCM-R013.5",
+    "MEDULLA-SCM-R013.6",
+    "MEDULLA-SCM-R013.7",
+    "MEDULLA-SCM-R014"
   ],
   "requirements": [
     {
-      "id": "EG-SCM-R001",
+      "id": "MEDULLA-SCM-R001",
       "title": "Content-addressed blob store",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R002",
+      "id": "MEDULLA-SCM-R002",
       "title": "Changeset record",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SCM-R002.1"
+        "MEDULLA-SCM-R002.1"
       ]
     },
     {
-      "id": "EG-SCM-R002.1",
+      "id": "MEDULLA-SCM-R002.1",
       "title": "Structured trailers on a changeset",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-types/src/source_changeset.rs:120"
+        "crates/medulla-types/src/source_changeset.rs:120"
       ]
     },
     {
-      "id": "EG-SCM-R003",
+      "id": "MEDULLA-SCM-R003",
       "title": "Path-set acceptance and rebase",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SCM-R003.1"
+        "MEDULLA-SCM-R003.1"
       ]
     },
     {
-      "id": "EG-SCM-R003.1",
+      "id": "MEDULLA-SCM-R003.1",
       "title": "Path-set acceptance calls the shared disjoint check",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R004",
+      "id": "MEDULLA-SCM-R004",
       "title": "Tree materialization by query",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R005",
+      "id": "MEDULLA-SCM-R005",
       "title": "Derived history indexes (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SCM-R005.1",
-        "EG-SCM-R005.2",
-        "EG-SCM-R005.3"
+        "MEDULLA-SCM-R005.1",
+        "MEDULLA-SCM-R005.2",
+        "MEDULLA-SCM-R005.3"
       ]
     },
     {
-      "id": "EG-SCM-R005.1",
+      "id": "MEDULLA-SCM-R005.1",
       "title": "Path history",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R005.2",
+      "id": "MEDULLA-SCM-R005.2",
       "title": "Blame",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R005.3",
+      "id": "MEDULLA-SCM-R005.3",
       "title": "Ancestry skip lists",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R006",
+      "id": "MEDULLA-SCM-R006",
       "title": "Code graph stays live with changesets",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R007",
+      "id": "MEDULLA-SCM-R007",
       "title": "Path-scoped access control",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R008",
+      "id": "MEDULLA-SCM-R008",
       "title": "Gate verdicts are records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R009",
+      "id": "MEDULLA-SCM-R009",
       "title": "Bisect and revert decisions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R010",
+      "id": "MEDULLA-SCM-R010",
       "title": "Git import and export fidelity",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R011",
+      "id": "MEDULLA-SCM-R011",
       "title": "Simulation harness",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R012",
+      "id": "MEDULLA-SCM-R012",
       "title": "Agent principals and run provenance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R013",
+      "id": "MEDULLA-SCM-R013",
       "title": "Graph-native code edits (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-SCM-R013.1",
-        "EG-SCM-R013.2",
-        "EG-SCM-R013.3",
-        "EG-SCM-R013.4",
-        "EG-SCM-R013.5",
-        "EG-SCM-R013.6",
-        "EG-SCM-R013.7"
+        "MEDULLA-SCM-R013.1",
+        "MEDULLA-SCM-R013.2",
+        "MEDULLA-SCM-R013.3",
+        "MEDULLA-SCM-R013.4",
+        "MEDULLA-SCM-R013.5",
+        "MEDULLA-SCM-R013.6",
+        "MEDULLA-SCM-R013.7"
       ]
     },
     {
-      "id": "EG-SCM-R013.1",
+      "id": "MEDULLA-SCM-R013.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "34a85d665c7d"
       ],
       "verified_by": [
-        "crates/eg-types/tests/source_symbol_edit.rs:5"
+        "crates/medulla-types/tests/source_symbol_edit.rs:5"
       ]
     },
     {
-      "id": "EG-SCM-R013.2",
+      "id": "MEDULLA-SCM-R013.2",
       "title": "Projection",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "2f7d398abd14"
       ],
       "verified_by": [
-        "crates/eg-compute/tests/source_symbol_edit.rs:95"
+        "crates/medulla-compute/tests/source_symbol_edit.rs:95"
       ]
     },
     {
-      "id": "EG-SCM-R013.3",
+      "id": "MEDULLA-SCM-R013.3",
       "title": "Round-trip check",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R013.4",
+      "id": "MEDULLA-SCM-R013.4",
       "title": "Wiring: SubmitSymbolEdit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R013.5",
+      "id": "MEDULLA-SCM-R013.5",
       "title": "Refusals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R013.6",
+      "id": "MEDULLA-SCM-R013.6",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R013.7",
+      "id": "MEDULLA-SCM-R013.7",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-SCM-R014",
+      "id": "MEDULLA-SCM-R014",
       "title": "Served git export of wants and haves",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

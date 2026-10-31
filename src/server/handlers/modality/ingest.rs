@@ -1,18 +1,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use eg_audio::runtime::NativeAudioRuntime;
-use eg_audio::{AudioData, AudioSegment};
-use eg_document::runtime::NativeDocumentRuntime;
-use eg_document::DocumentData;
-use eg_image::runtime::NativeImageRuntime;
-use eg_image::{ImageData, ImageRegion};
-use eg_modality::{
+use medulla_audio::runtime::NativeAudioRuntime;
+use medulla_audio::{AudioData, AudioSegment};
+use medulla_document::runtime::NativeDocumentRuntime;
+use medulla_document::DocumentData;
+use medulla_image::runtime::NativeImageRuntime;
+use medulla_image::{ImageData, ImageRegion};
+use medulla_modality::{
     ApplyOutcome, ArtifactBundle, EvidenceAddress, GovernedModality, OccurrenceId, OpaqueRef,
     ServedIngest, ServedModalityRuntime,
 };
-use eg_types::{ServedModalityIngestItem, ServedModalityKind};
-use eg_video::runtime::NativeVideoRuntime;
-use eg_video::{VideoData, VideoShot};
+use medulla_types::{ServedModalityIngestItem, ServedModalityKind};
+use medulla_video::runtime::NativeVideoRuntime;
+use medulla_video::{VideoData, VideoShot};
 
 use super::{
     capture_befores, load_runtime, shadow_write_deltas, store_runtime_excluding_sources,
@@ -116,9 +116,9 @@ impl DecodedIngest {
         authority: &ModalityAuthority,
     ) -> Result<Self, String> {
         validate_request_sizes(&item.bundle_msgpack, &item.source_bytes)?;
-        let bundle: ArtifactBundle = eg_types::msgpack::decode_bounded(
+        let bundle: ArtifactBundle = medulla_types::msgpack::decode_bounded(
             &item.bundle_msgpack,
-            eg_types::msgpack::MsgpackLimits::new(super::HARD_MAX_BUNDLE_BYTES, 250_000, 64),
+            medulla_types::msgpack::MsgpackLimits::new(super::HARD_MAX_BUNDLE_BYTES, 250_000, 64),
         )
         .map_err(|_| "invalid governed modality bundle".to_string())?;
         bundle
@@ -128,10 +128,10 @@ impl DecodedIngest {
         let idempotency = super::opaque(item.idempotency_ref)?;
         let target_resources = ResourceClosure::resolve(&bundle, &target)?;
         let content_hash = match modality {
-            ServedModalityKind::Document => eg_document::content_hash(&item.source_bytes),
-            ServedModalityKind::Image => eg_image::content_hash(&item.source_bytes),
-            ServedModalityKind::Audio => eg_audio::content_hash(&item.source_bytes),
-            ServedModalityKind::Video => eg_video::content_hash(&item.source_bytes),
+            ServedModalityKind::Document => medulla_document::content_hash(&item.source_bytes),
+            ServedModalityKind::Image => medulla_image::content_hash(&item.source_bytes),
+            ServedModalityKind::Audio => medulla_audio::content_hash(&item.source_bytes),
+            ServedModalityKind::Video => medulla_video::content_hash(&item.source_bytes),
         };
         validate_content_binding(&bundle, &target, modality, &content_hash, authority)?;
         Ok(Self {
