@@ -239,7 +239,5 @@ class KvCacheConfig:
             ca_directory=_first_env("SSL_CERT_DIR"),
             client_cert=_first_env("MEDULLA_KVCACHE_CLIENT_CERT"),
             client_key=_first_env("MEDULLA_KVCACHE_CLIENT_KEY"),
-            client_key_password=_first_env(
-                "MEDULLA_KVCACHE_CLIENT_KEY_PASSWORD"
-            ),
+            client_key_password=_first_env("MEDULLA_KVCACHE_CLIENT_KEY_PASSWORD"),
         )

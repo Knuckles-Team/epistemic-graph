@@ -520,7 +520,8 @@ def main() -> None:
     check_protocol(protocol_source(), tree("crates/medulla-types/src/wire.rs"))
     check_query_contract(
         read("crates/medulla-query/src/tables/schema.rs"),
-        tree("crates/medulla-query/src/sql/mod.rs") + read("crates/medulla-query/src/lib.rs"),
+        tree("crates/medulla-query/src/sql/mod.rs")
+        + read("crates/medulla-query/src/lib.rs"),
         tree("crates/medulla-plan/src/exec.rs")
         + tree("crates/medulla-plan/src/federation_opt/mod.rs"),
     )

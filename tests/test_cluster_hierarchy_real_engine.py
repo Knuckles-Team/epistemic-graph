@@ -28,9 +28,7 @@ TENANT = "viz1_cluster_hierarchy_e2e"
 
 @pytest.mark.asyncio
 async def test_refresh_list_and_expand_round_trip() -> None:
-    socket_path = os.environ.get(
-        "GRAPH_SERVICE_SOCKET", "/tmp/test_medulla_local.sock"
-    )
+    socket_path = os.environ.get("GRAPH_SERVICE_SOCKET", "/tmp/test_medulla_local.sock")
     secret = os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "test-medulla-secret")
     client = await MedullaClient.connect(
         socket_path=socket_path,

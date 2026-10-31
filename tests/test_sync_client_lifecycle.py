@@ -119,9 +119,7 @@ def test_failed_sync_connect_releases_its_loop_resources(monkeypatch) -> None:
         original_stop(loop, thread)
         stopped.append((loop, thread))
 
-    monkeypatch.setattr(
-        SyncMedullaClient, "_stop_loop", staticmethod(track_stop)
-    )
+    monkeypatch.setattr(SyncMedullaClient, "_stop_loop", staticmethod(track_stop))
 
     for attempt in range(32):
         with pytest.raises(ConnectionError, match="engine unavailable"):

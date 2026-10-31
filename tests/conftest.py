@@ -160,12 +160,8 @@ def find_server_binary() -> str | None:
     candidates = []
     target_dir_env = os.environ.get("CARGO_TARGET_DIR")
     if target_dir_env:
-        candidates.append(
-            os.path.join(target_dir_env, "release", "medulla-server")
-        )
-        candidates.append(
-            os.path.join(target_dir_env, "debug", "medulla-server")
-        )
+        candidates.append(os.path.join(target_dir_env, "release", "medulla-server"))
+        candidates.append(os.path.join(target_dir_env, "debug", "medulla-server"))
     candidates += [
         os.path.join(root, "target-isolated", "release", "medulla-server"),
         os.path.join(root, "target-isolated", "debug", "medulla-server"),
@@ -387,9 +383,7 @@ def start_medulla_server(request, tmp_path_factory):
     # clobbering it.
     server_env.setdefault(
         "MEDULLA_ENCRYPTION_KEY",
-        os.environ.get(
-            "MEDULLA_ENCRYPTION_KEY", "test-medulla-encryption-key"
-        ),
+        os.environ.get("MEDULLA_ENCRYPTION_KEY", "test-medulla-encryption-key"),
     )
 
     if os.path.exists(socket_path):

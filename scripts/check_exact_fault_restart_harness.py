@@ -372,7 +372,9 @@ def _check_store_contract() -> list[str]:
         if relative == "crates/medulla-core/src/rbac_persist.rs":
             # The actual write path lives in this declared submodule, not the
             # rbac_persist.rs facade itself.
-            source += "\n" + _read("crates/medulla-core/src/rbac_persist/durable_write.rs")
+            source += "\n" + _read(
+                "crates/medulla-core/src/rbac_persist/durable_write.rs"
+            )
         if "MutationKernel" not in source:
             errors.append(f"{relative}: does not hold a native MutationKernel")
         if not _MUTATION_KERNEL_FINISH_CALL.search(source):

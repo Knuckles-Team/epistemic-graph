@@ -67,7 +67,9 @@ def test_wire_method_features_move_in_lockstep_with_the_facade() -> None:
         for name, values in caps["features"].items()
         if values == [f"medulla-types/{name}"]
     }
-    assert mirrored, "medulla-capabilities must mirror Method-gating medulla-types features"
+    assert mirrored, (
+        "medulla-capabilities must mirror Method-gating medulla-types features"
+    )
     for name in mirrored:
         facades = [
             key
