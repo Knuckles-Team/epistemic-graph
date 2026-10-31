@@ -782,6 +782,13 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::BrokerNackTag { .. }
         | Method::BrokerRenewTag { .. } => owner_domain(method)
             .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
+        // `Method::Quantum`/`Method::Asr` exist whenever ANY crate in the build turns on
+        // `medulla-types/quantum`/`asr-native` (cargo feature unification: e.g.
+        // `wire-complete` under `cargo check --workspace`), independent of this crate's
+        // own `quantum-agent-api`/`asr-whisper` features that gate the named arms above.
+        // This arm covers exactly that case and is unreachable otherwise.
+        #[allow(unreachable_patterns)]
+        _ => default_mutation_domain(surface),
     }
 }
 
