@@ -161,7 +161,7 @@ metrics = ["medulla-kernel/metrics", "dep:prometheus", "medulla-types/metrics"]
 # `#[cfg(feature = "otel")]`; the default `full` artifact enables the feature while
 # an explicitly slim, no-default-feature build can omit it. Implies `server` because
 # subscriber initialization lives in the served process.
-otel = ["medulla-kernel/otel", 
+otel = ["medulla-kernel/otel",
     "dep:opentelemetry",
     "dep:opentelemetry_sdk",
     "dep:opentelemetry-otlp",
@@ -208,7 +208,7 @@ reasoning = ["medulla-kernel/reasoning", "medulla-compute/reasoning"]
 # `as_claim` unset the write-back is byte-identical, and a build without `query` simply lacks
 # the E2 plan ops (the E6 mining write-back is unaffected either way). The default
 # `full` artifact enables this feature.
-epistemic = ["medulla-kernel/epistemic", 
+epistemic = ["medulla-kernel/epistemic",
     "query",
     "dep:medulla-epistemic",
     "medulla-types/epistemic",
@@ -498,7 +498,7 @@ durable = ["dep:medulla-durable"]
 # Concrete governed document/image/audio/video service. The dependency-light native
 # decoders feed the shared ServedModalityRuntime; graph snapshots and the universal
 # MutationBatch gateway provide the authoritative restart/idempotency boundary.
-modality-serving = ["medulla-kernel/modality-serving", 
+modality-serving = ["medulla-kernel/modality-serving",
     "server", "redb", "security", "streaming",
     "dep:medulla-modality",
     "dep:medulla-document", "medulla-document/serving",
@@ -528,7 +528,7 @@ asr-whisper = ["server", "dep:medulla-asr-whisper", "medulla-audio/asr", "medull
 query = ["medulla-kernel/query", "redb", "dep:medulla-query", "medulla-query/sql", "dep:medulla-plan", "medulla-plan/query", "medulla-types/query", "medulla-tsdb?/arrow-seg"]
 # The one native streaming query/job result currency. Every served family adapts to
 # governed, bounded KnowledgeBatch envelopes with stable Arrow schemas.
-knowledge-batch = ["medulla-kernel/knowledge-batch", 
+knowledge-batch = ["medulla-kernel/knowledge-batch",
     "query",
     "dep:medulla-plan",
     "dep:medulla-modality",
@@ -771,7 +771,7 @@ cost = ["server", "medulla-types/cost"]
 # committed log entry applies through the same PersistenceBackend/GraphCore path.
 # Activates only when built `--features raft` AND configured at runtime
 # (MEDULLA_RAFT_NODE_ID + MEDULLA_RAFT_PEERS); off → single-node.
-raft = ["medulla-kernel/raft", 
+raft = ["medulla-kernel/raft",
     "server",
     "redb",
     "dep:openraft",
@@ -898,7 +898,7 @@ sqlite-wire = ["query", "server"]
 # "a spec-correct pure-Rust writer is infeasible" blocker; proved by a real-`sqlite3`
 # `PRAGMA integrity_check` differential test). Needs `query` (the TableStore) + `server`
 # (the dispatch handler); `medulla-types/sqlite-file` gates the two `Method` variants.
-sqlite-file = ["medulla-kernel/sqlite-file", 
+sqlite-file = ["medulla-kernel/sqlite-file",
     "query",
     "server",
     "dep:medulla-sqlite-format",

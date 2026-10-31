@@ -105,7 +105,8 @@ def pair_factory(embedded_persist_dir):
 
     BUG-PE-022 (fixed here): the previous shape built a SEPARATE
     `EmbeddedTransport`/native `Engine` per agent_id, all pointed at the same
-    `embedded_persist_dir`. That cannot work: `crates/medulla-kernel/src/persist_lock.rs`'s
+    `embedded_persist_dir`. That cannot work:
+    `crates/medulla-kernel/src/persist_lock.rs`'s
     advisory flock is scoped to the OS open-file-description, not the
     process, so a second same-process `Engine(persist_dir=...)` open of one
     `persist_dir` is denied outright (confirmed by the Rust lane's
