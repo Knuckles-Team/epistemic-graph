@@ -221,6 +221,9 @@ impl Shard {
     /// census, so the hand-written `initialize_canonical_tables` bootstrap the
     /// raw path needed is not repeated here.
     pub(crate) fn open(path: &Path) -> Result<Self, String> {
+        // MEDULLA-OBJECT-STORAGE-BACKEND-R001: the graph is opened from its declared
+        // backend spec; an unbound or unsupported spec refuses before any effect.
+        admit_backend_setting(std::env::var("MEDULLA_STORAGE_BACKEND").ok().as_deref())?;
         let (kernel, mutations, control) = open_kernel_owned_store::<GraphShardOwner>(
             path,
             SHARD_PHYSICAL_STORE,
@@ -1189,6 +1192,21 @@ pub(crate) fn bind_scope<D: OwnerDomain>(
         &authority.proof(),
     )?;
     kernel.bind_serving_scope(grant, 0).map(Arc::new)
+}
+
+/// Parse and admit the `MEDULLA_STORAGE_BACKEND` setting: unset or `local` is the
+/// redb default; anything else is a JSON [`StorageBackendSpec`]. Refusals are
+/// typed and name their reason; `object_store` is `Unsupported` until the
+/// object-store open path lands (MEDULLA-OBJECT-STORAGE-BACKEND-R002).
+pub(crate) fn admit_backend_setting(setting: Option<&str>) -> Result<(), String> {
+    use medulla_storage::StorageBackendSpec;
+    let spec = match setting.map(str::trim) {
+        None | Some("") | Some("local") => StorageBackendSpec::default(),
+        Some(json) => serde_json::from_str::<StorageBackendSpec>(json)
+            .map_err(|e| format!("storage_backend_unknown_variant: {e}"))?,
+    };
+    spec.admit()
+        .map_err(|r| format!("storage_backend_refused: {r:?}"))
 }
 
 /// The bootstrap sequence shared by every kernel-owned store this crate opens:
@@ -2247,5 +2265,20 @@ mod tests {
         // same way and apply the chunks in the same order.
         assert_eq!(chunks.concat(), graphs);
         assert!(chunk_graphs::<usize>(&[]).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod backend_setting_tests {
+    use super::admit_backend_setting;
+
+    #[test]
+    fn backend_setting_local_default_and_typed_refusals() {
+        assert!(admit_backend_setting(None).is_ok());
+        assert!(admit_backend_setting(Some("local")).is_ok());
+        let unknown = admit_backend_setting(Some(r#"{"variant":"tape"}"#)).unwrap_err();
+        assert!(unknown.starts_with("storage_backend_unknown_variant"));
+        let unbound = admit_backend_setting(Some(r#"{"variant":"object_store"}"#)).unwrap_err();
+        assert!(unbound.contains("MissingSecretRef"), "{unbound}");
     }
 }
