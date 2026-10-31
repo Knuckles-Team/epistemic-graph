@@ -51,27 +51,27 @@ Medulla is one engine with one server executable. Every spec belongs to one subs
 
 | Subsystem | Specs | Owns | Production entry points |
 |---|---|---|---|
-| Durable kernel | `EG-DURABLE-KERNEL`, `EG-OBJECT-STORAGE-BACKEND`, `EG-ENGINE-PARITY` | Storage, transactions, group commit, shards, outbox and change capture, leases, scheduler config, wire listeners | Mutation gateway, shard writer, dispatch, wire listeners |
-| Identity and placement | `EG-IDENTITY`, `EG-PLACEMENT` | Issuers, scopes, visibility and sharing, worker admission, placement | Request boundary, worker admission |
-| Ingest | `EG-INGEST-WORKER`, `EG-REPO-INGEST`, `EG-SCM`, `EG-BRANCH-MERGE` | Ingest lanes and queues, repository indexing, changesets, merges | Ingest worker loop, `SourceIngest`, repository index |
-| Sources | `EG-UNIFIED-DATA-PLANE`, `EG-SRC-AUTH` | Attached sources read as virtual graphs, source authority and abstention | Virtual SPARQL, `UnifiedQuery` |
-| Query and reasoning | `EG-FEDERATED-QUERY` | UQL, SPARQL, natural language, retrieval, expansion, reasoning | `UnifiedQuery`, `Discover`, SPARQL handlers |
-| Ontology and packs | `EG-TYPED-PACKS`, `EG-DATAPLAT-VOCAB`, `EG-MEDIA-VOCAB`, `EG-SUPPLY-VOCAB`, `EG-ORCH-VOCAB` | Typed packs, the catalog, ontology modules and shapes | `ConnectorPack.Import`, schema sources |
-| Decisions and self-evolution | `EG-DECISION-ENGINE`, `EG-SDLC` | The decision pipeline, fitted heads, knobs, the revision lifecycle, lifecycle records | `Decide`, `AgentAssemble`, `DecisionCommit`, `DecisionLog`, decision jobs |
-| Finance | `EG-FINANCE-PRIMITIVES` | Market data primitives, kernels, backtests, risk and signals | Finance numeric kernels, series operators in UQL |
-| Competency | `EG-CQ-CONN`, `EG-CQ-XSRC`, `EG-CQ-ORCH` | The questions the ontology must answer | The served query path only |
-| Contract | `EG-CONTRACT` | The public engine contract, gates and release proof | The server executable and client |
+| Durable kernel | `MEDULLA-DURABLE-KERNEL`, `MEDULLA-OBJECT-STORAGE-BACKEND`, `MEDULLA-ENGINE-PARITY` | Storage, transactions, group commit, shards, outbox and change capture, leases, scheduler config, wire listeners | Mutation gateway, shard writer, dispatch, wire listeners |
+| Identity and placement | `MEDULLA-IDENTITY`, `MEDULLA-PLACEMENT` | Issuers, scopes, visibility and sharing, worker admission, placement | Request boundary, worker admission |
+| Ingest | `MEDULLA-INGEST-WORKER`, `MEDULLA-REPO-INGEST`, `MEDULLA-SCM`, `MEDULLA-BRANCH-MERGE` | Ingest lanes and queues, repository indexing, changesets, merges | Ingest worker loop, `SourceIngest`, repository index |
+| Sources | `MEDULLA-UNIFIED-DATA-PLANE`, `MEDULLA-SRC-AUTH` | Attached sources read as virtual graphs, source authority and abstention | Virtual SPARQL, `UnifiedQuery` |
+| Query and reasoning | `MEDULLA-FEDERATED-QUERY` | UQL, SPARQL, natural language, retrieval, expansion, reasoning | `UnifiedQuery`, `Discover`, SPARQL handlers |
+| Ontology and packs | `MEDULLA-TYPED-PACKS`, `MEDULLA-DATAPLAT-VOCAB`, `MEDULLA-MEDIA-VOCAB`, `MEDULLA-SUPPLY-VOCAB`, `MEDULLA-ORCH-VOCAB` | Typed packs, the catalog, ontology modules and shapes | `ConnectorPack.Import`, schema sources |
+| Decisions and self-evolution | `MEDULLA-DECISION-ENGINE`, `MEDULLA-SDLC` | The decision pipeline, fitted heads, knobs, the revision lifecycle, lifecycle records | `Decide`, `AgentAssemble`, `DecisionCommit`, `DecisionLog`, decision jobs |
+| Finance | `MEDULLA-FINANCE-PRIMITIVES` | Market data primitives, kernels, backtests, risk and signals | Finance numeric kernels, series operators in UQL |
+| Competency | `MEDULLA-CQ-CONN`, `MEDULLA-CQ-XSRC`, `MEDULLA-CQ-ORCH` | The questions the ontology must answer | The served query path only |
+| Contract | `MEDULLA-CONTRACT` | The public engine contract, gates and release proof | The server executable and client |
 
 ## Cross-spec rules
 
 1. **Integration-first proof.** The decision-engine proof standard applies to every spec (`decision-engine/test-spec.md`, "Integration proof standard"). A behaviour row is VERIFIED only by a test through a production entry point. A competency row is VERIFIED only when the served query path answers the question from engine-produced facts. A hand-written fixture graph does not prove it.
-2. **Reachability.** The reachability gate (EG-CONTRACT-R055) covers every crate the server depends on. A crate that the server does not depend on must be wired in or deleted.
+2. **Reachability.** The reachability gate (MEDULLA-CONTRACT-R055) covers every crate the server depends on. A crate that the server does not depend on must be wired in or deleted.
 3. **Both sides declared.** A cross-spec contract has a provider row and a consumer row. Each names the other by ID. One spec never edits another spec's rows; it adds a consumer row in its own spec.
 4. **One owner per concept.** A type, store, method or rule has one owning row. Other specs reference that row.
 5. **One engine.** Medulla keeps no synced second database. An external store is a connector source read as a virtual graph. A copy is allowed only as a watermark-bound cache.
 6. **Packs roll up to the core.** Every pack class extends a core class through `rdfs:subClassOf`. A pack never imports the core ontology.
-7. **Knobs.** Every tunable value is a named knob in the knob registry (EG-DECISION-ENGINE-R179), with a default, bounds and a unit. Any subsystem may declare knobs. Safety and gate knobs are `Fixed`.
-8. **One revision lifecycle.** Fitted heads, programs, prompts, skills, harness components, adoptions and knob sets share the EG-DECISION-ENGINE-R805 lifecycle.
+7. **Knobs.** Every tunable value is a named knob in the knob registry (MEDULLA-DECISION-ENGINE-R179), with a default, bounds and a unit. Any subsystem may declare knobs. Safety and gate knobs are `Fixed`.
+8. **One revision lifecycle.** Fitted heads, programs, prompts, skills, harness components, adoptions and knob sets share the MEDULLA-DECISION-ENGINE-R805 lifecycle.
 
 ## Cross-spec decisions (2026-10-30)
 
@@ -79,26 +79,26 @@ The 2026-10-30 review graded every open row in every spec. Each spec's `evidence
 
 | Concept | Owner | Other rows |
 |---|---|---|
-| Scheduler config, worker registry, leases | `EG-DURABLE-KERNEL-R074`, `R076`, `R075` | `EG-INGEST-WORKER-R604.1`, `R604.2`, `R001.10` reference them |
-| Worker admission and grants | `EG-PLACEMENT-R002`, served through `EG-DURABLE-KERNEL-R075` | `EG-INGEST-WORKER` consumes |
-| Group commit, partitions, change capture, SQL compatibility matrix | `EG-DURABLE-KERNEL` (`R040`, `R099`, `R002`, `R035.1`) | `EG-ENGINE-PARITY-R001`, `R003`, `R009`, `R015` extend them |
-| Bitemporal stamps | `EG-DURABLE-KERNEL-R078`–`R081` | `R609` keeps the types only |
-| Governed edit ledger | `EG-DURABLE-KERNEL-R027.1` | `EG-TYPED-PACKS-R651` references it |
-| Visibility, sharing and markings | `EG-IDENTITY-R610` (one sharing enum) | `EG-PLACEMENT-R023`, `EG-TYPED-PACKS-R652` reference it |
-| Re-embedding | One executor, `semantic_index/worker.rs` (`EG-FEDERATED-QUERY-R039.2`) | `EG-REPO-INGEST-R006.2`, `EG-FEDERATED-QUERY-R040.5`, `R077.3` reference it |
-| Query expansion | `EG-FEDERATED-QUERY-R651` | `R090`, `R058.4` consume it |
-| Retrieval failure verdict | `EG-FEDERATED-QUERY-R089` | `R655.1`–`R655.3` retire |
-| Dead letter | `EG-REPO-INGEST-R002.650` | ingest rows reference it |
-| Source authority vocabulary and abstention | `EG-SRC-AUTH-R001`, `R002`, `R006` | `EG-CQ-XSRC-R001`, `R006.3` reference them |
-| Workflow, agent and prompt types | `EG-ORCH-VOCAB-R800.1` | `R616.1`, `EG-CQ-ORCH-R700.1` retire |
-| Revision subjects (harness components, adoptions, teams) | `EG-DECISION-ENGINE-R805` | `EG-ORCH-VOCAB-R801`, `R802`, `R003.8` become subject kinds |
-| Order revision chain | `EG-FINANCE-PRIMITIVES-R015.1` | `R751` retires |
-| Finance kernels | `eg-numeric`, with the finance aliases deleted in the same release | `R750` retires |
-| Misfiled durable-kernel families | Finance rows (`R057.1`, `R092`, `R093`) move to finance. Reasoners (`R097`, `R098`) move to query. Changeset review (`R087`) moves to `EG-SCM`. Corrections and step verdicts (`R088`, `R089`) move to decisions. Schema import (`R090`) moves to packs. The policy source (`R091`) moves to `EG-SRC-AUTH`. The inbox (`R095`) moves to arbora. The CI gate (`R011`) moves to pipelines. | Each moves with its tests |
-| Second databases | Retire the mirror sinks (`EG-UNIFIED-DATA-PLANE-R002.3`, `EG-DURABLE-KERNEL-R024` mirror driver) and the companion extension (`R025`). The shared relational stack (`R023`) moves to the service stacks. WAL tailing (`R015`) becomes a connector change source. Row copy (`R038`) stays a watermark-bound cache. | `EG-ENGINE-PARITY-R018` columnar copy retires |
-| Pack imports | `EG-TYPED-PACKS-R105` refuses a core import; a codemod rewrites the 40 modules that import the core | `R105.1`, `R105.2` drop the import edge |
+| Scheduler config, worker registry, leases | `MEDULLA-DURABLE-KERNEL-R074`, `R076`, `R075` | `MEDULLA-INGEST-WORKER-R604.1`, `R604.2`, `R001.10` reference them |
+| Worker admission and grants | `MEDULLA-PLACEMENT-R002`, served through `MEDULLA-DURABLE-KERNEL-R075` | `MEDULLA-INGEST-WORKER` consumes |
+| Group commit, partitions, change capture, SQL compatibility matrix | `MEDULLA-DURABLE-KERNEL` (`R040`, `R099`, `R002`, `R035.1`) | `MEDULLA-ENGINE-PARITY-R001`, `R003`, `R009`, `R015` extend them |
+| Bitemporal stamps | `MEDULLA-DURABLE-KERNEL-R078`–`R081` | `R609` keeps the types only |
+| Governed edit ledger | `MEDULLA-DURABLE-KERNEL-R027.1` | `MEDULLA-TYPED-PACKS-R651` references it |
+| Visibility, sharing and markings | `MEDULLA-IDENTITY-R610` (one sharing enum) | `MEDULLA-PLACEMENT-R023`, `MEDULLA-TYPED-PACKS-R652` reference it |
+| Re-embedding | One executor, `semantic_index/worker.rs` (`MEDULLA-FEDERATED-QUERY-R039.2`) | `MEDULLA-REPO-INGEST-R006.2`, `MEDULLA-FEDERATED-QUERY-R040.5`, `R077.3` reference it |
+| Query expansion | `MEDULLA-FEDERATED-QUERY-R651` | `R090`, `R058.4` consume it |
+| Retrieval failure verdict | `MEDULLA-FEDERATED-QUERY-R089` | `R655.1`–`R655.3` retire |
+| Dead letter | `MEDULLA-REPO-INGEST-R002.650` | ingest rows reference it |
+| Source authority vocabulary and abstention | `MEDULLA-SRC-AUTH-R001`, `R002`, `R006` | `MEDULLA-CQ-XSRC-R001`, `R006.3` reference them |
+| Workflow, agent and prompt types | `MEDULLA-ORCH-VOCAB-R800.1` | `R616.1`, `MEDULLA-CQ-ORCH-R700.1` retire |
+| Revision subjects (harness components, adoptions, teams) | `MEDULLA-DECISION-ENGINE-R805` | `MEDULLA-ORCH-VOCAB-R801`, `R802`, `R003.8` become subject kinds |
+| Order revision chain | `MEDULLA-FINANCE-PRIMITIVES-R015.1` | `R751` retires |
+| Finance kernels | `medulla-numeric`, with the finance aliases deleted in the same release | `R750` retires |
+| Misfiled durable-kernel families | Finance rows (`R057.1`, `R092`, `R093`) move to finance. Reasoners (`R097`, `R098`) move to query. Changeset review (`R087`) moves to `MEDULLA-SCM`. Corrections and step verdicts (`R088`, `R089`) move to decisions. Schema import (`R090`) moves to packs. The policy source (`R091`) moves to `MEDULLA-SRC-AUTH`. The inbox (`R095`) moves to arbora. The CI gate (`R011`) moves to pipelines. | Each moves with its tests |
+| Second databases | Retire the mirror sinks (`MEDULLA-UNIFIED-DATA-PLANE-R002.3`, `MEDULLA-DURABLE-KERNEL-R024` mirror driver) and the companion extension (`R025`). The shared relational stack (`R023`) moves to the service stacks. WAL tailing (`R015`) becomes a connector change source. Row copy (`R038`) stays a watermark-bound cache. | `MEDULLA-ENGINE-PARITY-R018` columnar copy retires |
+| Pack imports | `MEDULLA-TYPED-PACKS-R105` refuses a core import; a codemod rewrites the 40 modules that import the core | `R105.1`, `R105.2` drop the import edge |
 | Competency acceptance | One table-driven served test per competency spec | The per-connector `.3` acceptance rows collapse into it |
-| Unwired crates | `eg-durable` and `eg-enrich` join the server dependency graph | Their specs bind through served paths |
+| Unwired crates | `medulla-durable` and `medulla-enrich` join the server dependency graph | Their specs bind through served paths |
 
 ## Contributions
 
@@ -108,7 +108,7 @@ dedicated branch or worktree. Link the PR to spec IDs and update evidence and st
 corresponding gates actually pass. Use the [universal-skills spec-generator](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/spec-generator),
 [spec-verifier](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/spec-verifier),
 and [task-planner](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/task-planner)
-and this repository's `epistemic-graph-development`
+and this repository's `medulla-development`
 bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development-workflows/sdd-full-lifecycle) workflow.
 
 ## Local specifications

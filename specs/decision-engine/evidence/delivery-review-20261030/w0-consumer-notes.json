@@ -2,428 +2,428 @@
  "method": "In-run harness obligations removed from medulla rows (ecosystem boundary: the harness applies a received decision). Each names the medulla row whose decision the harness receives. Each note is filed as a Meristem row (Knuckles-Team/meristem#413).",
  "consumer_notes": [
   {
-   "row": "EG-DECISION-ENGINE-R014.100",
-   "note": "AU-HARNESS-R009: the harness adapter runs and records execution cost into the R801 usage ledger; receives EG-DECISION-ENGINE-R014.100",
+   "row": "MEDULLA-DECISION-ENGINE-R014.100",
+   "note": "MERISTEM-HARNESS-R009: the harness adapter runs and records execution cost into the R801 usage ledger; receives MEDULLA-DECISION-ENGINE-R014.100",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R003.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R020.1",
-   "note": "AU-HARNESS-R022.1: the harness records each run outcome through DecisionLog Evaluate so matched history exists; receives EG-DECISION-ENGINE-R020.1",
+   "row": "MEDULLA-DECISION-ENGINE-R020.1",
+   "note": "MERISTEM-HARNESS-R022.1: the harness records each run outcome through DecisionLog Evaluate so matched history exists; receives MEDULLA-DECISION-ENGINE-R020.1",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R004.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R029.2",
-   "note": "AU-CONTEXT-R004: the harness compiles context from the selected partition only and preserves source ids; receives EG-DECISION-ENGINE-R029.2",
+   "row": "MEDULLA-DECISION-ENGINE-R029.2",
+   "note": "MERISTEM-CONTEXT-R004: the harness compiles context from the selected partition only and preserves source ids; receives MEDULLA-DECISION-ENGINE-R029.2",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R005.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R029.100",
-   "note": "PIPE:22 source: the harness loads the immutable command file, validates its schema and compares the mode digest with the record before use; receives EG-DECISION-ENGINE-R029.100",
+   "row": "MEDULLA-DECISION-ENGINE-R029.100",
+   "note": "PIPE:22 source: the harness loads the immutable command file, validates its schema and compares the mode digest with the record before use; receives MEDULLA-DECISION-ENGINE-R029.100",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R005.2"
   },
   {
-   "row": "EG-DECISION-ENGINE-R035.750",
-   "note": "R035.750 context shielding: the harness passes each workflow boundary only its own params to Decide; receives EG-DECISION-ENGINE-R035.750",
+   "row": "MEDULLA-DECISION-ENGINE-R035.750",
+   "note": "R035.750 context shielding: the harness passes each workflow boundary only its own params to Decide; receives MEDULLA-DECISION-ENGINE-R035.750",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R006.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R035.750",
-   "note": "R035.750 fallback chain: on ROUTE_NO_STAGE the harness extracts a structured plan and submits it as a TaskPlan; receives EG-DECISION-ENGINE-R035.750",
+   "row": "MEDULLA-DECISION-ENGINE-R035.750",
+   "note": "R035.750 fallback chain: on ROUTE_NO_STAGE the harness extracts a structured plan and submits it as a TaskPlan; receives MEDULLA-DECISION-ENGINE-R035.750",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R006.2"
   },
   {
-   "row": "EG-DECISION-ENGINE-R088.2",
-   "note": "EG:17 source: the event source feeding replay events is an external producer; medulla specifies only the envelope and refusals; receives EG-DECISION-ENGINE-R088.2",
+   "row": "MEDULLA-DECISION-ENGINE-R088.2",
+   "note": "EG:17 source: the event source feeding replay events is an external producer; medulla specifies only the envelope and refusals; receives MEDULLA-DECISION-ENGINE-R088.2",
    "meristem_row": "MERISTEM-BOUNDARY-R055.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R121.100",
-   "note": "AU run-step continuation: the harness continues only verified steps and links its trace to the record; receives EG-DECISION-ENGINE-R121.100",
+   "row": "MEDULLA-DECISION-ENGINE-R121.100",
+   "note": "AU run-step continuation: the harness continues only verified steps and links its trace to the record; receives MEDULLA-DECISION-ENGINE-R121.100",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R007.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R129.100",
-   "note": "AU:38 source: future harness invocations read only the active rule version and record its id and version in the run trace; receives EG-DECISION-ENGINE-R129.100",
+   "row": "MEDULLA-DECISION-ENGINE-R129.100",
+   "note": "AU:38 source: future harness invocations read only the active rule version and record its id and version in the run trace; receives MEDULLA-DECISION-ENGINE-R129.100",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R008.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R036.100",
-   "note": "AU-HARNESS-R007/.011: Apply the selected primitive composition: The harness executes the composition that `AgentAssemble` returns, through its typed harness port; receives EG-DECISION-ENGINE-R036.100",
+   "row": "MEDULLA-DECISION-ENGINE-R036.100",
+   "note": "MERISTEM-HARNESS-R007/.011: Apply the selected primitive composition: The harness executes the composition that `AgentAssemble` returns, through its typed harness port; receives MEDULLA-DECISION-ENGINE-R036.100",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R009.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R036.101",
-   "note": "AU-HARNESS-R009: Discover coding agents and emit verified facts: The harness scans the executable path, verifies each agent and emits `VerifiedAgentFact` values with a discovery receipt digest; receives EG-DECISION-ENGINE-R036.101",
+   "row": "MEDULLA-DECISION-ENGINE-R036.101",
+   "note": "MERISTEM-HARNESS-R009: Discover coding agents and emit verified facts: The harness scans the executable path, verifies each agent and emits `VerifiedAgentFact` values with a discovery receipt digest; receives MEDULLA-DECISION-ENGINE-R036.101",
    "meristem_row": "MERISTEM-SCM-R003.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R046.750",
-   "note": "AU-HARNESS (elastic admission): Re-admit width and depth changes through the engine: When a run needs more width or depth than its admitted plan, the run loop asks the engine a new topology question; receives EG-DECISION-ENGINE-R046.750",
+   "row": "MEDULLA-DECISION-ENGINE-R046.750",
+   "note": "MERISTEM-HARNESS (elastic admission): Re-admit width and depth changes through the engine: When a run needs more width or depth than its admitted plan, the run loop asks the engine a new topology question; receives MEDULLA-DECISION-ENGINE-R046.750",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R010.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R106.2",
-   "note": "AU-CONTROL-R010: Produce council positions with producer identity: The harness executes each persona and sends `CouncilPosition` values with a producer id, revision and digest in the `Decide` request; receives EG-DECISION-ENGINE-R106.1",
+   "row": "MEDULLA-DECISION-ENGINE-R106.2",
+   "note": "MERISTEM-CONTROL-R010: Produce council positions with producer identity: The harness executes each persona and sends `CouncilPosition` values with a producer id, revision and digest in the `Decide` request; receives MEDULLA-DECISION-ENGINE-R106.1",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R011.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R111",
-   "note": "AU-HARNESS (topology consumer): Ask the engine for topology instead of estimating it: The run loop asks the topology question through `Decide` and drops its own success-rate estimate and outcome average; receives EG-DECISION-ENGINE-R111.1",
+   "row": "MEDULLA-DECISION-ENGINE-R111",
+   "note": "MERISTEM-HARNESS (topology consumer): Ask the engine for topology instead of estimating it: The run loop asks the topology question through `Decide` and drops its own success-rate estimate and outcome average; receives MEDULLA-DECISION-ENGINE-R111.1",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R012.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R172",
-   "note": "AU capability designation consumer: Designation port for capability answers: The run loop asks the engine for a capability designation through `Decide` and applies the returned designations; receives EG-DECISION-ENGINE-R172.7",
+   "row": "MEDULLA-DECISION-ENGINE-R172",
+   "note": "AU capability designation consumer: Designation port for capability answers: The run loop asks the engine for a capability designation through `Decide` and applies the returned designations; receives MEDULLA-DECISION-ENGINE-R172.7",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R013.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R814",
-   "note": "AU system-prompt consumer: Apply the system prompt that the engine selects: The run loop starts each agent with the system prompt component that `AgentAssemble` names in the solved record; receives EG-DECISION-ENGINE-R814.2",
+   "row": "MEDULLA-DECISION-ENGINE-R814",
+   "note": "AU system-prompt consumer: Apply the system prompt that the engine selects: The run loop starts each agent with the system prompt component that `AgentAssemble` names in the solved record; receives MEDULLA-DECISION-ENGINE-R814.2",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R014.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R128",
-   "note": "harness run configuration (no AU ID): The run loader reads the sealed `harness_config` answer and applies the context policy, plan scaffold and action space to the next run. The loader receives the thresholds `soft_threshold` 0.6, `hard_threshold` 0.85 and `recent_window_fraction` 0.3 from the answer. It uses those values as fallback defaults only when the answer omits them. The loader decides nothing. It records the applied digest in the run trace. Proof: a run test that feeds a stored answer and asserts the applied parts. (receives EG-DECISION-ENGINE-R128)",
+   "row": "MEDULLA-DECISION-ENGINE-R128",
+   "note": "harness run configuration (no AU ID): The run loader reads the sealed `harness_config` answer and applies the context policy, plan scaffold and action space to the next run. The loader receives the thresholds `soft_threshold` 0.6, `hard_threshold` 0.85 and `recent_window_fraction` 0.3 from the answer. It uses those values as fallback defaults only when the answer omits them. The loader decides nothing. It records the applied digest in the run trace. Proof: a run test that feeds a stored answer and asserts the applied parts. (receives MEDULLA-DECISION-ENGINE-R128)",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R015.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R133.3",
-   "note": "harness sandbox quota and trace production (no AU ID): The harness asks served `Decide` with `runtime_quota` before each run and hands the four values to the sandbox. The values are received decisions. The harness holds no thresholds. At terminal commit the harness builds one `ReceiptNode` of kind `RunTrace` from its step log and attaches it to `CommitWorkItemResult`. It builds `RecursiveTraceNode` receipt nodes for recursive sub-calls. It reads `TraceCritique` pages to feed verifier and improvement critique. Proof: a run test with a stub engine asserting the sandbox limits and the attached receipts. (receives EG-DECISION-ENGINE-R133.3)",
+   "row": "MEDULLA-DECISION-ENGINE-R133.3",
+   "note": "harness sandbox quota and trace production (no AU ID): The harness asks served `Decide` with `runtime_quota` before each run and hands the four values to the sandbox. The values are received decisions. The harness holds no thresholds. At terminal commit the harness builds one `ReceiptNode` of kind `RunTrace` from its step log and attaches it to `CommitWorkItemResult`. It builds `RecursiveTraceNode` receipt nodes for recursive sub-calls. It reads `TraceCritique` pages to feed verifier and improvement critique. Proof: a run test with a stub engine asserting the sandbox limits and the attached receipts. (receives MEDULLA-DECISION-ENGINE-R133.3)",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R016.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R137.3",
-   "note": "harness over-window split: The run loop asks served `Decide` with `context_budget` when a prompt may exceed its window. It splits the prompt as the plan says and merges the leaf answers. The depth, item, cost and model-call limits are received values. The loop decides nothing. Proof: a run test that feeds a stored plan with 4 chunks and asserts 7 model calls. (receives EG-DECISION-ENGINE-R137.3)",
+   "row": "MEDULLA-DECISION-ENGINE-R137.3",
+   "note": "harness over-window split: The run loop asks served `Decide` with `context_budget` when a prompt may exceed its window. It splits the prompt as the plan says and merges the leaf answers. The depth, item, cost and model-call limits are received values. The loop decides nothing. Proof: a run test that feeds a stored plan with 4 chunks and asserts 7 model calls. (receives MEDULLA-DECISION-ENGINE-R137.3)",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R017.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R137.12",
-   "note": "AU-CONTEXT-R004: The context compiler asks served `Decide` with `context_package` and applies the chosen ids and resolutions exactly. It never reranks or substitutes content. It keeps the source, range and revision citations. A changed source or budget needs a fresh decision. Proof: a compile test with a stored selection asserting the applied ids and citations. (receives EG-DECISION-ENGINE-R137.12)",
+   "row": "MEDULLA-DECISION-ENGINE-R137.12",
+   "note": "MERISTEM-CONTEXT-R004: The context compiler asks served `Decide` with `context_package` and applies the chosen ids and resolutions exactly. It never reranks or substitutes content. It keeps the source, range and revision citations. A changed source or budget needs a fresh decision. Proof: a compile test with a stored selection asserting the applied ids and citations. (receives MEDULLA-DECISION-ENGINE-R137.12)",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R017.2"
   },
   {
-   "row": "EG-DECISION-ENGINE-R137.13",
-   "note": "AU:25 (AU-HARNESS-R026.3/.4): `run_full_rlm` measures the tool output bytes and the graph node count after each tool call. It builds the signal record and its digest. It asks served `Decide` with `recursion_mode` and runs direct or recursive execution as the result says. The thresholds are medulla values. Proof: a run test with a stub engine for each mode. (receives EG-DECISION-ENGINE-R137.13)",
+   "row": "MEDULLA-DECISION-ENGINE-R137.13",
+   "note": "AU:25 (MERISTEM-HARNESS-R026.3/.4): `run_full_rlm` measures the tool output bytes and the graph node count after each tool call. It builds the signal record and its digest. It asks served `Decide` with `recursion_mode` and runs direct or recursive execution as the result says. The thresholds are medulla values. Proof: a run test with a stub engine for each mode. (receives MEDULLA-DECISION-ENGINE-R137.13)",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R017.3"
   },
   {
-   "row": "EG-DECISION-ENGINE-R137.14",
-   "note": "AU:37 (AU-HARNESS-R013.5/.10/.12/.13): The context manager runs the held-out queries on the raw and candidate contexts. It builds the paired verdict set. It asks served `Decide` with `context_replacement`. It replaces the active context only when the sealed result is `replace`. Otherwise it keeps the raw revision. Proof: a run test for the replace and retain cases. (receives EG-DECISION-ENGINE-R137.14)",
+   "row": "MEDULLA-DECISION-ENGINE-R137.14",
+   "note": "AU:37 (MERISTEM-HARNESS-R013.5/.10/.12/.13): The context manager runs the held-out queries on the raw and candidate contexts. It builds the paired verdict set. It asks served `Decide` with `context_replacement`. It replaces the active context only when the sealed result is `replace`. Otherwise it keeps the raw revision. Proof: a run test for the replace and retain cases. (receives MEDULLA-DECISION-ENGINE-R137.14)",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R017.4"
   },
   {
-   "row": "EG-DECISION-ENGINE-R137.15",
-   "note": "AU:40 (AU-HARNESS-R026.1/.4, R024.1/.3): `RLMEnvironment.run_parallel_sub_calls` asks served `Decide` with `sub_call_admission` before each call. After the call it validates the output against the signature output schema. It records success only on a match. It binds the signature, model and tool digests in the span. Proof: a run test for a matching and a mismatching output. (receives EG-DECISION-ENGINE-R137.15)",
+   "row": "MEDULLA-DECISION-ENGINE-R137.15",
+   "note": "AU:40 (MERISTEM-HARNESS-R026.1/.4, R024.1/.3): `RLMEnvironment.run_parallel_sub_calls` asks served `Decide` with `sub_call_admission` before each call. After the call it validates the output against the signature output schema. It records success only on a match. It binds the signature, model and tool digests in the span. Proof: a run test for a matching and a mismatching output. (receives MEDULLA-DECISION-ENGINE-R137.15)",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R017.5"
   },
   {
-   "row": "EG-DECISION-ENGINE-R137.100",
-   "note": "AU:59 (AU-HARNESS-R024.2/.6): The run loop asks served `Decide` with `instruction_disclosure` once before the first action (phase `initial`). It asks again whenever a trigger occurs (phase `runtime`). It applies the exact selected versions. It records each event with phase, trigger, version, digest, run, sequence and the applied or refused outcome. Proof: a run test asserting initial instructions precede the first action. (receives EG-DECISION-ENGINE-R137.100)",
+   "row": "MEDULLA-DECISION-ENGINE-R137.100",
+   "note": "AU:59 (MERISTEM-HARNESS-R024.2/.6): The run loop asks served `Decide` with `instruction_disclosure` once before the first action (phase `initial`). It asks again whenever a trigger occurs (phase `runtime`). It applies the exact selected versions. It records each event with phase, trigger, version, digest, run, sequence and the applied or refused outcome. Proof: a run test asserting initial instructions precede the first action. (receives MEDULLA-DECISION-ENGINE-R137.100)",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R017.6"
   },
   {
-   "row": "EG-DECISION-ENGINE-R148.3",
-   "note": "harness command loader (no AU ID): The command loader validates the received config against its schema before use, applies it immutably, and echoes the config digest on each invocation (receives EG-DECISION-ENGINE-R148.3)",
+   "row": "MEDULLA-DECISION-ENGINE-R148.3",
+   "note": "harness command loader (no AU ID): The command loader validates the received config against its schema before use, applies it immutably, and echoes the config digest on each invocation (receives MEDULLA-DECISION-ENGINE-R148.3)",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R018.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R158.3",
-   "note": "harness run adjustment (no AU ID): The harness records observed cost, asks served Decide for the next run's model and width, and applies them without exceeding the host ceiling (receives EG-DECISION-ENGINE-R158.3)",
+   "row": "MEDULLA-DECISION-ENGINE-R158.3",
+   "note": "harness run adjustment (no AU ID): The harness records observed cost, asks served Decide for the next run's model and width, and applies them without exceeding the host ceiling (receives MEDULLA-DECISION-ENGINE-R158.3)",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R019.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R165.3",
-   "note": "harness per-tool span (no AU ID): Before each tool decision the harness asks served Decide with tool_necessity, passing its model_call_id and whether it called the tool, and records any mismatch in its span (receives EG-DECISION-ENGINE-R165.3)",
+   "row": "MEDULLA-DECISION-ENGINE-R165.3",
+   "note": "harness per-tool span (no AU ID): Before each tool decision the harness asks served Decide with tool_necessity, passing its model_call_id and whether it called the tool, and records any mismatch in its span (receives MEDULLA-DECISION-ENGINE-R165.3)",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R020.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R134.9",
-   "note": "AU-HARNESS-R022.3: Apply the sealed skill tree (When a run starts a task from a Medulla `TaskPlan` decision, read the `skill_trees` on the sealed record and try the ranked skills of each task in rank order, parents before children); receives EG-DECISION-ENGINE-R134.9",
+   "row": "MEDULLA-DECISION-ENGINE-R134.9",
+   "note": "MERISTEM-HARNESS-R022.3: Apply the sealed skill tree (When a run starts a task from a Medulla `TaskPlan` decision, read the `skill_trees` on the sealed record and try the ranked skills of each task in rank order, parents before children); receives MEDULLA-DECISION-ENGINE-R134.9",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R021.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R134.10",
-   "note": "AU-HARNESS-R020.4: Return child summaries within the parent budget (A child run of a fan-out returns only its declared summary artifact and never its transcript); receives EG-DECISION-ENGINE-R134.10",
+   "row": "MEDULLA-DECISION-ENGINE-R134.10",
+   "note": "MERISTEM-HARNESS-R020.4: Return child summaries within the parent budget (A child run of a fan-out returns only its declared summary artifact and never its transcript); receives MEDULLA-DECISION-ENGINE-R134.10",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R021.2"
   },
   {
-   "row": "EG-DECISION-ENGINE-R134.11",
-   "note": "AU-HARNESS-R026.1: Execute horizons and report credit checkpoints (Run a Medulla-decided plan horizon by horizon); receives EG-DECISION-ENGINE-R134.11",
+   "row": "MEDULLA-DECISION-ENGINE-R134.11",
+   "note": "MERISTEM-HARNESS-R026.1: Execute horizons and report credit checkpoints (Run a Medulla-decided plan horizon by horizon); receives MEDULLA-DECISION-ENGINE-R134.11",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R021.3"
   },
   {
-   "row": "EG-DECISION-ENGINE-R134.12",
-   "note": "AU-HARNESS-R018.1: Generate trajectories and aggregate summaries for a chosen rung (For a hard task, run the width and depth the Medulla `TrajectoryLadder` decision selected, over one identical input snapshot per arm, plus the single-trajectory baseline arm); receives EG-DECISION-ENGINE-R134.12",
+   "row": "MEDULLA-DECISION-ENGINE-R134.12",
+   "note": "MERISTEM-HARNESS-R018.1: Generate trajectories and aggregate summaries for a chosen rung (For a hard task, run the width and depth the Medulla `TrajectoryLadder` decision selected, over one identical input snapshot per arm, plus the single-trajectory baseline arm); receives MEDULLA-DECISION-ENGINE-R134.12",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R021.4"
   },
   {
-   "row": "EG-DECISION-ENGINE-R134.13",
-   "note": "AU-HARNESS-R020.4: Collect analyst findings and apply the cited synthesis (Run each expected analyst role in its own worker slot and collect one structured finding per role, or a named failure gap); receives EG-DECISION-ENGINE-R134.13",
+   "row": "MEDULLA-DECISION-ENGINE-R134.13",
+   "note": "MERISTEM-HARNESS-R020.4: Collect analyst findings and apply the cited synthesis (Run each expected analyst role in its own worker slot and collect one structured finding per role, or a named failure gap); receives MEDULLA-DECISION-ENGINE-R134.13",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R021.5"
   },
   {
-   "row": "EG-DECISION-ENGINE-R134.14",
-   "note": "AU-HARNESS-R022.4: Produce branch outcomes and apply the fusion receipt (For a search planner, run each branch the Medulla plan names, then submit every branch outcome or named failure gap to `DecisionLog` (`DecisionLogOp::RunRecord` kind `branch_outcome`)); receives EG-DECISION-ENGINE-R134.14",
+   "row": "MEDULLA-DECISION-ENGINE-R134.14",
+   "note": "MERISTEM-HARNESS-R022.4: Produce branch outcomes and apply the fusion receipt (For a search planner, run each branch the Medulla plan names, then submit every branch outcome or named failure gap to `DecisionLog` (`DecisionLogOp::RunRecord` kind `branch_outcome`)); receives MEDULLA-DECISION-ENGINE-R134.14",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R021.6"
   },
   {
-   "row": "EG-DECISION-ENGINE-R134.100",
-   "note": "AU-CONTROL-R043.2: Produce the fan-out result and apply the aggregate decision (After a fan-out, build one result entry per planned subtask with its Arbora instance receipt id and digest, or a named failure gap, and submit the set to the Medulla `FanoutAggregate` decision); receives EG-DECISION-ENGINE-R134.100",
+   "row": "MEDULLA-DECISION-ENGINE-R134.100",
+   "note": "MERISTEM-CONTROL-R043.2: Produce the fan-out result and apply the aggregate decision (After a fan-out, build one result entry per planned subtask with its Arbora instance receipt id and digest, or a named failure gap, and submit the set to the Medulla `FanoutAggregate` decision); receives MEDULLA-DECISION-ENGINE-R134.100",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R021.7"
   },
   {
-   "row": "EG-DECISION-ENGINE-R134.101",
-   "note": "AU-CONTROL-R043.4: Run the designated coordinator and deliver one final artifact (Run the plan's output task as the coordinator); receives EG-DECISION-ENGINE-R134.101",
+   "row": "MEDULLA-DECISION-ENGINE-R134.101",
+   "note": "MERISTEM-CONTROL-R043.4: Run the designated coordinator and deliver one final artifact (Run the plan's output task as the coordinator); receives MEDULLA-DECISION-ENGINE-R134.101",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R021.8"
   },
   {
-   "row": "EG-DECISION-ENGINE-R134.102",
-   "note": "AU-CONTROL-R043.2: Delegate only against an admitted verdict (Start delegation to sub-runs only when the Medulla `DelegationAdmission` decision for the task class returned admit and is still fresh); receives EG-DECISION-ENGINE-R134.102",
+   "row": "MEDULLA-DECISION-ENGINE-R134.102",
+   "note": "MERISTEM-CONTROL-R043.2: Delegate only against an admitted verdict (Start delegation to sub-runs only when the Medulla `DelegationAdmission` decision for the task class returned admit and is still fresh); receives MEDULLA-DECISION-ENGINE-R134.102",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R021.9"
   },
   {
-   "row": "EG-DECISION-ENGINE-R135.7",
-   "note": "AU-HARNESS-R022.2: run the pre-plan tests, then submit command, repository revision and artifact manifest receipt before planning; receives EG-DECISION-ENGINE-R135.7",
+   "row": "MEDULLA-DECISION-ENGINE-R135.7",
+   "note": "MERISTEM-HARNESS-R022.2: run the pre-plan tests, then submit command, repository revision and artifact manifest receipt before planning; receives MEDULLA-DECISION-ENGINE-R135.7",
    "meristem_row": "MERISTEM-SCM-R004.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R135.8",
-   "note": "AU-HARNESS-R022.8: natural-language workflows are turned into a typed step graph by the harness and stored before compile; receives EG-DECISION-ENGINE-R135.8",
+   "row": "MEDULLA-DECISION-ENGINE-R135.8",
+   "note": "MERISTEM-HARNESS-R022.8: natural-language workflows are turned into a typed step graph by the harness and stored before compile; receives MEDULLA-DECISION-ENGINE-R135.8",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R022.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R135.12",
-   "note": "AU-HARNESS-R022.4: observe each run outcome, submit it as an insight with its source run ids, and apply selected insights when compiling model context; receives EG-DECISION-ENGINE-R135.12",
+   "row": "MEDULLA-DECISION-ENGINE-R135.12",
+   "note": "MERISTEM-HARNESS-R022.4: observe each run outcome, submit it as an insight with its source run ids, and apply selected insights when compiling model context; receives MEDULLA-DECISION-ENGINE-R135.12",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R022.2"
   },
   {
-   "row": "EG-DECISION-ENGINE-R135.14",
-   "note": "AU-HARNESS-R022.4: record which selected insights were injected into the model context; receives EG-DECISION-ENGINE-R135.14",
+   "row": "MEDULLA-DECISION-ENGINE-R135.14",
+   "note": "MERISTEM-HARNESS-R022.4: record which selected insights were injected into the model context; receives MEDULLA-DECISION-ENGINE-R135.14",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R022.3"
   },
   {
-   "row": "EG-DECISION-ENGINE-R139.3",
-   "note": "AU-SEMANTIC-R030: Execute a comparative-analysis plan within its stage budgets. After `Decide` returns a `ComparativeAnalysisPlan`, the run loop issues synthesis and extraction model calls only for the plan candidates; receives EG-DECISION-ENGINE-R139.3",
+   "row": "MEDULLA-DECISION-ENGINE-R139.3",
+   "note": "MERISTEM-SEMANTIC-R030: Execute a comparative-analysis plan within its stage budgets. After `Decide` returns a `ComparativeAnalysisPlan`, the run loop issues synthesis and extraction model calls only for the plan candidates; receives MEDULLA-DECISION-ENGINE-R139.3",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R023.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R139.100",
-   "note": "AU:58: Admit graph-referenced comparative study sources. The study intake accepts a `graph_ref` source (tenant, graph, node, revision, content digest) beside filesystem sources; receives EG-DECISION-ENGINE-R139.100",
+   "row": "MEDULLA-DECISION-ENGINE-R139.100",
+   "note": "AU:58: Admit graph-referenced comparative study sources. The study intake accepts a `graph_ref` source (tenant, graph, node, revision, content digest) beside filesystem sources; receives MEDULLA-DECISION-ENGINE-R139.100",
    "meristem_row": "MERISTEM-BOUNDARY-R051.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R156.3",
-   "note": "AU-HARNESS-R022: Draft a typed step graph from a skill document and run the compiled workflow. The harness reads a skill document, uses its model to extract a typed step graph (`SkillWorkflowDraft`) and submits the draft with the skill document digest to medulla; receives EG-DECISION-ENGINE-R156.3",
+   "row": "MEDULLA-DECISION-ENGINE-R156.3",
+   "note": "MERISTEM-HARNESS-R022: Draft a typed step graph from a skill document and run the compiled workflow. The harness reads a skill document, uses its model to extract a typed step graph (`SkillWorkflowDraft`) and submits the draft with the skill document digest to medulla; receives MEDULLA-DECISION-ENGINE-R156.3",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R024.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R159.3",
-   "note": "AU-CONTROL-R006: Report each tool-call outcome as an independent evaluation. After a tool call through a connector path, the harness records the outcome through `DecisionLog` `Evaluate` against the committed routing record; receives EG-DECISION-ENGINE-R159.3",
+   "row": "MEDULLA-DECISION-ENGINE-R159.3",
+   "note": "MERISTEM-CONTROL-R006: Report each tool-call outcome as an independent evaluation. After a tool call through a connector path, the harness records the outcome through `DecisionLog` `Evaluate` against the committed routing record; receives MEDULLA-DECISION-ENGINE-R159.3",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R025.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R171.3",
-   "note": "AU-HARNESS-R019.5: Submit study gap proposals to planning admission before planning. Before the run loop plans a feature set, the study step sends a `PlanningAdmission` question to medulla; receives EG-DECISION-ENGINE-R171.3",
+   "row": "MEDULLA-DECISION-ENGINE-R171.3",
+   "note": "MERISTEM-HARNESS-R019.5: Submit study gap proposals to planning admission before planning. Before the run loop plans a feature set, the study step sends a `PlanningAdmission` question to medulla; receives MEDULLA-DECISION-ENGINE-R171.3",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R026.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R750",
-   "note": "AU-HARNESS: Expand the thought nodes that medulla chooses. The run loop keeps the thought arena and calls `Decide` with the frontier summary after each expansion.; receives EG-DECISION-ENGINE-R750.754",
+   "row": "MEDULLA-DECISION-ENGINE-R750",
+   "note": "MERISTEM-HARNESS: Expand the thought nodes that medulla chooses. The run loop keeps the thought arena and calls `Decide` with the frontier summary after each expansion.; receives MEDULLA-DECISION-ENGINE-R750.754",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R027.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R751",
-   "note": "AU-HARNESS: Produce subgoal hierarchies and apply curriculum verdicts. The harness builds the subgoal hierarchy and checkpoints of a task and sends them to medulla with the trajectory.; receives EG-DECISION-ENGINE-R751.755",
+   "row": "MEDULLA-DECISION-ENGINE-R751",
+   "note": "MERISTEM-HARNESS: Produce subgoal hierarchies and apply curriculum verdicts. The harness builds the subgoal hierarchy and checkpoints of a task and sends them to medulla with the trajectory.; receives MEDULLA-DECISION-ENGINE-R751.755",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R028.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R752",
-   "note": "AU-HARNESS: Measure windows, run replicas at the chosen width and honour the verdict. The harness collects the reference and current windows and the pairwise output diversity.; receives EG-DECISION-ENGINE-R752.754",
+   "row": "MEDULLA-DECISION-ENGINE-R752",
+   "note": "MERISTEM-HARNESS: Measure windows, run replicas at the chosen width and honour the verdict. The harness collects the reference and current windows and the pairwise output diversity.; receives MEDULLA-DECISION-ENGINE-R752.754",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R029.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R753",
-   "note": "AU-HARNESS: Run parallel trajectories, verifier checks and adversarial probes. The harness runs the parallel trajectories, the step checks and the probes.; receives EG-DECISION-ENGINE-R753.754",
+   "row": "MEDULLA-DECISION-ENGINE-R753",
+   "note": "MERISTEM-HARNESS: Run parallel trajectories, verifier checks and adversarial probes. The harness runs the parallel trajectories, the step checks and the probes.; receives MEDULLA-DECISION-ENGINE-R753.754",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R030.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R144",
-   "note": "AU exploration-loop stop rule: a harness exploration loop stops when a response reports an exhausted remaining budget and does not retry larger; receives EG-DECISION-ENGINE-R144.7",
+   "row": "MEDULLA-DECISION-ENGINE-R144",
+   "note": "AU exploration-loop stop rule: a harness exploration loop stops when a response reports an exhausted remaining budget and does not retry larger; receives MEDULLA-DECISION-ENGINE-R144.7",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R031.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R146",
-   "note": "AU retrieval harness: execute the fallback window through `UnifiedQuery` once and report the coverage; receives EG-DECISION-ENGINE-R146.3",
+   "row": "MEDULLA-DECISION-ENGINE-R146",
+   "note": "AU retrieval harness: execute the fallback window through `UnifiedQuery` once and report the coverage; receives MEDULLA-DECISION-ENGINE-R146.3",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R032.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R147",
-   "note": "AU consumer: accept the no-model-call contract and read `distilled:model_calls=0` from the record; receives EG-DECISION-ENGINE-R147.5",
+   "row": "MEDULLA-DECISION-ENGINE-R147",
+   "note": "AU consumer: accept the no-model-call contract and read `distilled:model_calls=0` from the record; receives MEDULLA-DECISION-ENGINE-R147.5",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R033.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R149",
-   "note": "AU-HARNESS-R013.13: the harness serializes search state, owns item schemas, and passes the returned document id and revision on continuation; receives EG-DECISION-ENGINE-R149.3",
+   "row": "MEDULLA-DECISION-ENGINE-R149",
+   "note": "MERISTEM-HARNESS-R013.13: the harness serializes search state, owns item schemas, and passes the returned document id and revision on continuation; receives MEDULLA-DECISION-ENGINE-R149.3",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R034.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R149",
-   "note": "AU-HARNESS-R020.1: the harness restores all four fields before it uses any compacted summary; receives EG-DECISION-ENGINE-R149.6",
+   "row": "MEDULLA-DECISION-ENGINE-R149",
+   "note": "MERISTEM-HARNESS-R020.1: the harness restores all four fields before it uses any compacted summary; receives MEDULLA-DECISION-ENGINE-R149.6",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R034.2"
   },
   {
-   "row": "EG-DECISION-ENGINE-R150",
-   "note": "AU-HARNESS-R022.3: the harness decides when to capture, calls the capture write after a successful run, and injects only notes with `applied` true; receives EG-DECISION-ENGINE-R150.3",
+   "row": "MEDULLA-DECISION-ENGINE-R150",
+   "note": "MERISTEM-HARNESS-R022.3: the harness decides when to capture, calls the capture write after a successful run, and injects only notes with `applied` true; receives MEDULLA-DECISION-ENGINE-R150.3",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R035.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R152",
-   "note": "AU-CONTEXT-R004.3: render received context facts as prose, keep fact_id citations, place prose outside demonstration regions, refuse unrenderable facts without fabricated prose; receives EG-DECISION-ENGINE-R152",
+   "row": "MEDULLA-DECISION-ENGINE-R152",
+   "note": "MERISTEM-CONTEXT-R004.3: render received context facts as prose, keep fact_id citations, place prose outside demonstration regions, refuse unrenderable facts without fabricated prose; receives MEDULLA-DECISION-ENGINE-R152",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R036.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R152",
-   "note": "AU-CONTEXT-R004.6: serve compiled context with exact final prompt byte count from the cited fact bundle; receives EG-DECISION-ENGINE-R152",
+   "row": "MEDULLA-DECISION-ENGINE-R152",
+   "note": "MERISTEM-CONTEXT-R004.6: serve compiled context with exact final prompt byte count from the cited fact bundle; receives MEDULLA-DECISION-ENGINE-R152",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R036.2"
   },
   {
-   "row": "EG-DECISION-ENGINE-R153",
-   "note": "Exploration step: read source text only through ReadSpan with the received toc_digest and record it in the trace; receives EG-DECISION-ENGINE-R153",
+   "row": "MEDULLA-DECISION-ENGINE-R153",
+   "note": "Exploration step: read source text only through ReadSpan with the received toc_digest and record it in the trace; receives MEDULLA-DECISION-ENGINE-R153",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R037.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R155",
-   "note": "Session lifecycle: recall prior episodes at session start through MemoryRecall and seal the session episode through MemoryRemember; receives EG-DECISION-ENGINE-R155",
+   "row": "MEDULLA-DECISION-ENGINE-R155",
+   "note": "Session lifecycle: recall prior episodes at session start through MemoryRecall and seal the session episode through MemoryRemember; receives MEDULLA-DECISION-ENGINE-R155",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R038.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R164",
-   "note": "Run loop: record each branch outcome through DecisionLog Learn and apply the received breadth, using the default when Decide abstains; receives EG-DECISION-ENGINE-R164",
+   "row": "MEDULLA-DECISION-ENGINE-R164",
+   "note": "Run loop: record each branch outcome through DecisionLog Learn and apply the received breadth, using the default when Decide abstains; receives MEDULLA-DECISION-ENGINE-R164",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R039.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R651",
-   "note": "Harness: read memory only through MemoryRecall, send observations only through MemoryRemember, apply a ConsolidationPlan only through the existing Consolidate, Reinforce and DecayMemories routes after owner approval; receives EG-DECISION-ENGINE-R651",
+   "row": "MEDULLA-DECISION-ENGINE-R651",
+   "note": "Harness: read memory only through MemoryRecall, send observations only through MemoryRemember, apply a ConsolidationPlan only through the existing Consolidate, Reinforce and DecayMemories routes after owner approval; receives MEDULLA-DECISION-ENGINE-R651",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R040.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R059",
-   "note": "AU-HARNESS-R022.2: the harness scaffolds a skill directory for each skill-candidate row it reads; receives EG-DECISION-ENGINE-R059.2.",
+   "row": "MEDULLA-DECISION-ENGINE-R059",
+   "note": "MERISTEM-HARNESS-R022.2: the harness scaffolds a skill directory for each skill-candidate row it reads; receives MEDULLA-DECISION-ENGINE-R059.2.",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R041.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R059.1",
-   "note": "AU-HARNESS-R022.1: the harness records action and task experiences as typed run outcomes through `DecisionLog` `evaluate`; receives EG-DECISION-ENGINE-R059.2.",
+   "row": "MEDULLA-DECISION-ENGINE-R059.1",
+   "note": "MERISTEM-HARNESS-R022.1: the harness records action and task experiences as typed run outcomes through `DecisionLog` `evaluate`; receives MEDULLA-DECISION-ENGINE-R059.2.",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R041.2"
   },
   {
-   "row": "EG-DECISION-ENGINE-R136",
-   "note": "AU-HARNESS-R025: the harness declares a prediction before each edit and keeps or reverts the edit on the verdict; receives EG-DECISION-ENGINE-R136.4.",
+   "row": "MEDULLA-DECISION-ENGINE-R136",
+   "note": "MERISTEM-HARNESS-R025: the harness declares a prediction before each edit and keeps or reverts the edit on the verdict; receives MEDULLA-DECISION-ENGINE-R136.4.",
    "meristem_row": "MERISTEM-SCM-R005.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R136",
-   "note": "AU-SEMANTIC-R029: the harness runs each evolution stage on its allocated model and records stage cost in the run trace; receives EG-DECISION-ENGINE-R136.4.",
+   "row": "MEDULLA-DECISION-ENGINE-R136",
+   "note": "MERISTEM-SEMANTIC-R029: the harness runs each evolution stage on its allocated model and records stage cost in the run trace; receives MEDULLA-DECISION-ENGINE-R136.4.",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R042.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R654",
-   "note": "R654.3 (old text): the harness applies the champion skill revision it reads from `decision_pointers`; receives EG-DECISION-ENGINE-R654.3.",
+   "row": "MEDULLA-DECISION-ENGINE-R654",
+   "note": "R654.3 (old text): the harness applies the champion skill revision it reads from `decision_pointers`; receives MEDULLA-DECISION-ENGINE-R654.3.",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R043.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R805",
-   "note": "AU-HARNESS-CYCLE-R001.5: the harness cycle pins the champion revision it reads from `decision_pointers`; receives EG-DECISION-ENGINE-R805.3.",
+   "row": "MEDULLA-DECISION-ENGINE-R805",
+   "note": "MERISTEM-HARNESS-CYCLE-R001.5: the harness cycle pins the champion revision it reads from `decision_pointers`; receives MEDULLA-DECISION-ENGINE-R805.3.",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R044.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R138.100",
-   "note": "AU:55 (verifier evidence): Produce adversarial verifier receipts for generated code. tests/run/test_verifier_receipt.py::test_each_case_is_retested_against_the_new_digest; receives EG-DECISION-ENGINE-R138.100",
+   "row": "MEDULLA-DECISION-ENGINE-R138.100",
+   "note": "AU:55 (verifier evidence): Produce adversarial verifier receipts for generated code. tests/run/test_verifier_receipt.py::test_each_case_is_retested_against_the_new_digest; receives MEDULLA-DECISION-ENGINE-R138.100",
    "meristem_row": "MERISTEM-SCM-R006.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R143",
-   "note": "AU-HARNESS (R143.3 consumer): Apply disclosed instruction sets without substitution. tests/run/test_instruction_disclosure.py::test_receipt_binds_applied_version_and_hash; receives EG-DECISION-ENGINE-R143.5",
+   "row": "MEDULLA-DECISION-ENGINE-R143",
+   "note": "MERISTEM-HARNESS (R143.3 consumer): Apply disclosed instruction sets without substitution. tests/run/test_instruction_disclosure.py::test_receipt_binds_applied_version_and_hash; receives MEDULLA-DECISION-ENGINE-R143.5",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R045.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R653",
-   "note": "AU-HARNESS (loop step): Execute the loop step a claimed lease hands out. tests/run/test_loop_step.py::test_stale_epoch_stops_the_step; receives EG-DECISION-ENGINE-R653.3",
+   "row": "MEDULLA-DECISION-ENGINE-R653",
+   "note": "MERISTEM-HARNESS (loop step): Execute the loop step a claimed lease hands out. tests/run/test_loop_step.py::test_stale_epoch_stops_the_step; receives MEDULLA-DECISION-ENGINE-R653.3",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R046.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R705",
-   "note": "AU-HARNESS (research run): Apply the next-read and stop decision of a research run. tests/run/test_research_run.py::test_run_stops_when_decide_says_stop; receives EG-DECISION-ENGINE-R705.3",
+   "row": "MEDULLA-DECISION-ENGINE-R705",
+   "note": "MERISTEM-HARNESS (research run): Apply the next-read and stop decision of a research run. tests/run/test_research_run.py::test_run_stops_when_decide_says_stop; receives MEDULLA-DECISION-ENGINE-R705.3",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R047.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R140",
-   "note": "AU-CONTROL-R043: Bind the trajectory-budget decision to every trajectory request; receives EG-DECISION-ENGINE-R140.100",
+   "row": "MEDULLA-DECISION-ENGINE-R140",
+   "note": "MERISTEM-CONTROL-R043: Bind the trajectory-budget decision to every trajectory request; receives MEDULLA-DECISION-ENGINE-R140.100",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R048.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R140",
-   "note": "AU-HARNESS-R022.4: Apply the trajectory projection and reinsert the candidate; receives EG-DECISION-ENGINE-R140.101",
+   "row": "MEDULLA-DECISION-ENGINE-R140",
+   "note": "MERISTEM-HARNESS-R022.4: Apply the trajectory projection and reinsert the candidate; receives MEDULLA-DECISION-ENGINE-R140.101",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R048.2"
   },
   {
-   "row": "EG-DECISION-ENGINE-R140",
-   "note": "AU-HARNESS-R020.5: Apply the selected branch breadth and return the outcome receipt; receives EG-DECISION-ENGINE-R140.102",
+   "row": "MEDULLA-DECISION-ENGINE-R140",
+   "note": "MERISTEM-HARNESS-R020.5: Apply the selected branch breadth and return the outcome receipt; receives MEDULLA-DECISION-ENGINE-R140.102",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R048.3"
   },
   {
-   "row": "EG-DECISION-ENGINE-R140",
-   "note": "AU-CONTROL-R043: Execute pairwise comparisons and bounded revisions; receives EG-DECISION-ENGINE-R140.103",
+   "row": "MEDULLA-DECISION-ENGINE-R140",
+   "note": "MERISTEM-CONTROL-R043: Execute pairwise comparisons and bounded revisions; receives MEDULLA-DECISION-ENGINE-R140.103",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R048.4"
   },
   {
-   "row": "EG-DECISION-ENGINE-R142",
-   "note": "AU (pre-cut harness spec, no single row): Emit the local-model evaluation receipt; receives EG-DECISION-ENGINE-R142.100",
+   "row": "MEDULLA-DECISION-ENGINE-R142",
+   "note": "AU (pre-cut harness spec, no single row): Emit the local-model evaluation receipt; receives MEDULLA-DECISION-ENGINE-R142.100",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R049.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R157",
-   "note": "AU (pre-cut harness spec, no single row): Delegate only when the quality gate admits; receives EG-DECISION-ENGINE-R157.3",
+   "row": "MEDULLA-DECISION-ENGINE-R157",
+   "note": "AU (pre-cut harness spec, no single row): Delegate only when the quality gate admits; receives MEDULLA-DECISION-ENGINE-R157.3",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R050.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R160",
-   "note": "AU-HARNESS-R022.4: Record each skill run outcome with the rendered package digest; receives EG-DECISION-ENGINE-R160.2",
+   "row": "MEDULLA-DECISION-ENGINE-R160",
+   "note": "MERISTEM-HARNESS-R022.4: Record each skill run outcome with the rendered package digest; receives MEDULLA-DECISION-ENGINE-R160.2",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R051.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R161",
-   "note": "AU-HARNESS-R022.4: Generate the regression test and execute it on both revisions; receives EG-DECISION-ENGINE-R161.2",
+   "row": "MEDULLA-DECISION-ENGINE-R161",
+   "note": "MERISTEM-HARNESS-R022.4: Generate the regression test and execute it on both revisions; receives MEDULLA-DECISION-ENGINE-R161.2",
    "meristem_row": "MERISTEM-SCM-R007.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R162",
-   "note": "AU (pre-cut harness spec, no single row): Apply the returned projection before building the shared workspace and reject reads of withheld paths; receives EG-DECISION-ENGINE-R162.2",
+   "row": "MEDULLA-DECISION-ENGINE-R162",
+   "note": "AU (pre-cut harness spec, no single row): Apply the returned projection before building the shared workspace and reject reads of withheld paths; receives MEDULLA-DECISION-ENGINE-R162.2",
    "meristem_row": "MERISTEM-BOUNDARY-R052.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R163",
-   "note": "AU-HARNESS-R022.4: Accept graph-ingested sources in study intake; receives EG-DECISION-ENGINE-R163.2",
+   "row": "MEDULLA-DECISION-ENGINE-R163",
+   "note": "MERISTEM-HARNESS-R022.4: Accept graph-ingested sources in study intake; receives MEDULLA-DECISION-ENGINE-R163.2",
    "meristem_row": "MERISTEM-BOUNDARY-R053.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R166",
-   "note": "AU (pre-cut harness spec, no single row): Resolve each workflow through the medulla registry before execution; receives EG-DECISION-ENGINE-R166.3",
+   "row": "MEDULLA-DECISION-ENGINE-R166",
+   "note": "AU (pre-cut harness spec, no single row): Resolve each workflow through the medulla registry before execution; receives MEDULLA-DECISION-ENGINE-R166.3",
    "meristem_row": "MERISTEM-BOUNDARY-R054.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R168",
-   "note": "AU (pre-cut harness spec, no single row): Construct and advance the agent through the engine lifecycle types; receives EG-DECISION-ENGINE-R168.1",
+   "row": "MEDULLA-DECISION-ENGINE-R168",
+   "note": "AU (pre-cut harness spec, no single row): Construct and advance the agent through the engine lifecycle types; receives MEDULLA-DECISION-ENGINE-R168.1",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R052.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R168.3",
-   "note": "AU (pre-cut harness spec, no single row): Construct and advance the agent through the engine lifecycle types; receives EG-DECISION-ENGINE-R168.1",
+   "row": "MEDULLA-DECISION-ENGINE-R168.3",
+   "note": "AU (pre-cut harness spec, no single row): Construct and advance the agent through the engine lifecycle types; receives MEDULLA-DECISION-ENGINE-R168.1",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R052.1"
   },
   {
-   "row": "EG-DECISION-ENGINE-R169",
-   "note": "AU (pre-cut harness spec, no single row): Grade every output and loop on the engine continue or stop decision; receives EG-DECISION-ENGINE-R169.2",
+   "row": "MEDULLA-DECISION-ENGINE-R169",
+   "note": "AU (pre-cut harness spec, no single row): Grade every output and loop on the engine continue or stop decision; receives MEDULLA-DECISION-ENGINE-R169.2",
    "meristem_row": "MERISTEM-HARNESS-CYCLE-R053.1"
   }
  ]

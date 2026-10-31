@@ -31,7 +31,7 @@ W0 rewrote every open row to this standard. Each row must name its stage, its se
 
 ### W1 Architecture spine (serial PRs, Opus low effort)
 
-- [x] W1.1 Add the spine rows R001.101, R010.100, R072.100, R178, R179 and EG-CONTRACT-R055.
+- [x] W1.1 Add the spine rows R001.101, R010.100, R072.100, R178, R179 and MEDULLA-CONTRACT-R055.
 - [ ] W1.2 Implement the `DecisionFamily` registry. Migrate all 27 existing `QuestionKind` values. Proof: the existing `stat_tests` suite passes unchanged through the registry.
 - [ ] W1.3 Implement the refusal taxonomy, the code-uniqueness test and the `AnswerGrounding` rename. Proof: existing refusal tests assert the same stable codes.
 - [ ] W1.4 Add the served-test kit to the Rust `Harness`. It provides per-family request builders, publish fixtures and record-premise assertions. Add one served Python smoke template under `tests/decide/`.
