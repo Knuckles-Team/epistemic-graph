@@ -18,13 +18,13 @@ Every feature starts with a spec, in this order. Read `.specify/memory/constitut
 
 | Step | Skill | Writes | Checked by |
 |---|---|---|---|
-| Constitution | `spec-generator` | `.specify/memory/constitution.md` | spec-standard constitution check |
-| Specify | `spec-intake-wizard`, `spec-generator` | `specs/<id>/spec.md`, `requirements.md` | spec-standard |
-| Clarify | `spec-generator` | resolves each `[NEEDS CLARIFICATION: ...]` marker | spec-standard clarification check |
-| Plan | `spec-generator` | `plan.md` (upstream sections, Build contract, Production caller chain, Cross-repo seams) | spec-standard plan check |
-| Tasks | `task-planner` | `tasks.md`: `- [ ] T001 [P] [US1] <ROW-ID> ...` | spec-standard task-line check |
-| Analyze | `spec-verifier` | `checklists/requirements.md`, gap fixes | spec-standard analysis and checklist |
-| Implement | `feature-development-pipeline` | code and bound tests (`mark.spec("ID")` or `// spec: ID`) | `pipelines-hook spec-trailers` |
+| Constitution | `speckit-constitution` | `.specify/memory/constitution.md` | spec-standard constitution check |
+| Specify | `speckit-specify` | `specs/<id>/spec.md`, `requirements.md` | spec-standard |
+| Clarify | `speckit-clarify` | resolves each `[NEEDS CLARIFICATION: ...]` marker | spec-standard clarification check |
+| Plan | `speckit-plan` | `plan.md` (upstream sections, Build contract, Production caller chain, Cross-repo seams) | spec-standard plan check |
+| Tasks | `speckit-tasks` | `tasks.md`: `- [ ] T001 [P] [US1] <ROW-ID> ...` | spec-standard task-line check |
+| Analyze | `speckit-analyze`, `speckit-checklist` | `checklists/requirements.md`, gap fixes | spec-standard analysis and checklist |
+| Implement | `speckit-implement` | code and bound tests (`mark.spec("ID")` or `// spec: ID`) | `pipelines-hook spec-trailers` |
 | Land | repository development skill | commit with `Spec: <IDs>` directly above `Co-Authored-By` | `spec-status` computes SPECIFIED, LANDED, VERIFIED, RETIRED |
 | Release | repository development skill | pipelines `releases/*.yml` bundles (the PIPE-RELEASE release-bundle rows) | `release-standard` |
 
