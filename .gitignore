@@ -113,6 +113,7 @@ trace.txt
 !/.specify/memory/
 /.specify/memory/*
 !/.specify/memory/constitution.md
+!/.specify/templates/
 .agent/
 .agents/
 .agent_data/

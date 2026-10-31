@@ -11,6 +11,7 @@
 //! once per kernel. No code outside this crate can name one otherwise, so no
 //! domain crate can obtain a write capability.
 
+mod backend_spec;
 mod capability;
 mod codec;
 pub mod direct_state;
@@ -22,6 +23,7 @@ mod recovery;
 mod scoped;
 mod tables;
 
+pub use backend_spec::{BackendSpecRefusal, DurabilityClass, SecretRef, StorageBackendSpec};
 pub use capability::{OwnerPayloadRetirement, PhysicalWriteCapability, ScopedRead, ScopedSnapshot};
 pub use codec::{
     decode_batch_record, decode_ledger_record, decode_outbox_record, encode_bounded,

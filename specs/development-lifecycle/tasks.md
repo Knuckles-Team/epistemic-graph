@@ -2,47 +2,101 @@
 
 Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Rows: [requirements.md](requirements.md).
 
-Ordered producer first. Compile slot: Medulla only, one cargo lane host-wide at a time.
+Each task line reads `- [ ] T001 [P] [US1] <ID>-R012.4 description`. `[P]` marks a task that may run in parallel. Order is producer first.
+Compile slot: Medulla only, one cargo lane host-wide at a time.
 
-- [ ] `MEDULLA-SDLC-R001` — Lifecycle record vocabulary and derived edges (rollup).
-- [ ] `MEDULLA-SDLC-R001.1` — Model.
-- [ ] `MEDULLA-SDLC-R001.2` — Behavior.
-- [ ] `MEDULLA-SDLC-R001.3` — Wiring.
-- [ ] `MEDULLA-SDLC-R001.4` — Refusal.
-- [ ] `MEDULLA-SDLC-R001.5` — Evidence.
-- [ ] `MEDULLA-SDLC-R001.6` — Hot-path proof.
-- [ ] `MEDULLA-SDLC-R002` — Release and deployment records (rollup).
-- [ ] `MEDULLA-SDLC-R002.1` — Model.
-- [ ] `MEDULLA-SDLC-R002.2` — Behavior.
-- [ ] `MEDULLA-SDLC-R002.3` — Wiring.
-- [ ] `MEDULLA-SDLC-R002.4` — Refusal.
-- [ ] `MEDULLA-SDLC-R002.5` — Evidence.
-- [ ] `MEDULLA-SDLC-R002.6` — Hot-path proof.
-- [ ] `MEDULLA-SDLC-R003` — Defect records and intake (rollup).
-- [ ] `MEDULLA-SDLC-R003.1` — Model.
-- [ ] `MEDULLA-SDLC-R003.2` — Behavior.
-- [ ] `MEDULLA-SDLC-R003.3` — Wiring.
-- [ ] `MEDULLA-SDLC-R003.4` — Refusal.
-- [ ] `MEDULLA-SDLC-R003.5` — Evidence.
-- [ ] `MEDULLA-SDLC-R003.6` — Hot-path proof.
-- [ ] `MEDULLA-SDLC-R004` — Defect triage decision (rollup).
-- [ ] `MEDULLA-SDLC-R004.1` — Model.
-- [ ] `MEDULLA-SDLC-R004.2` — Behavior.
-- [ ] `MEDULLA-SDLC-R004.3` — Wiring.
-- [ ] `MEDULLA-SDLC-R004.4` — Refusal.
-- [ ] `MEDULLA-SDLC-R004.5` — Evidence.
-- [ ] `MEDULLA-SDLC-R004.6` — Hot-path proof.
-- [ ] `MEDULLA-SDLC-R005` — Requirement state derived from the graph (rollup).
-- [ ] `MEDULLA-SDLC-R005.1` — Model.
-- [ ] `MEDULLA-SDLC-R005.2` — Behavior.
-- [ ] `MEDULLA-SDLC-R005.3` — Wiring.
-- [ ] `MEDULLA-SDLC-R005.4` — Refusal.
-- [ ] `MEDULLA-SDLC-R005.5` — Evidence.
-- [ ] `MEDULLA-SDLC-R005.6` — Hot-path proof.
-- [ ] `MEDULLA-SDLC-R006` — Lifecycle competency queries (rollup).
-- [ ] `MEDULLA-SDLC-R006.1` — Model.
-- [ ] `MEDULLA-SDLC-R006.2` — Behavior.
-- [ ] `MEDULLA-SDLC-R006.3` — Wiring.
-- [ ] `MEDULLA-SDLC-R006.4` — Refusal.
-- [ ] `MEDULLA-SDLC-R006.5` — Evidence.
-- [ ] `MEDULLA-SDLC-R006.6` — Hot-path proof.
+- [ ] T001 [US1] MEDULLA-SDLC-R001 Lifecycle record vocabulary and derived edges .
+- [ ] T002 [US1] MEDULLA-SDLC-R001.1 Model: lifecycle kinds, edges and shapes.
+- [ ] T003 [US1] MEDULLA-SDLC-R001.2 Behavior.
+- [ ] T004 [US1] MEDULLA-SDLC-R001.3 Wiring: derive edges when a changeset is accepted or a commit is indexed.
+- [ ] T005 [US1] MEDULLA-SDLC-R001.4 Refusal.
+- [ ] T006 [US1] MEDULLA-SDLC-R001.5 Evidence.
+- [ ] T007 [US1] MEDULLA-SDLC-R001.6 Hot-path proof: served derivation and nightly budget.
+- [ ] T008 [US1] MEDULLA-SDLC-R002 Release and deployment records .
+- [ ] T009 [US1] MEDULLA-SDLC-R002.1 Model.
+- [ ] T010 [US1] MEDULLA-SDLC-R002.2 Behavior.
+- [ ] T011 [US1] MEDULLA-SDLC-R002.3 Wiring: record releases and deployments through served methods.
+- [ ] T012 [US1] MEDULLA-SDLC-R002.4 Refusal: unknown head and duplicate version.
+- [ ] T013 [US1] MEDULLA-SDLC-R002.5 Evidence: sealed release records.
+- [ ] T014 [US1] MEDULLA-SDLC-R002.6 Hot-path proof: served deployment records.
+- [ ] T015 [US1] MEDULLA-SDLC-R003 Defect records and intake .
+- [ ] T016 [US1] MEDULLA-SDLC-R003.1 Model.
+- [ ] T017 [US1] MEDULLA-SDLC-R003.2 Behavior.
+- [ ] T018 [US1] MEDULLA-SDLC-R003.3 Wiring: intake callers file defects.
+- [ ] T019 [US1] MEDULLA-SDLC-R003.4 Refusal: illegal status move and unverified fix.
+- [ ] T020 [US1] MEDULLA-SDLC-R003.5 Evidence: symptom list per defect.
+- [ ] T021 [US1] MEDULLA-SDLC-R003.6 Hot-path proof: served intake.
+- [ ] T022 [US1] MEDULLA-SDLC-R004 Defect triage decision .
+- [ ] T023 [US1] MEDULLA-SDLC-R004.1 Model.
+- [ ] T024 [US1] MEDULLA-SDLC-R004.2 Behavior.
+- [ ] T025 [US1] MEDULLA-SDLC-R004.3 Wiring: `DefectTriage` question kind and `TriageDefect` method.
+- [ ] T026 [US1] MEDULLA-SDLC-R004.4 Refusal: unknown and closed defects.
+- [ ] T027 [US1] MEDULLA-SDLC-R004.5 Evidence: premises and replay.
+- [ ] T028 [US1] MEDULLA-SDLC-R004.6 Hot-path proof: served triage journey.
+- [ ] T029 [US1] MEDULLA-SDLC-R004.7 Model: triage knobs.
+- [ ] T030 [US1] MEDULLA-SDLC-R004.8 Behaviour: kernel in the numeric crate, bounded by knobs.
+- [ ] T031 [US1] MEDULLA-SDLC-R005 Requirement state derived from the graph .
+- [ ] T032 [US1] MEDULLA-SDLC-R005.1 Model.
+- [ ] T033 [US1] MEDULLA-SDLC-R005.2 Behavior.
+- [ ] T034 [US1] MEDULLA-SDLC-R005.3 Wiring: `SpecStatus` method.
+- [ ] T035 [US1] MEDULLA-SDLC-R005.4 Refusal: unknown revision and absent spec tree.
+- [ ] T036 [US1] MEDULLA-SDLC-R005.5 Evidence: landing changesets, test ids and generator equality.
+- [ ] T037 [US1] MEDULLA-SDLC-R005.6 Hot-path proof: served status journey.
+- [ ] T038 [US2] MEDULLA-SDLC-R005.7 Task state computed from task records.
+- [ ] T039 [US1] MEDULLA-SDLC-R006 Lifecycle competency queries .
+- [ ] T040 [US1] MEDULLA-SDLC-R006.1 Model.
+- [ ] T041 [US1] MEDULLA-SDLC-R006.2 Behavior.
+- [ ] T042 [US1] MEDULLA-SDLC-R006.3 Wiring: `LifecycleTrace` method and four competency questions.
+- [ ] T043 [US1] MEDULLA-SDLC-R006.4 Refusal: kind, depth and tenant.
+- [ ] T044 [US1] MEDULLA-SDLC-R006.5 Evidence: rules, versions and limits.
+- [ ] T045 [US1] MEDULLA-SDLC-R006.6 Hot-path proof: served trace journey.
+- [ ] T046 [US1] MEDULLA-SDLC-R006.7 Model: trace limits are knobs.
+- [ ] T047 [US5] MEDULLA-SDLC-R007 Combined quality-gate script.
+- [ ] T048 [US5] MEDULLA-SDLC-R008 Zero-backlog census gates.
+- [ ] T049 [US2] MEDULLA-SDLC-R009 Governed documentation projection.
+- [ ] T050 [US5] MEDULLA-SDLC-R010 Landing gate runs the complete test suite.
+- [ ] T051 [US5] MEDULLA-SDLC-R011 Signal-killed test binaries rerun in isolation.
+- [ ] T052 [US1] MEDULLA-SDLC-R012 Graph-native development: the ecosystem is developed inside the engine .
+- [ ] T053 [US1] MEDULLA-SDLC-R012.1 Every ecosystem repository is ingested.
+- [ ] T054 [US1] MEDULLA-SDLC-R012.2 Spec rows are requirement records with caller and proof edges.
+- [ ] T055 [US1] MEDULLA-SDLC-R012.3 Changes are changesets bound to requirement rows.
+- [ ] T056 [US1] MEDULLA-SDLC-R012.4 Reachability and impact are graph queries.
+- [ ] T057 [US1] MEDULLA-SDLC-R012.5 Delivery slices come from the graph.
+- [ ] T058 [US1] MEDULLA-SDLC-R012.6 Specs change through the graph.
+- [ ] T059 [US1] MEDULLA-SDLC-R012.7 Lifecycle evidence lives with the requirement.
+- [ ] T060 [US4] MEDULLA-SDLC-R012.8 Project mode record.
+- [ ] T061 [US5] MEDULLA-SDLC-R013 Scenario runs gate phases and release bundles.
+- [ ] T062 [US2] MEDULLA-SDLC-R014 Spec artifacts are graph records .
+- [ ] T063 [P] [US2] MEDULLA-SDLC-R014.1 Deterministic parser for spec artifacts.
+- [ ] T064 [US2] MEDULLA-SDLC-R014.2 Incremental ingest by file digest.
+- [ ] T065 [US2] MEDULLA-SDLC-R014.3 Records link to code items and commits.
+- [ ] T066 [US2] MEDULLA-SDLC-R014.4 Contracts form the seam graph.
+- [ ] T067 [P] [US2] MEDULLA-SDLC-R014.5 Spec-driven development ontology pack.
+- [ ] T068 [US2] MEDULLA-SDLC-R014.6 Competency questions over the artifact graph.
+- [ ] T069 [US2] MEDULLA-SDLC-R014.7 Plans are first-class records.
+- [ ] T070 [US2] MEDULLA-SDLC-R014.8 Wiring: spec artifacts ingest with the repository code graph.
+- [ ] T071 [US2] MEDULLA-SDLC-R014.9 Hot-path proof: served artifact graph.
+- [ ] T072 [US3] MEDULLA-SDLC-R015 Task-dispatch decision .
+- [ ] T073 [US3] MEDULLA-SDLC-R015.1 Dispatch layers from dependencies and parallel markers.
+- [ ] T074 [US3] MEDULLA-SDLC-R015.2 Run-context assembly.
+- [ ] T075 [US3] MEDULLA-SDLC-R015.3 Wiring: hand each task to an agent run.
+- [ ] T076 [US3] MEDULLA-SDLC-R015.4 Results are accepted only through gates and landing.
+- [ ] T077 [US3] MEDULLA-SDLC-R015.5 Failures feed the evolution loop.
+- [ ] T078 [US3] MEDULLA-SDLC-R015.6 Hot-path proof: served dispatch.
+- [ ] T079 [US3] MEDULLA-SDLC-R016 Research loop for plan unknowns .
+- [ ] T080 [US3] MEDULLA-SDLC-R016.1 Unknowns trigger research runs.
+- [ ] T081 [US3] MEDULLA-SDLC-R016.2 Findings are cited entries in research.md.
+- [ ] T082 [US3] MEDULLA-SDLC-R016.3 Wiring: research runs use the connectors through arbora.
+- [ ] T083 [US3] MEDULLA-SDLC-R016.4 Connector operations needed by the loop exist.
+- [ ] T084 [P] [US3] MEDULLA-SDLC-R016.5 Hot-path proof: served research loop.
+- [ ] T085 [US4] MEDULLA-SDLC-R017 Goals and typed proposals .
+- [ ] T086 [US4] MEDULLA-SDLC-R017.1 Goal record.
+- [ ] T087 [P] [US4] MEDULLA-SDLC-R017.2 Proposal kinds.
+- [ ] T088 [US4] MEDULLA-SDLC-R017.3 Proposal evidence.
+- [ ] T089 [US4] MEDULLA-SDLC-R017.4 Proposals land only as pull requests.
+- [ ] T090 [US4] MEDULLA-SDLC-R017.5 Proposals follow the project mode.
+- [ ] T091 [US4] MEDULLA-SDLC-R017.6 Proposals are reviewed in the interface and the spec-delivery page.
+- [ ] T092 [US4] MEDULLA-SDLC-R017.7 Hot-path proof: goal to pull request.
+- [ ] T093 [US2] MEDULLA-SDLC-R018 Release graph is ingested .
+- [ ] T094 [US2] MEDULLA-SDLC-R018.1 Bundle plans ingest as records.
+- [ ] T095 [US2] MEDULLA-SDLC-R018.2 Hot-path proof: release graph competency.

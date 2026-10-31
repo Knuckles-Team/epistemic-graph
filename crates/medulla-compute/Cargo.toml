@@ -290,6 +290,13 @@ path = "benches/solve_cover.rs"
 harness = false
 required-features = ["solve"]
 
+# Spec-artifact parse bench (MEDULLA-SDLC-R014.1): 500 rows + 500 task lines.
+# Run: `cargo bench -p medulla-compute --bench spec_parse`.
+[[bench]]
+name = "spec_parse"
+path = "benches/spec_parse.rs"
+harness = false
+
 # Test-only opt-in cfg (not a feature, so `--all-features` never turns it on). See the
 # crate's device/CPU-feature parity tests for when to pass `--cfg medulla_gpu_device_tests`.
 [lints.rust]

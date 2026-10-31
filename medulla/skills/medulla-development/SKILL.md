@@ -37,10 +37,10 @@ Route the feature before any code.
 
 Run this before any code. Full table and gates: the Spec-driven development section of `AGENTS.md` and the [spec standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/spec-standard.md).
 
-1. Read `.specify/memory/constitution.md`; create it from pipelines `specs/_template/constitution.md` if absent (`spec-generator`).
+1. Read `.specify/memory/constitution.md`; create it from `.specify/templates/constitution-template.md` if absent (`spec-generator`).
 2. Specify the feature: `spec-intake-wizard` gathers the inputs, `spec-generator` writes `specs/<stable-id>/spec.md` and `requirements.md`.
 3. Clarify: resolve every `[NEEDS CLARIFICATION: ...]` marker (`spec-generator`).
-4. Plan: `plan.md` from pipelines `specs/_template/plan.md`, including Build contract, Production caller chain and Cross-repo seams (`spec-generator`).
+4. Plan: `plan.md` from `.specify/templates/plan-template.md`, including Build contract, Production caller chain and Cross-repo seams (`spec-generator`).
 5. Tasks: `tasks.md` lines `- [ ] T001 [P] [US1] <ROW-ID> ...` (`task-planner`).
 6. Analyze: fix the gaps and fill `checklists/requirements.md` (`spec-verifier`).
 7. Implement and land with the delivery contract in this skill (`feature-development-pipeline`); release through pipelines `releases/*.yml` bundles.

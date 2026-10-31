@@ -75,15 +75,10 @@ Performance claims are measured, not asserted: `scripts/bench_transport.py`
 
 ## Spec-driven contributions
 
-Start in [`specs/`](specs/README.md) with a stable ID and the repository-owned `spec.md`, `plan.md`,
-`test-spec.md`, and `tasks.md`. Use the [universal-skills SDD
-workflow](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development-workflows/sdd-full-lifecycle)
-and its
-[spec-generator](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/spec-generator),
-[spec-verifier](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/spec-verifier),
-and
-[task-planner](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/task-planner)
-skills. The file sequence aligns with [GitHub Spec Kit
-v1.0.12](https://github.com/github/spec-kit/releases/tag/v1.0.12); `test-spec.md` makes this repository's test and
-quality contract explicit. Link the PR to its spec IDs and include exact test, wiring, CCCC, jscpd,
-dupehound, and KISS evidence before proposing a landed status.
+Every change follows one process: constitution, route, specify, clarify, plan, tasks, analyze, implement, land, release.
+Each step names its skill and the files it writes, in the
+[organization contribution guide](https://github.com/Knuckles-Team/.github/blob/main/CONTRIBUTING.md).
+Read the [constitution](https://github.com/Knuckles-Team/pipelines/blob/main/.specify/memory/constitution.md),
+the [spec standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/spec-standard.md) and the
+[spec templates](.specify/templates), and pick an open row in
+[Canopy](https://knuckles-team.github.io/.github/architecture/). Commit with a `Spec: <ROW-ID>` trailer and a bound test.

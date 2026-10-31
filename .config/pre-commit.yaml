@@ -93,6 +93,8 @@ repos:
   # One spec check: standard, decomposition, status computed at read time, commit trailers.
   - id: spec
     stages: [pre-push, manual]
+  - id: spec-templates
+    stages: [pre-push, manual]
 - repo: https://github.com/jendrikseipp/vulture
   rev: b0f67ba0044693aa9ec0d38fe460590facc98004 # v2.16
   hooks:
