@@ -1,0 +1,48 @@
+{
+ "method": "2026-10-30 cross-spec review. review.jsonl grades every open row (verdict, tier, entry point, proof kind, cross-spec interfaces, overlap, gap, fix). orphan_verified lists VERIFIED rows whose tested module has no public item named by non-test code under src/. group_summary is the reviewer summary for the review group that held this spec.",
+ "orphan_verified": [
+  {
+   "row": "EG-FINANCE-PRIMITIVES-R003",
+   "module": "crates/eg-compute/src/finance/market/record_tests.rs"
+  },
+  {
+   "row": "EG-FINANCE-PRIMITIVES-R008.1",
+   "module": "crates/eg-compute/src/finance/market/strategy_backtest.rs"
+  },
+  {
+   "row": "EG-FINANCE-PRIMITIVES-R009.1",
+   "module": "crates/eg-compute/src/finance/market/recommendation.rs"
+  },
+  {
+   "row": "EG-FINANCE-PRIMITIVES-R010.1",
+   "module": "crates/eg-compute/src/finance/leverage.rs"
+  },
+  {
+   "row": "EG-FINANCE-PRIMITIVES-R012.1",
+   "module": "crates/eg-compute/src/finance/ghostfolio_import.rs"
+  },
+  {
+   "row": "EG-FINANCE-PRIMITIVES-R012.2",
+   "module": "crates/eg-compute/src/finance/ghostfolio_import.rs"
+  },
+  {
+   "row": "EG-FINANCE-PRIMITIVES-R013.1",
+   "module": "crates/eg-compute/src/finance/golden_fixture.rs"
+  },
+  {
+   "row": "EG-FINANCE-PRIMITIVES-R013.2.1",
+   "module": "crates/eg-compute/src/finance/golden_fixture.rs"
+  },
+  {
+   "row": "EG-FINANCE-PRIMITIVES-R016",
+   "module": "crates/eg-compute/src/finance/market/pine_parity_tests.rs"
+  },
+  {
+   "row": "EG-FINANCE-PRIMITIVES-R017",
+   "module": "crates/eg-compute/src/finance/market/record_tests.rs"
+  }
+ ],
+ "group_summary": [
+  "# x08 summary: finance-primitives (116 IDs) and engine-parity (77 IDs)\n\n## 1. Verdicts and tiers\nCounts are verdict/tier. READY: none. Rollups and \"intended test\" rows dominate; 0 rows name a production call site and a served test together.\n\n| Spec | Verdicts | Tiers |\n|---|---|---|\n| finance-primitives (116) | THIN 88, DECISION 14, EXISTS 4, DUP 4, BLANK 4, OWNER 2 | bind 22, sonnet 73, opus 21 |\n| engine-parity (77) | THIN 68, DECISION 4, EXISTS 3, DUP 2 | bind 20, sonnet 28, opus 29 |\n\nFindings that shape both:\n- finance: kernels (Kalman, OU, ADF, HMM, z-score, DM, DSR, Brier) already exist in crates/eg-compute/src/finance (statespace.rs, quant.rs, regime.rs) and partly in eg-numeric (series/kalman.rs, evaluation/). R002 is a move, not a build. Remove aliases (hard cutover) instead of \"thin aliases\".\n- finance: sizing.rs, banking.rs, execution.rs (R900/R901/R613) and factor.rs plus Method::FinanceFactorRank (R018) already exist and are served via src/server/handlers/finance/numeric_kernels.rs. Open rows there are only evidence and bench.\n- finance boundary holds: no row routes orders or calls a venue. R015.1 correctly leaves routing to CONN-EMERALD-EXCHANGE and promotion to SDK/ARBORA rows. Watch: R751 StrategyCard \"copy-trade cards\", R613 MarketMakingQuote (compute only is fine).\n- R018.5/.6 write nodes, but FinanceFactorRank is registered DurabilityDomain::None (read-only). Needs a separate write method.\n- engine-parity: R002.1, R004.1, R020.1 are VERIFIED by crate tests only. TxnFootprint and EngineCapabilities have no caller under src/ or in other crates (grep origin/main). Isolated.\n- engine-parity stays inside one engine: R019 plus the closed provider set is right. R019.1 file crates/eg-storage/src/provider.rs is absent.\n\n## 2. Cross-spec contracts\nFinance to federated-query: the 28 references are 14 rows (R002.2.3.1 to .14) x {R022, R030}. R022 (UQL source clauses) and R030 (TSSCAN row identity) provide sources, not series-analytic operators. FEDERATED-QUERY has zero finance mentions, so no provider side exists. Federated R019 (TrendFlip advance) also overlaps finance R014.\n\n| consumer row | provider spec | missing provider row (proposed text) |\n|---|---|---|\n| FINANCE R002.2.3.1 to .14 | federated-query | FQ-R0xx \"UQL series-analytic operators map one-to-one to eg-numeric kernels (name, arguments, f64 channel result); admission fails with a typed error for an unknown kernel.\" |\n| FINANCE R011, R011.2.x | durable-graph-kernel | DK-R002 child: \"finance alert topic family: price, trend_flip, dca_due, margin_threshold; event type strings and idempotency key.\" |\n| FINANCE R015.1 | decision-engine | exists: DE-R019 (both sides). Needs DK-R057 coverage of OrderProposalSnapshotV1 as a sealed record class. |\n| FINANCE R015.1 | sdk / arbora / connector | SDK writeback payload schema, ARBORA gate registry and confirm op, CONN-EMERALD-EXCHANGE order routing: none have rows. |\n| FINANCE R015 | arbora | ARBORA row issuing the share.read control lease; medulla stores the reference only. |\n| PARITY R004.2 | source-changesets | EG-SCM child of R003: \"path-set acceptance calls eg_transaction::occ::disjoint\". |\n| PARITY R005.2 | durable-graph-kernel | DK-R042 child: gate reads engine_writes records, refuses with BENCH_WORKLOAD_MISSING. |\n| PARITY R006.1 | federated-query | R025 is UQL $param binding, not SQL extended-query. Wrong provider; cite the SQL binder in eg-query. |\n| PARITY R014.2 | federated-query | R017 tracks edge-type and embedding generations, not table views. Wrong provider. |\n| PARITY R016.1 | object-storage-backend | OSB row: \"put/get log segments by commit-sequence range\". |\n| PARITY R016.2 | durable-graph-kernel | DK-R007 child: `storage archive` and `storage restore --to`. |\n| PARITY R018.2 | durable-graph-kernel | R800 is the prompt-prefix cache tier, not a columnar cache. Wrong provider. |\n| PARITY R020.2, plan Consumers | unified-data-plane | UDP-R009, R024, R026, R761, R762 do not name engine-parity back (xref has no UDP to PARITY edge). |\n| PARITY R007.1 | arbora | ARBORA-OPS-R858 not verifiable from this repo; confirm it carries password/cert/token identity fields. |\n\n## 3. Overlaps and duplicate authority\n- Group commit: PARITY R001 (GroupCommitter in eg-storage) vs DK-R040 (pipelined requests are one group commit), DK-R016 and DK-R099 (shard writers, shard_writer.rs:29). Owner: DK-R040/R099. Extend shard_writer.rs, no second committer.\n- Partitioned store files: PARITY R003 vs DK-R099 shard_index and DK-R055 store registry. Owner: DK-R099 (decision needed).\n- OCC: PARITY R002 vs DK-R084 version-checked writes. Owner: PARITY for footprints, R084 for the single-key check; state the mapping.\n- SQL compatibility matrix: PARITY R009 (contract/sql_compat.json) vs DK-R035.1 PgCompatibilityMatrix (crates/eg-types/src/pg_operational_surface.rs). One matrix, owner DK-R035.1.\n- pgwire and catalog: PARITY R006/R008 vs DK-R035 and DK-R860; crates/eg-query/src/sql/catalog.rs already handles pg_catalog. Extend, do not add pg_catalog.rs.\n- Indexes: PARITY R010.1 vs existing crates/eg-query/src/tables/index.rs and FQ-R009 (graph index lifecycle). Owner: index.rs; rename IndexSpec to TableIndexSpec.\n- CDC and replicas: PARITY R015/R017 vs DK-R002 outbox, emits_cdc policy flag, UDP-R009, and OBJECT-STORAGE-BACKEND-R004 shared-root reads. Owner: DK outbox for CDC; replicas deferred.\n- Finance numerics: R750 family (eg-numeric/src/finance, absent) vs R002.1.x, R018, R613, R900. Owner: R002/R613/R900/R901; delete R750.\n- Finance orders: R751 VersionedOrder digest chain vs R015.1 OrderProposalSnapshotV1. Owner: R015.1.\n- Markov forecast: R002.11 and R613.2 vs DK-R092.2 (multi-step probabilities from a transition matrix). One owner.\n- Finance signals: FINANCE R014 (SignalState, TrendFlip) vs FQ-R019 (per-bar TrendFlip). Owner: FQ-R019 for CEP advance, FINANCE for record types.\n\nFiles: /tmp/claude-1000/-home-apps-workspace/5513bc55-ab8a-4555-83db-978ccc189ee4/scratchpad/xs/review_x08.jsonl\n\n## 4. Hot paths\nFinance: served finance dispatch (src/server/handlers/finance/route_families.rs, numeric_kernels.rs), timeseries append -> derived::maintain_after_append (timeseries.rs:367), mutation_batch compile (R011). R004.3.2.* has no handler file yet. R750/R751 and R613.6/R900.6/R901.6 reach none (bench only).\nEngine-parity: mutation commit (redb_backend, shard_writer), src/server/pgwire, eg-query SQL classify. R002.1, R004.1, R020.1 reach none. R001, R003, R012 to R018 name new crates/files with no call site.\n\n## 5. VERIFIED isolation\nengine-parity R002.1 (TxnFootprint), R004.1 (disjoint), R020.1 (EngineCapabilities): crate tests only; git grep on origin/main finds no use under src/ or other crates. finance R002 shows SPECIFIED with verified_by in eg-numeric/evaluation/backtest.rs, skill.rs; not checked further.\n\n## 6. Common gaps\n1. Rollup or \"intended test\" with no served proof (R002.2.x, R004.3.2.x, R011.2.x).\n2. Values deferred to plan.md (R002.4 to R002.8, R005.1).\n3. Duplicate authority (R001, R009, R750, R751).\n4. Wrong or one-way cross-spec cite (R006.1, R014.2, R018.2, finance to FQ).\n5. Bench rows without host (every .3 hot-path row).\n\n## 7. Decisions\nPartition rule: reuse DK-R099 shard_index (recommended). CDC source: outbox/commit sequence. Replicas and columnar copies: defer. Kernel aliases: remove. R750/R751: delete. Order revisions: R015.1 owns.\n"
+ ]
+}
