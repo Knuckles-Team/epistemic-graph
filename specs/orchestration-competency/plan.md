@@ -190,3 +190,11 @@ These questions are the acceptance set for the connect-time contract, the downti
 | Q5 seed facts and changed parts of connector X | `MEDULLA-TYPED-PACKS-R104` |
 
 Call path: Arbora `find` -> served `Decide` or SPARQL -> the mechanism row -> answer with provenance.
+
+## North star
+
+The exit gate is competency questions. The ontology answers how to execute a task and produces cross-source reports from connector virtual graphs. Every connector that connects through arbora onboards itself. Its ontology extends the core ontology. Its prompts become system-prompt candidates. Its skills, tools and resources appear as virtual graph entries in the engine.
+
+## Delivery phase
+
+Row `MEDULLA-CQ-ORCH-R012` serves P5. It is the engine side of the execution-plan answer in `ARBORA-ACCEPTANCE-R006.7`.
