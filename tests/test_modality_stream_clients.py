@@ -8,8 +8,8 @@ import pytest
 from _untyped import untyped
 
 from medulla.client import (
-    MedullaClient,
     KnowledgeStreamClient,
+    MedullaClient,
     ServedModalityClient,
 )
 

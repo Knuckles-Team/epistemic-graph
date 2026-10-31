@@ -116,7 +116,8 @@ async def test_frame_handling_and_pool():
 
 @pytest.mark.asyncio
 async def test_rpc_timeout_is_bounded_and_connection_fatal():
-    # CONCEPT:MEDULLA-KG.query.wire-protocol (B1) — a server that accepts the connection but
+    # CONCEPT:MEDULLA-KG.query.wire-protocol (B1) — a server that accepts the connection
+    # but
     # never replies.
     # Pre-B1 the client awaited the read forever; now every RPC is bounded and a
     # timeout is connection-fatal (the stream is desynced, so it must reconnect).
@@ -318,7 +319,8 @@ async def test_write_drain_timeout_is_bounded_and_connection_fatal(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_connect_is_bounded(monkeypatch):
-    # CONCEPT:MEDULLA-KG.query.wire-protocol (B1) — a peer that accepts the TCP connection
+    # CONCEPT:MEDULLA-KG.query.wire-protocol (B1) — a peer that accepts the TCP
+    # connection
     # but never
     # completes the handshake must not hang the caller forever; connect() is bounded.
     async def _never_connects(*_a, **_k):

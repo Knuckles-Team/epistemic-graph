@@ -471,7 +471,8 @@ def _check_mutation_authority_inventory(
     mutation_apply = sources["mutation_apply"]
     durable_apply = sources["durable_apply"]
     # The facade's is_durable_mutation handles four DAG-forced families explicitly
-    # and delegates the base+broker set to medulla_core::durable_apply::is_durable_mutation
+    # and delegates the base+broker set to
+    # medulla_core::durable_apply::is_durable_mutation
     # (see the "durable_apply" source comment above) — union both bodies' Method
     # sets to see the classifier's real, post-hoist coverage.
     live_classifier = (
@@ -1205,7 +1206,9 @@ def mutation_inventory_sources() -> dict[str, str]:
     dispatch = read_compiler_family("src/server/dispatch.rs")
     raft = read_compiler_family("src/raft/mod.rs")
     blob_store = read_compiler_family("src/server/blob/store.rs")
-    blob_shared = read_compiler_family("crates/medulla-storage/src/owner/blob_shared.rs")
+    blob_shared = read_compiler_family(
+        "crates/medulla-storage/src/owner/blob_shared.rs"
+    )
 
     return {
         "cargo": read("Cargo.toml"),

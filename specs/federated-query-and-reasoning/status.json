@@ -784,7 +784,7 @@
       ],
       "verified_by": [
         "crates/medulla-plan/src/exec.rs:2695",
-        "src/server/mod.rs:2129"
+        "src/server/mod.rs:2130"
       ],
       "rollup_of": [
         "MEDULLA-FEDERATED-QUERY-R022.1"
@@ -801,7 +801,7 @@
       ],
       "verified_by": [
         "crates/medulla-plan/src/exec.rs:2695",
-        "src/server/mod.rs:2129"
+        "src/server/mod.rs:2130"
       ]
     },
     {
@@ -1419,7 +1419,7 @@
         "src/server/tests/nl_explain.rs:122",
         "src/server/tests/nl_explain.rs:68",
         "src/server/tests/nl_explain.rs:95",
-        "tests/test_pb_clients.py:88"
+        "tests/test_pb_clients.py:89"
       ],
       "rollup_of": [
         "MEDULLA-FEDERATED-QUERY-R058.2.2.1",
@@ -1438,7 +1438,7 @@
         "crates/medulla-types/src/nl_query.rs:43",
         "src/server/tests/nl_explain.rs:68",
         "src/server/tests/nl_explain.rs:95",
-        "tests/test_pb_clients.py:88"
+        "tests/test_pb_clients.py:89"
       ]
     },
     {

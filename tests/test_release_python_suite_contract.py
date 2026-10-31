@@ -577,7 +577,8 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
             ),
         ),
         (
-            "Test (replay-determinism — medulla-jobs/medulla-statechart crash-replay proofs, DE7)"
+            "Test (replay-determinism — medulla-jobs/medulla-statechart "
+            "crash-replay proofs, DE7)"
         ): (
             (
                 "python3 scripts/cargo_test_rescue.py cargo test -p medulla-jobs -p "
@@ -617,9 +618,10 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
         ): (
             (
                 "python3 scripts/cargo_test_rescue.py cargo test --locked "
-                "--workspace --exclude medulla-engine --exclude medulla-types --exclude "
-                "medulla-core --exclude medulla-compute --exclude medulla-storage --exclude "
-                "medulla-tts-piper --exclude medulla-numeric --exclude medulla-pyengine "
+                "--workspace --exclude medulla-engine --exclude medulla-types "
+                "--exclude medulla-core --exclude medulla-compute "
+                "--exclude medulla-storage --exclude medulla-tts-piper "
+                "--exclude medulla-numeric --exclude medulla-pyengine "
                 "--all-features --no-fail-fast"
             ),
         ),
@@ -628,9 +630,12 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
         ("Test (pyo3 crates, every feature except python)"): (
             (
                 "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
-                "medulla-numeric -p medulla-pyengine --features medulla-numeric/analytics,"
-                "medulla-numeric/contract,medulla-numeric/complex,medulla-numeric/decision,"
-                "medulla-numeric/motif,medulla-pyengine/security,medulla-pyengine/ml-pipeline,"
+                "medulla-numeric -p medulla-pyengine --features "
+                "medulla-numeric/analytics,"
+                "medulla-numeric/contract,medulla-numeric/complex,"
+                "medulla-numeric/decision,"
+                "medulla-numeric/motif,medulla-pyengine/security,"
+                "medulla-pyengine/ml-pipeline,"
                 "medulla-pyengine/reasoning,medulla-pyengine/query,medulla-pyengine/cypher,"
                 "medulla-pyengine/tsdb,medulla-pyengine/streaming,medulla-pyengine/wasm-udf,"
                 "medulla-pyengine/rdf,medulla-pyengine/blob,medulla-pyengine/jobs,"

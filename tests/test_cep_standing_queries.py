@@ -37,7 +37,8 @@ def test_cep_subscribe_poll_match_unsubscribe(client):
     g = "__commons__"
     # A one-step Sequence over an unbounded (size=0 -> span check disabled) sliding
     # window: matches every event keyed "Alert" -- the CDC label of an AddNode whose
-    # properties carry {"type": "Alert"} (src/server/cep.rs::feed_change / medulla-core's
+    # properties carry {"type": "Alert"} (src/server/cep.rs::feed_change /
+    # medulla-core's
     # labels_of), exactly the same label semantics test_streaming_cdc.py's
     # watch/trigger tests already rely on.
     pattern = {"Sequence": [{"key": "Alert", "preds": []}]}
@@ -78,7 +79,8 @@ def test_cep_subscribe_poll_match_unsubscribe(client):
     # Unsubscribing an id that no longer exists reports False, not an error.
     assert client.streaming.cep_unsubscribe(sub_id) is False
 
-    # Polling a dropped subscription is an error (CONCEPT:MEDULLA-KG.query.protocol-types
+    # Polling a dropped subscription is an error
+    # (CONCEPT:MEDULLA-KG.query.protocol-types
     # docs this
     # explicitly), not a silent empty list.
     with pytest.raises(RuntimeError):

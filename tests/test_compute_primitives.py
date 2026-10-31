@@ -172,7 +172,8 @@ def test_match_orders_roundtrip(clean_graph):
     assert len(fills) >= 1
 
 
-# ── Training loss / optimizer kernels (CONCEPT:MEDULLA-KG.compute.rust-native-training-loss)
+# ── Training loss / optimizer kernels
+# (CONCEPT:MEDULLA-KG.compute.rust-native-training-loss)
 # ────────────────────
 
 

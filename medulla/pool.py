@@ -13,7 +13,8 @@ Single-endpoint homelab behavior is unchanged: with one endpoint every graph
 co-resides trivially, so affinity is a no-op and scatter-gather degenerates to a
 single per-shard call.
 
-Failure mode (CONCEPT:MEDULLA-KG.ingest.ingest-lane-affinity): scatter-gather is **fail-loud
+Failure mode (CONCEPT:MEDULLA-KG.ingest.ingest-lane-affinity): scatter-gather is
+**fail-loud
 per shard**. If any
 shard's sub-union raises (e.g. one denied graph on that shard), the exception
 propagates and the whole union fails — consistent with the engine's
@@ -82,7 +83,8 @@ async def resolve_cluster_endpoints(
     client: MedullaClient,
 ) -> tuple[list[str], dict[str, str]]:
     """Discover live cluster endpoints from ``client``'s SEED connection
-    (CONCEPT:MEDULLA-KG.sharding.cluster-topology, ADR-1 / W1.1 — the discovery primitive
+    (CONCEPT:MEDULLA-KG.sharding.cluster-topology, ADR-1 / W1.1 — the discovery
+    primitive
     ``ShardRouter``'s node-bound-envelope comment below has referenced since
     ADR-3/W1.9).
 
@@ -159,15 +161,14 @@ class ConnectionPool:
         # mints with a DIFFERENT node claim -- no separate "re-mint on
         # failover" step is needed.
         self.node_id = node_id
-        # CONCEPT:MEDULLA-KG.backend.multiplexed-connections — auto-size to the box when the
+        # CONCEPT:MEDULLA-KG.backend.multiplexed-connections — auto-size to the box when
+        # the
         # caller doesn't pin a cap,
         # so M concurrent callers each get their own in-flight connection instead
         # of contending on one. An explicit cap is still honored.
         self.max_size = _auto_pool_size() if max_size is None else max_size
         self.min_size = min(min_size, self.max_size)
-        self._pool: asyncio.Queue[MedullaClient] = asyncio.Queue(
-            maxsize=self.max_size
-        )
+        self._pool: asyncio.Queue[MedullaClient] = asyncio.Queue(maxsize=self.max_size)
         self._active_connections = 0
         self._lock = asyncio.Lock()
 
@@ -348,7 +349,8 @@ class ShardRouter:
     def group_by_shard(self, graph_names: list[str]) -> dict[str, list[str]]:
         """Group ``graph_names`` by their resolved shard endpoint (order-preserving).
 
-        CONCEPT:MEDULLA-KG.ingest.ingest-lane-affinity — the partition a scatter-gather union
+        CONCEPT:MEDULLA-KG.ingest.ingest-lane-affinity — the partition a scatter-gather
+        union
         fans out over.
         With affinity in play, a co-resident set collapses into one group, so the
         union takes a single per-shard call (the fast path); only graphs that
@@ -419,7 +421,8 @@ class ShardRouter:
 
         return await asyncio.gather(*(_run(fn) for fn in ops))
 
-    # ── Cross-shard scatter-gather union (CONCEPT:MEDULLA-KG.ingest.ingest-lane-affinity)
+    # ── Cross-shard scatter-gather union
+    # (CONCEPT:MEDULLA-KG.ingest.ingest-lane-affinity)
     # ──────────────
     # Union across graphs that may live on DIFFERENT shards. Each per-shard
     # sub-union reuses the single-shard KG-2.171 RPC (no new engine method):

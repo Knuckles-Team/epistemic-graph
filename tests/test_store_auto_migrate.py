@@ -1,6 +1,7 @@
 """A previous-patch store migrates when this build opens it (R070.2).
 
-Spec row: MEDULLA-DURABLE-KERNEL-R070.2. A writer engine bootstraps a store and creates a
+Spec row: MEDULLA-DURABLE-KERNEL-R070.2. A writer engine bootstraps a store and creates
+a
 tenant graph the way arbora does. This build then opens the same store with no offline
 step in between. It migrates every older but supported store under its own lock, then
 serves: `ListGraphs` returns both graphs for the System identity. A second restart

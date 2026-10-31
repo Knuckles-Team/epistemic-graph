@@ -2,7 +2,8 @@
 (CONCEPT:MEDULLA-KG.ingest.broker-streams-namespaces).
 
 Covers the thin Python surface added for the Program-B engine `Method`s that had no
-client binding: the native broker + append-log streams (MEDULLA-275..284/314), RBAC admin
+client binding: the native broker + append-log streams (MEDULLA-275..284/314), RBAC
+admin
 (MEDULLA-092), online backup/restore (MEDULLA-090), and NL->query (MEDULLA-080).
 
 Two layers:

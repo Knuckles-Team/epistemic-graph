@@ -52,7 +52,8 @@ def test_sparql_update_then_hybrid_retrieve(clean_graph):
     rex = "<http://ex/rex>"
     dog = "<http://ex/Dog>"
 
-    # X5-enforce (CONCEPT:MEDULLA-KG.ontology.rdf-update-guard): AddTriples/RemoveTriples
+    # X5-enforce (CONCEPT:MEDULLA-KG.ontology.rdf-update-guard):
+    # AddTriples/RemoveTriples
     # unconditionally require a registered integrity policy before accepting ANY RDF
     # write -- there is no "no policy configured" pass-through. Register a shape that
     # targets a class this test never uses, so it validates successfully without

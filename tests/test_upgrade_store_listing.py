@@ -1,4 +1,5 @@
-"""A reopened store lists its graphs after a patch upgrade (MEDULLA-DURABLE-KERNEL-R861.2).
+"""A reopened store lists its graphs after a patch upgrade
+(MEDULLA-DURABLE-KERNEL-R861.2).
 
 A writer engine bootstraps a store, registers an identity with no grants and creates a
 `Global` tenant graph the way arbora does. This build then reopens the same store.
@@ -82,9 +83,7 @@ def _env(state_dir: Path) -> dict[str, str]:
     }
 
 
-async def _connect(
-    socket_path: str, context: dict[str, object]
-) -> MedullaClient:
+async def _connect(socket_path: str, context: dict[str, object]) -> MedullaClient:
     return await MedullaClient.connect(
         socket_path=socket_path, auth_secret=AUTH_SECRET, verified_context=context
     )

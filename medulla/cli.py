@@ -25,9 +25,7 @@ def _request_context(raw: str) -> RequestContextClaims:
     from .client import validate_request_context
 
     if not raw:
-        raise SystemExit(
-            "MEDULLA_REQUEST_CONTEXT_JSON is required for client commands"
-        )
+        raise SystemExit("MEDULLA_REQUEST_CONTEXT_JSON is required for client commands")
     try:
         value = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -36,18 +34,14 @@ def _request_context(raw: str) -> RequestContextClaims:
 
 
 def _default_socket_path() -> str:
-    fallback = os.path.join(
-        os.path.expanduser("~"), ".local", "state", "medulla"
-    )
+    fallback = os.path.join(os.path.expanduser("~"), ".local", "state", "medulla")
     runtime_dir = os.environ.get("XDG_RUNTIME_DIR", fallback)  # nosec B108
     os.makedirs(runtime_dir, exist_ok=True)
     return os.path.join(runtime_dir, "medulla.sock")
 
 
 def _default_pid_path() -> str:
-    fallback = os.path.join(
-        os.path.expanduser("~"), ".local", "state", "medulla"
-    )
+    fallback = os.path.join(os.path.expanduser("~"), ".local", "state", "medulla")
     runtime_dir = os.environ.get("XDG_RUNTIME_DIR", fallback)  # nosec B108
     os.makedirs(runtime_dir, exist_ok=True)
     return os.path.join(runtime_dir, "medulla.pid")

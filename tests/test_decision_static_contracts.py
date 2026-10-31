@@ -162,7 +162,10 @@ def test_closure_check_refuses_new_slot_kind() -> None:
 
 def test_duplicate_scan_refuses_second_declaration_in_homonym_file() -> None:
     sources = _sources()
-    sources["crates/medulla-types/src/wire_pipeline.rs"] += "\npub struct ModelSpec {}\n"
-    assert ("ModelSpec", "crates/medulla-types/src/wire_pipeline.rs") in _duplicate_dtos(
-        sources
+    sources["crates/medulla-types/src/wire_pipeline.rs"] += (
+        "\npub struct ModelSpec {}\n"
     )
+    assert (
+        "ModelSpec",
+        "crates/medulla-types/src/wire_pipeline.rs",
+    ) in _duplicate_dtos(sources)

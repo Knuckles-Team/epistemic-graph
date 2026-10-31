@@ -91,7 +91,10 @@ def test_parse_claimed_paths_collects_every_path_field_from_impl_components_only
 ):
     document = _registry(
         [
-            {"component_id": "medulla.seam", "component_kind": "layer_boundary_root_seam"},
+            {
+                "component_id": "medulla.seam",
+                "component_kind": "layer_boundary_root_seam",
+            },
             _component(
                 owned_source_roots=["src/a.rs"],
                 public_contract_roots=["src/lib.rs"],

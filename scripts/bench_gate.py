@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""CONCEPT:MEDULLA-KG.query.perf-recall-ci-gate — the perf/recall regression GATE for the
+"""CONCEPT:MEDULLA-KG.query.perf-recall-ci-gate — the perf/recall regression GATE for
+the
 medulla-plan hybrid_queries bench.
 
-Runs AFTER `cargo bench -p medulla-plan --features …` has produced its criterion output. It
+Runs AFTER `cargo bench -p medulla-plan --features …` has produced its criterion output.
+It
 reads two artifacts and fails (exit 1) on a regression:
 
-  1. **recall** — the `medulla_plan_recall.json` the bench writes (measured recall@k of the
+  1. **recall** — the `medulla_plan_recall.json` the bench writes (measured recall@k of
+  the
      vector leg vs the brute-force oracle). Must stay >= `recall_floor`. The bench ALSO
      asserts this internally, so a recall regression already fails the bench binary;
      this
@@ -112,7 +115,9 @@ def _check_latency(
 
 
 def _emit_result(reported: list[str], failures: list[str]) -> int:
-    print("medulla-plan perf/recall gate (CONCEPT:MEDULLA-KG.query.perf-recall-ci-gate):")
+    print(
+        "medulla-plan perf/recall gate (CONCEPT:MEDULLA-KG.query.perf-recall-ci-gate):"
+    )
     print("\n".join(reported))
 
     if failures:

@@ -157,7 +157,8 @@ def test_acl_enforced_once_identities_registered(isolation_server):
         )
 
         # Owner creates + writes its own graph. Row-level security
-        # (CONCEPT:MEDULLA-KG.sharding.row-level-security) is a SEPARATE, per-row concern
+        # (CONCEPT:MEDULLA-KG.sharding.row-level-security) is a SEPARATE, per-row
+        # concern
         # from the graph-level ACL this test exercises: an untagged row (no `_owner`/
         # `_visibility`/`_grants` key at all) is `tagged=false` and denied to
         # everyone but `System`, even the identity that just wrote it -- explicit

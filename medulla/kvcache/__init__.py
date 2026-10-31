@@ -1,6 +1,7 @@
 """Python LMCache/vLLM remote-backend driver for the MEDULLA-187 KV-cache endpoint.
 
-CONCEPT:MEDULLA-KG.backend.shipped-pip-installable-python — a shipped, pip-installable driver
+CONCEPT:MEDULLA-KG.backend.shipped-pip-installable-python — a shipped, pip-installable
+driver
 that lets parallel vLLM /
 LMCache workers use the engine's shared, content-addressed KV-cache backend
 (CONCEPT:MEDULLA-KG.memory.byte-bounded-tiers/186) as a remote KV backend over its HTTP

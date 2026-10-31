@@ -758,7 +758,8 @@ def main() -> None:
                 in graphql_crossmodal,
                 "uuid::Uuid::new_v4()" in graphql_crossmodal,
                 "CrossModalRoute::Invalid" in graphql_crossmodal,
-                # `&core` or `core`: WB1-MEDULLA-01's extraction hoisted the borrow to the
+                # `&core` or `core`: WB1-MEDULLA-01's extraction hoisted the borrow to
+                # the
                 # call site, so the argument is already a reference. The property is
                 # that the query path reads through the AUTHORITY's projection rather
                 # than the raw committed core -- not which side takes the `&`.

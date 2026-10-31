@@ -28,8 +28,10 @@ and answers three questions the raw report can't answer by itself:
        selection -- a scope gap in this measurement, not the product.
 
 Usage:
-    medulla_coverage_zero_report.py --lcov OUT/stage-a.lcov [--lcov OUT/stage-b.lcov ...] \
-        --root crates/medulla-types --root crates/medulla-storage --root crates/medulla-capabilities \
+    medulla_coverage_zero_report.py --lcov OUT/stage-a.lcov [--lcov OUT/stage-b.lcov
+    ...] \
+        --root crates/medulla-types --root crates/medulla-storage --root
+        crates/medulla-capabilities \
         --contract-glob '*agent_library*' --contract-glob '*agent_graph*' \
         --contract-glob '*agent_component*' --contract-glob '*agent_template*' \
         --contract-glob '*delegation*' \

@@ -1,4 +1,5 @@
-"""Engine-side response-size guard (CONCEPT:MEDULLA-KG.ingest.resets-socket-so-assimilation)
+"""Engine-side response-size guard
+(CONCEPT:MEDULLA-KG.ingest.resets-socket-so-assimilation)
 — round trip.
 
 The unbounded ``GetNodes`` full-graph dump is refused once the graph exceeds the

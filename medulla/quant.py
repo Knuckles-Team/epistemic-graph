@@ -177,7 +177,8 @@ def ucb1_scores(
 ) -> list[float]:
     """UCB1 per-arm scores: ``mean + c*sqrt(ln(total)/count)``.
 
-    CONCEPT:MEDULLA-AHE.harness.online-exploit-explore-reference — pure-Python reference for
+    CONCEPT:MEDULLA-AHE.harness.online-exploit-explore-reference — pure-Python reference
+    for
     the online exploit/explore
     bandit mirrored by agent-utilities' ``ExploreExploitRouter`` (DecentMem
     online routing, arXiv:2605.22721). Kept here next to the other quant

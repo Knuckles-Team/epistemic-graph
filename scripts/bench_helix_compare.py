@@ -34,9 +34,9 @@ from typing import Any
 
 from helix_compare import dataset as corpus
 from helix_compare import queries as query_set
-from helix_compare.medulla_engine import MedullaEngine
 from helix_compare.helix_engine import HelixEngine
 from helix_compare.measure import host_probe, parse_cpus
+from helix_compare.medulla_engine import MedullaEngine
 from helix_compare.oracle import Oracle
 from helix_compare.report import render
 from helix_compare.runner import Engine, EnginePass, Plan
@@ -144,7 +144,10 @@ def main(argv: list[str] | None = None) -> int:
         "evidence": "PINNED" if pinned else "UNPINNED (smoke/repin run: not evidence)",
         "spec": spec,
         "inputs": pins,
-        "eg": {"commit": args.medulla_commit, "server_sha256": _sha256(args.medulla_server)},
+        "eg": {
+            "commit": args.medulla_commit,
+            "server_sha256": _sha256(args.medulla_server),
+        },
         "helix": {
             "commit": spec["helix"]["commit"],
             "server_sha256": _sha256(args.helix_server),
