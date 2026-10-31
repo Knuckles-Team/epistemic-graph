@@ -1,4 +1,4 @@
-//! Parquet columnar log segments on the blob CAS (CONCEPT:EG-KG.retrieval.observability-search) — the
+//! Parquet columnar log segments on the blob CAS (CONCEPT:MEDULLA-KG.retrieval.observability-search) — the
 //! cheap-object-store substrate under the observability ingest front door
 //! (CONCEPT:AU-KG.ingest.self-ingest).
 //!
@@ -9,15 +9,15 @@
 //! object store (S3/MinIO) with a small manifest so a query can prune by
 //! time/stream BEFORE scanning. The engine already has every piece:
 //!
-//!  * Arrow `RecordBatch` (the same `(ts, …)` shape [`eg_tsdb::arrow_seg`] hands
-//!    DataFusion, CONCEPT:EG-KG.temporal.columnar-schema-inference), and
-//!  * a content-addressed blob CAS ([`crate::server::blob`], CONCEPT:EG-KG.storage.blob-namespace)
+//!  * Arrow `RecordBatch` (the same `(ts, …)` shape [`medulla_tsdb::arrow_seg`] hands
+//!    DataFusion, CONCEPT:MEDULLA-KG.temporal.columnar-schema-inference), and
+//!  * a content-addressed blob CAS ([`crate::server::blob`], CONCEPT:MEDULLA-KG.storage.blob-namespace)
 //!    that, with `blob-s3` on, lands chunks on S3.
 //!
 //! So a log segment is: `Vec<LogRecord>` → typed column frame → Parquet bytes →
 //! stored in the CAS (one content-addressed blob) → a [`SegmentManifest`]
 //! recording `(stream, [min_ts, max_ts], row_count, schema)`. The manifest is the
-//! prune index: a later time/stream-bounded search (EG-162/164, a follow-up Phase T
+//! prune index: a later time/stream-bounded search (MEDULLA-162/164, a follow-up Phase T
 //! item) reads only the segments whose `[min_ts, max_ts]` overlaps the query window.
 //!
 //! ## Schema (schema-on-read)
@@ -26,7 +26,7 @@
 //! `body: Utf8`, and `attrs: Utf8` — the dynamic attribute map serialized as a JSON
 //! object so the columnar segment stays a FIXED schema while the log attributes stay
 //! schema-on-read (parsed out of the `attrs` JSON at query time). This is the
-//! tractable first cut EG-161 calls for; a per-attribute column promotion is a later
+//! tractable first cut MEDULLA-161 calls for; a per-attribute column promotion is a later
 //! Phase T refinement.
 
 use std::sync::Arc;
@@ -42,7 +42,7 @@ use crate::server::blob::store::{hex_digest, BlobManifest, ChunkStore, DEFAULT_C
 
 use super::LogRecord;
 
-/// The prune index for one flushed Parquet log segment (CONCEPT:EG-KG.retrieval.observability-search). Records
+/// The prune index for one flushed Parquet log segment (CONCEPT:MEDULLA-KG.retrieval.observability-search). Records
 /// where the segment's bytes live in the CAS (`blob_digest`) plus the coordinates a
 /// query prunes on WITHOUT opening the Parquet: the stream, the closed time range
 /// `[min_ts, max_ts]` (epoch-ns), the row count and the column schema.
@@ -95,7 +95,7 @@ fn attrs_json(rec: &LogRecord) -> String {
 }
 
 /// Build an Arrow `RecordBatch` (the [`log_arrow_schema`]) from log records. Public
-/// to the obs module so the search surface (CONCEPT:EG-KG.query.concept-4) can register the scanned
+/// to the obs module so the search surface (CONCEPT:MEDULLA-KG.query.concept-4) can register the scanned
 /// hot + cold records as a DataFusion `logs` table.
 pub(super) fn records_to_batch(records: &[LogRecord]) -> Result<RecordBatch, String> {
     let ts: Int64Array = records.iter().map(|r| Some(r.ts)).collect();

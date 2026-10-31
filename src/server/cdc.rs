@@ -1,5 +1,5 @@
 //! Change-Data-Capture hub + continuous queries + subscriptions/triggers
-//! (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230, feature `streaming`).
+//! (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions/230, feature `streaming`).
 //!
 //! Reactivity layered OVER the engine's existing per-graph durable change record
 //! (the ledger): the dispatch shell already records every durable mutation
@@ -33,10 +33,10 @@ use crate::wire::{
 };
 
 /// Default per-graph ring capacity (events retained for cursor reads). Overridable
-/// with `EPISTEMIC_GRAPH_CDC_RING`. A cursor older than the trimmed window gets an
+/// with `MEDULLA_CDC_RING`. A cursor older than the trimmed window gets an
 /// explicit "cursor behind retained window" error rather than silently skipping.
 fn ring_cap() -> usize {
-    std::env::var("EPISTEMIC_GRAPH_CDC_RING")
+    std::env::var("MEDULLA_CDC_RING")
         .ok()
         .and_then(|v| v.parse().ok())
         .filter(|&n: &usize| n > 0)
@@ -54,7 +54,7 @@ struct GraphFeed {
     /// Seq of the oldest event still retained (`ring.front().seq`); a `from_seq`
     /// below this is behind the window (B-8: the change ring's `watermark`).
     oldest_seq: u64,
-    /// Fired-trigger log (CONCEPT:EG-KG.query.wire-codec), its own monotonic cursor.
+    /// Fired-trigger log (CONCEPT:MEDULLA-KG.query.wire-codec), its own monotonic cursor.
     /// Doubles as the fired log's `head_seq` (B-8 follow-up).
     next_fire: u64,
     fired: VecDeque<FiredAction>,
@@ -100,7 +100,7 @@ struct Trigger {
 }
 
 /// External sink hook installed at startup by CA-11's Kafka bridge (feature
-/// `cdc-kafka`). A tiny in-crate trait — NOT `eg_stream::sink::CdcSink`
+/// `cdc-kafka`). A tiny in-crate trait — NOT `medulla_stream::sink::CdcSink`
 /// directly — so `cdc.rs` (read by every `streaming` consumer, not just
 /// `cdc-kafka` builds) takes on no new dependency; `crate::server::cdc_sink`
 /// owns the real Kafka producer and the DEC-CA-03 envelope shape, and
@@ -138,7 +138,7 @@ pub struct CdcHub {
     /// restart as an explicit, provable condition instead of inferring completeness
     /// from a merely-empty or merely-short read. See `CdcReadResult`'s doc.
     epoch: u64,
-    /// Live CEP standing-query surface (CONCEPT:EG-KG.query.protocol-types), feature `stream`. Created LAZILY
+    /// Live CEP standing-query surface (CONCEPT:MEDULLA-KG.query.protocol-types), feature `stream`. Created LAZILY
     /// on the first `CepSubscribe` (`cep_surface`), so a CDC feed with no CEP subscriber
     /// pays nothing and the drain-task spawn always happens inside the async handler (a
     /// runtime is live). Once set, `emit` feeds every change into it. A `OnceLock` so the
@@ -155,7 +155,7 @@ pub struct CdcHub {
     reasoning_cascade: OnceLock<Arc<crate::server::reasoning_cascade::ReasoningCascade>>,
     /// CA-11's external Kafka sink (feature `cdc-kafka`), installed once at
     /// startup by `cdc_sink::install_from_env` ONLY when
-    /// `EPISTEMIC_GRAPH_CDC_KAFKA_BROKERS` is set. `None` (every build
+    /// `MEDULLA_CDC_KAFKA_BROKERS` is set. `None` (every build
     /// without `cdc-kafka`, and every `cdc-kafka` build with the env var
     /// unset) means `emit` pays one `OnceLock::get()` and nothing else —
     /// same cost-gate idiom as `cep`/`reasoning_cascade` above, and the
@@ -163,7 +163,7 @@ pub struct CdcHub {
     /// requires.
     #[cfg(feature = "cdc-kafka")]
     sink: OnceLock<Arc<dyn ExternalCdcSink>>,
-    /// The opt-in standing impact watches (EH-526, `EPISTEMIC_GRAPH_IMPACT_ON_WRITE`),
+    /// The opt-in standing impact watches (EH-526, `MEDULLA_IMPACT_ON_WRITE`),
     /// installed once at startup only when armed. Unset ⇒ one `OnceLock::get()`.
     #[cfg(all(feature = "mining", feature = "query"))]
     impact_watch: std::sync::OnceLock<Arc<crate::server::impact_watch::ImpactWatchHub>>,
@@ -217,7 +217,7 @@ impl CdcHub {
         }
     }
 
-    /// The live CEP standing-query surface (CONCEPT:EG-KG.query.protocol-types), lazily created on first use.
+    /// The live CEP standing-query surface (CONCEPT:MEDULLA-KG.query.protocol-types), lazily created on first use.
     /// Its drain task is spawned here — always called from the async `CepSubscribe` handler,
     /// so a Tokio runtime is live. Subsequent `emit`s feed the surface via [`CdcHub::emit`].
     #[cfg(feature = "stream")]
@@ -259,7 +259,7 @@ impl CdcHub {
             .clone()
     }
 
-    /// Emit one change into `graph`'s feed (CONCEPT:EG-KG.query.streaming-cdc-subscriptions). Assigns the per-graph
+    /// Emit one change into `graph`'s feed (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions). Assigns the per-graph
     /// seq, pushes the ring (trimming the oldest past the cap), drives every continuous
     /// query + trigger that matches, then wakes watchers. Returns the assigned seq.
     pub fn emit(
@@ -311,7 +311,7 @@ impl CdcHub {
             // Drive views/triggers under no feed lock (separate locks) by cloning out.
             self.maintain(&event);
             self.fire_triggers(feed, &event);
-            // Feed the live CEP standing-query engine (CONCEPT:EG-KG.query.protocol-types) if a subscriber has
+            // Feed the live CEP standing-query engine (CONCEPT:MEDULLA-KG.query.protocol-types) if a subscriber has
             // created the surface. Lock-free check; the map→publish is a bounded broadcast
             // send that never blocks the writer (a full bus drops the oldest event).
             #[cfg(feature = "stream")]
@@ -319,7 +319,7 @@ impl CdcHub {
                 cep.feed_change(&event);
             }
             // CA-11: forward to the external Kafka sink if one is installed
-            // (`DEC-CA-03`'s `eg.cdc.<graph>`). Lock-free check when unset
+            // (`DEC-CA-03`'s `medulla.cdc.<graph>`). Lock-free check when unset
             // (every build without `cdc-kafka`, and every `cdc-kafka` build
             // with no broker configured); `KafkaCdcSink::emit` itself is
             // non-blocking (queues into librdkafka's local buffer, never
@@ -336,7 +336,7 @@ impl CdcHub {
             }
             (seq, notify)
         };
-        // CDC INVALIDATION for plan-backed matviews (CONCEPT:EG-KG.storage.matview-cdc-invalidation):
+        // CDC INVALIDATION for plan-backed matviews (CONCEPT:MEDULLA-KG.storage.matview-cdc-invalidation):
         // a committed change to `graph` retires every plan-backed matview over it, so the
         // next `Get` recomputes. Taken AFTER the feeds lock is dropped (the manager owns a
         // separate lock — no nested lock ordering). The graph's OCC version already bumped
@@ -346,7 +346,7 @@ impl CdcHub {
         {
             // Recompute-mode views: blunt stale flag (belt-and-braces on the OCC version).
             crate::server::matview::note_change(graph);
-            // Incremental-mode views: DBSP delta maintenance (CONCEPT:EG-KG.storage.incremental-matview)
+            // Incremental-mode views: DBSP delta maintenance (CONCEPT:MEDULLA-KG.storage.incremental-matview)
             // — fold this exact before/after image through the compiled circuit so the
             // view's `current` stays fresh WITHOUT a full recompute. One is a no-op per
             // view depending on its mode.
@@ -435,7 +435,7 @@ impl CdcHub {
             .unwrap_or(0)
     }
 
-    /// Reset a graph's change feed (CONCEPT:EG-KG.query.streaming-cdc-subscriptions): drop its retained ring + fired
+    /// Reset a graph's change feed (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions): drop its retained ring + fired
     /// log and rewind the seq to 0. Called when the graph itself is wiped (`ClearGraph`)
     /// — the per-node changes are moot once the graph is empty, so a cleared graph
     /// starts a fresh feed (a consumer re-seeds from seq 0). Continuous queries over the
@@ -503,7 +503,7 @@ impl CdcHub {
         }
     }
 
-    // ── Continuous queries (CONCEPT:EG-KG.query.streaming-cdc-subscriptions) ────────────────────────────────
+    // ── Continuous queries (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions) ────────────────────────────────
 
     /// Register (or replace) a continuous query, seeding its value from `initial`
     /// (the current matching state computed by the handler, so the view is correct
@@ -562,7 +562,7 @@ impl CdcHub {
         }
     }
 
-    // ── Triggers / reactions (CONCEPT:EG-KG.query.wire-codec) ──────────────────────────────
+    // ── Triggers / reactions (CONCEPT:MEDULLA-KG.query.wire-codec) ──────────────────────────────
 
     pub fn register_trigger(
         &self,
@@ -708,11 +708,11 @@ pub enum CdcPre {
 }
 
 /// Read the canonical `relationship` field out of an edge property blob, if any
-/// (the same field `eg-rdf::update`'s `edge_rel` / `eg-plan::exec`'s `rel_matches`
+/// (the same field `medulla-rdf::update`'s `edge_rel` / `medulla-plan::exec`'s `rel_matches`
 /// key selection on — see the read/write model note on
 /// [`GraphCore::edge_properties`](crate::graph::GraphCore::edge_properties)).
 fn edge_relationship(blob: &[u8]) -> Option<String> {
-    eg_types::msgpack::decode_property_value(blob)
+    medulla_types::msgpack::decode_property_value(blob)
         .ok()
         .and_then(|v| {
             v.get("relationship")
@@ -729,7 +729,7 @@ fn edge_relationship(blob: &[u8]) -> Option<String> {
 /// blob out of that `Vec` is never index-arbitrary here: for `AddEdge` the pre-image
 /// is the existing entry that carries the SAME `relationship` the new edge is about
 /// to add (the entry an upsert-style caller is conceptually replacing), matching the
-/// selection rule `eg-rdf::update::add_edge_if_absent` already uses on the write
+/// selection rule `medulla-rdf::update::add_edge_if_absent` already uses on the write
 /// side. When no existing entry shares that relationship, this is a genuinely new
 /// typed edge for the pair, not an update to one — `before` is correctly `None`,
 /// never an unrelated parallel edge's blob.
@@ -799,13 +799,13 @@ pub use dispatch::emit_for_method;
 pub(crate) fn emit_served_modality(
     hub: &CdcHub,
     graph: &str,
-    modality: eg_types::ServedModalityKind,
+    modality: medulla_types::ServedModalityKind,
 ) {
     let node_id = match modality {
-        eg_types::ServedModalityKind::Document => "__served_modality_document",
-        eg_types::ServedModalityKind::Image => "__served_modality_image",
-        eg_types::ServedModalityKind::Audio => "__served_modality_audio",
-        eg_types::ServedModalityKind::Video => "__served_modality_video",
+        medulla_types::ServedModalityKind::Document => "__served_modality_document",
+        medulla_types::ServedModalityKind::Image => "__served_modality_image",
+        medulla_types::ServedModalityKind::Audio => "__served_modality_audio",
+        medulla_types::ServedModalityKind::Video => "__served_modality_video",
     };
     hub.emit(
         graph,
@@ -833,7 +833,7 @@ fn extract_label(blob: Option<&[u8]>) -> String {
     let Some(bytes) = blob else {
         return String::new();
     };
-    let Ok(val) = eg_types::msgpack::decode_property_value(bytes) else {
+    let Ok(val) = medulla_types::msgpack::decode_property_value(bytes) else {
         return String::new();
     };
     let Some(obj) = val.as_object() else {
@@ -880,7 +880,7 @@ fn apply_query_delta(q: &mut ContinuousQuery, event: &CdcEvent) {
 
 /// Decode a numeric node-property field from a msgpack blob (0.0 if absent/non-numeric).
 fn field_num(blob: &[u8], field: &str) -> f64 {
-    eg_types::msgpack::decode_property_value(blob)
+    medulla_types::msgpack::decode_property_value(blob)
         .ok()
         .and_then(|v| v.get(field).and_then(|f| f.as_f64()))
         .unwrap_or(0.0)
@@ -895,7 +895,7 @@ mod tests {
     }
 
     /// `capture_before`'s `AddEdge` pre-image must select the existing entry by
-    /// `relationship`, never by Vec position (CONCEPT:EG-KG.compute.edge-write-read-model):
+    /// `relationship`, never by Vec position (CONCEPT:MEDULLA-KG.compute.edge-write-read-model):
     /// a `(source, target)` pair may already carry several parallel typed edges, so
     /// "the first one written" is never a safe proxy for "the one this AddEdge is
     /// conceptually replacing".

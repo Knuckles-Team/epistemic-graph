@@ -1,11 +1,11 @@
-//! D-ORC-50 encryption-bootstrap proof (CONCEPT:EG-KG.txn.multi-op-occ-acid,
-//! CONCEPT:EG-KG.sharding.row-level-security).
+//! D-ORC-50 encryption-bootstrap proof (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid,
+//! CONCEPT:MEDULLA-KG.sharding.row-level-security).
 //!
 //! Root cause: a multi-op OCC `Commit` (e.g. a compare-and-set that stages a node
 //! property + an ANN embedding together via `BeginTxn`/`TxnAddNode`/`TxnAddEmbedding`/
 //! `Commit`) durably logs a private recovery plan so a crash mid-commit can resume. That
 //! sealing step (`RedbBackend::transaction_recovery_cipher`) used to read the SAME
-//! cipher as the data-at-rest value-blob format (`EPISTEMIC_GRAPH_ENCRYPTION_KEY`). So
+//! cipher as the data-at-rest value-blob format (`MEDULLA_ENCRYPTION_KEY`). So
 //! configuring a key to unblock multi-op transaction durability ALSO flipped every
 //! ordinary node/edge/property read over to "expect sealed framing" — on a store that
 //! already holds plaintext values from before the key existed, every one of those reads
@@ -28,7 +28,7 @@
 //!
 //!   2. `dedicated_recovery_key_unblocks_txn_commit_without_touching_existing_plaintext`
 //!      — the actual fix: reopening a COPY of the same plaintext store with ONLY
-//!      `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY` set (a) still reads the pre-existing plaintext
+//!      `MEDULLA_TXN_RECOVERY_KEY` set (a) still reads the pre-existing plaintext
 //!      node correctly, (b) commits a multi-op `BeginTxn`/`TxnAddNode`/`TxnAddEmbedding`/
 //!      `Commit` transaction (the exact shape `compare_and_set_node_embedding` drives)
 //!      that previously required the shared key, and (c) the newly written node's raw
@@ -44,11 +44,11 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use epistemic_graph::crypto::{ENCRYPTION_KEY_ENV, TXN_RECOVERY_KEY_ENV};
-use epistemic_graph::protocol::{GraphType, Method, Request, Response, ResultPayload};
-use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-use epistemic_graph::server::persistence::PersistenceBackend;
-use epistemic_graph::server::ServerState;
+use medulla::crypto::{ENCRYPTION_KEY_ENV, TXN_RECOVERY_KEY_ENV};
+use medulla::protocol::{GraphType, Method, Request, Response, ResultPayload};
+use medulla::server::persistence::redb_backend::RedbBackend;
+use medulla::server::persistence::PersistenceBackend;
+use medulla::server::ServerState;
 
 const SECRET: &str = "d-orc-50-decoupled-recovery-key-test";
 const PLAINTEXT_SECRET_PROP: &str = "pre-existing-plaintext-node-payload-marker";
@@ -69,7 +69,7 @@ fn pack(value: serde_json::Value) -> Vec<u8> {
 
 fn fresh_dir(label: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
-        "eg-dorc50-{label}-{}-{}",
+        "medulla-dorc50-{label}-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -107,7 +107,7 @@ fn rebind_copied_tree(copy: &std::path::Path, src: &std::path::Path) {
         if entry.file_type().unwrap().is_dir() {
             rebind_copied_tree(&path, &original);
         } else if path.extension().is_some_and(|ext| ext == "redb") {
-            eg_storage::rebind_copied_store(&path, &original)
+            medulla_storage::rebind_copied_store(&path, &original)
                 .unwrap_or_else(|error| panic!("rebind {}: {error}", path.display()));
         }
     }
@@ -231,7 +231,7 @@ async fn compare_and_set_node_embedding(
 /// (not just a comment) so a future refactor that re-couples the two ciphers, or drops
 /// the guard, gets caught here instead of in production again.
 ///
-/// WHERE it is caught moved, and this test moved with it (eg-f3 burndown, 2026-09-11).
+/// WHERE it is caught moved, and this test moved with it (medulla-f3 burndown, 2026-09-11).
 /// When the production incident happened, the coupling was caught late: the open
 /// succeeded and the first READ of a pre-existing value failed with "encrypted durable
 /// value is missing sealed framing". `RedbBackend::open` now carries an encryption
@@ -290,7 +290,7 @@ async fn reproduces_old_destructive_behavior_as_a_regression_guard() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// (2) THE FIX — a dedicated `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY` unblocks multi-op OCC
+/// (2) THE FIX — a dedicated `MEDULLA_TXN_RECOVERY_KEY` unblocks multi-op OCC
 /// transaction durability WITHOUT requiring (or silently enabling) at-rest encryption of
 /// existing plaintext values.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -316,7 +316,7 @@ async fn dedicated_recovery_key_unblocks_txn_commit_without_touching_existing_pl
     let work_s = work_dir.to_string_lossy().to_string();
 
     // THE FIX under test: set ONLY the dedicated recovery key. The data-at-rest key
-    // (EPISTEMIC_GRAPH_ENCRYPTION_KEY) is deliberately left unset.
+    // (MEDULLA_ENCRYPTION_KEY) is deliberately left unset.
     std::env::set_var(TXN_RECOVERY_KEY_ENV, "dedicated-recovery-key-only");
     assert!(
         std::env::var(ENCRYPTION_KEY_ENV).is_err(),
@@ -343,7 +343,7 @@ async fn dedicated_recovery_key_unblocks_txn_commit_without_touching_existing_pl
     // (b) The actual unblock: a multi-op OCC transaction shaped exactly like
     // `compare_and_set_node_embedding` (node property + embedding staged together, one
     // Commit) now succeeds — this is the call that raised "transaction durability
-    // requires EPISTEMIC_GRAPH_ENCRYPTION_KEY to be configured" before this fix. It runs
+    // requires MEDULLA_ENCRYPTION_KEY to be configured" before this fix. It runs
     // on a brand-new graph name so it never has to touch the pre-existing durable graph
     // through the higher-level dispatch/registry machinery.
     let backend: Arc<dyn PersistenceBackend> = Arc::new(reopened);

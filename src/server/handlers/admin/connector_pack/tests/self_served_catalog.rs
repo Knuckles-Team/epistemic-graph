@@ -2,13 +2,13 @@
 //! a producer serving its own catalog obtains EG's binding on a fresh store,
 //! imports under it, and is refused on every path the mounted attester is.
 
-use eg_types::connector_pack::{
+use medulla_types::connector_pack::{
     ConnectorPackIndex, ConnectorPackOp, McpCatalogAuthorityStatusRequest,
     McpCatalogSnapshotBinding, McpSelfServedCatalogAttestRequest, PackImportResult,
     PackViolationCode,
 };
-use eg_types::contract::{Digest256, ResourceId};
-use eg_types::result_contract::cluster::{
+use medulla_types::contract::{Digest256, ResourceId};
+use medulla_types::result_contract::cluster::{
     RegisteredServerListPage, RegisteredServerListRequest, ServerDesiredState,
 };
 
@@ -128,7 +128,7 @@ fn under(
 ) -> (ConnectorPackIndex, Vec<u8>) {
     let (mut index, archive) = pack.clone();
     index.catalog = binding.clone();
-    index.pack_digest = eg_types::connector_pack::digest::pack_digest(&index).unwrap();
+    index.pack_digest = medulla_types::connector_pack::digest::pack_digest(&index).unwrap();
     (index, archive)
 }
 

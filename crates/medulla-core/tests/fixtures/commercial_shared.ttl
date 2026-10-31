@@ -1,0 +1,13 @@
+# Shared supplier and customer ABox fixture (MEDULLA-SUPPLY-VOCAB-R003.15).
+#
+# Instances typed by the shared kg# classes the commercial module must not
+# redeclare or narrow: the Supplier IRI owned by supply_chain-v1.ttl (itself a
+# specialist of trm :Vendor) and the Customer IRI shared with ERPNext. These
+# instances stay valid against the commercial module's declarations.
+
+@prefix : <http://knuckles.team/kg#> .
+@prefix ex: <http://knuckles.team/test/commercial#> .
+
+ex:acmeSupplier a :Supplier .
+
+ex:acmeCustomer a :Customer .

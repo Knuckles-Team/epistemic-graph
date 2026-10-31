@@ -1,4 +1,4 @@
-//! Audit lines for the served namespaced key-value surface (EG-DURABLE-KERNEL-R102).
+//! Audit lines for the served namespaced key-value surface (MEDULLA-DURABLE-KERNEL-R102).
 
 use crate::protocol::Method;
 

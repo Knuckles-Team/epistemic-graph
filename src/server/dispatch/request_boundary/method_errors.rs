@@ -6,7 +6,7 @@ pub(super) fn enforce(method: &str, response: Response) -> Response {
     let Some(code) = response.error.as_deref() else {
         return response;
     };
-    if eg_capabilities::error_routing::method_allows_error(method, code) {
+    if medulla_capabilities::error_routing::method_allows_error(method, code) {
         return response;
     }
     tracing::error!(
@@ -56,7 +56,7 @@ mod tests {
         );
     }
 
-    // spec: EG-DURABLE-KERNEL-R028.1.1
+    // spec: MEDULLA-DURABLE-KERNEL-R028.1.1
     #[test]
     fn checkpoint_nonce_and_fence_refusals_survive_the_served_boundary() {
         for (method, code) in [

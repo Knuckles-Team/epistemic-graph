@@ -1,0 +1,866 @@
+use super::*;
+
+fn source_ingestion_digest_vector() -> String {
+    medulla_types::test_support::source_ingestion::request()
+        .batch_digest()
+        .expect("canonical source ingestion digest")
+        .to_hex()
+}
+
+fn execute_source_ingestion_modules(generated: &BTreeMap<String, String>) {
+    use std::fs;
+    use std::process::Command;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "medulla-generated-python-{}-{}",
+        std::process::id(),
+        NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+    ));
+    let package = root.join("medulla");
+    let generated_package = package.join("generated");
+    fs::create_dir_all(&generated_package).expect("create generated Python test package");
+    fs::write(package.join("__init__.py"), "").expect("write package init");
+    // The whole generated package: surface modules share `_shared`, and `models`
+    // re-exports every surface module's definitions (EH-377).
+    for (path, text) in generated
+        .iter()
+        .filter(|(path, _)| path.starts_with("medulla/generated/"))
+    {
+        let file = root.join(path);
+        fs::create_dir_all(file.parent().expect("generated module directory"))
+            .expect("create generated Python test package");
+        fs::write(file, text.as_bytes()).expect("write generated Python module");
+    }
+
+    let script = r#"
+import asyncio
+import sys
+
+from medulla.generated import ingestion
+from medulla.generated.ingestion import SourceIngestStatusRequest
+from medulla.generated.source_ingestion import (
+    SourceIngestStatus,
+    SourceIngestionReceipt,
+    SourceIngestionRequest,
+)
+
+request_data = {
+    "connector": "demo-connector",
+    "mode": "delta",
+    "strict_schema": True,
+    "records": [{
+        "stream": "items",
+        "record_id": "item-1",
+        "mapping_reference": "connector:demo-connector#mappings/item",
+        "payload": {"name": "one", "id": 1},
+        "updated_at": "2026-09-20T00:00:00Z",
+        "provenance": {
+            "connector": "demo-connector",
+            "adapter_kind": "mcp",
+            "server": "demo-server",
+            "tool": "list_items",
+            "tool_schema_sha256": "07" * 32,
+            "source_uri": "demo://items/item-1",
+        },
+    }],
+    "relationships": [],
+    "provider_checkpoint": {
+        "stream": "items",
+        "position": {"page": 2},
+        "watermark": "2026-09-20T00:00:00Z",
+    },
+    "expected_previous_checkpoint": {
+        "stream": "items",
+        "position": {"page": 1},
+    },
+    "authoritative_live_ids": None,
+    "empty_authoritative_approval": None,
+    "withdrawals": [],
+}
+request = SourceIngestionRequest.model_validate(request_data)
+assert request.canonical_digest() == sys.argv[1]
+assert request.model_dump(mode="json")["records"][0]["payload"] == {
+    "name": "one",
+    "id": 1,
+}
+
+arbitrary_json = dict(request_data)
+arbitrary_json["records"] = [dict(request_data["records"][0])]
+arbitrary_json["records"][0]["payload"] = ["nested", {"value": True}]
+arbitrary_json["provider_checkpoint"] = dict(request_data["provider_checkpoint"])
+arbitrary_json["provider_checkpoint"]["position"] = "opaque-cursor"
+arbitrary = SourceIngestionRequest.model_validate(arbitrary_json)
+dumped = arbitrary.model_dump(mode="json")
+assert dumped["records"][0]["payload"] == ["nested", {"value": True}]
+assert dumped["provider_checkpoint"]["position"] == "opaque-cursor"
+initial_page = dict(request_data)
+initial_page["expected_previous_checkpoint"] = None
+assert len(SourceIngestionRequest.model_validate(initial_page).canonical_digest()) == 64
+
+digest = "00" * 32
+receipt_payload = {
+    "receipt_id": "source-ingest:" + sys.argv[1],
+    "disposition": "committed",
+    "mode": "delta",
+    "batch_digest": sys.argv[1],
+    "mappings": [{
+        "kind": "entity",
+        "mapping_reference": request_data["records"][0]["mapping_reference"],
+        "mapping_digest": digest,
+        "connector_pack_digest": digest,
+        "catalog": {
+            "configuration_revision": 7,
+            "catalog_generation": 11,
+            "snapshot_digest": digest,
+            "child_connection_generation": 3,
+            "authorization_scope_digest": digest,
+        },
+    }],
+    "raw_admissions": [{
+        "stream": "items",
+        "record_id": "item-1",
+        "raw_digest": digest,
+        "deduplicated": False,
+    }],
+    "relationship_raw_admissions": [],
+    "tombstones": [],
+    "relationship_tombstones": [],
+    "accepted_checkpoint": request_data["provider_checkpoint"],
+    "accepted_checkpoint_digest": digest,
+    "content_hash": None,
+    "live_set_digest": None,
+    "relationship_live_set_digest": None,
+    "affected_count": 1,
+    "relationship_count": 0,
+    "tombstoned_count": 0,
+    "relationship_tombstoned_count": 0,
+    "committed_graph_version": 7,
+    "receipt_digest": digest,
+}
+
+status_payload = {
+    "connector": "demo-connector",
+    "stream": "items",
+    "accepted_checkpoint": request_data["provider_checkpoint"],
+    "accepted_checkpoint_digest": digest,
+    "content_hash": None,
+    "live_set_digest": None,
+    "relationship_live_set_digest": None,
+    "last_batch_digest": sys.argv[1],
+    "last_receipt_id": receipt_payload["receipt_id"],
+    "committed_graph_version": 7,
+}
+
+class Client:
+    async def _send(self, method, params, graph, *, idempotency_key):
+        assert graph == "source"
+        if method == "SourceIngest":
+            assert params["request"]["connector"] == "demo-connector"
+            assert idempotency_key == "ingest-1"
+            return receipt_payload
+        assert method == "SourceIngestStatus"
+        assert params["connector"] == "demo-connector"
+        assert params == {"connector": "demo-connector", "stream": "items"}
+        assert idempotency_key is None
+        return status_payload
+
+receipt = asyncio.run(ingestion.send_source_ingest(
+    Client(),
+    {"request": request.model_dump(mode="json")},
+    "source",
+    idempotency_key="ingest-1",
+))
+assert isinstance(receipt, SourceIngestionReceipt)
+assert receipt.committed_graph_version == 7
+status = asyncio.run(ingestion.send_source_ingest_status(
+    Client(),
+    SourceIngestStatusRequest(connector="demo-connector", stream="items"),
+    "source",
+))
+assert isinstance(status, SourceIngestStatus)
+assert status.last_receipt_id == receipt.receipt_id
+"#;
+    let output = Command::new("python3")
+        .arg("-c")
+        .arg(script)
+        .arg(source_ingestion_digest_vector())
+        .env("PYTHONPATH", &root)
+        .output()
+        .expect("execute generated Python modules");
+    let _ = fs::remove_dir_all(&root);
+    assert!(
+        output.status.success(),
+        "generated Python execution failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn generated_python_respects_the_formatter_line_limit() {
+    let catalog = Catalog::collect();
+    let failures: Vec<String> = artifacts(&catalog)
+        .into_iter()
+        .flat_map(|artifact| {
+            let path = artifact.path;
+            String::from_utf8(artifact.bytes)
+                .expect("generated Python is UTF-8")
+                .lines()
+                .enumerate()
+                .filter(|(_, line)| line.len() > 88)
+                .map(move |(index, line)| {
+                    format!("{path}:{}: {} columns: {line}", index + 1, line.len())
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn generated_send_docs_list_errors_individually() {
+    let catalog = Catalog::collect();
+    let generated: BTreeMap<String, String> = artifacts(&catalog)
+        .into_iter()
+        .map(|artifact| {
+            (
+                artifact.path,
+                String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"),
+            )
+        })
+        .collect();
+
+    for descriptor in crate::method_descriptors() {
+        if !descriptor.serves(ConsumerProfile::PythonClient) {
+            continue;
+        }
+        let path = format!("medulla/generated/{}.py", descriptor.domain);
+        let module = generated.get(&path).expect("generated domain module");
+        let send_marker = format!("async def send_{}(", snake_case(descriptor.id.as_str()));
+        let send = module
+            .split_once(&send_marker)
+            .expect("generated send function")
+            .1
+            .split("\n\nclass ")
+            .next()
+            .expect("generated send section");
+        let bullets = descriptor
+            .error_set
+            .iter()
+            .map(|error| format!("        - {error}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let expected = format!("    Errors:\n{bullets}\n");
+
+        assert!(
+            send.contains(&expected),
+            "{} does not render one bullet per declared error",
+            descriptor.id.as_str()
+        );
+        assert!(!send
+            .lines()
+            .any(|line| line.trim_start().starts_with("Errors: ")));
+    }
+}
+
+#[test]
+fn nested_ref_surface_emits_concrete_models_and_typed_request() {
+    let catalog = Catalog::collect();
+    let generated: BTreeMap<String, String> = artifacts(&catalog)
+        .into_iter()
+        .map(|artifact| {
+            (
+                artifact.path,
+                String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"),
+            )
+        })
+        .collect();
+    let module = generated
+        .get("medulla/generated/write_back.py")
+        .expect("write-back DTO module");
+    for declaration in [
+        "class SourceChangeSet(BaseModel):",
+        "class WriteBackAuthorizationDecision(BaseModel):",
+        "class WriteBackAuthorizationMode(str, Enum):",
+        "class WriteBackAttempt(BaseModel):",
+        "class ReconciliationObservation(BaseModel):",
+        "class WriteBackReceipt(BaseModel):",
+        "class ReconciliationReceipt(BaseModel):",
+        "def canonical_digest(self) -> str:",
+        "def patch_digest(self) -> str:",
+    ] {
+        assert!(module.contains(declaration), "missing {declaration}");
+    }
+    assert!(module.contains("PROPOSAL_APPROVAL = \"proposal_approval\""));
+    assert!(module.contains("OUTCOME_UNCERTAIN = \"outcome_uncertain\""));
+    let storage = generated
+        .get("medulla/generated/storage.py")
+        .expect("storage domain module");
+    assert!(storage.contains("from .write_back import (\n    WriteBackOp,"));
+    let request = storage
+        .split_once("class WriteBackRequest(BaseModel):")
+        .expect("WriteBack request model")
+        .1
+        .split_once("async def send_write_back(")
+        .expect("WriteBack send function")
+        .0;
+    assert!(request.contains("    op: WriteBackOp"));
+    assert!(!request.contains("    op: Any"));
+}
+
+#[test]
+fn agent_component_search_emits_typed_kind_only_adapter() {
+    let catalog = Catalog::collect();
+    let generated: BTreeMap<String, String> = artifacts(&catalog)
+        .into_iter()
+        .map(|artifact| {
+            (
+                artifact.path,
+                String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"),
+            )
+        })
+        .collect();
+    let dto = generated
+        .get("medulla/generated/agent_component.py")
+        .expect("agent-component DTO module");
+    assert!(dto.contains("class AgentComponentSearchRequest(BaseModel):"));
+    assert!(dto.contains("class AgentComponentSearchPage(BaseModel):"));
+    // Several surfaces reach `AgentComponentKind`: `_shared` renders it once and
+    // the agent-component module re-exports it (EH-377).
+    assert!(exports(dto, "AgentComponentKind"));
+    let shared = generated
+        .get("medulla/generated/_shared.py")
+        .expect("shared DTO module");
+    assert!(shared.contains("class AgentComponentKind(str, Enum):"));
+
+    let storage = generated
+        .get("medulla/generated/storage.py")
+        .expect("storage domain module");
+    assert!(storage.contains("    op: AgentComponentOp"));
+    assert!(storage.contains(
+            "async def send_agent_component_search(\n    client: Any,\n    request: AgentComponentSearchRequest,"
+        ));
+    assert!(storage.contains(") -> AgentComponentSearchPage:"));
+    assert!(storage.contains("len(request.cursor.encode(\"utf-8\")) > 16384"));
+    // R3: a task- or capability-only search is the server's documented form;
+    // only a request with no selector at all is refused client-side.
+    assert!(storage
+        .contains("if request.task is None and not request.capabilities and not request.kinds:"));
+    assert!(!storage.contains("requires kinds and no task/capabilities"));
+    assert!(storage.contains("return AgentComponentSearchPage.model_validate(payload)"));
+}
+
+#[test]
+fn connector_pack_status_emits_typed_catalog_reconciliation_adapter() {
+    let catalog = Catalog::collect();
+    let generated: BTreeMap<String, String> = artifacts(&catalog)
+        .into_iter()
+        .map(|artifact| {
+            (
+                artifact.path,
+                String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"),
+            )
+        })
+        .collect();
+    let dto = generated
+        .get("medulla/generated/connector_pack.py")
+        .expect("connector-pack DTO module");
+    assert!(exports(dto, "McpCatalogSnapshotBinding"));
+    assert!(dto.contains("CONNECTOR_PACK_SCHEMA_VERSION = 2"));
+    assert!(dto.contains("class ConnectorPackStatus(BaseModel):"));
+    assert!(dto.contains("class PackImportResultImported(BaseModel):"));
+    assert!(dto.contains("class PackImportResultUnchanged(BaseModel):"));
+    assert!(dto.contains("class PackImportResultRejected(BaseModel):"));
+    assert!(dto.contains("PackImportResult = Annotated["));
+    assert!(dto.contains("class PackWriteErrorCode(str, Enum):"));
+    assert!(dto.contains("    PACK_HEAD_CONFLICT = \"PACK_HEAD_CONFLICT\""));
+
+    let storage = generated
+        .get("medulla/generated/storage.py")
+        .expect("storage domain module");
+    assert!(storage.contains(
+        "async def send_connector_pack_status(\n    client: Any,\n    request: ConnectorPackStatusRequest,"
+    ));
+    assert!(storage.contains(") -> ConnectorPackStatus:"));
+    assert!(storage.contains("return ConnectorPackStatus.model_validate(payload)"));
+    assert!(storage.contains(
+        "async def send_connector_pack_import(\n    client: Any,\n    request: ConnectorPackImportRequest,"
+    ));
+    assert!(storage.contains(") -> PackImportResult:"));
+    assert!(storage.contains("return TypeAdapter(PackImportResult).validate_python(payload)"));
+}
+
+#[test]
+fn agent_component_content_emits_typed_body_adapter() {
+    let catalog = Catalog::collect();
+    let generated: BTreeMap<String, String> = artifacts(&catalog)
+        .into_iter()
+        .map(|artifact| {
+            (
+                artifact.path,
+                String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"),
+            )
+        })
+        .collect();
+    let dto = generated
+        .get("medulla/generated/agent_component.py")
+        .expect("agent-component DTO module");
+    assert!(dto.contains("class AgentComponentContentRequest(BaseModel):"));
+    assert!(dto.contains("class AgentComponentContentResult(BaseModel):"));
+    assert!(dto.contains("    body: _EgOctets"));
+
+    let storage = generated
+        .get("medulla/generated/storage.py")
+        .expect("storage domain module");
+    assert!(storage.contains(
+        "async def send_agent_component_content(\n    client: Any,\n    request: AgentComponentContentRequest,"
+    ));
+    assert!(storage.contains(") -> AgentComponentContentResult:"));
+    assert!(storage.contains("return AgentComponentContentResult.model_validate(payload)"));
+}
+
+#[test]
+fn agent_component_current_uses_the_exact_flattened_operation_shape() {
+    let catalog = Catalog::collect();
+    let generated: BTreeMap<String, String> = artifacts(&catalog)
+        .into_iter()
+        .map(|artifact| {
+            (
+                artifact.path,
+                String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"),
+            )
+        })
+        .collect();
+    let storage = generated
+        .get("medulla/generated/storage.py")
+        .expect("storage domain module");
+    assert!(storage.contains(
+        "async def send_agent_component_current(\n    client: Any,\n    request: AgentComponentOpCurrent,"
+    ));
+    assert!(
+        storage.contains(
+            "params = {\n        \"op\": request.model_dump(mode=\"json\", exclude_unset=True, exclude_none=True)\n    }"
+        )
+    );
+    assert!(
+        storage.contains("return TypeAdapter(AgentComponentEntry | None).validate_python(payload)")
+    );
+}
+
+#[test]
+fn registered_server_list_emits_typed_request_page_and_sender() {
+    let catalog = Catalog::collect();
+    let generated: BTreeMap<String, String> = artifacts(&catalog)
+        .into_iter()
+        .map(|artifact| {
+            (
+                artifact.path,
+                String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"),
+            )
+        })
+        .collect();
+    let dto = generated
+        .get("medulla/generated/server_registry.py")
+        .expect("server-registry DTO module");
+    assert!(dto.contains("class RegisteredServerListRequest(BaseModel):"));
+    assert!(dto.contains("class RegisteredServerCursor(BaseModel):"));
+    assert!(dto.contains("class RegisteredServerView(BaseModel):"));
+    assert!(dto.contains("class RegisteredServerListPage(BaseModel):"));
+
+    let cluster = generated
+        .get("medulla/generated/cluster.py")
+        .expect("cluster domain module");
+    assert!(cluster.contains("    request: RegisteredServerListRequest"));
+    assert!(cluster.contains("async def send_list_registered_servers(\n    client: Any,"));
+    assert!(cluster.contains(") -> RegisteredServerListPage:"));
+    assert!(cluster.contains("return RegisteredServerListPage.model_validate(payload)"));
+}
+
+#[test]
+fn generated_source_ingestion_imports_and_executes_with_rust_digest_parity() {
+    let catalog = Catalog::collect();
+    let generated: BTreeMap<String, String> = artifacts(&catalog)
+        .into_iter()
+        .map(|artifact| {
+            (
+                artifact.path,
+                String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"),
+            )
+        })
+        .collect();
+
+    let dto = generated
+        .get("medulla/generated/source_ingestion.py")
+        .expect("source ingestion DTO module");
+    assert!(dto.contains("SourceJson = Any"));
+    assert!(dto.contains("last_receipt_id: str | None = None"));
+    assert!(dto.contains("watermark: str | None = None"));
+    let source_record = dto
+        .find("class SourceRecord(BaseModel):")
+        .expect("SourceRecord class");
+    let record_alias = dto
+        .find("BoundedVec_SourceRecord_1024 =")
+        .expect("bounded SourceRecord alias");
+    assert!(source_record < record_alias);
+    let domain = generated
+        .get("medulla/generated/ingestion.py")
+        .expect("ingestion domain module");
+    assert!(domain.contains(") -> SourceIngestionReceipt:"));
+    assert!(domain.contains("return SourceIngestionReceipt.model_validate(payload)"));
+    assert!(domain.contains("request: SourceIngestStatusRequest,"));
+    assert!(domain.contains(") -> SourceIngestStatus:"));
+    assert!(domain.contains("return SourceIngestStatus.model_validate(payload)"));
+
+    execute_source_ingestion_modules(&generated);
+}
+
+#[test]
+fn index_repository_emits_typed_ordered_file_outcomes() {
+    let catalog = Catalog::collect();
+    let generated: BTreeMap<String, String> = artifacts(&catalog)
+        .into_iter()
+        .map(|artifact| {
+            (
+                artifact.path,
+                String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"),
+            )
+        })
+        .collect();
+
+    let dto = generated
+        .get("medulla/generated/index_repository.py")
+        .expect("IndexRepository DTO module");
+    for declaration in [
+        "class IndexDiagnostic(BaseModel):",
+        "class IndexFileOutcome(BaseModel):",
+        "class IndexFileStatus(str, Enum):",
+        "class IndexResult(BaseModel):",
+        "class IndexRepositoryScope(BaseModel):",
+        "class IndexFileVersion(BaseModel):",
+        "class IndexTombstone(BaseModel):",
+        "class IndexRefStatus(str, Enum):",
+    ] {
+        assert!(dto.contains(declaration), "missing {declaration}");
+    }
+    assert!(dto.contains("SUCCESS = \"success\""));
+    assert!(dto.contains("UNSUPPORTED = \"unsupported\""));
+    assert!(dto.contains("ERROR = \"error\""));
+    assert!(dto.contains("file_outcomes: list[IndexFileOutcome]"));
+    // A serde-defaulted collection renders as an empty default, never `| None`:
+    // the engine decodes an absent list as empty but refuses `null` for it.
+    assert!(dto.contains(
+        "file_versions: BoundedVec_IndexFileVersion_262144 = Field(default_factory=list)"
+    ));
+    // Request models are rendered once, in the strict model module.
+    let models = generated
+        .get("medulla/generated/models.py")
+        .expect("strict request models");
+    assert!(models.contains("params_msgpack: _EgOctets = Field(default_factory=bytes)"));
+    assert!(dto.contains("max_length=8"));
+
+    let ingestion = generated
+        .get("medulla/generated/ingestion.py")
+        .expect("ingestion domain module");
+    assert!(ingestion
+        .contains("from .index_repository import (\n    IndexRepositoryScope,\n    IndexResult,"));
+    assert!(ingestion.contains("    files_msgpack: _EgOctets"));
+    assert!(ingestion.contains("    scope: IndexRepositoryScope | None = None"));
+    assert!(ingestion.contains(") -> IndexResult:"));
+    assert!(ingestion.contains("return IndexResult.model_validate(payload)"));
+}
+
+/// A definition shared by the request document (rooted at `Method`) and a
+/// result document merges into the one model space: `MutationOperation.method`
+/// is `#/$defs/Method` in both, never the request document's root `#`.
+#[test]
+fn request_root_references_merge_with_result_definitions() {
+    let catalog = Catalog::collect();
+    let document = schema::method_request_document();
+    let definitions = ModelSpace::build(&document, &catalog).definitions;
+    let method = definitions
+        .get("MutationOperation")
+        .and_then(|node| node.pointer("/properties/method/$ref"))
+        .and_then(|reference| reference.as_str());
+    assert_eq!(method, Some("#/$defs/Method"));
+}
+
+#[test]
+fn digest_projection_names_exact_source_change_set_fields() {
+    let catalog = Catalog::collect();
+    let document = schema::method_request_document();
+    let definitions = ModelSpace::build(&document, &catalog).definitions;
+    let source = definitions
+        .get("SourceChangeSet")
+        .and_then(|node| node.get("properties"))
+        .and_then(|node| node.as_object())
+        .expect("SourceChangeSet object schema");
+    let spec = CANONICAL_DIGEST_SPECS
+        .iter()
+        .find(|spec| spec.model == "SourceChangeSet")
+        .expect("SourceChangeSet digest projection");
+    let projected: std::collections::BTreeSet<_> = spec.projection_fields.iter().copied().collect();
+    let declared: std::collections::BTreeSet<_> = source.keys().map(String::as_str).collect();
+    assert_eq!(projected, declared);
+    assert!(spec
+        .digest_field
+        .is_none_or(|field| projected.contains(field)));
+    assert!(spec
+        .canonical_json_paths
+        .iter()
+        .map(|path| path.split(['.', '[']).next().expect("nonempty path"))
+        .all(|field| projected.contains(field)));
+    assert!(spec
+        .omit_none_paths
+        .iter()
+        .map(|path| path.split(['.', '[']).next().expect("nonempty path"))
+        .all(|field| projected.contains(field)));
+}
+
+#[test]
+fn source_ingestion_digest_marker_matches_rust_contract_constants() {
+    use medulla_types::source_ingestion::{
+        SOURCE_INGESTION_CANONICAL_JSON_PATHS, SOURCE_INGESTION_DIGEST_PROJECTION_FIELDS,
+        SOURCE_INGESTION_OMIT_NONE_PATHS,
+    };
+
+    let spec = CANONICAL_DIGEST_SPECS
+        .iter()
+        .find(|spec| spec.model == "SourceIngestionRequest")
+        .expect("SourceIngestionRequest digest projection");
+    assert_eq!(
+        spec.projection_fields,
+        SOURCE_INGESTION_DIGEST_PROJECTION_FIELDS
+    );
+    assert_eq!(
+        spec.canonical_json_paths,
+        SOURCE_INGESTION_CANONICAL_JSON_PATHS
+    );
+    assert_eq!(spec.omit_none_paths, SOURCE_INGESTION_OMIT_NONE_PATHS);
+}
+
+/// Whether a generated module lists `name` in its `__all__`.
+fn exports(module: &str, name: &str) -> bool {
+    module.contains(&format!("\n    \"{name}\",\n"))
+}
+
+/// Generated imports must already be in ruff-isort form, or the repository's
+/// ruff hook rewrites generated output that `gen_contract --check` then rejects:
+/// case-insensitive order within a statement, and a public re-export the module
+/// never references emitted as an explicit `Name as Name`, one statement each
+/// (a plain import would be an unused-import F401).
+/// One generated artifact's text.
+fn generated_module(catalog: &Catalog, path: &str) -> String {
+    artifacts(catalog)
+        .into_iter()
+        .find(|artifact| artifact.path == path)
+        .map(|artifact| String::from_utf8(artifact.bytes).expect("UTF-8"))
+        .unwrap_or_else(|| panic!("{path} is generated"))
+}
+
+#[test]
+fn generated_imports_are_in_isort_form_with_explicit_reexports() {
+    let catalog = Catalog::collect();
+    let module = |path: &str| generated_module(&catalog, path);
+    let reasoning = module("medulla/generated/reasoning.py");
+    let reexport = "from .rdf_report import OwlPropertyFact as OwlPropertyFact\n";
+    assert!(reasoning.contains(&format!(")\n{reexport}")));
+    assert!(!reasoning.contains("    OwlPropertyFact,\n"));
+    let severity = reasoning
+        .find("import ShaclSeverity as")
+        .expect("ShaclSeverity re-export");
+    let result = reasoning
+        .find("import ShaclValidationResult as")
+        .expect("ShaclValidationResult re-export");
+    assert!(
+        severity < result,
+        "re-exports must be in case-insensitive isort order"
+    );
+    let ingestion = module("medulla/generated/ingestion.py");
+    assert!(ingestion.contains(
+        "    SourceIngestionReceipt,\n    SourceIngestionRequest,\n    SourceIngestStatus,\n"
+    ));
+}
+
+/// A request envelope `{Method}Request` that wraps a DTO root of the same name
+/// (`Solve` -> `SolveRequest`, `DecisionCommit` -> `DecisionCommitRequest`)
+/// types its field through the DTO module. Importing the root by name would
+/// shadow the envelope (ruff F811) and make it a self-referential model.
+#[test]
+fn a_request_envelope_never_shadows_its_dto_root() {
+    let catalog = Catalog::collect();
+    let module = |path: &str| generated_module(&catalog, path);
+    for (path, dto, root) in [
+        (
+            "medulla/generated/compute.py",
+            "solve",
+            "SolveRequest",
+        ),
+        (
+            "medulla/generated/storage.py",
+            "decision_commit",
+            "DecisionCommitRequest",
+        ),
+    ] {
+        let source = module(path);
+        assert!(
+            source.contains(&format!("from . import {dto} as _{dto}\n")),
+            "{path}"
+        );
+        assert!(
+            source.contains(&format!("class {root}(BaseModel):")),
+            "{path}"
+        );
+        assert!(
+            source.contains(&format!("    request: _{dto}.{root}\n")),
+            "{path}"
+        );
+        assert!(!source.contains(&format!("    {root},\n")), "{path}");
+    }
+}
+
+/// Two distinct Rust types must never share a schema definition name. Across
+/// documents the request and result sides would disagree (or, worse, silently
+/// agree on the wrong shape); inside one document schemars disambiguates the
+/// second type by appending a counter (`Name2`), which Python would then emit
+/// under a name no Rust author chose.
+#[test]
+fn no_schema_definition_name_is_shared_by_distinct_types() {
+    let catalog = Catalog::collect();
+    let document = schema::method_request_document();
+    let mut seen: BTreeMap<String, (String, serde_json::Value)> = BTreeMap::new();
+    let request = document.get("$defs").and_then(|value| value.as_object());
+    let request = request.into_iter().flatten().map(|(name, definition)| {
+        let definition = root_ref_as_method(definition.clone());
+        ("request".to_string(), name, definition)
+    });
+    let results = catalog
+        .definitions
+        .iter()
+        .flat_map(|(domain, definitions)| {
+            definitions.iter().map(move |(name, definition)| {
+                (format!("result.{domain}"), name, definition.clone())
+            })
+        });
+    for (origin, name, definition) in request.chain(results) {
+        if let Some((first, previous)) = seen.get(name) {
+            assert_eq!(
+                previous,
+                &definition,
+                "{name} is emitted by two distinct Rust types ({first}: {}; {origin}: {})",
+                definition_origin(previous),
+                definition_origin(&definition),
+            );
+            continue;
+        }
+        seen.insert(name.clone(), (origin, definition));
+    }
+    for name in seen.keys() {
+        let base = name.trim_end_matches(|c: char| c.is_ascii_digit());
+        assert!(
+            base == name || !seen.contains_key(base),
+            "{name} looks like schemars disambiguating a second Rust type named {base}"
+        );
+    }
+}
+
+/// The request document's root IS `Method` (`schema_for!(Method)`), so a
+/// recursive reference to it renders as `"$ref": "#"` there and as
+/// `"#/$defs/Method"` in a result document -- the same Rust type, e.g.
+/// `MutationOperation.method`. Rewrite the root form so the comparison above is
+/// exact rather than tolerant.
+fn root_ref_as_method(mut value: serde_json::Value) -> serde_json::Value {
+    match &mut value {
+        serde_json::Value::Object(map) => {
+            if map.get("$ref").and_then(|r| r.as_str()) == Some("#") {
+                map.insert("$ref".into(), serde_json::json!("#/$defs/Method"));
+            }
+            for child in map.values_mut() {
+                *child = root_ref_as_method(child.take());
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items.iter_mut() {
+                *child = root_ref_as_method(child.take());
+            }
+        }
+        _ => {}
+    }
+    value
+}
+
+/// The client's native-checked SQL source batch bytes pass the generated send; only
+/// the structured `batch` is validated against the strict params model.
+#[test]
+fn sql_source_batch_validates_only_the_structured_batch() {
+    let catalog = Catalog::collect();
+    let storage = artifacts(&catalog)
+        .into_iter()
+        .find(|artifact| artifact.path == "medulla/generated/storage.py")
+        .map(|artifact| String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"))
+        .expect("storage domain module");
+    assert!(storage.contains(
+        "    if not isinstance((params or {}).get(\"batch\"), bytes):\n        \
+         models().MethodSqlSourceBatchParams.model_validate(params or {})\n"
+    ));
+}
+
+/// The row's "typed client wrappers... for the decide, decision-fit, and
+/// decision-eval calls together with their request and response types" half:
+/// each of the three methods generates its own typed `send_<method>`/
+/// `decode_<method>` pair (request validated against its typed params model
+/// on send, result decoded against its typed contract model on decode) in
+/// the domain module the method registry assigns it to. The row's other
+/// half -- documentation and usage examples -- is NOT generated anywhere in
+/// `docs/` for `Decide`; see verify-gaps.tsv.
+// spec: MEDULLA-DECISION-ENGINE-R063
+#[test]
+fn decide_fit_and_eval_each_generate_a_typed_client_wrapper() {
+    let catalog = Catalog::collect();
+    let query = generated_module(&catalog, "medulla/generated/query.py");
+    assert!(
+        query.contains("async def send_decide("),
+        "Decide must generate a typed send wrapper"
+    );
+    assert!(
+        query.contains("def decode_decide("),
+        "Decide must generate a typed decode wrapper"
+    );
+    let coordination = generated_module(&catalog, "medulla/generated/coordination.py");
+    for method in ["decision_fit", "decision_eval"] {
+        assert!(
+            coordination.contains(&format!("async def send_{method}(")),
+            "{method} must generate a typed send wrapper"
+        );
+        assert!(
+            coordination.contains(&format!("def decode_{method}(")),
+            "{method} must generate a typed decode wrapper"
+        );
+    }
+}
+
+/// ruff-isort's natural order: `_8` sorts before `_16` (it compares digit runs by
+/// value), and case never decides the order.
+#[test]
+fn isort_key_is_natural_and_case_insensitive() {
+    let mut names = vec![
+        "BoundedVec_string_16",
+        "BoundedVec_TemplateFacts_8",
+        "BoundedVec_string_8",
+        "BoundedVec_PremiseRef_1024",
+        "BoundedVec_PremiseRef_32",
+    ];
+    names.sort_by_cached_key(|name| isort_key(name));
+    assert_eq!(
+        names,
+        [
+            "BoundedVec_PremiseRef_32",
+            "BoundedVec_PremiseRef_1024",
+            "BoundedVec_string_8",
+            "BoundedVec_string_16",
+            "BoundedVec_TemplateFacts_8",
+        ]
+    );
+}

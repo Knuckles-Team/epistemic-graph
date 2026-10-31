@@ -11,7 +11,7 @@
 
 use std::collections::BTreeSet;
 
-use eg_types::agent_library::AgentLibraryLifecycle;
+use medulla_types::agent_library::AgentLibraryLifecycle;
 use redb::ReadableTable;
 
 use super::admitted::PackOwnerWrite;
@@ -32,8 +32,8 @@ pub(super) fn resolve_pack_pins_in_write(
             )
         })
         .collect();
-    let heads = write.open_table(eg_storage::AGENT_COMPONENT_HEADS)?;
-    let revisions = write.open_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
+    let heads = write.open_table(medulla_storage::AGENT_COMPONENT_HEADS)?;
+    let revisions = write.open_table(medulla_storage::AGENT_COMPONENT_REVISIONS)?;
     for component in components {
         if component.entry.lifecycle != AgentLibraryLifecycle::Published {
             continue;
@@ -53,7 +53,7 @@ pub(super) fn resolve_pack_pins_in_write(
                 .get((tenant_id, key.0, head_revision))
                 .map_err(|error| error.to_string())?
                 .ok_or_else(|| "agent component head points to a missing revision".to_string())?;
-            let head: eg_types::agent_component::AgentComponentEntry =
+            let head: medulla_types::agent_component::AgentComponentEntry =
                 crate::server::persistence::agent_row::decode(head.value(), "agent component")?;
             if head.lifecycle != AgentLibraryLifecycle::Published || head.definition_digest != key.1
             {

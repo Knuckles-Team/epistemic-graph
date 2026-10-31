@@ -9,7 +9,7 @@ fn handle_to_msgpack(req_id: u64, core: &Arc<GraphCore>) -> Response {
     Response::ok(
         req_id,
         g.to_msgpack()
-            .and_then(ResultPayload::of::<eg_types::result_contract::storage::ToMsgpack>),
+            .and_then(ResultPayload::of::<medulla_types::result_contract::storage::ToMsgpack>),
     )
 }
 
@@ -32,7 +32,7 @@ pub(super) async fn try_handle_memory_maintenance(
             "Reinforce is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
                  through try_handle_gateway before it ever reaches this terminal handler"
         ),
-        // DecayNode/DecayMemories/EvictBelow/Maintain (CONCEPT:EG-P0-2 bypass
+        // DecayNode/DecayMemories/EvictBelow/Maintain (CONCEPT:MEDULLA-P0-2 bypass
         // guard, L11): GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
         Method::DecayNode { .. } => unreachable!(
             "DecayNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
@@ -67,7 +67,7 @@ pub(super) async fn try_handle_summary_reads(
         Method::SummariesAtLevel { level } => {
             Response::ok(req_id, ResultPayload::Ids(core.summaries_at_level(level)))
         }
-        // AddSceneObject/SetPose/Reparent (CONCEPT:EG-P0-2 bypass guard, L11):
+        // AddSceneObject/SetPose/Reparent (CONCEPT:MEDULLA-P0-2 bypass guard, L11):
         // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
         other => return ControlFlow::Continue(other),
     })
@@ -95,16 +95,16 @@ pub(super) async fn try_handle_scene_graph(
         Method::WorldTransform { node_id } => {
             let pose = core
                 .world_transform(&node_id)
-                .map(eg_types::types::ScenePose::from);
+                .map(medulla_types::types::ScenePose::from);
             Response::ok(
                 req_id,
-                ResultPayload::of::<eg_types::result_contract::graph::WorldTransform>(pose),
+                ResultPayload::of::<medulla_types::result_contract::graph::WorldTransform>(pose),
             )
         }
         Method::SceneChildren { node_id } => {
             Response::ok(req_id, ResultPayload::Ids(core.scene_children(&node_id)))
         }
-        // StartTrajectory/AppendStep (CONCEPT:EG-P0-2 bypass guard, L11):
+        // StartTrajectory/AppendStep (CONCEPT:MEDULLA-P0-2 bypass guard, L11):
         // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
         other => return ControlFlow::Continue(other),
     })
@@ -131,7 +131,7 @@ pub(super) async fn try_handle_trajectory_memory(
         ),
         Method::BestTrajectory { traj_ids, gamma } => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::graph::BestTrajectory>(
+            ResultPayload::of::<medulla_types::result_contract::graph::BestTrajectory>(
                 core.best_trajectory(&traj_ids, gamma),
             ),
         ),
@@ -169,13 +169,13 @@ pub(super) async fn try_handle_lifecycle_serialization(
             ),
             // ApplyMutation carries a SPARQL UPDATE string (governance / CDC mutation).
             // Replaced the legacy naive `{ <s> <p> <o> }` string-split shim with the REAL
-            // SPARQL 1.1 UPDATE executor (CONCEPT:EG-KG.query.named-graph-support): a full spargebra parse + the
+            // SPARQL 1.1 UPDATE executor (CONCEPT:MEDULLA-KG.query.named-graph-support): a full spargebra parse + the
             // native merge-aware property-graph write ops (INSERT/DELETE DATA, DELETE/INSERT
             // … WHERE, CLEAR/CREATE/DROP GRAPH). Single-graph: every graph term routes to the
             // request graph's core (true named-graph routing lives on the /sparql endpoint,
             // which has the registry). `event_type` is now advisory (the query is
             // self-describing). Gated `sparql`; a non-sparql build rejects it explicitly.
-            // ApplyMutation/RunDatalogReasoning (CONCEPT:EG-P0-2 bypass guard, L11):
+            // ApplyMutation/RunDatalogReasoning (CONCEPT:MEDULLA-P0-2 bypass guard, L11):
             // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
             Method::ApplyMutation { .. } => unreachable!(
                 "ApplyMutation is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
@@ -215,10 +215,10 @@ pub(super) async fn try_handle_lifecycle_context(
             let view = crate::algorithms::get_context_view(&g, &agent_id, max_tokens);
             Response::ok(
                 req_id,
-                ResultPayload::of::<eg_types::result_contract::query::GetContextView>(view),
+                ResultPayload::of::<medulla_types::result_contract::query::GetContextView>(view),
             )
         }
-        // BatchUpdate (CONCEPT:EG-P0-2 bypass guard, L11):
+        // BatchUpdate (CONCEPT:MEDULLA-P0-2 bypass guard, L11):
         // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
         Method::BatchUpdate { .. } => unreachable!(
             "BatchUpdate is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
@@ -255,7 +255,7 @@ pub(super) async fn try_handle_lifecycle_context(
         // The mutation ledger is process-observability, not row-visible data
         // (same reasoning `raw_ledger_len` above already established for
         // `Metrics.total_mutations`), and it is authorized by its own
-        // dedicated `ledger:read` RBAC action (`eg_capabilities::policy`),
+        // dedicated `ledger:read` RBAC action (`medulla_capabilities::policy`),
         // enforced upstream in `dispatch.rs` (`verified_context.allows_method`)
         // BEFORE any handler runs — so routing it through row-level RLS here
         // was a redundant SECOND gate that, instead of narrowing visibility,
@@ -297,12 +297,12 @@ pub(super) async fn try_handle_ledger(
     ControlFlow::Break(match method {
         Method::GetLedger => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::security::GetLedger>(
+            ResultPayload::of::<medulla_types::result_contract::security::GetLedger>(
                 LedgerReadResult::populated(raw_core.get_ledger(), raw_core.ledger_watermark()),
             ),
         ),
 
-        // ClearLedger/ApplyLedger (CONCEPT:EG-P0-2 bypass guard, L11):
+        // ClearLedger/ApplyLedger (CONCEPT:MEDULLA-P0-2 bypass guard, L11):
         // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
         Method::ClearLedger => unreachable!(
             "ClearLedger is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \

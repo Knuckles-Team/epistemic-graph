@@ -21,7 +21,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: epistemic-graph-2.27.0-publication
+  group: medulla-2.27.0-publication
   cancel-in-progress: false
 
 jobs:

@@ -140,7 +140,7 @@ pub(super) fn graph_schema_audit_line(method: &Method) -> Option<String> {
 
 pub(super) fn graph_crud_audit_line(method: &Method) -> Option<String> {
     match method {
-        // ── Core node/edge CRUD (audited since EG-P0-2) ──────────────────────
+        // ── Core node/edge CRUD (audited since MEDULLA-P0-2) ──────────────────────
         Method::AddNode { node_id, .. } => Some(format!("ADD_NODE|{node_id}")),
         Method::CreateNodeIfAbsent { node_id, .. } => {
             Some(format!("CREATE_NODE_IF_ABSENT|{node_id}"))
@@ -203,31 +203,31 @@ fn source_control_audit_line(method: &Method) -> Option<String> {
     }
 }
 
-fn write_back_operation(op: &eg_types::write_back::WriteBackOp) -> &'static str {
+fn write_back_operation(op: &medulla_types::write_back::WriteBackOp) -> &'static str {
     match op {
-        eg_types::write_back::WriteBackOp::Create { .. } => "create",
-        eg_types::write_back::WriteBackOp::Get { .. } => "get",
-        eg_types::write_back::WriteBackOp::RecordAttempt { .. } => "record_attempt",
-        eg_types::write_back::WriteBackOp::RecordReconciliation { .. } => "record_reconciliation",
-        eg_types::write_back::WriteBackOp::Receipts { .. } => "receipts",
+        medulla_types::write_back::WriteBackOp::Create { .. } => "create",
+        medulla_types::write_back::WriteBackOp::Get { .. } => "get",
+        medulla_types::write_back::WriteBackOp::RecordAttempt { .. } => "record_attempt",
+        medulla_types::write_back::WriteBackOp::RecordReconciliation { .. } => "record_reconciliation",
+        medulla_types::write_back::WriteBackOp::Receipts { .. } => "receipts",
     }
 }
 
 #[cfg(feature = "modality-serving")]
 fn modality_operation_name(
-    op: &eg_types::ServedModalityOp,
-) -> Option<(&'static str, eg_types::ServedModalityKind)> {
+    op: &medulla_types::ServedModalityOp,
+) -> Option<(&'static str, medulla_types::ServedModalityKind)> {
     match op {
-        eg_types::ServedModalityOp::Ingest { modality, .. } => Some(("INGEST", *modality)),
-        eg_types::ServedModalityOp::IngestStream { modality, .. } => {
+        medulla_types::ServedModalityOp::Ingest { modality, .. } => Some(("INGEST", *modality)),
+        medulla_types::ServedModalityOp::IngestStream { modality, .. } => {
             Some(("INGEST_STREAM", *modality))
         }
-        eg_types::ServedModalityOp::Delete { modality, .. } => Some(("DELETE", *modality)),
-        eg_types::ServedModalityOp::MoveToCold { modality, .. } => {
+        medulla_types::ServedModalityOp::Delete { modality, .. } => Some(("DELETE", *modality)),
+        medulla_types::ServedModalityOp::MoveToCold { modality, .. } => {
             Some(("MOVE_TO_COLD", *modality))
         }
-        eg_types::ServedModalityOp::Restore { modality, .. } => Some(("RESTORE", *modality)),
-        eg_types::ServedModalityOp::CollectTombstones { modality, .. } => {
+        medulla_types::ServedModalityOp::Restore { modality, .. } => Some(("RESTORE", *modality)),
+        medulla_types::ServedModalityOp::CollectTombstones { modality, .. } => {
             Some(("COLLECT_TOMBSTONES", *modality))
         }
         _ => None,
@@ -235,18 +235,18 @@ fn modality_operation_name(
 }
 
 #[cfg(feature = "modality-serving")]
-fn modality_kind_name(modality: eg_types::ServedModalityKind) -> &'static str {
+fn modality_kind_name(modality: medulla_types::ServedModalityKind) -> &'static str {
     match modality {
-        eg_types::ServedModalityKind::Document => "DOCUMENT",
-        eg_types::ServedModalityKind::Image => "IMAGE",
-        eg_types::ServedModalityKind::Audio => "AUDIO",
-        eg_types::ServedModalityKind::Video => "VIDEO",
+        medulla_types::ServedModalityKind::Document => "DOCUMENT",
+        medulla_types::ServedModalityKind::Image => "IMAGE",
+        medulla_types::ServedModalityKind::Audio => "AUDIO",
+        medulla_types::ServedModalityKind::Video => "VIDEO",
     }
 }
 
 #[cfg(feature = "modality-serving")]
 pub(super) fn modality_audit_line(method: &Method) -> Option<String> {
-    let eg_types::protocol::Method::ServedModality { op } = method else {
+    let medulla_types::protocol::Method::ServedModality { op } = method else {
         return None;
     };
     let (operation, modality) = modality_operation_name(op)?;
@@ -312,7 +312,7 @@ pub(super) fn ledger_audit_line(method: &Method) -> Option<String> {
 
 pub(super) fn edge_audit_line(method: &Method) -> Option<String> {
     match method {
-        // ── Remaining GraphRedb-durable node/edge/RDF primitives (EG-P0-6) ──
+        // ── Remaining GraphRedb-durable node/edge/RDF primitives (MEDULLA-P0-6) ──
         Method::InvalidateEdge {
             source_id,
             target_id,
@@ -441,7 +441,7 @@ pub(super) fn work_item_audit_line(method: &Method) -> Option<String> {
     }
 }
 
-/// graph-os EG-2 control-lease writes, reached through `work_item_audit_line`'s
+/// graph-os MEDULLA-2 control-lease writes, reached through `work_item_audit_line`'s
 /// fall-through. Never logs the grant body: identity and the lifecycle edge only.
 fn control_lease_audit_line(method: &Method) -> Option<String> {
     match method {
@@ -486,7 +486,7 @@ fn work_market_audit_line(method: &Method) -> Option<String> {
         Method::WorkOfferPut { .. } => "WORK_OFFER_PUT",
         _ => return None,
     };
-    let (tenant, key) = eg_types::work_market::market_write_scope(method)?;
+    let (tenant, key) = medulla_types::work_market::market_write_scope(method)?;
     Some(format!("{operation}|{tenant}|{key}"))
 }
 
@@ -540,7 +540,7 @@ pub(super) fn query_audit_line(method: &Method) -> Option<String> {
 
 pub(super) fn memory_audit_line(method: &Method) -> Option<String> {
     match method {
-        // ── Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-KG.memory.eg-batch-decay-caller) ──
+        // ── Agent-memory / scene-graph / trajectory mutations (CONCEPT:MEDULLA-KG.memory.medulla-batch-decay-caller) ──
         Method::CreateSummaryNode { .. } => Some("CREATE_SUMMARY_NODE".to_string()),
         Method::Consolidate { .. } => Some("CONSOLIDATE".to_string()),
         Method::Reinforce { node_id, .. } => Some(format!("REINFORCE|{node_id}")),
@@ -565,7 +565,7 @@ pub(super) fn scene_audit_line(method: &Method) -> Option<String> {
 
 pub(super) fn mining_audit_line(method: &Method) -> Option<String> {
     match method {
-        // ── Data-mining / graph-learning writeback (CONCEPT:EG-KG.mining.*) ──────────────
+        // ── Data-mining / graph-learning writeback (CONCEPT:MEDULLA-KG.mining.*) ──────────────
         // Durability is `writeback`-conditional; `wal.rs::is_durable_mutation` already
         // gates on the exact condition, so this arm only ever fires when the call
         // actually reached the durable-commit path — no extra guard needed here.
@@ -631,10 +631,10 @@ pub(super) fn graph_learning_audit_line(method: &Method) -> Option<String> {
 
 pub(super) fn ml_pipeline_audit_line(method: &Method) -> Option<String> {
     match method {
-        // ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): same durable-writeback shape as
+        // ML pipeline (CONCEPT:MEDULLA-KG.mining.ml-pipeline): same durable-writeback shape as
         // the Mine*/GraphLearn* family above (`access.rs::requires_write` only reaches the
         // durable-commit path when it actually mutates), so it gets the same audit
-        // coverage every sibling in this family already has (GOC-40, eg-capabilities'
+        // coverage every sibling in this family already has (GOC-40, medulla-capabilities'
         // `audited_matches_audit_rs_exactly` cross-check caught the omission).
         #[cfg(feature = "ml-pipeline")]
         Method::MiningPipelineTrain { .. } => Some("MINING_PIPELINE_TRAIN".to_string()),
@@ -648,7 +648,7 @@ pub(super) fn ml_pipeline_audit_line(method: &Method) -> Option<String> {
 
 pub(super) fn broker_setup_audit_line(method: &Method) -> Option<String> {
     match method {
-        // ── Message-broker / stream mutations, Outbox domain (CONCEPT:EG-KG.compute.message-broker-exchanges /
+        // ── Message-broker / stream mutations, Outbox domain (CONCEPT:MEDULLA-KG.compute.message-broker-exchanges /
         // replayable-append-log / publisher-confirms-consumer-qos) ──────────────────────
         // NOT NODES/EDGES rows (`redb_store::apply_method_rows` is a no-op for
         // them — the control-graph state lives on the in-memory `GraphCore`,

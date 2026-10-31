@@ -1,0 +1,69 @@
+//! # medulla-stream — the event-stream + complex-event-processing (CEP) modality (CONCEPT:MEDULLA-KG.query.pipelined-execution)
+//!
+//! A pure-Rust leaf crate (a sibling of `medulla-ann` / `medulla-geo` / `medulla-tensor`) giving the
+//! engine a **bounded NFA-based CEP engine** over a time-ordered event stream, with **NO
+//! async runtime / NO tokio / NO C dependency** — the Raspberry-Pi contract. It provides:
+//!
+//! * [`Event`] — a `{ ts: u64, key: String, attrs: serde_json::Map }` record (the shape
+//!   fixed by the concept row). serde-serializable so events persist / ride the wire.
+//! * [`CepPattern`] — the pattern algebra: [`CepPattern::Sequence`] (matchers that must
+//!   fire in order within the window), [`CepPattern::Within`] (a duration constraint
+//!   wrapping an inner pattern), and [`CepPattern::Absence`] (an `a` NOT-followed-by `b`
+//!   within a horizon). Each step is an [`EventMatcher`] = an optional event `key` +
+//!   a set of per-event [`AttrPredicate`]s (`Eq` / `Gt` / `Lt` / `Exists`).
+//! * [`Window`] — the [`Window::Sliding`] / [`Window::Tumbling`] windowing model.
+//! * [`run`] — `run(pattern, events, window) -> Vec<Match>`: a **bounded** NFA (the count
+//!   of live partial matches is capped, so a pathological stream can never blow memory)
+//!   that emits every [`Match`] the pattern detects.
+//!
+//! ## How it ties into the engine
+//!
+//! * **Windowing primitive (MEDULLA-067).** [`Window::Sliding`] / [`Window::Tumbling`] are the
+//!   CEP-side windows; the engine's `Op::Window { secs }` (CONCEPT:MEDULLA-KG.query.streaming-execution) is the plan-AST
+//!   windowing primitive an `Op::Cep` sits beside — the two share the "trailing window over
+//!   a time-ordered RowSet" model.
+//! * **Wire variant.** The wire algebra `Op::Cep { pattern }` lives in `medulla-types::wire`
+//!   (pure-serde `CepPatternSpec`, Pi-safe, no medulla-stream dep); the executor that drives
+//!   THIS crate over an input RowSet lives in `medulla-plan::exec` behind medulla-plan's `stream`
+//!   feature. The batch `Op::Cep` over a RowSet + this engine is what lands.
+//! * **Live standing queries (MEDULLA-064) — the `stream` feature.** The DEFERRED push half is
+//!   now built in [`live`] (behind the `stream` feature, the only thing that pulls
+//!   `tokio`): [`live::CepEngine`] owns N standing queries, fans each incoming [`Event`]
+//!   to every query's incremental NFA state (the SAME steppers [`run`] is built from —
+//!   see [`live`]), and pushes completed matches out per-query
+//!   [`tokio::sync::broadcast`] channels ([`live::CepSubscription`]) with drop-oldest +
+//!   lag-count backpressure. Sliding + tumbling windows and `within`-timeout expiry all
+//!   work on the live path, and `eg088_live_equals_batch_*` asserts the live emission set
+//!   equals [`run`] for the same ts-ordered stream. The default / Pi build enables
+//!   neither `tokio` nor [`live`] — the core stays synchronous + runtime-free. Wiring the
+//!   MEDULLA-064 `ChangeNotifier` → `Event` adapter and any Method/WebSocket subscription route
+//!   into the SERVER is the remaining documented follow-up (medulla-stream is a leaf crate and
+//!   must not depend on medulla-core; exactly as `medulla_graphql::LiveQuery` leaves its transport
+//!   to the server).
+//!
+//! The batch core is dependency-light (serde + serde_json); the `stream` feature adds
+//! `tokio`. The crate is folded into the `node`/`full` serving tiers, kept OUT of `pi`.
+
+mod cep;
+mod event;
+#[cfg(feature = "stream")]
+pub mod live;
+// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for Event`, behind
+// the crate's own opt-in `contract` feature (default OFF). See module docs.
+#[cfg(feature = "contract")]
+mod contract;
+// CA-11 — CDC-to-Kafka sink (DEC-CA-03), feature `cdc-kafka`, default OFF. See
+// the module's own doc for the trait/envelope shape and the DEC-CA-03 field
+// gap this lane found. `pub` unconditionally (not `#[cfg]`-gated at the
+// `mod` level) so `SinkEvent`/`SinkOp`/`CdcSink`/`SinkError` stay visible for
+// documentation/tests even without `cdc-kafka`; `KafkaCdcSink` itself is
+// `#[cfg(feature = "cdc-kafka")]`-gated inside the module (needs `rdkafka`).
+pub mod sink;
+// EH-408 / EH-409 — stored logs, metrics and traces bound to ontology entities,
+// rolled up into BehaviourObservation facts, and turned into HealthAnomaly /
+// Incident / ConformanceViolation facts by declared CEP patterns and declared
+// health. Pure and synchronous (serde + serde_json only), so it is always on.
+pub mod telemetry;
+
+pub use cep::{run, CepPattern, Match, Window, MAX_ACTIVE_RUNS};
+pub use event::{AttrPredicate, Event, EventMatcher};

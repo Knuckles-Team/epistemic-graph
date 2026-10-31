@@ -20,7 +20,7 @@ fn decode_snapshot(
     Ok((body, data))
 }
 
-impl EgStore {
+impl MedullaStore {
     fn validate_snapshot_history(
         &self,
         body: &SmSnapshotData,
@@ -94,7 +94,7 @@ impl EgStore {
     }
 }
 
-impl RaftStateMachine<TypeConfig> for Arc<EgStore> {
+impl RaftStateMachine<TypeConfig> for Arc<MedullaStore> {
     type SnapshotBuilder = Self;
 
     async fn applied_state(

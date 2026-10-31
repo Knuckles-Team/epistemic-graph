@@ -66,7 +66,7 @@ impl RedbBackend {
         await_writer_reply(&rx, "tamper")?
     }
 
-    /// Verify ONE graph's tamper-evident hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security).
+    /// Verify ONE graph's tamper-evident hash-chained audit log (CONCEPT:MEDULLA-KG.sharding.row-level-security).
     /// Routed through the owner thread (exclusive file lock), which flushes pending
     /// writes first so the walk reflects the latest durable entries.
     #[cfg(feature = "security")]
@@ -86,7 +86,7 @@ impl RedbBackend {
     }
 
     /// Off-writer-thread read: hash each of `node_ids`' CURRENT durable content
-    /// into a provenance leaf hash (CONCEPT:EG-KG.sharding.row-level-security, provenance anchoring). Lock-free
+    /// into a provenance leaf hash (CONCEPT:MEDULLA-KG.sharding.row-level-security, provenance anchoring). Lock-free
     /// MVCC snapshot read (mirrors `read_node_blocking`) — never touches the
     /// writer channel, so hashing a large window costs the writer thread nothing.
     #[cfg(feature = "security")]
@@ -104,7 +104,7 @@ impl RedbBackend {
         crate::redb_store::provenance_leaf_hashes(&shard, graph_fname, node_ids, crypto)
     }
 
-    /// Durably anchor an already-hashed provenance window (CONCEPT:EG-KG.sharding.row-level-security,
+    /// Durably anchor an already-hashed provenance window (CONCEPT:MEDULLA-KG.sharding.row-level-security,
     /// provenance anchoring). Routed through the owner thread (exclusive file
     /// lock) since it may write; `Ok(None)` means the root was unchanged and
     /// nothing was written — the common case for an idle graph.
@@ -129,7 +129,7 @@ impl RedbBackend {
     }
 
     /// Produce + verify a Merkle inclusion proof for one node against a prior
-    /// provenance anchor (CONCEPT:EG-KG.sharding.row-level-security, provenance anchoring). Routed through
+    /// provenance anchor (CONCEPT:MEDULLA-KG.sharding.row-level-security, provenance anchoring). Routed through
     /// the owner thread (exclusive file lock), which flushes pending writes first.
     #[cfg(feature = "security")]
     pub fn audit_prove_inclusion_blocking(
@@ -152,7 +152,7 @@ impl RedbBackend {
     }
 
     /// Read ONE graph's durable rows as a read-only materialization view
-    /// (CONCEPT:EG-KG.storage.100m-tenant — tenant rehydration). Routed through the
+    /// (CONCEPT:MEDULLA-KG.storage.100m-tenant — tenant rehydration). Routed through the
     /// owner thread, which flushes pending writes first. This is not a transfer
     /// image; cross-store moves use [`Self::reshard_graph`]. `None` means the graph
     /// has no durable identity.
@@ -168,7 +168,7 @@ impl RedbBackend {
         await_writer_reply(&rx, "read_graph_dump")?
     }
 
-    /// Read ONE bounded page of one graph's durable rows (CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged
+    /// Read ONE bounded page of one graph's durable rows (CONCEPT:MEDULLA-KG.sharding.paged-lazy-open, L38 "paged
     /// adjacency") — the memory-bounded sibling of [`Self::read_graph_dump_blocking`]
     /// backing [`PersistenceBackend::read_graph_material_page_blocking`] below.
     pub(crate) fn read_graph_dump_page_blocking(

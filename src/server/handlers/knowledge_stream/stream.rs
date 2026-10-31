@@ -177,16 +177,16 @@ pub(super) fn response_result(response: Response) -> Result<ResultPayload, Strin
 
 pub(super) fn decode_knowledge_result<T>(
     bytes: &[u8],
-) -> Result<T, eg_types::msgpack::MsgpackValidationError>
+) -> Result<T, medulla_types::msgpack::MsgpackValidationError>
 where
     T: serde::de::DeserializeOwned,
 {
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_KNOWLEDGE_RESULT_BYTES,
             MAX_KNOWLEDGE_RESULT_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
 }
@@ -202,7 +202,7 @@ pub(super) fn raw_payload<'a>(
 }
 
 pub(super) fn node_has_label(properties: &[u8], label: &str) -> bool {
-    let Ok(value) = eg_types::msgpack::decode_property_value(properties) else {
+    let Ok(value) = medulla_types::msgpack::decode_property_value(properties) else {
         return false;
     };
     ["type", "node_type", "label"]

@@ -1,6 +1,6 @@
 //! Authoritative capacity-cell/lease ledger on the graph shard (GOC-21-W04/W05).
 //!
-//! The pure [`eg_types::capacity_lease::CapacityLedger`] is useful for policy
+//! The pure [`medulla_types::capacity_lease::CapacityLedger`] is useful for policy
 //! tests, but it is deliberately not an authority.  This module owns the
 //! graph-scoped durable cells, aggregate usage, lease fences, and tenant/key
 //! replay rows.  All four of its tables are scope-prefixed shard tables, so
@@ -19,9 +19,9 @@ use redb::TableDefinition;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use eg_storage::{GraphShardOwner, PhysicalWriteCapability, ScopedOwnerTable, ScopedOwnerTableMut};
-use eg_types::capacity_lease::{CapacityCell, CapacityLease, LeaseState};
-use eg_types::native_control::{
+use medulla_storage::{GraphShardOwner, PhysicalWriteCapability, ScopedOwnerTable, ScopedOwnerTableMut};
+use medulla_types::capacity_lease::{CapacityCell, CapacityLease, LeaseState};
+use medulla_types::native_control::{
     CapacityAcquireRequest, CapacityAcquireResult, CapacityAvailability, CapacityCellUpdateRequest,
     CapacityCellUpdateResult, CapacityDecision, CapacityDemand, CapacityLeaseMutationRequest,
     CapacityMutationResult, CapacityReclaimRequest, CapacityReclaimResult, CapacityStatusRequest,
@@ -475,7 +475,7 @@ fn price_demand(
     cells: &CapacityRows<'_>,
     usage: &CapacityRows<'_>,
     graph: &str,
-    priority: eg_types::capacity_lease::LeasePriority,
+    priority: medulla_types::capacity_lease::LeasePriority,
     demand: &CapacityDemand,
     crypto: DurableCrypto<'_>,
 ) -> Result<(CapacityCell, DurableUsage, CapacityAvailability), String> {
@@ -678,7 +678,7 @@ fn check_lease_fence(
     cells_table: &CapacityRows<'_>,
     graph: &str,
     request: &CapacityLeaseMutationRequest,
-    fence: &eg_types::native_control::CapacityLeaseFence,
+    fence: &medulla_types::native_control::CapacityLeaseFence,
     crypto: DurableCrypto<'_>,
 ) -> Result<FenceCheck, String> {
     let current = leases_table
@@ -1124,7 +1124,7 @@ fn validate_mutation_request(
 /// A mutation-batch lease fence must carry a nonzero epoch/fence token and
 /// name each `lease_id` at most once within the batch.
 fn validate_lease_fence_unique(
-    lease: &eg_types::native_control::CapacityLeaseFence,
+    lease: &medulla_types::native_control::CapacityLeaseFence,
     ids: &mut BTreeSet<String>,
 ) -> Result<(), String> {
     if lease.lease_epoch == 0 || lease.fence_token == 0 || !ids.insert(lease.lease_id.clone()) {

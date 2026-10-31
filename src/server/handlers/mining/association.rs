@@ -1,8 +1,8 @@
 use super::writeback::*;
 use super::*;
-use eg_compute::mining::association::{self, Algorithm, LabeledRule};
-use eg_types::compute_result::mining::{AssociationMiningResult, AssociationRuleRow};
-use eg_types::result_contract::compute as results;
+use medulla_compute::mining::association::{self, Algorithm, LabeledRule};
+use medulla_types::compute_result::mining::{AssociationMiningResult, AssociationRuleRow};
+use medulla_types::result_contract::compute as results;
 
 pub(crate) struct AssociationRequest {
     pub(crate) transactions: Vec<Vec<String>>,
@@ -79,7 +79,7 @@ pub(super) fn build_transactions(
 }
 
 /// Build one transaction per `node_label` instance from its neighbor set
-/// (CONCEPT:EG-KG.mining.graph-derived-transactions). Each transaction is the deduped
+/// (CONCEPT:MEDULLA-KG.mining.graph-derived-transactions). Each transaction is the deduped
 /// set of `item_field` values over the owner's neighbors in `direction`, optionally
 /// filtered to a `relation`.
 pub(super) fn derive_from_graph(core: &GraphCore, spec: &TransactionSource) -> Vec<Vec<String>> {
@@ -165,7 +165,7 @@ pub(super) fn edge_matches_relation(
     };
     for &(s, t) in pairs {
         for blob in core.get_edge_properties(s, t) {
-            if let Ok(val) = eg_types::msgpack::decode_property_value(&blob) {
+            if let Ok(val) = medulla_types::msgpack::decode_property_value(&blob) {
                 if val.get("relationship").and_then(|v| v.as_str()) == Some(relation) {
                     return true;
                 }
@@ -189,7 +189,7 @@ pub(super) fn extract_item(
         Some(f) => f.as_str(),
     };
     let props = core.get_node_properties(neighbor)?;
-    let val = eg_types::msgpack::decode_property_value(&props).ok()?;
+    let val = medulla_types::msgpack::decode_property_value(&props).ok()?;
     if field == "label" {
         for key in ["type", "node_type", "label"] {
             if let Some(s) = val.get(key).and_then(|v| v.as_str()) {
@@ -211,7 +211,7 @@ pub(super) fn extract_item(
 }
 
 /// Materialize each rule as a typed `:AssociationRule` node (the discovery
-/// flywheel, CONCEPT:EG-KG.mining.rule-writeback). The node id is a deterministic
+/// flywheel, CONCEPT:MEDULLA-KG.mining.rule-writeback). The node id is a deterministic
 /// digest of `antecedent ⇒ consequent` so replay is idempotent. Each rule is linked
 /// (best-effort) to any item that is itself a resident node id, via a `RULE_ITEM`
 /// edge — so OWL reasoning + the next mining pass can traverse from the rule to its

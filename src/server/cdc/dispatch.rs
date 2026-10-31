@@ -87,7 +87,7 @@ fn emit_change_envelopes(
 /// mutating variants [`mutating_served_modality`] maps to a target modality. Split out
 /// so the outer tuple match stays under the complexity cap.
 #[cfg(feature = "modality-serving")]
-fn emit_mutating_served_modality(hub: &CdcHub, graph: &str, op: &eg_types::ServedModalityOp) {
+fn emit_mutating_served_modality(hub: &CdcHub, graph: &str, op: &medulla_types::ServedModalityOp) {
     if let Some(modality) = mutating_served_modality(op) {
         emit_served_modality(hub, graph, modality);
     }
@@ -211,9 +211,9 @@ fn emit_edge_change(hub: &CdcHub, graph: &str, method: &Method, before: Option<V
 /// arm so the outer tuple match stays under the complexity cap.
 #[cfg(feature = "modality-serving")]
 fn mutating_served_modality(
-    op: &eg_types::ServedModalityOp,
-) -> Option<eg_types::ServedModalityKind> {
-    use eg_types::ServedModalityOp;
+    op: &medulla_types::ServedModalityOp,
+) -> Option<medulla_types::ServedModalityKind> {
+    use medulla_types::ServedModalityOp;
     match op {
         ServedModalityOp::Ingest { modality, .. }
         | ServedModalityOp::IngestStream { modality, .. }
@@ -303,15 +303,15 @@ mod tests {
     #[test]
     fn graph_schema_changes_emit_the_reserved_control_marker() {
         let detach = Method::GraphSchema {
-            op: Box::new(eg_types::graph_schema::GraphSchemaOp::Detach {
+            op: Box::new(medulla_types::graph_schema::GraphSchemaOp::Detach {
                 source_id: "admin:policy".to_string(),
                 if_composed_digest: None,
             }),
         };
         assert_eq!(marker_event_id(&detach), Some("__graph_schema"));
         let attach_pack = Method::GraphSchema {
-            op: Box::new(eg_types::graph_schema::GraphSchemaOp::AttachPack {
-                connector: eg_types::contract::ResourceId::new("graph-os").unwrap(),
+            op: Box::new(medulla_types::graph_schema::GraphSchemaOp::AttachPack {
+                connector: medulla_types::contract::ResourceId::new("graph-os").unwrap(),
                 if_composed_digest: None,
             }),
         };

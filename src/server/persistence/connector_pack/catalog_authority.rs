@@ -4,17 +4,17 @@
 //! verify every source before calling this method. An owner row alone is not
 //! authorization.
 
-use eg_types::agent_component::{AgentComponentEntry, AgentComponentKind};
-use eg_types::agent_library::AgentLibraryLifecycle;
-use eg_types::agent_library::AgentLibraryMutationContext;
-use eg_types::connector_pack::{
+use medulla_types::agent_component::{AgentComponentEntry, AgentComponentKind};
+use medulla_types::agent_library::AgentLibraryLifecycle;
+use medulla_types::agent_library::AgentLibraryMutationContext;
+use medulla_types::connector_pack::{
     catalog_authority::joined_configuration_digest, reconcile_catalog_authority,
     reconcile_joined_configuration, McpCatalogAttestation, McpCatalogAuthorityCandidate,
     McpCatalogAuthorityRow, McpCatalogSnapshotBinding, McpJoinedConfigurationRow,
 };
-use eg_types::contract::Digest256;
-use eg_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
-use eg_types::protocol::Method;
+use medulla_types::contract::Digest256;
+use medulla_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
+use medulla_types::protocol::Method;
 use redb::ReadableTable;
 
 use super::admitted::{PackOwnerWrite, PackWriteEffects, PackWriteIdentity};
@@ -131,7 +131,7 @@ fn verify_component_source(
                 && current.kind == AgentComponentKind::McpServer
         }
         McpCatalogAttestation::SelfServed { .. } => {
-            eg_types::connector_pack::self_served_component_revision(
+            medulla_types::connector_pack::self_served_component_revision(
                 published_server_content(current.as_ref())?,
                 candidate.component_digest,
             ) == candidate.component_revision
@@ -149,7 +149,7 @@ fn current_component_in(
     component_id: &str,
 ) -> Result<Option<AgentComponentEntry>, String> {
     let current_revision = {
-        let heads = write.open_table(eg_storage::AGENT_COMPONENT_HEADS)?;
+        let heads = write.open_table(medulla_storage::AGENT_COMPONENT_HEADS)?;
         let revision = heads
             .get((tenant_id, component_id))
             .map_err(|error| error.to_string())?
@@ -159,7 +159,7 @@ fn current_component_in(
     let Some(current_revision) = current_revision else {
         return Ok(None);
     };
-    let revisions = write.open_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
+    let revisions = write.open_table(medulla_storage::AGENT_COMPONENT_REVISIONS)?;
     let row = revisions
         .get((tenant_id, component_id, current_revision))
         .map_err(|error| error.to_string())?
@@ -185,7 +185,7 @@ impl AgentLibraryStore {
     ) -> Result<Option<McpCatalogAuthorityRow>, String> {
         let scope_hex = scope_digest.to_hex();
         let read = self.read()?;
-        let table = read.open_owner_table(eg_storage::MCP_CATALOG_SCOPES)?;
+        let table = read.open_owner_table(medulla_storage::MCP_CATALOG_SCOPES)?;
         let row = table
             .get((tenant_id, server_name, scope_hex.as_str()))
             .map_err(|error| error.to_string())?
@@ -205,7 +205,7 @@ impl AgentLibraryStore {
         scope_digest: Digest256,
     ) -> Result<Option<McpCatalogSnapshotBinding>, String> {
         if tenant_id.is_empty()
-            || !eg_types::result_contract::cluster::is_valid_server_name(server_name)
+            || !medulla_types::result_contract::cluster::is_valid_server_name(server_name)
             || scope_digest == Digest256::from_bytes([0; 32])
         {
             return Err("invalid scoped MCP catalog binding read".into());
@@ -242,7 +242,7 @@ impl AgentLibraryStore {
         attester_principal_id: &str,
     ) -> Result<Option<McpCatalogSnapshotBinding>, String> {
         if tenant_id.is_empty()
-            || !eg_types::result_contract::cluster::is_valid_server_name(server_name)
+            || !medulla_types::result_contract::cluster::is_valid_server_name(server_name)
             || attester_principal_id.is_empty()
         {
             return Err("invalid scoped MCP catalog authority read".into());
@@ -312,7 +312,7 @@ fn write_catalog_rows(
     verify_component_source(write, tenant_id, component_id, candidate)?;
     let config_key = (tenant_id, candidate.server_name.as_str());
     let previous_config = {
-        let table = write.open_table(eg_storage::MCP_CATALOG_CONFIGS)?;
+        let table = write.open_table(medulla_storage::MCP_CATALOG_CONFIGS)?;
         let previous = table
             .get(config_key)
             .map_err(|error| error.to_string())?
@@ -332,7 +332,7 @@ fn write_catalog_rows(
         scope_hex.as_str(),
     );
     let previous_scope = {
-        let table = write.open_table(eg_storage::MCP_CATALOG_SCOPES)?;
+        let table = write.open_table(medulla_storage::MCP_CATALOG_SCOPES)?;
         let previous = table
             .get(scope_key)
             .map_err(|error| error.to_string())?
@@ -346,14 +346,14 @@ fn write_catalog_rows(
         previous
     };
     let scoped = reconcile_catalog_authority(previous_scope.as_ref(), &configuration, candidate)?;
-    let config_bytes = eg_storage::encode_bounded(&configuration, "MCP joined configuration")?;
-    let scope_bytes = eg_storage::encode_bounded(&scoped, "MCP scoped catalog")?;
+    let config_bytes = medulla_storage::encode_bounded(&configuration, "MCP joined configuration")?;
+    let scope_bytes = medulla_storage::encode_bounded(&scoped, "MCP scoped catalog")?;
     write
-        .open_table(eg_storage::MCP_CATALOG_CONFIGS)?
+        .open_table(medulla_storage::MCP_CATALOG_CONFIGS)?
         .insert(config_key, config_bytes.as_slice())
         .map_err(|error| error.to_string())?;
     write
-        .open_table(eg_storage::MCP_CATALOG_SCOPES)?
+        .open_table(medulla_storage::MCP_CATALOG_SCOPES)?
         .insert(scope_key, scope_bytes.as_slice())
         .map_err(|error| error.to_string())?;
     Ok(scoped.binding)
@@ -419,7 +419,7 @@ mod tests {
     use super::*;
 
     fn authority_row() -> McpCatalogAuthorityRow {
-        let candidate = eg_types::connector_pack::catalog_authority::sample_authority_candidate();
+        let candidate = medulla_types::connector_pack::catalog_authority::sample_authority_candidate();
         let config = reconcile_joined_configuration(None, &candidate).unwrap();
         reconcile_catalog_authority(None, &config, &candidate).unwrap()
     }
@@ -481,7 +481,7 @@ mod tests {
 
     fn self_served(expected: Option<u64>, four_family: u8) -> McpCatalogAuthorityCandidate {
         let mut candidate =
-            eg_types::connector_pack::catalog_authority::sample_authority_candidate();
+            medulla_types::connector_pack::catalog_authority::sample_authority_candidate();
         candidate.component_revision = 0;
         candidate.child_id = candidate.attester_principal_id.clone();
         candidate.local_catalog_epoch = 1;
@@ -527,7 +527,7 @@ mod tests {
         let mut unpublished = self_served(Some(2), 5);
         unpublished.component_revision = 1;
         assert!(commit(5, unpublished).is_err());
-        let mut mounted = eg_types::connector_pack::catalog_authority::sample_authority_candidate();
+        let mut mounted = medulla_types::connector_pack::catalog_authority::sample_authority_candidate();
         mounted.expected_catalog_generation = Some(2);
         assert!(commit(6, mounted).is_err());
         let scope = changed.authorization_scope_digest;
@@ -553,7 +553,7 @@ mod tests {
     #[test]
     fn replay_identity_binds_scope_child_and_source() {
         let mut candidate =
-            eg_types::connector_pack::catalog_authority::sample_authority_candidate();
+            medulla_types::connector_pack::catalog_authority::sample_authority_candidate();
         candidate.expected_catalog_generation = Some(1);
         let original = candidate_digest("mcp:a/mcp_server/child-a", &candidate).unwrap();
         candidate.authorization_scope_digest = Digest256::from_bytes([5; 32]);

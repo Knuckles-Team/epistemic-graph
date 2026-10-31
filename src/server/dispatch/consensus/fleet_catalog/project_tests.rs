@@ -1,6 +1,6 @@
 use super::super::records::RecordMeta;
 use super::*;
-use eg_types::fleet_catalog::DiscoveryScope;
+use medulla_types::fleet_catalog::DiscoveryScope;
 
 const DIGEST: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
 const OUTPUT_DIGEST: &str =

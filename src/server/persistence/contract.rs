@@ -27,13 +27,13 @@ use crate::mutation_batch::{
 };
 use crate::protocol::Method;
 use crate::server::ServerState;
-use eg_types::native_control::CapacityStatusResult;
+use medulla_types::native_control::CapacityStatusResult;
 // The sweep-scoped claim budget carrying DESIGN.md's per-tenant weighted round
 // robin between graphs. It is a kernel type, so the claim it parameterises is
 // gated on `redb` exactly like the two WorkItem-capability methods below: the
 // durable outbox ledger only exists in that build.
 #[cfg(feature = "redb")]
-use eg_transaction::{OutboxClaimBudget, OutboxClaimOutcome};
+use medulla_transaction::{OutboxClaimBudget, OutboxClaimOutcome};
 
 /// A durable persistence tier for the graph registry.
 ///
@@ -81,7 +81,7 @@ pub trait PersistenceBackend: Send + Sync {
     async fn read_capacity_status(
         &self,
         _graph_fname: &str,
-        _request: &eg_types::native_control::CapacityStatusRequest,
+        _request: &medulla_types::native_control::CapacityStatusRequest,
     ) -> Result<CapacityStatusResult, String> {
         Err("persistence backend does not support native capacity status".to_string())
     }
@@ -93,8 +93,8 @@ pub trait PersistenceBackend: Send + Sync {
         &self,
         _graph_fname: &str,
         _cells: &[String],
-        _priority: eg_types::capacity_lease::LeasePriority,
-    ) -> Result<Vec<eg_types::decision::CapacityHeadroom>, String> {
+        _priority: medulla_types::capacity_lease::LeasePriority,
+    ) -> Result<Vec<medulla_types::decision::CapacityHeadroom>, String> {
         Err("persistence backend does not support native capacity headroom".to_string())
     }
 
@@ -105,7 +105,7 @@ pub trait PersistenceBackend: Send + Sync {
         &self,
         _graph_fname: &str,
         _source_envelope: &str,
-    ) -> Result<Option<eg_types::native_control::EnrichmentBudgetCheckpoint>, String> {
+    ) -> Result<Option<medulla_types::native_control::EnrichmentBudgetCheckpoint>, String> {
         Err("persistence backend does not support enrichment budget reads".to_string())
     }
 
@@ -127,7 +127,7 @@ pub trait PersistenceBackend: Send + Sync {
     async fn read_enrichment_budget_park(
         &self,
         _graph_fname: &str,
-    ) -> Result<Option<eg_types::native_control::EnrichmentBudgetPark>, String> {
+    ) -> Result<Option<medulla_types::native_control::EnrichmentBudgetPark>, String> {
         Err("persistence backend does not support enrichment park reads".to_string())
     }
 
@@ -149,7 +149,7 @@ pub trait PersistenceBackend: Send + Sync {
     async fn park_enrichment_budget(
         &self,
         _graph_fname: &str,
-        _park: eg_types::native_control::EnrichmentBudgetPark,
+        _park: medulla_types::native_control::EnrichmentBudgetPark,
     ) -> Result<(), String> {
         Err("persistence backend does not support enrichment budget parking".to_string())
     }
@@ -160,21 +160,21 @@ pub trait PersistenceBackend: Send + Sync {
         Err("persistence backend does not support graph recovery".to_string())
     }
 
-    /// Populate the registry's CATALOG ONLY at boot (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3) —
+    /// Populate the registry's CATALOG ONLY at boot (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog, DIST-P2-3) —
     /// every graph's identity (name/type), with NO node/edge data read. Each
     /// graph's `GraphCore` then materializes lazily on first access (see
     /// `server::persistence::cold_offload::lazy_open`) via
     /// [`Self::read_graph_material_blocking`]. The default falls back to the eager
     /// `load_all` — only the redb backend (the only one with a `graph_meta`-keyed
     /// durable catalog cheaper than a full dump) overrides it. Selected by
-    /// `main.rs` when `EPISTEMIC_GRAPH_LAZY_STARTUP` resolves true. Explicit env
+    /// `main.rs` when `MEDULLA_LAZY_STARTUP` resolves true. Explicit env
     /// values win; an unset production profile defaults to catalog-only recovery,
     /// while development preserves eager recovery.
     async fn load_catalog(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
         self.load_all(state).await
     }
 
-    // ── VIZ-1: hierarchical cluster-tree cache (CONCEPT:EG-KG.compute.leiden-hierarchy) ──
+    // ── VIZ-1: hierarchical cluster-tree cache (CONCEPT:MEDULLA-KG.compute.leiden-hierarchy) ──
     //
     // Fail-closed defaults, per this trait's own "capability discovery must not
     // infer support from a backend merely being present" convention (see
@@ -190,7 +190,7 @@ pub trait PersistenceBackend: Send + Sync {
     }
 
     /// Replace the cached hierarchy for `graph_fname` with `blob` (a MessagePack-
-    /// encoded `eg_compute::algorithms::ClusterHierarchyResult`). Not a graph
+    /// encoded `medulla_compute::algorithms::ClusterHierarchyResult`). Not a graph
     /// mutation — see the trait section doc above.
     async fn save_cluster_hierarchy(
         &self,
@@ -207,7 +207,7 @@ pub trait PersistenceBackend: Send + Sync {
     }
 
     /// Record a single DATA mutation and await its durable commit
-    /// (CONCEPT:EG-KG.backend.authoritative-dispatch commit-before-ack barrier).
+    /// (CONCEPT:MEDULLA-KG.backend.authoritative-dispatch commit-before-ack barrier).
     /// Dispatch awaits this before acknowledging the write, so a write is never
     /// acknowledged unless it is durable. The enqueue must
     /// still fold into the SAME group-commit batch as every other concurrent
@@ -247,7 +247,7 @@ pub trait PersistenceBackend: Send + Sync {
     /// replacing or updating any row; the default fails closed.
     ///
     /// `audited`: the caller's already-resolved `MutationPlan::audited` (or
-    /// equivalent `eg_capabilities::policy(method).audited`) for the ORIGINAL
+    /// equivalent `medulla_capabilities::policy(method).audited`) for the ORIGINAL
     /// method, captured BEFORE it was compiled into this batch's operations.
     /// State-backed operations are compiled into an opaque digest receipt that no
     /// longer carries the original method's identity, so an implementation must
@@ -471,7 +471,7 @@ pub trait PersistenceBackend: Send + Sync {
     }
 
     /// Commit a BATCH of engine-native governed ingest units that all target
-    /// `graph_fname`, as ONE coalesced transaction/fsync (CONCEPT:EG-KG.ingest.batched-change-envelopes).
+    /// `graph_fname`, as ONE coalesced transaction/fsync (CONCEPT:MEDULLA-KG.ingest.batched-change-envelopes).
     /// Returns one `ChangeEnvelopeCommit` per envelope, in order. `Err((index, msg))`
     /// means the batch aborted at that envelope — because the whole group shares one
     /// atomic transaction, no envelope in it committed.
@@ -604,7 +604,7 @@ pub trait PersistenceBackend: Send + Sync {
         Err("persistence backend does not support native development-lane status".to_string())
     }
 
-    /// Durably register a graph's identity (CONCEPT:EG-KG.backend.authoritative-dispatch). The
+    /// Durably register a graph's identity (CONCEPT:MEDULLA-KG.backend.authoritative-dispatch). The
     /// per-mutation write path persists node/edge rows but not the graph's
     /// name/type, yet `load_all` rebuilds the registry from a durable graph manifest
     /// (redb `graph_meta`). So dispatch calls this when a graph is created (and it
@@ -621,7 +621,7 @@ pub trait PersistenceBackend: Send + Sync {
     }
 
     /// Durably remove ALL state for a graph when its tenant is DELETED
-    /// (CONCEPT:EG-KG.backend.tenant-delete-recreate-same). The default per-mutation write path persists rows keyed by
+    /// (CONCEPT:MEDULLA-KG.backend.tenant-delete-recreate-same). The default per-mutation write path persists rows keyed by
     /// the graph's sanitized name but has NO row-removal on `DeleteGraph`; that left
     /// a deleted tenant's nodes/edges/meta resident in the durable tier, so a
     /// recreate of the SAME name inherited them via the read-through-on-RAM-miss path
@@ -635,7 +635,7 @@ pub trait PersistenceBackend: Send + Sync {
     }
 
     /// Read a single node's stored properties back from the durable tier
-    /// (CONCEPT:EG-KG.backend.authoritative-dispatch read-through). Returns `Ok(None)` when the node is not
+    /// (CONCEPT:MEDULLA-KG.backend.authoritative-dispatch read-through). Returns `Ok(None)` when the node is not
     /// present durably, `Ok(Some(props))` when it is. The default is `Ok(None)`
     /// — only an authoritative backend that can serve a RAM-miss read implements
     /// it. Provided so a future read-through-on-eviction path has a backend seam
@@ -659,12 +659,12 @@ pub trait PersistenceBackend: Send + Sync {
         Ok(vec![false; node_ids.len()])
     }
 
-    /// SYNC read-through of a single node's stored properties (CONCEPT:EG-KG.storage.read-through-seam-exercised).
-    /// The eg-core read path (`GraphCore::get_node_properties`) is synchronous, so
+    /// SYNC read-through of a single node's stored properties (CONCEPT:MEDULLA-KG.storage.read-through-seam-exercised).
+    /// The medulla-core read path (`GraphCore::get_node_properties`) is synchronous, so
     /// the read-through it consults on a RAM miss must be sync too. The redb backend
     /// already performs its point-read over a blocking channel to its off-reactor
     /// writer thread, so a sync variant is natural and adds no async runtime to
-    /// eg-core. Same return contract as [`read_node`].
+    /// medulla-core. Same return contract as [`read_node`].
     fn read_node_blocking(
         &self,
         _graph_fname: &str,
@@ -673,7 +673,7 @@ pub trait PersistenceBackend: Send + Sync {
         Ok(None)
     }
 
-    /// SYNC durable-material fetch for a lazy first-open (CONCEPT:EG-KG.sharding.lazy-graph-catalog,
+    /// SYNC durable-material fetch for a lazy first-open (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog,
     /// DIST-P2-3): the WHOLE graph's nodes/edges/semantic-store blob, replayed into
     /// a freshly constructed `GraphCore` on catalog-only → resident promotion
     /// (mirrors `read_node_blocking`'s sync read-through contract, but for a whole
@@ -699,14 +699,14 @@ pub trait PersistenceBackend: Send + Sync {
     }
 
     /// SYNC bounded-PAGE durable-material fetch for a paged lazy first-open
-    /// (CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged adjacency") — the working-subset
+    /// (CONCEPT:MEDULLA-KG.sharding.paged-lazy-open, L38 "paged adjacency") — the working-subset
     /// counterpart of [`Self::read_graph_material_blocking`] backing
-    /// `eg_core::registry::GraphRegistry::open_lazy_paged`/`page_in`, mirroring
-    /// `eg_core::registry::GraphMaterializer::materialize_page`'s own default/
+    /// `medulla_core::registry::GraphRegistry::open_lazy_paged`/`page_in`, mirroring
+    /// `medulla_core::registry::GraphMaterializer::materialize_page`'s own default/
     /// override split one layer up. The default here falls back to ONE full
     /// [`Self::read_graph_material_blocking`] fetch and then slices it in memory —
     /// correct for ANY backend, but it does not avoid the full-fetch cost AT THE
-    /// SOURCE (documented in `eg_core::registry::GraphMaterializer::materialize_page`'s
+    /// SOURCE (documented in `medulla_core::registry::GraphMaterializer::materialize_page`'s
     /// own doc comment). Only [`redb_backend::RedbBackend`] overrides this with a
     /// genuinely bounded scan straight off its durable store (never collecting the
     /// whole graph into memory first) — the concrete fix for the L38 ledger item.
@@ -716,7 +716,7 @@ pub trait PersistenceBackend: Send + Sync {
         cursor: Option<crate::registry::MaterializeCursor>,
         page_size: usize,
     ) -> Result<Option<crate::registry::MaterialPage>, String> {
-        // Reuse eg-core's OWN `materialize_page` default slicing algorithm (rather
+        // Reuse medulla-core's OWN `materialize_page` default slicing algorithm (rather
         // than duplicating its offset arithmetic here) by wrapping the one full
         // fetch in a throwaway `GraphMaterializer` that just returns it. The trait
         // must be IN SCOPE for its default `materialize_page` method to be callable.
@@ -731,7 +731,7 @@ pub trait PersistenceBackend: Send + Sync {
         Ok(Once(material).materialize_page(graph_fname, cursor, page_size))
     }
 
-    /// **Cross-modal ACID commit (CONCEPT:EG-KG.txn.reader-never-sees-node + EG-360).** Land a graph + vector +
+    /// **Cross-modal ACID commit (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node + MEDULLA-360).** Land a graph + vector +
     /// blob-ref + measurement + property write-set for ONE graph atomically. The redb
     /// backend overrides this to commit ALL modalities in ONE `WriteTransaction`
     /// (commit-before-ack): on any error nothing lands (full rollback — no partial
@@ -739,7 +739,7 @@ pub trait PersistenceBackend: Send + Sync {
     /// vectors/blob-refs/measurements require a backend that implements their atomic
     /// storage rather than silently dropping a modality.
     ///
-    /// Note (EG-360): staged OWL axioms + SPARQL CONSTRUCT triples are lowered to
+    /// Note (MEDULLA-360): staged OWL axioms + SPARQL CONSTRUCT triples are lowered to
     /// graph-native `AddNode`/`AddEdge` at STAGE time and arrive folded into `methods`,
     /// so they ride this same durable path as ordinary graph mutations; only the
     /// genuinely non-graph modalities (vectors/blob-refs/measurements) get their own
@@ -770,14 +770,14 @@ pub trait PersistenceBackend: Send + Sync {
     /// Idempotent.
     fn shutdown(&self);
 
-    /// Downcast hook (CONCEPT:EG-KG.storage.one-fsync-covers-raft / KG-2.231). The Raft store needs the CONCRETE
+    /// Downcast hook (CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft / KG-2.231). The Raft store needs the CONCRETE
     /// [`redb_backend::RedbBackend`] to reach its durable-log API (which is not part
     /// of this trait — the log is a Raft concern, not a general persistence one); the
     /// `security` audit path likewise needs it for `audit_verify_blocking`. So this
     /// lets a caller recover the concrete type from the `Arc<dyn PersistenceBackend>`
     /// in `ServerState`. The default returns `None`; only the redb backend overrides it.
     /// Gated on `redb` (the only build where `RedbBackend` exists) — also consumed by the
-    /// M3 catalog-driven resharding admin RPC (CONCEPT:EG-KG.backend.m3-admin-dispatch).
+    /// M3 catalog-driven resharding admin RPC (CONCEPT:MEDULLA-KG.backend.m3-admin-dispatch).
     #[cfg(feature = "redb")]
     fn as_redb(&self) -> Option<&redb_backend::RedbBackend> {
         None

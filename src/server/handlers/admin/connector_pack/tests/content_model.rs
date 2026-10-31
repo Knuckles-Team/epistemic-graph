@@ -1,8 +1,8 @@
 //! The content model (pack design §3.5, review B3): identity follows content.
 
-use eg_types::agent_component::AgentComponentEntry;
-use eg_types::agent_library::AgentLibraryLifecycle;
-use eg_types::connector_pack::{
+use medulla_types::agent_component::AgentComponentEntry;
+use medulla_types::agent_library::AgentLibraryLifecycle;
+use medulla_types::connector_pack::{
     PackAnnotations, PackDispositionCounts, PackEntryKind, PackImportResult, PackRef,
     PackViolationCode, PackWarningCode,
 };
@@ -29,9 +29,9 @@ async fn current_component(served: &Served, id: &str) -> AgentComponentEntry {
 }
 
 async fn current_server(served: &Served) -> AgentComponentEntry {
-    let id = eg_types::connector_pack::pack_component_id(
+    let id = medulla_types::connector_pack::pack_component_id(
         CONNECTOR,
-        eg_types::connector_pack::PackEntryKind::McpServer,
+        medulla_types::connector_pack::PackEntryKind::McpServer,
         CONNECTOR,
     );
     current_component(served, &id).await
@@ -75,7 +75,7 @@ async fn one_changed_tool_revises_only_that_tool() {
     );
 }
 
-/// EG-DECISION-ENGINE-R075: a component id is minted from an entry's
+/// MEDULLA-DECISION-ENGINE-R075: a component id is minted from an entry's
 /// connector, kind and name, not its URI, so two entries of the same kind and
 /// name collide even when their URIs differ. Import must refuse the pack
 /// before any state change, naming `DuplicateComponentId`.
@@ -100,7 +100,7 @@ async fn two_entries_minting_the_same_component_id_are_rejected() {
     );
 }
 
-// spec: EG-TYPED-PACKS-R050
+// spec: MEDULLA-TYPED-PACKS-R050
 #[tokio::test]
 async fn a_package_release_with_identical_content_is_unchanged() {
     let served = Served::new();
@@ -212,7 +212,7 @@ async fn package_versions_produce_equal_pins_in_independent_stores() {
     );
 }
 
-/// EG-TYPED-PACKS-R016: vary exactly one declared server field while keeping
+/// MEDULLA-TYPED-PACKS-R016: vary exactly one declared server field while keeping
 /// its component identity and package version fixed. Rebuild honest sections
 /// and archive digests, then exercise the served import and persisted pin.
 async fn assert_server_contract_change_revises_pin(field: &str, value: &str) {
@@ -262,7 +262,7 @@ async fn assert_server_contract_change_revises_pin(field: &str, value: &str) {
     );
 }
 
-// spec: EG-TYPED-PACKS-R050
+// spec: MEDULLA-TYPED-PACKS-R050
 #[tokio::test]
 async fn a_server_contract_version_change_revises_its_pin() {
     assert_server_contract_change_revises_pin("contract_version", "2").await;
@@ -283,7 +283,7 @@ fn reference_chain() -> Vec<Content> {
     let leaf = tool(CONNECTOR, "leaf", "Original leaf.");
     let middle = skill(CONNECTOR, "z-middle", &[&leaf]);
     let mut top = skill(CONNECTOR, "a-top", &[&middle]);
-    top.references[0].kind = eg_types::connector_pack::PackEntryKind::Skill;
+    top.references[0].kind = medulla_types::connector_pack::PackEntryKind::Skill;
     vec![leaf, middle, top]
 }
 
@@ -307,7 +307,7 @@ async fn pack_snapshot(served: &Served) -> PackSnapshot {
     store
         .connector_pack_members(
             TENANT,
-            &eg_types::contract::ResourceId::new(CONNECTOR).unwrap(),
+            &medulla_types::contract::ResourceId::new(CONNECTOR).unwrap(),
         )
         .unwrap()
         .into_iter()
@@ -330,8 +330,8 @@ async fn pack_snapshot(served: &Served) -> PackSnapshot {
 
 async fn assert_repeat_is_unchanged(
     served: &Served,
-    pack: &(eg_types::connector_pack::ConnectorPackIndex, Vec<u8>),
-    receipt: &eg_types::connector_pack::PackImportReceipt,
+    pack: &(medulla_types::connector_pack::ConnectorPackIndex, Vec<u8>),
+    receipt: &medulla_types::connector_pack::PackImportReceipt,
 ) {
     let before = pack_snapshot(served).await;
     match ok("Import", import(served, pack, Some(head_of(receipt))).await) {
@@ -369,7 +369,7 @@ async fn assert_chain_body_holders(served: &Served, entries: &[AgentComponentEnt
     }
 }
 
-// spec: EG-DECISION-ENGINE-R073.5
+// spec: MEDULLA-DECISION-ENGINE-R073.5
 #[tokio::test]
 async fn a_changed_leaf_revises_transitive_reference_pins_once() {
     let served = Served::new();
@@ -404,7 +404,7 @@ async fn a_changed_leaf_revises_transitive_reference_pins_once() {
     assert_repeat_is_unchanged(&served, &changed, &second).await;
 }
 
-// spec: EG-DECISION-ENGINE-R073.5
+// spec: MEDULLA-DECISION-ENGINE-R073.5
 #[tokio::test]
 async fn a_shared_descendant_diamond_revises_each_component_once() {
     let served = Served::new();
@@ -414,7 +414,7 @@ async fn a_shared_descendant_diamond_revises_each_component_once() {
     let right = skill(CONNECTOR, "right", &[&leaf]);
     let mut top = skill(CONNECTOR, "a-top", &[&left, &right]);
     for reference in &mut top.references {
-        reference.kind = eg_types::connector_pack::PackEntryKind::Skill;
+        reference.kind = medulla_types::connector_pack::PackEntryKind::Skill;
     }
     let mut entries = vec![leaf, left, right, top];
     let first = imported(&served, &build_pack(CONNECTOR, &entries), None).await;
@@ -458,7 +458,7 @@ async fn stale_chain_imported() -> (
     Served,
     Vec<Content>,
     Content,
-    eg_types::connector_pack::PackImportReceipt,
+    medulla_types::connector_pack::PackImportReceipt,
 ) {
     let served = Served::new();
     bind(&served, CONNECTOR, ADMIN).await;
@@ -534,7 +534,7 @@ async fn a_changed_pack_repairs_already_stale_server_and_reference_pins() {
 async fn four_tools_imported() -> (
     Served,
     Vec<Content>,
-    eg_types::connector_pack::PackImportReceipt,
+    medulla_types::connector_pack::PackImportReceipt,
 ) {
     let served = Served::new();
     bind(&served, CONNECTOR, ADMIN).await;
@@ -546,7 +546,7 @@ async fn four_tools_imported() -> (
     (served, tools, first)
 }
 
-// spec: EG-TYPED-PACKS-R014
+// spec: MEDULLA-TYPED-PACKS-R014
 #[tokio::test]
 async fn an_absent_entry_is_withdrawn_and_returns_under_the_same_id() {
     let (served, tools, first) = four_tools_imported().await;
@@ -596,7 +596,7 @@ async fn withdrawing_most_of_a_connector_needs_the_admin_override() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R042.2
+// spec: MEDULLA-TYPED-PACKS-R042.2
 /// Signed admission persists the G12 partition, including exact foreign text.
 #[tokio::test]
 async fn capability_annotations_remain_declared_after_import() {
@@ -648,12 +648,12 @@ async fn capability_annotations_remain_declared_after_import() {
     assert_eq!(entry.declared_required_capabilities, ["urn:vendor:execute"]);
 }
 
-/// EG-TYPED-PACKS-R019: only SKILL.md is imported as skill content. A
+/// MEDULLA-TYPED-PACKS-R019: only SKILL.md is imported as skill content. A
 /// supporting file may reference its skill without failing the import, but
 /// its bytes never enter the skill's stored body content: the skill component
 /// reads back exactly its SKILL.md, and the file's bytes live only under the
 /// file's own bounded component.
-// spec: EG-TYPED-PACKS-R019
+// spec: MEDULLA-TYPED-PACKS-R019
 #[tokio::test]
 async fn supporting_files_are_never_stored_as_skill_body_content() {
     let served = Served::new();
@@ -681,16 +681,16 @@ async fn supporting_files_are_never_stored_as_skill_body_content() {
     )
     .await;
     // The skill's stored body content is exactly its SKILL.md.
-    let skill_body: eg_types::agent_component::AgentComponentContentResult = ok(
+    let skill_body: medulla_types::agent_component::AgentComponentContentResult = ok(
         "skill content",
         served
             .call(
                 "content:content-model:skill:deploy",
                 crate::protocol::Method::AgentComponent {
-                    op: eg_types::agent_component::AgentComponentOp::Content {
-                        request: eg_types::agent_component::AgentComponentContentRequest {
+                    op: medulla_types::agent_component::AgentComponentOp::Content {
+                        request: medulla_types::agent_component::AgentComponentContentRequest {
                             tenant_id: TENANT.to_string(),
-                            component_id: eg_types::connector_pack::pack_component_id(
+                            component_id: medulla_types::connector_pack::pack_component_id(
                                 CONNECTOR,
                                 PackEntryKind::Skill,
                                 "deploy",
@@ -708,16 +708,16 @@ async fn supporting_files_are_never_stored_as_skill_body_content() {
     );
     // The supporting file's bytes are not stored as the skill's body content:
     // they exist only under the file's own bounded component.
-    let file_body: eg_types::agent_component::AgentComponentContentResult = ok(
+    let file_body: medulla_types::agent_component::AgentComponentContentResult = ok(
         "skill file content",
         served
             .call(
                 "content:content-model:skill-file:deploy",
                 crate::protocol::Method::AgentComponent {
-                    op: eg_types::agent_component::AgentComponentOp::Content {
-                        request: eg_types::agent_component::AgentComponentContentRequest {
+                    op: medulla_types::agent_component::AgentComponentOp::Content {
+                        request: medulla_types::agent_component::AgentComponentContentRequest {
                             tenant_id: TENANT.to_string(),
-                            component_id: eg_types::connector_pack::pack_component_id(
+                            component_id: medulla_types::connector_pack::pack_component_id(
                                 CONNECTOR,
                                 PackEntryKind::SkillFile,
                                 "deploy/scripts/run.sh",

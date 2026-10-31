@@ -320,7 +320,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'lmcache'", specifier = ">=0.28.1" },
     { name = "maturin", marker = "extra == 'test'", specifier = ">=1.15.0,<2.0" },
-    { name = "medulla-stem", marker = "extra == 'server'", directory = "packaging/epistemic-graph-server" },
+    { name = "medulla-stem", marker = "extra == 'server'", directory = "packaging/medulla-server" },
     { name = "msgpack", specifier = ">=1.2.3" },
     { name = "pydantic", specifier = ">=2.14.1,<3" },
     { name = "pyoxigraph", specifier = ">=0.5.11" },
@@ -337,7 +337,7 @@ provides-extras = ["all", "ast", "datascience", "finance", "full", "lake-parity"
 [[package]]
 name = "medulla-stem"
 version = "2.27.10"
-source = { directory = "packaging/epistemic-graph-server" }
+source = { directory = "packaging/medulla-server" }
 
 [[package]]
 name = "msgpack"

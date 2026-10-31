@@ -471,7 +471,7 @@ def _check_mutation_authority_inventory(
     mutation_apply = sources["mutation_apply"]
     durable_apply = sources["durable_apply"]
     # The facade's is_durable_mutation handles four DAG-forced families explicitly
-    # and delegates the base+broker set to eg_core::durable_apply::is_durable_mutation
+    # and delegates the base+broker set to medulla_core::durable_apply::is_durable_mutation
     # (see the "durable_apply" source comment above) — union both bodies' Method
     # sets to see the classifier's real, post-hoist coverage.
     live_classifier = (
@@ -484,7 +484,7 @@ def _check_mutation_authority_inventory(
                 _function(durable_apply, "is_durable_mutation"),
                 sources["method_families"],
             ),
-            "eg_core::durable_apply::is_durable_mutation",
+            "medulla_core::durable_apply::is_durable_mutation",
         )
         | _method_set(sources["writeback"], "Method::is_writeback_mutation")
     )
@@ -524,7 +524,7 @@ def _check_mutation_applier_inventory(
         _function(mutation_apply, "apply"), "mutation_apply::apply"
     ) | _method_set(
         _function_with_callees(durable_apply, "apply"),
-        "eg_core::durable_apply::apply",
+        "medulla_core::durable_apply::apply",
     )
     # This classifier is currently a direct `matches!` over Method variants.
     # Read that exact function rather than expecting a fictitious MethodFamily
@@ -550,7 +550,7 @@ def _check_mutation_applier_inventory(
         "CasWorkItemMetadata",
         "PublishCurrentPlan",
         "PublishRunCheckpoint",
-        # graph-os EG-2: native control-lease writes in the same WorkItem kernel.
+        # graph-os MEDULLA-2: native control-lease writes in the same WorkItem kernel.
         "IssueHostStartGrant",
         "IssueControlLease",
         "TransitionControlLease",
@@ -905,7 +905,7 @@ def _check_current_server_surface(sources: Mapping[str, str]) -> None:
         (sources["main"], sources["state"], sources["server"], sources["dispatch"])
     )
     for retired in (
-        "EPISTEMIC_GRAPH_DATASET_ADDR",
+        "MEDULLA_DATASET_ADDR",
         "dataset_addr",
         "DatasetHandleRegistry",
         "/dataset/export",
@@ -1115,7 +1115,7 @@ def _check_blob_result_contract(
     # those two table writes through local `insert_chunk_row`/`update_refcount`
     # helpers. They are no longer local, and that is the CORRECT direction under
     # RF-RULING-004: the CAS tables and the refcount arithmetic moved into the
-    # storage kernel's shared blob handle (`eg-storage`'s `owner/blob_shared.rs`),
+    # storage kernel's shared blob handle (`medulla-storage`'s `owner/blob_shared.rs`),
     # so there is one physical authority instead of a second one in the server.
     # The gate therefore asserts the same property across the seam it now spans:
     # the carrier binds the MutationBatch and does BOTH writes inside that one
@@ -1205,28 +1205,28 @@ def mutation_inventory_sources() -> dict[str, str]:
     dispatch = read_compiler_family("src/server/dispatch.rs")
     raft = read_compiler_family("src/raft/mod.rs")
     blob_store = read_compiler_family("src/server/blob/store.rs")
-    blob_shared = read_compiler_family("crates/eg-storage/src/owner/blob_shared.rs")
+    blob_shared = read_compiler_family("crates/medulla-storage/src/owner/blob_shared.rs")
 
     return {
         "cargo": read("Cargo.toml"),
         "capabilities": load_capability_sources(ROOT),
         "consistency": read_module_tree(
-            "crates/eg-capabilities/tests/consistency.rs", include_tests=True
+            "crates/medulla-capabilities/tests/consistency.rs", include_tests=True
         ),
         "mutation_apply": read_module_tree("src/mutation_apply.rs"),
         # Hoisted 2026-08-25 (3810eb00, "Hoist durable-mutation classify/apply +
-        # single-writer guard into eg-core"): the base graph-mutation set and the
+        # single-writer guard into medulla-core"): the base graph-mutation set and the
         # `broker` family moved out of src/mutation_apply.rs into
-        # eg_core::durable_apply. src/mutation_apply.rs now keeps only the four
+        # medulla_core::durable_apply. src/mutation_apply.rs now keeps only the four
         # DAG-forced families explicit and delegates everything else to this
         # module's `is_durable_mutation`/`apply` via its `_` arm — so the
         # classifier/applier inventory below must read BOTH sources and union
         # them, or it silently measures only the facade remainder (BUG-CX-112).
-        "durable_apply": read_module_tree("crates/eg-core/src/durable_apply.rs"),
+        "durable_apply": read_module_tree("crates/medulla-core/src/durable_apply.rs"),
         # The feature-gated triple / mining / graph-learning write-backs are
-        # classified in eg-types, under the same gates as their variants.
+        # classified in medulla-types, under the same gates as their variants.
         "writeback": read_module_tree(
-            "crates/eg-types/src/protocol/method/writeback.rs"
+            "crates/medulla-types/src/protocol/method/writeback.rs"
         ),
         "method_families": families_source(ROOT),
         "mutation_runtime": mutation_runtime.production,
@@ -1484,46 +1484,46 @@ def _check_m1_identity_contract(contract: str, row_delta_producer: str) -> None:
     _check_m1_serde_and_sentinel_hygiene(contract)
 
 
-# `crates/eg-mutation-store` is deleted. Its physical-authority half became
-# `eg-storage`'s `StorageKernel` (kernel.rs, capability.rs, codec.rs,
+# `crates/medulla-mutation-store` is deleted. Its physical-authority half became
+# `medulla-storage`'s `StorageKernel` (kernel.rs, capability.rs, codec.rs,
 # payload.rs, tables.rs, owner/*, physical/*, recovery/*); its ledger half
-# became `eg-transaction`'s `MutationKernel` (admission.rs, admitted.rs,
+# became `medulla-transaction`'s `MutationKernel` (admission.rs, admitted.rs,
 # commit.rs, kernel.rs, ledger.rs, read.rs, replay.rs, saga.rs, tables.rs).
-# `eg-storage::direct_state` and `eg-transaction::participant` are
-# deliberately excluded below: neither existed in eg-mutation-store
+# `medulla-storage::direct_state` and `medulla-transaction::participant` are
+# deliberately excluded below: neither existed in medulla-mutation-store
 # (`direct_state` is an unrelated new subsystem; `participant` was
 # transplanted whole from tree 92a64a06's separate consensus-transaction
 # intent codec, per commit b90e42a7's message), so folding either in would
 # double-count marker text this gate asserts appears exactly once (e.g.
-# `rmp_serde::to_vec_named`, which `eg-transaction/src/participant/
+# `rmp_serde::to_vec_named`, which `medulla-transaction/src/participant/
 # record_codec.rs` also happens to call).
 _STORAGE_KERNEL_MODULE_ROOTS: tuple[str, ...] = (
-    "crates/eg-storage/src/kernel.rs",
-    "crates/eg-storage/src/capability.rs",
-    "crates/eg-storage/src/codec.rs",
-    "crates/eg-storage/src/payload.rs",
-    "crates/eg-storage/src/tables.rs",
-    "crates/eg-storage/src/owner/mod.rs",
-    "crates/eg-storage/src/physical/mod.rs",
-    "crates/eg-storage/src/recovery/mod.rs",
+    "crates/medulla-storage/src/kernel.rs",
+    "crates/medulla-storage/src/capability.rs",
+    "crates/medulla-storage/src/codec.rs",
+    "crates/medulla-storage/src/payload.rs",
+    "crates/medulla-storage/src/tables.rs",
+    "crates/medulla-storage/src/owner/mod.rs",
+    "crates/medulla-storage/src/physical/mod.rs",
+    "crates/medulla-storage/src/recovery/mod.rs",
 )
 _TRANSACTION_KERNEL_MODULE_ROOTS: tuple[str, ...] = (
-    "crates/eg-transaction/src/admission.rs",
-    "crates/eg-transaction/src/admitted.rs",
-    "crates/eg-transaction/src/commit.rs",
-    "crates/eg-transaction/src/kernel.rs",
-    "crates/eg-transaction/src/ledger.rs",
-    "crates/eg-transaction/src/outbox/mod.rs",
-    "crates/eg-transaction/src/read.rs",
-    "crates/eg-transaction/src/replay.rs",
-    "crates/eg-transaction/src/saga.rs",
-    "crates/eg-transaction/src/tables.rs",
+    "crates/medulla-transaction/src/admission.rs",
+    "crates/medulla-transaction/src/admitted.rs",
+    "crates/medulla-transaction/src/commit.rs",
+    "crates/medulla-transaction/src/kernel.rs",
+    "crates/medulla-transaction/src/ledger.rs",
+    "crates/medulla-transaction/src/outbox/mod.rs",
+    "crates/medulla-transaction/src/read.rs",
+    "crates/medulla-transaction/src/replay.rs",
+    "crates/medulla-transaction/src/saga.rs",
+    "crates/medulla-transaction/src/tables.rs",
 )
-_TRANSACTION_TESTS_ROOT = "crates/eg-transaction/src/tests/mod.rs"
+_TRANSACTION_TESTS_ROOT = "crates/medulla-transaction/src/tests/mod.rs"
 
 
 def mutation_kernel_source(*, include_tests: bool = False) -> str:
-    """Current-only successor to `eg-mutation-store`'s single lib.rs-rooted
+    """Current-only successor to `medulla-mutation-store`'s single lib.rs-rooted
     module tree: the union of `StorageKernel`'s and `MutationKernel`'s
     module trees, in that order."""
 
@@ -1560,8 +1560,8 @@ def _check_m1_store_contract(native_store: str) -> None:
         "bindings",
     )
     # The current kernel split owns a single live table namespace: physical
-    # identity/owner tables in eg-storage and ledger/replay tables in
-    # eg-transaction.  The pre-split ``*_v1`` names were retired; looking for
+    # identity/owner tables in medulla-storage and ledger/replay tables in
+    # medulla-transaction.  The pre-split ``*_v1`` names were retired; looking for
     # them made this gate report a missing product table even though the
     # compiler-reachable definitions in tables.rs are the active contract.
     live_tables = (
@@ -1683,14 +1683,14 @@ _M1_SEMANTIC_MARKERS = (
 def _semantic_authority_sources() -> dict[str, str]:
     # Semantic bindings and activation are separate from the SQL table-store
     # authority. Reading the whole tables module tree would pull in SQL's
-    # intentional eg-storage/eg-transaction imports and misclassify them as a
+    # intentional medulla-storage/medulla-transaction imports and misclassify them as a
     # partial semantic migration.
     query = "\n".join(
         read(path)
         for path in (
-            "crates/eg-query/src/tables/embedding_binding.rs",
-            "crates/eg-query/src/tables/index.rs",
-            "crates/eg-query/src/tables/migration.rs",
+            "crates/medulla-query/src/tables/embedding_binding.rs",
+            "crates/medulla-query/src/tables/index.rs",
+            "crates/medulla-query/src/tables/migration.rs",
         )
     )
     server = read("src/server/semantic_activation.rs")
@@ -1720,7 +1720,7 @@ def _check_m1_semantic_inventory(
         # Semantic bindings and activation must not reach around the mutation
         # owner through a second storage or transaction authority.
         require(
-            "eg_storage" not in source and "eg_transaction" not in source,
+            "medulla_storage" not in source and "medulla_transaction" not in source,
             f"semantic authority bypasses the mutation owner: {owner}",
         )
 
@@ -1771,38 +1771,38 @@ def _check_m1_write_safety(
         "serialization",
     )
     # The old single-file KISS line caps were tied to the deleted
-    # eg-mutation-store layout.  Preserve the architectural invariant directly:
+    # medulla-mutation-store layout.  Preserve the architectural invariant directly:
     # admission, capability wrapping, commit, recovery validation, and reads
     # remain separate compiler-owned peers with explicit entry points.  This
     # catches a collapsed or orphaned module without making a line-count
     # threshold the contract.
     peer_modules = {
-        "crates/eg-transaction/src/kernel.rs": (
+        "crates/medulla-transaction/src/kernel.rs": (
             "pub struct MutationKernel",
             "pub fn admit<",
             "pub fn commit<",
         ),
-        "crates/eg-transaction/src/admission.rs": (
+        "crates/medulla-transaction/src/admission.rs": (
             "pub(crate) enum AdmissionState",
             "pub(crate) fn admit_apply_batch",
             "pub(crate) fn validate_commit_admission",
         ),
-        "crates/eg-transaction/src/admitted.rs": (
+        "crates/medulla-transaction/src/admitted.rs": (
             "pub struct AdmittedMutation",
             "PhysicalWriteCapability",
             "pub(crate) fn commit(self)",
         ),
-        "crates/eg-transaction/src/commit.rs": (
+        "crates/medulla-transaction/src/commit.rs": (
             "pub(crate) fn begin<",
             "pub(crate) fn commit<",
             "pub(crate) fn open_ledger_tables<",
         ),
-        "crates/eg-storage/src/recovery/validate.rs": (
+        "crates/medulla-storage/src/recovery/validate.rs": (
             "pub fn validate_recovery_store(",
             "pub(crate) fn validate_recovery_content(",
             "fn validate_scoped_table<",
         ),
-        "crates/eg-transaction/src/read.rs": (
+        "crates/medulla-transaction/src/read.rs": (
             "pub fn version<",
             "pub fn read_ledger<",
             "pub fn read_outbox<",
@@ -1813,8 +1813,8 @@ def _check_m1_write_safety(
             all(marker in read(path) for marker in markers)
             for path, markers in peer_modules.items()
         )
-        and "mod ledger;" in read("crates/eg-transaction/src/lib.rs")
-        and "mod recovery;" in read("crates/eg-storage/src/lib.rs"),
+        and "mod ledger;" in read("crates/medulla-transaction/src/lib.rs")
+        and "mod recovery;" in read("crates/medulla-storage/src/lib.rs"),
         "mutation apply/persistence lost direct peer-module ownership",
     )
     require(
@@ -1877,20 +1877,20 @@ def main() -> None:
     # crash before it can report a contract violation whenever the module is
     # decomposed (the compiler follows the same tree).  Keep this structural
     # source union in lock-step with the live Rust module tree.
-    contract = read_module_tree("crates/eg-types/src/mutation_batch.rs")
+    contract = read_module_tree("crates/medulla-types/src/mutation_batch.rs")
     contract_with_tests = read_module_tree(
-        "crates/eg-types/src/mutation_batch.rs", include_tests=True
+        "crates/medulla-types/src/mutation_batch.rs", include_tests=True
     )
     graph_store = read_module_tree("src/redb_store.rs")
     native_store = mutation_kernel_source()
     native_store_with_tests = mutation_kernel_source(include_tests=True)
-    sql_store = read_module_tree("crates/eg-query/src/tables/store.rs")
+    sql_store = read_module_tree("crates/medulla-query/src/tables/store.rs")
     reasoning = read("src/server/reasoning_projection.rs")
-    reasoning_index = read_module_tree("crates/eg-epistemic/src/incremental.rs")
+    reasoning_index = read_module_tree("crates/medulla-epistemic/src/incremental.rs")
     row_delta_producer = read_module_tree("src/graph_delta.rs")
     compiler = inventory_sources["mutation_batch"]
     mutation_runtime = read("src/server/mutation.rs")
-    protocol = read("crates/eg-types/src/protocol.rs")
+    protocol = read("crates/medulla-types/src/protocol.rs")
     check_m1_mutation_identity(
         contract,
         native_store,

@@ -9,13 +9,13 @@ import math
 
 import pytest
 
-from epistemic_graph.testing.synthetic.graph_corpus import (
+from medulla.testing.synthetic.graph_corpus import (
     EPISODE_TYPE,
     ONTOLOGY_NODE_IDS,
     QUERY_TEXT,
     QUERY_VECTOR,
 )
-from epistemic_graph.testing.synthetic.graph_corpus_generate import (
+from medulla.testing.synthetic.graph_corpus_generate import (
     generate_memory_corpus,
 )
 
@@ -159,7 +159,7 @@ def test_ontology_turtle_declares_the_episode_subclass_axiom(corpus) -> None:
 def test_strict_node_model_refuses_bad_input(corpus) -> None:
     from pydantic import ValidationError
 
-    from epistemic_graph.testing.synthetic.graph_corpus import CorpusNode
+    from medulla.testing.synthetic.graph_corpus import CorpusNode
 
     dumped = corpus.nodes[0].model_dump()
     with pytest.raises(ValidationError):

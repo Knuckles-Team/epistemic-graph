@@ -5,12 +5,12 @@
 //! replay by its own work budget); every op answers its declared result or a
 //! typed refusal rendered `"CODE: detail"`.
 
-use eg_compute::finance::market::{
+use medulla_compute::finance::market::{
     backtest_run, codec, confidence, decimate, indicators, liquidity, rollup, scan, signal,
     snapshot, FinanceMarketOp, MarketResult,
 };
-use eg_types::result_contract::compute as results;
-use eg_types::result_contract::MethodResult;
+use medulla_types::result_contract::compute as results;
+use medulla_types::result_contract::MethodResult;
 
 use crate::protocol::{Method, Response, ResultPayload};
 

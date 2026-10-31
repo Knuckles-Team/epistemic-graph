@@ -1,4 +1,4 @@
-//! Write-coalescer `__commons__` contention reproduction (CONCEPT:EG-KG.txn.write-path-benchmarks).
+//! Write-coalescer `__commons__` contention reproduction (CONCEPT:MEDULLA-KG.txn.write-path-benchmarks).
 //!
 //! This is the standing micro-reproduction of the live H1 contention: under the
 //! `__commons__` ingestion firehose a read (semantic_search) goes 0.02s idle → 14s,
@@ -18,8 +18,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use epistemic_graph::graph::GraphCore;
-use epistemic_graph::write_coalescer::{fan_in_add_nodes, CoalescerConfig, GraphWriter};
+use medulla::graph::GraphCore;
+use medulla::write_coalescer::{fan_in_add_nodes, CoalescerConfig, GraphWriter};
 use tokio::runtime::Builder;
 
 const GRAPH: &str = "__commons__";

@@ -73,20 +73,20 @@ use super::compute::compute_off_lock;
 use super::sql_catalog_acl::{open_authorized_table, SemanticTextSnapshot, SqlPrivilege};
 #[cfg(feature = "query")]
 use crate::protocol::Response;
-use eg_core::compute::semantic_index_service::SemanticIndexService;
+use medulla_core::compute::semantic_index_service::SemanticIndexService;
 #[cfg(feature = "query")]
-use eg_core::compute::semantic_index_service::{
+use medulla_core::compute::semantic_index_service::{
     sql_source_deletion_proof, sql_source_revision_for_epoch, SemanticSqlSourceReadPage,
     SemanticSqlSourceReadPort, SemanticSqlSourceRecord, SemanticSqlSourceValue,
 };
-use eg_transaction::{OutboxClaimBudget, OutboxClaimOutcome};
+use medulla_transaction::{OutboxClaimBudget, OutboxClaimOutcome};
 #[cfg(feature = "query")]
-use eg_types::mutation_batch::{MutationOutboxLease, MutationOutboxRecord};
-use eg_types::semantic_index::{
+use medulla_types::mutation_batch::{MutationOutboxLease, MutationOutboxRecord};
+use medulla_types::semantic_index::{
     SemanticBinding, SemanticIndexCommand, SemanticIndexError, SemanticIndexRequest,
 };
 #[cfg(feature = "query")]
-use eg_types::semantic_index::{
+use medulla_types::semantic_index::{
     SemanticDigest, SemanticSourceDirtyIntent, SemanticSqlSourceIdentity,
     SemanticSqlSourceManifest, SemanticStage, SemanticStageIntent, SemanticStageTransition,
 };
@@ -147,16 +147,16 @@ struct TenantScopedSemanticVerifier {
     proof: [u8; 32],
 }
 
-impl eg_storage::ScopeGrantVerifier for TenantScopedSemanticVerifier {
+impl medulla_storage::ScopeGrantVerifier for TenantScopedSemanticVerifier {
     fn verify(
         &self,
-        _physical: &eg_storage::PhysicalStoreIdentity,
-        layout: eg_storage::OwnerLayout,
-        identity: &eg_types::MutationScopeIdentity,
+        _physical: &medulla_storage::PhysicalStoreIdentity,
+        layout: medulla_storage::OwnerLayout,
+        identity: &medulla_types::MutationScopeIdentity,
         _principal: &str,
         proof: &[u8],
     ) -> Result<(), String> {
-        if layout != eg_storage::OwnerLayout::SemanticIndex
+        if layout != medulla_storage::OwnerLayout::SemanticIndex
             || identity.tenant().as_str() != self.tenant
             || proof != self.proof
         {
@@ -171,7 +171,7 @@ impl eg_storage::ScopeGrantVerifier for TenantScopedSemanticVerifier {
 fn semantic_scope_verifier(
     tenant: &str,
     proof: [u8; 32],
-) -> Arc<dyn eg_storage::ScopeGrantVerifier> {
+) -> Arc<dyn medulla_storage::ScopeGrantVerifier> {
     Arc::new(TenantScopedSemanticVerifier {
         tenant: tenant.to_string(),
         proof,
@@ -188,8 +188,8 @@ fn semantic_server_secrets() -> &'static ([u8; 32], [u8; 32]) {
     static SECRETS: std::sync::OnceLock<([u8; 32], [u8; 32])> = std::sync::OnceLock::new();
     SECRETS.get_or_init(|| {
         (
-            *eg_types::contract::Nonce::minted().as_bytes(),
-            *eg_types::contract::Nonce::minted().as_bytes(),
+            *medulla_types::contract::Nonce::minted().as_bytes(),
+            *medulla_types::contract::Nonce::minted().as_bytes(),
         )
     })
 }
@@ -326,7 +326,7 @@ fn tenant_semantic_owner_file(persist_dir: &std::path::Path, tenant: &str) -> st
     persist_dir
         .join("semantic-index")
         .join(sanitize_owner_segment(tenant))
-        .join(eg_core::compute::semantic_ann_codes::tenant_owner_file_name(tenant))
+        .join(medulla_core::compute::semantic_ann_codes::tenant_owner_file_name(tenant))
 }
 
 /// Durable authority fence. Once promotion starts, loss of the v3 owner name
@@ -525,7 +525,7 @@ impl SemanticSqlSourceReadPort for AuthorizedSqlSourceReadPort {
 #[cfg(feature = "query")]
 fn map_semantic_text_snapshot_with_decision(
     binding: &SemanticBinding,
-    selector: &eg_types::semantic_index::SqlColumnRef,
+    selector: &medulla_types::semantic_index::SqlColumnRef,
     snapshot: SemanticTextSnapshot,
 ) -> Result<AuthorizedSqlSourcePage, SemanticIndexError> {
     if snapshot.tenant_scope != binding.tenant_id
@@ -775,8 +775,8 @@ mod dispatch_pipeline_tests;
 #[cfg(test)]
 #[test]
 fn semantic_owner_registry_is_scoped_to_persistence_root() {
-    let first_root = crate::test_support::temp_dir("eg-semantic-registry", "first");
-    let second_root = crate::test_support::temp_dir("eg-semantic-registry", "second");
+    let first_root = crate::test_support::temp_dir("medulla-semantic-registry", "first");
+    let second_root = crate::test_support::temp_dir("medulla-semantic-registry", "second");
     let tenant = "tenant-registry-isolation";
     let binding = "binding:registry-isolation";
     let first = open_semantic_service(&first_root, tenant, binding).unwrap();

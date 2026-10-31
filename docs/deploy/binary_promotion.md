@@ -1,7 +1,7 @@
 # Engine binary promotion
 
 Use the deployment-neutral atomic promotion interface for a served
-`epistemic-graph-server`.
+`medulla-server`.
 Deployment paths, manager identities, service names, credentials, and trust
 material come from runtime deployment configuration; do not commit them to the
 repository or an operational report.

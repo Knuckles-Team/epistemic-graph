@@ -1,12 +1,12 @@
 use super::*;
 
 use super::terminal::GraphOpsContext;
-use eg_compute::graph_algos::QualityFunction;
-use eg_types::protocol::CommunityQualityFunction;
-use eg_types::result_contract::compute as results;
+use medulla_compute::graph_algos::QualityFunction;
+use medulla_types::protocol::CommunityQualityFunction;
+use medulla_types::result_contract::compute as results;
 
-/// EH-314: wire (`eg_types::protocol::CommunityQualityFunction`) → kernel
-/// (`eg_compute::graph_algos::QualityFunction`) — the same split
+/// EH-314: wire (`medulla_types::protocol::CommunityQualityFunction`) → kernel
+/// (`medulla_compute::graph_algos::QualityFunction`) — the same split
 /// `mining/insight.rs::to_community_algo` already uses for `MineCommunity`'s
 /// `CommunityAlgorithm`, kept as an exhaustive `match` (not a `From` impl)
 /// so a future third quality function fails to compile here rather than
@@ -21,7 +21,7 @@ fn to_quality_function(quality: CommunityQualityFunction) -> QualityFunction {
 /// A graph-algorithm refusal names the caller's input (an unknown node id, a
 /// cyclic graph); keep any code the inner error already carries.
 fn invalid_argument(error: &str) -> String {
-    eg_types::contract::classify_refusal("INVALID_ARGUMENT", "", error)
+    medulla_types::contract::classify_refusal("INVALID_ARGUMENT", "", error)
 }
 
 /// `InDegree`: pure extract-method from `try_handle`'s match arm, byte-identical
@@ -110,7 +110,7 @@ fn handle_get_neighbors_batch(
     let out = g.get_neighbors_batch(node_ids);
     Response::ok(
         req_id,
-        ResultPayload::of_ref::<eg_types::result_contract::graph::GetNeighborsBatch>(&out),
+        ResultPayload::of_ref::<medulla_types::result_contract::graph::GetNeighborsBatch>(&out),
     )
 }
 
@@ -320,7 +320,7 @@ async fn handle_metrics(req_id: u64, core: &Arc<GraphCore>, raw_ledger_len: u64)
     };
     Response::ok(
         req_id,
-        ResultPayload::of::<eg_types::result_contract::graph::Metrics>(m),
+        ResultPayload::of::<medulla_types::result_contract::graph::Metrics>(m),
     )
 }
 
@@ -406,7 +406,7 @@ pub(super) async fn try_handle_graph_algorithms(
         }
         Method::MinimumSpanningTree => handle_minimum_spanning_tree(req_id, core).await,
         Method::Metrics => handle_metrics(req_id, core, raw_ledger_len).await,
-        // EvictLRU/DecaySweep/TouchNodes/FromMsgpack/Reconcile (CONCEPT:EG-P0-2
+        // EvictLRU/DecaySweep/TouchNodes/FromMsgpack/Reconcile (CONCEPT:MEDULLA-P0-2
         // bypass guard, L11): GATEWAY_ROUTED — see the AddNode/RemoveNode
         // comment above. `ToMsgpack` is a pure read and keeps its normal arm.
         other => return ControlFlow::Continue(other),
@@ -508,7 +508,7 @@ pub(super) async fn try_handle_community_algorithms(
         } => {
             handle_resolve_candidates(req_id, core, sim_threshold, merge_threshold, node_type).await
         }
-        // ── VIZ-1: hierarchical cluster-tree RPCs (CONCEPT:EG-KG.compute.leiden-hierarchy) ──
+        // ── VIZ-1: hierarchical cluster-tree RPCs (CONCEPT:MEDULLA-KG.compute.leiden-hierarchy) ──
         // Same off-lock discipline as CommunityDetection/ResolveCandidates above —
         // `analysis_snapshot` under the topo READ lock, the actual clustering runs
         // on the blocking pool. See `Method::ClusterHierarchyRefresh`'s doc for why

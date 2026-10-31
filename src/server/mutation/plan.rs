@@ -1,6 +1,6 @@
 use crate::isolation::IsolationLayer;
 use crate::protocol::{GraphType, Method};
-use eg_capabilities::DurabilityDomain;
+use medulla_capabilities::DurabilityDomain;
 
 /// The pre-authz identity/placement context a gateway call needs, captured by the
 /// caller (`dispatch_graph_op`) from the graph registry BEFORE its read lock is
@@ -11,9 +11,9 @@ use eg_capabilities::DurabilityDomain;
 pub type GatewayAuthzCtx = (IsolationLayer, GraphType, Option<String>);
 
 /// The declared capability profile of one mutation, POPULATED FROM
-/// `eg_capabilities::policy` -- never re-hardcoded here (CONCEPT:EG-P0-2's central
+/// `medulla_capabilities::policy` -- never re-hardcoded here (CONCEPT:MEDULLA-P0-2's central
 /// requirement: this crate is a consumer of that table, not a second source of
-/// truth). See `eg-capabilities`' own docs for the meaning of each field.
+/// truth). See `medulla-capabilities`' own docs for the meaning of each field.
 #[derive(Debug, Clone)]
 pub struct MutationPlan {
     /// The `Method` variant's name (for logging/tests only — never used to
@@ -25,16 +25,16 @@ pub struct MutationPlan {
     pub idempotent: bool,
     pub audited: bool,
     pub emits_cdc: bool,
-    pub txn_participation: eg_capabilities::TxnParticipation,
+    pub txn_participation: medulla_capabilities::TxnParticipation,
 }
 
 impl MutationPlan {
-    /// Build the plan for `method` straight from `eg_capabilities::policy` — the
+    /// Build the plan for `method` straight from `medulla_capabilities::policy` — the
     /// ONE source of truth. Never inspects `method`'s payload beyond what
     /// `policy()` itself does (i.e. this never hardcodes a per-variant judgment
     /// call that duplicates/diverges from the ledger).
     pub fn for_method(method: &Method) -> Self {
-        let p = eg_capabilities::policy(method);
+        let p = medulla_capabilities::policy(method);
         MutationPlan {
             method_name: method_variant_name(method),
             mutates: p.mutates,
@@ -48,10 +48,10 @@ impl MutationPlan {
     }
 }
 
-/// The methods currently routed through [`commit_mutation`] (CONCEPT:EG-P0-2). Kept
+/// The methods currently routed through [`commit_mutation`] (CONCEPT:MEDULLA-P0-2). Kept
 /// as a public, testable allowlist so the migration surface is machine-visible: see
 /// `tests::gateway_routed_set_matches_mutating_policy_surface` for the computed
-/// complement (every other mutating method, per `eg_capabilities::method_policy_entries()`),
+/// complement (every other mutating method, per `medulla_capabilities::method_policy_entries()`),
 /// which is owned by an explicit engine-native consensus coordinator.
 pub const GATEWAY_ROUTED: &[&str] = &[
     "AddNode",
@@ -62,7 +62,7 @@ pub const GATEWAY_ROUTED: &[&str] = &[
     "CreateSummaryNode",
     "Consolidate",
     "Reinforce",
-    // ── L11 rollout batch 2 (EG-P0-2 continued): graph-core family — same shape
+    // ── L11 rollout batch 2 (MEDULLA-P0-2 continued): graph-core family — same shape
     // as the original 7 (single durable/derivable `GraphCore` mutation), all
     // handled in `graph_ops.rs` already. ──
     "CompareAndSetNodeFields",
@@ -150,7 +150,7 @@ pub const GATEWAY_ROUTED: &[&str] = &[
     "MineOntologyGap",
     "MineRetrievalQuality",
     "MineCommunity",
-    // ── ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): RUNTIME-CONDITIONAL writes —
+    // ── ML pipeline (CONCEPT:MEDULLA-KG.mining.ml-pipeline): RUNTIME-CONDITIONAL writes —
     // Train/Predict mutate only when their `writeback` is true; Serve ALWAYS writes the
     // `:ServedModel` pointer. Same `commit_conditional_mutation` shape, behind
     // `feature = "ml-pipeline"`. Evaluate/Compare are read-only (not routed). ──
@@ -618,7 +618,7 @@ pub const CONSENSUS_FANOUT_METHODS: &[&str] = &["MultiGraphBatchUpdate", "ApplyC
 /// `crate::server::mutation::tests::clustered_mutation_inventory_is_complete`
 /// keeps this list, `GATEWAY_ROUTED`, `crate::raft::NATIVE_CONSENSUS_METHODS`,
 /// and `CONSENSUS_FANOUT_METHODS` an exhaustive, non-overlapping partition of
-/// every mutating method in `eg_capabilities::method_policy_entries()` — a Method added to
+/// every mutating method in `medulla_capabilities::method_policy_entries()` — a Method added to
 /// the protocol without being placed in exactly one of these buckets fails that
 /// test, not a silent `CLUSTER_MUTATION_UNAVAILABLE` at request time.
 pub const SELF_ROUTED_ADMIN_METHODS: &[&str] = &["RaftAddLearner", "RaftChangeMembership"];
@@ -723,7 +723,7 @@ pub(super) fn consensus_apply_is_authorized() -> bool {
 }
 
 pub fn cluster_mutation_route(method: &Method) -> ClusterMutationRoute {
-    if !eg_capabilities::policy(method).mutates {
+    if !medulla_capabilities::policy(method).mutates {
         return ClusterMutationRoute::ReadOnly;
     }
     if let Some(route) = local_only_route(method).or_else(|| cluster_mutation_route_admin(method)) {
@@ -806,7 +806,7 @@ fn cluster_mutation_route_admin(method: &Method) -> Option<ClusterMutationRoute>
         );
         return Some(ClusterMutationRoute::SelfRoutedAdmin);
     }
-    // `PlacementAdmin` (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc, DIST-P2-5) is durable, but
+    // `PlacementAdmin` (CONCEPT:MEDULLA-KG.sharding.placement-catalog-admin-rpc, DIST-P2-5) is durable, but
     // NOT via this generic layer: `MultiRaft::placement_assign`/`TenantManager::
     // move_partition`/`abort_move` each commit through their OWN raft round-trip
     // (`commit_placement` -> the DEFAULT group's `client_write`) BEFORE this
@@ -822,7 +822,7 @@ fn cluster_mutation_route_admin(method: &Method) -> Option<ClusterMutationRoute>
     if matches!(method, Method::PlacementAdmin { .. }) {
         return Some(ClusterMutationRoute::VolatileControl);
     }
-    // `RegisterServer` (CONCEPT:EG-KG.sharding.server-registry, W2.5) never itself reaches
+    // `RegisterServer` (CONCEPT:MEDULLA-KG.sharding.server-registry, W2.5) never itself reaches
     // this classifier at runtime: `dispatch.rs`'s `handle_register_server` intercepts it
     // BEFORE the mutation gateway, validates it, and self-translates into a
     // `Method::AddNode` against `__commons__` dispatched through the ordinary

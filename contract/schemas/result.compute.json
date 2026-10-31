@@ -103,7 +103,7 @@
       ]
     },
     "AmlAlertResult": {
-      "description": "One raised AML alert (EG-FINANCE-PRIMITIVES-R901.3).",
+      "description": "One raised AML alert (MEDULLA-FINANCE-PRIMITIVES-R901.3).",
       "properties": {
         "amount_minor": {
           "format": "int64",
@@ -766,7 +766,7 @@
       "type": "string"
     },
     "CapitalRatiosResult": {
-      "description": "Basel-style capital ratios and their minimum checks (EG-FINANCE-PRIMITIVES-R901.3).",
+      "description": "Basel-style capital ratios and their minimum checks (MEDULLA-FINANCE-PRIMITIVES-R901.3).",
       "properties": {
         "cet1_meets_minimum": {
           "type": "boolean"
@@ -1809,7 +1809,7 @@
       ]
     },
     "DistributionShift": {
-      "description": "Two-sample distribution-shift verdict (EG-FINANCE-PRIMITIVES-R900.3).",
+      "description": "Two-sample distribution-shift verdict (MEDULLA-FINANCE-PRIMITIVES-R900.3).",
       "properties": {
         "p_value": {
           "format": "double",
@@ -2093,7 +2093,7 @@
       "type": "object"
     },
     "FactorRecordResult": {
-      "description": "One ranked factor with the provenance of its inputs (EG-FINANCE-PRIMITIVES-R018.3).",
+      "description": "One ranked factor with the provenance of its inputs (MEDULLA-FINANCE-PRIMITIVES-R018.3).",
       "properties": {
         "factor_id": {
           "type": "string"
@@ -2169,7 +2169,7 @@
       ]
     },
     "FittedClassifier": {
-      "description": "Serializable fitted classifier returned by `mining::classify::fit` and consumed\nback by `mining::classify::predict` (the PREDICTIVE fit→blob→predict pair). Lives\nin eg-types so `Method::MineClassifyPredict` can embed the model over the wire —\nexactly like `FittedModel` carries the datascience regressors. `classes` is the\nsorted set of integer labels; every score/proba vector is column-ordered by it.",
+      "description": "Serializable fitted classifier returned by `mining::classify::fit` and consumed\nback by `mining::classify::predict` (the PREDICTIVE fit→blob→predict pair). Lives\nin medulla-types so `Method::MineClassifyPredict` can embed the model over the wire —\nexactly like `FittedModel` carries the datascience regressors. `classes` is the\nsorted set of integer labels; every score/proba vector is column-ordered by it.",
       "oneOf": [
         {
           "description": "Gaussian Naive Bayes — per-class prior + per-feature (mean, variance).",
@@ -4249,7 +4249,7 @@
       "type": "object"
     },
     "OntologyMatch": {
-      "description": "One capability term found in a query by the ontology lexical gate\n(CONCEPT:EG-ORCH.routing.lexical-capability-escalation). `term` is the matched alias/name, `node_type` its capability\nclass (Tool/Skill/MCPServer/…), `label` the owning node's display name,\n`mcp_server` the owning fleet server (so a caller can bind that server's\ntoolset directly), and `score` the matched term's character length.",
+      "description": "One capability term found in a query by the ontology lexical gate\n(CONCEPT:MEDULLA-ORCH.routing.lexical-capability-escalation). `term` is the matched alias/name, `node_type` its capability\nclass (Tool/Skill/MCPServer/…), `label` the owning node's display name,\n`mcp_server` the owning fleet server (so a caller can bind that server's\ntoolset directly), and `score` the matched term's character length.",
       "properties": {
         "label": {
           "type": "string"
@@ -5120,7 +5120,7 @@
       "type": "object"
     },
     "RegimeChainResult": {
-      "description": "A fitted three-state regime chain and its forecast (EG-FINANCE-PRIMITIVES-R613.3).",
+      "description": "A fitted three-state regime chain and its forecast (MEDULLA-FINANCE-PRIMITIVES-R613.3).",
       "properties": {
         "current_state": {
           "format": "uint",
@@ -5836,7 +5836,7 @@
     },
     "SeriesPoint": {
       "additionalProperties": false,
-      "description": "One time-series store point exactly as `TsAppend`/`TsRange` carry it: the\nbar's `open_time` and its fields in `eg_compute::finance::market::codec`'s\nfixed layout.",
+      "description": "One time-series store point exactly as `TsAppend`/`TsRange` carry it: the\nbar's `open_time` and its fields in `medulla_compute::finance::market::codec`'s\nfixed layout.",
       "properties": {
         "ts": {
           "format": "int64",

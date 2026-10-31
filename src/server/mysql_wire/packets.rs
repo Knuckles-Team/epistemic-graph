@@ -1,4 +1,4 @@
-//! Hand-rolled MySQL client/server protocol framing + packet codecs (CONCEPT:EG-KG.query.kg-2).
+//! Hand-rolled MySQL client/server protocol framing + packet codecs (CONCEPT:MEDULLA-KG.query.kg-2).
 //!
 //! This is the wire-SPECIFIC half of the MySQL adapter: the length-prefixed packet
 //! framing, the length-encoded integer/string primitives, the handshake v10 +
@@ -11,7 +11,7 @@
 //! The async read/write of a framed packet lives in `mod.rs` (over `tokio::io`); this
 //! module builds/parses the PAYLOADS.
 
-use eg_query::PgColType;
+use medulla_query::PgColType;
 
 // ── capability flags (the subset this server negotiates) ──────────────────────
 pub const CLIENT_LONG_PASSWORD: u32 = 0x0000_0001;
@@ -163,7 +163,7 @@ fn scalar_text(cell: &serde_json::Value) -> String {
 
 // ── packet builders (server → client) ─────────────────────────────────────────
 
-/// Build a Handshake v10 packet payload (CONCEPT:EG-KG.query.kg-2). Advertises the negotiated
+/// Build a Handshake v10 packet payload (CONCEPT:MEDULLA-KG.query.kg-2). Advertises the negotiated
 /// server capabilities, the utf8mb4 collation, a 20-byte `seed` (split 8 + 12 + NUL as
 /// the protocol requires), and the `mysql_native_password` auth plugin name.
 pub fn build_handshake(
@@ -304,7 +304,7 @@ pub struct HandshakeResponse {
     pub auth_plugin: Option<String>,
 }
 
-/// Parse a Handshake-Response-41 payload (CONCEPT:EG-KG.query.kg-2). Returns `None` on a
+/// Parse a Handshake-Response-41 payload (CONCEPT:MEDULLA-KG.query.kg-2). Returns `None` on a
 /// truncated / pre-4.1 packet (the server then rejects the connection cleanly).
 pub fn parse_handshake_response(buf: &[u8]) -> Option<HandshakeResponse> {
     let mut pos = 0usize;
@@ -513,7 +513,7 @@ mod tests {
             | CLIENT_PLUGIN_AUTH
             | CLIENT_CONNECT_WITH_DB
             | CLIENT_DEPRECATE_EOF;
-        let hs = build_handshake(7, &seed, caps, "8.0.0-epistemic-graph");
+        let hs = build_handshake(7, &seed, caps, "8.0.0-medulla");
         assert_eq!(hs[0], 10, "protocol version 10");
 
         let scramble: Vec<u8> = (0u8..20).collect();

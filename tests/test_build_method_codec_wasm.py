@@ -46,7 +46,7 @@ def test_build_uses_only_cargo_and_returns_the_verified_rust_module(
     assert len(calls) == 1
     command, cwd, env, check = calls[0]
     assert command[:2] == ["cargo", "build"]
-    assert "--locked" in command and "eg-method-codec" in command
+    assert "--locked" in command and "medulla-method-codec" in command
     assert cwd == tmp_path and check is True
     assert env["CARGO_TARGET_DIR"] == str(target)
     assert env["CARGO_ENCODED_RUSTFLAGS"] == "flags"
@@ -245,7 +245,7 @@ def export_repo(codec, codec_repo, monkeypatch):
     return root, root / "target" / "canonical-method-codec", output
 
 
-@pytest.mark.spec("EG-CONTRACT-R006.1")
+@pytest.mark.spec("MEDULLA-CONTRACT-R006.1")
 def test_export_precedes_failing_freshness_check(codec, export_repo, monkeypatch):
     import json
 
@@ -273,7 +273,7 @@ def test_export_precedes_failing_freshness_check(codec, export_repo, monkeypatch
         assert (root / client / codec.MODULE).read_bytes() == WASM
 
 
-@pytest.mark.spec("EG-CONTRACT-R006.1")
+@pytest.mark.spec("MEDULLA-CONTRACT-R006.1")
 def test_failed_build_never_exports_cached_module(codec, export_repo, monkeypatch):
     root, directory, output = export_repo
     directory.mkdir(parents=True)
@@ -294,7 +294,7 @@ def test_failed_build_never_exports_cached_module(codec, export_repo, monkeypatc
     assert cached.read_bytes() == WASM
 
 
-@pytest.mark.spec("EG-CONTRACT-R006.1")
+@pytest.mark.spec("MEDULLA-CONTRACT-R006.1")
 def test_export_success_preserves_passing_check(codec, export_repo, monkeypatch):
     _, directory, output = export_repo
     monkeypatch.setattr(codec, "build", lambda *_args: WASM)
@@ -302,7 +302,7 @@ def test_export_success_preserves_passing_check(codec, export_repo, monkeypatch)
     assert output.read_text() == "fresh_export=true\n"
 
 
-@pytest.mark.spec("EG-CONTRACT-R006.1")
+@pytest.mark.spec("MEDULLA-CONTRACT-R006.1")
 def test_invalid_fresh_module_has_no_export_signal(codec, export_repo, monkeypatch):
     _, directory, output = export_repo
     monkeypatch.setattr(codec, "build", lambda *_args: b"invalid")
@@ -312,7 +312,7 @@ def test_invalid_fresh_module_has_no_export_signal(codec, export_repo, monkeypat
     assert not (directory / codec.PROVENANCE).exists()
 
 
-@pytest.mark.spec("EG-CONTRACT-R006.1")
+@pytest.mark.spec("MEDULLA-CONTRACT-R006.1")
 def test_failed_provenance_has_no_export_signal(codec, export_repo, monkeypatch):
     _, directory, output = export_repo
     monkeypatch.setattr(codec, "build", lambda *_args: WASM)
@@ -327,7 +327,7 @@ def test_failed_provenance_has_no_export_signal(codec, export_repo, monkeypatch)
     assert not (directory / codec.PROVENANCE).exists()
 
 
-@pytest.mark.spec("EG-CONTRACT-R006.1")
+@pytest.mark.spec("MEDULLA-CONTRACT-R006.1")
 def test_ci_upload_requires_fresh_step_signal_and_keeps_check():
     import yaml
 
@@ -341,7 +341,7 @@ def test_ci_upload_requires_fresh_step_signal_and_keeps_check():
     assert "steps.method-codec.outputs.fresh_export == 'true'" in upload["if"]
     assert (
         "hashFiles('target/canonical-method-codec/"
-        "eg_method_codec.provenance.json') != ''" in upload["if"]
+        "medulla_method_codec.provenance.json') != ''" in upload["if"]
     )
     assert (
         upload["uses"]

@@ -1,4 +1,4 @@
-//! EG-ORCH-VOCAB-R801/R802 — engine-side admission of the harness
+//! MEDULLA-ORCH-VOCAB-R801/R802 — engine-side admission of the harness
 //! vocabulary's five record kinds — component versions (R801), lessons,
 //! adoptions, contrasts and probe runs (R802) — on BOTH write paths.
 //!
@@ -6,7 +6,7 @@
 //! write before commit.
 //!
 //! * The direct `AddNode` path (the graph-ops gateway) may mutate: the engine
-//!   stamps the transaction time (`tx_from`, EG-DURABLE-KERNEL-R078/R081) and
+//!   stamps the transaction time (`tx_from`, MEDULLA-DURABLE-KERNEL-R078/R081) and
 //!   fills the `supersedes_id` pointer when the writer left it absent (versions
 //!   and lessons). The mutation happens before the durable commit and before
 //!   the apply closure clones the method, so durable and serving state cannot
@@ -14,7 +14,7 @@
 //! * The `ChangeEnvelope` path is byte-stable for replay (the replay check
 //!   compares reserialized bytes) and its digest covers the operations, so the
 //!   engine only VERIFIES: the generated client stamps `tx_from` itself
-//!   (EG-DURABLE-KERNEL-R081) and composes the real supersession edge and the
+//!   (MEDULLA-DURABLE-KERNEL-R081) and composes the real supersession edge and the
 //!   head-window-close ops, naming the superseded record in `supersedes_id`.
 //!   A supersession that leaves the pointer absent while a current record
 //!   exists is refused, because such a record would supersede nothing.
@@ -41,20 +41,20 @@ use std::collections::BTreeMap;
 
 use crate::graph::GraphCore;
 use crate::protocol::Method;
-use eg_types::change_envelope::ChangeEnvelope;
-use eg_types::orchestration::improvement::{
+use medulla_types::change_envelope::ChangeEnvelope;
+use medulla_types::orchestration::improvement::{
     decode_adopted_harness_write, decode_harness_contrast_write, decode_harness_probe_run_write,
     decode_lesson_write, is_adopted_harness_write, is_harness_contrast_write,
     is_harness_lesson_write, is_harness_probe_run_write, ImprovementLibraryRefusal,
 };
-use eg_types::orchestration::{
+use medulla_types::orchestration::{
     decode_component_write, is_harness_component_write, HarnessComponentRefusal,
 };
 
 type Props = serde_json::Map<String, serde_json::Value>;
 
 fn decode_props(blob: &[u8]) -> Props {
-    eg_types::msgpack::decode_property_object(blob).unwrap_or_default()
+    medulla_types::msgpack::decode_property_object(blob).unwrap_or_default()
 }
 
 fn refuse_component(refusal: HarnessComponentRefusal, detail: String) -> String {
@@ -77,7 +77,7 @@ fn tx_stamp(props: &Props) -> Option<u64> {
 /// The three fields the component-version head-scan reads off every
 /// candidate — nothing else. Decoding them off the raw msgpack blob (instead
 /// of the full property map) keeps the 1k-version chain scan at a fraction
-/// of a millisecond (EG-ORCH-VOCAB-R801.6 budget). Unknown fields are
+/// of a millisecond (MEDULLA-ORCH-VOCAB-R801.6 budget). Unknown fields are
 /// skipped; every engine-admitted node decodes fully, so a probe that decodes
 /// is a real record.
 #[derive(serde::Deserialize, Default)]
@@ -198,7 +198,7 @@ impl<'a> HarnessView<'a> {
     fn probe_run(
         &self,
         trace_id: &str,
-    ) -> Option<eg_types::orchestration::improvement::HarnessProbeRun> {
+    ) -> Option<medulla_types::orchestration::improvement::HarnessProbeRun> {
         let node_id = format!("harness-probe-run:{trace_id}");
         self.props(&node_id)
             .and_then(|props| decode_harness_probe_run_write(&props).ok())
@@ -701,7 +701,7 @@ fn harness_add_node_admission(
 }
 
 /// The stamped, re-encoded blob of one admitted `Admission::New` harness
-/// write (EG-ORCH-VOCAB-R801.3/R802.4): the transaction time is stamped, and
+/// write (MEDULLA-ORCH-VOCAB-R801.3/R802.4): the transaction time is stamped, and
 /// when the writer left the `supersedes_id` pointer absent the new record is
 /// linked to the current one. The record already decoded and validated in
 /// the admission; `tx_from` is an engine-owned key the decoders strip, so
@@ -732,7 +732,7 @@ fn stamp_new_record(props: &Props, head: Option<&str>, tx_now: u64) -> Result<Ve
     })
 }
 
-/// EG-ORCH-VOCAB-R801.3/R802.4 — the harness-record write attaches to the
+/// MEDULLA-ORCH-VOCAB-R801.3/R802.4 — the harness-record write attaches to the
 /// existing AddNode path at the pre-commit point, beside the owner-id stamp.
 /// A non-harness `AddNode` passes through untouched; a harness write comes
 /// back stamped with the transaction time and (when the writer left the
@@ -856,12 +856,12 @@ impl HarnessBoundaryState {
         self.pending.insert(node_id.to_string(), merged);
     }
 
-    /// EG-ORCH-VOCAB-R801.3/R802.4 — check one envelope's harness-record
+    /// MEDULLA-ORCH-VOCAB-R801.3/R802.4 — check one envelope's harness-record
     /// writes op by op, in application order, against the graph as the write
     /// sees it. The envelope bytes are byte-stable for replay, so the engine
     /// verifies instead of mutating: each record decodes and validates,
     /// carries its `tx_from` stamp (the generated client stamps it,
-    /// EG-DURABLE-KERNEL-R078/R081), and its supersession pointer names the
+    /// MEDULLA-DURABLE-KERNEL-R078/R081), and its supersession pointer names the
     /// current record — which may itself be a PENDING write of this same
     /// batch. Non-harness ops pass through.
     pub fn check_envelope(

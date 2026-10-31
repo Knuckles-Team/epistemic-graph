@@ -1,4 +1,4 @@
-//! Embedded API round-trip + durable-reopen tests (CONCEPT:EG-KG.backend.engine-modes).
+//! Embedded API round-trip + durable-reopen tests (CONCEPT:MEDULLA-KG.backend.engine-modes).
 
 use super::*;
 use std::path::PathBuf;
@@ -8,13 +8,13 @@ fn props(v: serde_json::Value) -> Vec<u8> {
 }
 
 fn tmp_dir(tag: &str) -> PathBuf {
-    crate::test_support::temp_dir("eg-embedded", tag)
+    crate::test_support::temp_dir("medulla-embedded", tag)
 }
 
 /// Hold the ambient encryption environment still for a durable test's whole body.
 ///
 /// `EmbeddedRedbStore::open` resolves its at-rest cipher ONCE per open, from the
-/// process-global `EPISTEMIC_GRAPH_ENCRYPTION_KEY` (`ValueCipher::from_env_checked`).
+/// process-global `MEDULLA_ENCRYPTION_KEY` (`ValueCipher::from_env_checked`).
 /// Every test below that WRITES rows and then REOPENS the same directory
 /// therefore depends on that env not changing between its two opens — and the
 /// suite contains tests that deliberately set and unset it (`redb_backend`'s
@@ -164,7 +164,7 @@ fn embedded_per_mutation_durable_without_checkpoint() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Tenant DELETE durably PURGES the graph's redb rows (CONCEPT:EG-KG.backend.tenant-delete-recreate-same/2.216) so a
+/// Tenant DELETE durably PURGES the graph's redb rows (CONCEPT:MEDULLA-KG.backend.tenant-delete-recreate-same/2.216) so a
 /// recreate of the SAME name after a reopen starts from a clean durable slate — the
 /// embedded analogue of the server's `delete_then_recreate_same_name_keeps_new_writes`.
 #[test]
@@ -304,7 +304,7 @@ fn embedded_sql_query() {
     assert!(!res.rows.is_empty(), "sql returned rows: {res:?}");
 }
 
-/// SQLite-equivalent (CONCEPT:EG-KG.storage.namespaced-kv-surface / EG-018): open a file → CREATE TABLE → INSERT →
+/// SQLite-equivalent (CONCEPT:MEDULLA-KG.storage.namespaced-kv-surface / MEDULLA-018): open a file → CREATE TABLE → INSERT →
 /// SELECT, in-process, no server — and the durable user-table rows survive a reopen of
 /// the SAME single-file store.
 #[cfg(feature = "query")]

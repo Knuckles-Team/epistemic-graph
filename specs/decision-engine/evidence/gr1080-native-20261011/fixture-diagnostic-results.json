@@ -3,7 +3,7 @@
   "execution_head": "051217d73b6af79393fc1a03545b7af398f24916",
   "base_commit": "e5190222b38d628b7d0f268ce4c46b184a170ee1",
   "source_note": "Only plan/evidence commits after compilation started; Rust/Cargo/toolchain files unchanged.",
-  "binary": "target-isolated/debug/deps/epistemic_graph-1dea97f4f4aaa5cc",
+  "binary": "target-isolated/debug/deps/medulla_engine-1dea97f4f4aaa5cc",
   "binary_sha256": "5723d01703eb10702393c55fc308709ad195b12c363ba7f0984d2e62d70fc336",
   "command": [
     "<binary>",

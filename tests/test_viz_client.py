@@ -9,7 +9,7 @@ with ``viz-static-export`` on top of ``full``, on its own socket + persist
 dir), independent of the session-wide ``full`` fixture in ``conftest.py``
 (which does not carry ``viz-static-export`` — deliberately opt-in, not folded
 into ``full``; see the root ``Cargo.toml``'s doc comment on that feature). It
-reuses ``conftest.py``'s ``EPISTEMIC_GRAPH_TEST_BINARY`` seam
+reuses ``conftest.py``'s ``MEDULLA_TEST_BINARY`` seam
 (``_prebuilt_test_binary()``) before ever paying for its own ``cargo build`` —
 a caller-supplied binary is trusted to have been built with a superset of the
 features this module needs, exactly like the session fixture already trusts
@@ -34,7 +34,7 @@ from conftest import (
     strict_server_env,
 )
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
 RUST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 AUTH_SECRET = "test-viz-client-roundtrip-secret"
@@ -42,7 +42,7 @@ FEATURES = "full viz-static-export"
 
 
 def _build() -> str | None:
-    """Return the shared `EPISTEMIC_GRAPH_TEST_BINARY` (see conftest.py's
+    """Return the shared `MEDULLA_TEST_BINARY` (see conftest.py's
     `_prebuilt_test_binary()`) when one is configured, else build the
     viz-enabled binary ONCE and return its path (or None on failure)."""
     prebuilt = _prebuilt_test_binary()
@@ -73,7 +73,7 @@ def _launch(
     # run. Omitting `persist_dir` here means `env = {**os.environ, **strict_
     # server_env(...)}` silently inherits that ambient value instead of this
     # module's own, and the dedicated server then refuses to start ("persist dir
-    # ... is already locked by another epistemic-graph engine") because the
+    # ... is already locked by another medulla engine") because the
     # still-running session engine already holds that directory's lock -- the
     # exact ambient-global-state class this repo's AGENTS.md (GOC-70) calls out.
     os.makedirs(persist_dir, exist_ok=True)
@@ -119,7 +119,7 @@ def viz_client(tmp_path_factory):
     proc = _launch(
         binary, socket_path, str(runtime / "security"), str(runtime / "persist")
     )
-    bootstrap = SyncEpistemicGraphClient.connect(
+    bootstrap = SyncMedullaClient.connect(
         socket_path=socket_path,
         auth_secret=AUTH_SECRET,
         verified_context=bootstrap_context(),
@@ -132,7 +132,7 @@ def viz_client(tmp_path_factory):
         )
     finally:
         bootstrap.close()
-    client = SyncEpistemicGraphClient.connect(
+    client = SyncMedullaClient.connect(
         socket_path=socket_path,
         graph_name="__commons__",
         auth_secret=AUTH_SECRET,
@@ -175,7 +175,7 @@ def test_capability_matrix_round_trip(viz_client):
     matrix = viz_client.viz.capability_matrix()
     entries = matrix["entries"]
     assert len(entries) > 0
-    # 6 mark kinds x 3 surfaces per eg_viz_core::capability's own default matrix.
+    # 6 mark kinds x 3 surfaces per medulla_viz_core::capability's own default matrix.
     assert len(entries) == 18
     graph_entries = [e for e in entries if e["mark"] == "graph"]
     assert len(graph_entries) == 3
@@ -268,7 +268,7 @@ def test_synthetic_graph_large_forces_density_tier(viz_client):
     assert len(png_bytes) > 8
     assert bytes(png_bytes[:4]) == _PNG_SIGNATURE
     # The bounded-draw-op-count PROPERTY itself is proven directly against the
-    # render plan in the Rust crate (`eg-viz-export`'s `render::graph_tests`);
+    # render plan in the Rust crate (`medulla-viz-export`'s `render::graph_tests`);
     # here we just confirm the encoded image stays a modest size regardless of
     # the 300,000-node input, consistent with that bound.
     assert len(png_bytes) < 2_000_000

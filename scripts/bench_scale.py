@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Multi-shard scale harness for epistemic-graph
+"""Multi-shard scale harness for medulla
 (CONCEPT:AU-KG.query.vendor-agnostic-traversal P3).
 
 Demonstrates **server-tier linear scaling** and measures the per-agent memory
@@ -37,8 +37,8 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-RELEASE = REPO / "target" / "release" / "epistemic-graph-server"
-DEBUG = REPO / "target" / "debug" / "epistemic-graph-server"
+RELEASE = REPO / "target" / "release" / "medulla-server"
+DEBUG = REPO / "target" / "debug" / "medulla-server"
 
 
 def _server_bin() -> tuple[Path, str]:
@@ -90,7 +90,7 @@ def _spawn_shards(binary: Path, n: int, tmp: str) -> list[ShardProc]:
                 # Benchmarks measure pure transport: run unauthenticated,
                 # which now requires the explicit insecure opt-out.
                 "GRAPH_SERVICE_AUTH_SECRET": "",
-                "EPISTEMIC_GRAPH_ALLOW_INSECURE": "1",
+                "MEDULLA_ALLOW_INSECURE": "1",
             },
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -112,7 +112,7 @@ def _bench_context(agent: str) -> dict[str, object]:
     return {
         "principal": agent,
         "tenant": "bench",
-        "audience": "epistemic-graph-bench",
+        "audience": "medulla-bench",
         "agent_id": agent,
         "roles": ["bench-agent"],
         "scopes": ["*"],
@@ -122,9 +122,9 @@ def _bench_context(agent: str) -> dict[str, object]:
 
 
 async def _run_agent(sock: str, agent: str, nodes: int) -> int:
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import MedullaClient
 
-    client = await EpistemicGraphClient.connect(
+    client = await MedullaClient.connect(
         socket_path=sock,
         graph_name=agent,
         auth_secret="",
@@ -285,7 +285,7 @@ def _print_scale_report(
     build: str, args, rows: list[dict], res: dict, per_agent: float
 ) -> None:
     print(
-        f"epistemic-graph scale harness ({build} build, fixed {args.agents_per_shard} "
+        f"medulla scale harness ({build} build, fixed {args.agents_per_shard} "
         f"agents/shard)"
     )
     print(

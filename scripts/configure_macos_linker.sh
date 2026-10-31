@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Source on a native Mac after the pinned Rust toolchain and path remaps exist.
-eg_configure_macos_linker() {
+medulla_configure_macos_linker() {
     local expected linker version sdk_version
     case "${1:-}" in
         aarch64-apple-darwin) expected=arm64 ;;
@@ -20,11 +20,11 @@ eg_configure_macos_linker() {
         *) echo "Unprobed SDK for $1: $sdk_version" >&2; return 1 ;;
     esac
     export CARGO_ENCODED_RUSTFLAGS="${CARGO_ENCODED_RUSTFLAGS}"$'\x1f'"-Clink-arg=-fuse-ld=$linker"
-    export EG_MACHO_LINKER="$linker"
+    export MEDULLA_MACHO_LINKER="$linker"
     rustc --version --verbose
     xcodebuild -version
     xcrun --sdk macosx --show-sdk-version
     xcrun clang --version
     printf '%s\n' "$version"
 }
-eg_configure_macos_linker "${1:-}"
+medulla_configure_macos_linker "${1:-}"

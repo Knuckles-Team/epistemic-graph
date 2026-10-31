@@ -1,5 +1,5 @@
 //! EH-374 WASM UDF ownership proofs through the FULL served dispatch chain
-//! (CONCEPT:EG-KG.query.rowset-execution). `RegisterUdf` used to write ONE
+//! (CONCEPT:MEDULLA-KG.query.rowset-execution). `RegisterUdf` used to write ONE
 //! process-global `id → module` registry, so a principal could run another principal's
 //! UDF and shadow it by re-registering the same id. One engine is bound to one tenant,
 //! so these run as two principals (`worker1`, `worker2`) of that tenant.

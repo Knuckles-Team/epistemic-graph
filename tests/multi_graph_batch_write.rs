@@ -1,4 +1,4 @@
-//! CONCEPT:EG-KG.storage.multi-graph-batch-write — batched CROSS-GRAPH write over the
+//! CONCEPT:MEDULLA-KG.storage.multi-graph-batch-write — batched CROSS-GRAPH write over the
 //! REAL served `dispatch` surface. ONE `MultiGraphBatchUpdate` request carries a
 //! `BatchUpdate`-shaped op list for MANY named graphs; the server applies each
 //! graph's sub-batch through the ordinary per-graph write path CONCURRENTLY, so N
@@ -28,8 +28,8 @@ mod test_support;
 
 use serde_json::json;
 
-use epistemic_graph::protocol::{GraphType, Method, Response, ResultPayload};
-use epistemic_graph::server::dispatch;
+use medulla::protocol::{GraphType, Method, Response, ResultPayload};
+use medulla::server::dispatch;
 
 const SECRET: &str = "multi-graph-batch-write-secret";
 

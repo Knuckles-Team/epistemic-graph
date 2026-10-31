@@ -43,7 +43,7 @@ RETIRED_TOPOLOGY = (
     "kafka_graph_" + "sync.py",
     "L0/L1/" + "L2/L3",
 )
-RETIRED_TOPOLOGY_ROOTS = ("src", "crates", "epistemic_graph", "tests", "docs")
+RETIRED_TOPOLOGY_ROOTS = ("src", "crates", "medulla", "tests", "docs")
 
 LEGACY_PROTOCOL_DEFAULT_HELPERS = (
     "default_shuffle",
@@ -134,13 +134,13 @@ def tree(relative: str) -> str:
 def protocol_source() -> str:
     """The complete compiler-declared protocol family (production view)."""
 
-    return read_compiler_family("crates/eg-types/src/protocol.rs", ROOT).production
+    return read_compiler_family("crates/medulla-types/src/protocol.rs", ROOT).production
 
 
 def rdf_update_source() -> str:
     """The compiler-declared guarded SPARQL update family."""
 
-    return read_compiler_family("crates/eg-rdf/src/update.rs", ROOT).production
+    return read_compiler_family("crates/medulla-rdf/src/update.rs", ROOT).production
 
 
 def raft_store_source() -> str:
@@ -517,12 +517,12 @@ def check_retired_fallbacks(graph: str, owl: str, geometry: str, mysql: str) -> 
 
 def main() -> None:
     require_no_retired_graph_topology()
-    check_protocol(protocol_source(), tree("crates/eg-types/src/wire.rs"))
+    check_protocol(protocol_source(), tree("crates/medulla-types/src/wire.rs"))
     check_query_contract(
-        read("crates/eg-query/src/tables/schema.rs"),
-        tree("crates/eg-query/src/sql/mod.rs") + read("crates/eg-query/src/lib.rs"),
-        tree("crates/eg-plan/src/exec.rs")
-        + tree("crates/eg-plan/src/federation_opt/mod.rs"),
+        read("crates/medulla-query/src/tables/schema.rs"),
+        tree("crates/medulla-query/src/sql/mod.rs") + read("crates/medulla-query/src/lib.rs"),
+        tree("crates/medulla-plan/src/exec.rs")
+        + tree("crates/medulla-plan/src/federation_opt/mod.rs"),
     )
     check_transport_contract(
         tree("src/server/transport.rs"),
@@ -530,28 +530,28 @@ def main() -> None:
         read("src/main.rs") + "\n" + read("tests/external_compute_e2e.rs"),
     )
     check_graph_fencing(
-        tree("crates/eg-core/src/graph.rs"), tree("src/server/mutation.rs")
+        tree("crates/medulla-core/src/graph.rs"), tree("src/server/mutation.rs")
     )
     check_method_policies(load_capability_sources(ROOT))
     check_read_authority(
         read("src/raft/pregel.rs"), tree("src/server/secondary_indexes.rs")
     )
     check_rdf(
-        read("crates/eg-shacl/src/policy.rs"),
-        read("crates/eg-rdf/src/guard.rs"),
+        read("crates/medulla-shacl/src/policy.rs"),
+        read("crates/medulla-rdf/src/guard.rs"),
         rdf_update_source(),
     )
     check_rbac(
-        read("crates/eg-core/src/rbac.rs"),
-        tree("crates/eg-core/src/isolation.rs"),
-        read("crates/eg-core/src/rbac_persist.rs"),
+        read("crates/medulla-core/src/rbac.rs"),
+        tree("crates/medulla-core/src/isolation.rs"),
+        read("crates/medulla-core/src/rbac_persist.rs"),
     )
-    check_acl_roles(read("crates/eg-types/src/acl.rs"))
+    check_acl_roles(read("crates/medulla-types/src/acl.rs"))
     check_raft_snapshot(raft_store_source())
     check_retired_fallbacks(
-        tree("crates/eg-core/src/graph.rs"),
-        read("crates/eg-rdf/src/owl.rs"),
-        read("crates/eg-geo/src/geometry.rs"),
+        tree("crates/medulla-core/src/graph.rs"),
+        read("crates/medulla-rdf/src/owl.rs"),
+        read("crates/medulla-geo/src/geometry.rs"),
         tree("src/server/mysql_wire/mod.rs"),
     )
     print("current-only architecture gate passed")

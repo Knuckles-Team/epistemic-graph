@@ -77,13 +77,13 @@ async fn step(backend: &RedbBackend) -> (u64, Vec<NodeUnreadable>, ScrubCursor) 
 }
 
 #[cfg(feature = "security")]
-// spec: EG-DURABLE-KERNEL-R020
-// spec: EG-DURABLE-KERNEL-R069
+// spec: MEDULLA-DURABLE-KERNEL-R020
+// spec: MEDULLA-DURABLE-KERNEL-R069
 #[tokio::test(flavor = "multi_thread")]
 async fn scrub_cursor_survives_reopen_and_the_walk_skips_nothing() {
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
     let _no_key = NoEncryptionKeyEnv::set();
-    let dir = std::env::temp_dir().join(format!("eg-scrub-backend-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("medulla-scrub-backend-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let dir_s = dir.to_string_lossy().to_string();
     let backend = RedbBackend::open_with_shards(dir_s.clone(), 64, 1).expect("open");

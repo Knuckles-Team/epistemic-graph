@@ -8,7 +8,7 @@ inputs:
   targets:
     description: >-
       Comma-separated Rust target triples to install; empty installs the leg's
-      wheel target (EG_WHEEL_TARGET).
+      wheel target (MEDULLA_WHEEL_TARGET).
     required: false
     default: ''
 outputs:
@@ -32,4 +32,4 @@ runs:
     - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
       with:
         toolchain: ${{ steps.pin.outputs.channel }}
-        targets: ${{ inputs.targets || env.EG_WHEEL_TARGET }}
+        targets: ${{ inputs.targets || env.MEDULLA_WHEEL_TARGET }}

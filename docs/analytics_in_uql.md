@@ -1,10 +1,10 @@
-# Analytics on the unified query surface — SQL functions and UQL stages (CONCEPT:EG-KG.query.concept-8)
+# Analytics on the unified query surface — SQL functions and UQL stages (CONCEPT:MEDULLA-KG.query.concept-8)
 
 Medulla is an **analytical database with native analytical tools**. There are two
 surfaces, and this page keeps them apart:
 
 * **SQL** (DataFusion, every SQL entry point): the linear-algebra / statistics kernel
-  (`eg-numeric` — faer + ndarray, BLAS/LAPACK-free) is exposed as SQL functions — PCA, SVD,
+  (`medulla-numeric` — faer + ndarray, BLAS/LAPACK-free) is exposed as SQL functions — PCA, SVD,
   k-means, covariance, cosine similarity, z-score standardization and the statistical
   aggregates — **directly in a `SELECT`**, compute-near-data, no fetch-to-Python. Everything
   in the catalogs below is SQL; none of it is UQL syntax.
@@ -30,35 +30,35 @@ CTEs and window frames — and they run **wherever the engine speaks SQL**.
 
 The analytical functions are registered on **every** DataFusion `SessionContext` the query
 surface builds, through a single shared function (`exec::register_numeric`,
-`crates/eg-query/src/sql/exec.rs`). There is no privileged path:
+`crates/medulla-query/src/sql/exec.rs`). There is no privileged path:
 
 | SQL entry point | How it reaches the functions |
 |---|---|
 | **RPC `Method::Sql`** (`exec_sql` / `exec_sql_typed`) | `run` / `run_typed` → `build_ctx` → `register_numeric` |
 | **Wire protocols** — pgwire (Postgres), MySQL, SQLite, MS-SQL, all via the shared `WireSession` | `exec_sql_typed_with_tables` → `run_typed` → `build_ctx` → `register_numeric` |
-| **Embedded API** (`epistemic-graph` crate, in-process) | `exec_sql` / `exec_sql_typed_with_tables` (same as above) |
+| **Embedded API** (`medulla` crate, in-process) | `exec_sql` / `exec_sql_typed_with_tables` (same as above) |
 | **Observability log-search** (`exec_sql_over_tables`) | `register_numeric` on the tables-only context |
 
 So a JDBC/ODBC/DBI client — DBeaver, `psql`, a BI tool — issuing `SELECT pca(...)` hits the
 exact same in-engine kernel as the native RPC path. This is proven end-to-end in
-`crates/eg-query/tests/analytics_through_uql.rs`, which drives every operator below through
+`crates/medulla-query/tests/analytics_through_uql.rs`, which drives every operator below through
 `exec_sql_typed_with_tables` (the wire read path) **and** `exec_sql` (the RPC path) and
 asserts identical results.
 
-Everything here is gated behind eg-query's `numeric` cargo feature (part of the engine's one
+Everything here is gated behind medulla-query's `numeric` cargo feature (part of the engine's one
 main build, `default`/`full`). A minimal `--no-default-features --features server` build links
-neither `eg-numeric` nor `faer`; the engine binary never links pyo3 (`cargo tree | grep -ci pyo3`
+neither `medulla-numeric` nor `faer`; the engine binary never links pyo3 (`cargo tree | grep -ci pyo3`
 = 0).
 
-## Catalog — kernel-backed analytical functions (`eg-numeric`)
+## Catalog — kernel-backed analytical functions (`medulla-numeric`)
 
-These are the `eg-numeric`-backed operators (CONCEPT:EG-KG.query.surface-b-numeric-operators/335/336/344). They accept the
+These are the `medulla-numeric`-backed operators (CONCEPT:MEDULLA-KG.query.surface-b-numeric-operators/335/336/344). They accept the
 same vector-operand forms as the pgvector operators: a stored `List<Float{32,64}>` column
 **or** a `'[1,2,3]'` text literal.
 
 | Function | Kind | Returns | What it computes |
 |---|---|---|---|
-| `cosine_sim(a, b)` | scalar | `Float64` | Cosine similarity `a·b / (‖a‖‖b‖)` — the raw-similarity complement to EG-115's `vector_cosine` distance. NULL on dimension mismatch. |
+| `cosine_sim(a, b)` | scalar | `Float64` | Cosine similarity `a·b / (‖a‖‖b‖)` — the raw-similarity complement to MEDULLA-115's `vector_cosine` distance. NULL on dimension mismatch. |
 | `l2_normalize(v)` | scalar | `List<Float32>` (pgvector) | The unit vector `v/‖v‖`; feeds `cosine_sim` / ANN in-query. |
 | `zscore(col)` | scalar-over-batch | `Float64` | Standardize `(x-mean)/std` (population, ddof=0) within the materialized batch. For a true global two-pass use the window form `(x - avg(x) OVER ()) / stddev(x) OVER ()`. |
 | `covariance(a, b)` | UDAF | `Float64` | Sample covariance (ddof=1), `Σ(aᵢ-ā)(bᵢ-b̄)/(n-1)`, kernel means. |
@@ -90,7 +90,7 @@ kernel. These run in-engine over resident columns just like the kernel operators
 > its place for the operations DataFusion has **no** built-in for — PCA, SVD, k-means,
 > cosine similarity, L2-normalization — which are the analytical differentiators.
 
-## Cross-modal join → analytics (the numpy-surpassing differentiator, EG-KG.query.eg-3)
+## Cross-modal join → analytics (the numpy-surpassing differentiator, MEDULLA-KG.query.medulla-3)
 
 Because the analytics are SQL functions, they compose with joins across modalities —
 graph/relational columns, vector embeddings, and timeseries — in **one statement**. numpy
@@ -110,7 +110,7 @@ JOIN ts ON n.id = ts.nid;
 This joins the resident `nodes` table (a relational scalar `x` + a per-node vector `emb`) to
 a per-node timeseries aggregate and computes statistics that **span two modalities aligned
 by the join** — all compute-near-data, in-engine. See
-`crates/eg-query/tests/cross_modal_analytics.rs` and the
+`crates/medulla-query/tests/cross_modal_analytics.rs` and the
 `cross_modal_join_then_analytics_through_wire_eg353` test.
 
 ## Example queries
@@ -142,7 +142,7 @@ SELECT id FROM signals WHERE zscore(value) > 3.0;   -- outliers, in one pass
 
 ## Series analytics: one kernel for UQL, SQL, PromQL and derived series (EH-522/524)
 
-The incremental series operators (`eg_numeric::series`) are served four ways, with the same
+The incremental series operators (`medulla_numeric::series`) are served four ways, with the same
 values bit for bit:
 
 ```uql
@@ -150,7 +150,7 @@ TSSCAN ['svc.p95'] FROM 0 TO 3600 |> DERIVE zscore(ewma(v0, 12), 60) AS lat_z |>
 ```
 
 ```sql
-SELECT ts, eg_zscore(v, 60) OVER (PARTITION BY series ORDER BY ts) AS z FROM points;
+SELECT ts, medulla_zscore(v, 60) OVER (PARTITION BY series ORDER BY ts) AS z FROM points;
 ```
 
 * PromQL `stddev_over_time` / `stdvar_over_time` / `avg_over_time` share the same moments.
@@ -158,11 +158,11 @@ SELECT ts, eg_zscore(v, 60) OVER (PARTITION BY series ORDER BY ts) AS z FROM poi
   maintained incrementally on every `TsAppend` to its source (points `[value, revision,
   known_at_ms]`; a corrected source point appends revisions, never edits).
 * `SKILL f AGAINST y HORIZONS [...] WINDOW w` reports a feature's rolling rank-IC decay, ICIR,
-  a bootstrap interval and the breadth across horizons (`eg_numeric::evaluation::skill`).
+  a bootstrap interval and the breadth across horizons (`medulla_numeric::evaluation::skill`).
 
 ## Motif / discord search and shape events (EH-529)
 
-Query-by-example and anomalous-subsequence search over a value channel (`eg_numeric::series::
+Query-by-example and anomalous-subsequence search over a value channel (`medulla_numeric::series::
 {mass, matrix_profile}`), and declared shape predicates turned into events an existing `CEP`
 stage matches — no new pattern language, the same bounded NFA `Op::Cep` already runs:
 
@@ -190,8 +190,8 @@ needs neither: it is an ordinary O(1) incremental kernel, always built.
 
 ## See also
 
-- `docs/architecture/numeric-kernel.md` — the `eg-numeric` kernel internals.
+- `docs/architecture/numeric-kernel.md` — the `medulla-numeric` kernel internals.
 - `docs/architecture/analytics-program.md` — the Analytics Program (Surface-A Python wheel
   + Surface-B SQL).
-- `crates/eg-query/src/sql/numeric.rs` — the UDF/UDAF implementations.
-- `crates/eg-query/src/sql/exec.rs` — `register_numeric` + the shared `build_ctx`.
+- `crates/medulla-query/src/sql/numeric.rs` — the UDF/UDAF implementations.
+- `crates/medulla-query/src/sql/exec.rs` — `register_numeric` + the shared `build_ctx`.

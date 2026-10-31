@@ -11,13 +11,13 @@
 //! in [`AuthorizedTable::select`] (the CX-022 fail-closed invariant).
 //!
 //! The projection also carries the managed-index status rows the caller may see
-//! (EH-352), so `information_schema.eg_index_status` is answered under the same
+//! (EH-352), so `information_schema.medulla_index_status` is answered under the same
 //! ACL as the tables: only indexes of tables the caller may `SELECT`.
 
 use std::path::Path;
 use std::sync::Arc;
 
-use eg_query::{Cell, TableStore, UserAnnDecision, UserAnnPushdown};
+use medulla_query::{Cell, TableStore, UserAnnDecision, UserAnnPushdown};
 
 use super::{
     open_authorized_table, project_read_store, selectable_tables, AuthorizedReadStore,
@@ -47,7 +47,7 @@ pub(crate) fn authorized_read_store_for_query(
     graph: &RequestGraph,
 ) -> Result<AuthorizedReadStore, String> {
     let tenant = sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?;
-    let narrowing = match eg_query::user_ann_decision(query, &tenant)? {
+    let narrowing = match medulla_query::user_ann_decision(query, &tenant)? {
         UserAnnDecision::Pushdown(pushdown) => Some(pushdown),
         UserAnnDecision::Declined(reason) => {
             tracing::debug!(
@@ -74,7 +74,7 @@ fn adopt_edge_index_status(
     graph: &RequestGraph,
     projection: &TableStore,
 ) -> Result<(), String> {
-    eg_query::edge_index::install_edge_indexes(tenant, &graph.name, &graph.core)?;
+    medulla_query::edge_index::install_edge_indexes(tenant, &graph.name, &graph.core)?;
     projection
         .ann_authority()
         .adopt_statuses(graph.core.indexes().managed_statuses());
@@ -167,7 +167,7 @@ mod tests {
     use super::*;
     use crate::server::auth::VerifiedRequestContext;
     use crate::server::sql_tables::test_persist_dir;
-    use eg_query::{
+    use medulla_query::{
         AnnIndexPlan, AnnMethod, AnnRefreshPolicy, AnnServingPath, Column, ColumnType, TableSchema,
         VectorMetric,
     };
@@ -251,7 +251,7 @@ mod tests {
         let projection =
             authorized_read_store_for_query(&authority(who), dir, sql, None, &no_graph()).unwrap();
         let view = crate::graph::GraphView::default();
-        eg_query::exec_sql_typed_with_tables(&view, projection.store(), sql)
+        medulla_query::exec_sql_typed_with_tables(&view, projection.store(), sql)
             .unwrap()
             .rows
     }
@@ -337,7 +337,7 @@ mod tests {
     }
 
     fn status_rows(dir: &Path, who: &str) -> Vec<Vec<Value>> {
-        let sql = "SELECT index_name, state, indexed FROM information_schema.eg_index_status \
+        let sql = "SELECT index_name, state, indexed FROM information_schema.medulla_index_status \
                    ORDER BY index_name";
         projected_rows(dir, who, sql)
     }

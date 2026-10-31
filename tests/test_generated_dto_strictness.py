@@ -1,4 +1,4 @@
-"""EG-CONTRACT-R048: generated DTOs refuse coerced, empty and duplicate inputs."""
+"""MEDULLA-CONTRACT-R048: generated DTOs refuse coerced, empty and duplicate inputs."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from epistemic_graph.generated import models
+from medulla.generated import models
 
 pytestmark = pytest.mark.no_engine
 
@@ -39,7 +39,7 @@ def _bundle() -> dict[str, Any]:
     }
 
 
-@pytest.mark.spec("EG-CONTRACT-R048")
+@pytest.mark.spec("MEDULLA-CONTRACT-R048")
 def test_valid_inputs_are_accepted() -> None:
     models.ClaimWorkItemRequest.model_validate(_claim())
     models.EvidenceBundle.model_validate(_bundle())
@@ -55,7 +55,7 @@ def test_valid_inputs_are_accepted() -> None:
         ("max_tenant_in_flight", 4097),
     ],
 )
-@pytest.mark.spec("EG-CONTRACT-R048")
+@pytest.mark.spec("MEDULLA-CONTRACT-R048")
 def test_claim_request_refuses(field: str, value: Any) -> None:
     with pytest.raises(ValidationError):
         models.ClaimWorkItemRequest.model_validate({**_claim(), field: value})
@@ -71,7 +71,7 @@ def test_claim_request_refuses(field: str, value: Any) -> None:
         ("bundle_id", "   "),
     ],
 )
-@pytest.mark.spec("EG-CONTRACT-R048")
+@pytest.mark.spec("MEDULLA-CONTRACT-R048")
 def test_evidence_bundle_refuses(field: str, value: Any) -> None:
     with pytest.raises(ValidationError):
         models.EvidenceBundle.model_validate({**_bundle(), field: value})

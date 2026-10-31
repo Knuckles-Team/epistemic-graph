@@ -5,7 +5,7 @@ use crate::protocol::{GraphType, Method};
 use crate::redb_store::{CHANGE_CURSORS, CHANGE_ENVELOPES, CONTENT_VERSIONS};
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
-use eg_storage::{OwnerRowScope, OwnerRowScopeStart};
+use medulla_storage::{OwnerRowScope, OwnerRowScopeStart};
 
 pub(crate) fn props(v: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&v).unwrap()
@@ -84,7 +84,7 @@ fn assert_migrated_graphs_read_back(
 
 fn temp_root(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
-        "eg-migrate-{tag}-{}-{:?}",
+        "medulla-migrate-{tag}-{}-{:?}",
         std::process::id(),
         std::thread::current().id()
     ))
@@ -141,8 +141,8 @@ fn graph_ledger(path: &std::path::Path, graph: &str, batch_id: &str) -> (u64, bo
     let shard = Shard::open(path).expect("open shard for inspection");
     let handle = shard.graph(graph).expect("bind graph for inspection");
     let read = shard.read(&handle).expect("scoped read");
-    let version = eg_transaction::version(&read).expect("scope version");
-    let receipt = eg_transaction::read_ledger(&read, batch_id)
+    let version = medulla_transaction::version(&read).expect("scope version");
+    let receipt = medulla_transaction::read_ledger(&read, batch_id)
         .expect("read receipt")
         .is_some();
     (version, receipt)
@@ -188,7 +188,7 @@ fn seed_graph(path: &std::path::Path, graph: &str, tag: &str) -> (String, u64) {
 
     let handle = shard.graph(graph).expect("graph handle");
     let read = shard.read(&handle).expect("scoped read");
-    let version = eg_transaction::version(&read).expect("scope version");
+    let version = medulla_transaction::version(&read).expect("scope version");
     (format!("shard_drain/{graph}:{op_id}"), version)
 }
 

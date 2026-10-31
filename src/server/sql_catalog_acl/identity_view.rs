@@ -16,8 +16,8 @@
 
 use std::path::Path;
 
-use eg_query::{Column, ColumnType, TableSchema};
-use eg_types::identity::SqlType;
+use medulla_query::{Column, ColumnType, TableSchema};
+use medulla_types::identity::SqlType;
 
 use super::AuthorizedReadStore;
 use crate::server::access::CarrierAuthority;
@@ -61,7 +61,7 @@ pub(super) fn add_identity_relations(
     // disabled or lost the role sees nothing, whatever its token still says.
     if !store.reads_directory(
         authority.identity_actor(),
-        &eg_capabilities::scopes::ScopeRegistry,
+        &medulla_capabilities::scopes::ScopeRegistry,
     ) {
         return Ok(());
     }

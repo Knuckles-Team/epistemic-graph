@@ -1,8 +1,8 @@
 use super::*;
 use super::{input::*, writeback::*};
-use eg_compute::mining::entity_resolution;
-use eg_types::compute_result::mining::{EntityMatchRow, EntityResolutionMiningResult};
-use eg_types::result_contract::compute as results;
+use medulla_compute::mining::entity_resolution;
+use medulla_types::compute_result::mining::{EntityMatchRow, EntityResolutionMiningResult};
+use medulla_types::result_contract::compute as results;
 
 // Entity resolution + record linkage follows the shared explicit-or-derived
 // input → compute → optional typed-node/claim write-back contract.
@@ -149,7 +149,7 @@ pub(super) fn entity_resolve_response(
     )
 }
 
-/// Materialize each match as a typed `:EntityMatch` node (CONCEPT:EG-KG.mining.entity-resolution),
+/// Materialize each match as a typed `:EntityMatch` node (CONCEPT:MEDULLA-KG.mining.entity-resolution),
 /// id = a deterministic digest of the CANONICALIZED (order-independent) member
 /// pair. Linked to both members via `ENTITY_MATCH_MEMBER` edges when resident.
 pub(super) fn materialize_entity_matches(

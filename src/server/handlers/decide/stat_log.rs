@@ -10,25 +10,25 @@ use std::time::Instant;
 
 use tracing::Instrument;
 
-use eg_numeric::decision::aggregate::{aggregate, AggregateRules, JoinedRecord};
-use eg_numeric::decision::candidate::CandidateView;
-use eg_numeric::decision::features::outcome_rate_key;
-use eg_types::agent_component::AgentComponentKind;
-use eg_types::contract::BoundedVec;
-use eg_types::decision::statistical::dataset::{
+use medulla_numeric::decision::aggregate::{aggregate, AggregateRules, JoinedRecord};
+use medulla_numeric::decision::candidate::CandidateView;
+use medulla_numeric::decision::features::outcome_rate_key;
+use medulla_types::agent_component::AgentComponentKind;
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::statistical::dataset::{
     ItemLabel, LabelledDataset, LabelledItem, LoggedOutcome, OutcomeEvaluation, PropensitySource,
     LABELLED_DATASET_SCHEMA_VERSION,
 };
-use eg_types::decision::statistical::features::{FeatureKind, FeatureSchemaBody};
-use eg_types::decision::statistical::log::{
+use medulla_types::decision::statistical::features::{FeatureKind, FeatureSchemaBody};
+use medulla_types::decision::statistical::log::{
     DecisionLogCommitted, DecisionLogEntry, DecisionLogOp, DecisionOutcomeEvaluation, EntryInputs,
     OutcomeAggregate, OutcomeAggregateRequest, RecordVisibility, StoredEvaluation,
     DECISION_LOG_SCHEMA_VERSION,
 };
-use eg_types::decision::statistical::{
+use medulla_types::decision::statistical::{
     FeatureMatrixRef, StatisticalDecisionRecord, StatisticalErrorCode, StatisticalOutcome,
 };
-use eg_types::decision::{CandidateSourceRecord, QuantScaleTag, RecordWindow};
+use medulla_types::decision::{CandidateSourceRecord, QuantScaleTag, RecordWindow};
 
 use super::stat_executor::ExecutionContext;
 use super::stat_replay::replay;
@@ -152,7 +152,7 @@ fn commit(
     ctx: &ExecutionContext,
     reader: &LogReader,
     record: &StatisticalDecisionRecord,
-    evaluator: Option<&eg_types::decision::statistical::log::NamedEvaluator>,
+    evaluator: Option<&medulla_types::decision::statistical::log::NamedEvaluator>,
 ) -> Result<DecisionLogCommitted, String> {
     if record.caller_principal != reader.principal {
         return Err(
@@ -444,7 +444,7 @@ fn dispatch(
     op: DecisionLogOp,
     inputs: Option<&super::stat_learning::LearningInputs>,
 ) -> Result<ResultPayload, String> {
-    use eg_types::result_contract::coordination::{
+    use medulla_types::result_contract::coordination::{
         DecisionLogAggregate, DecisionLogCommit, DecisionLogCompact, DecisionLogEvaluate,
         DecisionLogGet, DecisionLogResolve, DecisionLogVerify,
     };
@@ -468,7 +468,7 @@ fn dispatch(
             ResultPayload::of::<DecisionLogResolve>(resolve(ctx, reader, resolution)?)
         }
         DecisionLogOp::Learn { write, .. } => {
-            ResultPayload::of::<eg_types::result_contract::coordination::DecisionLogLearn>(
+            ResultPayload::of::<medulla_types::result_contract::coordination::DecisionLogLearn>(
                 super::stat_learning::dispatch(ctx, reader, write, inputs)?,
             )
         }

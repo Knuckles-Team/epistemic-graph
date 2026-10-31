@@ -4,8 +4,8 @@
 
 use std::collections::BTreeMap;
 
-use eg_core::graph::GraphCore;
-use eg_stream::telemetry::{
+use medulla_core::graph::GraphCore;
+use medulla_stream::telemetry::{
     DeclaredHealth, EntityClass, FactEdge, FactGraph, FactNode, Measure, Outcome,
 };
 use serde_json::json;
@@ -247,7 +247,7 @@ fn facts_become_one_owned_batch_with_nodes_before_edges() {
         (source.as_str(), target.as_str()),
         (id.as_str(), "svc:checkout")
     );
-    let stored = eg_types::msgpack::decode_property_value(properties_msgpack).unwrap();
+    let stored = medulla_types::msgpack::decode_property_value(properties_msgpack).unwrap();
     assert_eq!(stored["tenant_id"], "acme");
     assert_eq!(stored["_owner"], "agent-a");
     assert_eq!(stored["_visibility"], "private");
@@ -315,7 +315,7 @@ fn classification_is_cached_by_ontology_digest() {
     );
 
     // A failed classification is not cached.
-    let failing = eg_types::contract::Digest256::sha256(b"failing");
+    let failing = medulla_types::contract::Digest256::sha256(b"failing");
     assert!(cache
         .get_or_classify(failing, || Err("no".to_string()))
         .is_err());
@@ -324,7 +324,7 @@ fn classification_is_cached_by_ontology_digest() {
 
     // Bounded: sixteen newer identities evict the least recently used one.
     for index in 0..16u8 {
-        let key = eg_types::contract::Digest256::sha256(&[index]);
+        let key = medulla_types::contract::Digest256::sha256(&[index]);
         cache.get_or_classify(key, fresh).unwrap();
     }
     let before = cache.classifications();

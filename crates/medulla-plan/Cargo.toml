@@ -1,0 +1,611 @@
+[package]
+name = "medulla-plan"
+version = "0.33.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Unified cross-modal query planner (CONCEPT:KG-2.208/209) — a RowSet closed algebra sequencing the existing SQL (DataFusion), graph (petgraph BFS) and vector (SemanticStore) legs into ONE plan, with a cost-based filter-vs-vector reorder"
+license = "MIT"
+
+[lib]
+name = "medulla_plan"
+
+[features]
+# `query` pulls the DataFusion-backed FILTER leg (via medulla-query/sql). A default
+# build links NO DataFusion: the algebra, the cost model, the graph/vector legs
+# and the plan IR all compile dep-free (the Pi contract). The DataFusion `Filter`
+# leg — and the `UnifiedPlan::execute` that needs it — are gated behind this
+# feature, exactly as the facade gates `query`.
+default = []
+query = ["dep:medulla-query", "medulla-query/sql", "dep:medulla-compute", "dep:tracing"]
+# The cross-modal cost-based optimizer (CONCEPT:MEDULLA-KG.query.xmodal-cost-optimizer). The engine
+# itself compiles under `query` (beside the executor) and is active by default with the
+# runtime kill-switch `MEDULLA_COST_OPT=0` → identity; this feature is the FACADE tier
+# selector (implies `query`) that the `full`/`node` profiles turn on. A `pi`/default build
+# links no DataFusion and never reaches `plan_optimize`, so it is unaffected.
+cost-opt = ["query"]
+# Lexical BM25 `RankText` op + the RRF `FuseRrf` hybrid (CONCEPT:KG-2.215). Pulls
+# medulla-text's Tantivy index (the `tantivy` backend) and turns on the `text` wire
+# variants in medulla-types. It IMPLIES `query` because the new ops live inside the
+# `query`-gated `Op` enum and the text executor branch sits beside the DataFusion
+# FILTER leg. A default/Pi build sets neither feature → no medulla-text/Tantivy linked.
+text = ["query", "dep:medulla-text", "medulla-text/tantivy", "medulla-types/text"]
+# OWL/SPARQL SOURCE ops (CONCEPT:KG-2.220): `Reason` (OWL-inferred class members) +
+# `SparqlBgp` (SPARQL-selected ids) as RowSet sources, so ONE UnifiedQuery plan can do
+# OWL/SPARQL candidate-set → graph Traverse / vector Rank / SQL Filter / Limit. Pulls
+# medulla-rdf's pure-Rust `owl` (EL⁺ reasoner) + `sparql` evaluator. IMPLIES `query` (the
+# ops live inside the `query`-gated `Op` enum, beside the DataFusion FILTER leg). A
+# default/Pi build sets neither feature → no medulla-rdf reasoner/evaluator linked here.
+owl = ["query", "dep:medulla-rdf", "medulla-rdf/owl", "medulla-rdf/sparql", "dep:medulla-shacl", "medulla-types/owl-plan"]
+# The WASM `Udf` TRANSFORM op (CONCEPT:KG-2.228): run a registered, sandboxed
+# WebAssembly UDF over the current RowSet inside a UnifiedQuery plan. Pulls medulla-wasm's
+# wasmtime runtime + turns on the `wasm-udf` wire variant in medulla-types. IMPLIES `query`
+# (the op lives in the `query`-gated `Op` enum). A default/Pi build links no wasmtime.
+wasm-udf = ["query", "dep:medulla-wasm", "medulla-wasm/wasm-udf", "medulla-types/wasm-udf"]
+# Query federation / foreign sources (CONCEPT:KG-2.232, Lane P): the `ForeignScan`
+# SOURCE op + the `ForeignSource` trait with TWO kinds — a REMOTE medulla-engine
+# engine (reached over the SAME length-prefixed-MessagePack + HMAC transport via a
+# blocking TCP client; pulls hmac/sha2/hex) and a GENERIC HTTP/JSON source (pulls
+# `ureq` — a PURE-RUST rustls HTTP client, NOT openssl). IMPLIES `query` (the op lives
+# inside the `query`-gated `Op` enum, beside the DataFusion FILTER leg). HEAVY-ish (a
+# TLS stack), so it is OFF by default and the facade folds it into node/cluster/full
+# but NEVER `pi` — the Pi contract: a `pi` build links no rustls/ring/ureq.
+federation = [
+    "query",
+    "medulla-types/federation",
+    "dep:ureq",
+    "dep:hmac",
+    "dep:sha2",
+    "dep:hex",
+]
+# Time-series WINDOW execution (CONCEPT:MEDULLA-067) + native TSDB SOURCE scan (CONCEPT:MEDULLA-363):
+# wire medulla-tsdb's native windowed-aggregate primitives (`time_bucket`/`aggregate`) behind
+# `Op::Window`/`Op::SensorFuse`, and its durable `SeriesStore` behind `Op::TsScan` — the
+# tsdb-in-plan SOURCE that seeds a RowSet from stored series (Gap 3). Pulls medulla-tsdb's query
+# primitives (medulla-core/medulla-compute only, NO DataFusion) PLUS its `redb-store` backend, so
+# `Op::TsScan` can READ the `SeriesStore` (the store type lives behind medulla-tsdb's own
+# `redb-store` feature). redb is pure-Rust (no C dep, no pyo3). IMPLIES `query` (the ops
+# live inside the `query`-gated `Op` enum, beside the AsOf time leg). OFF by default and
+# folded by the facade into node/cluster/full but NEVER `pi` — the Pi contract: a `pi` build
+# links no medulla-tsdb/redb. Without it `Op::Window` stays the RowSet-preserving marker it lowers
+# from and `Op::TsScan` does not exist (the plan still runs).
+# CONCEPT:MEDULLA-KG.query.multi-rate-sensor-stream — `Op::SensorAlign` (declared-clock fusion) stacks the
+# medulla-tsdb-aligned channels into a `[timesteps × channels]` tensor + validity mask, so
+# this feature ALSO pulls `dep:medulla-tensor` — the serde-only, BLAS-free leaf crate. It
+# deliberately does NOT enable the `tensor` FEATURE: that would turn on
+# `medulla-types/tensor` and add the `TensorScan`/`TensorOp` wire variants to a build that
+# only asked for time series. Linking the library and enabling a wire surface are
+# different things; this needs only the first, which keeps `Op::SensorAlign`'s
+# executor arm gated on EXACTLY the same feature as its wire variant (`timeseries`) —
+# no combination of features can produce the variant without the arm.
+# `medulla-numeric/motif` (EH-529, ANALYTICS-HARVEST AH-09) turns on rustfft for the `MOTIF`/
+# `DISCORD` stages' MASS + SCRIMP++ matrix profile — the ONE place that pulls it, per
+# `medulla-numeric`'s own feature doc; the streaming left profile (`DERIVE mprofile(...)`,
+# always built) needs no FFT.
+timeseries = ["query", "dep:medulla-tsdb", "medulla-tsdb/redb-store", "medulla-tsdb/derive", "medulla-types/timeseries", "dep:medulla-tensor", "dep:medulla-numeric", "medulla-numeric/motif"]
+# EXTERNAL relational-SQL federation (CONCEPT:KG-2.239): the third `ForeignSource` kind
+# — `ForeignSourceSpec::Sql` — connecting to an external Postgres/MySQL via a DSN and
+# running a SQL query, mapping rows → RowSet. Pulls `sqlx` with the
+# `runtime-tokio` + `tls-rustls-ring-native-roots` backend (PURE-RUST rustls —
+# NEVER openssl) + a small
+# current-thread tokio runtime to drive the async driver from the sync `fetch()` (on the
+# blocking pool). IMPLIES `federation`. HEAVY (a SQL driver + a TLS stack), so it is OFF
+# by default and the facade folds it into node/cluster/full but NEVER `pi` — the Pi
+# contract: a `pi` build links no sqlx/postgres/mysql/openssl.
+federation-sql = [
+    "federation",
+    "dep:sqlx",
+    "dep:tokio",
+    "dep:futures-util",
+    "dep:sqlparser",
+    "dep:url",
+]
+# Spatial / geospatial modality (CONCEPT:MEDULLA-083): the `Op::SpatialScan` SOURCE op (an
+# medulla-geo packed-Hilbert-R-tree bbox scan over a layer's geometries) + the spatial
+# `Pred::SpatialWithin`/`SpatialDWithin` FILTER predicates (evaluated per-row by medulla-geo's
+# planar `within`/`distance`). Pulls the pure-Rust medulla-geo leaf crate (only serde — NO
+# GEOS/PROJ/C dep). IMPLIES `query` (the ops live inside the `query`-gated `Op`/`Pred`
+# enums, beside the DataFusion FILTER leg). OFF by default; the facade folds it into
+# node/full but NEVER `pi`. A default/Pi build (feature off) links no medulla-geo, and
+# `exec.rs`'s `Op::SpatialScan`/`Reproject`/`SpatialOp` arms + the real per-row
+# `spatial_filter` evaluator are compiled out (see the `Op` dispatch's documented
+# feature-unification wildcard).
+#
+# NE-216: `medulla-types/geo` (the `Pred`/`Op` WIRE VARIANTS) is *not* listed here anymore —
+# it is requested unconditionally by the `[dependencies] medulla-types` line above instead,
+# because this crate's own `geo` feature is NOT the only thing that can turn
+# `medulla-types/geo` on in the build graph (see that line's comment) and `exec.rs`'s
+# `where_clause` match needs the variants to exist regardless. This feature therefore
+# now gates ONLY the real medulla-geo executor (`dep:medulla-geo` + the geometry-evaluating
+# functions behind `#[cfg(feature = "geo")]` in `exec.rs`), not the wire shape.
+geo = ["query", "dep:medulla-geo"]
+# Array / tensor modality (CONCEPT:MEDULLA-085): the `Op::TensorScan` SOURCE op (seed the
+# RowSet with a `layer`'s tensor-bearing nodes) + the `Op::TensorOp { kind }` TRANSFORM
+# op (apply medulla-tensor's slice/reduce/elementwise to each row's stored tensor). Pulls the
+# pure-Rust medulla-tensor leaf crate (only serde — NO BLAS/LAPACK/C dep) and turns on the
+# `tensor` wire variants in medulla-types. IMPLIES `query` (the ops live inside the
+# `query`-gated `Op` enum, beside the DataFusion FILTER leg). OFF by default; the facade
+# folds it into node/full but NEVER `pi`. A default/Pi build (neither feature) links no
+# medulla-tensor and drops the tensor arms.
+tensor = ["query", "dep:medulla-tensor", "medulla-types/tensor"]
+# GPU tensor-op dispatch seam (CONCEPT:MEDULLA-326) / real CUDA backend (CONCEPT:MEDULLA-327) for
+# medulla-tensor. `tensor-gpu` opts into the seam; `tensor-gpu-cuda` pulls the real cudarc
+# backend (dynamic-loading — no CUDA toolkit to build). OUT of pi/full.
+tensor-gpu = ["tensor", "medulla-tensor/gpu"]
+tensor-gpu-cuda = ["tensor-gpu", "medulla-tensor/gpu-cuda"]
+# Event-stream + complex-event-processing (CEP) modality (CONCEPT:MEDULLA-088): the
+# `Op::Cep { pattern }` TRANSFORM op — interpret the input RowSet's rows as a
+# time-ordered event stream (each row's node blob carries `ts`/`key`/`attrs`), run the
+# medulla-stream bounded NFA (Sequence/Within/Absence over sliding/tumbling windows), and keep
+# the rows that participate in a match. Pulls the medulla-stream leaf crate with its OWN
+# `stream` feature ON — which additionally builds the LIVE standing-query engine
+# (`medulla_stream::live`, tokio broadcast fan-out) so node/full serve push CEP subscriptions,
+# not just the batch op. The batch executor here uses only medulla-stream's always-on batch API;
+# tokio arrives solely via `medulla-stream/stream`, and node/full already link tokio (server).
+# Turns on the `stream` wire variant in medulla-types. IMPLIES `query` (the op lives inside the
+# `query`-gated `Op` enum, beside the DataFusion FILTER leg). OFF by default; the facade
+# folds it into node/full but NEVER `pi` — a default/Pi build (neither feature) links no
+# medulla-stream and drops the CEP arm. MEDULLA-067 `Op::Window` is the plan-side windowing
+# primitive; wiring the MEDULLA-064 CDC bus + a subscription surface into the server is the
+# documented follow-up.
+stream = ["query", "medulla-stream/stream", "medulla-types/stream"]
+# Probabilistic / uncertainty query op (CONCEPT:MEDULLA-086): the `Op::Probabilistic { query }`
+# TRANSFORM op — score each row by a closed-form probabilistic query over its stored
+# `Distribution` value (expectation / marginal / conditional posterior mean / seeded
+# sample) and re-order by that score. Pulls medulla-compute's `reasoning` domain for the
+# conjugate `bayesian_update`; the `Distribution` VALUE + its moment/pdf/quantile/sample
+# methods live in medulla-types (always compiled). Turns on the `probabilistic` wire variant in
+# medulla-types. IMPLIES `query` (the op lives inside the `query`-gated `Op` enum, beside the
+# DataFusion FILTER leg). medulla-compute depends only on medulla-core/medulla-types — no dependency
+# cycle. OFF by default; a default/Pi build links no medulla-compute reasoning here and drops
+# the arm.
+# FOLD: opt-in; deliberately NOT added to any facade tier aggregate (node/full/pi).
+probabilistic = [
+    "query",
+    "medulla-types/probabilistic",
+    "dep:medulla-compute",
+    "medulla-compute/reasoning",
+]
+# KAN-learned cardinality-estimate correction (CONCEPT:MEDULLA-KG.query.adaptive-reoptimization, W4.12
+# phase 2 — "planner feedback + learned costs"): an online, per-op-kind correction —
+# medulla-compute's polynomial-basis `KanEdgeFn` (the SAME primitive W4.2's graphlearn
+# link-predictor trains, reused here) — trained continuously from the `(estimated,
+# actual)` pairs the auto-wired adaptive-reopt loop already observes each op, nudging
+# FUTURE `ModalityCardinality::rows_out` estimates toward what the graph actually does.
+# Pulls medulla-compute's `graphlearn` domain (pure-Rust, no heavy dep — implies
+# `datascience` ⇒ `dep:rand_chacha` only; NOT the `ast`/tree-sitter tier). Compile-time
+# opt-in ONLY compiles the capability in; it stays inert until the runtime flag
+# `MEDULLA_LEARNED_COST=1` is ALSO set (see `learned_cost::enabled`), so a
+# default/Pi build — and a `learned-cost` build that hasn't flipped the runtime flag —
+# are byte-for-byte the pre-existing static-estimate behavior.
+# FOLD: opt-in; deliberately NOT added to any facade tier aggregate (node/full/pi).
+learned-cost = ["query", "dep:medulla-compute", "medulla-compute/graphlearn"]
+# Engine-native epistemic query surface (CONCEPT:MEDULLA-KG.epistemic.epistemic-substrate, E2): the
+# `Op::{EvidenceFor,Contradicts,SupportedBy,BeliefAsOf,SourceReliability,ConfidenceOp,
+# ExplainBelief}` ops — belief propagation + justification IN-PLAN, composing with the
+# graph/vector/relational legs in ONE plan. Pulls the medulla-epistemic leaf crate (pure Rust:
+# medulla-types + medulla-core + medulla-compute/reasoning — no heavy dep, no cycle: medulla-epistemic does NOT
+# depend on medulla-plan) and turns on the `epistemic` wire variants in medulla-types (the SAME feature
+# name medulla-types already uses for the E6 `as_claim` mining gate — this just adds MORE variants
+# under it). IMPLIES `query` (the ops live inside the `query`-gated `Op` enum, beside the
+# probabilistic/tensor/geo legs). OFF by default; the facade folds it in alongside `mining`
+# (mirroring the medulla-kvcache/medulla-lake tier-wiring convention) — never forced into `pi`.
+#
+# ALSO (X1, CONCEPT:E3/E4): enables governed per-row evidence resolution in
+# `KnowledgeSet::from_rowset`. Query execution accepts only a complete, validated
+# `evidence_locus` committed by ingestion; it never invents identity, policy, lineage,
+# or a location from a raw modality value. `medulla-modality` is an unconditional,
+# dependency-light type dependency below, so `KnowledgeRow::evidence_refs` has the
+# same `Vec<EvidenceLocus>` shape in every build. Without `epistemic`, the vector is
+# empty; with it, malformed or incomplete loci are rejected rather than downgraded.
+epistemic = [
+    "query",
+    "medulla-types/epistemic",
+    "dep:medulla-epistemic",
+]
+# Contribution attribution (EH-523): the `ATTRIBUTE` stage's executor — linear split,
+# exact/sampled Shapley and Owen values over the incoming rows — is medulla-numeric's
+# attribution kernel. medulla-numeric pulls nalgebra + ndarray (pure Rust, no BLAS/pyo3), so
+# it stays out of the Pi tier; without this feature the stage is refused at parse time
+# (`UQL_FEATURE_NOT_IN_BUILD`) and at execution.
+numeric = ["query", "dep:medulla-numeric"]
+# Natural-language → query planning seam (CONCEPT:MEDULLA-078) + the concrete standalone
+# `UreqNlPlanner` (CONCEPT:MEDULLA-080). The `NlPlanner` trait + `plan_and_execute*` helpers
+# only touch the existing `uql::parse` + `execute`, so this IMPLIES `query`. The concrete
+# planner POSTs to an OpenAI-compatible endpoint over the SAME pure-Rust rustls client
+# `ureq` the `federation` sources already pull — NO new HTTP client, NO openssl. It also
+# pulls `rustls` DIRECTLY (pinned to the `ring` provider ureq already uses, for the
+# per-endpoint custom-CA / insecure TLS policy) plus the pure-Rust leaf crates
+# Rustls' maintained PKI types/webpki roots (CA parsing/roots) and `base64` (HTTP-Basic token
+# exchange) — still NO openssl / NO aws-lc / NO C toolchain. OFF by default; the facade
+# folds it into node/full but NEVER `pi` (the Pi contract: a `pi` build links no
+# ureq/rustls/ring).
+nl-query = [
+    "query",
+    "dep:ureq",
+    "dep:rustls",
+    "dep:webpki-root-certs",
+    "dep:base64",
+]
+# Lane B physical PARALLEL runtime (CONCEPT:MEDULLA-KG.query.parallel-runtime): the rayon-morsel,
+# memory-accounted, spilling `ParallelDriver` behind the Lane-0 `Driver` seam. Pulls the
+# pure-Rust `rayon` work-stealing pool (no C dep, same pin as medulla-ann/medulla-compute). IMPLIES
+# `query` (the runtime schedules the `query`-gated physical fns). OFF by default — a
+# default/Pi build links no rayon and `execute_ops` dispatches to the serial `SerialDriver`,
+# byte-for-byte the prior fold. Tuned via `MEDULLA_EXEC_THREADS` (pool width / morsel
+# fan-out) and `MEDULLA_EXEC_SPILL_MB` (per-intermediate spill budget). NEVER folded
+# into `pi`.
+par-runtime = ["query", "dep:rayon"]
+# Arrow-columnar `KnowledgeBatch` (CONCEPT:MEDULLA-P1-2, P1 roadmap feedback): a
+# RecordBatch-backed columnar projection of `KnowledgeSet` — entity/artifact id,
+# N named `Float32` score columns, calibrated confidence, typed evidence-ref
+# columns (an `evidence_kind` tag + a real Arrow `List<Utf8>` of per-locus JSON,
+# covering every `EvidenceAddress` granularity: text span, table cell, image pixel
+# region, audio/video interval/frame, code symbol, trace span), bitemporal
+# valid/tx-time columns, provenance (`source_refs`)/policy-label `List<Utf8>`
+# columns (plus transformation/proof/alternative/contradiction id lists), lazy
+# blob-handle columns (an opaque handle, never raw bytes), and native bounded streams
+# for graph, SQL, RDF, vector, time-series, jobs, and cross-modal results. IMPLIES `query`
+# (it builds FROM `KnowledgeSet`, itself `query`-gated). Pulls `arrow`, pinned to
+# the SAME version (`53`) medulla-lake's `lake` feature already carries, so this shares
+# the lockfile footprint rather than adding a second Arrow version. OFF by
+# default at this crate layer; facade `full` enables it. A default/Pi build links NO
+# Arrow (verify with `cargo tree -p medulla-plan`) — the small-footprint contract stays intact.
+knowledge-batch = ["query", "dep:arrow"]
+
+[dependencies]
+# The plan AST (Op/Pred/Plan) is the wire DTO, defined in medulla-types behind its
+# `query` feature — but it is pure serde (NO DataFusion), so medulla-plan ALWAYS enables
+# it: the algebra + cost model + IR compile dep-free in a default/Pi build. Only the
+# DataFusion FILTER leg (medulla-query, below) is gated behind medulla-plan's own `query`.
+#
+# NE-216: `geo` is enabled here UNCONDITIONALLY for the SAME reason as `query` — it is
+# pure serde on medulla-types' side (`medulla-types/Cargo.toml`: `geo = ["query"]`, no medulla-geo, no
+# heavy dep; it only adds the `Pred::Spatial*`/`Op::Spatial*` wire variants), so turning
+# it on here costs a default/Pi build nothing. It must NOT be conditioned on medulla-plan's
+# OWN optional `geo` feature (below): Cargo features are additive/unified per resolved
+# crate, and `medulla-capabilities` — a leaf crate that does NOT depend on medulla-plan at all —
+# separately force-enables `medulla-types/geo` (and several other medulla-types wire features)
+# unconditionally whenever it is linked (any `server` build), so its OWN `policy()`
+# exhaustive `Method` match sees every variant. That means `medulla-types/geo` can be ON in
+# the build graph with medulla-plan's `geo` feature OFF (`server,redb,query,security`, no
+# `geo`, is exactly this case) — Cargo has no way to make a dependency's feature force a
+# feature on the crate depending on it, so the only sound fix is for medulla-plan to request
+# the wire variant itself, always, exactly like `query`. `exec.rs`'s `where_clause`
+# match over `Pred` (and `filter_op`'s spatial/relational partition) rely on this: they
+# are written to be EXHAUSTIVE with no wildcard, so the variant's existence here must
+# never depend on medulla-plan's own `geo` feature — only the REAL medulla-geo executor (dep:medulla-geo
+# below, gated by medulla-plan's `geo`) does.
+medulla-types = { path = "../medulla-types", features = ["query", "geo"] }
+medulla-core = { path = "../medulla-core" }
+# The `ModalityContract` trait + the `EvidenceLocus` shape (CONCEPT:E4/X1). Sits at
+# the SAME DAG level as `medulla-types` (its own deps = `medulla-types` only, per its crate
+# docs), so an UNCONDITIONAL dep here adds no new transitive weight and lets
+# `KnowledgeRow::evidence_refs` be `Vec<medulla_modality::EvidenceLocus>` regardless of
+# feature — only the `epistemic` feature (below) populates it; a default/Pi build's
+# `evidence_refs` stays the empty `Vec` it always was.
+medulla-modality = { path = "../medulla-modality" }
+# Targeted tracing for the adaptive-reopt runtime-feedback loop
+# (CONCEPT:MEDULLA-KG.query.adaptive-reoptimization, `exec::run_with_adaptive_reopt`): a
+# `tracing::debug!` event per op with `(op, estimate, actual, reopt)` fields — a
+# no-op facade until a subscriber is installed, so this adds no runtime cost to a
+# default build. SAME version pin `medulla-core`/`medulla-compute`/the facade already use.
+# Optional + tied to `query` (the only feature that compiles `exec.rs`), so a
+# default/Pi build links none of it.
+tracing = { version = "0.1", optional = true }
+# The relational FILTER leg is real DataFusion via medulla-query's schema-on-read
+# `nodes` provider — gated behind `query` so a default build links none of it.
+medulla-query = { path = "../medulla-query", optional = true }
+# The WASM UDF runtime backing the `Udf` op (feature `wasm-udf`, CONCEPT:KG-2.228).
+# Optional + only referenced under #[cfg(feature = "wasm-udf")]; a default/Pi build
+# links no wasmtime/cranelift.
+medulla-wasm = { path = "../medulla-wasm", optional = true }
+# The lexical BM25 index + RRF fusion (feature `text`, CONCEPT:KG-2.215). Optional +
+# only referenced under #[cfg(feature = "text")], so a default/Pi build links no
+# medulla-text and therefore no Tantivy/zstd-sys (verified by `cargo tree`).
+medulla-text = { path = "../medulla-text", optional = true }
+# The native OWL 2 EL⁺ reasoner + SPARQL evaluator backing the `Reason`/`SparqlBgp`
+# SOURCE ops (feature `owl`, CONCEPT:KG-2.220). Optional + only referenced under
+# #[cfg(feature = "owl")]; pure-Rust (oxrdf/oxttl/spargebra), so it adds NO native dep
+# (a default/Pi build links none of it).
+medulla-rdf = { path = "../medulla-rdf", optional = true }
+# EH-196 — the SHACL engine behind the UQL `VALIDATE SHAPE` stage (`owl` feature: the
+# semantic plan ops share one gate). Pure Rust; its medulla-rdf/spargebra deps are already
+# pulled by `owl`.
+medulla-shacl = { path = "../medulla-shacl", optional = true }
+# The pure-Rust spatial modality (geometry + WKT + planar predicates + packed Hilbert
+# R-tree) backing the `SpatialScan` op + spatial `Pred`s (feature `geo`, CONCEPT:MEDULLA-083).
+# Optional + only referenced under #[cfg(feature = "geo")]; only-serde leaf crate (NO
+# GEOS/PROJ/C dep), so a default/Pi build links none of it.
+medulla-geo = { path = "../medulla-geo", optional = true }
+# The pure-Rust array / tensor modality (dense N-D array + slice/reduce/elementwise/
+# reshape + byte-blob codec) backing the `TensorScan` / `TensorOp` ops (feature
+# `tensor`, CONCEPT:MEDULLA-085). Optional + only referenced under #[cfg(feature = "tensor")];
+# only-serde leaf crate (NO BLAS/LAPACK/C dep), so a default/Pi build links none of it.
+medulla-tensor = { path = "../medulla-tensor", optional = true }
+# The conjugate Bayesian-update / marginal / fusion helpers (medulla-compute's pure-Rust
+# `reasoning` domain) backing the `Op::Probabilistic` op (feature `probabilistic`,
+# CONCEPT:MEDULLA-086). Optional + only referenced under #[cfg(feature = "probabilistic")];
+# medulla-compute depends only on medulla-core/medulla-types (no heavy dep, no medulla-plan back-edge → no
+# cycle), so a default/Pi build links none of it. ALSO activated by `query` (CONCEPT:
+# MEDULLA-KG.query.approx-distinct-cardinality, W4.5/N5): `PlanStats`'s `DistinctStats` uses
+# `medulla_compute::sketch::HyperLogLog` for approx-distinct cardinality. This is NOT a new
+# heavy-dep boundary for `query` — that feature already forces `medulla-query/sql` (DataFusion +
+# Arrow), so medulla-compute's lightweight base (rayon/sha2/hex/rand on top of the
+# already-required medulla-core/medulla-types) adds nothing to the Pi-tier budget question.
+medulla-compute = { path = "../medulla-compute", optional = true }
+# The engine-native epistemic layer (claims/evidence/belief-state, confidence propagation,
+# justification) backing the `Op::{EvidenceFor,Contradicts,SupportedBy,BeliefAsOf,
+# SourceReliability,ConfidenceOp,ExplainBelief}` ops (feature `epistemic`, CONCEPT:MEDULLA-KG.epistemic.epistemic-substrate,
+# E2). Optional + only referenced under #[cfg(feature = "epistemic")]; depends only on
+# medulla-types/medulla-core/medulla-compute (no medulla-plan back-edge → no cycle), so a default/Pi build
+# links none of it.
+medulla-epistemic = { path = "../medulla-epistemic", optional = true }
+# The attribution kernel behind `ATTRIBUTE` (feature `numeric`, EH-523) and the `SKILL`
+# stage's predictive-skill report (EH-522, feature `timeseries`). Optional + only
+# referenced under those features; medulla-numeric depends on medulla-types alone (no
+# medulla-plan back-edge → no cycle).
+medulla-numeric = { path = "../medulla-numeric", optional = true }
+# The pure-Rust event-stream + CEP modality (bounded NFA over sliding/tumbling windows —
+# Sequence/Within/Absence + per-event attribute predicates) backing the `Cep` op (feature
+# `stream`, CONCEPT:MEDULLA-088). Optional + only referenced under #[cfg(feature = "stream")];
+# serde + serde_json only (NO tokio/async/C dep), so a default/Pi build links none of it.
+medulla-stream = { path = "../medulla-stream", optional = true }
+# The native time-series windowed-aggregate primitives (`time_bucket`/`aggregate`)
+# backing `Op::Window`/`Op::SensorFuse` + the durable `SeriesStore` backing `Op::TsScan`
+# (feature `timeseries`, CONCEPT:MEDULLA-067/MEDULLA-363). Optional + only referenced under
+# #[cfg(feature = "timeseries")], which turns on medulla-tsdb's `redb-store` feature so the
+# `SeriesStore` read type is available. The query primitives are medulla-core/medulla-compute only
+# (no DataFusion); `redb-store` adds pure-Rust redb (no C dep, no pyo3). A default/Pi build
+# links none of it. medulla-tsdb does NOT depend on medulla-plan — no dependency cycle.
+medulla-tsdb = { path = "../medulla-tsdb", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+# `float_roundtrip`: UQL's JSON literals (`JSON '[…]'`, JSONPath/CEP values) must parse back to
+# the EXACT f64 the printer wrote (UQL-06 print/parse identity). serde_json's default float
+# parser can be off by one ulp on 17-digit inputs; this feature makes it correctly rounded.
+# It only makes parsing more exact (feature unification applies it workspace-wide).
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
+rmp-serde = "1.3"
+# ── federation (CONCEPT:KG-2.232) — all optional + only referenced under
+# #[cfg(feature = "federation")], so a default/Pi build links NONE of them. ──
+# Pure-Rust HTTP client with the rustls TLS backend (NOT openssl). `ureq` 3.x bundles
+# rustls + webpki-root-certs through its default features; defaults stay enabled so
+# https works out of the box, but it is rustls/ring — no openssl in the tree.
+ureq = { version = "3.4.2", optional = true }
+# Per-endpoint TLS control for the `nl-query` planner (CONCEPT:MEDULLA-KG.query.nl-tls-insecure):
+# a custom PEM CA bundle augments the standard roots without disabling verification.
+# Pinned to the SAME `ring` provider ureq already links (NO aws-lc / NO C toolchain — the
+# Pi-tier pure-Rust contract). Rustls' PKI parser and `webpki-roots` are pure Rust.
+# `base64` encodes the HTTP-Basic token-exchange credentials. All OFF by default (only
+# referenced under #[cfg(feature = "nl-query")]).
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "tls12",
+    "logging",
+], optional = true }
+webpki-root-certs = { version = "1.0.10", optional = true }
+base64 = { version = "0.23", optional = true }
+# HMAC-SHA256 auth token for the remote-engine source — the SAME scheme src/server/auth.rs
+# computes. Same pins as the facade.
+hmac = { version = "0.12", optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
+# ── external-SQL federation (CONCEPT:KG-2.239, feature `federation-sql`) — optional +
+# only referenced under #[cfg(feature = "federation-sql")], so a default/Pi/`federation`
+# build links NEITHER, and a `pi` tree carries no sqlx/postgres/mysql. ──
+# `sqlx` with the rustls ring backend and native trust roots — NEVER OpenSSL. SQLx
+# 0.9 separates runtime and TLS selection, so both features are explicit.
+# `postgres` + `mysql` give two dialects through one async API; `macros`/`migrate` are
+# off (no compile-time DB / no proc-macro). default-features = false drops the native-tls
+# default so the only TLS in the tree is rustls.
+sqlx = { version = "0.9", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls-ring-native-roots",
+    "postgres",
+    "mysql",
+], optional = true }
+# A small current-thread tokio runtime to drive sqlx's async API from the SYNC `fetch()`
+# (which the executor already runs on the blocking pool). Minimal feature set — NOT
+# "full".
+tokio = { version = "1.53", features = ["rt", "net", "time"], optional = true }
+# Stream rows through a hard cardinality bound instead of `fetch_all`-allocating an
+# attacker-controlled result. `sink`/`io` are unnecessary for this read-only source.
+futures-util = { version = "0.3", default-features = false, features = ["std"], optional = true }
+# Parse the complete external statement before SQLx's explicit `AssertSqlSafe` seam.
+# The parser is already present in full/query builds through DataFusion; naming it here
+# makes the security contract direct rather than relying on a transitive dependency.
+sqlparser = { version = "0.62", features = ["visitor"], optional = true }
+url = { version = "2", optional = true }
+# Variable-length-hop TRAVERSE BFS over GraphView's StableDiGraph (EdgeRef). Already
+# linked transitively via medulla-core; pin the same minor. NOT a new heavy dep, and the
+# graph leg is dep-free (ships in a default/Pi build).
+petgraph = { version = "0.8.3", features = ["serde-1"] }
+# The work-stealing data-parallel pool backing the `par-runtime` `ParallelDriver` (Lane B,
+# CONCEPT:MEDULLA-KG.query.parallel-runtime). Optional + only referenced under
+# #[cfg(feature = "par-runtime")]; pure-Rust (no C dep), same pin as medulla-ann/medulla-compute. A
+# default/Pi build links no rayon.
+rayon = { version = "1.12", optional = true }
+# Arrow columnar backing for `KnowledgeBatch` (feature `knowledge-batch`,
+# CONCEPT:MEDULLA-P1-2). Same Arrow 58.3 pin as the query/TSDB surface, so this does
+# not introduce a second Apache Arrow version into the workspace lock. Optional + only
+# referenced under #[cfg(feature = "knowledge-batch")]; a default/Pi build links
+# none of it.
+arrow = { version = "58.4", optional = true }
+
+[dev-dependencies]
+# The oracle/algebra tests build a fixture GraphCore + SemanticStore and run the
+# DataFusion FILTER leg, so the test target needs the `query` feature on.
+medulla-query = { path = "../medulla-query", features = ["sql"] }
+# `tsdb_scan_tests` opens a real `SeriesStore`, which under RF-RULING-004 needs the
+# composition root's `ScopeGrantVerifier`. medulla-tsdb ships one for exactly this behind
+# its off-by-default `dev-scope-grant` feature; naming it here turns it on for the
+# TEST build only, so medulla-plan's own build still links no development authority.
+medulla-tsdb = { path = "../medulla-tsdb", features = ["dev-scope-grant"] }
+# The query-surface INTEGRATION test harness (`tests/*.rs`, CONCEPT:MEDULLA-400..405) is an
+# EXTERNAL crate against medulla-plan's public API, so it must name the fixture/currency
+# crates directly (integration tests see only the crate-under-test + its dev-deps, NOT
+# its regular deps). medulla-core builds the GraphCore/SemanticStore fixtures; medulla-types names
+# the `TimeAxis` the `AsOf` builder needs; serde_json/rmp-serde encode node blobs.
+medulla-core = { path = "../medulla-core" }
+medulla-types = { path = "../medulla-types", features = ["query", "test-support"] }
+serde_json = "1.0"
+rmp-serde = "1.3"
+# `federation_tests`' env-serialization token. A lock that guards `()` has no state a
+# panicking holder could break, so it uses parking_lot's non-poisoning Mutex (already in
+# the workspace lock through medulla-core) instead of recovering a std poison.
+parking_lot = "0.12"
+# Property-based generation of VALID UQL pipelines (CONCEPT:MEDULLA-402): random valid op
+# sequences → determinism / snapshot-isolation / algebraic-law proofs.
+proptest = "1"
+# Plan-snapshot regression (CONCEPT:MEDULLA-403): the logical plan + the cost-reorder output
+# are snapshotted so a lowering OR optimizer-quality regression trips the snapshot.
+insta = "1"
+# The owl compose-oracle test loads an OWL ontology + individuals via the medulla-rdf
+# mapping and reasons over it, so the test target names medulla-rdf directly with its
+# owl/sparql surfaces. (Only compiled with `--features owl`.)
+medulla-rdf = { path = "../medulla-rdf", features = ["owl", "sparql"] }
+# The `Udf` op test compiles a tiny `.wat` fixture to wasm in-test (only with
+# `--features wasm-udf`). The sandbox itself never needs a text parser — only the test.
+wat = "1"
+# Criterion drives the hybrid-query latency + vector-recall benches (CONCEPT:MEDULLA-KG.query.hybrid-latency-benches + MEDULLA-KG.query.recall-oracle-bench).
+# It is a `harness = false` bench target gated on `required-features = ["query"]`, so a
+# default `cargo bench -p medulla-plan` skips it (no execute leg) and the CI perf gate runs it
+# with the full feature set. `default-features = false` drops criterion's optional
+# `rayon`/HTML plotting deps the gate does not need.
+criterion = { version = "0.8", default-features = false }
+
+# ── Perf / recall CI benchmark (CONCEPT:MEDULLA-KG.query.hybrid-latency-benches/recall-oracle-bench/synthetic-bench-dataset) ──────────────────────────
+# Representative hybrid pipelines (MATCH→TRAVERSE→RANK, REASON→RANK→TRAVERSE,
+# TsScan→WINDOW, FUSE) measured for latency (criterion p50/mean) + the vector leg's
+# recall@k vs a brute-force cosine oracle over a fixed deterministic synthetic dataset.
+# `required-features = ["query"]` so a default `cargo bench -p medulla-plan` cleanly SKIPS it
+# (the `execute` leg is `query`-gated); the CI perf job builds it with the full feature
+# set. The optional-feature benches (owl / text / timeseries) are `#[cfg]`-gated inside.
+[[bench]]
+name = "hybrid_queries"
+path = "benches/hybrid_queries.rs"
+harness = false
+required-features = ["query"]
+
+# ── Adaptive re-optimization skew bench (CONCEPT:MEDULLA-KG.query.adaptive-reoptimization, W4.12
+# phase 1) ─────────────────────────────────────────────────────────────────────────────
+# A skewed hub-fan-out fixture (the SAME shape `tests.rs`'s
+# `adaptive_reopt_auto_wires_into_ordinary_execution` proves triggers a real reorder,
+# scaled up for a measurable wall-clock delta) run through the ordinary, auto-wired
+# `Plan::execute` twice: once with the runtime feedback loop enabled (the default) and
+# once with it disabled (`MEDULLA_COST_OPT=0`, the pre-adaptive-reopt behavior) —
+# proving the mid-plan re-optimization is not just correct (already proven by the unit/
+# integration tests) but a genuine PERFORMANCE win on data whose skew a plan-time-only
+# estimate cannot see. `required-features = ["query"]` only — no learned-cost needed.
+[[bench]]
+name = "adaptive_reopt"
+path = "benches/adaptive_reopt.rs"
+harness = false
+required-features = ["query"]
+
+# ── Filtered ranking stage costs (EH-565) ─────────────────────────────────────────────
+# Scan / scan+filter / filtered BM25 / filtered vector rank over a 20k-doc corpus shaped
+# like the pinned HelixDB comparison corpus, one criterion group per stage.
+[[bench]]
+name = "filtered_rank"
+path = "benches/filtered_rank.rs"
+harness = false
+required-features = ["query", "text"]
+
+# ── Integration test targets, explicitly gated (D-EGTC-10 / w5-medulla-ci-truly-green) ──
+# Every file under `tests/` names `query`-gated (or narrower) public API
+# (`execute`/`PlanCtx`/`PlanDag`/`Circuit`/`federation::ForeignSourceRegistry`/
+# `learned_cost_artifacts`/…) directly at module scope, so it cannot compile at all
+# under the crate's own `default = []` (the Pi contract: a default build links no
+# DataFusion). Cargo auto-discovers every `tests/*.rs` file as an implicit test
+# target with NO required-features, so a plain `cargo test -p medulla-plan` (no feature
+# flags) tried to build every one of them and failed the ENTIRE crate's test
+# build — not just the one file a given error happened to name. Declaring each
+# target explicitly here, mirroring the `[[bench]]` targets above, makes a default
+# `cargo test -p medulla-plan` cleanly SKIP them (same as `cargo bench` already does)
+# instead of erroring; CI's `--features "query,owl,text,timeseries,federation"`
+# invocation (`.github/workflows/rust-ci.yml`) is unaffected — every required
+# feature it asks for is already enabled there.
+[[test]]
+name = "composition_matrix"
+path = "tests/composition_matrix.rs"
+required-features = ["query"]
+
+[[test]]
+name = "dag_multibranch_proptest"
+path = "tests/dag_multibranch_proptest.rs"
+required-features = ["query"]
+
+[[test]]
+name = "dag_oracle"
+path = "tests/dag_oracle.rs"
+required-features = ["query"]
+
+[[test]]
+name = "differential_oracle"
+path = "tests/differential_oracle.rs"
+required-features = ["query"]
+
+# Names `medulla_plan::federation::ForeignSourceRegistry` directly — `federation`
+# specifically (not just `query`), matching the module's own `#[cfg(feature =
+# "federation")]` gate in `src/lib.rs`.
+# MEDULLA-DURABLE-KERNEL-R024 rollup proof — names `federation_age` (under
+# `federation-sql`) plus the `federation`-gated unbound source/mirror-target
+# entry points; the AGE half is cfg-gated inside the file so `federation`
+# alone still compiles it. Target named without the row-id shorthand so the
+# tracked-artifact privacy gate stays clean.
+[[test]]
+name = "federation_rollup_backends"
+path = "tests/federation_rollup_backends.rs"
+required-features = ["federation"]
+
+[[test]]
+name = "fuzz_pipelines"
+path = "tests/fuzz_pipelines.rs"
+required-features = ["federation"]
+
+[[test]]
+name = "incremental_execute_oracle"
+path = "tests/incremental_execute_oracle.rs"
+required-features = ["query"]
+
+[[test]]
+name = "incremental_o_delta"
+path = "tests/incremental_o_delta.rs"
+required-features = ["query"]
+
+[[test]]
+name = "incremental_oracle"
+path = "tests/incremental_oracle.rs"
+required-features = ["query"]
+
+# Names `learned_cost_artifacts`/`CostCorrectionArtifact`/`LearnedCostStore`,
+# gated on `learned-cost` in `src/lib.rs` (which itself implies `query`).
+[[test]]
+name = "learned_cost_ab"
+path = "tests/learned_cost_ab.rs"
+required-features = ["learned-cost"]
+
+[[test]]
+name = "plan_proptest"
+path = "tests/plan_proptest.rs"
+required-features = ["query"]
+
+[[test]]
+name = "plan_snapshots"
+path = "tests/plan_snapshots.rs"
+required-features = ["query"]
+
+# EH-450 — epistemic + FUSE + AS OF through UQL text (with `WITH KNOWLEDGE`), the
+# structured plan, and the separate single-modality surfaces fused by the caller.
+[[test]]
+name = "knowledge_oracle"
+path = "tests/knowledge_oracle.rs"
+required-features = ["epistemic", "text"]
+
+# Needs `KnowledgeBatchRow` (feature `knowledge-batch`); without it the file does
+# not compile.
+[[test]]
+name = "result_stream_memory"
+path = "tests/result_stream_memory.rs"
+required-features = ["knowledge-batch"]

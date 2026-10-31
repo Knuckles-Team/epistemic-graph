@@ -14,7 +14,7 @@ use super::*;
 
 fn prepare_graph_entry(
     store: &AgentLibraryStore,
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+    txn: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
     request: &AgentGraphPublishRequest,
     next_revision: u64,
     replay_context: &AgentLibraryMutationContext,
@@ -25,7 +25,7 @@ fn prepare_graph_entry(
         request.graph.clone(),
         composition.total_work,
         next_revision,
-        eg_types::agent_library::AgentLibraryLifecycle::Published,
+        medulla_types::agent_library::AgentLibraryLifecycle::Published,
         replay_context.created_at_ms,
         replay_context.created_at_ms,
     )
@@ -42,7 +42,7 @@ impl AgentLibraryStore {
         require_context_tenant::<GraphLayer>(&request.context, &request.graph.tenant_id)?;
         let (expected_revision, owner) = revision_scope(self, &request.context, GraphLayer::NOUN)?;
         let txn = self.mutations.open_write(&owner)?;
-        let draft_digest = eg_types::agent_graph::draft_definition_digest(&request.graph);
+        let draft_digest = medulla_types::agent_graph::draft_definition_digest(&request.graph);
         write_revision::<GraphLayer>(
             self,
             txn,

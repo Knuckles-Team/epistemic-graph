@@ -1,12 +1,12 @@
 name: Build folded release wheel
 description: >-
   One complete release-wheel pass: build the medulla wheel from the
-  eg-pyengine PyO3 crate plus the pure-Python package (no server crate or bin
-  target is compiled), build the eg-numeric PyO3 module and fold it in,
+  medulla-pyengine PyO3 crate plus the pure-Python package (no server crate or bin
+  target is compiled), build the medulla-numeric PyO3 module and fold it in,
   normalize and privacy-audit the wheel, and require the result to be complete.
   The primary and reproduction passes in release.yml both run this, so the two
-  cannot drift apart. Reads EG_WHEEL_TARGET, EG_WHEEL_MANYLINUX,
-  EG_WHEEL_MATURIN_ARGS and EG_WHEEL_JOBS_ARG from the calling job's environment.
+  cannot drift apart. Reads MEDULLA_WHEEL_TARGET, MEDULLA_WHEEL_MANYLINUX,
+  MEDULLA_WHEEL_MATURIN_ARGS and MEDULLA_WHEEL_JOBS_ARG from the calling job's environment.
 inputs:
   pass:
     description: Output suffix for this pass (`primary` or `reproduction`).
@@ -29,19 +29,19 @@ runs:
       id: build-environment
       shell: bash
       env:
-        EG_PASS: ${{ inputs.pass }}
+        MEDULLA_PASS: ${{ inputs.pass }}
       run: |
-        target="${RUNNER_TEMP:?}/epistemic-graph-release-target"
-        if [ "${EG_PASS:?}" != primary ]; then
+        target="${RUNNER_TEMP:?}/medulla-release-target"
+        if [ "${MEDULLA_PASS:?}" != primary ]; then
           rm -rf -- "$target"
         fi
         mkdir -p "$target"
-        echo "CARGO_TARGET_DIR=$RUNNER_TEMP/epistemic-graph-release-target" >> "$GITHUB_ENV"
-        if [ "${EG_WHEEL_TARGET:-}" = aarch64-unknown-linux-gnu ]; then
+        echo "CARGO_TARGET_DIR=$RUNNER_TEMP/medulla-release-target" >> "$GITHUB_ENV"
+        if [ "${MEDULLA_WHEEL_TARGET:-}" = aarch64-unknown-linux-gnu ]; then
           echo "container=quay.io/pypa/manylinux_2_28_aarch64@sha256:acc4e63610fef1da3d687322793665205415c2b22c0d2e403f1a44eb834d63fc" >> "$GITHUB_OUTPUT"
           echo "maturin-version=1.15.0" >> "$GITHUB_OUTPUT"
         fi
-        case "${EG_WHEEL_TARGET:-}" in
+        case "${MEDULLA_WHEEL_TARGET:-}" in
           *-apple-darwin)
             echo "maturin-version=1.15.0" >> "$GITHUB_OUTPUT"
             ;;
@@ -54,11 +54,11 @@ runs:
       if: ${{ inputs.pass == 'primary' }}
       uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       with:
-        shared-key: eg-wheel-${{ env.EG_WHEEL_TARGET }}
-        workspaces: ". -> ${{ runner.temp }}/epistemic-graph-release-target"
+        shared-key: medulla-wheel-${{ env.MEDULLA_WHEEL_TARGET }}
+        workspaces: ". -> ${{ runner.temp }}/medulla-release-target"
         save-if: ${{ inputs.cache-save == 'true' }}
 
-    # The base wheel is the eg-pyengine PyO3 crate (`epistemic_graph.engine`) plus
+    # The base wheel is the medulla-pyengine PyO3 crate (`medulla.engine`) plus
     # the pure-Python package, selected by `[tool.maturin] manifest-path` in
     # pyproject.toml. Nothing that is not an extension module is compiled.
     - name: Build engine extension wheel
@@ -66,26 +66,26 @@ runs:
       with:
         args: >-
           --release
-          ${{ env.EG_WHEEL_JOBS_ARG }}
+          ${{ env.MEDULLA_WHEEL_JOBS_ARG }}
           --out dist-${{ inputs.pass }}
-          ${{ env.EG_WHEEL_MATURIN_ARGS }}
+          ${{ env.MEDULLA_WHEEL_MATURIN_ARGS }}
         container: ${{ steps.build-environment.outputs.container }}
         maturin-version: ${{ steps.build-environment.outputs.maturin-version }}
 
-    # ── Fold the eg-numeric Surface-A kernel INTO this same wheel (CONCEPT:EG-346).
-    #    Build the pyo3 cdylib kernel (`crates/eg-numeric --features python`) for the
+    # ── Fold the medulla-numeric Surface-A kernel INTO this same wheel (CONCEPT:MEDULLA-346).
+    #    Build the pyo3 cdylib kernel (`crates/medulla-numeric --features python`) for the
     #    SAME target, then inject its compiled extension (`.so`/`.pyd`) as
-    #    `epistemic_graph.numeric`. Result: ONE published `medulla` wheel that
-    #    ships BOTH extension modules and no executable -- no separate `eg-numeric`
+    #    `medulla.numeric`. Result: ONE published `medulla` wheel that
+    #    ships BOTH extension modules and no executable -- no separate `medulla-numeric`
     #    package on PyPI.
-    - name: Build eg-numeric kernel (same target)
+    - name: Build medulla-numeric kernel (same target)
       uses: ./.github/actions/release-maturin
       with:
         args: >-
           --release
-          ${{ env.EG_WHEEL_JOBS_ARG }}
+          ${{ env.MEDULLA_WHEEL_JOBS_ARG }}
           --out numdist-${{ inputs.pass }}
-          -m crates/eg-numeric/Cargo.toml
+          -m crates/medulla-numeric/Cargo.toml
           --features python
         container: ${{ steps.build-environment.outputs.container }}
         maturin-version: ${{ steps.build-environment.outputs.maturin-version }}

@@ -1,11 +1,11 @@
 """Live CEP standing-query round-trip against a live engine
-(CONCEPT:EG-KG.query.protocol-types,
+(CONCEPT:MEDULLA-KG.query.protocol-types,
 features `streaming` + `stream`, both folded into `full`).
 
 Proves the `StreamingClient.cep_subscribe` / `cep_poll` / `cep_unsubscribe` bindings
 (added for B-1 — the engine's live CEP surface, `Method::CepSubscribe`/`CepPoll`/
 `CepUnsubscribe`, was handler-complete and compiled into the default `full` build but
-had zero occurrences in `epistemic_graph/client.py`) actually work end-to-end over the
+had zero occurrences in `medulla/client.py`) actually work end-to-end over the
 SAME framed-MessagePack transport the rest of the client uses: subscribe a pattern,
 cause a matching mutation to flow through the CDC hub that feeds the live NFA engine,
 poll and receive the match, then unsubscribe. A subscribe call that merely returns a
@@ -20,13 +20,13 @@ import os
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
 
 @pytest.fixture
 def client():
     socket_path = os.environ["GRAPH_SERVICE_SOCKET"]
-    c = SyncEpistemicGraphClient.connect(
+    c = SyncMedullaClient.connect(
         socket_path=socket_path, verified_context=request_context()
     )
     c.graph.clear()
@@ -37,7 +37,7 @@ def test_cep_subscribe_poll_match_unsubscribe(client):
     g = "__commons__"
     # A one-step Sequence over an unbounded (size=0 -> span check disabled) sliding
     # window: matches every event keyed "Alert" -- the CDC label of an AddNode whose
-    # properties carry {"type": "Alert"} (src/server/cep.rs::feed_change / eg-core's
+    # properties carry {"type": "Alert"} (src/server/cep.rs::feed_change / medulla-core's
     # labels_of), exactly the same label semantics test_streaming_cdc.py's
     # watch/trigger tests already rely on.
     pattern = {"Sequence": [{"key": "Alert", "preds": []}]}
@@ -78,7 +78,7 @@ def test_cep_subscribe_poll_match_unsubscribe(client):
     # Unsubscribing an id that no longer exists reports False, not an error.
     assert client.streaming.cep_unsubscribe(sub_id) is False
 
-    # Polling a dropped subscription is an error (CONCEPT:EG-KG.query.protocol-types
+    # Polling a dropped subscription is an error (CONCEPT:MEDULLA-KG.query.protocol-types
     # docs this
     # explicitly), not a silent empty list.
     with pytest.raises(RuntimeError):
@@ -119,7 +119,7 @@ def test_cep_requires_admin_scope():
     # for anything but a verified admin (`authority.require_admin`). Prove that
     # gate is live over the wire, not just present in the handler source.
     socket_path = os.environ["GRAPH_SERVICE_SOCKET"]
-    non_admin = SyncEpistemicGraphClient.connect(
+    non_admin = SyncMedullaClient.connect(
         socket_path=socket_path,
         verified_context=request_context(roles=["test"], scopes=["read:only"]),
     )

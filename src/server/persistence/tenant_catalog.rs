@@ -1,9 +1,9 @@
 //! Tenant catalog — durable graph/tenant → shard (and future → node) map
-//! (CONCEPT:EG-KG.sharding.empty-catalog-routing, M3 catalog-driven resharding).
+//! (CONCEPT:MEDULLA-KG.sharding.empty-catalog-routing, M3 catalog-driven resharding).
 //!
 //! ## Why this exists
 //!
-//! EG-026 routes a graph to a durable shard with a STATELESS hash
+//! MEDULLA-026 routes a graph to a durable shard with a STATELESS hash
 //! (`FNV-1a(sanitized_name) % K`). That is correct and fast, but it is NOT
 //! rebalanceable: you cannot move ONE hot tenant off an overloaded shard without
 //! changing K and migrating every other graph too. For 100M agents/tenants across N
@@ -11,12 +11,12 @@
 //! explicit, mutable MAP — `tenant/graph → {shard, node}` — so a single tenant can be
 //! split/moved (online resharding) while everyone else stays put.
 //!
-//! ## The design that keeps EG-026 safe
+//! ## The design that keeps MEDULLA-026 safe
 //!
 //! This catalog is an **override layer**, not a replacement:
 //!
 //! * [`TenantCatalog::resolve_shard`] returns the catalog's explicit shard for a graph
-//!   IF one is assigned, **else falls back to the exact EG-026 `shard_index`**. So an
+//!   IF one is assigned, **else falls back to the exact MEDULLA-026 `shard_index`**. So an
 //!   EMPTY catalog is byte-for-byte identical to no catalog — pure FNV-1a. The routing
 //!   seam in [`super::redb_backend::RedbBackend::shard_for`] is gated on the catalog
 //!   being attached AND populated; the default deployment never sees a behavior change.
@@ -38,11 +38,11 @@ use std::sync::RwLock;
 use redb::{ReadableTable, ReadableTableMetadata, TableDefinition};
 use serde::{Deserialize, Serialize};
 
-/// The one owner table of `OwnerLayout::TenantCatalog`. `eg-storage` declares it (as
-/// `eg_storage::TenantCatalogOwner`); this module only names it (RF-RULING-004).
+/// The one owner table of `OwnerLayout::TenantCatalog`. `medulla-storage` declares it (as
+/// `medulla_storage::TenantCatalogOwner`); this module only names it (RF-RULING-004).
 /// Durable catalog table: `sanitized_graph_name → msgpack(ShardAssignment)`
-/// (CONCEPT:EG-KG.sharding.empty-catalog-routing). One row per explicitly-placed tenant/graph. A graph with NO row
-/// is routed by EG-026 FNV-1a, so the table only ever holds the *exceptions* to the
+/// (CONCEPT:MEDULLA-KG.sharding.empty-catalog-routing). One row per explicitly-placed tenant/graph. A graph with NO row
+/// is routed by MEDULLA-026 FNV-1a, so the table only ever holds the *exceptions* to the
 /// hash (moved / rebalanced tenants) — it does not have to enumerate all 100M graphs.
 const CATALOG: TableDefinition<&str, &[u8]> = TableDefinition::new("tenant_catalog");
 const MAX_CATALOG_ENTRIES: usize = 1_000_000;
@@ -54,9 +54,9 @@ const CATALOG_SCOPE_RESOURCE: &str = "tenant-catalog";
 const CATALOG_SCOPE_INCARNATION: &str = "tenant-catalog:v1";
 
 fn decode_assignment(bytes: &[u8]) -> Result<ShardAssignment, String> {
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(1024, 32, eg_types::msgpack::DEFAULT_MAX_DEPTH),
+        medulla_types::msgpack::MsgpackLimits::new(1024, 32, medulla_types::msgpack::DEFAULT_MAX_DEPTH),
     )
     .map_err(|_| "tenant catalog row is invalid or exceeds resource limits".to_string())
 }
@@ -69,12 +69,12 @@ fn validate_catalog_key(key: &str) -> Result<(), String> {
     }
 }
 
-/// Where a tenant/graph is placed (CONCEPT:EG-KG.sharding.empty-catalog-routing). `shard` is the durable redb shard
-/// index (matches EG-026's `graph-<shard>.redb`); `node` is the FUTURE cluster node id
+/// Where a tenant/graph is placed (CONCEPT:MEDULLA-KG.sharding.empty-catalog-routing). `shard` is the durable redb shard
+/// index (matches MEDULLA-026's `graph-<shard>.redb`); `node` is the FUTURE cluster node id
 /// for multi-node distribution (M3 distributed storage) — `None` today = "this node".
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShardAssignment {
-    /// Durable shard index this graph's rows live in (EG-026 `graph-<shard>.redb`).
+    /// Durable shard index this graph's rows live in (MEDULLA-026 `graph-<shard>.redb`).
     pub shard: u32,
     /// Cluster node owning the shard, for future multi-node distribution. `None` ⇒
     /// the local node (single-node today). Reserved for M3 distributed storage.
@@ -88,19 +88,19 @@ impl ShardAssignment {
     }
 }
 
-/// Durable, rebalanceable graph→shard map with a FNV-1a fallback (CONCEPT:EG-KG.sharding.empty-catalog-routing).
+/// Durable, rebalanceable graph→shard map with a FNV-1a fallback (CONCEPT:MEDULLA-KG.sharding.empty-catalog-routing).
 ///
 /// Thread-safe (an internal `RwLock`): the routing seam reads it on the hot write path,
 /// while `assign`/`reassign` mutate it off-band. Lookups are O(1) hash-map hits; the
 /// durable write (when backed) is a single small redb commit, off the per-op path.
 pub struct TenantCatalog {
     /// In-memory authoritative view (loaded from `durable` at open, written-through on
-    /// every mutation). Empty map ⇒ pure EG-026 routing.
+    /// every mutation). Empty map ⇒ pure MEDULLA-026 routing.
     entries: RwLock<HashMap<String, ShardAssignment>>,
     /// Optional durable backing (`catalog.redb`), served through the composition-root
     /// kernels (`SidecarStore`) rather than a directly-opened `redb::Database`. `None`
     /// ⇒ in-memory only.
-    durable: Option<crate::sidecar_store::SidecarStore<eg_storage::TenantCatalogOwner>>,
+    durable: Option<crate::sidecar_store::SidecarStore<medulla_storage::TenantCatalogOwner>>,
 }
 
 impl TenantCatalog {
@@ -114,8 +114,8 @@ impl TenantCatalog {
     }
 
     /// Open (or create) a durable catalog at `catalog.redb` under `persist_dir` and
-    /// load every assignment into memory (CONCEPT:EG-KG.sharding.empty-catalog-routing). A fresh dir yields an EMPTY
-    /// catalog ⇒ pure EG-026 routing until something is assigned.
+    /// load every assignment into memory (CONCEPT:MEDULLA-KG.sharding.empty-catalog-routing). A fresh dir yields an EMPTY
+    /// catalog ⇒ pure MEDULLA-026 routing until something is assigned.
     pub fn open(persist_dir: &str) -> Result<Self, String> {
         let path = std::path::Path::new(persist_dir).join("catalog.redb");
         let durable = crate::sidecar_store::SidecarStore::open(
@@ -146,16 +146,16 @@ impl TenantCatalog {
     }
 
     /// Explicit assignment for `graph_fname`, or `None` when the graph is routed by the
-    /// EG-026 hash (the common case). `graph_fname` must already be `sanitize`d — the
-    /// catalog keys on the same durable graph key EG-026 routes on.
+    /// MEDULLA-026 hash (the common case). `graph_fname` must already be `sanitize`d — the
+    /// catalog keys on the same durable graph key MEDULLA-026 routes on.
     pub fn lookup(&self, graph_fname: &str) -> Option<ShardAssignment> {
         self.entries.read().unwrap().get(graph_fname).copied()
     }
 
     /// Resolve the durable shard index for `graph_fname` against a live shard count `k`
-    /// (CONCEPT:EG-KG.sharding.empty-catalog-routing — the ROUTING SEAM). An explicit catalog entry wins (clamped into
+    /// (CONCEPT:MEDULLA-KG.sharding.empty-catalog-routing — the ROUTING SEAM). An explicit catalog entry wins (clamped into
     /// `0..k` so a stale/over-K entry can never index out of range); otherwise this is
-    /// the unchanged EG-026 `FNV-1a(graph_fname) % k`. Empty catalog ⇒ pure EG-026.
+    /// the unchanged MEDULLA-026 `FNV-1a(graph_fname) % k`. Empty catalog ⇒ pure MEDULLA-026.
     pub fn resolve_shard(&self, graph_fname: &str, k: usize) -> usize {
         let k = k.max(1);
         if let Some(a) = self.lookup(graph_fname) {
@@ -165,7 +165,7 @@ impl TenantCatalog {
     }
 
     /// Assign / re-place `graph_fname` onto `shard` (optionally on cluster `node`),
-    /// writing through to the durable table when backed (CONCEPT:EG-KG.sharding.empty-catalog-routing). This flips
+    /// writing through to the durable table when backed (CONCEPT:MEDULLA-KG.sharding.empty-catalog-routing). This flips
     /// the ROUTE only — moving an already-populated graph's rows to the new shard is
     /// online-resharding execution (remaining M3; see the design doc).
     pub fn assign(&self, graph_fname: &str, shard: u32, node: Option<u32>) -> Result<(), String> {
@@ -189,14 +189,14 @@ impl TenantCatalog {
         Ok(())
     }
 
-    /// Reassign `graph_fname` to a different `shard` (CONCEPT:EG-KG.sharding.empty-catalog-routing — the resharding
+    /// Reassign `graph_fname` to a different `shard` (CONCEPT:MEDULLA-KG.sharding.empty-catalog-routing — the resharding
     /// primitive). Preserves the existing `node` placement. Convenience over `assign`.
     pub fn reassign(&self, graph_fname: &str, new_shard: u32) -> Result<(), String> {
         let node = self.lookup(graph_fname).and_then(|a| a.node);
         self.assign(graph_fname, new_shard, node)
     }
 
-    /// Drop the explicit assignment for `graph_fname` (it reverts to EG-026 routing).
+    /// Drop the explicit assignment for `graph_fname` (it reverts to MEDULLA-026 routing).
     pub fn remove(&self, graph_fname: &str) -> Result<(), String> {
         validate_catalog_key(graph_fname)?;
         if let Some(durable) = &self.durable {
@@ -217,7 +217,7 @@ impl TenantCatalog {
         self.entries.read().unwrap().len()
     }
 
-    /// `true` when no tenant has an explicit placement ⇒ routing is pure EG-026.
+    /// `true` when no tenant has an explicit placement ⇒ routing is pure MEDULLA-026.
     pub fn is_empty(&self) -> bool {
         self.entries.read().unwrap().is_empty()
     }
@@ -234,10 +234,10 @@ impl TenantCatalog {
     }
 }
 
-/// Bundle the durable tenant→shard placement catalog (CONCEPT:EG-KG.sharding.empty-catalog-routing)
+/// Bundle the durable tenant→shard placement catalog (CONCEPT:MEDULLA-KG.sharding.empty-catalog-routing)
 /// into an online backup.
 ///
-/// When a catalog is attached its explicit placements OVERRIDE EG-026 hash routing, so a
+/// When a catalog is attached its explicit placements OVERRIDE MEDULLA-026 hash routing, so a
 /// restore that dropped `catalog.redb` would silently re-route every explicitly-placed
 /// graph back to its hash shard.
 impl super::durable_stores::BundledStoreSource for TenantCatalog {
@@ -260,7 +260,7 @@ impl super::durable_stores::BundledStoreSource for TenantCatalog {
             .open_owner_table(CATALOG)?
             .len()
             .map_err(|e| e.to_string())?;
-        let counts = eg_storage::backup_recovery_store(durable.kernel(), destination)?;
+        let counts = medulla_storage::backup_recovery_store(durable.kernel(), destination)?;
         Ok(rows.saturating_add(counts.batches))
     }
 
@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn empty_catalog_is_pure_fnv1a() {
-        // CONCEPT:EG-KG.sharding.empty-catalog-routing — an empty catalog must route IDENTICALLY to EG-026 for every
+        // CONCEPT:MEDULLA-KG.sharding.empty-catalog-routing — an empty catalog must route IDENTICALLY to MEDULLA-026 for every
         // graph, so attaching it is a no-op until something is assigned.
         let cat = TenantCatalog::in_memory();
         assert!(cat.is_empty());
@@ -340,8 +340,8 @@ mod tests {
 
     #[test]
     fn durable_catalog_survives_reopen() {
-        // CONCEPT:EG-KG.sharding.empty-catalog-routing — assignments persist to catalog.redb and reload on open.
-        let dir = std::env::temp_dir().join(format!("eg-catalog-{}", std::process::id()));
+        // CONCEPT:MEDULLA-KG.sharding.empty-catalog-routing — assignments persist to catalog.redb and reload on open.
+        let dir = std::env::temp_dir().join(format!("medulla-catalog-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         {
@@ -359,7 +359,7 @@ mod tests {
             })
         );
         assert_eq!(cat2.lookup("beta"), Some(ShardAssignment::local(5)));
-        // A fresh (different) dir is empty ⇒ pure EG-026.
+        // A fresh (different) dir is empty ⇒ pure MEDULLA-026.
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

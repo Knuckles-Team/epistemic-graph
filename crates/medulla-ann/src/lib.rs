@@ -1,0 +1,388 @@
+//! medulla-ann — native IVF-PQ + OPQ + SQ8-refine approximate-nearest-neighbour index
+//! (CONCEPT:MEDULLA-KG.sharding.semantic-embedding-store-backed).
+//!
+//! A pure-Rust, Pi-lean vector index for persisted and in-memory ANN search.
+//! The headline properties:
+//!
+//!   * **No-rebuild load** — `durable_codes::encode` → `durable_codes::decode`
+//!     restores an index through an O(N) integer posting-list pass; no k-means, no
+//!     graph reconstruction, no f32 touch (the spike's headline win,
+//!     productionised). The buffers are stored by whoever holds the durable
+//!     authority; this crate stores nothing.
+//!   * **Production recall** — an OPQ rotation + well-trained codebooks make raw
+//!     ADC candidates good, and an SQ8 (1 byte/dim) **refine tier** re-ranks the
+//!     over-fetched candidates to recover recall@10 ≥ 0.95 vs brute force.
+//!   * **Compression** — `m` bytes/vec PQ codes (32× at dim=768/m=96) for the ANN
+//!     bulk; the SQ8 refine tier adds `dim` bytes/vec (4× vs raw f32, mmappable).
+//!   * **Incremental** — IVF-list append insert, per-row tombstone delete, and a
+//!     `persist::compact` VACUUM that drops tombstones without retraining.
+//!
+//! Per-graph / per-shard by construction (one index per `SemanticStore`). The
+//! cross-shard scatter-gather kNN merge, hybrid metadata filtering, GPU training,
+//! and multi-vector spaces are LATER increments (see the crate README / report).
+//!
+//! GPU/training acceleration is behind the `gpu` cargo feature, gated OUT of the
+//! Pi/full tiers — serving is CPU integer-table lookups (ADC) and needs no
+//! accelerator. The default build links no GPU, no faiss, no native-ML deps.
+
+mod codec;
+pub mod distance;
+pub mod flat;
+pub mod hnsw;
+pub mod ivfpq;
+pub mod kmeans;
+/// GPU-accelerable batch-assignment backend for the k-means build hot loop
+/// (CONCEPT:MEDULLA-KG.compute.gpu-distance-seam / MEDULLA-327). See module docs.
+pub mod kmeans_gpu;
+pub mod linalg;
+pub mod persist;
+pub mod recall;
+pub mod scatter;
+pub mod version;
+
+/// In-memory durable-code artifact (`meta`/`codes`/`refine`) for a trained
+/// index. Pure encode/decode: this crate opens no store of its own, so the
+/// artifact is handed to whatever durable authority the consumer serves under
+/// (RF-RULING-004 / RF-RULING-007). See `src/durable_codes.rs`.
+pub mod durable_codes;
+
+/// Embedding-set drift detection (PSI over the norm / per-dimension value
+/// distributions, CONCEPT:MEDULLA-KG.sharding.semantic-embedding-store-backed depth). Behind the crate's own opt-in
+/// `drift` feature (default OFF) so a default/Pi build of `medulla-ann` links no
+/// `medulla-numeric` — see `src/drift.rs`.
+#[cfg(feature = "drift")]
+pub mod drift;
+
+/// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+/// flat::FlatIndex` + the `modality_conformance_tests!` battery. Behind the
+/// crate's own opt-in `contract` feature (default OFF). See `src/contract.rs`.
+#[cfg(feature = "contract")]
+mod contract;
+
+pub use distance::{active_backend_name, batch_distances, CpuBackend, DistanceBackend};
+pub use flat::{FlatIndex, Metric};
+/// Bounded, validated, versioned no-rebuild HNSW graph artifact codec.
+pub use hnsw::artifact as hnsw_artifact;
+/// Opt-in compact immutable HNSW serving representation.
+pub use hnsw::compact::{
+    CompactHnswIndex, CompactSearchError, SearchBudget, SearchStats, VectorProvider,
+};
+pub use hnsw::HnswIndex;
+pub use ivfpq::{
+    merge_topk, merge_topk_stable, IvfPq, IvfPqParams, SearchParams, SearchResult, PQ_KSUB,
+};
+pub use kmeans_gpu::{
+    active_backend_name as kmeans_active_backend_name, batch_assign_dispatch, AssignBackend,
+};
+pub use persist::compact;
+pub use recall::{
+    average_precision, evaluate_recall, mean_average_precision, precision_at_k, recall_at_k,
+    RecallReport,
+};
+pub use scatter::{scatter_knn, ScatterKnn, ShardIndex};
+pub use version::{EmbeddingVersion, EmbeddingVersionStore};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::{Rng, SeedableRng};
+    use rand_chacha::ChaCha8Rng;
+
+    /// Clustered synthetic data — realistic embeddings are clustered, not uniform,
+    /// so a uniform-random generator understates achievable recall. We draw from
+    /// `nclusters` gaussian blobs (the regime PQ is designed for).
+    fn clustered_vecs(n: usize, dim: usize, nclusters: usize, seed: u64) -> Vec<Vec<f32>> {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        let centers: Vec<Vec<f32>> = (0..nclusters)
+            .map(|_| (0..dim).map(|_| rng.gen::<f32>() * 2.0 - 1.0).collect())
+            .collect();
+        (0..n)
+            .map(|_| {
+                let c = &centers[rng.gen_range(0..nclusters)];
+                (0..dim)
+                    .map(|j| c[j] + (rng.gen::<f32>() - 0.5) * 0.30)
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn brute_force_knn(data: &[Vec<f32>], q: &[f32], k: usize) -> Vec<u64> {
+        use rayon::prelude::*;
+        let mut scored: Vec<(u64, f32)> = data
+            .par_iter()
+            .enumerate()
+            .map(|(i, v)| (i as u64, kmeans::sq_dist(q, v)))
+            .collect();
+        scored.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        scored.truncate(k);
+        scored.into_iter().map(|(id, _)| id).collect()
+    }
+
+    fn build(data: &[Vec<f32>], dim: usize, nlist: usize) -> IvfPq {
+        let params = IvfPqParams {
+            dim,
+            nlist,
+            m: dim / 4, // dsub = 4
+            kmeans_iters: 20,
+            opq_iters: 6,
+            seed: 7,
+        };
+        let mut idx = IvfPq::train(&params, data);
+        let items: Vec<(u64, Vec<f32>)> = data
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (i as u64, v.clone()))
+            .collect();
+        idx.add(&items);
+        idx
+    }
+
+    #[test]
+    fn simd_sq_dist_matches_scalar_within_epsilon() {
+        // CONCEPT:MEDULLA-KG.compute.lane-chunked-dot-product — the 8-lane chunked `sq_dist` must equal a naive scalar
+        // squared-distance for ALL lengths, including non-multiples of 8.
+        fn scalar_sq_dist(a: &[f32], b: &[f32]) -> f32 {
+            a.iter().zip(b.iter()).map(|(x, y)| (x - y) * (x - y)).sum()
+        }
+        for &len in &[0usize, 1, 7, 8, 9, 15, 16, 31, 128, 1000, 1024] {
+            let a: Vec<f32> = (0..len).map(|i| (i as f32 * 0.017).sin() * 3.0).collect();
+            let b: Vec<f32> = (0..len)
+                .map(|i| (i as f32 * 0.029 + 2.0).cos() * 3.0)
+                .collect();
+            let s = scalar_sq_dist(&a, &b);
+            let v = kmeans::sq_dist(&a, &b);
+            assert!(
+                (s - v).abs() <= 1e-3 * (1.0 + s.abs()),
+                "len={len}: simd {v} vs scalar {s}"
+            );
+        }
+    }
+
+    #[test]
+    fn train_add_search_self_retrieval() {
+        let dim = 64;
+        let data = clustered_vecs(5000, dim, 50, 1);
+        let idx = build(&data, dim, 64);
+        let sp = SearchParams {
+            nprobe: 16,
+            refine: true,
+            refine_factor: 8,
+        };
+        // A stored vector should retrieve itself at the very top.
+        let res = idx.search(&data[123], 10, sp);
+        assert_eq!(
+            res[0].id,
+            123,
+            "self must be top-1: {:?}",
+            &res[..3.min(res.len())]
+        );
+    }
+
+    #[test]
+    fn delete_tombstones_excluded() {
+        let dim = 64;
+        let data = clustered_vecs(3000, dim, 30, 2);
+        let mut idx = build(&data, dim, 48);
+        assert_eq!(idx.delete(77), 1);
+        let sp = SearchParams::default();
+        let res = idx.search(&data[77], 10, sp);
+        assert!(
+            !res.iter().any(|r| r.id == 77),
+            "deleted id must not appear"
+        );
+    }
+
+    #[test]
+    fn compact_drops_tombstones_preserves_results() {
+        let dim = 64;
+        let data = clustered_vecs(3000, dim, 30, 3);
+        let mut idx = build(&data, dim, 48);
+        for id in 0..500u64 {
+            idx.delete(id);
+        }
+        assert!(idx.tombstone_ratio() > 0.1);
+        let compacted = compact(&idx);
+        assert_eq!(compacted.tombstone_ratio(), 0.0);
+        assert_eq!(compacted.live_len(), idx.live_len());
+        // A non-deleted vector still retrieves itself after compaction.
+        let res = compacted.search(&data[2000], 10, SearchParams::default());
+        assert_eq!(res[0].id, 2000);
+    }
+
+    #[test]
+    fn incremental_insert_after_build_is_searchable() {
+        let dim = 64;
+        let data = clustered_vecs(2000, dim, 20, 9);
+        let mut idx = build(&data, dim, 32);
+        // Add a brand-new distinct vector AFTER the build — no rebuild.
+        let novel: Vec<f32> = (0..dim).map(|j| if j == 0 { 9.0 } else { -9.0 }).collect();
+        idx.add(&[(99999, novel.clone())]);
+        let res = idx.search(&novel, 5, SearchParams::default());
+        assert_eq!(res[0].id, 99999, "incrementally-added vector must be top-1");
+    }
+
+    #[test]
+    fn merge_topk_matches_single_combined_index() {
+        // CONCEPT:MEDULLA-KG.retrieval.scatter-gather — the gather step. Splitting the SAME hits across N shards and
+        // merging their local top-k must reproduce EXACTLY the global top-k a single
+        // combined result would give (ids AND nearest-first order).
+        fn mk(pairs: &[(u64, f32)]) -> Vec<SearchResult> {
+            pairs
+                .iter()
+                .map(|&(id, distance)| SearchResult { id, distance })
+                .collect()
+        }
+        // A single combined ranked list (the ground truth).
+        let all = mk(&[
+            (10, 0.9),
+            (11, 0.1),
+            (12, 0.5),
+            (13, 0.3),
+            (14, 0.7),
+            (15, 0.2),
+            (16, 0.05),
+            (17, 0.4),
+        ]);
+        let mut truth = all.clone();
+        truth.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap());
+        truth.truncate(3);
+
+        // Scatter the SAME hits across 3 shards, each pre-sorted to its local top-k.
+        let shard_a = mk(&[(10, 0.9), (13, 0.3)]);
+        let shard_b = mk(&[(11, 0.1), (12, 0.5), (14, 0.7)]);
+        let shard_c = mk(&[(15, 0.2), (16, 0.05), (17, 0.4)]);
+        let merged = merge_topk(&[shard_a, shard_b, shard_c], 3);
+
+        assert_eq!(
+            merged.iter().map(|r| r.id).collect::<Vec<_>>(),
+            truth.iter().map(|r| r.id).collect::<Vec<_>>(),
+            "merged top-3 must equal the single-combined top-3 (nearest first)"
+        );
+        // Distances carried through unchanged.
+        for (m, t) in merged.iter().zip(truth.iter()) {
+            assert_eq!(m.distance, t.distance);
+        }
+        // Degenerate shapes: k=0 → empty; fewer total than k → all, sorted.
+        assert!(merge_topk(&[mk(&[(1, 0.2)])], 0).is_empty());
+        let few = merge_topk(&[mk(&[(1, 0.2)]), mk(&[(2, 0.1)])], 10);
+        assert_eq!(few.iter().map(|r| r.id).collect::<Vec<_>>(), vec![2, 1]);
+    }
+
+    #[test]
+    fn search_filtered_respects_allowlist() {
+        // CONCEPT:MEDULLA-KG.retrieval.prefiltered-search — a pre-filtered search must return ONLY allowed ids, and the
+        // top-k among them must match a brute-force top-k restricted to the same set.
+        use std::collections::HashSet;
+        let dim = 64;
+        let n = 5000;
+        let data = clustered_vecs(n, dim, 50, 5);
+        let idx = build(&data, dim, 64);
+
+        // Permit an arbitrary (non-contiguous) ~1/3 of the ids.
+        let allow: HashSet<u64> = (0..n as u64).filter(|id| id % 3 == 0).collect();
+        let sp = SearchParams {
+            nprobe: 32,
+            refine: true,
+            refine_factor: 16,
+        };
+        let q = &data[300]; // 300 % 3 == 0, so the self-hit is allowed
+        let allow_ref = allow.clone();
+        let got = idx.search_filtered(q, 10, sp, Some(&move |id| allow_ref.contains(&id)));
+
+        // 1. EVERY returned id is allowed.
+        assert!(
+            got.iter().all(|r| allow.contains(&r.id)),
+            "filtered search returned a disallowed id: {:?}",
+            got.iter().map(|r| r.id).collect::<Vec<_>>()
+        );
+        assert!(!got.is_empty(), "expected some allowed hits");
+
+        // 2. The exact-nearest allowed neighbour is present (self-retrieval within set).
+        assert!(
+            got.iter().any(|r| r.id == 300),
+            "allowed self must be found"
+        );
+
+        // 3. Top-k agrees with a brute force restricted to the allowed subset (recall).
+        let allowed_data: Vec<(u64, &Vec<f32>)> = data
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (i as u64, v))
+            .filter(|(id, _)| allow.contains(id))
+            .collect();
+        let mut truth: Vec<(u64, f32)> = allowed_data
+            .iter()
+            .map(|(id, v)| (*id, kmeans::sq_dist(q, v)))
+            .collect();
+        truth.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        let truth_top: HashSet<u64> = truth.iter().take(10).map(|(id, _)| *id).collect();
+        let got_ids: HashSet<u64> = got.iter().map(|r| r.id).collect();
+        let hits = truth_top.intersection(&got_ids).count();
+        assert!(
+            hits >= 9,
+            "restricted top-10 recall too low: {hits}/10 (got {got_ids:?} vs truth {truth_top:?})"
+        );
+
+        // 4. `allow = None` (via `search`) is unchanged and CAN return disallowed ids.
+        let unfiltered = idx.search(q, 10, sp);
+        assert!(
+            unfiltered.iter().any(|r| !allow.contains(&r.id)),
+            "unfiltered search should surface disallowed ids too"
+        );
+    }
+
+    /// THE BAR: recall@10 ≥ 0.95 vs brute force on a representative scale. Runs at
+    /// 50k×128 with 100 queries to stay CI-runnable (the brute-force ground truth
+    /// is the cost); the `recall` bench binary scales this to 1M and reports the
+    /// full recall/latency/footprint trade.
+    #[test]
+    fn recall_at_10_meets_target() {
+        let dim = 128;
+        let n = 40_000;
+        let data = clustered_vecs(n, dim, 200, 11);
+        let params = IvfPqParams {
+            dim,
+            nlist: 512,
+            m: dim / 4, // dsub = 4, m = 32
+            kmeans_iters: 15,
+            opq_iters: 5,
+            seed: 7,
+        };
+        // Train on a sample (the production pattern — never the full set).
+        let sample: Vec<Vec<f32>> = data.iter().step_by(3).cloned().collect();
+        let mut idx = IvfPq::train(&params, &sample);
+        let items: Vec<(u64, Vec<f32>)> = data
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (i as u64, v.clone()))
+            .collect();
+        idx.add(&items);
+
+        let sp = SearchParams {
+            nprobe: 32,
+            refine: true,
+            refine_factor: 16,
+        };
+        let mut q_rng = ChaCha8Rng::seed_from_u64(999);
+        let nq = 80;
+        let mut hits = 0usize;
+        let mut total = 0usize;
+        for _ in 0..nq {
+            let qi = q_rng.gen_range(0..n);
+            let q = &data[qi];
+            let truth = brute_force_knn(&data, q, 10);
+            let got: Vec<u64> = idx.search(q, 10, sp).into_iter().map(|r| r.id).collect();
+            for t in &truth {
+                if got.contains(t) {
+                    hits += 1;
+                }
+                total += 1;
+            }
+        }
+        let recall = hits as f64 / total as f64;
+        assert!(
+            recall >= 0.95,
+            "recall@10 = {recall:.4} must be >= 0.95 (OPQ+refine). hits={hits}/{total}"
+        );
+    }
+}

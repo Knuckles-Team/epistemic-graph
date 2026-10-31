@@ -9,13 +9,13 @@
 //! the options the decision already has; it never adds one. Outcome-rate
 //! features are read at the decision's clock, not sliced.
 
-use eg_numeric::decision::candidate::CandidateView;
-use eg_numeric::decision::features::{feature_matrix, FeatureInputs, MatrixOutcome};
-use eg_numeric::decision::quant::q32;
-use eg_numeric::decision::trajectory::{belief, Prefix};
-use eg_types::contract::BoundedVec;
-use eg_types::decision::statistical::belief::{BeliefPoint, BeliefSliceInputs};
-use eg_types::decision::statistical::{DecideRequest, StatisticalErrorCode};
+use medulla_numeric::decision::candidate::CandidateView;
+use medulla_numeric::decision::features::{feature_matrix, FeatureInputs, MatrixOutcome};
+use medulla_numeric::decision::quant::q32;
+use medulla_numeric::decision::trajectory::{belief, Prefix};
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::statistical::belief::{BeliefPoint, BeliefSliceInputs};
+use medulla_types::decision::statistical::{DecideRequest, StatisticalErrorCode};
 
 use super::stat_executor::{ExecutionContext, Pinned};
 use super::stat_support::refusal;

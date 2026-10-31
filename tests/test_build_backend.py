@@ -64,7 +64,7 @@ def _editable_wheel(
 ) -> None:
     source_root = source_root or build_backend.ROOT.resolve()
     entries = {
-        "epistemic_graph.pth": (
+        "medulla.pth": (
             source_payload
             if source_payload is not None
             else f"{source_root}\n".encode()
@@ -74,8 +74,8 @@ def _editable_wheel(
     }
     if native_payloads is None:
         native_payloads = {
-            "epistemic_graph/numeric.abi3.so": b"numeric",
-            "epistemic_graph/engine.abi3.so": b"engine",
+            "medulla/numeric.abi3.so": b"numeric",
+            "medulla/engine.abi3.so": b"engine",
         }
     entries.update(native_payloads)
     with zipfile.ZipFile(path, "w") as archive:
@@ -90,7 +90,7 @@ def _editable_wheel(
 @pytest.fixture
 def editable_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     cache = tmp_path / "cache"
-    monkeypatch.setenv("EPISTEMIC_GRAPH_NATIVE_ARTIFACT_CACHE", str(cache))
+    monkeypatch.setenv("MEDULLA_NATIVE_ARTIFACT_CACHE", str(cache))
     monkeypatch.setattr(build_backend, "native_source_digest", lambda: "source-a")
     monkeypatch.setattr(build_backend, "_tool_identity", lambda executable: executable)
     monkeypatch.setattr(build_backend.shutil, "which", lambda _: "/mock/maturin")
@@ -135,7 +135,7 @@ def _test_cache_inputs(label: str) -> dict[str, object]:
 
 @pytest.mark.parametrize("entrypoint", ["build_wheel", "build_editable"])
 @pytest.mark.parametrize("suffix", ["abi3.so", "pyd"])
-@pytest.mark.spec("EG-CONTRACT-R053.2")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.2")
 def test_build_backend_folds_numeric_into_engine_base(
     monkeypatch, editable_cache: Path, tmp_path: Path, entrypoint: str, suffix: str
 ) -> None:
@@ -147,8 +147,8 @@ def test_build_backend_folds_numeric_into_engine_base(
     _editable_wheel(
         server,
         native_payloads={
-            f"epistemic_graph/engine.{suffix}": b"engine",
-            "medulla-0.data/scripts/epistemic-graph-server": b"server",
+            f"medulla/engine.{suffix}": b"engine",
+            "medulla-0.data/scripts/medulla-server": b"server",
         },
     )
     calls = []
@@ -166,8 +166,8 @@ def test_build_backend_folds_numeric_into_engine_base(
     assert calls == [(build_backend.NUMERIC_MANIFEST, "python")]
     assert not hasattr(build_backend, "ENGINE_MANIFEST")
     with zipfile.ZipFile(server) as archive:
-        assert archive.read(f"epistemic_graph/numeric.{suffix}") == b"numeric"
-        assert archive.read(f"epistemic_graph/engine.{suffix}") == b"engine"
+        assert archive.read(f"medulla/numeric.{suffix}") == b"numeric"
+        assert archive.read(f"medulla/engine.{suffix}") == b"engine"
         assert build_backend._record_valid(archive)
         assert not [n for n in archive.namelist() if ".data/scripts/" in n]
 
@@ -500,12 +500,12 @@ def test_cached_editable_payload_preserves_source_and_permissions(
     assert os.stat(wheel).st_mode & 0o777 == 0o444
     with zipfile.ZipFile(wheel) as archive:
         assert (
-            archive.read("epistemic_graph.pth")
+            archive.read("medulla.pth")
             == f"{build_backend.ROOT.resolve()}\n".encode()
         )
         assert "direct_url.json" not in "\n".join(archive.namelist())
         assert (
-            archive.getinfo("epistemic_graph/numeric.abi3.so").external_attr >> 16
+            archive.getinfo("medulla/numeric.abi3.so").external_attr >> 16
             & 0o111
         )
         assert not [n for n in archive.namelist() if ".data/scripts/" in n]
@@ -515,7 +515,7 @@ def test_cached_editable_payload_preserves_source_and_permissions(
 def test_publish_cached_wheel_accepts_symlinked_source_identity(
     tmp_path: Path, trailing_newline: bool
 ) -> None:
-    source_alias = tmp_path / "hermetic-epistemic-graph"
+    source_alias = tmp_path / "hermetic-medulla"
     source_alias.symlink_to(build_backend.ROOT, target_is_directory=True)
     wheel = tmp_path / "medulla-0-py3-none-any.whl"
     source_payload = str(source_alias).encode()
@@ -538,7 +538,7 @@ def test_publish_cached_wheel_accepts_symlinked_source_identity(
 def test_publish_cached_wheel_rejects_different_source_checkout(
     tmp_path: Path,
 ) -> None:
-    different_checkout = tmp_path / "different-epistemic-graph"
+    different_checkout = tmp_path / "different-medulla"
     different_checkout.mkdir()
     wheel = tmp_path / "medulla-0-py3-none-any.whl"
     _editable_wheel(wheel, source_root=different_checkout)
@@ -622,7 +622,7 @@ def test_component_build_rejects_ambiguous_output(monkeypatch, tmp_path, count):
     monkeypatch.setattr(build_backend.subprocess, "run", lambda *_, **__: None)
     for index in range(count):
         (tmp_path / f"{index}.whl").write_bytes(b"wheel")
-    with pytest.raises(RuntimeError, match="eg-numeric component build"):
+    with pytest.raises(RuntimeError, match="medulla-numeric component build"):
         build_backend._build_component(
             tmp_path, build_backend.NUMERIC_MANIFEST, "python"
         )
@@ -637,7 +637,7 @@ def test_numeric_failure_never_returns_or_caches_incomplete_wheel(
     output.mkdir()
     filename = "medulla-0-py3-none-any.whl"
     _editable_wheel(
-        output / filename, native_payloads={"epistemic_graph/engine.abi3.so": b"engine"}
+        output / filename, native_payloads={"medulla/engine.abi3.so": b"engine"}
     )
     monkeypatch.setattr(build_backend.maturin, entrypoint, lambda *_: filename)
 
@@ -675,9 +675,9 @@ def test_cache_rebuilds_incomplete_engine_with_valid_record_and_digest(
     wheel = entry / manifest["filename"]
     wheel.chmod(0o600)
     payloads = {
-        "epistemic_graph/numeric.abi3.so": b"numeric",
+        "medulla/numeric.abi3.so": b"numeric",
     }
-    payloads.update({f"epistemic_graph/{name}": b"engine" for name in engine_names})
+    payloads.update({f"medulla/{name}": b"engine" for name in engine_names})
     _editable_wheel(wheel, native_payloads=payloads)
     manifest["sha256"] = build_backend._sha256(wheel)
     manifest_path.chmod(0o600)
@@ -706,8 +706,8 @@ def test_windows_editable_native_payloads_accept_pyd(tmp_path):
     _editable_wheel(
         wheel,
         native_payloads={
-            "epistemic_graph/numeric.pyd": b"numeric",
-            "epistemic_graph/engine.pyd": b"engine",
+            "medulla/numeric.pyd": b"numeric",
+            "medulla/engine.pyd": b"engine",
         },
     )
     build_backend._validate_editable_wheel(wheel)
@@ -720,7 +720,7 @@ def test_editable_cache_rejects_non_executable_unix_engine(tmp_path):
         entries = [(info, archive.read(info)) for info in archive.infolist()]
     with zipfile.ZipFile(wheel, "w") as archive:
         for info, payload in entries:
-            if info.filename == "epistemic_graph/engine.abi3.so":
+            if info.filename == "medulla/engine.abi3.so":
                 info.external_attr = 0o100644 << 16
             archive.writestr(info, payload)
     with pytest.raises(RuntimeError, match="non-executable native payload"):
@@ -732,9 +732,9 @@ def test_editable_cache_rejects_wheel_carrying_an_executable(tmp_path):
     _editable_wheel(
         wheel,
         native_payloads={
-            "epistemic_graph/numeric.abi3.so": b"numeric",
-            "epistemic_graph/engine.abi3.so": b"engine",
-            "medulla-0.data/scripts/epistemic-graph-server": b"server",
+            "medulla/numeric.abi3.so": b"numeric",
+            "medulla/engine.abi3.so": b"engine",
+            "medulla-0.data/scripts/medulla-server": b"server",
         },
     )
     with pytest.raises(RuntimeError, match="executable"):

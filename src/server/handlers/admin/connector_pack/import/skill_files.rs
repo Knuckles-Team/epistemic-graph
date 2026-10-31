@@ -11,7 +11,7 @@
 //! absolute path, no separator but `/`, nothing a consumer could resolve
 //! outside the skill's own directory.
 
-use eg_types::connector_pack::{PackEntry, PackEntryKind, PackRef};
+use medulla_types::connector_pack::{PackEntry, PackEntryKind, PackRef};
 
 /// Check one skill-file entry's identity and its reference to its skill.
 /// Every other kind passes untouched.
@@ -58,9 +58,9 @@ mod tests {
 
     fn entry(name: &str, uri: &str, references: Vec<PackRef>) -> PackEntry {
         let mut entry =
-            eg_types::test_support::contract_wave::pack::entry(PackEntryKind::SkillFile, name);
+            medulla_types::test_support::contract_wave::pack::entry(PackEntryKind::SkillFile, name);
         entry.uri = uri.to_string();
-        entry.references = eg_types::contract::BoundedVec::new(references).unwrap();
+        entry.references = medulla_types::contract::BoundedVec::new(references).unwrap();
         entry
     }
 

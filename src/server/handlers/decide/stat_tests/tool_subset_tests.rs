@@ -1,8 +1,8 @@
-//! EG-DECISION-ENGINE-R045.2: a served `ToolSubset` question selects the
+//! MEDULLA-DECISION-ENGINE-R045.2: a served `ToolSubset` question selects the
 //! smallest covering tool subset within the caller's context budget.
 
 use super::*;
-use eg_types::decision::statistical::declared::{DeclaredNumber, DeclaredOption};
+use medulla_types::decision::statistical::declared::{DeclaredNumber, DeclaredOption};
 
 fn tool(id: &str, capabilities: &[&str], schema_tokens: i64) -> DeclaredOption {
     DeclaredOption {
@@ -65,7 +65,7 @@ fn tool_subset_request(
     }
 }
 
-// spec: EG-DECISION-ENGINE-R045.2
+// spec: MEDULLA-DECISION-ENGINE-R045.2
 #[tokio::test]
 async fn tool_subset_question_selects_the_minimal_covering_tools_within_budget() {
     let h = Harness::new().await;
@@ -105,7 +105,7 @@ async fn tool_subset_question_selects_the_minimal_covering_tools_within_budget()
     // every other question kind (stat_decide::resolution/evidence_class).
     assert_eq!(
         record.resolution_kind,
-        eg_types::decision::ResolutionKind::Statistical
+        medulla_types::decision::ResolutionKind::Statistical
     );
 }
 

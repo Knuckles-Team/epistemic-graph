@@ -1,0 +1,44 @@
+# Content shapes (MEDULLA-MEDIA-VOCAB-R003.3, R004.4).
+#
+# SHACL Core only (aggregate-free, the virtual-graph shapes convention):
+# `sh:closed` alone refuses a subscriber property that carries a raw email
+# address, exactly as the virtual-graph EndpointRefShape refuses a credential.
+
+@prefix :    <http://knuckles.team/kg#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# R004.4: an article or search result carries exactly one normalised
+# canonical URL (normalisation itself is documented on the property's
+# rdfs:comment and fixture-tabled in the vocabulary test).
+
+:CanonicalUrlShape a sh:NodeShape ;
+    sh:targetClass :Article, :SearchResult ;
+    sh:property [
+        sh:path :canonicalUrl ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "An Article or SearchResult carries exactly one normalised canonicalUrl."
+    ] .
+
+# R003.3: a subscriber carries only its keyed hash and its subscription
+# status. The shape names the properties a Subscriber may carry, so any other
+# property -- a raw email address -- is itself the violation.
+
+:SubscriberKeyedIdentityShape a sh:NodeShape ;
+    sh:targetClass :Subscriber ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type ) ;
+    sh:property [
+        sh:path :subscriberKey ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "A Subscriber carries exactly one keyed-hash subscriberKey."
+    ] ;
+    sh:property [
+        sh:path :subscriptionStatus ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string
+    ] ;
+    sh:message "A Subscriber carries only its keyed hash and status -- never a raw email address property." .

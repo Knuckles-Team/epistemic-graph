@@ -1,4 +1,4 @@
-// CONCEPT:EG-KG.coordination.dynamic-channels — Dynamic Communication Channels
+// CONCEPT:MEDULLA-KG.coordination.dynamic-channels — Dynamic Communication Channels
 //
 // Ephemeral P2P and group channels for inter-agent communication.
 // Channels have a lifecycle: Create → Join → Leave → Close.
@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::protocol::ChannelType;
 
-pub use eg_types::messaging_wire::{ChannelImprint, ChannelMessage};
+pub use medulla_types::messaging_wire::{ChannelImprint, ChannelMessage};
 
 mod queries;
 

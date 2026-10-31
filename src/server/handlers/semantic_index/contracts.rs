@@ -2,17 +2,17 @@
 //! result-contract DTOs. The owner crate keeps its receipt/status types private
 //! to the runtime crate DAG; the wire contract mirrors their serialized fields.
 
-use eg_core::compute::semantic_ann_codes::SemanticMutationReceipt as RuntimeReceipt;
-use eg_core::compute::semantic_index_service::{
+use medulla_core::compute::semantic_ann_codes::SemanticMutationReceipt as RuntimeReceipt;
+use medulla_core::compute::semantic_index_service::{
     SemanticSqlSourcePageAdmission as RuntimePageAdmission,
     SemanticSqlSourceReconciliationAdmission as RuntimeReconciliationAdmission,
 };
-use eg_transaction::OutboxStatus;
-use eg_types::result_contract::ingestion::{
+use medulla_transaction::OutboxStatus;
+use medulla_types::result_contract::ingestion::{
     SemanticMutationReceipt, SemanticOutboxStatus, SemanticSqlSourcePageAdmission,
     SemanticSqlSourceReconciliationAdmission,
 };
-use eg_types::semantic_index::SemanticStageTransition;
+use medulla_types::semantic_index::SemanticStageTransition;
 
 pub(super) fn receipt(value: RuntimeReceipt) -> SemanticMutationReceipt {
     SemanticMutationReceipt {

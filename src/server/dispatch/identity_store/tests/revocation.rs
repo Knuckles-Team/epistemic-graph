@@ -19,7 +19,7 @@ fn a_token() -> VerifiedRequestContext {
 }
 
 fn create_ann() -> IdentityOp {
-    eg_types::test_support::identity::create_administrator_op("ann", ANN)
+    medulla_types::test_support::identity::create_administrator_op("ann", ANN)
 }
 
 fn set_status(status: UserStatus) -> IdentityOp {
@@ -75,7 +75,7 @@ async fn ann(state: &Arc<RwLock<ServerState>>) -> (UserStatus, bool) {
     let guard = state.read().await;
     let store = guard.isolation.rbac().identity_store();
     let resolution = store
-        .resolve(ANN, &eg_capabilities::scopes::ScopeRegistry)
+        .resolve(ANN, &medulla_capabilities::scopes::ScopeRegistry)
         .expect("ann exists");
     let administers = resolution.scopes.contains(IDENTITY_ADMIN_SCOPE);
     (resolution.status, administers)

@@ -4,7 +4,7 @@
 //! Dispatch has already checked the caller's `lease:write` scope and bound
 //! the body tenant to the verified carrier; this only narrows.
 //!
-//! The policy comes from `EPISTEMIC_GRAPH_CONTROL_LEASE_KIND_POLICY_JSON`,
+//! The policy comes from `MEDULLA_CONTROL_LEASE_KIND_POLICY_JSON`,
 //! read once. Unset means no principal is restricted. A malformed value
 //! refuses every control-lease write in this process (fail closed) rather
 //! than dropping the restriction.
@@ -17,12 +17,12 @@
 
 use std::sync::OnceLock;
 
-use eg_types::control_lease::ControlLeaseKindPolicy;
+use medulla_types::control_lease::ControlLeaseKindPolicy;
 
 use super::HandleContext;
 use crate::protocol::{Method, Response};
 
-const POLICY_ENV: &str = "EPISTEMIC_GRAPH_CONTROL_LEASE_KIND_POLICY_JSON";
+const POLICY_ENV: &str = "MEDULLA_CONTROL_LEASE_KIND_POLICY_JSON";
 
 fn load_policy(raw: Option<String>) -> Result<ControlLeaseKindPolicy, String> {
     raw.map_or_else(
@@ -46,7 +46,7 @@ enum LeaseTarget<'a> {
 fn lease_target(method: &Method) -> Option<LeaseTarget<'_>> {
     match method {
         Method::IssueHostStartGrant { .. } => {
-            Some(LeaseTarget::Kind(eg_types::host_start::HOST_START_KIND))
+            Some(LeaseTarget::Kind(medulla_types::host_start::HOST_START_KIND))
         }
         Method::IssueControlLease { request } => Some(LeaseTarget::Kind(&request.kind)),
         Method::TransitionControlLease { request } => Some(LeaseTarget::Stored {
@@ -103,7 +103,7 @@ fn require_pending_work_authority(
     kind: &str,
     verified: &crate::server::auth::VerifiedRequestContext,
 ) -> Result<(), String> {
-    if kind == eg_types::control_lease::PENDING_CALL_KIND
+    if kind == medulla_types::control_lease::PENDING_CALL_KIND
         && !verified.allows_method("work:write", true)
     {
         return Err("ACCESS_DENIED: pending-call storage requires work:write authority".into());
@@ -160,7 +160,7 @@ fn require_host_start_issuer(
         .claims()
         .scopes
         .iter()
-        .any(|scope| scope == eg_types::host_start::HOST_START_ISSUE_SCOPE)
+        .any(|scope| scope == medulla_types::host_start::HOST_START_ISSUE_SCOPE)
     {
         return Err("ACCESS_DENIED: host-start issuance requires exact host:issue-start".into());
     }
@@ -210,11 +210,11 @@ mod tests {
         assert!(!set.permits("service:graph-os", "rbac.elevation"));
     }
 
-    // spec: EG-DURABLE-KERNEL-R039.3
+    // spec: MEDULLA-DURABLE-KERNEL-R039.3
     #[test]
     fn lease_write_alone_cannot_change_pending_work_item_state() {
         use crate::server::auth::VerifiedRequestContext;
-        use eg_types::control_lease::PENDING_CALL_KIND;
+        use medulla_types::control_lease::PENDING_CALL_KIND;
         let lease_only = VerifiedRequestContext::verified_for_test_with_scopes(
             "worker-a",
             "tenant-a",
@@ -230,11 +230,11 @@ mod tests {
         assert!(super::require_pending_work_authority(PENDING_CALL_KIND, &both).is_ok());
     }
 
-    // spec: EG-DURABLE-KERNEL-R039.3
+    // spec: MEDULLA-DURABLE-KERNEL-R039.3
     #[test]
     fn absent_lookup_returns_a_terminal_refusal_before_any_later_registration() {
         use crate::server::auth::VerifiedRequestContext;
-        use eg_types::control_lease::{ControlLeaseKindPolicy, PENDING_CALL_KIND};
+        use medulla_types::control_lease::{ControlLeaseKindPolicy, PENDING_CALL_KIND};
         let verified = VerifiedRequestContext::verified_for_test_with_scopes(
             "worker-a",
             "tenant-a",
@@ -249,7 +249,7 @@ mod tests {
         assert!(super::check_resolved_kind(&verified, &policy, Some(PENDING_CALL_KIND)).is_ok());
         assert!(stop_dispatch.is_some());
     }
-    // spec: EG-DURABLE-KERNEL-R039.4, EG-DURABLE-KERNEL-R039.4.1
+    // spec: MEDULLA-DURABLE-KERNEL-R039.4, MEDULLA-DURABLE-KERNEL-R039.4.1
     #[test]
     fn paired_storage_is_unavailable_on_both_served_writes() {
         use crate::protocol::Method;

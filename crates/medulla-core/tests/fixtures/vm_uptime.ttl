@@ -1,0 +1,58 @@
+# Virtual-mapping fixture: uptime monitor to service health
+# (MEDULLA-SUPPLY-VOCAB-R006.4).
+#
+# Recorded over the uptime-kuma operations `get_monitors`
+# (uptime_kuma_monitors) and `get_heartbeats` (uptime_kuma_status). A monitor
+# is not a Service: it resolves to one by the host of the URL it monitors
+# (plan.md entity-resolution table: hostname from monitor URL), so the
+# mapping keys the infra:Service projection on the monitor's `url` field.
+# The heartbeat stat is the service's health signal.
+
+@prefix vg:    <http://knuckles.team/kg/virtual-graph#> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:    <http://knuckles.team/test/vm-uptime#> .
+
+ex:uptimeConnection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:endpointRef [ vg:url "https://uptime.invalid/api" ] .
+
+ex:uptimeMonitorsAccess a vg:MetadataContract ;
+    vg:contractSource ex:uptimeConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:5643834c2b86393f055bf1f670a8f003c8a224259362a80c79047b8eee7fd9f6" ;
+    vg:discoveredEntity "UptimeMonitor" ;
+    vg:discoveredField "name" ;
+    vg:discoveredField "url" ;
+    vg:discoveredField "status" ;
+    vg:discoveredOperation "get_monitors" .
+
+ex:uptimeHeartbeatsAccess a vg:MetadataContract ;
+    vg:contractSource ex:uptimeConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:2654ef7c440263b6eee8f59a3b897dd53cfadd324d6089eeeb86954920d876b5" ;
+    vg:discoveredEntity "HeartbeatStat" ;
+    vg:discoveredField "monitorId" ;
+    vg:discoveredField "status" ;
+    vg:discoveredOperation "get_heartbeats" .
+
+# The monitor resolves to the service its URL points at (URL host key).
+ex:monitorServiceMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:uptimeMonitorsAccess ;
+    vg:mapsOntologyClass infra:Service ;
+    vg:mapsEntity "UptimeMonitor" ;
+    vg:keyField "url" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "name" ] ;
+    vg:approved true .
+
+ex:heartbeatTrendMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:uptimeHeartbeatsAccess ;
+    vg:mapsOntologyClass infra:HealthTrend ;
+    vg:mapsEntity "HeartbeatStat" ;
+    vg:keyField "monitorId" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "status" ] ;
+    vg:approved true .

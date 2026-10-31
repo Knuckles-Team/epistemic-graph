@@ -1,15 +1,15 @@
 """``GraphOperationsClient.cluster_hierarchy_*`` marshal the VIZ-1 hierarchical
-cluster-tree RPCs (CONCEPT:EG-KG.compute.leiden-hierarchy) — server-side clustering for
+cluster-tree RPCs (CONCEPT:MEDULLA-KG.compute.leiden-hierarchy) — server-side clustering for
 million-node graph visualization: ``cluster_hierarchy_refresh`` (re)computes and
 durably caches a graph's Leiden cluster tree, ``cluster_hierarchy_clusters``
 serves one cached level (optionally scoped to one parent's children), and
 ``cluster_hierarchy_expand`` drills one cluster down (real nodes/edges at
 level 1, child clusters above it).
 
-The engine-side computation (``eg_compute::algorithms::cluster_hierarchy``,
+The engine-side computation (``medulla_compute::algorithms::cluster_hierarchy``,
 ``graph_algos::leiden_hierarchy``) is covered by the Rust unit/benchmark tests in
-``crates/eg-compute/src/algorithms.rs`` and
-``crates/eg-compute/src/graph_algos/leiden.rs``; this asserts the Python client
+``crates/medulla-compute/src/algorithms.rs`` and
+``crates/medulla-compute/src/graph_algos/leiden.rs``; this asserts the Python client
 sends exactly the wire shape the engine's ``Method::ClusterHierarchy*`` variants
 expect and returns the response unchanged.
 """
@@ -20,15 +20,15 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import EpistemicGraphClient, GraphOperationsClient
+from medulla.client import MedullaClient, GraphOperationsClient
 
 # Fake-client unit tests only -- never needs the shared native engine (see
-# conftest.py's session-scoped `start_epistemic_graph_server` fixture, which
+# conftest.py's session-scoped `start_medulla_server` fixture, which
 # this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient(EpistemicGraphClient):
+class _FakeClient(MedullaClient):
     def __init__(self, ret: Any = None) -> None:
         self.sent: list[tuple[str, dict[str, Any] | None]] = []
         self._ret = ret

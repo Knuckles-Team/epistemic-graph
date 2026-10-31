@@ -3,17 +3,17 @@
 //! never the writer thread, never a MutationBatch.
 //!
 //! The projection, the tenant filter and the three-bound page rule live in
-//! [`eg_types::work_item_read`]; this module only walks the stored rows.
+//! [`medulla_types::work_item_read`]; this module only walks the stored rows.
 
-use eg_types::keyset_page::{KeysetListing, KeysetPage, KeysetScan};
-use eg_types::work_item_read::{
+use medulla_types::keyset_page::{KeysetListing, KeysetPage, KeysetScan};
+use medulla_types::work_item_read::{
     validate_work_item_get, CommittedOutcomeRefs, WorkItemListRequest, WorkItemOutcomeView,
     WorkItemPage, WorkItemView,
 };
 
 use super::*;
 
-type NodeTable = eg_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>;
+type NodeTable = medulla_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>;
 type NodeRow = serde_json::Map<String, serde_json::Value>;
 
 /// One stored node row, decoded.
@@ -61,7 +61,7 @@ pub(crate) fn read_work_item(
     })
 }
 
-/// `GetWorkItemOutcome` (graph-os EG-3): a WorkItem of `tenant` and the
+/// `GetWorkItemOutcome` (graph-os MEDULLA-3): a WorkItem of `tenant` and the
 /// provenance its native terminal commit bound. `None` when the item is not
 /// visible to `tenant` or carries no committed outcome bundle.
 pub(crate) fn read_work_item_outcome(
@@ -87,10 +87,10 @@ pub(crate) fn read_work_item_outcome(
     };
     let outcome = verified_outcome(&nodes, graph, &refs, crypto)?;
     let terminal_event = match (
-        row.get(eg_types::work_item_read::WORK_ITEM_EVENT_BATCH),
-        row.get(eg_types::work_item_read::WORK_ITEM_EVENT_DIGEST),
+        row.get(medulla_types::work_item_read::WORK_ITEM_EVENT_BATCH),
+        row.get(medulla_types::work_item_read::WORK_ITEM_EVENT_DIGEST),
     ) {
-        (None, None) => eg_types::work_item_read::TerminalEventRead::default(),
+        (None, None) => medulla_types::work_item_read::TerminalEventRead::default(),
         (Some(batch), Some(digest)) => {
             let batch = batch
                 .as_str()
@@ -98,9 +98,9 @@ pub(crate) fn read_work_item_outcome(
             let digest = digest
                 .as_str()
                 .ok_or("invalid terminal event digest binding")?;
-            let receipt = eg_transaction::read_ledger(&read, batch)?
+            let receipt = medulla_transaction::read_ledger(&read, batch)?
                 .ok_or("committed terminal receipt is missing")?;
-            let records = eg_transaction::read_outbox(&read, batch)?;
+            let records = medulla_transaction::read_outbox(&read, batch)?;
             terminal_event::project(
                 read.scope(),
                 tenant,

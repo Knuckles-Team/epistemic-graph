@@ -12,11 +12,11 @@ Medulla already does **compute-near-data** for vectors
 (`semantic_search` and `batch_l2_normalize` run server-side in Rust, without a Python
 numeric runtime dependency).
 The Analytics Program generalizes that proven pattern into **one numeric kernel**
-(`crates/eg-numeric`) exposed on **two surfaces**.
+(`crates/medulla-numeric`) exposed on **two surfaces**.
 
 ```mermaid
 flowchart TD
-    subgraph K["crates/eg-numeric — pure Rust kernel (rlib)"]
+    subgraph K["crates/medulla-numeric — pure Rust kernel (rlib)"]
         direction TB
         ND["ndarray 0.16<br/>arrays · reductions · element-wise"]
         FA["faer 0.20<br/>svd · eigh · solve · pinv · lstsq · qr · cholesky<br/>(NO system BLAS/LAPACK)"]
@@ -28,7 +28,7 @@ flowchart TD
     K -->|"rlib link<br/>(NO pyo3 — python feature OFF)"| SB
 
     subgraph SA["Surface A — in-process Python"]
-        M1["epistemic_graph.numeric<br/>(extension module)"]
+        M1["medulla.numeric<br/>(extension module)"]
         M2["agent_utilities.numeric.xp<br/>(kernel required; bounded built-in scalar/list contract) — AU-KG.compute.surface-analytics-program"]
         M1 --> M2
     end
@@ -54,7 +54,7 @@ compute (anti-pattern).
 
 ## Crate layout & feature gating
 
-`crates/eg-numeric` is a workspace member with `crate-type = ["cdylib", "rlib"]`:
+`crates/medulla-numeric` is a workspace member with `crate-type = ["cdylib", "rlib"]`:
 
 - **`rlib`** — the pure kernel (`reductions`, `elementwise`, `linalg`, `random`,
   `error`). No pyo3. This is what the engine links for Surface B.
@@ -64,16 +64,16 @@ compute (anti-pattern).
 
 Feature boundaries:
 
-| build | pulls eg-numeric? | faer/ndarray? | pyo3? |
+| build | pulls medulla-numeric? | faer/ndarray? | pyo3? |
 |-------|:---:|:---:|:---:|
 | `--no-default-features --features server` (lib/minimal) | ❌ | ❌ | ❌ |
 | default / `--features full` (→ `numeric`) | ✅ (rlib) | ✅ | ❌ |
 | numeric extension component compiled for wheel composition | ✅ (cdylib) | ✅ | ✅ |
 
-- The top-level `numeric` cargo feature (`numeric = ["dep:eg-numeric"]`) is part of the
+- The top-level `numeric` cargo feature (`numeric = ["dep:medulla-numeric"]`) is part of the
   one main build (`default`/`full`), so a full-featured engine links the pure faer/ndarray
   kernel. A minimal `--no-default-features --features server` build links **no**
-  eg-numeric/faer/ndarray.
+  medulla-numeric/faer/ndarray.
 - pyo3 is behind the kernel crate's **own** `python` feature (off in every engine build), so a
   `numeric` engine build links the kernel rlib but **no Python extension**. The
   server no-extension contract holds (`scripts/check_no_pyo3.sh`
@@ -104,7 +104,7 @@ mandatory edge cases (nan/inf, singular matrices, empty arrays). The corpus cont
 **847 parity checks with 0 failures**. It lives in agent-utilities
 (`tests/test_numeric_parity.py`, AU-KG.compute.surface-analytics-program) and requires
 the compiled kernel; a missing kernel is an import failure. A **second, engine-side**
-corpus (`crates/eg-numeric/tests/test_kernel_parity.py`,
+corpus (`crates/medulla-numeric/tests/test_kernel_parity.py`,
 CONCEPT:AU-KG.compute.is-installed-kernel-discovery) tests the compiled kernel
 DIRECTLY (not the shim) and is what the developer-only parity gate runs — see below.
 NumPy is installed for these reference checks only; the runtime package and wheel do
@@ -114,7 +114,7 @@ not import or depend on it.
 
 The Surface-A kernel ships as package data folded into the single `medulla`
 wheel. The approved Agent Utilities runtime requires `medulla[full]`, which provides
-the compiled kernel importable as **`epistemic_graph.numeric`**.
+the compiled kernel importable as **`medulla.numeric`**.
 `agent_utilities.numeric.xp` is therefore **kernel-LIVE** (`HAVE_KERNEL == True`)
 or fails to import; it has no missing-kernel fallback
 (AU-KG.compute.shim-goes-kernel-live). Python `[full]` and `[numeric]` are no-op
@@ -135,11 +135,11 @@ crate's pyo3 cdylib with its `python` feature while the server binary stays
 pyo3-free. The PEP 517 backend (`build_backend.py`) composes every ordinary and
 editable local build: it builds the main server wheel, builds the host-native
 kernel component, then **injects its compiled `.so` into the server wheel** as
-`epistemic_graph/numeric.abi3.so` (`scripts/inject_numeric_kernel.py`, which
+`medulla/numeric.abi3.so` (`scripts/inject_numeric_kernel.py`, which
 recomputes `RECORD`). Editable installs keep the native overlay in the installed
 wheel, not the checkout. The release `wheels` job performs the same composition
 explicitly for each cross-compiled target. The result is one
-`epistemic_graph-<ver>` wheel carrying both the server binary and the numeric kernel.
+`medulla_engine-<ver>` wheel carrying both the server binary and the numeric kernel.
 
 The parity job compiles the same intermediate component and injects it into the
 main wheel before installation. The component is never installed or published as
@@ -151,8 +151,8 @@ PEP-660 environments must still carry the real server executable and numeric
 extension; an editable source pointer alone is incomplete. To avoid rebuilding
 those native payloads for every Agent Utilities worktree virtual environment,
 `build_backend.build_editable` keeps a per-user, content-addressed immutable cache
-under `$XDG_CACHE_HOME/epistemic-graph/native-artifacts/v1` (override with
-`EPISTEMIC_GRAPH_NATIVE_ARTIFACT_CACHE`).
+under `$XDG_CACHE_HOME/medulla/native-artifacts/v1` (override with
+`MEDULLA_NATIVE_ARTIFACT_CACHE`).
 
 The cache key binds the resolved source root and native/packaging source-content
 digest (including dirty and untracked Rust/build inputs), PEP build settings,
@@ -161,7 +161,7 @@ and native compiler flags. A Rust or packaging edit therefore cannot silently us
 an earlier payload, while ordinary Python, documentation, and test edits remain
 live through the editable source pointer without forcing a native rebuild. The
 cached wheel remains a PEP-660 editable wheel: its `.pth` points to the current
-source checkout while its server and `epistemic_graph.numeric` payload remain
+source checkout while its server and `medulla.numeric` payload remain
 wheel-owned. The installer, not the cache, records the environment-specific
 `direct_url.json`.
 
@@ -175,34 +175,34 @@ entry is discarded and rebuilt while holding the key lock; it is never installed
 # On interpreters supported by the current pyo3 abi3 build no flag is needed.
 # On a newer interpreter that requires forward-compatible abi3 compilation, opt in:
 export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
-maturin build --release -m crates/eg-numeric/Cargo.toml --features python --out target/wheels
+maturin build --release -m crates/medulla-numeric/Cargo.toml --features python --out target/wheels
 python scripts/inject_numeric_kernel.py <server-wheel> <numeric-component-wheel>
 ```
 
-The `#[pymodule]` is named `numeric` with `m.add("__kernel__", "eg-numeric")`. The folded
-product build homes the extension at `epistemic_graph.numeric`; the `xp` shim
+The `#[pymodule]` is named `numeric` with `m.add("__kernel__", "medulla-numeric")`. The folded
+product build homes the extension at `medulla.numeric`; the `xp` shim
 checks that import and its `__kernel__` marker. With the kernel present:
 
 ```python
 >>> from agent_utilities.numeric import xp, HAVE_KERNEL, KERNEL_SOURCE
 >>> HAVE_KERNEL, KERNEL_SOURCE
-(True, 'epistemic_graph.numeric')   # every routed 1-D/2-D float64 op now hits faer/ndarray
+(True, 'medulla.numeric')   # every routed 1-D/2-D float64 op now hits faer/ndarray
 ```
 
 The server facade uses `bindings = "bin"` and does not link pyo3 even though the
 composed wheel also carries the numeric extension.
-`scripts/check_no_pyo3.sh` guards the *facade* (`src/`, `epistemic_graph/`, top-level
+`scripts/check_no_pyo3.sh` guards the *facade* (`src/`, `medulla/`, top-level
 `Cargo.toml`/`pyproject.toml`) and never scans `crates/`; `cargo tree | grep -ci pyo3`
 remains 0 because pyo3 is only pulled by the kernel crate's own
 `python` feature, which no engine build enables. The folded `.so` is named `numeric.abi3.so`,
-which the guard's `epistemic_graph/epistemic_graph*.so` / `_epistemic_graph*.so` patterns do
+which the guard's `medulla/medulla*.so` / `_medulla*.so` patterns do
 not match, and it exists only in the built wheel, never in the source tree.
 
 ### Isolated NumPy parity gate
 
 The developer-only `numeric-parity` job in `.github/workflows/rust-ci.yml`
 maturin-builds the wheel, installs NumPy as a reference oracle in its isolated
-environment, and runs `crates/eg-numeric/tests/test_kernel_parity.py` — a self-contained
+environment, and runs `crates/medulla-numeric/tests/test_kernel_parity.py` — a self-contained
 corpus that asserts **every** compiled-kernel op against that oracle across the full
 op-surface, including the mandatory edge cases (nan/inf, singular matrix, empty). The
 job **fails if the Rust kernel diverges from the reference**. Release/runtime smoke
@@ -224,18 +224,18 @@ Python 3.12 for the developer parity environment.
   extra is a no-op compatibility alias. Unsupported shapes fail explicitly at the
   bounded native boundary; NumPy appears only in isolated developer parity tests.
 
-## Surface B — in-database analytics operators (CONCEPT:EG-KG.query.surface-b-numeric-operators/EG-KG.compute.l2-normalize-batch-vectors/EG-KG.query.concept-6/EG-KG.query.svd-eg-pca-column/EG-KG.query.kmeans-clustering-half-one/EG-KG.query.eg-3)
+## Surface B — in-database analytics operators (CONCEPT:MEDULLA-KG.query.surface-b-numeric-operators/MEDULLA-KG.compute.l2-normalize-batch-vectors/MEDULLA-KG.query.concept-6/MEDULLA-KG.query.svd-medulla-pca-column/MEDULLA-KG.query.kmeans-clustering-half-one/MEDULLA-KG.query.medulla-3)
 
 The pure kernel rlib is wired into the engine's query surface so analytics run **where the
 data lives** — no fetch-to-Python, no FFI. Two reach paths:
 
 ```mermaid
 flowchart TD
-    subgraph kernel["eg-numeric (rlib, feature numeric — faer + ndarray, NO pyo3)"]
+    subgraph kernel["medulla-numeric (rlib, feature numeric — faer + ndarray, NO pyo3)"]
       K1["linalg: dot · norm · svd · batch_l2_normalize"]
       K2["reductions: mean · std · var"]
     end
-    subgraph sql["Surface B / SQL  (eg-query, feature numeric ⊃ sql)"]
+    subgraph sql["Surface B / SQL  (medulla-query, feature numeric ⊃ sql)"]
       U1["cosine_sim(a,b) → Float64  (scalar)"]
       U2["l2_normalize(v) → List&lt;Float32&gt;  (scalar)"]
       U3["zscore(col) → Float64  (scalar-over-batch)"]
@@ -254,18 +254,18 @@ flowchart TD
 ```
 
 **SQL operators** (registered on the graph-exec AND obs-tables `SessionContext`, gated
-`#[cfg(feature = "numeric")]` in `crates/eg-query/src/sql/exec.rs::register_numeric`,
-implemented in `crates/eg-query/src/sql/numeric.rs`):
+`#[cfg(feature = "numeric")]` in `crates/medulla-query/src/sql/exec.rs::register_numeric`,
+implemented in `crates/medulla-query/src/sql/numeric.rs`):
 
 | Operator | Kind | Kernel | Semantics |
 |----------|------|--------|-----------|
-| `cosine_sim(a, b)` | scalar → `Float64` | `linalg::dot`/`norm` | `a·b/(‖a‖‖b‖)`; the raw-similarity complement to EG-115 `vector_cosine` (distance). Accepts a stored `List<Float{32,64}>` column or a `'[1,2,3]'` text literal; NULL on a dimension mismatch. |
+| `cosine_sim(a, b)` | scalar → `Float64` | `linalg::dot`/`norm` | `a·b/(‖a‖‖b‖)`; the raw-similarity complement to MEDULLA-115 `vector_cosine` (distance). Accepts a stored `List<Float{32,64}>` column or a `'[1,2,3]'` text literal; NULL on a dimension mismatch. |
 | `l2_normalize(v)` | scalar → `List<Float32>` | `linalg::norm` | unit vector `v/‖v‖` (pgvector type — feeds `cosine_sim`/ANN in-query); zero-norm returned unchanged. |
 | `zscore(col)` | scalar-over-batch → `Float64` | `reductions::mean`/`std` | standardize `(x-mean)/std` (population `ddof=0`) over the materialized batch. Exact for the engine's single-partition MemTable/`NodesTableProvider` (one batch/table); a global two-pass is the `(x-avg(x) OVER())/stddev(x) OVER()` window form. |
 | `covariance(a, b)` | UDAF → `Float64` | `reductions::mean` | sample covariance `Σ(aᵢ-ā)(bᵢ-b̄)/(n-1)`; buffers aligned non-null pairs, merge state = two `List<Float64>` columns. |
-| `svd(vec_col)` (EG-KG.query.svd-eg-pca-column) | UDAF → `List<Float64>` | `linalg::svdvals` | **column→matrix**: stacks the aggregated vector column into an `n×d` matrix (each row = one matrix row; same operand forms as `cosine_sim` — a `List<Float{32,64}>` column or `'[..]'` text) and returns its singular values (descending). |
-| `pca(vec_col, k)` (EG-KG.query.concept-6) | UDAF → `List<List<Float64>>` | `reductions::mean` + `linalg::eigh` | **column→matrix**: mean-centers the `n×d` matrix, eigendecomposes the `d×d` sample covariance (`ddof=1`), and returns the top-`k` principal-component DIRECTIONS as `k` unit vectors of length `d`, **descending by explained variance** (sign arbitrary; `k` clamped to `d`; projected coords = `X_centered·componentsᵀ` downstream). |
-| `kmeans(vec_col, k)` (EG-KG.query.kmeans-clustering-half-one) | UDAF → `List<Int64>` | `cluster::kmeans_labels` | **column→matrix**: stacks the aggregated vector column into an `n×d` matrix and returns **one hard cluster label (`0..k`) per row, in ingestion order**. Pure-Rust Lloyd + k-means++ (`eg-numeric`'s ChaCha20 RNG, seeded → deterministic; **no linfa/BLAS**); `k` clamped to `n`, empty clusters re-seeded to the farthest point. |
+| `svd(vec_col)` (MEDULLA-KG.query.svd-medulla-pca-column) | UDAF → `List<Float64>` | `linalg::svdvals` | **column→matrix**: stacks the aggregated vector column into an `n×d` matrix (each row = one matrix row; same operand forms as `cosine_sim` — a `List<Float{32,64}>` column or `'[..]'` text) and returns its singular values (descending). |
+| `pca(vec_col, k)` (MEDULLA-KG.query.concept-6) | UDAF → `List<List<Float64>>` | `reductions::mean` + `linalg::eigh` | **column→matrix**: mean-centers the `n×d` matrix, eigendecomposes the `d×d` sample covariance (`ddof=1`), and returns the top-`k` principal-component DIRECTIONS as `k` unit vectors of length `d`, **descending by explained variance** (sign arbitrary; `k` clamped to `d`; projected coords = `X_centered·componentsᵀ` downstream). |
+| `kmeans(vec_col, k)` (MEDULLA-KG.query.kmeans-clustering-half-one) | UDAF → `List<Int64>` | `cluster::kmeans_labels` | **column→matrix**: stacks the aggregated vector column into an `n×d` matrix and returns **one hard cluster label (`0..k`) per row, in ingestion order**. Pure-Rust Lloyd + k-means++ (`medulla-numeric`'s ChaCha20 RNG, seeded → deterministic; **no linfa/BLAS**); `k` clamped to `n`, empty clusters re-seeded to the farthest point. |
 
 **Column→matrix marshalling** (`svd`/`pca`/`kmeans`): all three
 are UDAFs whose `Accumulator` (`MatrixAcc`) decodes each ingested row via `row_to_vector` (the
@@ -289,13 +289,13 @@ SELECT kmeans(emb, 4) AS cluster_labels FROM nodes;  -- 4-way clustering, one la
 
 **Batch Method** — `Method::BatchL2Normalize { vectors }` (`src/server/handlers/graph_ops.rs`,
 handler `#[cfg(feature = "numeric")]`) L2-normalizes a batch in-engine via
-`eg_numeric::linalg::batch_l2_normalize` through the sole current client method,
+`medulla_numeric::linalg::batch_l2_normalize` through the sole current client method,
 `client.batch_l2_normalize()`.
 
-**Feature wiring and server boundary.** eg-query gains a `numeric` feature (`["sql", "dep:eg-numeric",
-"dep:ndarray"]`); the engine's top-level `numeric = ["dep:eg-numeric", "eg-query?/numeric"]`
+**Feature wiring and server boundary.** medulla-query gains a `numeric` feature (`["sql", "dep:medulla-numeric",
+"dep:ndarray"]`); the engine's top-level `numeric = ["dep:medulla-numeric", "medulla-query?/numeric"]`
 turns the SQL operators on whenever the query surface is also built (i.e. the main build).
-eg-numeric's pyo3 (`python`) feature is off in every engine build, so a `numeric` engine links
+medulla-numeric's pyo3 (`python`) feature is off in every engine build, so a `numeric` engine links
 faer/ndarray but **no Python extension**. Checked: `cargo tree | grep -ci pyo3` = 0.
 
 The current native surface includes `BatchL2Normalize`, `svd`, `pca`, `kmeans`,
@@ -304,7 +304,7 @@ The capability matrix is authoritative for any additional operator.
 
 ---
 
-## The differentiator — cross-modal join → PCA/cluster in-engine (CONCEPT:EG-KG.query.eg-3)
+## The differentiator — cross-modal join → PCA/cluster in-engine (CONCEPT:MEDULLA-KG.query.medulla-3)
 
 This is the capability that goes beyond Python-only array computation: **join graph ⋈ vector
 ⋈ timeseries, then run PCA / k-means / covariance over the JOINED result set IN-ENGINE.** A
@@ -328,7 +328,7 @@ flowchart LR
     AN --> R["result (in-engine)<br/>clusters · components · cross-modal cov"]
 ```
 
-**One query, three modalities** (from `crates/eg-query/tests/cross_modal_analytics.rs`, the
+**One query, three modalities** (from `crates/medulla-query/tests/cross_modal_analytics.rs`, the
 proof test — synthetic data with hand-computed answers):
 
 ```sql

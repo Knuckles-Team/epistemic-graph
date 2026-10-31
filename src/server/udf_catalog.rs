@@ -1,4 +1,4 @@
-//! Owner-scoped WASM UDF catalog (CONCEPT:EG-KG.query.rowset-execution, EH-374).
+//! Owner-scoped WASM UDF catalog (CONCEPT:MEDULLA-KG.query.rowset-execution, EH-374).
 //!
 //! `Method::RegisterUdf` compiles an agent-supplied module and `Method::RunUdf` runs it
 //! sandboxed. Before EH-374 the server kept ONE process-global `id → module` registry:
@@ -11,7 +11,7 @@
 //! — tenant+principal, minted only from the verified envelope. One engine is bound to
 //! one tenant, so the principal is the working boundary; the tenant stays inside the
 //! owner key. [`UdfCatalog::run`] / [`UdfCatalog::register`] are the only ways in.
-//! Another owner's id resolves exactly like an unregistered id (eg-wasm's own "no UDF
+//! Another owner's id resolves exactly like an unregistered id (medulla-wasm's own "no UDF
 //! registered" message), so the refusal does not reveal that the id exists elsewhere.
 //! Modules are in memory only (`RegisterUdf`'s durable record is an opaque saga
 //! receipt), so there is no stored key shape to migrate. The served `Op::Udf` plan op
@@ -19,7 +19,7 @@
 
 use std::sync::Arc;
 
-use eg_wasm::{UdfError, UdfLimits, UdfModule, UdfRegistry};
+use medulla_wasm::{UdfError, UdfLimits, UdfModule, UdfRegistry};
 
 use super::access::CarrierAuthority;
 
@@ -123,7 +123,7 @@ mod tests {
     /// runnable or shadowable by tenant B, even though `owner_scope` is keyed only
     /// by `(tenant_scope, actor_scope)` — EH-374's tenant boundary, not just the
     /// per-principal one already covered above.
-    // spec: EG-DURABLE-KERNEL-R018
+    // spec: MEDULLA-DURABLE-KERNEL-R018
     #[test]
     fn udf_ids_are_tenant_scoped_for_run_and_shadowing() {
         use super::super::auth::VerifiedRequestContext;

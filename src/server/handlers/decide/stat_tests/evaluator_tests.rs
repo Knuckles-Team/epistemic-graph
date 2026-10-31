@@ -6,7 +6,7 @@
 use super::consumer_tests::declared_abstention;
 use super::retrieval_tests::{clone_record, executed_template, grant, principal_of, sql};
 use super::*;
-use eg_types::decision::statistical::log::NamedEvaluator;
+use medulla_types::decision::statistical::log::NamedEvaluator;
 use serde_json::json;
 
 const ROLE: &str = "decide-evaluator";
@@ -46,7 +46,7 @@ fn holding(who: &str, roles: &[&str]) -> VerifiedRequestContext {
             principal: format!("principal:{who}"),
             tenant: TENANT.to_string(),
             agent_id: who.to_string(),
-            audience: "epistemic-graph".to_string(),
+            audience: "medulla".to_string(),
             policy_version: "policy-test".to_string(),
             scopes: vec!["kg:read".to_string()],
             roles: roles.iter().map(|r| r.to_string()).collect(),

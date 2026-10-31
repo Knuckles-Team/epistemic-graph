@@ -1,10 +1,10 @@
-//! Rebalancing planner — CONCEPT:EG-KG.sharding.even-load-rebalance (M3 catalog-driven resharding, R3).
+//! Rebalancing planner — CONCEPT:MEDULLA-KG.sharding.even-load-rebalance (M3 catalog-driven resharding, R3).
 //!
 //! ## What this is
 //!
 //! A **pure, deterministic** policy layer that decides WHICH tenants/graphs to move
 //! and WHERE, to even out load across the K durable shards. It READS observable
-//! shard stats (per-shard, per-graph load) plus the EG-031 tenant catalog and EMITS
+//! shard stats (per-shard, per-graph load) plus the MEDULLA-031 tenant catalog and EMITS
 //! a [`RebalancePlan`] — an ordered list of `{graph, from_shard, to_shard}` moves.
 //!
 //! ## What this is NOT
@@ -20,7 +20,7 @@
 //! ## Where the live stats come from (integration hook)
 //!
 //! The planner is decoupled from any live source so it can be tested in isolation.
-//! In production the [`ShardLoad`] input is assembled from the EG-026 sharded
+//! In production the [`ShardLoad`] input is assembled from the MEDULLA-026 sharded
 //! writer's per-shard stats (`RedbBackend` shard set) plus the KG-2.51 per-graph size
 //! Prometheus gauges (`graph_node_count` etc.), grouped by the graph's CURRENT shard
 //! (`TenantCatalog::resolve_shard`). That assembly is the one wiring line that belongs
@@ -36,7 +36,7 @@ use super::tenant_catalog::TenantCatalog;
 /// caller chose to balance on; the planner only compares and sums them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphLoad {
-    /// Sanitized graph key (the SAME key EG-026 / the catalog route on).
+    /// Sanitized graph key (the SAME key MEDULLA-026 / the catalog route on).
     pub graph: String,
     /// The load weight to balance (size / node-count / op-rate). Higher = hotter.
     pub load: u64,
@@ -46,7 +46,7 @@ pub struct GraphLoad {
 /// The shard's total load is the sum of its graphs' loads.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShardLoad {
-    /// Durable shard index (EG-026 `graph-<shard>.redb`).
+    /// Durable shard index (MEDULLA-026 `graph-<shard>.redb`).
     pub shard: u32,
     /// The graphs currently routed to this shard, with their loads.
     pub graphs: Vec<GraphLoad>,
@@ -135,7 +135,7 @@ pub fn shard_loads_from_graph_loads(
 }
 
 /// Assemble [`ShardLoad`]s from observed per-graph loads, routing each graph by the
-/// EG-031 catalog (explicit assignment wins, else EG-026 FNV-1a) — the integration
+/// MEDULLA-031 catalog (explicit assignment wins, else MEDULLA-026 FNV-1a) — the integration
 /// seam between the live catalog and the pure planner. `graph_loads` is
 /// `(graph_fname, load)`; `k` is the live shard count.
 pub fn shard_loads_from_catalog(
@@ -156,7 +156,7 @@ fn sort_graphs(graphs: &mut [GraphLoad]) {
     graphs.sort_by(|a, b| b.load.cmp(&a.load).then_with(|| a.graph.cmp(&b.graph)));
 }
 
-/// Produce a deterministic rebalance plan that evens out shard load (CONCEPT:EG-KG.sharding.even-load-rebalance).
+/// Produce a deterministic rebalance plan that evens out shard load (CONCEPT:MEDULLA-KG.sharding.even-load-rebalance).
 ///
 /// Greedy hottest→coldest: repeatedly move ONE graph off the most-loaded shard onto
 /// the least-loaded shard, choosing the graph that most reduces the hottest-coldest
@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn balances_a_skewed_shard_set_deterministically() {
-        // CONCEPT:EG-KG.sharding.even-load-rebalance — a heavily skewed K=4 input: shard 0 holds everything. The
+        // CONCEPT:MEDULLA-KG.sharding.even-load-rebalance — a heavily skewed K=4 input: shard 0 holds everything. The
         // graphs are INDIVISIBLE, so the best achievable imbalance is floored by the
         // single largest graph (100) — the planner drives toward that floor, never
         // splitting a graph or thrashing.
@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn divisible_load_reaches_tolerance() {
-        // CONCEPT:EG-KG.sharding.even-load-rebalance — when the load IS evenly divisible (12 graphs of 25 across
+        // CONCEPT:MEDULLA-KG.sharding.even-load-rebalance — when the load IS evenly divisible (12 graphs of 25 across
         // K=4, mean 75), the planner balances to within the default 10% tolerance.
         let graphs: Vec<GraphLoad> = (0..12).map(|i| gl(&format!("g{i:02}"), 25)).collect();
         let shards = vec![
@@ -475,7 +475,7 @@ mod tests {
 
     #[test]
     fn catalog_routing_feeds_the_planner() {
-        // EG-031 integration seam: an empty catalog routes by FNV-1a; the planner then
+        // MEDULLA-031 integration seam: an empty catalog routes by FNV-1a; the planner then
         // sees those placements. Just assert the assembly is consistent with routing.
         let cat = TenantCatalog::in_memory();
         let loads = vec![("g1".to_string(), 7u64), ("g2".to_string(), 3u64)];

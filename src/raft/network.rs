@@ -75,7 +75,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{oneshot, Notify};
 
-use super::{EgRaft, GroupId, NodeId, TypeConfig};
+use super::{MedullaRaft, GroupId, NodeId, TypeConfig};
 
 mod heartbeat_flush;
 mod membership;
@@ -108,7 +108,7 @@ impl std::error::Error for StrErr {}
 /// Default warm connections kept idle PER PEER address.
 ///
 /// ADR-2's whole point is many independent Raft GROUPS sharing this ONE listener/pool
-/// per node (CONCEPT:EG-KG.sharding.raft-resharding — "a single-group cluster is just
+/// per node (CONCEPT:MEDULLA-KG.sharding.raft-resharding — "a single-group cluster is just
 /// one group on that shared listener"), so the number of RPCs that can be
 /// simultaneously in flight to the SAME peer scales with the group count: every
 /// group's own heartbeat cadence, its elections' vote RPCs, and its client-write
@@ -169,9 +169,9 @@ fn invalid_data(message: &'static str) -> io::Error {
 }
 
 pub(crate) fn decode_wire<T: serde::de::DeserializeOwned>(body: &[u8]) -> io::Result<T> {
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         body,
-        eg_types::msgpack::MsgpackLimits::new(MAX_RAFT_FRAME_BYTES, MAX_RAFT_FRAME_ITEMS, 64),
+        medulla_types::msgpack::MsgpackLimits::new(MAX_RAFT_FRAME_BYTES, MAX_RAFT_FRAME_ITEMS, 64),
     )
     .map_err(|_| invalid_data("invalid raft frame"))
 }
@@ -280,7 +280,7 @@ impl RaftTransportAuth {
     ) -> io::Result<[u8; 32]> {
         let mut mac = <HmacSha256 as Mac>::new_from_slice(&self.key)
             .map_err(|_| invalid_data("invalid raft transport key"))?;
-        mac.update(b"epistemic-graph/raft-session/v1\0");
+        mac.update(b"medulla-engine/raft-session/v1\0");
         mac.update(&client.to_be_bytes());
         mac.update(&server.to_be_bytes());
         mac.update(client_nonce);
@@ -504,7 +504,7 @@ fn read_u64(bytes: &[u8]) -> io::Result<u64> {
 fn nonce_prefix(key: &[u8; 32], direction: &[u8]) -> io::Result<[u8; 16]> {
     let mut mac = <HmacSha256 as Mac>::new_from_slice(key)
         .map_err(|_| invalid_data("invalid raft session key"))?;
-    mac.update(b"epistemic-graph/raft-nonce/v1\0");
+    mac.update(b"medulla-engine/raft-nonce/v1\0");
     mac.update(direction);
     let mut digest = mac.finalize().into_bytes();
     let mut out = [0u8; 16];
@@ -708,7 +708,7 @@ impl Default for PeerPool {
     }
 }
 
-// ── group-multiplexed network (CONCEPT:EG-KG.sharding.raft-resharding) ──────────────────────────
+// ── group-multiplexed network (CONCEPT:MEDULLA-KG.sharding.raft-resharding) ──────────────────────────
 //
 // The multi-group path (`super::multi`) carries a `GroupId` in every RPC frame so
 // ONE listener per node serves ALL groups. The client tags every RPC with the group
@@ -779,10 +779,10 @@ pub enum GroupRpcReply {
     Membership(Result<MembershipOutcome, String>),
 }
 
-// ── heartbeat coalescing wire envelope (CONCEPT:EG-KG.storage.concept-2) ──────────────────
+// ── heartbeat coalescing wire envelope (CONCEPT:MEDULLA-KG.storage.concept-2) ──────────────────
 
 /// The top-level Raft wire frame. Either a SINGLE group-tagged RPC (the per-group
-/// openraft path) or a BATCH of them coalesced to one peer (CONCEPT:EG-KG.storage.concept-2).
+/// openraft path) or a BATCH of them coalesced to one peer (CONCEPT:MEDULLA-KG.storage.concept-2).
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "")]
 pub enum RaftFrame {
@@ -800,7 +800,7 @@ pub enum RaftFrameReply {
 }
 
 /// Coalesces per-peer Raft HEARTBEATS across groups into one batched frame
-/// (CONCEPT:EG-KG.storage.concept-2). Only heartbeats coalesce — log-bearing appends, votes,
+/// (CONCEPT:MEDULLA-KG.storage.concept-2). Only heartbeats coalesce — log-bearing appends, votes,
 /// snapshots, and transfer-leader notifications are latency/ordering-sensitive and
 /// pass through individually ([`is_heartbeat`] gates this).
 ///
@@ -917,7 +917,7 @@ impl HeartbeatCoalescer {
         }
     }
 
-    /// Drain every buffered peer into one batch per peer (CONCEPT:EG-KG.storage.concept-2).
+    /// Drain every buffered peer into one batch per peer (CONCEPT:MEDULLA-KG.storage.concept-2).
     pub fn drain_batches(&self) -> Vec<(String, Vec<GroupRpc>)> {
         self.drain_pending()
             .into_iter()
@@ -946,7 +946,7 @@ impl HeartbeatCoalescer {
     }
 
     /// Send one coalesced batch to `addr` over the shared [`PeerPool`] and return the
-    /// ORDERED per-RPC replies (CONCEPT:EG-KG.storage.concept-2).
+    /// ORDERED per-RPC replies (CONCEPT:MEDULLA-KG.storage.concept-2).
     pub(crate) async fn send_batch(
         pool: &PeerPool,
         addr: &str,
@@ -1054,7 +1054,7 @@ impl GroupNetworkClient {
                 "partitioned (harness nemesis)",
             ));
         }
-        // A per-group RPC goes out as a single-RPC frame (CONCEPT:EG-KG.storage.concept-2); coalesced
+        // A per-group RPC goes out as a single-RPC frame (CONCEPT:MEDULLA-KG.storage.concept-2); coalesced
         // heartbeats use `RaftFrame::Batch` via `HeartbeatCoalescer::send_batch`.
         let body = rmp_serde::to_vec_named(&RaftFrame::One(Box::new(rpc)))
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -1153,10 +1153,10 @@ impl RaftNetworkV2<TypeConfig> for GroupNetworkClient {
     }
 }
 
-/// Dispatch one demuxed group RPC into the local group's [`EgRaft`] (or an error
+/// Dispatch one demuxed group RPC into the local group's [`MedullaRaft`] (or an error
 /// reply if this node doesn't run the group). Used by `super::multi`'s listener.
 pub(crate) async fn dispatch_group(
-    raft: Option<EgRaft>,
+    raft: Option<MedullaRaft>,
     gid: GroupId,
     rpc: GroupRpc,
     read_service: &super::xread::ReadPageService,

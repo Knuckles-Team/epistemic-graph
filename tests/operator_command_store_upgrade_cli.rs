@@ -1,10 +1,10 @@
-//! EG-DURABLE-KERNEL-R007 — the host binary's `storage inspect`/`storage
+//! MEDULLA-DURABLE-KERNEL-R007 — the host binary's `storage inspect`/`storage
 //! upgrade` command surface, exercised through the real compiled binary.
 //!
 //! `src/operator_command.rs` and `src/server/persistence/store_upgrade.rs`
 //! already carry library-level unit tests for the `inspect`/`apply`
 //! functions. Nothing before this file spawned the actual
-//! `epistemic-graph-server` executable and parsed real argv into the
+//! `medulla-server` executable and parsed real argv into the
 //! `store-upgrade inspect`/`store-upgrade apply` subcommands, so the clap
 //! wiring in `src/main.rs`/`src/operator_command.rs` (subcommand names, exit
 //! status propagation) was untested at the CLI boundary R007 names.
@@ -15,14 +15,14 @@ use std::process::{Command, Output};
 fn server_bin() -> std::path::PathBuf {
     // `cargo test` defines this at compile time; `cargo check`/`clippy` may not, so
     // fall back to the binary cargo places next to this test's own executable.
-    if let Some(path) = option_env!("CARGO_BIN_EXE_epistemic-graph-server") {
+    if let Some(path) = option_env!("CARGO_BIN_EXE_medulla-server") {
         return path.into();
     }
     let exe = std::env::current_exe().unwrap_or_default();
     exe.parent()
         .and_then(std::path::Path::parent)
         .unwrap_or_else(|| std::path::Path::new("."))
-        .join("epistemic-graph-server")
+        .join("medulla-server")
 }
 
 fn run(args: &[&str]) -> Output {
@@ -32,7 +32,7 @@ fn run(args: &[&str]) -> Output {
         .unwrap_or_else(|error| panic!("spawn {} {args:?}: {error}", server_bin().display()))
 }
 
-// spec: EG-DURABLE-KERNEL-R007
+// spec: MEDULLA-DURABLE-KERNEL-R007
 #[test]
 fn storage_inspect_reports_nothing_to_do_on_an_empty_data_directory() {
     let data_dir = tempfile::tempdir().expect("tempdir");
@@ -57,7 +57,7 @@ fn storage_inspect_reports_nothing_to_do_on_an_empty_data_directory() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R007
+// spec: MEDULLA-DURABLE-KERNEL-R007
 #[test]
 fn storage_apply_without_confirm_is_refused_and_opens_nothing() {
     let data_dir = tempfile::tempdir().expect("tempdir");
@@ -78,7 +78,7 @@ fn storage_apply_without_confirm_is_refused_and_opens_nothing() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R007
+// spec: MEDULLA-DURABLE-KERNEL-R007
 #[test]
 fn storage_apply_with_confirm_reports_nothing_to_do_on_an_empty_data_directory() {
     let data_dir = tempfile::tempdir().expect("tempdir");

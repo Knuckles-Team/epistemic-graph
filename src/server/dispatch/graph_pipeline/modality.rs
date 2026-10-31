@@ -11,7 +11,7 @@ pub(super) struct ModalityReplication<'a> {
     graph_name: &'a str,
     graph_type: crate::protocol::GraphType,
     req_id: u64,
-    attempt_nonce: Option<eg_types::contract::Nonce>,
+    attempt_nonce: Option<medulla_types::contract::Nonce>,
     tenant_scope: &'a str,
     principal_fingerprint: &'a str,
     core: &'a Arc<crate::graph::GraphCore>,
@@ -24,7 +24,7 @@ pub(super) struct ModalityReplication<'a> {
 #[cfg(all(feature = "raft", feature = "modality-serving"))]
 pub(super) struct ModalityMutationInputs {
     operation: crate::raft::SanitizedModalityMutation,
-    modality: eg_types::ServedModalityKind,
+    modality: medulla_types::ServedModalityKind,
     receipt_query: String,
     safe_method: Method,
 }
@@ -42,7 +42,7 @@ pub(super) struct ModalityReplicationRequest<'a> {
     pub(super) graph_name: &'a str,
     pub(super) graph_type: crate::protocol::GraphType,
     pub(super) req_id: u64,
-    pub(super) attempt_nonce: Option<eg_types::contract::Nonce>,
+    pub(super) attempt_nonce: Option<medulla_types::contract::Nonce>,
     pub(super) idempotency_key: &'a str,
     pub(super) tenant_scope: &'a str,
     pub(super) principal_fingerprint: &'a str,
@@ -76,7 +76,7 @@ pub(super) async fn modality_leader_fence(ctx: &ModalityReplication<'_>) -> Opti
 pub(super) fn decode_modality_replication_inputs(
     req_id: u64,
     method: Method,
-) -> Result<(eg_types::ServedModalityOp, ModalityMutationInputs), Response> {
+) -> Result<(medulla_types::ServedModalityOp, ModalityMutationInputs), Response> {
     let safe_method = crate::server::mutation::durable_receipt_method(&method);
     let Method::ServedModality { op } = method else {
         return Err(Response::err(
@@ -506,7 +506,7 @@ pub(super) async fn replicate_served_modality(request: ModalityReplicationReques
 pub(super) async fn prepare_and_replicate_modality(
     ctx: &ModalityReplication<'_>,
     inputs: &ModalityMutationInputs,
-    op: eg_types::ServedModalityOp,
+    op: medulla_types::ServedModalityOp,
     authority: &handlers::modality::ModalityAuthority,
     batch_id: String,
     graph_fname: String,

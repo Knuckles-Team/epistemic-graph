@@ -115,7 +115,7 @@ class RecoveryTests(unittest.TestCase):
         receipt = b"{}"
         wheel_buffer = io.BytesIO()
         with zipfile.ZipFile(wheel_buffer, "w") as wheel:
-            wheel.writestr("epistemic_graph/contract/receipt.json", receipt)
+            wheel.writestr("medulla/contract/receipt.json", receipt)
         wheel_bytes = wheel_buffer.getvalue()
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

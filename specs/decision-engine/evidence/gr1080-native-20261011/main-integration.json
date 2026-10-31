@@ -10,7 +10,7 @@
     "all_other_tracked_blobs_and_modes_identical": true,
     "excluded_documentation": [
       "specs/**",
-      "epistemic_graph/skills/epistemic-graph-development/SKILL.md"
+      "medulla/skills/medulla-development/SKILL.md"
     ],
     "files_compared": 3783,
     "validated_manifest_sha256": "63ba1228c54d3640b4f0ba082512e1014c72e2f99a9b839c5aec5ad1ed78a5cd",

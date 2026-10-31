@@ -1,13 +1,13 @@
 import pytest
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
 
 @pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_initial_graph_dynamics(clean_graph):
-    """Verify that a clean, newly instantiated EpistemicGraph is properly configured and
+    """Verify that a clean, newly instantiated Medulla is properly configured and
     empty."""
-    assert isinstance(clean_graph, SyncEpistemicGraphClient)
+    assert isinstance(clean_graph, SyncMedullaClient)
 
     # Check that nodes and edges lists are empty
     nodes = clean_graph.nodes.list()
