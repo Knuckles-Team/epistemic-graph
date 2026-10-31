@@ -1,6 +1,6 @@
 # Technical Overview — Medulla
 
-Medulla is the Rust-native compute & storage engine for the agent-utilities ecosystem. It
+Medulla is the Rust-native compute & storage engine for the Arbora ecosystem. It
 is a **single durable engine** that unifies a property graph, vector ANN, SQL, RDF/SPARQL, OWL-2
 reasoning, time-series, content-addressed BLOB, full-text, and finance/data-science compute behind
 **one cross-modal `RowSet` planner**. Python reaches it **out-of-process** over length-prefixed
@@ -20,7 +20,7 @@ multimodal) see [the master-of-all engine](architecture/engine.md); for build co
 ```mermaid
 flowchart LR
     subgraph PyCallers["Python callers"]
-        AU["agent-utilities GraphComputeEngine"]
+        AU["Meristem harness (via Arbora)"]
         CLI["CLI / MCP / UIs / ingestion"]
     end
     subgraph Edge["Edge / embedded"]
@@ -111,7 +111,7 @@ CONCEPT:MEDULLA-KG.ontology.singles-concept/255-267/155), **medulla-tensor** (N-
 CONCEPT:MEDULLA-KG.query.pipelined-execution), **medulla-shacl** / **medulla-shex** (RDF shape validation; CONCEPT:MEDULLA-KG.ontology.concept-6/133), and
 **medulla-kvcache** (LLM KV-block tiering; CONCEPT:MEDULLA-KG.memory.byte-bounded-tiers/186/187). The **message broker** (CONCEPT:MEDULLA-KG.compute.message-broker-exchanges
 family) and **agent-memory** primitives (CONCEPT:MEDULLA-KG.compute.discounted-return/220/221/222) live in `medulla-core`; the
-**observability** stack (logs/metrics/traces/VRL/federated-search; CONCEPT:AU-KG.ingest.self-ingest-165/172/243) lives in
+**observability** stack (logs/metrics/traces/VRL/federated-search; CONCEPT:MEDULLA-KG.ingest.self-ingest-165/172/243) lives in
 `medulla-tsdb` + the facade's `obs` listener. **Program B** (waves B-1..B-6, CONCEPT:MEDULLA-KG.query.gds-call-procedures..320) then added a
 seventh leaf crate — **medulla-lake** (LTAP lakehouse interop: Parquet + Delta + Iceberg + LSN as-of;
 CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns, see [lakehouse-ltap](architecture/lakehouse_ltap.md)) — plus the facade's **OTel egress**
@@ -158,7 +158,7 @@ flowchart LR
   lexical `RankText`, hybrid `FuseRrf` (reciprocal-rank fusion of two sub-plans — a doc strong in both
   modalities out-ranks one strong in only one), `Udf` (a registered WASM module run over the rows),
   and the time-context ops `AsOf` / `Window`.
-- The planner is **cost-reordered** (CONCEPT:AU-KG.compute.vector/2.209): a selective predicate runs before a broad
+- The planner is **cost-reordered** (CONCEPT:MEDULLA-KG.compute.vector/2.209): a selective predicate runs before a broad
   one, so the most selective stage prunes the candidate set first. The result is served through the
   version-keyed, **RLS-aware** result cache (CONCEPT:MEDULLA-KG.coordination.distributed-cache-coherence), so a repeated identical query on an
   unchanged graph hits — and an agent never sees another agent's filtered result.
