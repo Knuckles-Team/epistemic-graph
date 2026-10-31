@@ -145,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(summary, indent=1) + "\n", encoding="utf-8"
     )
     (args.out_dir / "BACK-EDGES.md").write_text(
-        render_markdown(summary) + "\n", encoding="utf-8"
+        render_markdown(summary).rstrip("\n") + "\n", encoding="utf-8"
     )
     print(
         f"{len(edges)} violating references, "
