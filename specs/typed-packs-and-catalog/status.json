@@ -1182,7 +1182,7 @@
       "title": "The annotation digest covers the new fields without moving old vectors",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "cce1025cff8a"
+        "facee0b58a3a"
       ],
       "verified_by": [
         "crates/medulla-types/src/connector_pack/digest.rs:449",
