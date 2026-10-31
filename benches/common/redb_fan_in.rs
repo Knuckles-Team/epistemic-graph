@@ -7,9 +7,9 @@
 
 use std::sync::Arc;
 
-use epistemic_graph::protocol::Method;
-use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-use epistemic_graph::server::persistence::PersistenceBackend;
+use medulla::protocol::Method;
+use medulla::server::persistence::redb_backend::RedbBackend;
+use medulla::server::persistence::PersistenceBackend;
 
 pub const GRAPH: &str = "__commons__";
 

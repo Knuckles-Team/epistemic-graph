@@ -1,12 +1,12 @@
-# EG-SDLC — Graph-driven development lifecycle
+# MEDULLA-SDLC — Graph-driven development lifecycle
 
 Owner: Medulla (`EG`). Sole owner of the lifecycle records and their derivation rules.
 Component: Development lifecycle
-Depends-on: EG-SCM-R002, EG-SCM-R008, EG-ORCH-VOCAB-R012
-References: [EG-SCM](../source-changesets/spec.md), [EG-REPO-INGEST](../repository-index-and-ingestion/spec.md), [EG-ORCH-VOCAB](../orchestration-vocabulary/spec.md), [EG-UNIFIED-DATA-PLANE](../unified-data-plane/spec.md)
+Depends-on: MEDULLA-SCM-R002, MEDULLA-SCM-R008, MEDULLA-ORCH-VOCAB-R012
+References: [MEDULLA-SCM](../source-changesets/spec.md), [MEDULLA-REPO-INGEST](../repository-index-and-ingestion/spec.md), [MEDULLA-ORCH-VOCAB](../orchestration-vocabulary/spec.md), [MEDULLA-UNIFIED-DATA-PLANE](../unified-data-plane/spec.md)
 
 Cross-repo IDs: `ARBORA-OPS-R853` serves the lifecycle operations. `PIPE-GATES-R004` and
-`PIPE-CONNSPEC-R009` publish gate verdicts and read the derived status. `AU-SCM-R002` applies
+`PIPE-CONNSPEC-R009` publish gate verdicts and read the derived status. `MERISTEM-SCM-R002` applies
 graph-native edits inside a run. Each owner files its own row.
 
 ## Purpose and user stories
@@ -23,8 +23,8 @@ the changeset log, so no person or agent maintains the links by hand.
 
 ## Requirements and acceptance
 
-Every requirement ID lives in [requirements.md](requirements.md). The IDs are `EG-SDLC-R001` to
-`EG-SDLC-R006`. Architecture and live wiring live in [plan.md](plan.md). The test contract lives
+Every requirement ID lives in [requirements.md](requirements.md). The IDs are `MEDULLA-SDLC-R001` to
+`MEDULLA-SDLC-R006`. Architecture and live wiring live in [plan.md](plan.md). The test contract lives
 in [test-spec.md](test-spec.md).
 
 - FR-001: The engine stores the nine lifecycle record kinds and the closed edge set (R001).
@@ -39,12 +39,12 @@ in [test-spec.md](test-spec.md).
 ## Why a new spec
 
 The search covered `git grep -n -iE "defect|triage|release record|deployment record|lifecycle|spec status" -- specs`.
-It read EG-SCM, EG-REPO-INGEST, EG-ORCH-VOCAB, EG-UNIFIED-DATA-PLANE, EG-DURABLE-KERNEL and EG-DECISION-ENGINE.
+It read MEDULLA-SCM, MEDULLA-REPO-INGEST, MEDULLA-ORCH-VOCAB, MEDULLA-UNIFIED-DATA-PLANE, MEDULLA-DURABLE-KERNEL and MEDULLA-DECISION-ENGINE.
 
-- EG-SCM owns changesets, trees, gate verdicts and bisect. It does not own defects, releases or deployments.
-- EG-REPO-INGEST-R009 links hydrated entities of an ingested repository. It holds no derivation rules.
-- EG-ORCH-VOCAB-R012 maps spec files to typed nodes. It does not derive requirement state.
-- EG-UNIFIED-DATA-PLANE-R760 owns operational incidents. An incident is not a code defect.
+- MEDULLA-SCM owns changesets, trees, gate verdicts and bisect. It does not own defects, releases or deployments.
+- MEDULLA-REPO-INGEST-R009 links hydrated entities of an ingested repository. It holds no derivation rules.
+- MEDULLA-ORCH-VOCAB-R012 maps spec files to typed nodes. It does not derive requirement state.
+- MEDULLA-UNIFIED-DATA-PLANE-R760 owns operational incidents. An incident is not a code defect.
 
 No spec owns the lifecycle chain as one record set with derivation rules. This spec owns that
 chain. Each linked record stays with its owner.
@@ -54,8 +54,8 @@ chain. Each linked record stays with its owner.
 In scope: the lifecycle vocabulary, the derivation rules, and release and deployment records.
 Also in scope: defect records and triage, derived requirement state and the lifecycle queries.
 
-Non-goals: changeset storage (EG-SCM), served operations (arbora), gate execution (pipelines),
-views (the UIs) and incident correlation (EG-UNIFIED-DATA-PLANE-R760).
+Non-goals: changeset storage (MEDULLA-SCM), served operations (arbora), gate execution (pipelines),
+views (the UIs) and incident correlation (MEDULLA-UNIFIED-DATA-PLANE-R760).
 
 ## Traceability
 

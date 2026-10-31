@@ -1,12 +1,12 @@
 //! A pack's `connector://resources` declaration, imported under a tenant, maps that tenant's `SourceIngest` records
-//! (EG-TYPED-PACKS-R101.9), and a one-tool-per-operation pack of 5000 entries
+//! (MEDULLA-TYPED-PACKS-R101.9), and a one-tool-per-operation pack of 5000 entries
 //! imports and resolves (#656).
 
 use std::time::Instant;
 
-use eg_types::connector_pack::{PackAnnotations, PackEntryKind};
-use eg_types::contract::{BoundedVec, ResourceId};
-use eg_types::source_ingestion::{SourceIngestionRequest, SourceJson};
+use medulla_types::connector_pack::{PackAnnotations, PackEntryKind};
+use medulla_types::contract::{BoundedVec, ResourceId};
+use medulla_types::source_ingestion::{SourceIngestionRequest, SourceJson};
 
 use super::{bind, build_pack, imported, tool, Content, Served, ADMIN, TENANT};
 use crate::protocol::{GraphType, Method};
@@ -42,7 +42,7 @@ fn show_refusals() {
 
 /// The shared fixture request, as a first delta with no prior checkpoint.
 fn first_ingest() -> SourceIngestionRequest {
-    let mut batch = eg_types::test_support::source_ingestion::request()
+    let mut batch = medulla_types::test_support::source_ingestion::request()
         .as_batch()
         .clone();
     batch.expected_previous_checkpoint = None;
@@ -90,7 +90,7 @@ async fn ingest(
 
 /// Import keys pack heads by the verified tenant; `SourceIngest` must resolve
 /// the mapping under that same key, not the route's hashed carrier scope.
-// spec: EG-TYPED-PACKS-R101.9
+// spec: MEDULLA-TYPED-PACKS-R101.9
 #[tokio::test]
 async fn an_imported_pack_maps_source_ingest_records_of_the_same_tenant() {
     let (served, _guard) = pack_graph("pack-ingest").await;
@@ -137,7 +137,7 @@ async fn resolve(served: &Served, reference: &str) -> Result<String, String> {
 
 /// The selector the SDK emits resolves against the declared mapping: the
 /// ontology class and field map come from `connector://resources`.
-// spec: EG-TYPED-PACKS-R101.10
+// spec: MEDULLA-TYPED-PACKS-R101.10
 #[tokio::test]
 async fn the_selector_resolves_to_the_declared_class_and_field_map() {
     let (served, _guard) = pack_graph("decl-resolve").await;
@@ -150,7 +150,7 @@ async fn the_selector_resolves_to_the_declared_class_and_field_map() {
 
 /// A record type the declaration does not name is refused by type, and a pack
 /// with no declaration is unavailable; neither commits anything.
-// spec: EG-TYPED-PACKS-R101.11
+// spec: MEDULLA-TYPED-PACKS-R101.11
 #[tokio::test]
 async fn an_undeclared_type_is_refused_with_a_typed_error() {
     let (served, _guard) = pack_graph("decl-undeclared").await;
@@ -200,7 +200,7 @@ async fn an_undeclared_type_is_refused_with_a_typed_error() {
 
 /// Relations resolve from the ontology's object properties, by the exact
 /// reference path, and only when the pack declares them.
-// spec: EG-TYPED-PACKS-R101.10
+// spec: MEDULLA-TYPED-PACKS-R101.10
 #[cfg(feature = "rdf")]
 #[tokio::test]
 async fn relations_resolve_from_the_pack_ontology() {
@@ -251,7 +251,7 @@ fn second_ingest(first: &SourceIngestionRequest) -> SourceIngestionRequest {
 async fn committed_envelope(
     served: &Served,
     request: &SourceIngestionRequest,
-) -> eg_types::change_envelope::ChangeEnvelope {
+) -> medulla_types::change_envelope::ChangeEnvelope {
     let persistence = served
         .state
         .read()
@@ -275,7 +275,7 @@ async fn committed_envelope(
 /// version. Before the stream keying it named a per-batch object with no prior
 /// version while claiming the first batch's digest, and the commit refused it
 /// `STALE_CONTENT_VERSION: ... has no prior version`.
-// spec: EG-REPO-INGEST-R002.102
+// spec: MEDULLA-REPO-INGEST-R002.102
 #[tokio::test]
 async fn a_second_batch_to_the_same_stream_chains_its_content_version() {
     let (served, _guard) = pack_graph("pack-chain").await;

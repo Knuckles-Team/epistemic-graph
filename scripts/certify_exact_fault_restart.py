@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-# This harness must certify THIS checkout's own `epistemic_graph.client`, not
+# This harness must certify THIS checkout's own `medulla.client`, not
 # whatever copy happens to be resolved by an editable install elsewhere on
 # sys.path (e.g. a different worktree's checkout registered as the editable
 # `medulla` distribution) -- prepending the repository root makes the
@@ -45,9 +45,9 @@ from typing import Any
 # late-bound sys.path entry to precede a plain top-of-file import.
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT))
-SyncEpistemicGraphClient = importlib.import_module(
-    "epistemic_graph.client"
-).SyncEpistemicGraphClient
+SyncMedullaClient = importlib.import_module(
+    "medulla.client"
+).SyncMedullaClient
 
 SCHEMA_VERSION = 1
 AGENT_ID = "service:exact-certifier"
@@ -55,7 +55,7 @@ AGENT_ID = "service:exact-certifier"
 # (NE-065 scoping; see the registry construction in `Engine.start`). Explicit
 # enumeration, never a wildcard -- `RoleAllowance::parse` rejects a bare `"*"`.
 CERTIFIER_ALLOWED_ROLES = ("exact-matrix-reader",)
-AUDIENCE = "epistemic-graph-certification"
+AUDIENCE = "medulla-certification"
 POLICY_VERSION = "policy:certification"
 TENANT = "tenant:certification-a"
 SECOND_TENANT = "tenant:certification-b"
@@ -66,15 +66,15 @@ SHUTDOWN_TIMEOUT_SECONDS = 15.0
 RECOVERY_TIMEOUT_SECONDS = 30.0
 
 EXACT_OPTIONAL_LISTENER_ENV = (
-    "EPISTEMIC_GRAPH_PGWIRE_ADDR",
-    "EPISTEMIC_GRAPH_MYSQL_ADDR",
-    "EPISTEMIC_GRAPH_MSSQL_ADDR",
-    "EPISTEMIC_GRAPH_SQLITE_ADDR",
-    "EPISTEMIC_GRAPH_BOLT_ADDR",
-    "EPISTEMIC_GRAPH_REDIS_ADDR",
-    "EPISTEMIC_GRAPH_AMQP_ADDR",
-    "EPISTEMIC_GRAPH_MQTT_ADDR",
-    "EPISTEMIC_GRAPH_STOMP_ADDR",
+    "MEDULLA_PGWIRE_ADDR",
+    "MEDULLA_MYSQL_ADDR",
+    "MEDULLA_MSSQL_ADDR",
+    "MEDULLA_SQLITE_ADDR",
+    "MEDULLA_BOLT_ADDR",
+    "MEDULLA_REDIS_ADDR",
+    "MEDULLA_AMQP_ADDR",
+    "MEDULLA_MQTT_ADDR",
+    "MEDULLA_STOMP_ADDR",
 )
 
 PHASES = (
@@ -187,7 +187,7 @@ def _copy_binary(descriptor: int, expected_digest: str) -> tuple[ExactBinary, st
     output: int | None = None
     private_root: tempfile.TemporaryDirectory[str] | None = None
     try:
-        private_root = tempfile.TemporaryDirectory(prefix="eg-exact-binary-")
+        private_root = tempfile.TemporaryDirectory(prefix="medulla-exact-binary-")
         root = Path(private_root.name)
         root.chmod(0o700)
         destination = root / "engine"
@@ -328,7 +328,7 @@ class ExactEngine:
                 # Explicit, deliberate opt-out of the MANDATORY-OIDC posture (secure
                 # by default since 2026-07-22 -- see `auth.rs`'s `require_oidc()`).
                 # Without this the engine refuses to start at all ("invalid verified
-                # request-context configuration: EPISTEMIC_GRAPH_REQUIRE_OIDC
+                # request-context configuration: MEDULLA_REQUIRE_OIDC
                 # requires OIDC identity binding ... but no usable OIDC verifier is
                 # configured"), which every certification run here hit as
                 # `engine_exited_during_startup` -- no Keycloak/OIDC provider exists
@@ -337,11 +337,11 @@ class ExactEngine:
                 # exactly the documented local/dev/test opt-out use case (mirrors
                 # `tests/conftest.py`'s `strict_server_env`, which sets the same var
                 # for the identical reason).
-                "EPISTEMIC_GRAPH_REQUIRE_OIDC": "false",
-                "EPISTEMIC_GRAPH_AUDIENCE": AUDIENCE,
-                "EPISTEMIC_GRAPH_TENANT": tenant,
-                "EPISTEMIC_GRAPH_POLICY_VERSION": POLICY_VERSION,
-                "EPISTEMIC_GRAPH_SECURITY_STATE_DIR": str(self.security_dir),
+                "MEDULLA_REQUIRE_OIDC": "false",
+                "MEDULLA_AUDIENCE": AUDIENCE,
+                "MEDULLA_TENANT": tenant,
+                "MEDULLA_POLICY_VERSION": POLICY_VERSION,
+                "MEDULLA_SECURITY_STATE_DIR": str(self.security_dir),
                 # NE-247: the SCOPED signer-registry shape. NE-065 made the flat
                 # `{signer_id: key}` form fail closed (no roles, no System grant),
                 # so this sandbox's own genesis `bootstrap_system_identity` -- an
@@ -349,7 +349,7 @@ class ExactEngine:
                 # `certify_exact_protocol_authorization.py` reuses this exact
                 # engine sandbox and additionally registers a peer carrying
                 # `PEER_ROLE`, so that role is enumerated here too.
-                "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON": json.dumps(
+                "MEDULLA_SIGNER_KEYS_JSON": json.dumps(
                     {
                         AGENT_ID: {
                             "key": self.authority.signer_key,
@@ -359,9 +359,9 @@ class ExactEngine:
                     },
                     separators=(",", ":"),
                 ),
-                "EPISTEMIC_GRAPH_REDB_SHARDS": str(redb_shards),
-                "EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE": str(lazy_page_size),
-                "EPISTEMIC_GRAPH_BACKUP_ROOT": str(self.backup_dir),
+                "MEDULLA_REDB_SHARDS": str(redb_shards),
+                "MEDULLA_LAZY_OPEN_PAGE_SIZE": str(lazy_page_size),
+                "MEDULLA_BACKUP_ROOT": str(self.backup_dir),
                 "RUST_BACKTRACE": "0",
             }
 
@@ -379,7 +379,7 @@ class ExactEngine:
 
         def apply_fault_configuration(env: dict[str, str]) -> None:
             if fault is not None:
-                env["EPISTEMIC_GRAPH_CERTIFICATION_FAULT"] = json.dumps(
+                env["MEDULLA_CERTIFICATION_FAULT"] = json.dumps(
                     fault, sort_keys=True, separators=(",", ":")
                 )
 
@@ -392,7 +392,7 @@ class ExactEngine:
                 or not 1 <= modality_source_limit <= 256 * 1024 * 1024
             ):
                 _fail("invalid_modality_source_limit")
-            env["EPISTEMIC_GRAPH_MODALITY_MAX_SOURCE_BYTES"] = str(
+            env["MEDULLA_MODALITY_MAX_SOURCE_BYTES"] = str(
                 modality_source_limit
             )
 
@@ -466,8 +466,8 @@ class ExactEngine:
         *,
         tenant: str = TENANT,
         scopes: tuple[str, ...] | None = None,
-    ) -> SyncEpistemicGraphClient:
-        return SyncEpistemicGraphClient.connect(
+    ) -> SyncMedullaClient:
+        return SyncMedullaClient.connect(
             socket_path=str(self.socket_path),
             auth_secret=self.authority.auth_secret,
             graph_name=graph,
@@ -478,7 +478,7 @@ class ExactEngine:
         )
 
     def bootstrap(self, *, tenant: str = TENANT) -> None:
-        client = SyncEpistemicGraphClient.connect(
+        client = SyncMedullaClient.connect(
             socket_path=str(self.socket_path),
             auth_secret=self.authority.auth_secret,
             graph_name=COMMONS,
@@ -516,7 +516,7 @@ class ExactEngine:
             log = self.log_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             _fail("fault_marker_unavailable")
-        marker = "EG_CERTIFICATION_FAULT"
+        marker = "MEDULLA_CERTIFICATION_FAULT"
         request_marker = f"request_id={request_id}"
         if marker not in log or request_marker not in log:
             _fail("fault_marker_missing")
@@ -574,7 +574,7 @@ class Scenario:
 def _with_client(
     engine: ExactEngine,
     graph: str,
-    operation: Callable[[SyncEpistemicGraphClient], Any],
+    operation: Callable[[SyncMedullaClient], Any],
     *,
     tenant: str = TENANT,
 ) -> Any:
@@ -639,7 +639,7 @@ def _direct_node_mutation(engine: ExactEngine, _state: State) -> None:
 
 
 def _ordinary_txn_mutation(engine: ExactEngine, _state: State) -> None:
-    def operation(client: SyncEpistemicGraphClient) -> None:
+    def operation(client: SyncMedullaClient) -> None:
         txn_id = client.txn.begin()
         client.txn.add_node(
             txn_id,
@@ -662,7 +662,7 @@ def _sql_mutation(engine: ExactEngine, _state: State) -> None:
 
 
 def _sql_present(engine: ExactEngine, _state: State) -> bool:
-    def operation(client: SyncEpistemicGraphClient) -> bool:
+    def operation(client: SyncMedullaClient) -> bool:
         try:
             _retry_partial(
                 lambda: client.query.sql("SELECT key FROM exact_certification LIMIT 1")
@@ -743,7 +743,7 @@ def _lifecycle_present(engine: ExactEngine, _state: State) -> bool:
 
 
 def _blob_setup(engine: ExactEngine, state: State) -> None:
-    def operation(client: SyncEpistemicGraphClient) -> None:
+    def operation(client: SyncMedullaClient) -> None:
         digest = client.blob.store(b"exact-certification-payload")
         if client.blob.incref(digest) != 1:
             _fail("blob_setup_refcount_invalid")
@@ -828,7 +828,7 @@ def _job_state_name(value: Any) -> str:
 def _job_setup(engine: ExactEngine, state: State) -> None:
     _setup_graph(engine, state)
 
-    def operation(client: SyncEpistemicGraphClient) -> None:
+    def operation(client: SyncMedullaClient) -> None:
         job = client.jobs.submit(
             GRAPH,
             {
@@ -866,7 +866,7 @@ def _job_present(engine: ExactEngine, state: State) -> bool:
 def _broker_setup(engine: ExactEngine, _state: State) -> None:
     _setup_graph(engine, {})
 
-    def operation(client: SyncEpistemicGraphClient) -> None:
+    def operation(client: SyncMedullaClient) -> None:
         client.broker.declare_exchange("certification-exchange", "direct")
         client.broker.declare_queue("certification-queue")
         client.broker.bind_queue(
@@ -913,7 +913,7 @@ def _broker_present(engine: ExactEngine, _state: State) -> bool:
 
 
 def _cross_modal_mutation(engine: ExactEngine, _state: State) -> None:
-    def operation(client: SyncEpistemicGraphClient) -> None:
+    def operation(client: SyncMedullaClient) -> None:
         txn_id = client.txn.begin()
         client.txn.add_node(
             txn_id,
@@ -928,7 +928,7 @@ def _cross_modal_mutation(engine: ExactEngine, _state: State) -> None:
 
 
 def _cross_modal_present(engine: ExactEngine, _state: State) -> bool:
-    def operation(client: SyncEpistemicGraphClient) -> bool:
+    def operation(client: SyncMedullaClient) -> bool:
         node = _retry_partial(lambda: client.nodes.has("cross-modal-node"))
         ranked = _retry_partial(lambda: client.graph.semantic_search([0.25, 0.75], 5))
         points = _retry_partial(
@@ -947,7 +947,7 @@ MULTI_GRAPHS = ("certification-multi-a", "certification-multi-b")
 
 
 def _multi_graph_setup(engine: ExactEngine, _state: State) -> None:
-    def operation(client: SyncEpistemicGraphClient) -> None:
+    def operation(client: SyncMedullaClient) -> None:
         for graph in MULTI_GRAPHS:
             client.tenants.create(graph)
 
@@ -1326,7 +1326,7 @@ def _tenant_timeseries_certification(
         shutil.rmtree(root, ignore_errors=True)
 
 
-def _spatial_rows(client: SyncEpistemicGraphClient) -> list[dict[str, Any]]:
+def _spatial_rows(client: SyncMedullaClient) -> list[dict[str, Any]]:
     return client.query.unified(
         [
             {
@@ -1340,7 +1340,7 @@ def _spatial_rows(client: SyncEpistemicGraphClient) -> list[dict[str, Any]]:
 
 
 def _await_spatial_complete(
-    client: SyncEpistemicGraphClient,
+    client: SyncMedullaClient,
 ) -> tuple[bool, list[dict[str, Any]]]:
     deadline = time.monotonic() + RECOVERY_TIMEOUT_SECONDS
     saw_partial = False
@@ -1400,7 +1400,7 @@ def _spatial_certification(
         for _ in range(2):
             engine.start(lazy_page_size=1)
 
-            def read(client: SyncEpistemicGraphClient) -> tuple[bool, list[str]]:
+            def read(client: SyncMedullaClient) -> tuple[bool, list[str]]:
                 partial, rows = _await_spatial_complete(client)
                 ids = sorted(str(row["id"]) for row in rows)
                 return partial, ids
@@ -1433,7 +1433,7 @@ def _run(binary: ExactBinary, binary_digest: str) -> dict[str, object]:
     covered = {scenario.domain for scenario in scenarios}
     if covered != set(DOMAINS):
         _fail("mutation_domain_inventory_incomplete")
-    with tempfile.TemporaryDirectory(prefix="eg-exact-certification-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="medulla-exact-certification-") as scratch:
         root = Path(scratch)
         case_number = 0
         for scenario in scenarios:
@@ -1454,7 +1454,7 @@ def _run(binary: ExactBinary, binary_digest: str) -> dict[str, object]:
         spatial = _spatial_certification(binary, root / "spatial", authority)
     evidence = {
         "binary": {"sha256": binary_digest},
-        "certification": "epistemic-graph-exact-fault-restart",
+        "certification": "medulla-exact-fault-restart",
         "commit_phases": list(PHASES),
         "g05": {
             "spatial_restart_lazy_open": spatial,
@@ -1570,7 +1570,7 @@ def _write_evidence(path: Path, evidence: dict[str, object]) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Certify one exact Epistemic Graph artifact under restart faults."
+        description="Certify one exact Medulla artifact under restart faults."
     )
     parser.add_argument(
         "--binary",

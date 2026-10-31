@@ -1,0 +1,62 @@
+[package]
+name = "medulla-audio"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Pure-Rust governed PCM/WAV decode, temporal feature indexing, and audio evidence for medulla-engine."
+license = "MIT"
+
+[lib]
+name = "medulla_audio"
+
+# Pure-Rust leaf. serde persists normalized source-free facts, SHA-256 binds source
+# identity, and the runtime directly decodes strict 8/16-bit PCM/WAV.
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+sha2 = "0.10"
+# Shared governed modality helpers (CONCEPT:E4), including the dependency-light
+# constructor macro used by the always-available AudioSegment value type. The
+# ModalityContract implementation remains feature-gated below.
+medulla-modality = { path = "../medulla-modality" }
+
+[features]
+default = []
+# `impl ModalityContract for AudioData` + the conformance battery. OFF by default;
+# `serving` promotes it to the governed runtime and is enabled by the facade's
+# production epistemic surface.
+contract = []
+serving = ["contract"]
+# Dependency-light native runtime (CONCEPT:MEDULLA-P1-3): 8/16-bit PCM/WAV decode,
+# waveform windows, a bounded DFT spectrogram, VAD, opaque speaker grouping, and
+# transcript-reference alignment.
+runtime = ["serving"]
+# Realtime audio-ingress contract + bounded in-process runtime (GOC-32,
+# `OWNER-VOICE-INGRESS`): frame validation, sequence/watermark tracking, and a
+# bounded admission queue. Adds NO new dependency (serde + the crate's existing
+# sha2 dep only) — deliberately independent of `contract`/`medulla-modality`, so a
+# default/pi/node/full build without capture devices, codecs, or a worker
+# process links none of this. See `src/ingress.rs` for the full contract and
+# what is/is not proven by this crate alone.
+ingress = []
+# Native ASR contract (GOC-33, `OWNER-VOICE-ASR`): versioned asr.request/
+# partial/segment/result/model-manifest/error DTOs plus pure request/segment
+# validation and a structural carrier-authorization gate. Consumes `ingress`'s
+# StreamId/StreamGeneration/CarrierRef/BoundedId directly rather than
+# redefining them, so it depends on that feature. Adds NO new dependency
+# beyond what `ingress` already adds (serde + sha2 only) — no whisper-rs,
+# ONNX Runtime, codec, or model-loader dependency. See `src/asr.rs` for the
+# full contract and what is/is not proven by this crate alone.
+asr = ["ingress"]
+# Native TTS contract (GOC-34, `OWNER-VOICE-TTS`): versioned tts.request/
+# chunk/result/error DTOs plus pure request/chunk validation and a
+# structural carrier-authorization gate, mirroring `asr`'s design. Consumes
+# `ingress`'s BoundedId/CarrierRef/IdempotencyKey directly rather than
+# redefining them, so it depends on that feature. Adds NO new dependency
+# beyond what `ingress` already adds (serde + sha2 only) — no `ort`, ONNX
+# Runtime, eSpeak-ng, Piper fork/vendor mirror, or model-loader dependency,
+# and no voice model is vendored or downloaded. See `src/tts.rs` for the
+# full contract and what is/is not proven by this crate alone.
+tts = ["ingress"]
+
+[dev-dependencies]
+serde_json = "1.0"

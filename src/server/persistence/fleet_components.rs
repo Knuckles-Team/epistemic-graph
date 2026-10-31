@@ -10,7 +10,7 @@
 
 use std::ops::ControlFlow;
 
-use eg_types::agent_component::AgentComponentEntry;
+use medulla_types::agent_component::AgentComponentEntry;
 
 use super::agent_component::{
     component_tables, head_revision_row, scan_tenant_heads, ComponentLayer,

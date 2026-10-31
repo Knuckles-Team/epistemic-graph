@@ -1,7 +1,7 @@
 //! Finance operation-family handlers.
 
-use eg_types::compute_result::finance::PosteriorCredibleInterval;
-use eg_types::result_contract::compute as results;
+use medulla_types::compute_result::finance::PosteriorCredibleInterval;
+use medulla_types::result_contract::compute as results;
 
 use crate::protocol::{Method, Response, ResultPayload};
 
@@ -284,7 +284,7 @@ pub(super) fn handle_execution(req_id: u64, method: Method) -> Result<Response, 
 
 pub(super) fn handle_market_making(req_id: u64, method: Method) -> Result<Response, Method> {
     Ok(match method {
-        // ── Market Making / Microstructure (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest)
+        // ── Market Making / Microstructure (CONCEPT:MEDULLA-KG.domains.market-microstructure-sizing-backtest)
         Method::FinanceAvellanedaStoikov {
             mid,
             inventory,
@@ -360,7 +360,7 @@ pub(super) fn handle_market_making(req_id: u64, method: Method) -> Result<Respon
 
 pub(super) fn handle_microstructure(req_id: u64, method: Method) -> Result<Response, Method> {
     Ok(match method {
-        // ── Kyle insider/stealth surveillance (CONCEPT:EG-KG.domains.concept-2) ──────────────
+        // ── Kyle insider/stealth surveillance (CONCEPT:MEDULLA-KG.domains.concept-2) ──────────────
         Method::FinanceOfiSeries {
             ts,
             bid_px,
@@ -457,7 +457,7 @@ pub(super) fn handle_microstructure(req_id: u64, method: Method) -> Result<Respo
 
 pub(super) fn handle_sizing(req_id: u64, method: Method) -> Result<Response, Method> {
     Ok(match method {
-        // ── Position Sizing (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ────
+        // ── Position Sizing (CONCEPT:MEDULLA-KG.domains.market-microstructure-sizing-backtest) ────
         Method::FinanceKellyFraction { q, c, fraction } => {
             let v = crate::finance::quant::kelly_fraction(q, c, fraction);
             Response::ok(
@@ -495,7 +495,7 @@ pub(super) fn handle_sizing(req_id: u64, method: Method) -> Result<Response, Met
             Ok(shift) => Response::ok(
                 req_id,
                 ResultPayload::of::<results::FinanceDistributionShift>(
-                    eg_types::compute_result::finance::DistributionShift {
+                    medulla_types::compute_result::finance::DistributionShift {
                         statistic: shift.statistic,
                         p_value: shift.p_value,
                         shifted: shift.shifted,
@@ -532,7 +532,7 @@ pub(super) fn handle_sizing(req_id: u64, method: Method) -> Result<Response, Met
 
 pub(super) fn handle_backtest(req_id: u64, method: Method) -> Result<Response, Method> {
     Ok(match method {
-        // ── Backtest Validation (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ─
+        // ── Backtest Validation (CONCEPT:MEDULLA-KG.domains.market-microstructure-sizing-backtest) ─
         Method::FinancePurgedCpcv {
             n_samples,
             n_groups,
@@ -585,7 +585,7 @@ pub(super) fn handle_backtest(req_id: u64, method: Method) -> Result<Response, M
 
 pub(super) fn handle_forensic(req_id: u64, method: Method) -> Result<Response, Method> {
     Ok(match method {
-        // ── Forensic Accounting (CONCEPT:EG-KG.domains.forensic-accounting-kernels) ───────────
+        // ── Forensic Accounting (CONCEPT:MEDULLA-KG.domains.forensic-accounting-kernels) ───────────
         Method::FinanceForensicReport {
             this_year,
             prior_year,
@@ -602,7 +602,7 @@ pub(super) fn handle_forensic(req_id: u64, method: Method) -> Result<Response, M
 
 pub(super) fn handle_state_space(req_id: u64, method: Method) -> Result<Response, Method> {
     Ok(match method {
-        // ── State-Space / Stat-Arb (CONCEPT:EG-KG.domains.state-space-statistical-arbitrage) ─
+        // ── State-Space / Stat-Arb (CONCEPT:MEDULLA-KG.domains.state-space-statistical-arbitrage) ─
         Method::FinanceKalmanFilter1d {
             observations,
             f,

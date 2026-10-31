@@ -4,12 +4,12 @@
 //! caller-supplied LLM proposal (`llm_proposal_template`, `llm_producer`,
 //! `llm_prompt_digest` parameters) is bound as a CLAIM, never as the decision.
 
-use eg_numeric::decision::nl::fill_slots;
-use eg_types::agent_component::{AgentComponentEntry, ComponentDependency};
-use eg_types::contract::BoundedVec;
-use eg_types::decision::statistical::body::decode_body;
-use eg_types::decision::statistical::nl::{NlBinding, NlChoiceSource, NlTemplateBody};
-use eg_types::decision::statistical::{
+use medulla_numeric::decision::nl::fill_slots;
+use medulla_types::agent_component::{AgentComponentEntry, ComponentDependency};
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::statistical::body::decode_body;
+use medulla_types::decision::statistical::nl::{NlBinding, NlChoiceSource, NlTemplateBody};
+use medulla_types::decision::statistical::{
     DecideRequest, QuestionKind, StatisticalErrorCode, StatisticalOutcome, TypedValue,
 };
 
@@ -37,7 +37,7 @@ fn chosen(outcome: &StatisticalOutcome) -> Option<&str> {
             .iter()
             .fold(
                 None,
-                |best: Option<&eg_types::decision::statistical::ScoredOption>, s| {
+                |best: Option<&medulla_types::decision::statistical::ScoredOption>, s| {
                     if best.is_none_or(|b| s.score.value > b.score.value) {
                         Some(s)
                     } else {

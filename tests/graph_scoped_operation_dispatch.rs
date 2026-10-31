@@ -24,9 +24,9 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use epistemic_graph::protocol::{CypherMode, GraphType, Method, Response, ResultPayload};
+use medulla::protocol::{CypherMode, GraphType, Method, Response, ResultPayload};
 
-const SECRET: &str = "cx-eg-06-dispatch-graph-op-inner-secret";
+const SECRET: &str = "cx-medulla-06-dispatch-graph-op-inner-secret";
 
 fn state() -> test_support::SharedState {
     // Set the signing fixture's policy before durable_state can provision its
@@ -86,12 +86,12 @@ async fn parallel_state_construction_provisions_signer_policy_before_requests() 
     }
     for (name, expected) in [
         (
-            "EPISTEMIC_GRAPH_AUDIENCE",
-            "epistemic-graph-integration-tests",
+            "MEDULLA_AUDIENCE",
+            "medulla-integration-tests",
         ),
-        ("EPISTEMIC_GRAPH_TENANT", "integration-test-tenant"),
+        ("MEDULLA_TENANT", "integration-test-tenant"),
         (
-            "EPISTEMIC_GRAPH_POLICY_VERSION",
+            "MEDULLA_POLICY_VERSION",
             "integration-test-policy-v1",
         ),
     ] {

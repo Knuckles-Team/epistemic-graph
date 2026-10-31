@@ -1,4 +1,4 @@
-//! EG-ORCH-VOCAB-R802.6 hot-path receipt: lesson writes into a 10k-lesson
+//! MEDULLA-ORCH-VOCAB-R802.6 hot-path receipt: lesson writes into a 10k-lesson
 //! improvement library.
 //!
 //! Budget (spec): p99 under 10 ms per write as the library grows to 10,000
@@ -20,11 +20,11 @@
 #[path = "common/harness_admission.rs"]
 mod harness_bench;
 
-use eg_types::contract::BoundedVec;
-use eg_types::orchestration::improvement::{HarnessLesson, HarnessProbeRun};
-use eg_types::orchestration::HarnessComponentKind;
-use epistemic_graph::graph::GraphCore;
-use epistemic_graph::protocol::Method;
+use medulla_types::contract::BoundedVec;
+use medulla_types::orchestration::improvement::{HarnessLesson, HarnessProbeRun};
+use medulla_types::orchestration::HarnessComponentKind;
+use medulla::graph::GraphCore;
+use medulla::protocol::Method;
 
 const TASK_CLASSES: usize = 100;
 const DEFICIENCIES: usize = 100;

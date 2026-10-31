@@ -3291,7 +3291,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 | `kernel` | `SvmKernel` (enum: `rbf`, `linear`) | no | One-Class SVM kernel: `rbf` (default) · `linear`. |
 | `n_trees` | integer (uint) | no | Isolation Forest tree count. |
 | `nu` | number (double) | no | One-Class SVM ν ∈ (0,1] (upper bound on the outlier fraction). |
-| `plan` | one of: `Plan` \| null | no | Fused retrieve→mine plan (CONCEPT:EG-KG.mining.fused-plan-source) — see `MineCluster::plan`. Takes precedence over `source`; ignored when `features`/`values` is non-empty. |
+| `plan` | one of: `Plan` \| null | no | Fused retrieve→mine plan (CONCEPT:MEDULLA-KG.mining.fused-plan-source) — see `MineCluster::plan`. Takes precedence over `source`; ignored when `features`/`values` is non-empty. |
 | `sample_size` | integer (uint) | no | Isolation Forest subsample size. |
 | `seed` | integer (uint64) | no | Seed for Isolation Forest (deterministic). |
 | `source` | one of: `VectorSource` \| null | no | Graph-derived vector source (node embeddings). Used when `features` and `values` are both empty. |
@@ -3331,7 +3331,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
 | `algorithm` | `MineAlgorithm` (enum: `fpgrowth`, `apriori`, `eclat`) | no | Which frequent-itemset engine to run (all agree; FP-Growth default). |
-| `as_claim` | boolean | no | Also materialize a first-class epistemic object per rule (E6, CONCEPT:EG-KG.epistemic.epistemic-substrate): a `:Claim` (confidence seeded from the rule's quality score, normalized to `[0,1]`) plus a provenance `:Evidence` node, both `SUPPORTS`-linked to the claim so the `eg_epistemic` belief layer can propagate confidence over the mined finding. Requires `writeback` (the `:AssociationRule` node is the claim's evidence anchor). Gated `all(mining, epistemic)`; unset ⇒ write-back is byte-identical. |
+| `as_claim` | boolean | no | Also materialize a first-class epistemic object per rule (E6, CONCEPT:MEDULLA-KG.epistemic.epistemic-substrate): a `:Claim` (confidence seeded from the rule's quality score, normalized to `[0,1]`) plus a provenance `:Evidence` node, both `SUPPORTS`-linked to the claim so the `medulla_epistemic` belief layer can propagate confidence over the mined finding. Requires `writeback` (the `:AssociationRule` node is the claim's evidence anchor). Gated `all(mining, epistemic)`; unset ⇒ write-back is byte-identical. |
 | `min_confidence` | number (double) | no | Minimum rule confidence (0.0–1.0) to emit. |
 | `min_support` | number (double) | no | Minimum fractional support (0.0–1.0) an itemset must meet. |
 | `source` | one of: `TransactionSource` \| null | no | Graph-derived transaction source (compute-near-data). Used when `transactions` is empty. |
@@ -3413,7 +3413,7 @@ the one Mine* family member that is unconditionally read-only (produces a model 
 | `k` | integer (uint) | no | k-NN neighbor count. |
 | `l2` | number (double) | no | Logistic L2 regularization strength. |
 | `lr` | number (double) | no | Logistic / SVC learning rate. |
-| `plan` | one of: `Plan` \| null | no | Fused retrieve→mine plan (CONCEPT:EG-KG.mining.fused-plan-source) — see `MineCluster::plan`. Takes precedence over `source`; ignored when `x` is non-empty. NOTE: `y` labels must still align by position with the plan's resulting row order. |
+| `plan` | one of: `Plan` \| null | no | Fused retrieve→mine plan (CONCEPT:MEDULLA-KG.mining.fused-plan-source) — see `MineCluster::plan`. Takes precedence over `source`; ignored when `x` is non-empty. NOTE: `y` labels must still align by position with the plan's resulting row order. |
 | `source` | one of: `VectorSource` \| null | no | Graph-derived vector source (node embeddings). Used when `x` is empty. |
 | `x` | array of array of number (double) | no | Explicit feature matrix — each row a sample. Empty ⇒ use `source`. |
 | `y` | array of integer (int64) | no | Integer class labels, one per row (required). |
@@ -3451,7 +3451,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 |---|---|:---:|---|
 | `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) per prediction (D3, mirroring E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the prediction's OWN max class probability (`out.proba[i]`'s argmax), already `[0,1]` by construction (a probability simplex row). Requires `writeback`. |
 | `model` | `FittedClassifier` | yes | The fitted model blob from `MineClassifyFit`. |
-| `plan` | one of: `Plan` \| null | no | Fused retrieve→mine plan (CONCEPT:EG-KG.mining.fused-plan-source) — see `MineCluster::plan`. Takes precedence over `source`; ignored when `x` is non-empty. |
+| `plan` | one of: `Plan` \| null | no | Fused retrieve→mine plan (CONCEPT:MEDULLA-KG.mining.fused-plan-source) — see `MineCluster::plan`. Takes precedence over `source`; ignored when `x` is non-empty. |
 | `source` | one of: `VectorSource` \| null | no | Graph-derived vector source (node embeddings). Used when `x` is empty. |
 | `writeback` | boolean | no | Materialize each prediction as a typed `:Classification` node linked to its source node. |
 | `x` | array of array of number (double) | no | Explicit feature matrix — each row a sample. Empty ⇒ use `source`. |
@@ -3495,7 +3495,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 | `linkage` | `Linkage` (enum: `single`, `complete`, `average`) | no | Hierarchical linkage: `single` · `complete` · `average` (default). |
 | `max_iter` | integer (uint) | no | EM / PAM iteration cap (GMM, k-medoids). |
 | `min_pts` | integer (uint) | no | DBSCAN minimum points (incl. self) for a core point. |
-| `plan` | one of: `Plan` \| null | no | Fused retrieve→mine plan (CONCEPT:EG-KG.mining.fused-plan-source): an upstream cross-modal RETRIEVAL plan (`Op::Scan|Filter|Traverse|Rank|…`), executed FIRST over the resident graph/vector/SQL/time modalities; the resulting RowSet ids are then resolved to their stored embeddings (the SAME lookup `VectorSource` uses) to build this op's feature rows — so `retrieve → cluster → writeback` is ONE plan, ONE round-trip (compute-near-data, no client marshalling between retrieve and mine). Takes precedence over `source` when present; ignored when `features` is non-empty. Gated also on `query` (the plan algebra lives behind that feature) — a `mining`-only build without `query` drops this field. |
+| `plan` | one of: `Plan` \| null | no | Fused retrieve→mine plan (CONCEPT:MEDULLA-KG.mining.fused-plan-source): an upstream cross-modal RETRIEVAL plan (`Op::Scan|Filter|Traverse|Rank|…`), executed FIRST over the resident graph/vector/SQL/time modalities; the resulting RowSet ids are then resolved to their stored embeddings (the SAME lookup `VectorSource` uses) to build this op's feature rows — so `retrieve → cluster → writeback` is ONE plan, ONE round-trip (compute-near-data, no client marshalling between retrieve and mine). Takes precedence over `source` when present; ignored when `features` is non-empty. Gated also on `query` (the plan algebra lives behind that feature) — a `mining`-only build without `query` drops this field. |
 | `seed` | integer (uint64) | no | Seed for GMM's k-means++ init (deterministic). |
 | `source` | one of: `VectorSource` \| null | no | Graph-derived vector source (node embeddings). Used when `features` is empty. |
 | `writeback` | boolean | no | Materialize each cluster as a typed `:Cluster` node linked to members. |
@@ -3658,7 +3658,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) per gap (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the gap kind's fixed documented severity (`eg_compute::mining::ontology_gap::GapKind::severity`). Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) per gap (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the gap kind's fixed documented severity (`medulla_compute::mining::ontology_gap::GapKind::severity`). Requires `writeback`. |
 | `label` | string \| null | no | Optional: restrict the scan to class nodes of this one type (`None` ⇒ every node whose `type`/`node_type` is `Class` or `OwlClass`). |
 | `writeback` | boolean | no | Materialize each gap as a typed `:OntologyGap` node linked to its class. |
 
@@ -3738,7 +3738,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 | `n_components` | integer (uint) | no | Target dimensionality of the embedding. |
 | `n_neighbors` | integer (uint) | no | UMAP neighbor count. |
 | `perplexity` | number (double) | no | t-SNE perplexity. |
-| `plan` | one of: `Plan` \| null | no | Fused retrieve→mine plan (CONCEPT:EG-KG.mining.fused-plan-source) — see `MineCluster::plan`. Takes precedence over `source`; ignored when `x` is non-empty. |
+| `plan` | one of: `Plan` \| null | no | Fused retrieve→mine plan (CONCEPT:MEDULLA-KG.mining.fused-plan-source) — see `MineCluster::plan`. Takes precedence over `source`; ignored when `x` is non-empty. |
 | `seed` | integer (uint64) | no | Seed for UMAP / t-SNE (deterministic layout). |
 | `source` | one of: `VectorSource` \| null | no | Graph-derived vector source (node embeddings). Used when `x` is empty. |
 | `writeback` | boolean | no | Materialize each row's reduced vector as a typed `:Embedding2D` node. |
@@ -3971,7 +3971,7 @@ mutates is a conservative upper bound; writeback=true for lda/nmf enters the can
 |---|---|:---:|---|
 | `algorithm` | `TextAlgorithm` (enum: `tfidf`, `lda`, `nmf`) | no | Which text-mining engine to run. |
 | `alpha` | number (double) | no | LDA symmetric doc-topic Dirichlet prior. |
-| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) per topic (D3, mirroring E6) — `lda`/`nmf` only, a no-op for `tfidf` (which has no topics, mirroring `writeback`). Quality = the topic's mean doc-membership strength among the documents DOMINANTLY assigned to it (`mean(doc_topics[d][t])` over docs `d` whose argmax topic is `t`) — a topic-coherence proxy: both LDA's Dirichlet posterior and NMF's row-normalized `W` are already `[0,1]` distributions that sum to 1 across topics (see `eg_compute::mining::text` module docs), so this is a principled, already-bounded score requiring no extra normalization. Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) per topic (D3, mirroring E6) — `lda`/`nmf` only, a no-op for `tfidf` (which has no topics, mirroring `writeback`). Quality = the topic's mean doc-membership strength among the documents DOMINANTLY assigned to it (`mean(doc_topics[d][t])` over docs `d` whose argmax topic is `t`) — a topic-coherence proxy: both LDA's Dirichlet posterior and NMF's row-normalized `W` are already `[0,1]` distributions that sum to 1 across topics (see `medulla_compute::mining::text` module docs), so this is a principled, already-bounded score requiring no extra normalization. Requires `writeback`. |
 | `beta` | number (double) | no | LDA symmetric topic-term Dirichlet prior. |
 | `docs` | array of array of string | no | Explicit pre-tokenized documents. Empty ⇒ use `source`. |
 | `iterations` | integer (uint) | no | Gibbs sweeps (`lda`) / multiplicative-update iterations (`nmf`). |

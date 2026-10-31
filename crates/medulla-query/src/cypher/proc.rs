@@ -1,0 +1,344 @@
+//! The Cypher procedure registry (CONCEPT:MEDULLA-KG.query.cypher-planning) and its built-in APOC/GDS-style
+//! procedure library (CONCEPT:MEDULLA-KG.query.medulla-2). A `CALL proc.name(args) YIELD …` stage
+//! consults [`registry`] for a [`CypherProcedure`] by (case-insensitive) name and
+//! materializes its result rows into the Cypher pipeline.
+//!
+//! The built-ins REUSE the medulla-compute graph algorithms so the graph-data-science
+//! surface is exactly the engine's own kernels adapted into `YIELD` rows — NO
+//! second implementation. The core `gds.*` catalogue
+//! (pageRank/betweenness/degree/louvain/wcc/scc/dijkstra/nodeSimilarity) lives in
+//! the sibling [`super::gds`] module (CONCEPT:MEDULLA-KG.query.gds-call-procedures): it projects the current
+//! graph into `medulla_compute::graph_algos::AdjacencyGraph`, parses a GDS config map,
+//! and streams `nodeId`/`score`/`communityId`/… rows. This module keeps
+//! `personalized_pagerank` on the earlier live-view kernel plus a handful of
+//! APOC/`db.` metadata + list utilities.
+//!
+//! WASM/user-defined procedures (via medulla-wasm) are a documented follow-up: the trait +
+//! registry framework below is what a dynamic provider would register into.
+
+use std::collections::{BTreeSet, HashMap};
+use std::sync::OnceLock;
+
+use medulla_core::graph::GraphView;
+use serde_json::Value;
+
+use medulla_compute::algorithms;
+
+use super::number_value;
+
+/// A single yielded column value: either a graph node id (bindable as an anchorable
+/// node variable downstream) or an opaque scalar (CONCEPT:MEDULLA-KG.query.cypher-planning).
+#[derive(Debug, Clone)]
+pub enum YieldValue {
+    Node(String),
+    Scalar(Value),
+}
+
+/// One procedure result row: an ordered list of `(column, value)` pairs.
+pub type ProcRow = Vec<(String, YieldValue)>;
+
+/// A callable Cypher procedure (CONCEPT:MEDULLA-KG.query.cypher-planning). Stateless — the registry holds one
+/// shared instance per name and the executor calls it with resolved args + the live
+/// (read-only) graph view.
+pub trait CypherProcedure: Send + Sync {
+    /// The canonical dotted name (`gds.pageRank`).
+    fn name(&self) -> &'static str;
+    /// The columns this procedure yields, in order (for docs / validation).
+    fn columns(&self) -> &'static [&'static str];
+    /// Run the procedure, producing YIELD rows over `view`.
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String>;
+}
+
+/// The process-wide procedure registry, keyed by lower-cased name (CONCEPT:MEDULLA-KG.query.cypher-planning).
+pub fn registry() -> &'static HashMap<String, Box<dyn CypherProcedure>> {
+    static REG: OnceLock<HashMap<String, Box<dyn CypherProcedure>>> = OnceLock::new();
+    REG.get_or_init(build_registry)
+}
+
+fn build_registry() -> HashMap<String, Box<dyn CypherProcedure>> {
+    let mut m: HashMap<String, Box<dyn CypherProcedure>> = HashMap::new();
+    let mut add = |p: Box<dyn CypherProcedure>| {
+        m.insert(p.name().to_ascii_lowercase(), p);
+    };
+    // ── GDS graph-data-science kernels ────────────────────────────────────────
+    // The core `gds.*` catalogue (pageRank/betweenness/degree/louvain/wcc/scc/
+    // dijkstra/nodeSimilarity) is served by the MEDULLA-298 procedures, which project
+    // the current graph into `medulla_compute::graph_algos::AdjacencyGraph`, parse a GDS
+    // config map, and stream `nodeId`/`score`/`communityId`/… rows (CONCEPT:MEDULLA-KG.query.gds-call-procedures).
+    for p in super::gds::gds_procedures() {
+        add(p);
+    }
+    // Personalized PageRank stays on the earlier live-view kernel (CONCEPT:MEDULLA-KG.query.medulla-2).
+    add(Box::new(PersonalizedPageRank));
+    // ── APOC / db. metadata + list utilities (CONCEPT:MEDULLA-KG.query.medulla-2) ─────────────────
+    add(Box::new(DbLabels));
+    add(Box::new(DbRelationshipTypes));
+    add(Box::new(ApocMetaStats));
+    add(Box::new(ApocCollSum));
+    add(Box::new(ApocCollMax));
+    add(Box::new(ApocCollMin));
+    add(Box::new(ApocCollAvg));
+    m
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+/// `(node, score)` rows from a `Vec<(id, f64)>` algorithm result.
+fn score_rows(scored: Vec<(String, f64)>) -> Vec<ProcRow> {
+    scored
+        .into_iter()
+        .map(|(id, s)| {
+            vec![
+                ("node".to_string(), YieldValue::Node(id)),
+                ("score".to_string(), YieldValue::Scalar(number_value(s))),
+            ]
+        })
+        .collect()
+}
+
+/// Decode a node/edge property blob into a JSON object.
+fn decode_obj(blob: &[u8]) -> Option<serde_json::Map<String, Value>> {
+    match medulla_types::msgpack::decode_property_value(blob) {
+        Ok(Value::Object(m)) => Some(m),
+        _ => None,
+    }
+}
+
+/// Collect canonical `node_type` values and explicit secondary labels.
+fn distinct_labels(view: &GraphView) -> BTreeSet<String> {
+    let mut set = BTreeSet::new();
+    for blob in view.node_properties.values() {
+        let Some(obj) = decode_obj(blob) else {
+            continue;
+        };
+        if let Some(s) = obj.get("node_type").and_then(|v| v.as_str()) {
+            set.insert(s.to_string());
+        }
+        if let Some(arr) = obj.get("labels").and_then(|v| v.as_array()) {
+            for x in arr {
+                if let Some(s) = x.as_str() {
+                    set.insert(s.to_string());
+                }
+            }
+        }
+    }
+    set
+}
+
+/// Collect the distinct canonical relationship names across all edges.
+fn distinct_rel_types(view: &GraphView) -> BTreeSet<String> {
+    let mut set = BTreeSet::new();
+    for blobs in view.edge_properties.values() {
+        for blob in blobs {
+            let Some(obj) = decode_obj(blob) else {
+                continue;
+            };
+            if let Some(s) = obj.get("relationship").and_then(|v| v.as_str()) {
+                set.insert(s.to_string());
+            }
+        }
+    }
+    set
+}
+
+/// The seed `(id, weight)` list for personalized PageRank from the call args: a single
+/// list arg (`['a','b']`) or several scalar id args; each seed gets weight 1.0.
+fn seed_ids(args: &[Value]) -> Vec<(String, f64)> {
+    let mut seeds = Vec::new();
+    let mut push = |v: &Value| {
+        if let Some(s) = v.as_str() {
+            seeds.push((s.to_string(), 1.0));
+        }
+    };
+    for a in args {
+        match a {
+            Value::Array(items) => items.iter().for_each(&mut push),
+            other => push(other),
+        }
+    }
+    seeds
+}
+
+/// The list argument to an `apoc.coll.*` utility: the first arg if it is an array.
+fn coll_arg(args: &[Value]) -> Result<&Vec<Value>, String> {
+    match args.first() {
+        Some(Value::Array(a)) => Ok(a),
+        _ => Err("apoc.coll.* expects a list argument".to_string()),
+    }
+}
+
+fn coll_nums(list: &[Value]) -> Vec<f64> {
+    list.iter().filter_map(|v| v.as_f64()).collect()
+}
+
+fn single_value_row(v: Value) -> Vec<ProcRow> {
+    vec![vec![("value".to_string(), YieldValue::Scalar(v))]]
+}
+
+// ── GDS procedures ──────────────────────────────────────────────────────────────
+// The core catalogue moved to the MEDULLA-298 `gds` module (config-driven, projected
+// onto `graph_algos::AdjacencyGraph`). Personalized PageRank remains here on the
+// earlier live-view kernel (CONCEPT:MEDULLA-KG.query.medulla-2).
+
+struct PersonalizedPageRank;
+impl CypherProcedure for PersonalizedPageRank {
+    fn name(&self) -> &'static str {
+        "gds.pastPersonalizedPageRank"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["node", "score"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let seeds = seed_ids(args);
+        Ok(score_rows(algorithms::personalized_pagerank(
+            view, &seeds, 0.85, 20,
+        )))
+    }
+}
+
+// ── APOC / db. metadata + list utilities (CONCEPT:MEDULLA-KG.query.medulla-2) ───────────────────────
+
+struct DbLabels;
+impl CypherProcedure for DbLabels {
+    fn name(&self) -> &'static str {
+        "db.labels"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["label"]
+    }
+    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        Ok(distinct_labels(view)
+            .into_iter()
+            .map(|l| vec![("label".to_string(), YieldValue::Scalar(Value::String(l)))])
+            .collect())
+    }
+}
+
+struct DbRelationshipTypes;
+impl CypherProcedure for DbRelationshipTypes {
+    fn name(&self) -> &'static str {
+        "db.relationshipTypes"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["relationshipType"]
+    }
+    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        Ok(distinct_rel_types(view)
+            .into_iter()
+            .map(|t| {
+                vec![(
+                    "relationshipType".to_string(),
+                    YieldValue::Scalar(Value::String(t)),
+                )]
+            })
+            .collect())
+    }
+}
+
+struct ApocMetaStats;
+impl CypherProcedure for ApocMetaStats {
+    fn name(&self) -> &'static str {
+        "apoc.meta.stats"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeCount", "relCount", "labelCount", "relTypeCount"]
+    }
+    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let node_count = view.node_map.len() as u64;
+        let rel_count = view.graph.edge_count() as u64;
+        let label_count = distinct_labels(view).len() as u64;
+        let rel_type_count = distinct_rel_types(view).len() as u64;
+        Ok(vec![vec![
+            (
+                "nodeCount".to_string(),
+                YieldValue::Scalar(Value::Number(node_count.into())),
+            ),
+            (
+                "relCount".to_string(),
+                YieldValue::Scalar(Value::Number(rel_count.into())),
+            ),
+            (
+                "labelCount".to_string(),
+                YieldValue::Scalar(Value::Number(label_count.into())),
+            ),
+            (
+                "relTypeCount".to_string(),
+                YieldValue::Scalar(Value::Number(rel_type_count.into())),
+            ),
+        ]])
+    }
+}
+
+struct ApocCollSum;
+impl CypherProcedure for ApocCollSum {
+    fn name(&self) -> &'static str {
+        "apoc.coll.sum"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["value"]
+    }
+    fn call(&self, args: &[Value], _view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let sum: f64 = coll_nums(coll_arg(args)?).iter().sum();
+        Ok(single_value_row(number_value(sum)))
+    }
+}
+
+struct ApocCollMax;
+impl CypherProcedure for ApocCollMax {
+    fn name(&self) -> &'static str {
+        "apoc.coll.max"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["value"]
+    }
+    fn call(&self, args: &[Value], _view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        coll_extreme(args, f64::NEG_INFINITY, f64::max)
+    }
+}
+
+/// `apoc.coll.max`/`apoc.coll.min`: the numeric extreme of the collection argument, or
+/// null when it holds no finite number. `f64::max`/`f64::min` keep the NaN-skipping fold.
+fn coll_extreme(
+    args: &[Value],
+    seed: f64,
+    fold: fn(f64, f64) -> f64,
+) -> Result<Vec<ProcRow>, String> {
+    let v = coll_nums(coll_arg(args)?).into_iter().fold(seed, fold);
+    Ok(single_value_row(if v.is_finite() {
+        number_value(v)
+    } else {
+        Value::Null
+    }))
+}
+
+struct ApocCollMin;
+impl CypherProcedure for ApocCollMin {
+    fn name(&self) -> &'static str {
+        "apoc.coll.min"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["value"]
+    }
+    fn call(&self, args: &[Value], _view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        coll_extreme(args, f64::INFINITY, f64::min)
+    }
+}
+
+struct ApocCollAvg;
+impl CypherProcedure for ApocCollAvg {
+    fn name(&self) -> &'static str {
+        "apoc.coll.avg"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["value"]
+    }
+    fn call(&self, args: &[Value], _view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let nums = coll_nums(coll_arg(args)?);
+        let v = if nums.is_empty() {
+            Value::Null
+        } else {
+            number_value(nums.iter().sum::<f64>() / nums.len() as f64)
+        };
+        Ok(single_value_row(v))
+    }
+}

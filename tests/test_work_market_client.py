@@ -1,4 +1,4 @@
-"""EH-348 work market through ``EpistemicGraphClient.gaps`` / ``.work_market``."""
+"""EH-348 work market through ``MedullaClient.gaps`` / ``.work_market``."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from typing import Any, cast
 import pytest
 from _client_send_stub import CapturingEngine as FakeEngine
 
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.work_market import GapClient, WorkMarketClient
+from medulla.client import MedullaClient
+from medulla.work_market import GapClient, WorkMarketClient
 
 pytestmark = pytest.mark.no_engine
 
@@ -39,7 +39,7 @@ GAP: dict[str, Any] = {
 
 
 def _gaps(engine: FakeEngine) -> GapClient:
-    return GapClient(cast(EpistemicGraphClient, engine))
+    return GapClient(cast(MedullaClient, engine))
 
 
 def test_upsert_sends_the_typed_request_and_validates_the_answer() -> None:
@@ -116,7 +116,7 @@ def test_settle_and_transition_carry_only_the_gap_identity() -> None:
 
 
 def test_put_offer_refuses_fields_outside_the_contract() -> None:
-    market = WorkMarketClient(cast(EpistemicGraphClient, FakeEngine(None)))
+    market = WorkMarketClient(cast(MedullaClient, FakeEngine(None)))
     with pytest.raises(ValueError):
         asyncio.run(
             market.put_offer(

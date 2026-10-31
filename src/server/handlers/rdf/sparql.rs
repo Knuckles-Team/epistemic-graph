@@ -31,7 +31,7 @@ pub(super) async fn handle_sparql(
     req_id: u64,
     core: Arc<GraphCore>,
     query: String,
-    proj: eg_rdf::sparql::Projection,
+    proj: medulla_rdf::sparql::Projection,
     mode: SparqlProofMode,
     #[cfg(feature = "security")] caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
@@ -86,10 +86,10 @@ fn sparql_cache_hash(cache_key: &str, #[cfg(feature = "security")] caller: &str)
     #[cfg(feature = "security")]
     {
         let kind = format!("rls:{caller}:sparql");
-        eg_core::result_cache::ResultCache::hash_query(&kind, cache_key.as_bytes())
+        medulla_core::result_cache::ResultCache::hash_query(&kind, cache_key.as_bytes())
     }
     #[cfg(not(feature = "security"))]
-    eg_core::result_cache::ResultCache::hash_query("sparql", cache_key.as_bytes())
+    medulla_core::result_cache::ResultCache::hash_query("sparql", cache_key.as_bytes())
 }
 
 #[cfg(feature = "result-cache")]
@@ -97,7 +97,7 @@ fn sparql_cache_hit(core: &GraphCore, req_id: u64, hash: u128) -> Option<Respons
     core.result_cache().get(hash, core.version()).map(|bytes| {
         Response::ok(
             req_id,
-            ResultPayload::of_cache_hit::<eg_types::result_contract::reasoning::Sparql>(bytes),
+            ResultPayload::of_cache_hit::<medulla_types::result_contract::reasoning::Sparql>(bytes),
         )
     })
 }
@@ -168,14 +168,14 @@ fn sparql_snapshot_uncached(
 async fn evaluate_sparql(
     req_id: u64,
     snap: Arc<GraphView>,
-    (query, proj, mode): (String, eg_rdf::sparql::Projection, SparqlProofMode),
+    (query, proj, mode): (String, medulla_rdf::sparql::Projection, SparqlProofMode),
     #[cfg(feature = "result-cache")] core: Arc<GraphCore>,
     #[cfg(feature = "result-cache")] hash: u128,
     #[cfg(feature = "result-cache")] version: u64,
 ) -> Response {
     match compute_off_lock(req_id, move || {
         run_sparql(
-            &eg_rdf::sparql::Dataset::new(&snap, Vec::new()),
+            &medulla_rdf::sparql::Dataset::new(&snap, Vec::new()),
             &query,
             &proj,
             mode,
@@ -184,10 +184,10 @@ async fn evaluate_sparql(
     .await
     {
         Ok(Ok(wire)) => {
-            match ResultPayload::of_ref::<eg_types::result_contract::reasoning::Sparql>(&wire) {
+            match ResultPayload::of_ref::<medulla_types::result_contract::reasoning::Sparql>(&wire) {
                 Ok(payload) => {
                     #[cfg(feature = "result-cache")]
-                    eg_core::result_cache::cache_result(
+                    medulla_core::result_cache::cache_result(
                         core.result_cache(),
                         hash,
                         version,
@@ -206,17 +206,17 @@ async fn evaluate_sparql(
 /// Evaluate `query` and project it to the wire table, with a witness proof per row
 /// when `mode` asks for one.
 fn run_sparql(
-    ds: &eg_rdf::sparql::Dataset,
+    ds: &medulla_rdf::sparql::Dataset,
     query: &str,
-    proj: &eg_rdf::sparql::Projection,
+    proj: &medulla_rdf::sparql::Projection,
     mode: SparqlProofMode,
 ) -> Result<crate::protocol::SparqlResult, String> {
     let (table, proofs) = match mode {
         SparqlProofMode::Rows => (
-            eg_rdf::sparql::execute(ds, query, proj, None)?.into_table(),
+            medulla_rdf::sparql::execute(ds, query, proj, None)?.into_table(),
             Vec::new(),
         ),
-        SparqlProofMode::RowsWithProofs => eg_rdf::sparql::execute_explained(ds, query, proj)?,
+        SparqlProofMode::RowsWithProofs => medulla_rdf::sparql::execute_explained(ds, query, proj)?,
     };
     let (vars, rows) = table.to_rows();
     Ok(crate::protocol::SparqlResult { vars, rows, proofs })

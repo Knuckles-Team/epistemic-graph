@@ -87,7 +87,7 @@ jobs:
       - name: Build primary slim wheel (windows-x86_64)
         shell: bash
         env:
-          CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-repro-diagnose-target
+          CARGO_TARGET_DIR: ${{ runner.temp }}/medulla-repro-diagnose-target
         run: maturin build --no-default-features --features server --out dist-primary
 
       # Mirrors release.yml's "Remove primary native build state" step
@@ -98,15 +98,15 @@ jobs:
         run: >-
           python -c "import os,shutil; from pathlib import Path;
           root=Path(os.environ['RUNNER_TEMP']).resolve();
-          target=(root/'epistemic-graph-repro-diagnose-target').resolve();
-          assert target.parent==root and target.name=='epistemic-graph-repro-diagnose-target';
+          target=(root/'medulla-repro-diagnose-target').resolve();
+          assert target.parent==root and target.name=='medulla-repro-diagnose-target';
           print('removing' if target.exists() else 'already absent:', target);
           shutil.rmtree(target) if target.exists() else None"
 
       - name: Build reproduction slim wheel (windows-x86_64)
         shell: bash
         env:
-          CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-repro-diagnose-target
+          CARGO_TARGET_DIR: ${{ runner.temp }}/medulla-repro-diagnose-target
         run: maturin build --no-default-features --features server --out dist-reproduction
 
       - name: Compare slim wheel reproducibility

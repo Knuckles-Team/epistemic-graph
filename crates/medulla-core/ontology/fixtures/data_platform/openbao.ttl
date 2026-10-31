@@ -1,0 +1,59 @@
+# openbao store-mapping fixture (MEDULLA-DATAPLAT-VOCAB-R006.6).
+#
+# One attached OpenBao (Vault-compatible) secrets engine. Only control-plane
+# metadata is mapped: the mounted engines (get_mounts) and the logical keys
+# (list — keys only). Secret values are REFUSED and never mapped (decision
+# 11): openbao_mcp_kv:kv2_get / kv1_get and openbao_mcp_logical:read /
+# unwrap are on the StoreMapping denylist, and the value/rotation-metadata
+# operations are still BLOCKED on openbao-mcp (R009.3). Both mappings are
+# virtual.
+
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix vg: <http://knuckles.team/kg/virtual-graph#> .
+@prefix ex: <http://knuckles.team/kg/fixtures/data-platform/openbao/> .
+
+ex:store a dp:SecretEngine .
+
+ex:contract a vg:MetadataContract ;
+    vg:contractSource <http://knuckles.team/kg/fixtures/data-platform/openbao/connection> ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:eba700aa1409636f6ea8ea4af01234f3805009566d60a6b15392880b03fd2260" ;
+    vg:discoveredEntity "mounts" ;
+    vg:discoveredEntity "logical_paths" ;
+    vg:discoveredField "mount_path" ;
+    vg:discoveredField "engine_type" ;
+    vg:discoveredField "path" .
+
+# The mount's engine type (kv, transit, pki, database) is the secret engine's
+# family metadata.
+ex:mapping_get_mounts a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:SecretEngine ;
+    vg:mapsEntity "mounts" ;
+    vg:keyField "mount_path" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:storeFamily ;
+        vg:field "engine_type"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "openbao_mcp_sys:get_mounts" ;
+    dp:accelerationMode "virtual" .
+
+ex:mapping_logical_list a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:SecretPath ;
+    vg:mapsEntity "logical_paths" ;
+    vg:keyField "path" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:pathName ;
+        vg:field "path"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "openbao_mcp_logical:list" ;
+    dp:accelerationMode "virtual" .

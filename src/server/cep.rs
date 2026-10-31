@@ -1,20 +1,20 @@
-//! Live CEP standing-query surface (CONCEPT:EG-KG.query.protocol-types) — the SERVER-side transport that
-//! wires the shipped, runtime-tested `eg_stream::live::CepEngine` (CONCEPT:EG-KG.query.pipelined-execution) to a
+//! Live CEP standing-query surface (CONCEPT:MEDULLA-KG.query.protocol-types) — the SERVER-side transport that
+//! wires the shipped, runtime-tested `medulla_stream::live::CepEngine` (CONCEPT:MEDULLA-KG.query.pipelined-execution) to a
 //! live event feed and a client-facing register/poll surface.
 //!
-//! ## What EG-088 already gives us (and what was left)
-//! `eg_stream::live` is a complete standing-query engine: [`CepEngine`] owns N standing
+//! ## What MEDULLA-088 already gives us (and what was left)
+//! `medulla_stream::live` is a complete standing-query engine: [`CepEngine`] owns N standing
 //! queries, [`CepEngine::ingest`] fans one [`Event`] to every query's incremental NFA and
 //! publishes matches per-query over `tokio::sync::broadcast` (drop-oldest + lag-count
 //! backpressure), and [`CepEngine::spawn_source`] drains a `broadcast::Receiver<Event>`
 //! "event bus" into `ingest`. Its own docs flagged the SERVER wiring as the remaining
-//! step, exactly like `eg_graphql::LiveQuery`: eg-stream is a pure leaf crate that must
-//! not depend on eg-core, so the SERVER owns (1) the adapter turning each committed change
+//! step, exactly like `medulla_graphql::LiveQuery`: medulla-stream is a pure leaf crate that must
+//! not depend on medulla-core, so the SERVER owns (1) the adapter turning each committed change
 //! into an [`Event`] on a `broadcast::Sender<Event>`, and (2) the subscription route.
 //! This module IS that wiring — the engine is untouched.
 //!
 //! ## The CDC → Event adapter
-//! The engine's reactive substrate is the EG-064 / KG-2.229 CDC hub
+//! The engine's reactive substrate is the MEDULLA-064 / KG-2.229 CDC hub
 //! ([`crate::server::cdc::CdcHub`]): every durable single-row mutation emits an ordered
 //! [`crate::wire::CdcEvent`]. This [`CepSurface`] holds a `broadcast::Sender<Event>` the
 //! [`CepEngine`] drains; the CDC hub calls [`CepSurface::feed_change`] on each emit, mapping
@@ -26,7 +26,7 @@
 //! task — always happens inside the async dispatch handler, where a runtime exists).
 //!
 //! ## The subscription surface (transport-compatible)
-//! Rather than a new streaming frame / socket, EG-299 rides the SAME one-Request →
+//! Rather than a new streaming frame / socket, MEDULLA-299 rides the SAME one-Request →
 //! one-Response transport every other reactive op uses (`CdcRead`/`Watch`/…):
 //!
 //! * `CepSubscribe { pattern }` → register the pattern as a standing query, returns a
@@ -40,14 +40,14 @@
 //! over RPC dispatch, never pgwire (the "gate non-SQL" path).
 //!
 //! Gated `all(streaming, stream)`: the CDC hub (`streaming`) feeds the live NFA engine
-//! (`stream`, the only thing that pulls eg-stream's tokio). A `pi` build (streaming, no
+//! (`stream`, the only thing that pulls medulla-stream's tokio). A `pi` build (streaming, no
 //! stream) compiles none of this and the `Cep*` methods fall to the dispatch not-available
 //! catch-all.
 //!
 //! ## Push extension: the broker bridge (opt-in, feature `broker`)
 //! `CepPoll` above is a pull surface (long-poll). W4.10/M6 adds a genuine PUSH surface by
-//! reusing the engine's OWN broker (EG-275..284) rather than inventing a new transport:
-//! when `EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE` names a target, every match a standing query
+//! reusing the engine's OWN broker (MEDULLA-275..284) rather than inventing a new transport:
+//! when `MEDULLA_CEP_BROKER_EXCHANGE` names a target, every match a standing query
 //! detects is ALSO published — topic-routed, routing key = the subscription id — onto that
 //! exchange in `__commons__`. Any already-connected AMQP/MQTT/STOMP consumer (the three wire
 //! adapters' own poll-driven push pumps) is then pushed the match with no further client
@@ -66,9 +66,9 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-use eg_stream::live::{CepEngine, CepSubscription, DEFAULT_MATCH_BUFFER};
-use eg_stream::{AttrPredicate, CepPattern, Event, EventMatcher, Match, Window};
-use eg_types::result_contract::messaging::{CepEvent, CepMatch, CepPoll};
+use medulla_stream::live::{CepEngine, CepSubscription, DEFAULT_MATCH_BUFFER};
+use medulla_stream::{AttrPredicate, CepPattern, Event, EventMatcher, Match, Window};
+use medulla_types::result_contract::messaging::{CepEvent, CepMatch, CepPoll};
 
 use super::state::ServerState;
 use crate::protocol::{Method, Response, ResultPayload};
@@ -81,12 +81,12 @@ use crate::wire::{CdcEvent, CdcKind, CepMatcherSpec, CepNodeSpec, CepPatternSpec
 /// backpressure the per-subscription match buffer gives on the read side.
 const CEP_EVENT_BUS_CAP: usize = 4096;
 
-/// The live CEP standing-query surface (CONCEPT:EG-KG.query.protocol-types): the `eg_stream` [`CepEngine`]
+/// The live CEP standing-query surface (CONCEPT:MEDULLA-KG.query.protocol-types): the `medulla_stream` [`CepEngine`]
 /// plus the CDC → [`Event`] bus that feeds it and the per-subscription receivers the
 /// `CepPoll` handler drains. Cheap to `Arc`-share; owned lazily by the [`CdcHub`]
 /// (created on the first subscribe).
 pub struct CepSurface {
-    /// The shipped live standing-query engine (EG-088) — untouched; we only feed + read it.
+    /// The shipped live standing-query engine (MEDULLA-088) — untouched; we only feed + read it.
     engine: Arc<CepEngine>,
     /// Server-held per-subscription receivers, keyed by the engine's standing-query id
     /// (which is the wire `sub_id`). `Arc<AsyncMutex<…>>` so `CepPoll` can clone the handle
@@ -121,7 +121,7 @@ impl CepSurface {
         })
     }
 
-    /// Adapter (CONCEPT:EG-KG.query.protocol-types): map one committed [`CdcEvent`] to a CEP [`Event`] and
+    /// Adapter (CONCEPT:MEDULLA-KG.query.protocol-types): map one committed [`CdcEvent`] to a CEP [`Event`] and
     /// publish it on the bus the engine drains. `key` = the change's label if present (the
     /// useful CEP discriminator) else the op kind (`add`/`remove`/`update`); the op, graph,
     /// and ids ride in `attrs` for attribute predicates. Publishing with no live drain
@@ -149,7 +149,7 @@ impl CepSurface {
         let _ = self.bus.send(Event { ts, key, attrs });
     }
 
-    /// Register a standing query for `pattern` over `window` (CONCEPT:EG-KG.query.protocol-types), keeping the
+    /// Register a standing query for `pattern` over `window` (CONCEPT:MEDULLA-KG.query.protocol-types), keeping the
     /// engine's [`CepSubscription`] server-side keyed by its id. Returns that id (the wire
     /// `sub_id`).
     pub fn register(&self, pattern: &CepPattern, window: Window, buffer: usize) -> u64 {
@@ -159,7 +159,7 @@ impl CepSurface {
         id
     }
 
-    /// Long-poll subscription `sub_id` for pushed matches (CONCEPT:EG-KG.query.protocol-types): drain everything
+    /// Long-poll subscription `sub_id` for pushed matches (CONCEPT:MEDULLA-KG.query.protocol-types): drain everything
     /// already buffered; if none and `timeout_ms > 0`, await the next match up to the
     /// timeout, then drain any that arrived alongside it. A lagging poller silently skips the
     /// dropped-oldest matches (broadcast `Lagged`) and keeps going. `Err` iff `sub_id` is
@@ -188,7 +188,7 @@ impl CepSurface {
         Ok(out)
     }
 
-    /// Drop the standing query with `sub_id` + its server-held receiver (CONCEPT:EG-KG.query.protocol-types).
+    /// Drop the standing query with `sub_id` + its server-held receiver (CONCEPT:MEDULLA-KG.query.protocol-types).
     /// Returns whether it existed.
     pub fn unsubscribe(&self, sub_id: u64) -> bool {
         let existed = self.subs.remove(&sub_id).is_some();
@@ -201,7 +201,7 @@ impl CepSurface {
     /// An INDEPENDENT resubscribed receiver on `sub_id`'s match stream (its own lag
     /// accounting), for a forwarder that must not disturb `CepPoll`'s buffered drain —
     /// the broker-push bridge below is the first caller. `None` if `sub_id` is unknown
-    /// (dropped / never registered). Mirrors `eg_stream::live::CepSubscription::resubscribe`'s
+    /// (dropped / never registered). Mirrors `medulla_stream::live::CepSubscription::resubscribe`'s
     /// documented fan-out contract: many independent consumers may watch one standing query.
     pub async fn resubscribe(&self, sub_id: u64) -> Option<CepSubscription> {
         let sub = self.subs.get(&sub_id)?.clone();
@@ -238,9 +238,9 @@ fn kind_op(kind: &CdcKind) -> &'static str {
     }
 }
 
-// ── Pure-serde `CepPatternSpec` (eg-types) → `eg_stream` conversion ──────────────
-// The wire DTOs are Pi-safe (no eg-stream dep); this seam turns them into the real NFA
-// pattern behind the `stream` gate — the same mapping `eg_plan::exec` does for the batch
+// ── Pure-serde `CepPatternSpec` (medulla-types) → `medulla_stream` conversion ──────────────
+// The wire DTOs are Pi-safe (no medulla-stream dep); this seam turns them into the real NFA
+// pattern behind the `stream` gate — the same mapping `medulla_plan::exec` does for the batch
 // `Op::Cep`, kept local so the CEP surface stays confined to this module.
 
 fn window_from_spec(w: CepWindowSpec) -> Window {
@@ -307,7 +307,7 @@ fn pattern_from_spec(p: &CepNodeSpec) -> CepPattern {
 /// published to. Unset/blank ⇒ no broker forwarding — `CepPoll` remains the only
 /// delivery path, byte-for-byte the pre-W4.10 behavior.
 #[cfg(feature = "broker")]
-const CEP_BROKER_EXCHANGE_ENV: &str = "EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE";
+const CEP_BROKER_EXCHANGE_ENV: &str = "MEDULLA_CEP_BROKER_EXCHANGE";
 
 /// The graph whose broker hosts forwarded CEP matches. CEP patterns are cross-graph by
 /// design (no mandatory graph in the wire contract; the surface is admin-only), so
@@ -331,7 +331,7 @@ fn parse_cep_broker_exchange(raw: Option<&str>) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
-/// Encode + publish one [`Match`] to the broker (CONCEPT:EG-KG.compute.message-broker-exchanges), topic-routed by
+/// Encode + publish one [`Match`] to the broker (CONCEPT:MEDULLA-KG.compute.message-broker-exchanges), topic-routed by
 /// the subscription id so a consumer can bind to one subscription's matches
 /// (`bind_queue(exchange, q, "<sub_id>")`) or every match on the exchange (`"#"`).
 /// Declaring the exchange is idempotent (a no-op once it already exists as `Topic`); a
@@ -394,7 +394,7 @@ fn spawn_cep_broker_forwarder(
     });
 }
 
-/// If `EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE` is configured, start forwarding `sub_id`'s
+/// If `MEDULLA_CEP_BROKER_EXCHANGE` is configured, start forwarding `sub_id`'s
 /// matches to it. A no-op (no task spawned, no registry read) when unset — the gate
 /// this whole extension's zero-cost-when-off claim rests on.
 #[cfg(feature = "broker")]
@@ -455,7 +455,7 @@ async fn surface_of(
     }
 }
 
-/// Handle the live CEP standing-query methods (CONCEPT:EG-KG.query.protocol-types). Returns `Err(method)` for
+/// Handle the live CEP standing-query methods (CONCEPT:MEDULLA-KG.query.protocol-types). Returns `Err(method)` for
 /// any non-CEP method so the dispatch chain falls through — though dispatch only routes the
 /// `Cep*` methods here.
 pub(crate) async fn try_handle(
@@ -490,9 +490,9 @@ async fn cep_subscribe(
     pattern_msgpack: &[u8],
     buffer: u32,
 ) -> Result<Response, Response> {
-    let spec: CepPatternSpec = eg_types::msgpack::decode_bounded(
+    let spec: CepPatternSpec = medulla_types::msgpack::decode_bounded(
         pattern_msgpack,
-        eg_types::msgpack::MsgpackLimits::new(1024 * 1024, 50_000, 64),
+        medulla_types::msgpack::MsgpackLimits::new(1024 * 1024, 50_000, 64),
     )
     .map_err(|_| {
         Response::err(
@@ -511,12 +511,12 @@ async fn cep_subscribe(
     let id = surface.register(&pattern, window, buf);
     // Opt-in push extension (W4.10/M6): if configured, forward this standing
     // query's matches to the broker too. No-op (nothing read, nothing spawned)
-    // when `EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE` is unset — see the module doc.
+    // when `MEDULLA_CEP_BROKER_EXCHANGE` is unset — see the module doc.
     #[cfg(feature = "broker")]
     forward_to_broker_if_configured(state, &surface, id).await;
     Ok(Response::ok(
         req_id,
-        ResultPayload::scalar::<eg_types::result_contract::messaging::CepSubscribe>(id),
+        ResultPayload::scalar::<medulla_types::result_contract::messaging::CepSubscribe>(id),
     ))
 }
 
@@ -564,7 +564,7 @@ async fn cep_unsubscribe(
     let surface = surface_of(state, req_id).await?;
     Ok(Response::ok(
         req_id,
-        ResultPayload::scalar::<eg_types::result_contract::messaging::CepUnsubscribe>(
+        ResultPayload::scalar::<medulla_types::result_contract::messaging::CepUnsubscribe>(
             surface.unsubscribe(sub_id),
         ),
     ))
@@ -774,7 +774,7 @@ mod tests {
 
     #[test]
     fn eg299_pattern_spec_conversion_roundtrips_shape() {
-        // Within-wrapped sequence with an attribute predicate → the eg_stream pattern.
+        // Within-wrapped sequence with an attribute predicate → the medulla_stream pattern.
         let spec = CepNodeSpec::Within {
             within: 5,
             pattern: Box::new(CepNodeSpec::Sequence(vec![

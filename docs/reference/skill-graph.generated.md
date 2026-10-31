@@ -95,726 +95,726 @@ Every concept and component this repo's own registries and documentation nav dec
 
 ## admission
 
-- **eg.server-dispatch** (status: proposed) — `architecture/component-registry.yml#eg.server-dispatch`
-- **eg.server-protocol** (status: proposed) — `architecture/component-registry.yml#eg.server-protocol`
+- **medulla.server-dispatch** (status: proposed) — `architecture/component-registry.yml#medulla.server-dispatch`
+- **medulla.server-protocol** (status: proposed) — `architecture/component-registry.yml#medulla.server-protocol`
 
 ## algorithms
 
-- **eg.compute** (status: proposed) — `architecture/component-registry.yml#eg.compute`
+- **medulla.compute** (status: proposed) — `architecture/component-registry.yml#medulla.compute`
 
 ## alignment
 
-- **eg.modality** (status: proposed) — `architecture/component-registry.yml#eg.modality`
+- **medulla.modality** (status: proposed) — `architecture/component-registry.yml#medulla.modality`
 
 ## ann
 
-- **eg.numeric-ann** (status: proposed) — `architecture/component-registry.yml#eg.numeric-ann`
+- **medulla.numeric-ann** (status: proposed) — `architecture/component-registry.yml#medulla.numeric-ann`
 
 ## asof
 
-- **eg.timeseries** (status: proposed) — `architecture/component-registry.yml#eg.timeseries`
+- **medulla.timeseries** (status: proposed) — `architecture/component-registry.yml#medulla.timeseries`
 
 ## asr
 
-- **eg.speech-providers** (status: proposed) — `architecture/component-registry.yml#eg.speech-providers`
+- **medulla.speech-providers** (status: proposed) — `architecture/component-registry.yml#medulla.speech-providers`
 
 ## ast
 
-- **eg.compute** (status: proposed) — `architecture/component-registry.yml#eg.compute`
+- **medulla.compute** (status: proposed) — `architecture/component-registry.yml#medulla.compute`
 
 ## audio
 
-- **eg.modality** (status: proposed) — `architecture/component-registry.yml#eg.modality`
+- **medulla.modality** (status: proposed) — `architecture/component-registry.yml#medulla.modality`
 
 ## audit
 
-- **eg.observability** (status: proposed) — `architecture/component-registry.yml#eg.observability`
+- **medulla.observability** (status: proposed) — `architecture/component-registry.yml#medulla.observability`
 
 ## backend
 
-- **eg.quantum** (status: proposed) — `architecture/component-registry.yml#eg.quantum`
+- **medulla.quantum** (status: proposed) — `architecture/component-registry.yml#medulla.quantum`
 
 ## backup
 
-- **eg.persistence** (status: proposed) — `architecture/component-registry.yml#eg.persistence`
+- **medulla.persistence** (status: proposed) — `architecture/component-registry.yml#medulla.persistence`
 
 ## belief
 
-- **eg.epistemic** (status: proposed) — `architecture/component-registry.yml#eg.epistemic`
+- **medulla.epistemic** (status: proposed) — `architecture/component-registry.yml#medulla.epistemic`
 
 ## binaries
 
-- **eg.binary-composition** (status: proposed) — `architecture/component-registry.yml#eg.binary-composition`
+- **medulla.binary-composition** (status: proposed) — `architecture/component-registry.yml#medulla.binary-composition`
 
 ## bindings
 
-- **eg.embedded-bindings** (status: proposed) — `architecture/component-registry.yml#eg.embedded-bindings`
+- **medulla.embedded-bindings** (status: proposed) — `architecture/component-registry.yml#medulla.embedded-bindings`
 
 ## blob
 
-- **eg.server-dispatch** (status: proposed) — `architecture/component-registry.yml#eg.server-dispatch`
+- **medulla.server-dispatch** (status: proposed) — `architecture/component-registry.yml#medulla.server-dispatch`
 
 ## capability
 
-- **eg.core** (status: proposed) — `architecture/component-registry.yml#eg.core`
+- **medulla.core** (status: proposed) — `architecture/component-registry.yml#medulla.core`
 
 ## capability-ledger
 
-- **eg.wire-contracts** (status: proposed) — `architecture/component-registry.yml#eg.wire-contracts`
+- **medulla.wire-contracts** (status: proposed) — `architecture/component-registry.yml#medulla.wire-contracts`
 
 ## catalog
 
-- **eg.query-plan** (status: proposed) — `architecture/component-registry.yml#eg.query-plan`
+- **medulla.query-plan** (status: proposed) — `architecture/component-registry.yml#medulla.query-plan`
 
 ## cdc
 
-- **eg.server-dispatch** (status: proposed) — `architecture/component-registry.yml#eg.server-dispatch`
+- **medulla.server-dispatch** (status: proposed) — `architecture/component-registry.yml#medulla.server-dispatch`
 
 ## chart
 
-- **eg.viz** (status: proposed) — `architecture/component-registry.yml#eg.viz`
+- **medulla.viz** (status: proposed) — `architecture/component-registry.yml#medulla.viz`
 
 ## claims
 
-- **eg.epistemic** (status: proposed) — `architecture/component-registry.yml#eg.epistemic`
+- **medulla.epistemic** (status: proposed) — `architecture/component-registry.yml#medulla.epistemic`
 
 ## clients
 
-- **eg.embedded-bindings** (status: proposed) — `architecture/component-registry.yml#eg.embedded-bindings`
+- **medulla.embedded-bindings** (status: proposed) — `architecture/component-registry.yml#medulla.embedded-bindings`
 
 ## cold-tier
 
-- **eg.persistence** (status: proposed) — `architecture/component-registry.yml#eg.persistence`
+- **medulla.persistence** (status: proposed) — `architecture/component-registry.yml#medulla.persistence`
 
 ## columnstore
 
-- **eg.viz** (status: proposed) — `architecture/component-registry.yml#eg.viz`
+- **medulla.viz** (status: proposed) — `architecture/component-registry.yml#medulla.viz`
 
 ## composition
 
-- **eg.binary-composition** (status: proposed) — `architecture/component-registry.yml#eg.binary-composition`
-- **eg.composition** (status: proposed) — `architecture/component-registry.yml#eg.composition`
+- **medulla.binary-composition** (status: proposed) — `architecture/component-registry.yml#medulla.binary-composition`
+- **medulla.composition** (status: proposed) — `architecture/component-registry.yml#medulla.composition`
 
 ## compute
 
-- **eg.compute** (status: proposed) — `architecture/component-registry.yml#eg.compute`
+- **medulla.compute** (status: proposed) — `architecture/component-registry.yml#medulla.compute`
 
 ## confidence
 
-- **eg.epistemic** (status: proposed) — `architecture/component-registry.yml#eg.epistemic`
+- **medulla.epistemic** (status: proposed) — `architecture/component-registry.yml#medulla.epistemic`
 
 ## consensus
 
-- **eg.cluster-replication** (status: proposed) — `architecture/component-registry.yml#eg.cluster-replication`
+- **medulla.cluster-replication** (status: proposed) — `architecture/component-registry.yml#medulla.cluster-replication`
 
 ## content-addressed
 
-- **eg.kv-cache** (status: proposed) — `architecture/component-registry.yml#eg.kv-cache`
+- **medulla.kv-cache** (status: proposed) — `architecture/component-registry.yml#medulla.kv-cache`
 
 ## contracts
 
-- **eg.types** (status: proposed) — `architecture/component-registry.yml#eg.types`
-- **eg.wire-contracts** (status: proposed) — `architecture/component-registry.yml#eg.wire-contracts`
+- **medulla.types** (status: proposed) — `architecture/component-registry.yml#medulla.types`
+- **medulla.wire-contracts** (status: proposed) — `architecture/component-registry.yml#medulla.wire-contracts`
 
 ## contradiction
 
-- **eg.epistemic** (status: proposed) — `architecture/component-registry.yml#eg.epistemic`
+- **medulla.epistemic** (status: proposed) — `architecture/component-registry.yml#medulla.epistemic`
 
 ## cost
 
-- **eg.observability** (status: proposed) — `architecture/component-registry.yml#eg.observability`
-- **eg.query-plan** (status: proposed) — `architecture/component-registry.yml#eg.query-plan`
+- **medulla.observability** (status: proposed) — `architecture/component-registry.yml#medulla.observability`
+- **medulla.query-plan** (status: proposed) — `architecture/component-registry.yml#medulla.query-plan`
 
 ## cross-shard
 
-- **eg.cluster-replication** (status: proposed) — `architecture/component-registry.yml#eg.cluster-replication`
+- **medulla.cluster-replication** (status: proposed) — `architecture/component-registry.yml#medulla.cluster-replication`
 
 ## cypher
 
-- **eg.query-plan** (status: proposed) — `architecture/component-registry.yml#eg.query-plan`
+- **medulla.query-plan** (status: proposed) — `architecture/component-registry.yml#medulla.query-plan`
 
 ## datalog
 
-- **eg.compute** (status: proposed) — `architecture/component-registry.yml#eg.compute`
+- **medulla.compute** (status: proposed) — `architecture/component-registry.yml#medulla.compute`
 
 ## datascience
 
-- **eg.compute** (status: proposed) — `architecture/component-registry.yml#eg.compute`
+- **medulla.compute** (status: proposed) — `architecture/component-registry.yml#medulla.compute`
 
 ## decode
 
-- **eg.modality** (status: proposed) — `architecture/component-registry.yml#eg.modality`
+- **medulla.modality** (status: proposed) — `architecture/component-registry.yml#medulla.modality`
 
 ## delta
 
-- **eg.lake-interop** (status: proposed) — `architecture/component-registry.yml#eg.lake-interop`
+- **medulla.lake-interop** (status: proposed) — `architecture/component-registry.yml#medulla.lake-interop`
 
 ## deployment
 
-- **eg.binary-composition** (status: proposed) — `architecture/component-registry.yml#eg.binary-composition`
-- **eg.composition** (status: proposed) — `architecture/component-registry.yml#eg.composition`
+- **medulla.binary-composition** (status: proposed) — `architecture/component-registry.yml#medulla.binary-composition`
+- **medulla.composition** (status: proposed) — `architecture/component-registry.yml#medulla.composition`
 
 ## dispatch
 
-- **eg.server-dispatch** (status: proposed) — `architecture/component-registry.yml#eg.server-dispatch`
+- **medulla.server-dispatch** (status: proposed) — `architecture/component-registry.yml#medulla.server-dispatch`
 
 ## document
 
-- **eg.modality** (status: proposed) — `architecture/component-registry.yml#eg.modality`
+- **medulla.modality** (status: proposed) — `architecture/component-registry.yml#medulla.modality`
 
 ## durability
 
-- **eg.persistence** (status: proposed) — `architecture/component-registry.yml#eg.persistence`
-- **eg.storage-transaction** (status: proposed) — `architecture/component-registry.yml#eg.storage-transaction`
+- **medulla.persistence** (status: proposed) — `architecture/component-registry.yml#medulla.persistence`
+- **medulla.storage-transaction** (status: proposed) — `architecture/component-registry.yml#medulla.storage-transaction`
 
 ## durable
 
-- **eg.job-plane** (status: proposed) — `architecture/component-registry.yml#eg.job-plane`
+- **medulla.job-plane** (status: proposed) — `architecture/component-registry.yml#medulla.job-plane`
 
 ## durable-routing
 
-- **eg.wire-contracts** (status: proposed) — `architecture/component-registry.yml#eg.wire-contracts`
+- **medulla.wire-contracts** (status: proposed) — `architecture/component-registry.yml#medulla.wire-contracts`
 
 ## embedded
 
-- **eg.embedded-bindings** (status: proposed) — `architecture/component-registry.yml#eg.embedded-bindings`
+- **medulla.embedded-bindings** (status: proposed) — `architecture/component-registry.yml#medulla.embedded-bindings`
 
 ## evidence
 
-- **eg.epistemic** (status: proposed) — `architecture/component-registry.yml#eg.epistemic`
-- **eg.modality** (status: proposed) — `architecture/component-registry.yml#eg.modality`
+- **medulla.epistemic** (status: proposed) — `architecture/component-registry.yml#medulla.epistemic`
+- **medulla.modality** (status: proposed) — `architecture/component-registry.yml#medulla.modality`
 
 ## exactness
 
-- **eg.quantum** (status: proposed) — `architecture/component-registry.yml#eg.quantum`
+- **medulla.quantum** (status: proposed) — `architecture/component-registry.yml#medulla.quantum`
 
 ## export
 
-- **eg.viz** (status: proposed) — `architecture/component-registry.yml#eg.viz`
+- **medulla.viz** (status: proposed) — `architecture/component-registry.yml#medulla.viz`
 
 ## features
 
-- **eg.binary-composition** (status: proposed) — `architecture/component-registry.yml#eg.binary-composition`
+- **medulla.binary-composition** (status: proposed) — `architecture/component-registry.yml#medulla.binary-composition`
 
 ## federation
 
-- **eg.server-dispatch** (status: proposed) — `architecture/component-registry.yml#eg.server-dispatch`
+- **medulla.server-dispatch** (status: proposed) — `architecture/component-registry.yml#medulla.server-dispatch`
 
 ## file-format
 
-- **eg.lake-interop** (status: proposed) — `architecture/component-registry.yml#eg.lake-interop`
+- **medulla.lake-interop** (status: proposed) — `architecture/component-registry.yml#medulla.lake-interop`
 
 ## finance
 
-- **eg.compute** (status: proposed) — `architecture/component-registry.yml#eg.compute`
+- **medulla.compute** (status: proposed) — `architecture/component-registry.yml#medulla.compute`
 
 ## fsm
 
-- **eg.job-plane** (status: proposed) — `architecture/component-registry.yml#eg.job-plane`
+- **medulla.job-plane** (status: proposed) — `architecture/component-registry.yml#medulla.job-plane`
 
 ## gap-fill
 
-- **eg.timeseries** (status: proposed) — `architecture/component-registry.yml#eg.timeseries`
+- **medulla.timeseries** (status: proposed) — `architecture/component-registry.yml#medulla.timeseries`
 
 ## gates
 
-- **eg.binary-composition** (status: proposed) — `architecture/component-registry.yml#eg.binary-composition`
+- **medulla.binary-composition** (status: proposed) — `architecture/component-registry.yml#medulla.binary-composition`
 
 ## geo
 
-- **eg.modality** (status: proposed) — `architecture/component-registry.yml#eg.modality`
+- **medulla.modality** (status: proposed) — `architecture/component-registry.yml#medulla.modality`
 
 ## governed-program
 
-- **eg.lm-program** (status: proposed) — `architecture/component-registry.yml#eg.lm-program`
+- **medulla.lm-program** (status: proposed) — `architecture/component-registry.yml#medulla.lm-program`
 
 ## graph
 
-- **eg.core** (status: proposed) — `architecture/component-registry.yml#eg.core`
-- **eg.graph-core** (status: proposed) — `architecture/component-registry.yml#eg.graph-core`
+- **medulla.core** (status: proposed) — `architecture/component-registry.yml#medulla.core`
+- **medulla.graph-core** (status: proposed) — `architecture/component-registry.yml#medulla.graph-core`
 
 ## graphql
 
-- **eg.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#eg.rdf-semantics`
+- **medulla.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#medulla.rdf-semantics`
 
 ## handlers
 
-- **eg.server-dispatch** (status: proposed) — `architecture/component-registry.yml#eg.server-dispatch`
+- **medulla.server-dispatch** (status: proposed) — `architecture/component-registry.yml#medulla.server-dispatch`
 
 ## iceberg
 
-- **eg.lake-interop** (status: proposed) — `architecture/component-registry.yml#eg.lake-interop`
+- **medulla.lake-interop** (status: proposed) — `architecture/component-registry.yml#medulla.lake-interop`
 
 ## idempotency
 
-- **eg.mutation-store** (status: proposed) — `architecture/component-registry.yml#eg.mutation-store`
+- **medulla.mutation-store** (status: proposed) — `architecture/component-registry.yml#medulla.mutation-store`
 
 ## identity
 
-- **eg.types** (status: proposed) — `architecture/component-registry.yml#eg.types`
+- **medulla.types** (status: proposed) — `architecture/component-registry.yml#medulla.types`
 
 ## image
 
-- **eg.modality** (status: proposed) — `architecture/component-registry.yml#eg.modality`
+- **medulla.modality** (status: proposed) — `architecture/component-registry.yml#medulla.modality`
 
 ## incarnation
 
-- **eg.mutation-store** (status: proposed) — `architecture/component-registry.yml#eg.mutation-store`
+- **medulla.mutation-store** (status: proposed) — `architecture/component-registry.yml#medulla.mutation-store`
 
 ## interop
 
-- **eg.lake-interop** (status: proposed) — `architecture/component-registry.yml#eg.lake-interop`
+- **medulla.lake-interop** (status: proposed) — `architecture/component-registry.yml#medulla.lake-interop`
 
 ## invariants
 
-- **eg.core** (status: proposed) — `architecture/component-registry.yml#eg.core`
-- **eg.graph-core** (status: proposed) — `architecture/component-registry.yml#eg.graph-core`
+- **medulla.core** (status: proposed) — `architecture/component-registry.yml#medulla.core`
+- **medulla.graph-core** (status: proposed) — `architecture/component-registry.yml#medulla.graph-core`
 
 ## isolation
 
-- **eg.core** (status: proposed) — `architecture/component-registry.yml#eg.core`
-- **eg.graph-core** (status: proposed) — `architecture/component-registry.yml#eg.graph-core`
+- **medulla.core** (status: proposed) — `architecture/component-registry.yml#medulla.core`
+- **medulla.graph-core** (status: proposed) — `architecture/component-registry.yml#medulla.graph-core`
 
 ## ivf-pq
 
-- **eg.numeric-ann** (status: proposed) — `architecture/component-registry.yml#eg.numeric-ann`
+- **medulla.numeric-ann** (status: proposed) — `architecture/component-registry.yml#medulla.numeric-ann`
 
 ## javascript
 
-- **eg.embedded-bindings** (status: proposed) — `architecture/component-registry.yml#eg.embedded-bindings`
+- **medulla.embedded-bindings** (status: proposed) — `architecture/component-registry.yml#medulla.embedded-bindings`
 
 ## jobs
 
-- **eg.job-plane** (status: proposed) — `architecture/component-registry.yml#eg.job-plane`
+- **medulla.job-plane** (status: proposed) — `architecture/component-registry.yml#medulla.job-plane`
 
 ## justification
 
-- **eg.epistemic** (status: proposed) — `architecture/component-registry.yml#eg.epistemic`
+- **medulla.epistemic** (status: proposed) — `architecture/component-registry.yml#medulla.epistemic`
 
 ## kvcache
 
-- **eg.kv-cache** (status: proposed) — `architecture/component-registry.yml#eg.kv-cache`
+- **medulla.kv-cache** (status: proposed) — `architecture/component-registry.yml#medulla.kv-cache`
 
 ## lakehouse
 
-- **eg.lake-interop** (status: proposed) — `architecture/component-registry.yml#eg.lake-interop`
+- **medulla.lake-interop** (status: proposed) — `architecture/component-registry.yml#medulla.lake-interop`
 
 ## lease
 
-- **eg.core** (status: proposed) — `architecture/component-registry.yml#eg.core`
-- **eg.graph-core** (status: proposed) — `architecture/component-registry.yml#eg.graph-core`
-- **eg.job-plane** (status: proposed) — `architecture/component-registry.yml#eg.job-plane`
+- **medulla.core** (status: proposed) — `architecture/component-registry.yml#medulla.core`
+- **medulla.graph-core** (status: proposed) — `architecture/component-registry.yml#medulla.graph-core`
+- **medulla.job-plane** (status: proposed) — `architecture/component-registry.yml#medulla.job-plane`
 
 ## ledger
 
-- **eg.mutation-store** (status: proposed) — `architecture/component-registry.yml#eg.mutation-store`
+- **medulla.mutation-store** (status: proposed) — `architecture/component-registry.yml#medulla.mutation-store`
 
 ## lifecycle
 
-- **eg.binary-composition** (status: proposed) — `architecture/component-registry.yml#eg.binary-composition`
-- **eg.composition** (status: proposed) — `architecture/component-registry.yml#eg.composition`
+- **medulla.binary-composition** (status: proposed) — `architecture/component-registry.yml#medulla.binary-composition`
+- **medulla.composition** (status: proposed) — `architecture/component-registry.yml#medulla.composition`
 
 ## linalg
 
-- **eg.numeric-ann** (status: proposed) — `architecture/component-registry.yml#eg.numeric-ann`
+- **medulla.numeric-ann** (status: proposed) — `architecture/component-registry.yml#medulla.numeric-ann`
 
 ## lm-program
 
-- **eg.lm-program** (status: proposed) — `architecture/component-registry.yml#eg.lm-program`
+- **medulla.lm-program** (status: proposed) — `architecture/component-registry.yml#medulla.lm-program`
 
 ## lod
 
-- **eg.viz** (status: proposed) — `architecture/component-registry.yml#eg.viz`
+- **medulla.viz** (status: proposed) — `architecture/component-registry.yml#medulla.viz`
 
 ## lttb
 
-- **eg.viz** (status: proposed) — `architecture/component-registry.yml#eg.viz`
+- **medulla.viz** (status: proposed) — `architecture/component-registry.yml#medulla.viz`
 
 ## m4
 
-- **eg.viz** (status: proposed) — `architecture/component-registry.yml#eg.viz`
+- **medulla.viz** (status: proposed) — `architecture/component-registry.yml#medulla.viz`
 
 ## membership
 
-- **eg.cluster-replication** (status: proposed) — `architecture/component-registry.yml#eg.cluster-replication`
+- **medulla.cluster-replication** (status: proposed) — `architecture/component-registry.yml#medulla.cluster-replication`
 
 ## metrics
 
-- **eg.observability** (status: proposed) — `architecture/component-registry.yml#eg.observability`
+- **medulla.observability** (status: proposed) — `architecture/component-registry.yml#medulla.observability`
 
 ## modality
 
-- **eg.modality** (status: proposed) — `architecture/component-registry.yml#eg.modality`
+- **medulla.modality** (status: proposed) — `architecture/component-registry.yml#medulla.modality`
 
 ## mutation
 
-- **eg.mutation-store** (status: proposed) — `architecture/component-registry.yml#eg.mutation-store`
+- **medulla.mutation-store** (status: proposed) — `architecture/component-registry.yml#medulla.mutation-store`
 
 ## mutation-batch
 
-- **eg.wire-contracts** (status: proposed) — `architecture/component-registry.yml#eg.wire-contracts`
+- **medulla.wire-contracts** (status: proposed) — `architecture/component-registry.yml#medulla.wire-contracts`
 
 ## numeric
 
-- **eg.numeric-ann** (status: proposed) — `architecture/component-registry.yml#eg.numeric-ann`
+- **medulla.numeric-ann** (status: proposed) — `architecture/component-registry.yml#medulla.numeric-ann`
 
 ## obda
 
-- **eg.server-dispatch** (status: proposed) — `architecture/component-registry.yml#eg.server-dispatch`
+- **medulla.server-dispatch** (status: proposed) — `architecture/component-registry.yml#medulla.server-dispatch`
 
 ## observability
 
-- **eg.observability** (status: proposed) — `architecture/component-registry.yml#eg.observability`
+- **medulla.observability** (status: proposed) — `architecture/component-registry.yml#medulla.observability`
 
 ## occ
 
-- **eg.mutation-store** (status: proposed) — `architecture/component-registry.yml#eg.mutation-store`
+- **medulla.mutation-store** (status: proposed) — `architecture/component-registry.yml#medulla.mutation-store`
 
 ## ohlc
 
-- **eg.timeseries** (status: proposed) — `architecture/component-registry.yml#eg.timeseries`
+- **medulla.timeseries** (status: proposed) — `architecture/component-registry.yml#medulla.timeseries`
 
 ## ontology
 
-- **eg.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#eg.rdf-semantics`
+- **medulla.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#medulla.rdf-semantics`
 
 ## opq
 
-- **eg.numeric-ann** (status: proposed) — `architecture/component-registry.yml#eg.numeric-ann`
+- **medulla.numeric-ann** (status: proposed) — `architecture/component-registry.yml#medulla.numeric-ann`
 
 ## optimization
 
-- **eg.lm-program** (status: proposed) — `architecture/component-registry.yml#eg.lm-program`
+- **medulla.lm-program** (status: proposed) — `architecture/component-registry.yml#medulla.lm-program`
 
 ## otel
 
-- **eg.observability** (status: proposed) — `architecture/component-registry.yml#eg.observability`
+- **medulla.observability** (status: proposed) — `architecture/component-registry.yml#medulla.observability`
 
 ## oxrdf
 
-- **eg.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#eg.rdf-semantics`
+- **medulla.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#medulla.rdf-semantics`
 
 ## paging
 
-- **eg.kv-cache** (status: proposed) — `architecture/component-registry.yml#eg.kv-cache`
+- **medulla.kv-cache** (status: proposed) — `architecture/component-registry.yml#medulla.kv-cache`
 
 ## parquet
 
-- **eg.lake-interop** (status: proposed) — `architecture/component-registry.yml#eg.lake-interop`
+- **medulla.lake-interop** (status: proposed) — `architecture/component-registry.yml#medulla.lake-interop`
 
 ## persistence
 
-- **eg.persistence** (status: proposed) — `architecture/component-registry.yml#eg.persistence`
+- **medulla.persistence** (status: proposed) — `architecture/component-registry.yml#medulla.persistence`
 
 ## physical-state-authority
 
-- **eg.mutation-store** (status: proposed) — `architecture/component-registry.yml#eg.mutation-store`
+- **medulla.mutation-store** (status: proposed) — `architecture/component-registry.yml#medulla.mutation-store`
 
 ## piper
 
-- **eg.speech-providers** (status: proposed) — `architecture/component-registry.yml#eg.speech-providers`
+- **medulla.speech-providers** (status: proposed) — `architecture/component-registry.yml#medulla.speech-providers`
 
 ## placement
 
-- **eg.cluster-replication** (status: proposed) — `architecture/component-registry.yml#eg.cluster-replication`
+- **medulla.cluster-replication** (status: proposed) — `architecture/component-registry.yml#medulla.cluster-replication`
 
 ## planner
 
-- **eg.query-plan** (status: proposed) — `architecture/component-registry.yml#eg.query-plan`
+- **medulla.query-plan** (status: proposed) — `architecture/component-registry.yml#medulla.query-plan`
 
 ## policy-lease-consumer
 
-- **eg.server-protocol** (status: proposed) — `architecture/component-registry.yml#eg.server-protocol`
+- **medulla.server-protocol** (status: proposed) — `architecture/component-registry.yml#medulla.server-protocol`
 
 ## pre-commit
 
-- **eg.binary-composition** (status: proposed) — `architecture/component-registry.yml#eg.binary-composition`
+- **medulla.binary-composition** (status: proposed) — `architecture/component-registry.yml#medulla.binary-composition`
 
 ## pregel
 
-- **eg.cluster-replication** (status: proposed) — `architecture/component-registry.yml#eg.cluster-replication`
+- **medulla.cluster-replication** (status: proposed) — `architecture/component-registry.yml#medulla.cluster-replication`
 
 ## private-payload
 
-- **eg.mutation-store** (status: proposed) — `architecture/component-registry.yml#eg.mutation-store`
+- **medulla.mutation-store** (status: proposed) — `architecture/component-registry.yml#medulla.mutation-store`
 
 ## promql
 
-- **eg.observability** (status: proposed) — `architecture/component-registry.yml#eg.observability`
+- **medulla.observability** (status: proposed) — `architecture/component-registry.yml#medulla.observability`
 
 ## protocol
 
-- **eg.server-dispatch** (status: proposed) — `architecture/component-registry.yml#eg.server-dispatch`
-- **eg.server-protocol** (status: proposed) — `architecture/component-registry.yml#eg.server-protocol`
-- **eg.types** (status: proposed) — `architecture/component-registry.yml#eg.types`
-- **eg.wire-contracts** (status: proposed) — `architecture/component-registry.yml#eg.wire-contracts`
+- **medulla.server-dispatch** (status: proposed) — `architecture/component-registry.yml#medulla.server-dispatch`
+- **medulla.server-protocol** (status: proposed) — `architecture/component-registry.yml#medulla.server-protocol`
+- **medulla.types** (status: proposed) — `architecture/component-registry.yml#medulla.types`
+- **medulla.wire-contracts** (status: proposed) — `architecture/component-registry.yml#medulla.wire-contracts`
 
 ## provider
 
-- **eg.speech-providers** (status: proposed) — `architecture/component-registry.yml#eg.speech-providers`
+- **medulla.speech-providers** (status: proposed) — `architecture/component-registry.yml#medulla.speech-providers`
 
 ## pyo3
 
-- **eg.embedded-bindings** (status: proposed) — `architecture/component-registry.yml#eg.embedded-bindings`
+- **medulla.embedded-bindings** (status: proposed) — `architecture/component-registry.yml#medulla.embedded-bindings`
 
 ## python
 
-- **eg.embedded-bindings** (status: proposed) — `architecture/component-registry.yml#eg.embedded-bindings`
+- **medulla.embedded-bindings** (status: proposed) — `architecture/component-registry.yml#medulla.embedded-bindings`
 
 ## qaoa
 
-- **eg.quantum** (status: proposed) — `architecture/component-registry.yml#eg.quantum`
+- **medulla.quantum** (status: proposed) — `architecture/component-registry.yml#medulla.quantum`
 
 ## quantum
 
-- **eg.quantum** (status: proposed) — `architecture/component-registry.yml#eg.quantum`
+- **medulla.quantum** (status: proposed) — `architecture/component-registry.yml#medulla.quantum`
 
 ## query
 
-- **eg.query-plan** (status: proposed) — `architecture/component-registry.yml#eg.query-plan`
-- **eg.query-reasoning** (status: proposed) — `architecture/component-registry.yml#eg.query-reasoning`
+- **medulla.query-plan** (status: proposed) — `architecture/component-registry.yml#medulla.query-plan`
+- **medulla.query-reasoning** (status: proposed) — `architecture/component-registry.yml#medulla.query-reasoning`
 
 ## raft
 
-- **eg.cluster-replication** (status: proposed) — `architecture/component-registry.yml#eg.cluster-replication`
+- **medulla.cluster-replication** (status: proposed) — `architecture/component-registry.yml#medulla.cluster-replication`
 
 ## rbac
 
-- **eg.core** (status: proposed) — `architecture/component-registry.yml#eg.core`
-- **eg.graph-core** (status: proposed) — `architecture/component-registry.yml#eg.graph-core`
+- **medulla.core** (status: proposed) — `architecture/component-registry.yml#medulla.core`
+- **medulla.graph-core** (status: proposed) — `architecture/component-registry.yml#medulla.graph-core`
 
 ## rdf
 
-- **eg.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#eg.rdf-semantics`
+- **medulla.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#medulla.rdf-semantics`
 
 ## reasoning
 
-- **eg.query-reasoning** (status: proposed) — `architecture/component-registry.yml#eg.query-reasoning`
+- **medulla.query-reasoning** (status: proposed) — `architecture/component-registry.yml#medulla.query-reasoning`
 
 ## redb
 
-- **eg.mutation-store** (status: proposed) — `architecture/component-registry.yml#eg.mutation-store`
-- **eg.persistence** (status: proposed) — `architecture/component-registry.yml#eg.persistence`
+- **medulla.mutation-store** (status: proposed) — `architecture/component-registry.yml#medulla.mutation-store`
+- **medulla.persistence** (status: proposed) — `architecture/component-registry.yml#medulla.persistence`
 
 ## release
 
-- **eg.binary-composition** (status: proposed) — `architecture/component-registry.yml#eg.binary-composition`
+- **medulla.binary-composition** (status: proposed) — `architecture/component-registry.yml#medulla.binary-composition`
 
 ## replication
 
-- **eg.cluster-replication** (status: proposed) — `architecture/component-registry.yml#eg.cluster-replication`
+- **medulla.cluster-replication** (status: proposed) — `architecture/component-registry.yml#medulla.cluster-replication`
 
 ## resource
 
-- **eg.wire-contracts** (status: proposed) — `architecture/component-registry.yml#eg.wire-contracts`
+- **medulla.wire-contracts** (status: proposed) — `architecture/component-registry.yml#medulla.wire-contracts`
 
 ## restore
 
-- **eg.persistence** (status: proposed) — `architecture/component-registry.yml#eg.persistence`
+- **medulla.persistence** (status: proposed) — `architecture/component-registry.yml#medulla.persistence`
 
 ## rls-cache
 
-- **eg.graph-core** (status: proposed) — `architecture/component-registry.yml#eg.graph-core`
+- **medulla.graph-core** (status: proposed) — `architecture/component-registry.yml#medulla.graph-core`
 
 ## rollup
 
-- **eg.timeseries** (status: proposed) — `architecture/component-registry.yml#eg.timeseries`
+- **medulla.timeseries** (status: proposed) — `architecture/component-registry.yml#medulla.timeseries`
 
 ## row-visibility
 
-- **eg.core** (status: proposed) — `architecture/component-registry.yml#eg.core`
-- **eg.graph-core** (status: proposed) — `architecture/component-registry.yml#eg.graph-core`
+- **medulla.core** (status: proposed) — `architecture/component-registry.yml#medulla.core`
+- **medulla.graph-core** (status: proposed) — `architecture/component-registry.yml#medulla.graph-core`
 
 ## rowset
 
-- **eg.query-plan** (status: proposed) — `architecture/component-registry.yml#eg.query-plan`
+- **medulla.query-plan** (status: proposed) — `architecture/component-registry.yml#medulla.query-plan`
 
 ## s3
 
-- **eg.server-dispatch** (status: proposed) — `architecture/component-registry.yml#eg.server-dispatch`
+- **medulla.server-dispatch** (status: proposed) — `architecture/component-registry.yml#medulla.server-dispatch`
 
 ## scheduler
 
-- **eg.job-plane** (status: proposed) — `architecture/component-registry.yml#eg.job-plane`
+- **medulla.job-plane** (status: proposed) — `architecture/component-registry.yml#medulla.job-plane`
 
 ## scope-binding
 
-- **eg.mutation-store** (status: proposed) — `architecture/component-registry.yml#eg.mutation-store`
+- **medulla.mutation-store** (status: proposed) — `architecture/component-registry.yml#medulla.mutation-store`
 
 ## self-improvement
 
-- **eg.lm-program** (status: proposed) — `architecture/component-registry.yml#eg.lm-program`
+- **medulla.lm-program** (status: proposed) — `architecture/component-registry.yml#medulla.lm-program`
 
 ## semantic-indexing
 
-- **eg.query-reasoning** (status: proposed) — `architecture/component-registry.yml#eg.query-reasoning`
+- **medulla.query-reasoning** (status: proposed) — `architecture/component-registry.yml#medulla.query-reasoning`
 
 ## semantic-store
 
-- **eg.graph-core** (status: proposed) — `architecture/component-registry.yml#eg.graph-core`
+- **medulla.graph-core** (status: proposed) — `architecture/component-registry.yml#medulla.graph-core`
 
 ## server
 
-- **eg.server-dispatch** (status: proposed) — `architecture/component-registry.yml#eg.server-dispatch`
-- **eg.server-protocol** (status: proposed) — `architecture/component-registry.yml#eg.server-protocol`
+- **medulla.server-dispatch** (status: proposed) — `architecture/component-registry.yml#medulla.server-dispatch`
+- **medulla.server-protocol** (status: proposed) — `architecture/component-registry.yml#medulla.server-protocol`
 
 ## shacl
 
-- **eg.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#eg.rdf-semantics`
+- **medulla.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#medulla.rdf-semantics`
 
 ## sharding
 
-- **eg.cluster-replication** (status: proposed) — `architecture/component-registry.yml#eg.cluster-replication`
+- **medulla.cluster-replication** (status: proposed) — `architecture/component-registry.yml#medulla.cluster-replication`
 
 ## shards
 
-- **eg.persistence** (status: proposed) — `architecture/component-registry.yml#eg.persistence`
+- **medulla.persistence** (status: proposed) — `architecture/component-registry.yml#medulla.persistence`
 
 ## shex
 
-- **eg.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#eg.rdf-semantics`
+- **medulla.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#medulla.rdf-semantics`
 
 ## slow-query
 
-- **eg.observability** (status: proposed) — `architecture/component-registry.yml#eg.observability`
+- **medulla.observability** (status: proposed) — `architecture/component-registry.yml#medulla.observability`
 
 ## sparql
 
-- **eg.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#eg.rdf-semantics`
+- **medulla.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#medulla.rdf-semantics`
 
 ## speech
 
-- **eg.speech-providers** (status: proposed) — `architecture/component-registry.yml#eg.speech-providers`
+- **medulla.speech-providers** (status: proposed) — `architecture/component-registry.yml#medulla.speech-providers`
 
 ## sql
 
-- **eg.query-plan** (status: proposed) — `architecture/component-registry.yml#eg.query-plan`
+- **medulla.query-plan** (status: proposed) — `architecture/component-registry.yml#medulla.query-plan`
 
 ## sqlite
 
-- **eg.lake-interop** (status: proposed) — `architecture/component-registry.yml#eg.lake-interop`
+- **medulla.lake-interop** (status: proposed) — `architecture/component-registry.yml#medulla.lake-interop`
 
 ## stabilizer
 
-- **eg.quantum** (status: proposed) — `architecture/component-registry.yml#eg.quantum`
+- **medulla.quantum** (status: proposed) — `architecture/component-registry.yml#medulla.quantum`
 
 ## statechart
 
-- **eg.job-plane** (status: proposed) — `architecture/component-registry.yml#eg.job-plane`
+- **medulla.job-plane** (status: proposed) — `architecture/component-registry.yml#medulla.job-plane`
 
 ## statevector
 
-- **eg.quantum** (status: proposed) — `architecture/component-registry.yml#eg.quantum`
+- **medulla.quantum** (status: proposed) — `architecture/component-registry.yml#medulla.quantum`
 
 ## storage
 
-- **eg.storage-transaction** (status: proposed) — `architecture/component-registry.yml#eg.storage-transaction`
+- **medulla.storage-transaction** (status: proposed) — `architecture/component-registry.yml#medulla.storage-transaction`
 
 ## stream
 
-- **eg.modality** (status: proposed) — `architecture/component-registry.yml#eg.modality`
+- **medulla.modality** (status: proposed) — `architecture/component-registry.yml#medulla.modality`
 
 ## tenancy
 
-- **eg.core** (status: proposed) — `architecture/component-registry.yml#eg.core`
-- **eg.graph-core** (status: proposed) — `architecture/component-registry.yml#eg.graph-core`
+- **medulla.core** (status: proposed) — `architecture/component-registry.yml#medulla.core`
+- **medulla.graph-core** (status: proposed) — `architecture/component-registry.yml#medulla.graph-core`
 
 ## tensor
 
-- **eg.modality** (status: proposed) — `architecture/component-registry.yml#eg.modality`
+- **medulla.modality** (status: proposed) — `architecture/component-registry.yml#medulla.modality`
 
 ## text
 
-- **eg.modality** (status: proposed) — `architecture/component-registry.yml#eg.modality`
+- **medulla.modality** (status: proposed) — `architecture/component-registry.yml#medulla.modality`
 
 ## tiered-cache
 
-- **eg.kv-cache** (status: proposed) — `architecture/component-registry.yml#eg.kv-cache`
+- **medulla.kv-cache** (status: proposed) — `architecture/component-registry.yml#medulla.kv-cache`
 
 ## tiles
 
-- **eg.viz** (status: proposed) — `architecture/component-registry.yml#eg.viz`
+- **medulla.viz** (status: proposed) — `architecture/component-registry.yml#medulla.viz`
 
 ## time-bucket
 
-- **eg.timeseries** (status: proposed) — `architecture/component-registry.yml#eg.timeseries`
+- **medulla.timeseries** (status: proposed) — `architecture/component-registry.yml#medulla.timeseries`
 
 ## timeseries
 
-- **eg.timeseries** (status: proposed) — `architecture/component-registry.yml#eg.timeseries`
+- **medulla.timeseries** (status: proposed) — `architecture/component-registry.yml#medulla.timeseries`
 
 ## tms
 
-- **eg.epistemic** (status: proposed) — `architecture/component-registry.yml#eg.epistemic`
+- **medulla.epistemic** (status: proposed) — `architecture/component-registry.yml#medulla.epistemic`
 
 ## tracing
 
-- **eg.observability** (status: proposed) — `architecture/component-registry.yml#eg.observability`
+- **medulla.observability** (status: proposed) — `architecture/component-registry.yml#medulla.observability`
 
 ## transaction
 
-- **eg.persistence** (status: proposed) — `architecture/component-registry.yml#eg.persistence`
-- **eg.storage-transaction** (status: proposed) — `architecture/component-registry.yml#eg.storage-transaction`
+- **medulla.persistence** (status: proposed) — `architecture/component-registry.yml#medulla.persistence`
+- **medulla.storage-transaction** (status: proposed) — `architecture/component-registry.yml#medulla.storage-transaction`
 
 ## transaction-kernel
 
-- **eg.mutation-store** (status: proposed) — `architecture/component-registry.yml#eg.mutation-store`
+- **medulla.mutation-store** (status: proposed) — `architecture/component-registry.yml#medulla.mutation-store`
 
 ## transport
 
-- **eg.server-dispatch** (status: proposed) — `architecture/component-registry.yml#eg.server-dispatch`
+- **medulla.server-dispatch** (status: proposed) — `architecture/component-registry.yml#medulla.server-dispatch`
 
 ## tree-sitter
 
-- **eg.compute** (status: proposed) — `architecture/component-registry.yml#eg.compute`
+- **medulla.compute** (status: proposed) — `architecture/component-registry.yml#medulla.compute`
 
 ## tsdb
 
-- **eg.timeseries** (status: proposed) — `architecture/component-registry.yml#eg.timeseries`
+- **medulla.timeseries** (status: proposed) — `architecture/component-registry.yml#medulla.timeseries`
 
 ## tts
 
-- **eg.speech-providers** (status: proposed) — `architecture/component-registry.yml#eg.speech-providers`
+- **medulla.speech-providers** (status: proposed) — `architecture/component-registry.yml#medulla.speech-providers`
 
 ## udf
 
-- **eg.query-plan** (status: proposed) — `architecture/component-registry.yml#eg.query-plan`
+- **medulla.query-plan** (status: proposed) — `architecture/component-registry.yml#medulla.query-plan`
 
 ## validation
 
-- **eg.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#eg.rdf-semantics`
+- **medulla.rdf-semantics** (status: proposed) — `architecture/component-registry.yml#medulla.rdf-semantics`
 
 ## vector-index
 
-- **eg.numeric-ann** (status: proposed) — `architecture/component-registry.yml#eg.numeric-ann`
+- **medulla.numeric-ann** (status: proposed) — `architecture/component-registry.yml#medulla.numeric-ann`
 
 ## video
 
-- **eg.modality** (status: proposed) — `architecture/component-registry.yml#eg.modality`
+- **medulla.modality** (status: proposed) — `architecture/component-registry.yml#medulla.modality`
 
 ## viewspec
 
-- **eg.viz** (status: proposed) — `architecture/component-registry.yml#eg.viz`
+- **medulla.viz** (status: proposed) — `architecture/component-registry.yml#medulla.viz`
 
 ## viz
 
-- **eg.viz** (status: proposed) — `architecture/component-registry.yml#eg.viz`
+- **medulla.viz** (status: proposed) — `architecture/component-registry.yml#medulla.viz`
 
 ## wasm
 
-- **eg.query-plan** (status: proposed) — `architecture/component-registry.yml#eg.query-plan`
+- **medulla.query-plan** (status: proposed) — `architecture/component-registry.yml#medulla.query-plan`
 
 ## whisper
 
-- **eg.speech-providers** (status: proposed) — `architecture/component-registry.yml#eg.speech-providers`
+- **medulla.speech-providers** (status: proposed) — `architecture/component-registry.yml#medulla.speech-providers`
 
 ## wire
 
-- **eg.server-dispatch** (status: proposed) — `architecture/component-registry.yml#eg.server-dispatch`
-- **eg.wire-contracts** (status: proposed) — `architecture/component-registry.yml#eg.wire-contracts`
+- **medulla.server-dispatch** (status: proposed) — `architecture/component-registry.yml#medulla.server-dispatch`
+- **medulla.wire-contracts** (status: proposed) — `architecture/component-registry.yml#medulla.wire-contracts`
 
 ## work-item
 
-- **eg.job-plane** (status: proposed) — `architecture/component-registry.yml#eg.job-plane`
+- **medulla.job-plane** (status: proposed) — `architecture/component-registry.yml#medulla.job-plane`
 
 </div>

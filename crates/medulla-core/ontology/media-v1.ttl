@@ -1,0 +1,1129 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://knuckles.team/kg/media> a owl:Ontology ;
+    rdfs:label "Media and Content Ontology" ;
+    rdfs:comment "Media and content concepts aligned to schema.org media types (MediaObject, VideoObject, AudioObject, ImageObject, Book, Audiobook, MusicAlbum, TVSeries, TVSeason, Episode, Playlist, BroadcastChannel, BroadcastEvent), the W3C Ontology for Media Resources and EBUCore, IFLA LRM for work and collection structure, and ActivityStreams 2.0 for audience. Reuses CreativeWork, Collection, Rendition, Category, Policy and WorkItem from the core (MEDULLA-TYPED-PACKS-R105.8)." ;
+    dcterms:source "schema.org media types; W3C Ontology for Media Resources; EBUCore; IFLA LRM; W3C ActivityStreams 2.0" ;
+    owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/service_operations> .
+
+:MediaItem a owl:Class ;
+    rdfs:label "Media Item" ;
+    rdfs:comment "A media object: a video, audio track, image or book that a library holds (schema.org MediaObject)." ;
+    skos:altLabel "Media Resource", "Media Asset", "Media Object" ;
+    rdfs:subClassOf :CreativeWork .
+
+:Video a owl:Class ;
+    rdfs:label "Video" ;
+    rdfs:comment "A video work: a film, clip or recorded programme (schema.org VideoObject)." ;
+    skos:altLabel "Movie", "Film", "Video Clip" ;
+    rdfs:subClassOf :MediaItem .
+
+:AudioTrack a owl:Class ;
+    rdfs:label "Audio Track" ;
+    rdfs:comment "A single audio recording: a song, a spoken-word track (schema.org AudioObject)." ;
+    skos:altLabel "Track", "Song", "Music Track" ;
+    rdfs:subClassOf :MediaItem .
+
+:Photo a owl:Class ;
+    rdfs:label "Photo" ;
+    rdfs:comment "A still image or photograph (schema.org ImageObject)." ;
+    skos:altLabel "Image", "Picture" ;
+    rdfs:subClassOf :MediaItem .
+
+:Book a owl:Class ;
+    rdfs:label "Book" ;
+    rdfs:comment "A written work (schema.org Book)." ;
+    skos:altLabel "E-book", "Ebook" ;
+    rdfs:subClassOf :CreativeWork .
+
+:Audiobook a owl:Class ;
+    rdfs:label "Audiobook" ;
+    rdfs:comment "A book published as spoken audio (schema.org Audiobook)." ;
+    skos:altLabel "Audio Book" ;
+    rdfs:subClassOf :Book, :MediaItem .
+
+:MediaCollection a owl:Class ;
+    rdfs:label "Media Collection" ;
+    rdfs:comment "An ordered or unordered grouping of media items (IFLA LRM aggregate)." ;
+    skos:altLabel "Media Group" ;
+    rdfs:subClassOf :Collection .
+
+:Album a owl:Class ;
+    rdfs:label "Album" ;
+    rdfs:comment "A collection of tracks or photos released or curated together (schema.org MusicAlbum)." ;
+    skos:altLabel "Music Album", "Photo Album" ;
+    rdfs:subClassOf :MediaCollection .
+
+:Series a owl:Class ;
+    rdfs:label "Series" ;
+    rdfs:comment "A series of episodes or books (schema.org TVSeries, CreativeWorkSeries)." ;
+    skos:altLabel "TV Series", "Show" ;
+    rdfs:subClassOf :MediaCollection .
+
+:Podcast a owl:Class ;
+    rdfs:label "Podcast" ;
+    rdfs:comment "A series of audio episodes published on a feed (schema.org PodcastSeries)." ;
+    skos:altLabel "Podcast Series" ;
+    rdfs:subClassOf :Series .
+
+:Season a owl:Class ;
+    rdfs:label "Season" ;
+    rdfs:comment "A season of a series (schema.org TVSeason)." ;
+    skos:altLabel "Series Season", "TV Season" ;
+    rdfs:subClassOf :MediaCollection .
+
+:MediaEpisode a owl:Class ;
+    rdfs:label "Media Episode" ;
+    rdfs:comment "One episode of a series or season (schema.org Episode)." ;
+    skos:altLabel "TV Episode", "Series Episode", "Podcast Episode" ;
+    rdfs:subClassOf :MediaItem .
+
+:Playlist a owl:Class ;
+    rdfs:label "Playlist" ;
+    rdfs:comment "An ordered list of media items to play in sequence." ;
+    skos:altLabel "Play List" ;
+    rdfs:subClassOf :MediaCollection .
+
+:MediaLibrary a owl:Class ;
+    rdfs:label "Media Library" ;
+    rdfs:comment "A managed store of media that a media server indexes." ;
+    skos:altLabel "Library", "Photo Library" ;
+    rdfs:subClassOf :MediaCollection .
+
+:AssetStack a owl:Class ;
+    rdfs:label "Asset Stack" ;
+    rdfs:comment "A group of renditions or captures of the same moment." ;
+    skos:altLabel "Photo Stack", "Rendition Group" ;
+    rdfs:subClassOf :Collection .
+
+:Genre a owl:Class ;
+    rdfs:label "Genre" ;
+    rdfs:comment "A category of media by style or subject (EBUCore genre)." ;
+    skos:altLabel "Media Genre" ;
+    rdfs:subClassOf :Category .
+
+:Artist a owl:Class ;
+    rdfs:label "Artist" ;
+    rdfs:comment "A performer, band or creator of media (schema.org MusicGroup, Person)." ;
+    skos:altLabel "Performer", "Musician" ;
+    rdfs:subClassOf :Agent .
+
+:BroadcastChannel a owl:Class ;
+    rdfs:label "Broadcast Channel" ;
+    rdfs:comment "A television or radio channel that carries programmes (schema.org BroadcastChannel, EBUCore PublicationChannel)." ;
+    skos:altLabel "TV Channel", "Station" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:ChannelLineup a owl:Class ;
+    rdfs:label "Channel Lineup" ;
+    rdfs:comment "An ordered set of broadcast channels offered by one tuner or provider." ;
+    skos:altLabel "Lineup", "Channel Guide" ;
+    rdfs:subClassOf :Collection .
+
+:Recording a owl:Class ;
+    rdfs:label "Recording" ;
+    rdfs:comment "A recorded broadcast event held as a media item (EBUCore recorded event)." ;
+    skos:altLabel "Media Recording", "DVR Recording" ;
+    rdfs:subClassOf :MediaItem .
+
+:RecordingRule a owl:Class ;
+    rdfs:label "Recording Rule" ;
+    rdfs:comment "A rule that decides which broadcasts are recorded." ;
+    skos:altLabel "Recording Schedule", "Series Recording Rule" ;
+    rdfs:subClassOf :Policy .
+
+:LiveStream a owl:Class ;
+    rdfs:label "Live Stream" ;
+    rdfs:comment "A live broadcast of audio or video in progress (schema.org BroadcastEvent)." ;
+    skos:altLabel "Stream", "Live Broadcast" ;
+    rdfs:subClassOf :MediaItem .
+
+:Viewer a owl:Class ;
+    rdfs:label "Viewer" ;
+    rdfs:comment "A person watching a stream; the audience role (ActivityStreams audience)." ;
+    skos:altLabel "Stream Viewer", "Audience Member" ;
+    rdfs:subClassOf :Role .
+
+:MediaRequest a owl:Class ;
+    rdfs:label "Media Request" ;
+    rdfs:comment "A request for a title to be acquired for a library." ;
+    skos:altLabel "Content Request" ;
+    rdfs:subClassOf :WorkItem .
+
+:QualityProfile a owl:Class ;
+    rdfs:label "Quality Profile" ;
+    rdfs:comment "A preference that fixes the encoding quality to acquire or keep." ;
+    skos:altLabel "Encoding Profile", "Quality Preset" ;
+    rdfs:subClassOf :Policy .
+
+:Torrent a owl:Class ;
+    rdfs:label "Torrent" ;
+    rdfs:comment "A peer-to-peer transfer unit that downloads media." ;
+    skos:altLabel "Torrent Download", "Download" ;
+    rdfs:subClassOf :Artifact .
+
+:Tracker a owl:Class ;
+    rdfs:label "Tracker" ;
+    rdfs:comment "An endpoint that coordinates the peers of a transfer." ;
+    skos:altLabel "Torrent Tracker", "Swarm Tracker" ;
+    rdfs:subClassOf :ConfigurationItem .
+
+:GameTitle a owl:Class ;
+    rdfs:label "Game Title" ;
+    rdfs:comment "A video game work (schema.org VideoGame)." ;
+    skos:altLabel "Game", "Video Game", "ROM" ;
+    rdfs:subClassOf :CreativeWork .
+
+:GameSystem a owl:Class ;
+    rdfs:label "Game System" ;
+    rdfs:comment "The console or platform a game runs on (schema.org GamePlayMode platform)." ;
+    skos:altLabel "Game Console", "Game Platform" ;
+    rdfs:subClassOf :Concept .
+
+:GameSave a owl:Class ;
+    rdfs:label "Game Save" ;
+    rdfs:comment "The saved progress of a game title." ;
+    skos:altLabel "Save Game", "Saved Game" ;
+    rdfs:subClassOf :Artifact .
+
+:GameState a owl:Class ;
+    rdfs:label "Game State" ;
+    rdfs:comment "A snapshot of an emulated game's running state." ;
+    skos:altLabel "Save State" ;
+    rdfs:subClassOf :Artifact .
+
+:episodeOf a owl:ObjectProperty ;
+    rdfs:label "episode of" ;
+    rdfs:comment "Links an episode to the series or season it belongs to." ;
+    rdfs:domain :MediaEpisode ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( :Series :Season ) ] ;
+    rdfs:subPropertyOf :partOf .
+
+:seasonOf a owl:ObjectProperty ;
+    rdfs:label "season of" ;
+    rdfs:comment "Links a season to its series." ;
+    rdfs:domain :Season ;
+    rdfs:range :Series ;
+    rdfs:subPropertyOf :partOf .
+
+:trackOf a owl:ObjectProperty ;
+    rdfs:label "track of" ;
+    rdfs:comment "Links an audio track to the album it appears on." ;
+    rdfs:domain :AudioTrack ;
+    rdfs:range :Album ;
+    rdfs:subPropertyOf :partOf .
+
+:includesItem a owl:ObjectProperty ;
+    rdfs:label "includes item" ;
+    rdfs:comment "Links a media collection to a media item it holds." ;
+    rdfs:domain :MediaCollection ;
+    rdfs:range :MediaItem ;
+    rdfs:subPropertyOf :hasPart .
+
+:inLibrary a owl:ObjectProperty ;
+    rdfs:label "in library" ;
+    rdfs:comment "Links a media item or collection to the library that holds it." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :MediaItem :MediaCollection ) ] ;
+    rdfs:range :MediaLibrary ;
+    rdfs:subPropertyOf :partOf .
+
+:performedBy a owl:ObjectProperty ;
+    rdfs:label "performed by" ;
+    rdfs:comment "Links a media item or collection to its artist." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :MediaItem :MediaCollection ) ] ;
+    rdfs:range :Artist .
+
+:hasGenre a owl:ObjectProperty ;
+    rdfs:label "has genre" ;
+    rdfs:comment "Links a media item or collection to its genre." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :MediaItem :MediaCollection ) ] ;
+    rdfs:range :Genre .
+
+:stackedIn a owl:ObjectProperty ;
+    rdfs:label "stacked in" ;
+    rdfs:comment "Links a photo to the asset stack it belongs to." ;
+    rdfs:domain :Photo ;
+    rdfs:range :AssetStack ;
+    rdfs:subPropertyOf :partOf .
+
+:inLineup a owl:ObjectProperty ;
+    rdfs:label "in lineup" ;
+    rdfs:comment "Links a broadcast channel to a channel lineup." ;
+    rdfs:domain :BroadcastChannel ;
+    rdfs:range :ChannelLineup ;
+    rdfs:subPropertyOf :partOf .
+
+:recordedFrom a owl:ObjectProperty ;
+    rdfs:label "recorded from" ;
+    rdfs:comment "Links a recording to the broadcast channel it was taken from." ;
+    rdfs:domain :Recording ;
+    rdfs:range :BroadcastChannel .
+
+:producesRecording a owl:ObjectProperty ;
+    rdfs:label "produces recording" ;
+    rdfs:comment "Links a recording rule to a recording it caused." ;
+    rdfs:domain :RecordingRule ;
+    rdfs:range :Recording .
+
+:watches a owl:ObjectProperty ;
+    rdfs:label "watches" ;
+    rdfs:comment "Links a viewer to the live stream being watched." ;
+    rdfs:domain :Viewer ;
+    rdfs:range :LiveStream .
+
+:requestsMedia a owl:ObjectProperty ;
+    rdfs:label "requests media" ;
+    rdfs:comment "Links a media request to the item or collection it asks for." ;
+    rdfs:domain :MediaRequest ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( :MediaItem :MediaCollection ) ] .
+
+:usesQualityProfile a owl:ObjectProperty ;
+    rdfs:label "uses quality profile" ;
+    rdfs:comment "Links a media request or library to its quality profile." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :MediaRequest :MediaLibrary ) ] ;
+    rdfs:range :QualityProfile .
+
+:transfersMedia a owl:ObjectProperty ;
+    rdfs:label "transfers media" ;
+    rdfs:comment "Links a torrent to the media item or collection it downloads." ;
+    rdfs:domain :Torrent ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( :MediaItem :MediaCollection ) ] .
+
+:announcedTo a owl:ObjectProperty ;
+    rdfs:label "announced to" ;
+    rdfs:comment "Links a torrent to a tracker that coordinates it." ;
+    rdfs:domain :Torrent ;
+    rdfs:range :Tracker .
+
+:saveOf a owl:ObjectProperty ;
+    rdfs:label "save of" ;
+    rdfs:comment "Links a game save or state to its title." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :GameSave :GameState ) ] ;
+    rdfs:range :GameTitle .
+
+:playsOn a owl:ObjectProperty ;
+    rdfs:label "plays on" ;
+    rdfs:comment "Links a game title to the system it runs on." ;
+    rdfs:domain :GameTitle ;
+    rdfs:range :GameSystem .
+
+# Connector competency vocabulary: media (MEDULLA-CQ-CONN-vocab: connector competency terms)
+
+:PlaybackProgress a owl:Class ;
+    rdfs:label "Playback Progress" ;
+    rdfs:comment "One viewer or listener position within a media item (Audiobookshelf media progress, Jellyfin user data)." ;
+    rdfs:subClassOf :Observation .
+
+:DownloadJob a owl:Class ;
+    rdfs:label "Download Job" ;
+    rdfs:comment "One acquisition job that fetches a source URL into a media item or file (media-downloader job)." ;
+    rdfs:subClassOf :Task .
+
+:RomFile a owl:Class ;
+    rdfs:label "ROM File" ;
+    rdfs:comment "A game ROM image file of a game title, with the checksum recorded and the checksum expected from the reference set." ;
+    rdfs:subClassOf :File .
+
+:isMonitored a owl:DatatypeProperty ;
+    rdfs:label "is monitored" ;
+    rdfs:comment "True when the library manager (Radarr, Sonarr) monitors the item for acquisition." ;
+    rdfs:domain :MediaItem ;
+    rdfs:range xsd:boolean .
+
+:hasFile a owl:DatatypeProperty ;
+    rdfs:label "has file" ;
+    rdfs:comment "True when a file for the item exists in the library." ;
+    rdfs:domain :MediaItem ;
+    rdfs:range xsd:boolean .
+
+:lastSearchedBy a owl:DatatypeProperty ;
+    rdfs:label "last searched by" ;
+    rdfs:comment "Name of the indexer that last searched for the wanted item." ;
+    rdfs:domain :MediaItem ;
+    rdfs:range xsd:string .
+
+:transferState a owl:DatatypeProperty ;
+    rdfs:label "transfer state" ;
+    rdfs:comment "The client state of a torrent, for example downloading, stalledDL, seeding or pausedUP." ;
+    rdfs:domain :Torrent ;
+    rdfs:range xsd:string .
+
+:shareRatio a owl:DatatypeProperty ;
+    rdfs:label "share ratio" ;
+    rdfs:comment "Uploaded over downloaded bytes of a torrent." ;
+    rdfs:domain :Torrent ;
+    rdfs:range xsd:decimal .
+
+:lastActivityAt a owl:DatatypeProperty ;
+    rdfs:label "last activity at" ;
+    rdfs:comment "Time of the last transfer activity of a torrent." ;
+    rdfs:domain :Torrent ;
+    rdfs:range xsd:dateTime .
+
+:progressOf a owl:ObjectProperty ;
+    rdfs:label "progress of" ;
+    rdfs:comment "Links a playback progress record to the media item it positions." ;
+    rdfs:domain :PlaybackProgress ;
+    rdfs:range :MediaItem .
+
+:progressViewer a owl:ObjectProperty ;
+    rdfs:label "progress viewer" ;
+    rdfs:comment "Links a playback progress record to the viewer or listener it belongs to." ;
+    rdfs:domain :PlaybackProgress ;
+    rdfs:range :Viewer .
+
+:progressFraction a owl:DatatypeProperty ;
+    rdfs:label "progress fraction" ;
+    rdfs:comment "Fraction of the media item consumed, from 0.0 to 1.0." ;
+    rdfs:domain :PlaybackProgress ;
+    rdfs:range xsd:decimal .
+
+:downloadStatus a owl:DatatypeProperty ;
+    rdfs:label "download status" ;
+    rdfs:comment "The outcome of a download job: queued, running, completed or failed." ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range xsd:string .
+
+:downloadSourceUrl a owl:DatatypeProperty ;
+    rdfs:label "download source URL" ;
+    rdfs:comment "The URL a download job fetches." ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range xsd:string .
+
+:downloadError a owl:DatatypeProperty ;
+    rdfs:label "download error" ;
+    rdfs:comment "The error message of a failed download job." ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range xsd:string .
+
+:downloadFinishedAt a owl:DatatypeProperty ;
+    rdfs:label "download finished at" ;
+    rdfs:comment "Time a download job finished." ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range xsd:dateTime .
+
+:downloadOutput a owl:ObjectProperty ;
+    rdfs:label "download output" ;
+    rdfs:comment "Links a download job to the media item or file it produced." ;
+    rdfs:domain :DownloadJob ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( :MediaItem :File ) ] .
+
+:peakViewerCount a owl:DatatypeProperty ;
+    rdfs:label "peak viewer count" ;
+    rdfs:comment "Highest simultaneous viewer count of a live stream." ;
+    rdfs:domain :LiveStream ;
+    rdfs:range xsd:integer .
+
+:streamDurationSeconds a owl:DatatypeProperty ;
+    rdfs:label "stream duration seconds" ;
+    rdfs:comment "How long a live stream ran, in seconds." ;
+    rdfs:domain :LiveStream ;
+    rdfs:range xsd:integer .
+
+:romOf a owl:ObjectProperty ;
+    rdfs:label "ROM of" ;
+    rdfs:comment "Links a ROM file to the game title it contains." ;
+    rdfs:domain :RomFile ;
+    rdfs:range :GameTitle .
+
+:expectedChecksum a owl:DatatypeProperty ;
+    rdfs:label "expected checksum" ;
+    rdfs:comment "The checksum the reference set (DAT) lists for the ROM." ;
+    rdfs:domain :RomFile ;
+    rdfs:range xsd:string .
+
+:actualChecksum a owl:DatatypeProperty ;
+    rdfs:label "actual checksum" ;
+    rdfs:comment "The checksum computed from the ROM file on disk." ;
+    rdfs:domain :RomFile ;
+    rdfs:range xsd:string .
+
+:conversionState a owl:DatatypeProperty ;
+    rdfs:label "conversion state" ;
+    rdfs:comment "Whether the ROM was converted to its target format: converted or unconverted." ;
+    rdfs:domain :RomFile ;
+    rdfs:range xsd:string .
+
+# --- media vocab lane B ---
+# Content-channel vocabulary for the second half of the media and personal
+# vocabulary spec (MEDULLA-MEDIA-VOCAB-R014.1, R015.1, R017.1, R018.1, R019.1): the
+# classes and properties the scholarx, searxng, postiz, listmonk and mattermost
+# mapping tables name. Reuses :ScholarlyPaper, :SearchQuery, :SearchResult,
+# :SearchEngine and :SourceBackend from retrieval-v1, :BroadcastChannel from
+# this module, and :Document, :Event, :Collection, :Person and :Observation
+# from the core; :Tag from personal-v1.
+
+:ResearchCategory a owl:Class ;
+    rdfs:label "Research Category" ;
+    rdfs:comment "A subject category of scholarly papers as listed by the paper source (ScholarX category)." ;
+    rdfs:subClassOf :Tag .
+
+:PaperSource a owl:Class ;
+    rdfs:label "Paper Source" ;
+    rdfs:comment "A provider that serves scholarly papers (a ScholarX paper source, for example arXiv or CrossRef)." ;
+    rdfs:subClassOf :SourceBackend .
+
+:doi a owl:DatatypeProperty ;
+    rdfs:label "DOI" ;
+    rdfs:comment "The Digital Object Identifier of a scholarly paper." ;
+    rdfs:domain :ScholarlyPaper ;
+    rdfs:range xsd:string .
+
+:arxivId a owl:DatatypeProperty ;
+    rdfs:label "arXiv identifier" ;
+    rdfs:comment "The arXiv identifier of a scholarly paper." ;
+    rdfs:domain :ScholarlyPaper ;
+    rdfs:range xsd:string .
+
+:publishedAt a owl:DatatypeProperty ;
+    rdfs:label "published at" ;
+    rdfs:comment "Time a document, paper or post was published." ;
+    rdfs:domain :Document ;
+    rdfs:range xsd:dateTime .
+
+:citationCount a owl:DatatypeProperty ;
+    rdfs:label "citation count" ;
+    rdfs:comment "Number of citations a scholarly paper has." ;
+    rdfs:domain :ScholarlyPaper ;
+    rdfs:range xsd:integer .
+
+:rank a owl:DatatypeProperty ;
+    rdfs:label "rank" ;
+    rdfs:comment "Position of a search result within its query's result list, from one." ;
+    rdfs:domain :SearchResult ;
+    rdfs:range xsd:integer .
+
+:servedByEngine a owl:ObjectProperty ;
+    rdfs:label "served by engine" ;
+    rdfs:comment "Links a search result to the engine that returned it (SearXNG result engine)." ;
+    rdfs:domain :SearchResult ;
+    rdfs:range :SearchEngine .
+
+:SocialPost a owl:Class ;
+    rdfs:label "Social Post" ;
+    rdfs:comment "A post on a social platform (Postiz post)." ;
+    rdfs:subClassOf :Document .
+
+:PublishingChannel a owl:Class ;
+    rdfs:label "Publishing Channel" ;
+    rdfs:comment "A platform channel on which posts are published (Postiz integration)." ;
+    rdfs:subClassOf :BroadcastChannel .
+
+:EngagementMetric a owl:Class ;
+    rdfs:label "Engagement Metric" ;
+    rdfs:comment "One engagement measurement of a published post, for example impressions or likes (Postiz analytics)." ;
+    rdfs:subClassOf :Observation .
+
+:postState a owl:DatatypeProperty ;
+    rdfs:label "post state" ;
+    rdfs:comment "The state of a social post: draft, scheduled, published or failed." ;
+    rdfs:domain :SocialPost ;
+    rdfs:range xsd:string .
+
+:socialScheduledAt a owl:DatatypeProperty ;
+    rdfs:label "social scheduled at" ;
+    rdfs:comment "Time a social post is scheduled to publish. Distinct from :scheduledFor, which links a calendar event to a person." ;
+    rdfs:domain :SocialPost ;
+    rdfs:range xsd:dateTime .
+
+:platform a owl:DatatypeProperty ;
+    rdfs:label "platform" ;
+    rdfs:comment "The social platform a publishing channel belongs to." ;
+    rdfs:domain :PublishingChannel ;
+    rdfs:range xsd:string .
+
+:EmailCampaign a owl:Class ;
+    rdfs:label "Email Campaign" ;
+    rdfs:comment "One email send to one or more mailing lists (Listmonk campaign)." ;
+    rdfs:subClassOf :Event .
+
+:MailingList a owl:Class ;
+    rdfs:label "Mailing List" ;
+    rdfs:comment "A list of subscribers that email campaigns send to (Listmonk list)." ;
+    rdfs:subClassOf :Collection .
+
+:Subscriber a owl:Class ;
+    rdfs:label "Subscriber" ;
+    rdfs:comment "A person on a mailing list; identity is carried by the keyed hash in :subscriberKey, never the raw address." ;
+    rdfs:subClassOf :Person .
+
+:sentCount a owl:DatatypeProperty ;
+    rdfs:label "sent count" ;
+    rdfs:comment "Number of emails an email campaign sent." ;
+    rdfs:domain :EmailCampaign ;
+    rdfs:range xsd:integer .
+
+:viewCount a owl:DatatypeProperty ;
+    rdfs:label "view count" ;
+    rdfs:comment "Number of recipients who opened an email campaign's emails." ;
+    rdfs:domain :EmailCampaign ;
+    rdfs:range xsd:integer .
+
+:clickCount a owl:DatatypeProperty ;
+    rdfs:label "click count" ;
+    rdfs:comment "Number of link clicks an email campaign recorded." ;
+    rdfs:domain :EmailCampaign ;
+    rdfs:range xsd:integer .
+
+:campaignStatus a owl:DatatypeProperty ;
+    rdfs:label "campaign status" ;
+    rdfs:comment "The status of an email campaign: draft, queued, sent or paused." ;
+    rdfs:domain :EmailCampaign ;
+    rdfs:range xsd:string .
+
+:subscriptionStatus a owl:DatatypeProperty ;
+    rdfs:label "subscription status" ;
+    rdfs:comment "The status of a subscriber: subscribed or unsubscribed." ;
+    rdfs:domain :Subscriber ;
+    rdfs:range xsd:string .
+
+:subscriberKey a owl:DatatypeProperty ;
+    rdfs:label "subscriber key" ;
+    rdfs:comment "Keyed hash of a subscriber's email address; the raw address is never stored (Listmonk subscriber identity)." ;
+    rdfs:domain :Subscriber ;
+    rdfs:range xsd:string .
+
+:MessageChannel a owl:Class ;
+    rdfs:label "Message Channel" ;
+    rdfs:comment "A channel of chat messages within a team (Mattermost channel)." ;
+    rdfs:subClassOf :Collection .
+
+:ChatMessage a owl:Class ;
+    rdfs:label "Chat Message" ;
+    rdfs:comment "One human chat message in a channel (Mattermost post)." ;
+    rdfs:subClassOf :Document .
+
+:memberCount a owl:DatatypeProperty ;
+    rdfs:label "member count" ;
+    rdfs:comment "Number of members in a message channel." ;
+    rdfs:domain :MessageChannel ;
+    rdfs:range xsd:integer .
+
+:lastPostAt a owl:DatatypeProperty ;
+    rdfs:label "last post at" ;
+    rdfs:comment "Time the last message was posted in a channel." ;
+    rdfs:domain :MessageChannel ;
+    rdfs:range xsd:dateTime .
+
+:postedAt a owl:DatatypeProperty ;
+    rdfs:label "posted at" ;
+    rdfs:comment "Time a chat message was posted." ;
+    rdfs:domain :ChatMessage ;
+    rdfs:range xsd:dateTime .
+
+:postedBy a owl:ObjectProperty ;
+    rdfs:label "posted by" ;
+    rdfs:comment "Links a chat message to the person who posted it." ;
+    rdfs:domain :ChatMessage ;
+    rdfs:range :Person .
+
+# --- media vocab lane A ---
+# Shared media vocabulary (MEDULLA-MEDIA-VOCAB). The `mv:` names in the spec rows are
+# documentation prefixes for this section of the shared `:` namespace
+# (specs/media-and-personal-vocabulary/plan.md, "Vocabulary"); every IRI stays
+# in `:` like the rest of this module, and the existing terms above are reused,
+# never redeclared.
+
+# R001.1: media works under one root.
+
+:MediaWork a owl:Class ;
+    rdfs:label "Media Work" ;
+    rdfs:comment "Root of the shared media works the connector libraries (arr, jellyfin, audiobookshelf, rom-manager) describe; the join surface their packaged ontologies subclass." ;
+    rdfs:subClassOf :CreativeWork .
+
+:Film a owl:Class ;
+    rdfs:label "Film" ;
+    rdfs:comment "A feature film or movie work (Radarr movie, Seerr request, Jellyfin movie)." ;
+    rdfs:subClassOf :MediaWork .
+
+:TelevisionSeries a owl:Class ;
+    rdfs:label "Television Series" ;
+    rdfs:comment "A television series (Sonarr series, Jellyfin series)." ;
+    rdfs:subClassOf :MediaWork .
+
+:TelevisionSeason a owl:Class ;
+    rdfs:label "Television Season" ;
+    rdfs:comment "A season of a television series; partOf its series." ;
+    rdfs:subClassOf :MediaWork .
+
+:TelevisionEpisode a owl:Class ;
+    rdfs:label "Television Episode" ;
+    rdfs:comment "One episode of a television series; partOf its season. Declared here because the connector alias `:Episode` collides with the core interaction-unit `:Episode` (MEDULLA-MEDIA-VOCAB-R001.6)." ;
+    rdfs:subClassOf :MediaWork .
+
+:MusicAlbum a owl:Class ;
+    rdfs:label "Music Album" ;
+    rdfs:comment "A music album (Lidarr album, Jellyfin music album)." ;
+    rdfs:subClassOf :MediaWork .
+
+:MusicTrack a owl:Class ;
+    rdfs:label "Music Track" ;
+    rdfs:comment "A music track on an album; partOf its album." ;
+    rdfs:subClassOf :MediaWork .
+
+:Audiobook rdfs:subClassOf :MediaWork .
+
+:PodcastShow a owl:Class ;
+    rdfs:label "Podcast Show" ;
+    rdfs:comment "A podcast series published on a feed (Audiobookshelf podcast)." ;
+    rdfs:subClassOf :MediaWork .
+
+:PodcastEpisode a owl:Class ;
+    rdfs:label "Podcast Episode" ;
+    rdfs:comment "One episode of a podcast show." ;
+    rdfs:subClassOf :MediaWork .
+
+:Game a owl:Class ;
+    rdfs:label "Game" ;
+    rdfs:comment "A video game work (RomM game, game code); covers ROM titles." ;
+    rdfs:subClassOf :MediaWork .
+
+:partOfSeries a owl:ObjectProperty ;
+    rdfs:label "part of series" ;
+    rdfs:comment "Links a television season or episode to the series it belongs to." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :TelevisionSeason :TelevisionEpisode ) ] ;
+    rdfs:range :TelevisionSeries ;
+    rdfs:subPropertyOf :partOf .
+
+:partOfSeason a owl:ObjectProperty ;
+    rdfs:label "part of season" ;
+    rdfs:comment "Links a television episode to its season." ;
+    rdfs:domain :TelevisionEpisode ;
+    rdfs:range :TelevisionSeason ;
+    rdfs:subPropertyOf :partOf .
+
+:partOfAlbum a owl:ObjectProperty ;
+    rdfs:label "part of album" ;
+    rdfs:comment "Links a music track to the album it appears on." ;
+    rdfs:domain :MusicTrack ;
+    rdfs:range :MusicAlbum ;
+    rdfs:subPropertyOf :partOf .
+
+:onPlatform a owl:ObjectProperty ;
+    rdfs:label "on platform" ;
+    rdfs:comment "Links a game work to the console or platform it runs on." ;
+    rdfs:domain :Game ;
+    rdfs:range :GamePlatform .
+
+# R001.2: libraries, files, artists, platforms.
+
+:LibraryItem a owl:Class ;
+    rdfs:label "Library Item" ;
+    rdfs:comment "One media work in one library (Jellyfin library item); links its work and its library, and carries the added-at time." .
+
+:MediaFile a owl:Class ;
+    rdfs:label "Media File" ;
+    rdfs:comment "A stored file of a media work. Content is never modelled: only container, size and checksums." ;
+    rdfs:subClassOf :File .
+
+:RomFile rdfs:subClassOf :MediaFile .
+
+:GamePlatform a owl:Class ;
+    rdfs:label "Game Platform" ;
+    rdfs:comment "The console or platform a game runs on (RomM platform)." .
+
+:MusicArtist a owl:Class ;
+    rdfs:label "Music Artist" ;
+    rdfs:comment "An artist or band whose works are in a library (Lidarr artist, Audiobookshelf author)." ;
+    rdfs:subClassOf :Organization .
+
+:itemOf a owl:ObjectProperty ;
+    rdfs:label "item of" ;
+    rdfs:comment "Links a library item or playback session to the work it is an item of or plays." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :LibraryItem :PlaybackSession ) ] ;
+    rdfs:range :MediaWork ;
+    rdfs:subPropertyOf :partOf .
+
+:addedAt a owl:DatatypeProperty ;
+    rdfs:label "added at" ;
+    rdfs:comment "Time a library item entered the library or a download transfer was added to the client." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :LibraryItem :DownloadTransfer ) ] ;
+    rdfs:range xsd:dateTime .
+
+:container a owl:DatatypeProperty ;
+    rdfs:label "container" ;
+    rdfs:comment "The container format of a media file, for example mkv, mp4 or mp3." ;
+    rdfs:domain :MediaFile ;
+    rdfs:range xsd:string .
+
+:mediaFileSizeBytes a owl:DatatypeProperty ;
+    rdfs:label "media file size bytes" ;
+    rdfs:comment "Size of a media file in bytes. A module-local sub-property of the shared :sizeBytes, which the data-platform module alone constrains." ;
+    rdfs:subPropertyOf :sizeBytes ;
+    rdfs:domain :MediaFile .
+
+:contentSha256 a owl:DatatypeProperty ;
+    rdfs:label "content SHA-256" ;
+    rdfs:comment "SHA-256 of the media file content; the content-identity key for file joins." ;
+    rdfs:domain :MediaFile ;
+    rdfs:range xsd:string .
+
+:md5 a owl:DatatypeProperty ;
+    rdfs:label "MD5" ;
+    rdfs:comment "MD5 checksum of a media file (ROM reference-set checksum)." ;
+    rdfs:domain :MediaFile ;
+    rdfs:range xsd:string .
+
+:sha1 a owl:DatatypeProperty ;
+    rdfs:label "SHA-1" ;
+    rdfs:comment "SHA-1 checksum of a media file (ROM reference-set checksum)." ;
+    rdfs:domain :MediaFile ;
+    rdfs:range xsd:string .
+
+:crc32 a owl:DatatypeProperty ;
+    rdfs:label "CRC-32" ;
+    rdfs:comment "CRC-32 checksum of a media file (ROM reference-set checksum)." ;
+    rdfs:domain :MediaFile ;
+    rdfs:range xsd:string .
+
+# R001.3: playback sessions and broadcast streams.
+
+:PlaybackSession a owl:Class ;
+    rdfs:label "Playback Session" ;
+    rdfs:comment "One live or historical position of a viewer or listener within a media work (Jellyfin session, audiobook progress)." ;
+    rdfs:subClassOf :Session .
+
+:playedBy a owl:ObjectProperty ;
+    rdfs:label "played by" ;
+    rdfs:comment "Links a playback session to the person playing." ;
+    rdfs:domain :PlaybackSession ;
+    rdfs:range :Person .
+
+:lastPlayedAt a owl:DatatypeProperty ;
+    rdfs:label "last played at" ;
+    rdfs:comment "Time a media work was last played; unbound means never played." ;
+    rdfs:domain :PlaybackSession ;
+    rdfs:range xsd:dateTime .
+
+:playCount a owl:DatatypeProperty ;
+    rdfs:label "play count" ;
+    rdfs:comment "How many times a media work has been played." ;
+    rdfs:domain :PlaybackSession ;
+    rdfs:range xsd:nonNegativeInteger .
+
+:playbackPositionSeconds a owl:DatatypeProperty ;
+    rdfs:label "playback position seconds" ;
+    rdfs:comment "The session's playback position in seconds." ;
+    rdfs:domain :PlaybackSession ;
+    rdfs:range xsd:nonNegativeInteger .
+
+:BroadcastStream a owl:Class ;
+    rdfs:label "Broadcast Stream" ;
+    rdfs:comment "A live or past broadcast stream with its audience (Owncast stream)." ;
+    rdfs:subClassOf :Event .
+
+:streamOnline a owl:DatatypeProperty ;
+    rdfs:label "stream online" ;
+    rdfs:comment "True while the broadcast stream is live." ;
+    rdfs:domain :BroadcastStream ;
+    rdfs:range xsd:boolean .
+
+:lastConnectAt a owl:DatatypeProperty ;
+    rdfs:label "last connect at" ;
+    rdfs:comment "Time the broadcast stream last connected a viewer (Owncast lastConnectTime)." ;
+    rdfs:domain :BroadcastStream ;
+    rdfs:range xsd:dateTime .
+
+:ViewerSample a owl:Class ;
+    rdfs:label "Viewer Sample" ;
+    rdfs:comment "One audience sample of a broadcast stream at a point in time." .
+
+:sampleOf a owl:ObjectProperty ;
+    rdfs:label "sample of" ;
+    rdfs:comment "Links a viewer sample to the broadcast stream it measures." ;
+    rdfs:domain :ViewerSample ;
+    rdfs:range :BroadcastStream ;
+    rdfs:subPropertyOf :partOf .
+
+:viewerCount a owl:DatatypeProperty ;
+    rdfs:label "viewer count" ;
+    rdfs:comment "Simultaneous viewer count of one sample or the stream's current audience." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :ViewerSample :BroadcastStream ) ] ;
+    rdfs:range xsd:nonNegativeInteger .
+
+:sampledAt a owl:DatatypeProperty ;
+    rdfs:label "sampled at" ;
+    rdfs:comment "Time the viewer sample was taken." ;
+    rdfs:domain :ViewerSample ;
+    rdfs:range xsd:dateTime .
+
+# R001.4: acquisition requests, transfers, indexers.
+
+:DownloadRequest a owl:Class ;
+    rdfs:label "Download Request" ;
+    rdfs:comment "A request to acquire a media work for a library (Radarr/Sonarr wanted item, Seerr request)." ;
+    rdfs:subClassOf :WorkItem .
+
+:downloadRequestState a owl:DatatypeProperty ;
+    rdfs:label "download request state" ;
+    rdfs:comment "Closed set: requested, wanted, grabbed, importing, imported, failed." ;
+    rdfs:domain :DownloadRequest ;
+    rdfs:range xsd:string .
+
+:requestedBy a owl:ObjectProperty ;
+    rdfs:label "requested by" ;
+    rdfs:comment "Links a download request to the person who made it." ;
+    rdfs:domain :DownloadRequest ;
+    rdfs:range :Person .
+
+:DownloadTransfer a owl:Class ;
+    rdfs:label "Download Transfer" ;
+    rdfs:comment "One in-flight or finished acquisition: a torrent or a download job." ;
+    rdfs:subClassOf :Artifact .
+
+:GrabEvent a owl:Class ;
+    rdfs:label "Grab Event" ;
+    rdfs:comment "One grab of a wanted item from an indexer (arr history eventType grabbed)." .
+
+:MediaIndexer a owl:Class ;
+    rdfs:label "Media Indexer" ;
+    rdfs:comment "An indexer that supplies candidates for acquisition (Prowlarr indexer)." .
+
+:requestsWork a owl:ObjectProperty ;
+    rdfs:label "requests work" ;
+    rdfs:comment "Links a download request to the work it asks for." ;
+    rdfs:domain :DownloadRequest ;
+    rdfs:range :MediaWork .
+
+:transferOf a owl:ObjectProperty ;
+    rdfs:label "transfer of" ;
+    rdfs:comment "Links a download transfer to the request or work it acquires." ;
+    rdfs:domain :DownloadTransfer ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( :DownloadRequest :MediaWork ) ] .
+
+:grabbedFromIndexer a owl:ObjectProperty ;
+    rdfs:label "grabbed from indexer" ;
+    rdfs:comment "Links a grab event to the indexer the item was grabbed from." ;
+    rdfs:domain :GrabEvent ;
+    rdfs:range :MediaIndexer .
+
+:transferState rdfs:domain [ a owl:Class ; owl:unionOf ( :Torrent :DownloadTransfer ) ] .
+
+:shareRatio rdfs:domain [ a owl:Class ; owl:unionOf ( :Torrent :DownloadTransfer ) ] .
+
+:lastActivityAt rdfs:domain [ a owl:Class ; owl:unionOf ( :Torrent :DownloadTransfer ) ] .
+
+# R001.5: transcript segments; :Transcript and :TranscriptSegment are reused from
+# personal-v1, never redeclared here.
+
+:segmentStart a owl:DatatypeProperty ;
+    rdfs:label "segment start" ;
+    rdfs:comment "Start time of one transcript segment, in seconds from the start of the recording." ;
+    rdfs:domain :TranscriptSegment ;
+    rdfs:range xsd:decimal .
+
+:segmentEnd a owl:DatatypeProperty ;
+    rdfs:label "segment end" ;
+    rdfs:comment "End time of one transcript segment, in seconds from the start of the recording." ;
+    rdfs:domain :TranscriptSegment ;
+    rdfs:range xsd:decimal .
+
+:noSpeechProb a owl:DatatypeProperty ;
+    rdfs:label "no speech probability" ;
+    rdfs:comment "Probability in [0,1] that the segment carries no speech; a high value is the low-confidence proxy until avg_logprob is served (MEDULLA-MEDIA-VOCAB plan, audio-transcriber)." ;
+    rdfs:domain :TranscriptSegment ;
+    rdfs:range xsd:decimal .
+
+:transcriptOf a owl:ObjectProperty ;
+    rdfs:label "transcript of" ;
+    rdfs:comment "Links a transcript segment to the transcript it is part of." ;
+    rdfs:domain :TranscriptSegment ;
+    rdfs:range :Transcript ;
+    rdfs:subPropertyOf :segmentOf .
+
+# R001.6: collision-free names. The media module never declares the connector
+# aliases `:Episode` (TV) or `:Author`; it owns `:TelevisionEpisode` and links
+# contributors as persons.
+
+:contributor a owl:ObjectProperty ;
+    rdfs:label "contributor" ;
+    rdfs:comment "Links a media work to a person who contributed to it (role carried as an annotation); replaces the connector `:Author` alias." ;
+    rdfs:domain :MediaWork ;
+    rdfs:range :Person .
+
+# R003.1: cross-source identity keys. Correlation keys only: no global
+# inverse-functionality axioms, so a provider ID scoped to its work class joins
+# records without identifying two source records as one entity.
+
+:tmdbId a owl:DatatypeProperty ;
+    rdfs:label "TMDB ID" ;
+    rdfs:comment "The TMDB numeric ID of a film or television series. Scoped to the work class: a Film and a TelevisionSeries carrying the same numeric value remain distinct entities." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :Film :TelevisionSeries ) ] ;
+    rdfs:range xsd:string .
+
+:tvdbId a owl:DatatypeProperty ;
+    rdfs:label "TVDB ID" ;
+    rdfs:comment "The TVDB ID of a television series or episode." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :TelevisionSeries :TelevisionEpisode ) ] ;
+    rdfs:range xsd:string .
+
+:imdbId a owl:DatatypeProperty ;
+    rdfs:label "IMDb ID" ;
+    rdfs:comment "The IMDb identifier of a media work." ;
+    rdfs:domain :MediaWork ;
+    rdfs:range xsd:string .
+
+:musicBrainzId a owl:DatatypeProperty ;
+    rdfs:label "MusicBrainz ID" ;
+    rdfs:comment "The MusicBrainz identifier of an album or track." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :MusicAlbum :MusicTrack ) ] ;
+    rdfs:range xsd:string .
+
+:isbn a owl:DatatypeProperty ;
+    rdfs:label "ISBN" ;
+    rdfs:comment "The ISBN of an audiobook; the cross-source join key to the same work in another library." ;
+    rdfs:domain :Audiobook ;
+    rdfs:range xsd:string .
+
+:infoHash a owl:DatatypeProperty ;
+    rdfs:label "info hash" ;
+    rdfs:comment "The torrent info-hash of a download transfer. Normalisation: lower-case hex, 40 or 64 characters; repeated reads of the same source-native key upsert the same entity." ;
+    rdfs:domain :DownloadTransfer ;
+    rdfs:range xsd:string .
+
+# R003.1: `:contentSha256` on `:MediaFile` is the file-content identity key
+# (declared with the R001.2 file terms).
+
+# R005.1: arr mapping terms. The table row `prowlarr_action/get_indexer,
+# get_indexerstats -> mv:MediaIndexer; mv:indexerEnabled` and the DECIDED
+# answer for the single-source question (plan.md, arr: "indexer that last
+# GRABBED it" from get_history) name two more media terms.
+
+:indexerEnabled a owl:DatatypeProperty ;
+    rdfs:label "indexer enabled" ;
+    rdfs:comment "True while the indexer is enabled for searches and grabs (Prowlarr indexer state)." ;
+    rdfs:domain :MediaIndexer ;
+    rdfs:range xsd:boolean .
+
+:grabOf a owl:ObjectProperty ;
+    rdfs:label "grab of" ;
+    rdfs:comment "Links a grab event to the work or request it acquired (arr history entry references its movie or series plus episode)." ;
+    rdfs:domain :GrabEvent ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( :DownloadRequest :MediaWork ) ] .
+
+# R006.1: jellyfin mapping term. The table row `jellyfin_library/get_item_counts
+# -> mv:MediaLibrary count` needs a count property on the library.
+
+:itemCount a owl:DatatypeProperty ;
+    rdfs:label "item count" ;
+    rdfs:comment "How many items of one kind the library holds (Jellyfin per-type item counts)." ;
+    rdfs:domain :MediaLibrary ;
+    rdfs:range xsd:nonNegativeInteger .
+
+# R007.1: audiobookshelf mapping terms. The table row `series_operations/...
+# -> mv:BookSeries (mv:TelevisionSeries sibling under mv:SeriesWork);
+# mv:seriesSequence` needs the series-work root both series kinds share, the
+# audiobook series class and the book's position within it.
+
+:SeriesWork a owl:Class ;
+    rdfs:label "Series Work" ;
+    rdfs:comment "A work serialized across ordered installments (a television series or an audiobook series); the root both series kinds share." ;
+    rdfs:subClassOf :MediaWork .
+
+:BookSeries a owl:Class ;
+    rdfs:label "Book Series" ;
+    rdfs:comment "A series of books (Audiobookshelf series); its books carry their sequence position." ;
+    rdfs:subClassOf :SeriesWork .
+
+:TelevisionSeries rdfs:subClassOf :SeriesWork .
+
+:seriesSequence a owl:DatatypeProperty ;
+    rdfs:label "series sequence" ;
+    rdfs:comment "The book's position within its series (Audiobookshelf item series sort order)." ;
+    rdfs:domain :Audiobook ;
+    rdfs:range xsd:nonNegativeInteger .
+
+:partOfBookSeries a owl:ObjectProperty ;
+    rdfs:label "part of book series" ;
+    rdfs:comment "Links an audiobook to the book series it belongs to." ;
+    rdfs:domain :Audiobook ;
+    rdfs:range :BookSeries ;
+    rdfs:subPropertyOf :partOf .
+
+# R008.1: qbittorrent mapping terms. The table row
+# `qbittorrent_torrents/get_torrent_properties, get_torrent_trackers ->
+# mv:DownloadTransfer detail; mv:trackerUrl` and
+# `qbittorrent_transfer/* -> mv:TransferSpeedSample (global)` name the tracker
+# URL and the global speed sample the torrent list does not carry.
+
+:trackerUrl a owl:DatatypeProperty ;
+    rdfs:label "tracker URL" ;
+    rdfs:comment "The announce URL of the tracker a torrent is announced to (qBittorrent torrent properties / trackers)." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :Torrent :DownloadTransfer ) ] ;
+    rdfs:range xsd:string .
+
+:TransferSpeedSample a owl:Class ;
+    rdfs:label "Transfer Speed Sample" ;
+    rdfs:comment "One global download/upload speed sample of the torrent client (qBittorrent transfer info)." ;
+    rdfs:subClassOf :Observation .
+
+:downloadSpeedBytesPerSecond a owl:DatatypeProperty ;
+    rdfs:label "download speed bytes per second" ;
+    rdfs:comment "Global download speed of the client in bytes per second." ;
+    rdfs:domain :TransferSpeedSample ;
+    rdfs:range xsd:nonNegativeInteger .
+
+:uploadSpeedBytesPerSecond a owl:DatatypeProperty ;
+    rdfs:label "upload speed bytes per second" ;
+    rdfs:comment "Global upload speed of the client in bytes per second." ;
+    rdfs:domain :TransferSpeedSample ;
+    rdfs:range xsd:nonNegativeInteger .
+
+# R009.1: rom-manager mapping terms. The table rows
+# `romm_roms/list, get_rom, get_rom_by_hash -> mv:Game, mv:RomFile.
+# Mv:md5, mv:sha1, mv:crc32, mv:fileName` and
+# `rom_game_codes/* -> mv:Game; mv:gameCode` need the file name, the game
+# code and the link from a ROM file to the game work it contains (the
+# lane-A :Game, not the connector-competency :GameTitle).
+
+:gameCode a owl:DatatypeProperty ;
+    rdfs:label "game code" ;
+    rdfs:comment "The metadata-provider code of a game work (RomM game code)." ;
+    rdfs:domain :Game ;
+    rdfs:range xsd:string .
+
+:fileName a owl:DatatypeProperty ;
+    rdfs:label "file name" ;
+    rdfs:comment "The on-disk file name of a media file (ROM image file name)." ;
+    rdfs:domain :MediaFile ;
+    rdfs:range xsd:string .
+
+:gameOf a owl:ObjectProperty ;
+    rdfs:label "game of" ;
+    rdfs:comment "Links a ROM file to the game work it contains; a ROM without this link is unidentified, which is a metadata match, not a checksum verdict." ;
+    rdfs:domain :RomFile ;
+    rdfs:range :Game .
+
+# R010.1: owncast mapping terms. The table rows
+# `owncast_internal/get_hardware_stats -> mv:HardwareSample` and
+# `owncast_internal/get_followers -> mv:Follower -> :Person` name the hardware
+# sample and the follower. The stream's current audience rides the shared
+# :viewerCount (domain extended to the stream above), not a second count.
+
+:HardwareSample a owl:Class ;
+    rdfs:label "Hardware Sample" ;
+    rdfs:comment "One hardware usage sample of the machine a broadcast runs on (Owncast hardware stats)." ;
+    rdfs:subClassOf :Observation .
+
+:Follower a owl:Class ;
+    rdfs:label "Follower" ;
+    rdfs:comment "A person following the broadcaster (Owncast follower)." ;
+    rdfs:subClassOf :Person .
+
+:cpuUsagePercent a owl:DatatypeProperty ;
+    rdfs:label "CPU usage percent" ;
+    rdfs:comment "CPU usage in percent at the hardware sample." ;
+    rdfs:domain :HardwareSample ;
+    rdfs:range xsd:decimal .
+
+:memoryUsagePercent a owl:DatatypeProperty ;
+    rdfs:label "memory usage percent" ;
+    rdfs:comment "Memory usage in percent at the hardware sample." ;
+    rdfs:domain :HardwareSample ;
+    rdfs:range xsd:decimal .

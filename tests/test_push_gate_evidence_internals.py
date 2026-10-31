@@ -51,13 +51,13 @@ pytestmark = pytest.mark.no_engine
 
 
 def test_extract_cargo_short_and_long_package_flags():
-    packages, _, _ = _extract_cargo(["-p", "eg-core", "--package", "eg-server"])
-    assert packages == ("eg-core", "eg-server")
+    packages, _, _ = _extract_cargo(["-p", "medulla-core", "--package", "medulla-server"])
+    assert packages == ("medulla-core", "medulla-server")
 
 
 def test_extract_cargo_package_equals_form():
-    packages, _, _ = _extract_cargo(["--package=eg-core"])
-    assert packages == ("eg-core",)
+    packages, _, _ = _extract_cargo(["--package=medulla-core"])
+    assert packages == ("medulla-core",)
 
 
 def test_extract_cargo_features_split_on_comma_and_space():

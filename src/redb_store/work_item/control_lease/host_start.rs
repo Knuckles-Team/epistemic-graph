@@ -1,7 +1,7 @@
 //! The dedicated host-start issuer writes the existing protected lease row.
 //! Session liveness and the external launch are not atomic with this record.
 use super::*;
-use eg_types::host_start::{HostStartProvenance, IssueHostStartGrantRequest};
+use medulla_types::host_start::{HostStartProvenance, IssueHostStartGrantRequest};
 
 pub(crate) fn issue(
     graph: &str,

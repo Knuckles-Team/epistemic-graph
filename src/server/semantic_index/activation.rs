@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use eg_core::compute::semantic_index_service::SemanticIndexService;
+use medulla_core::compute::semantic_index_service::SemanticIndexService;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
@@ -301,7 +301,7 @@ fn fixed_authority(persist_dir: &Path) -> Result<[u8; 32], String> {
 }
 
 fn hex_digest(value: &str) -> bool {
-    eg_types::contract::Digest256::parse(value).is_ok()
+    medulla_types::contract::Digest256::parse(value).is_ok()
 }
 
 /// Reobserve the fixed, signed claim file after taking engine.lock. The
@@ -685,7 +685,7 @@ pub(super) fn open_service(
     let service = Arc::new(
         SemanticIndexService::open_tenant(
             &grant.owner_path,
-            eg_core::compute::semantic_ann_codes::ExistingTenantOwnerOpen {
+            medulla_core::compute::semantic_ann_codes::ExistingTenantOwnerOpen {
                 verifier: semantic_scope_verifier(tenant, proof),
                 principal: semantic_owner_principal(),
                 proof: &proof,

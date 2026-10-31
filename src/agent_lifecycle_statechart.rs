@@ -4,10 +4,10 @@
 //! ## The thesis (ADR-6): a million agents are ROWS, not processes
 //!
 //! An agent instance is a **statechart template + a per-instance
-//! [`eg_statechart::MachineInstance`] + a mailbox**. While it is not doing work it is a
+//! [`medulla_statechart::MachineInstance`] + a mailbox**. While it is not doing work it is a
 //! single durable `(state, context)` row in `statecharts.redb` — **no connection, no
 //! thread, no heartbeat**. This module is that template: the ONE canonical, reusable,
-//! content-addressed [`eg_statechart::StatechartDef`] for an agent instance's own
+//! content-addressed [`medulla_statechart::StatechartDef`] for an agent instance's own
 //! lifecycle, exactly as [`crate::loop_statechart`] is for a Loop and
 //! [`crate::work_item_statechart`] is for a unit of work.
 //!
@@ -39,26 +39,26 @@
 //!
 //! ## Guards are trivial here — the authority lives in the WorkItem CAS lease (ADR-6 §2/3)
 //!
-//! Every transition is [`eg_statechart::Guard::Always`]: the worker has ALREADY passed
+//! Every transition is [`medulla_statechart::Guard::Always`]: the worker has ALREADY passed
 //! the real gate (it holds the WorkItem's fencing-token lease) before it drives this
 //! chart, exactly as [`crate::work_item_statechart`]'s `ready --claim--> leased` edge is
 //! unconditional because native candidate-selection already ran. This chart therefore
 //! keeps an empty `Context`; it is a pure structural authority for "which lifecycle edge
-//! is legal", independently validated by [`eg_statechart::validate`].
+//! is legal", independently validated by [`medulla_statechart::validate`].
 //!
 //! ## Single source of truth + the Python mirror
 //!
 //! [`agent_lifecycle_statechart_def`] is the canonical definition the Rust tests below
-//! exercise directly (via [`eg_statechart::transition`], no server needed). The Python
+//! exercise directly (via [`medulla_statechart::transition`], no server needed). The Python
 //! `agent_utilities` side authors the SAME shape as a plain dict and registers it once
 //! via `client.statechart.define(...)` over the EXISTING `Method::Statechart` wire surface
-//! — no new wire protocol, no change to `eg-statechart` itself (mirrors `loops.py`'s
-//! `LOOP_STATECHART_DEF`). Because [`eg_statechart::StatechartDef::def_id`] is a content
+//! — no new wire protocol, no change to `medulla-statechart` itself (mirrors `loops.py`'s
+//! `LOOP_STATECHART_DEF`). Because [`medulla_statechart::StatechartDef::def_id`] is a content
 //! address, the two sides agree on the id iff they are byte-identical — the parity check.
 
 use std::sync::LazyLock;
 
-use eg_statechart::{Guard, State, StatechartDef, Transition};
+use medulla_statechart::{Guard, State, StatechartDef, Transition};
 
 /// The single non-final "doing nothing" state — the dormant row.
 pub const STATE_DORMANT: &str = "dormant";
@@ -124,7 +124,7 @@ pub static AGENT_LIFECYCLE_DEF_ID: LazyLock<String> =
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_statechart::{transition, validate, Context, EventInput};
+    use medulla_statechart::{transition, validate, Context, EventInput};
 
     fn def() -> StatechartDef {
         agent_lifecycle_statechart_def()
@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn definition_is_structurally_valid_and_content_addressed() {
         let d = def();
-        validate(&d).expect("agent_lifecycle chart must pass eg-statechart's own validator");
+        validate(&d).expect("agent_lifecycle chart must pass medulla-statechart's own validator");
         assert_eq!(d.def_id(), def().def_id(), "def_id must be deterministic");
         assert_eq!(d.initial, STATE_DORMANT);
         assert_eq!(d.states.len(), 3, "dormant + active + terminated");

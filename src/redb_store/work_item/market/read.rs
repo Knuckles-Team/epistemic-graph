@@ -2,8 +2,8 @@
 //! MVCC snapshot reads over the graph shard's own node table -- never the
 //! writer thread, never a MutationBatch.
 
-use eg_types::work_market::lifecycle::validate_gap_get;
-use eg_types::work_market::{gap_row_key, is_tenant_gap, GapListRequest, GapPage, GapView};
+use medulla_types::work_market::lifecycle::validate_gap_get;
+use medulla_types::work_market::{gap_row_key, is_tenant_gap, GapListRequest, GapPage, GapView};
 
 use super::*;
 

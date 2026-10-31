@@ -103,17 +103,17 @@ async fn handle_shex_validate(
     data_graph: String,
     shape_map: Vec<[String; 2]>,
 ) -> Response {
-    let schema = match eg_shex::Schema::from_shexj(&schema) {
+    let schema = match medulla_shex::Schema::from_shexj(&schema) {
         Ok(s) => s,
         Err(e) => return Response::err(req_id, format!("ShexValidate: bad """
     """schema: {e}")),
     };
     // Data graph: an inline Turtle document, else the live graph's exported RDF.
     let data = if data_graph.trim().is_empty() {
-        let exported = eg_rdf::mapping::export_triples(core, graph_name);
+        let exported = medulla_rdf::mapping::export_triples(core, graph_name);
         match exported {
             Ok(triples) => {
-                let mut g = eg_shex::Graph::new();
+                let mut g = medulla_shex::Graph::new();
                 for t in &triples {
                     g.insert(t);
                 }
@@ -125,7 +125,7 @@ async fn handle_shex_validate(
             }
         }
     } else {
-        match eg_shex::graph_from_turtle(&data_graph) {
+        match medulla_shex::graph_from_turtle(&data_graph) {
             Ok(g) => g,
             Err(e) => return Response::err(req_id, format!("ShexValidate: bad """
     """data graph: {e}")),
@@ -135,8 +135,8 @@ async fn handle_shex_validate(
         .iter()
         .map(|p| (p[0].as_str(), p[1].as_str()))
         .collect();
-    let map = eg_shex::ShapeMap::from_iri_pairs(&pairs);
-    let report = eg_shex::validate(&schema, &data, &map);
+    let map = medulla_shex::ShapeMap::from_iri_pairs(&pairs);
+    let report = medulla_shex::validate(&schema, &data, &map);
     match serde_json::to_value(&report) {
         Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
         Err(e) => Response::err(req_id, format!("ShexValidate: serialize report: {e}")),
@@ -161,17 +161,17 @@ async fn handle_shex_validate(
     data_graph: String,
     shape_map: Vec<[String; 2]>,
 ) -> Response {
-    let schema = match eg_shex::Schema::from_shexj(&schema) {
+    let schema = match medulla_shex::Schema::from_shexj(&schema) {
         Ok(s) => s,
         Err(e) => return Response::err(req_id, format!("ShexValidate: bad """
     """schema: {e}")),
     };
     // Data graph: an inline Turtle document, else the live graph's exported RDF.
     let data = if data_graph.trim().is_empty() {
-        let exported = eg_rdf::mapping::export_triples(core, graph_name);
+        let exported = medulla_rdf::mapping::export_triples(core, graph_name);
         match exported {
             Ok(triples) => {
-                let mut g = eg_shex::Graph::new();
+                let mut g = medulla_shex::Graph::new();
                 for t in &triples {
                     g.insert(t);
                 }
@@ -183,7 +183,7 @@ async fn handle_shex_validate(
             }
         }
     } else {
-        match eg_shex::graph_from_turtle(&data_graph) {
+        match medulla_shex::graph_from_turtle(&data_graph) {
             Ok(g) => g,
             Err(e) => return Response::err(req_id, format!("ShexValidate: bad """
     """data graph: {e}")),
@@ -193,11 +193,11 @@ async fn handle_shex_validate(
         .iter()
         .map(|p| (p[0].as_str(), p[1].as_str()))
         .collect();
-    let map = eg_shex::ShapeMap::from_iri_pairs(&pairs);
-    let report = eg_shex::validate(&schema, &data, &map);
+    let map = medulla_shex::ShapeMap::from_iri_pairs(&pairs);
+    let report = medulla_shex::validate(&schema, &data, &map);
     Response::ok(
         req_id,
-        ResultPayload::of::<eg_types::result_contract::reasoning::ShexValidate>(shex_report_wire(
+        ResultPayload::of::<medulla_types::result_contract::reasoning::ShexValidate>(shex_report_wire(
             report,
         )),
     )
@@ -413,7 +413,7 @@ def test_exempt_function_growing_non_arm_complexity_fails(tmp_path):
     assert findings[0][0] == "WORSE"
 
 
-@pytest.mark.spec("EG-CONTRACT-R010")
+@pytest.mark.spec("MEDULLA-CONTRACT-R010")
 def test_exempt_function_adding_exhaustive_arms_passes(tmp_path):
     mod = _module()
     before, after, findings = _judge(
@@ -427,7 +427,7 @@ def test_exempt_function_adding_exhaustive_arms_passes(tmp_path):
     assert findings == []
 
 
-@pytest.mark.spec("EG-CONTRACT-R010")
+@pytest.mark.spec("MEDULLA-CONTRACT-R010")
 def test_exempt_function_adding_arm_with_nested_branching_fails(tmp_path):
     """EH-469: a NEW arm (not an existing one modified, unlike
     ``test_exempt_function_growing_non_arm_complexity_fails`` above) whose own

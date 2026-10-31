@@ -30,17 +30,17 @@
 //! `{ns}` accepts the spec's multi-level `\x1f`-joined namespace identifier
 //! (percent-encoded `%1F` on the wire); it round-trips through this tier's flat-string
 //! namespace model losslessly (see [`super::namespace_levels`]) rather than requiring
-//! `eg-lake`'s catalog itself to model nesting.
+//! `medulla-lake`'s catalog itself to model nesting.
 //!
 //! **W04 (tenant/RLS projection):** every read/write above is projected through a
 //! [`super::LakeVisibility`] derived from the request's verified `CarrierAuthority` — see
 //! that type's docs for why this keys on per-agent ownership (`owner_scope`) rather than
-//! `EPISTEMIC_GRAPH_TENANT` (already enforced, single-valued per deployment, at carrier-
+//! `MEDULLA_TENANT` (already enforced, single-valued per deployment, at carrier-
 //! minting time by BUG-222's W01/W02 fix).
 //!
 //! **W05 (audit + rate limits):** every denial and mutation is recorded through
 //! [`super::LakeManager::record_audit`]; a per-source-IP token-bucket
-//! ([`EPISTEMIC_GRAPH_ICEBERG_RATE_LIMIT_PER_MIN`]) sheds excess traffic with a typed
+//! ([`MEDULLA_ICEBERG_RATE_LIMIT_PER_MIN`]) sheds excess traffic with a typed
 //! `429`, opt-in like every other rate/interval knob in this codebase (unset ⇒ disabled).
 
 use std::collections::HashMap;
@@ -56,17 +56,17 @@ use crate::server::blob::store::ChunkStore;
 use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::oidc::{JwtValidator, VerifiedTokenClaims};
 use crate::server::ServerState;
-use eg_lake::schema::{LakeField, LakeSchema, LakeType};
+use medulla_lake::schema::{LakeField, LakeSchema, LakeType};
 
 use super::{LakeManager, LakeVisibility};
 
 /// Env var carrying the Iceberg-REST listener bind address (`host:port`). Unset ⇒ no
 /// listener (matches `--metrics-addr`/`--sparql-addr`/`--obs-addr`'s opt-in idiom).
-pub const ICEBERG_ADDR_ENV: &str = "EPISTEMIC_GRAPH_ICEBERG_ADDR";
+pub const ICEBERG_ADDR_ENV: &str = "MEDULLA_ICEBERG_ADDR";
 /// Env var for the per-source-IP token-bucket rate limit, requests per minute (W05,
 /// GOC-75-W05). Positive integer ⇒ enabled; unset/invalid/non-positive ⇒ disabled —
 /// the same "0/unset = off" convention every interval knob in this codebase uses.
-pub const ICEBERG_RATE_LIMIT_ENV: &str = "EPISTEMIC_GRAPH_ICEBERG_RATE_LIMIT_PER_MIN";
+pub const ICEBERG_RATE_LIMIT_ENV: &str = "MEDULLA_ICEBERG_RATE_LIMIT_PER_MIN";
 /// The Iceberg REST surface carries JSON control payloads, never data files.
 const HTTP_LIMITS: RequestLimits = RequestLimits {
     max_head_bytes: 64 * 1024,
@@ -83,7 +83,7 @@ pub async fn serve(listener: TcpListener, lake: Arc<LakeManager>, store: Arc<dyn
 /// Production Iceberg listener linked to live engine isolation (BUG-222). A
 /// `CarrierAuthority` is minted from the Iceberg REST spec's own OAuth2
 /// bearer convention (`/v1/oauth/tokens`), verified against the deployment's
-/// configured Keycloak/JWKS issuer (`EPISTEMIC_GRAPH_ICEBERG_JWT_*`) — no
+/// configured Keycloak/JWKS issuer (`MEDULLA_ICEBERG_JWT_*`) — no
 /// bearer, an invalid bearer, or a bearer verified for a different tenant all
 /// fail the carrier closed, same as before this fix; only a bearer that BOTH
 /// verifies AND asserts this deployment's own tenant now succeeds.
@@ -97,7 +97,7 @@ pub async fn serve_with_security(
 }
 
 /// The Iceberg-REST surface's own OAuth2 bearer credential (BUG-222):
-/// resolved once at listener start from `EPISTEMIC_GRAPH_ICEBERG_JWT_*`
+/// resolved once at listener start from `MEDULLA_ICEBERG_JWT_*`
 /// (falling back to the platform-wide `FASTMCP_SERVER_AUTH_JWT_*`/`OIDC_*`
 /// vars, mirroring the KV-cache/`/sparql` bearer surfaces —
 /// `oidc::JwtValidator::from_env_iceberg`). There is no static-secret
@@ -577,7 +577,7 @@ fn table_ident_namespace(v: &Value) -> Option<String> {
 /// intersection set (W03, GOC-75-W03). Unsupported types (nested struct/list/map,
 /// decimal, binary, fixed, date, time) are a typed `400 BadRequestException` rather
 /// than a silent, lossy coercion — the same "never lossy-drop a materialized column"
-/// discipline [`eg_lake::schema`]'s own docs state.
+/// discipline [`medulla_lake::schema`]'s own docs state.
 fn lake_type_from_iceberg(name: &str) -> Option<LakeType> {
     match name {
         "long" | "int" => Some(LakeType::Long),
@@ -703,14 +703,14 @@ use catalog::handle;
 mod tests {
     use super::*;
     use crate::server::blob::store::RedbChunkStore;
-    use eg_tsdb::point::Point;
-    use eg_tsdb::store::SeriesStore;
+    use medulla_tsdb::point::Point;
+    use medulla_tsdb::store::SeriesStore;
     use tokio::io::AsyncReadExt as _;
 
     fn seed() -> (LakeManager, RedbChunkStore) {
         let store = RedbChunkStore::open_temp().unwrap();
         let tsdb = SeriesStore::open_in_dir(
-            &crate::server::unique_temp_dir("eg-lake-rest-test"),
+            &crate::server::unique_temp_dir("medulla-lake-rest-test"),
             crate::store_authority::process_verifier(),
             crate::store_authority::process_authority().principal(),
             &crate::store_authority::process_authority().proof(),
@@ -1351,10 +1351,10 @@ mod tests {
 
     /// GOC-75-W04's own acceptance bar: two callers see DISJOINT catalogs from the
     /// SAME endpoint. Proven at owner-scope granularity (see [`super::super::
-    /// LakeVisibility`]'s docs for why: `EPISTEMIC_GRAPH_TENANT` is single-valued
+    /// LakeVisibility`]'s docs for why: `MEDULLA_TENANT` is single-valued
     /// per deployment and already enforced at carrier-minting time by W01/W02, so
     /// within one deployment "two tenants" is necessarily "two distinct verified
-    /// principals" — this test uses two agents in the SAME `EPISTEMIC_GRAPH_TENANT`
+    /// principals" — this test uses two agents in the SAME `MEDULLA_TENANT`
     /// to isolate exactly the NEW behavior this lane adds).
     #[test]
     fn two_owners_see_disjoint_namespace_and_table_listings() {
@@ -1872,7 +1872,7 @@ mod tests {
         const TEST_RSA_MODULUS_HEX: &str = "BE4725FD791744D873C4C82CC04BA74DB85707A72581E4773E3F9041531B15EA57DCCCDA092ADECBFA818521F10DE4F849DE2F6B359A20AD4EEEC7DA6AA550BAF49A8F471089348B5C677A4C3D9B7F027395D3A08FA87345E4F842D3F5E6D9846F139883CB9ED94E1A868F85A741A5CB1262BEAA4B395C6F9BC82FC46E65267CD50D7D752D2194B69A03CA41F3C135A9862F48D7697F74E8DA8DCA840CDF4F2CDA9ADDC48EA6445574FFBC79F23144A520BA9AAA3EA8B549C25A89188A869A8EE7F05A096A66BFA4F49D4B5900F49579E88DA8C25DA9BAEA53F93CB69E744E5D80B55A41E0DE41449BB437B53B57F6EF179EAE0B3815A20B1DF65FBDF28FC3B7";
         const TEST_RSA_EXPONENT_HEX: &str = "010001";
         const ISSUER: &str = "https://identity.example.test/realms/eg";
-        const AUDIENCE: &str = "epistemic-graph";
+        const AUDIENCE: &str = "medulla";
         const KID: &str = "iceberg-rest-test-kid";
 
         fn now_secs() -> u64 {

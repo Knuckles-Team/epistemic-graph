@@ -1,0 +1,21 @@
+[package]
+name = "medulla-program"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Graph-native, governed LM-program and self-improvement contracts for medulla-engine"
+license = "MIT"
+
+[lib]
+name = "medulla_program"
+
+[dependencies]
+medulla-types = { path = "../medulla-types" }
+medulla-modality = { path = "../medulla-modality" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+hex = "0.4"
+
+[dev-dependencies]
+rmp-serde = "1.3"

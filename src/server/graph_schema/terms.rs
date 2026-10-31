@@ -9,8 +9,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use eg_rdf::oxrdf::{NamedOrBlankNode, Term, Triple};
-use eg_types::graph_schema::{
+use medulla_rdf::oxrdf::{NamedOrBlankNode, Term, Triple};
+use medulla_types::graph_schema::{
     term_local_name, validate_term_page_limit, GraphSchemaClassesView, GraphSchemaTermKind,
     GraphSchemaTermPosition, GraphSchemaTermView, GRAPH_SCHEMA_RESULT_SCHEMA_VERSION,
 };
@@ -37,7 +37,7 @@ pub(crate) async fn handle_classes(
     match classes_page(graph_name, &super::disclosed_sources(core), &request) {
         Ok(view) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::reasoning::GraphSchemaClasses>(view),
+            ResultPayload::of::<medulla_types::result_contract::reasoning::GraphSchemaClasses>(view),
         ),
         Err(error) => Response::err(req_id, error),
     }
@@ -79,7 +79,7 @@ fn classes_page(
         graph: graph_name.to_string(),
         composed_digest: sources.composed_digest().to_hex(),
         total_terms,
-        terms: eg_types::contract::BoundedVec::new(page)?,
+        terms: medulla_types::contract::BoundedVec::new(page)?,
         next_cursor,
     })
 }
@@ -100,7 +100,7 @@ fn declared_terms(
 ) -> Result<BTreeMap<GraphSchemaTermPosition, String>, String> {
     let mut terms = BTreeMap::new();
     for (source_id, document) in sources.ontologies() {
-        let triples = eg_rdf::mapping::parse_turtle(document)
+        let triples = medulla_rdf::mapping::parse_turtle(document)
             .map_err(|error| format!("ONTOLOGY_INVALID: source '{source_id}': {error}"))?;
         for position in triples.iter().filter_map(declared_position) {
             terms
@@ -198,7 +198,7 @@ mod tests {
             .any(|(position, _)| term_local_name(&position.iri) == "Document"));
     }
 
-    // spec: EG-TYPED-PACKS-R077
+    // spec: MEDULLA-TYPED-PACKS-R077
     #[test]
     fn an_attached_source_contributes_its_terms_with_its_own_source_id() {
         let sources = with_admin_source();
@@ -228,7 +228,7 @@ mod tests {
         assert_eq!(page.composed_digest, sources.composed_digest().to_hex());
     }
 
-    // spec: EG-TYPED-PACKS-R077
+    // spec: MEDULLA-TYPED-PACKS-R077
     #[test]
     fn a_paged_walk_returns_every_term_once_in_order_at_one_digest() {
         let sources = with_admin_source();

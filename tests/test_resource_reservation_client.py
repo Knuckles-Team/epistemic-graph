@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from epistemic_graph.client import (
+from medulla.client import (
     _resource_reservation_record,
     _resource_reservation_request,
     _resource_reservation_result,

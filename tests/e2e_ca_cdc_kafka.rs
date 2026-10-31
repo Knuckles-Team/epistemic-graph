@@ -7,7 +7,7 @@
 //! not a unit test. Run explicitly:
 //!
 //! ```text
-//! EPISTEMIC_GRAPH_CDC_KAFKA_BROKERS=<host:port> \
+//! MEDULLA_CDC_KAFKA_BROKERS=<host:port> \
 //!   cargo test --features cdc-kafka --target-dir ./target-isolated -j 12 \
 //!   --test e2e_ca_cdc_kafka -- --ignored --nocapture
 //! ```
@@ -15,7 +15,7 @@
 //! Independent read-back (NOT this test — an external tool, matching the
 //! sibling OpenLineage lane's `kafka-console-consumer` proof) is documented
 //! in the CA-11 lane report, not embedded here: this crate takes no
-//! Kafka-CONSUMER dependency (`eg_stream::sink`'s `rdkafka` feature set is
+//! Kafka-CONSUMER dependency (`medulla_stream::sink`'s `rdkafka` feature set is
 //! producer-only: `cmake-build,ssl,sasl`, no default consumer group
 //! machinery pulled in), so asserting delivery from inside this binary is
 //! limited to "the producer accepted every send and CdcHub's own seq
@@ -24,9 +24,9 @@
 
 use std::sync::Arc;
 
-use epistemic_graph::server::cdc::CdcHub;
-use epistemic_graph::server::cdc_sink;
-use epistemic_graph::wire::CdcKind;
+use medulla::server::cdc::CdcHub;
+use medulla::server::cdc_sink;
+use medulla::wire::CdcKind;
 
 #[test]
 #[ignore = "needs a live Kafka broker; see module doc for the exact invocation"]
@@ -81,7 +81,7 @@ fn cdc_hub_emit_reaches_the_installed_kafka_sink_in_order() {
     eprintln!(
         "cdc-kafka e2e: emitted graph={graph} seqs={seqs:?} -- read back with:\n\
          kubectl exec -n apps deploy/kafka -- /opt/kafka/bin/kafka-console-consumer.sh \
-         --bootstrap-server localhost:9092 --topic eg.cdc.{graph} --from-beginning \
+         --bootstrap-server localhost:9092 --topic medulla.cdc.{graph} --from-beginning \
          --timeout-ms 5000"
     );
 }
@@ -158,7 +158,7 @@ fn cdc_hub_emit_stays_ordered_under_concurrent_writers() {
     eprintln!(
         "cdc-kafka e2e (concurrent): emitted graph={graph} n={} seqs 0..{} -- read back with:\n\
          kubectl exec -n apps deploy/kafka -- /opt/kafka/bin/kafka-console-consumer.sh \
-         --bootstrap-server localhost:9092 --topic eg.cdc.{graph} --from-beginning \
+         --bootstrap-server localhost:9092 --topic medulla.cdc.{graph} --from-beginning \
          --timeout-ms 5000 | jq -s 'map(.seq) == (map(.seq) | sort)'",
         WRITERS * PER_WRITER,
         WRITERS * PER_WRITER

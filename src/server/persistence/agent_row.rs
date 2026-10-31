@@ -4,7 +4,7 @@
 //! template -- are published into the same owner file, with the same row
 //! shape, under the same resource policy. Each of them had written that policy
 //! out again: a private `MAX_AGENT_<LAYER>_ROW_BYTES`/`_ROW_ITEMS` pair and a
-//! `eg_types::msgpack::MsgpackLimits::new(..)` literal per decode site, twelve
+//! `medulla_types::msgpack::MsgpackLimits::new(..)` literal per decode site, twelve
 //! sites in all, every one of them the same three numbers.
 //!
 //! Twelve copies of a bound are twelve places for it to drift, and a bound
@@ -35,10 +35,10 @@ const MAX_AGENT_ROW_BYTES: usize = 16 * 1024 * 1024;
 const MAX_AGENT_ROW_ITEMS: usize = 200_000;
 
 /// The one decode policy every agent-hierarchy row is read under.
-const AGENT_ROW_LIMITS: eg_types::msgpack::MsgpackLimits = eg_types::msgpack::MsgpackLimits::new(
+const AGENT_ROW_LIMITS: medulla_types::msgpack::MsgpackLimits = medulla_types::msgpack::MsgpackLimits::new(
     MAX_AGENT_ROW_BYTES,
     MAX_AGENT_ROW_ITEMS,
-    eg_types::msgpack::DEFAULT_MAX_DEPTH,
+    medulla_types::msgpack::DEFAULT_MAX_DEPTH,
 );
 
 /// Decode one agent-hierarchy row, bounded.
@@ -56,7 +56,7 @@ pub(super) fn decode<T: serde::de::DeserializeOwned>(
     bytes: &[u8],
     what: &str,
 ) -> Result<T, String> {
-    eg_types::msgpack::decode_bounded::<T>(bytes, AGENT_ROW_LIMITS)
+    medulla_types::msgpack::decode_bounded::<T>(bytes, AGENT_ROW_LIMITS)
         .map_err(|_| format!("{what} is invalid or exceeds resource limits"))
 }
 
@@ -68,8 +68,8 @@ pub(super) fn decode<T: serde::de::DeserializeOwned>(
 /// distinction the fallback turns on.
 pub(super) fn try_decode<T: serde::de::DeserializeOwned>(
     bytes: &[u8],
-) -> Result<T, eg_types::msgpack::MsgpackValidationError> {
-    eg_types::msgpack::decode_bounded::<T>(bytes, AGENT_ROW_LIMITS)
+) -> Result<T, medulla_types::msgpack::MsgpackValidationError> {
+    medulla_types::msgpack::decode_bounded::<T>(bytes, AGENT_ROW_LIMITS)
 }
 
 /// Wrap one layer's committed result as the `MutationResult` its receipt
@@ -77,18 +77,18 @@ pub(super) fn try_decode<T: serde::de::DeserializeOwned>(
 ///
 /// Identical in every layer that stores one, because a domain result is the
 /// same thing at each: the committed result encoded under
-/// [`eg_storage::encode_bounded`], carried by the layer's own schema id with
+/// [`medulla_storage::encode_bounded`], carried by the layer's own schema id with
 /// its own payload digest beside it. Only `schema_id` and the label differ,
 /// and the label only so a refusal names the layer.
 pub(super) fn domain_result<T: serde::Serialize>(
     result: &T,
     schema_id: &str,
     what: &str,
-) -> Result<eg_types::mutation::MutationResult, String> {
-    let payload = eg_storage::encode_bounded(result, &format!("{what} domain result payload"))?;
-    let payload = eg_types::contract::RecordBytes::new(payload)?;
-    Ok(eg_types::mutation::MutationResult::DomainResult {
-        schema_id: eg_types::contract::SchemaId::new(schema_id)?,
+) -> Result<medulla_types::mutation::MutationResult, String> {
+    let payload = medulla_storage::encode_bounded(result, &format!("{what} domain result payload"))?;
+    let payload = medulla_types::contract::RecordBytes::new(payload)?;
+    Ok(medulla_types::mutation::MutationResult::DomainResult {
+        schema_id: medulla_types::contract::SchemaId::new(schema_id)?,
         payload_digest: payload.digest()?,
         payload,
     })

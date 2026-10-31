@@ -53,7 +53,7 @@ use crate::mutation_batch::{
 };
 use crate::protocol::Method;
 use crate::redb_store::shard::{Shard, ShardWrite};
-use eg_storage::{GraphShardOwner, ScopedRead};
+use medulla_storage::{GraphShardOwner, ScopedRead};
 use std::path::PathBuf;
 use std::sync::{Arc, Barrier};
 

@@ -1,7 +1,7 @@
 //! Per-graph batching worker for the five coalescable `GATEWAY_ROUTED`
 //! structural writes (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`/
 //! `CompareAndSetNodeFields`) —
-//! CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18 rewrite.
+//! CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer, L18 rewrite.
 //!
 //! ## Why this exists (and why it replaces the old design)
 //!

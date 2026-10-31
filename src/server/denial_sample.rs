@@ -8,7 +8,7 @@
 
 use std::sync::{Arc, Mutex, OnceLock};
 
-use eg_types::identity::{DenialSample, DenialSampler};
+use medulla_types::identity::{DenialSample, DenialSampler};
 use tokio::sync::RwLock;
 
 use crate::server::ServerState;

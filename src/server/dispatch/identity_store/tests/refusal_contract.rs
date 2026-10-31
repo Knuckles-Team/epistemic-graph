@@ -30,10 +30,10 @@ fn engine() -> Arc<RwLock<ServerState>> {
     stamp.password_hash = Some("$argon2id$bootstrap".to_string());
     isolation
         .try_apply_identity(
-            &eg_types::test_support::identity::bootstrap_local_op(),
+            &medulla_types::test_support::identity::bootstrap_local_op(),
             &stamp,
             1_800_000_000_000,
-            &eg_capabilities::scopes::ScopeRegistry,
+            &medulla_capabilities::scopes::ScopeRegistry,
         )
         .expect("the store initializes");
     Arc::new(RwLock::new(ServerState::new_for_test(SECRET, isolation)))
@@ -75,7 +75,7 @@ async fn register_identity_serves_its_declared_store_refusals() {
             Some(code),
             "RegisterIdentity for {agent_id} served {refused:?}"
         );
-        assert!(eg_capabilities::error_routing::method_allows_error(
+        assert!(medulla_capabilities::error_routing::method_allows_error(
             "RegisterIdentity",
             code
         ));

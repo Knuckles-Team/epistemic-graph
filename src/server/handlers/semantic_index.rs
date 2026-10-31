@@ -31,9 +31,9 @@ mod worker;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use eg_core::compute::semantic_ann_codes::SemanticCodeError;
-use eg_core::compute::semantic_index_service::SemanticIndexService;
-use eg_types::semantic_index::{SemanticBinding, SemanticIndexError, SemanticIndexOp};
+use medulla_core::compute::semantic_ann_codes::SemanticCodeError;
+use medulla_core::compute::semantic_index_service::SemanticIndexService;
+use medulla_types::semantic_index::{SemanticBinding, SemanticIndexError, SemanticIndexOp};
 use tokio::sync::RwLock;
 
 use crate::protocol::{Response, ResultPayload};
@@ -177,7 +177,7 @@ async fn open_service(
 /// no path on which a draft reaches admission carrying an identity the carrier
 /// did not prove.
 pub(super) fn stamp_draft_identity(
-    draft: &mut eg_types::semantic_index::SemanticBindingDraft,
+    draft: &mut medulla_types::semantic_index::SemanticBindingDraft,
     authority: &CarrierAuthority,
 ) {
     draft.tenant_id = authority.tenant_scope().to_string();
@@ -188,10 +188,10 @@ pub(super) fn stamp_draft_identity(
 /// A lease may only be presented by the worker whose class consumer it was
 /// issued to (`<worker>#<class>`).
 pub(crate) fn own_lease(
-    lease: &eg_types::mutation_batch::MutationOutboxLease,
+    lease: &medulla_types::mutation_batch::MutationOutboxLease,
     authority: &CarrierAuthority,
 ) -> Result<(), String> {
-    let owner = eg_core::compute::semantic_ann_codes::stage_consumer_parts(&lease.consumer)
+    let owner = medulla_core::compute::semantic_ann_codes::stage_consumer_parts(&lease.consumer)
         .map(|(worker, _)| worker);
     if owner != Some(authority.agent_id()) {
         return Err(
@@ -248,7 +248,7 @@ pub(super) fn consumer_ack() -> bool {
 pub(super) async fn blocking<T, F>(req_id: u64, work: F) -> Result<T, Response>
 where
     T: Send + 'static,
-    F: FnOnce() -> Result<T, eg_core::compute::semantic_ann_codes::SemanticCodeError>
+    F: FnOnce() -> Result<T, medulla_core::compute::semantic_ann_codes::SemanticCodeError>
         + Send
         + 'static,
 {
@@ -278,8 +278,8 @@ pub(crate) fn semantic_failure_message(error: &SemanticCodeError) -> &'static st
 
 pub(super) fn reply<M, T>(req_id: u64, result: Result<T, Response>) -> Response
 where
-    M: eg_types::result_contract::MethodResult<Body = T>,
-    M::Encoding: eg_types::result_contract::EncodeRef<T>,
+    M: medulla_types::result_contract::MethodResult<Body = T>,
+    M::Encoding: medulla_types::result_contract::EncodeRef<T>,
 {
     match result {
         Ok(value) => typed_payload::<M, _>(req_id, &value),
@@ -289,8 +289,8 @@ where
 
 pub(super) fn typed_payload<M, T>(req_id: u64, value: &T) -> Response
 where
-    M: eg_types::result_contract::MethodResult<Body = T>,
-    M::Encoding: eg_types::result_contract::EncodeRef<T>,
+    M: medulla_types::result_contract::MethodResult<Body = T>,
+    M::Encoding: medulla_types::result_contract::EncodeRef<T>,
 {
     match ResultPayload::of_ref::<M>(value) {
         Ok(payload) => Response::ok(req_id, payload),
@@ -301,7 +301,7 @@ where
 #[cfg(test)]
 mod error_contract_tests {
     use super::{decode_cursor, semantic_failure_response};
-    use eg_core::compute::semantic_ann_codes::SemanticCodeError;
+    use medulla_core::compute::semantic_ann_codes::SemanticCodeError;
 
     #[test]
     fn worker_errors_use_declared_codes_without_backend_text() {
@@ -327,7 +327,7 @@ mod error_contract_tests {
                 .as_deref()
                 .unwrap_or_default()
                 .contains("private"));
-            assert!(eg_capabilities::error_routing::method_allows_error(
+            assert!(medulla_capabilities::error_routing::method_allows_error(
                 "SemanticIndex",
                 expected
             ));

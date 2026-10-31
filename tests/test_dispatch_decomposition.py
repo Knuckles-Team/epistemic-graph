@@ -33,8 +33,8 @@ def _replace_once(source: str, old: str, new: str) -> str:
     return broken
 
 
-@pytest.mark.spec("EG-CONTRACT-R017")
-@pytest.mark.spec("EG-CONTRACT-R007")
+@pytest.mark.spec("MEDULLA-CONTRACT-R017")
+@pytest.mark.spec("MEDULLA-CONTRACT-R007")
 def test_dispatch_decomposition_gate() -> None:
     _gate_module().main()
 
@@ -50,7 +50,7 @@ def test_route_ownership_drift_fails_closed() -> None:
         module.check_inventory(parts)
 
 
-@pytest.mark.spec("EG-CONTRACT-R007")
+@pytest.mark.spec("MEDULLA-CONTRACT-R007")
 def test_route_call_removal_fails_closed() -> None:
     module = _gate_module()
     parts = module.sources()

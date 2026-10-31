@@ -1,4 +1,4 @@
-//! Streaming / CDC / subscriptions / triggers handler (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230,
+//! Streaming / CDC / subscriptions / triggers handler (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions/230,
 //! feature `streaming`).
 //!
 //! Owns the `// ── Streaming ──` protocol section. These are STATEFUL (they drive the
@@ -22,7 +22,7 @@ use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::{check_graph_access, CarrierAuthority, GraphReadAuthority};
 use crate::wire::{CdcEvent, ContinuousAgg, ContinuousQuerySpec, WatchBatch};
-use eg_types::result_contract::messaging as results;
+use medulla_types::result_contract::messaging as results;
 
 /// Pull the CDC hub, or an ERROR response if the engine booted without one (only if a
 /// future build path leaves it `None` — `streaming` builds always construct it).
@@ -43,7 +43,7 @@ async fn hub_of(
 fn sum_numeric_field(rows: &[(String, Vec<u8>)], field: &str) -> f64 {
     let mut total = 0.0;
     for (_, blob) in rows {
-        if let Ok(value) = eg_types::msgpack::decode_property_value(blob) {
+        if let Ok(value) = medulla_types::msgpack::decode_property_value(blob) {
             if let Some(number) = value.get(field).and_then(|field| field.as_f64()) {
                 total += number;
             }
@@ -184,9 +184,9 @@ impl<'a> StreamingRequest<'a> {
     }
 
     async fn register_query(&self, name: String, spec_msgpack: Vec<u8>) -> Response {
-        let spec: ContinuousQuerySpec = match eg_types::msgpack::decode_bounded(
+        let spec: ContinuousQuerySpec = match medulla_types::msgpack::decode_bounded(
             &spec_msgpack,
-            eg_types::msgpack::MsgpackLimits::new(1024 * 1024, 50_000, 64),
+            medulla_types::msgpack::MsgpackLimits::new(1024 * 1024, 50_000, 64),
         ) {
             Ok(spec) => spec,
             Err(_) => {

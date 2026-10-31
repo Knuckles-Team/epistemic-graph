@@ -1,4 +1,4 @@
-"""Static proofs for the combined quality-gate script (EG-CONTRACT-R026)."""
+"""Static proofs for the combined quality-gate script (MEDULLA-CONTRACT-R026)."""
 
 from __future__ import annotations
 
@@ -38,8 +38,8 @@ def _hook_entries() -> dict[str, str]:
     return entries
 
 
-# spec: EG-CONTRACT-R026
-@pytest.mark.spec("EG-CONTRACT-R026")
+# spec: MEDULLA-CONTRACT-R026
+@pytest.mark.spec("MEDULLA-CONTRACT-R026")
 def test_combined_gate_covers_every_staged_scanner_with_hook_commands() -> None:
     gate = _gate_module()
     names = [name for name, _ in gate.SCANNERS]
@@ -63,7 +63,7 @@ def test_combined_gate_covers_every_staged_scanner_with_hook_commands() -> None:
     )
 
 
-@pytest.mark.spec("EG-CONTRACT-R026")
+@pytest.mark.spec("MEDULLA-CONTRACT-R026")
 def test_combined_gate_passes_only_when_every_scanner_passes(tmp_path: Path) -> None:
     gate = _gate_module()
     ok = ("python3", "-c", "raise SystemExit(0)")

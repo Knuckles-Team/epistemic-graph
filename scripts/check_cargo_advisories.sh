@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fail-closed Rust dependency CVE gate (W0.12 / CONCEPT:EG-KG.storage.cargo-dependency-cve-gate).
+# Fail-closed Rust dependency CVE gate (W0.12 / CONCEPT:MEDULLA-KG.storage.cargo-dependency-cve-gate).
 #
 # Every dependency advisory is a hard failure unless it has a justified,
 # <=90-day-expiring risk acceptance recorded in `.config/cargo-audit-allow.txt`.

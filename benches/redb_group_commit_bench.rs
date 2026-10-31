@@ -1,6 +1,6 @@
-//! Redb durable group-commit micro-linger reproduction (CONCEPT:EG-KG.backend.adaptive-linger-coalesce).
+//! Redb durable group-commit micro-linger reproduction (CONCEPT:MEDULLA-KG.backend.adaptive-linger-coalesce).
 //!
-//! Live profiling showed the single `eg-redb-writer` thread pinned ~100% on ext4
+//! Live profiling showed the single `medulla-redb-writer` thread pinned ~100% on ext4
 //! writeback (disk ~83% util, ~50ms write latency, queue depth 42) while every tokio
 //! worker sat idle — it is the ingestion write ceiling. The writer already
 //! group-commits, but because every authoritative write carries a commit-before-ack
@@ -27,8 +27,8 @@ mod redb_fan_in;
 use std::sync::Arc;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-use epistemic_graph::server::persistence::PersistenceBackend;
+use medulla::server::persistence::redb_backend::RedbBackend;
+use medulla::server::persistence::PersistenceBackend;
 use redb_fan_in::fan_in;
 use tokio::runtime::Builder;
 
@@ -50,20 +50,20 @@ fn bench_group_commit(c: &mut Criterion) {
         // The writer reads the knob once at open, so set it BEFORE opening, and open a
         // fresh backend (its own dir) per setting.
         std::env::set_var(
-            "EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US",
+            "MEDULLA_REDB_GROUP_LINGER_US",
             linger_us.to_string(),
         );
-        std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW", "512");
+        std::env::set_var("MEDULLA_REDB_GROUP_SHALLOW", "512");
         let dir = std::env::temp_dir().join(format!(
-            "eg-redb-gc-bench-{}-{linger_us}",
+            "medulla-redb-gc-bench-{}-{linger_us}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
         let backend = Arc::new(
             RedbBackend::open(dir.to_string_lossy().to_string(), 4096).expect("open redb backend"),
         );
-        std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US");
-        std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW");
+        std::env::remove_var("MEDULLA_REDB_GROUP_LINGER_US");
+        std::env::remove_var("MEDULLA_REDB_GROUP_SHALLOW");
 
         let stats = backend.commit_stats();
         let counter = std::cell::Cell::new(0usize);
@@ -79,7 +79,7 @@ fn bench_group_commit(c: &mut Criterion) {
             },
         );
         eprintln!(
-            "[EG-024] linger_us={linger_us:<5} commits={:<8} ops={:<8} avg_batch={:.2} lingered={}",
+            "[MEDULLA-024] linger_us={linger_us:<5} commits={:<8} ops={:<8} avg_batch={:.2} lingered={}",
             stats.commits(),
             stats.ops(),
             stats.avg_batch(),

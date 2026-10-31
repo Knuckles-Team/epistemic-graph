@@ -34,7 +34,7 @@ pub(crate) async fn authoritative_graph_version(
     match persistence.read_mutation_graph_version(graph_fname).await? {
         Some(version) if version == projected_version => Ok(version),
         // A durable commit in this scope that the serving projection did not
-        // account (EG-DURABLE-KERNEL-R031.2): bring the projection up to the
+        // account (MEDULLA-DURABLE-KERNEL-R031.2): bring the projection up to the
         // authority before anything stamps a version from it.
         Some(version) if version > projected_version => {
             core.account_durable_version(version);
@@ -68,7 +68,7 @@ pub(crate) async fn authoritative_graph_version(
 /// * a **store-authoritative** domain ([`DurabilityDomain::forbidden_in_graph_scope`]
 ///   — KV, blob, time-series, analytics-job, semantic-index) commits into a
 ///   kernel-owned owner store. One physical file serves ONE bound scope under
-///   ONE principal, and `eg_transaction::AdmittedMutation::owner_rows` refuses
+///   ONE principal, and `medulla_transaction::AdmittedMutation::owner_rows` refuses
 ///   any batch naming another (`owner.principal() != batch.serving_principal()`).
 ///   That principal is this engine's bound serving principal,
 ///   `store_authority::ENGINE_PRINCIPAL` — the only principal
@@ -83,7 +83,7 @@ pub(crate) async fn authoritative_graph_version(
 ///   accessor `MutationBatchRecord::committing_actor`, never a private
 ///   re-derivation).
 ///
-/// This is the same rule C1 applied inside `eg-statechart` and `eg-jobs`: the
+/// This is the same rule C1 applied inside `medulla-statechart` and `medulla-jobs`: the
 /// ledger principal is the serving principal, and per-instance attribution moves
 /// to the outbox `actor` header. The persisted image's own `actor` field, where a
 /// domain has one, is untouched.
@@ -103,7 +103,7 @@ pub(crate) struct CompileBatch<'a> {
     /// `mutation_replay_nonces` rows be the SINGLE anti-replay authority for a
     /// mutation, instead of the per-node `RedbReplayLedger` deciding the same
     /// question a second time.
-    pub attempt_nonce: Option<eg_types::contract::Nonce>,
+    pub attempt_nonce: Option<medulla_types::contract::Nonce>,
     /// The verified caller. Never written to a durable row raw: it is
     /// fingerprinted into the outbox `actor` header and into the envelope's
     /// `authority.actor`, which is what the stable replay identity compares.
@@ -140,7 +140,7 @@ pub(crate) fn compile_methods_with_outbox(
     let (methods, mut terminal_outbox) = lower_terminal_outcome_extensions(ctx.batch_id, methods)?;
     terminal_outbox.extend(additional_outbox);
     #[cfg(feature = "epistemic-tms")]
-    let reasoning_events = eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods);
+    let reasoning_events = medulla_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods);
     let state_backed = ctx.authoritative_state.is_some();
     let operations = methods
         .into_iter()
@@ -232,7 +232,7 @@ pub(crate) fn compile_opaque_method(
 /// native scope, which the compiled batch must name EXACTLY.
 ///
 /// The derived form is right for every per-caller store, and wrong for a single
-/// process-wide native one: `eg_jobs::JobStore` binds `analytics_job_scope_identity()`
+/// process-wide native one: `medulla_jobs::JobStore` binds `analytics_job_scope_identity()`
 /// once at `open()`, so a batch carrying a caller-derived tenant/resource (and the
 /// generic `COMPILED_BATCH_INCARNATION`) is refused by
 /// `PhysicalWriteCapability::verify_scope` with "mutation capability does not serve
@@ -275,10 +275,10 @@ pub(crate) fn compile_opaque_method_in_scope(
         CompiledOutbox {
             extra: Vec::new(),
             semantic_source_dirty_input: (domain == DurabilityDomain::SqlCatalog).then_some(
-                eg_types::semantic_index::SemanticDigest::from_bytes(input_digest),
+                medulla_types::semantic_index::SemanticDigest::from_bytes(input_digest),
             ),
             #[cfg(feature = "epistemic-tms")]
-            reasoning_events: vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
+            reasoning_events: vec![medulla_epistemic::IncrementalReasoningEvent::InvalidateAll],
         },
         scope_override,
     )
@@ -290,7 +290,7 @@ pub(crate) fn compile_opaque_method_in_scope(
 #[cfg(feature = "query")]
 pub(crate) fn compile_sql_source_batch(
     ctx: CompileBatch<'_>,
-    request: eg_types::storage_wire::SqlSourceBatchRequest,
+    request: medulla_types::storage_wire::SqlSourceBatchRequest,
 ) -> Result<MutationBatch, String> {
     if ctx.authoritative_state.is_some() {
         return Err("SQL source append cannot use authoritative graph state".into());
@@ -309,10 +309,10 @@ pub(crate) fn compile_sql_source_batch(
         CompiledOutbox {
             extra: Vec::new(),
             semantic_source_dirty_input: Some(
-                eg_types::semantic_index::SemanticDigest::from_bytes(*batch_digest.as_bytes()),
+                medulla_types::semantic_index::SemanticDigest::from_bytes(*batch_digest.as_bytes()),
             ),
             #[cfg(feature = "epistemic-tms")]
-            reasoning_events: vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
+            reasoning_events: vec![medulla_epistemic::IncrementalReasoningEvent::InvalidateAll],
         },
         None,
     )
@@ -357,7 +357,7 @@ pub(crate) fn compile_opaque_digest(
             extra: Vec::new(),
             semantic_source_dirty_input: None,
             #[cfg(feature = "epistemic-tms")]
-            reasoning_events: vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
+            reasoning_events: vec![medulla_epistemic::IncrementalReasoningEvent::InvalidateAll],
         },
         None,
     )
@@ -416,7 +416,7 @@ pub(crate) fn compile_crossmodal(
             }],
             semantic_source_dirty_input: None,
             #[cfg(feature = "epistemic-tms")]
-            reasoning_events: vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
+            reasoning_events: vec![medulla_epistemic::IncrementalReasoningEvent::InvalidateAll],
         },
         None,
     )
@@ -431,7 +431,7 @@ pub(crate) fn compile_crossmodal(
 #[cfg(feature = "epistemic-tms")]
 fn reasoning_wakeup_payload(
     operations: &[MutationOperation],
-    events: Vec<eg_epistemic::IncrementalReasoningEvent>,
+    events: Vec<medulla_epistemic::IncrementalReasoningEvent>,
     state_backed: bool,
 ) -> Result<Vec<u8>, String> {
     let encoded = rmp_serde::to_vec_named(operations).map_err(|error| error.to_string())?;
@@ -441,9 +441,9 @@ fn reasoning_wakeup_payload(
     // events are exactly those of its committed operations, so its notice is
     // bounded and references the batch past the inline cap.
     let wakeup = if state_backed {
-        eg_epistemic::ReasoningProjectionWakeup::new(operations.len(), digest, events)?
+        medulla_epistemic::ReasoningProjectionWakeup::new(operations.len(), digest, events)?
     } else {
-        eg_epistemic::ReasoningProjectionWakeup::bounded(operations.len(), digest, events)?
+        medulla_epistemic::ReasoningProjectionWakeup::bounded(operations.len(), digest, events)?
     };
     rmp_serde::to_vec_named(&wakeup).map_err(|error| error.to_string())
 }
@@ -463,7 +463,7 @@ fn reasoning_wakeup_payload(
 /// the type (`IncarnationId::new` rejects anything resource-shaped by construction
 /// elsewhere, but does not require per-generation freshness), not a security
 /// decision -- flagged in the migration report for follow-up.
-pub(crate) use eg_types::mutation_batch::COMPILED_BATCH_INCARNATION;
+pub(crate) use medulla_types::mutation_batch::COMPILED_BATCH_INCARNATION;
 
 /// Compile the universal `MutationScopeIdentity`/`VersionExpectation` pair shared
 /// by every batch this module builds.
@@ -490,11 +490,11 @@ pub(crate) struct CompiledOutbox {
     pub extra: Vec<MutationOutboxIntent>,
     /// Stable SQL operation input used to build a typed source-dirty intent
     /// after [`finish_batch`] has constructed the canonical native identity.
-    pub semantic_source_dirty_input: Option<eg_types::semantic_index::SemanticDigest>,
+    pub semantic_source_dirty_input: Option<medulla_types::semantic_index::SemanticDigest>,
     /// The reasoning wake-up events the projection intent's payload encodes.
     /// Empty means the plain digest-only summary.
     #[cfg(feature = "epistemic-tms")]
-    pub reasoning_events: Vec<eg_epistemic::IncrementalReasoningEvent>,
+    pub reasoning_events: Vec<medulla_epistemic::IncrementalReasoningEvent>,
 }
 
 /// `scope_override` names the EXACT scope identity this batch must commit under,
@@ -504,7 +504,7 @@ pub(crate) struct CompiledOutbox {
 ///
 /// Deriving is right for every per-caller store (KV, blob, SQL catalog, a graph
 /// shard): those really are opened per tenant/resource. It is WRONG for a single
-/// process-wide native store -- `eg_jobs::JobStore` is the one such caller --
+/// process-wide native store -- `medulla_jobs::JobStore` is the one such caller --
 /// whose owner scope is bound once at `open()` to `analytics_job_scope_identity()`
 /// and whose `PhysicalWriteCapability::verify_scope` refuses any batch naming a
 /// different identity. See `handlers::jobs::compile_job_batch`.
@@ -540,8 +540,8 @@ fn finish_batch(
     // half even while the operations half is stable. That is not hypothetical:
     // it is what still refused a legitimate `ReserveWorkItemResources` retry
     // after `digest_operations` alone was normalized. One rule, one helper --
-    // `eg_types::mutation_batch::identity_normalized_operations`.
-    let identity_operations = eg_types::mutation_batch::identity_normalized_operations(&operations);
+    // `medulla_types::mutation_batch::identity_normalized_operations`.
+    let identity_operations = medulla_types::mutation_batch::identity_normalized_operations(&operations);
     let summary =
         crate::projection_wakeup::projection_payload_for_operations(&identity_operations)?;
     // The typed wake-up is computed HERE, before the envelope is minted, rather
@@ -580,7 +580,7 @@ fn finish_batch(
     // while the graph shard was a raw file. Once `graph-N.redb` is a kernel-owned
     // store under `OwnerLayout::GraphShard`, EVERY shard row is an owner row, so
     // a graph batch is admitted through
-    // `eg_transaction::AdmittedMutation::owner_rows` exactly like a KV or blob
+    // `medulla_transaction::AdmittedMutation::owner_rows` exactly like a KV or blob
     // batch -- and that path accepts only the principal the file's serving scope
     // is bound under. A per-domain answer makes every served graph mutation fail
     // at runtime the moment the shard is cut over.
@@ -640,21 +640,21 @@ fn compiled_envelope(
     serving_principal: &str,
     operations: &[MutationOperation],
     outbox: &[MutationOutboxIntent],
-) -> Result<eg_types::mutation_batch::MutationEnvelope, String> {
-    let content = eg_types::mutation_batch::BatchContent {
+) -> Result<medulla_types::mutation_batch::MutationEnvelope, String> {
+    let content = medulla_types::mutation_batch::BatchContent {
         operations,
         outbox,
         authoritative_state: ctx.authoritative_state.as_ref(),
     };
     let method =
-        eg_types::mutation_batch::batch_method_id(operations, ctx.authoritative_state.is_some())?;
-    let operation = eg_types::mutation_batch::CompiledOperation::for_content(
+        medulla_types::mutation_batch::batch_method_id(operations, ctx.authoritative_state.is_some())?;
+    let operation = medulla_types::mutation_batch::CompiledOperation::for_content(
         identity,
         content,
         method_schema_digest(&method)?,
     )?;
-    let mut parts = eg_types::mutation_batch::CompiledEnvelope::new(
-        eg_types::mutation_batch::CompiledScope {
+    let mut parts = medulla_types::mutation_batch::CompiledEnvelope::new(
+        medulla_types::mutation_batch::CompiledScope {
             identity,
             actor,
             serving_principal,
@@ -662,14 +662,14 @@ fn compiled_envelope(
             idempotency_key: ctx.idempotency_key,
             nonce: ctx
                 .attempt_nonce
-                .unwrap_or_else(eg_types::contract::Nonce::minted),
+                .unwrap_or_else(medulla_types::contract::Nonce::minted),
             now_ms: ctx.created_at_ms,
         },
         operation,
     )?;
     parts.catalog_digest = contract_catalog_digest()?;
     parts.policy_digest = effective_policy_digest(&method, operations)?;
-    eg_types::mutation_batch::MutationEnvelope::for_compiled_batch(parts)
+    medulla_types::mutation_batch::MutationEnvelope::for_compiled_batch(parts)
 }
 
 /// The request-schema digest one method's identity binds.
@@ -679,40 +679,40 @@ fn compiled_envelope(
 /// wire method and therefore no request schema, so its digest frames the
 /// reserved id itself rather than pretending a schema exists. The `SchemaId`
 /// itself is derived by the one documented rule in
-/// `eg_types::mutation_batch::method_schema_id`, which the generated table also
+/// `medulla_types::mutation_batch::method_schema_id`, which the generated table also
 /// follows, so the two cannot disagree.
 fn method_schema_digest(
-    method: &eg_types::contract::MethodId,
-) -> Result<eg_types::contract::Digest256, String> {
-    match eg_capabilities::method_schema(method.as_str()) {
-        Some((_, digest)) => Ok(eg_types::contract::Digest256::from_bytes(digest)),
-        None => eg_types::mutation_batch::reserved_method_schema_digest(method),
+    method: &medulla_types::contract::MethodId,
+) -> Result<medulla_types::contract::Digest256, String> {
+    match medulla_capabilities::method_schema(method.as_str()) {
+        Some((_, digest)) => Ok(medulla_types::contract::Digest256::from_bytes(digest)),
+        None => medulla_types::mutation_batch::reserved_method_schema_digest(method),
     }
 }
 
 /// The contract catalog digest every identity minted by this engine binds.
-fn contract_catalog_digest() -> Result<eg_types::contract::Digest256, String> {
-    eg_types::contract::Digest256::parse(eg_capabilities::CONTRACT_CATALOG_DIGEST)
+fn contract_catalog_digest() -> Result<medulla_types::contract::Digest256, String> {
+    medulla_types::contract::Digest256::parse(medulla_capabilities::CONTRACT_CATALOG_DIGEST)
         .map_err(|_| "the compiled-in contract catalog digest is not a sha256 value".to_string())
 }
 
 /// The digest of the policy this batch was admitted under.
 ///
 /// Computed from data that already exists -- the configured policy revision and
-/// the method policies `eg-capabilities` declares for the batch's own operations
+/// the method policies `medulla-capabilities` declares for the batch's own operations
 /// -- so a policy change moves the identity and conflicts a reused idempotency
 /// key, which is what RF-RULING-004 means by "a changed policy conflicts".
 pub(crate) fn effective_policy_digest(
-    method: &eg_types::contract::MethodId,
+    method: &medulla_types::contract::MethodId,
     operations: &[MutationOperation],
-) -> Result<eg_types::contract::Digest256, String> {
-    let mut folded = eg_types::contract::Digest256::framed(
+) -> Result<medulla_types::contract::Digest256, String> {
+    let mut folded = medulla_types::contract::Digest256::framed(
         b"eg/effective-policy-methods/v1",
         &[method.as_str().as_bytes()],
     )?;
     for operation in operations {
-        let policy = eg_capabilities::policy(&operation.method);
-        folded = eg_types::contract::Digest256::framed(
+        let policy = medulla_capabilities::policy(&operation.method);
+        folded = medulla_types::contract::Digest256::framed(
             b"eg/effective-policy-method/v1",
             &[
                 folded.as_bytes(),
@@ -721,12 +721,12 @@ pub(crate) fn effective_policy_digest(
             ],
         )?;
     }
-    eg_types::contract::Digest256::framed(
+    medulla_types::contract::Digest256::framed(
         b"eg/effective-policy/v1",
         &[
             policy_revision().as_bytes(),
             folded.as_bytes(),
-            &eg_types::mutation_batch::POLICY_EPOCH.to_be_bytes(),
+            &medulla_types::mutation_batch::POLICY_EPOCH.to_be_bytes(),
         ],
     )
 }
@@ -738,10 +738,10 @@ pub(crate) fn effective_policy_digest(
 /// real revision correctly conflicts a key minted under the unset one rather
 /// than silently replaying an operation decided under a different policy.
 fn policy_revision() -> String {
-    std::env::var("EPISTEMIC_GRAPH_POLICY_VERSION")
+    std::env::var("MEDULLA_POLICY_VERSION")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| eg_types::mutation_batch::UNSET_POLICY_REVISION.to_string())
+        .unwrap_or_else(|| medulla_types::mutation_batch::UNSET_POLICY_REVISION.to_string())
 }
 
 /// Refuse the two reserved shard identifiers to a request-boundary caller.
@@ -759,13 +759,13 @@ fn policy_revision() -> String {
 /// ever sees the tenant, which is why the tenant half can only be caught here.
 #[cfg(feature = "redb")]
 fn reject_reserved_shard_identifiers(tenant: &str, graph: &str) -> Result<(), String> {
-    if tenant == eg_storage::GRAPH_SHARD_TENANT {
+    if tenant == medulla_storage::GRAPH_SHARD_TENANT {
         return Err(
             "'__shard__' is the graph shard's reserved scope tenant and cannot be a caller tenant"
                 .to_string(),
         );
     }
-    if graph == eg_storage::GRAPH_SHARD_CONTROL_GRAPH {
+    if graph == medulla_storage::GRAPH_SHARD_CONTROL_GRAPH {
         return Err(
             "'__shard_control__' is the shard's reserved control scope and cannot be a caller graph"
                 .to_string(),
@@ -920,7 +920,7 @@ mod tests {
             },
         };
         let terminal_event = MutationOutboxIntent {
-            topic: eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC.into(),
+            topic: medulla_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC.into(),
             key: "terminal-batch".into(),
             payload: vec![1],
             headers: BTreeMap::new(),
@@ -956,7 +956,7 @@ mod tests {
         assert_eq!(batch.outbox.len(), 1);
         assert_eq!(
             batch.outbox[0].topic,
-            eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC
+            medulla_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC
         );
         let expected_actor = principal_fingerprint("agent:terminal-test").unwrap();
         assert_eq!(batch.outbox[0].headers.get("actor"), Some(&expected_actor));

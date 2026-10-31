@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R127.2.2: real dispatcher, persisted rules and typed results.
+//! MEDULLA-DECISION-ENGINE-R127.2.2: real dispatcher, persisted rules and typed results.
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -9,10 +9,10 @@ use crate::server::persistence::agent_component::test_component_draft;
 use crate::server::persistence::agent_fixtures::mutation_context;
 use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::state::ServerState;
-use eg_types::agent_component::{
+use medulla_types::agent_component::{
     AgentComponentKind, AgentComponentPublishRequest, AgentComponentRetireRequest,
 };
-use eg_types::decision::guardrail::{
+use medulla_types::decision::guardrail::{
     EntailmentStep, GuardrailEntailmentRequest, GuardrailEntailmentResult, GuardrailRule,
 };
 
@@ -75,7 +75,7 @@ fn decode(response: Response) -> (Vec<u8>, GuardrailEntailmentResult) {
     (bytes, result)
 }
 
-// spec: EG-DECISION-ENGINE-R127.2.2
+// spec: MEDULLA-DECISION-ENGINE-R127.2.2
 #[tokio::test]
 async fn guardrail_dispatch_proves_subclass_visibility_and_restart_stability() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -96,7 +96,7 @@ async fn guardrail_dispatch_proves_subclass_visibility_and_restart_stability() {
     assert_eq!(result.schema_version, 1);
     assert_eq!(
         result.ontology_digest,
-        eg_types::agent_ontology::ontology_digest()
+        medulla_types::agent_ontology::ontology_digest()
     );
     assert_eq!(result.task_iri, "eg:task/research");
     assert_eq!(
@@ -136,7 +136,7 @@ async fn guardrail_dispatch_proves_subclass_visibility_and_restart_stability() {
         .is_empty());
 }
 
-// spec: EG-DECISION-ENGINE-R127.2.2
+// spec: MEDULLA-DECISION-ENGINE-R127.2.2
 #[tokio::test]
 async fn guardrail_dispatch_refuses_foreign_tenants_and_malformed_tasks() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -158,7 +158,7 @@ async fn guardrail_dispatch_refuses_foreign_tenants_and_malformed_tasks() {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R127.2.2
+// spec: MEDULLA-DECISION-ENGINE-R127.2.2
 #[test]
 fn guardrail_policy_is_read_only_and_declares_store_refusals() {
     let method = Method::GuardrailEntailment {
@@ -167,15 +167,15 @@ fn guardrail_policy_is_read_only_and_declares_store_refusals() {
             task_iri: "eg:task".into(),
         }),
     };
-    let policy = eg_capabilities::policy(&method);
+    let policy = medulla_capabilities::policy(&method);
     assert!(!policy.mutates);
     assert_eq!(policy.authz_action, "agent:assemble-read");
     assert_eq!(
         policy.txn_participation,
-        eg_capabilities::TxnParticipation::Snapshot
+        medulla_capabilities::TxnParticipation::Snapshot
     );
     for code in ["MALFORMED_GUARDRAIL_RULE", "GUARDRAIL_SCOPE_TOO_LARGE"] {
-        assert!(eg_capabilities::error_routing::method_allows_error(
+        assert!(medulla_capabilities::error_routing::method_allows_error(
             "GuardrailEntailment",
             code
         ));

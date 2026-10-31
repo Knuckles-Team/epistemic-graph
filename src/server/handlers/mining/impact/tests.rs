@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use eg_types::compute_result::mining::{ImpactOptions, RiskModel};
+use medulla_types::compute_result::mining::{ImpactOptions, RiskModel};
 
 use super::super::{dispatch_for_test, replay};
 use crate::graph::GraphCore;

@@ -59,18 +59,18 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "eg-pinned-reference-resolution-gate/v1"
 
 SERVER_ROOT = "src/server/mod.rs"
-STORAGE_REGISTRY = "crates/eg-storage/src/owner/registry.rs"
+STORAGE_REGISTRY = "crates/medulla-storage/src/owner/registry.rs"
 ADMITTED_WRITE = "open_write"
 
 # The contract modules that declare the pinned hierarchy, and the layer each
 # one is the SOURCE of.  A module here with no pin at all fails the gate
 # closed: it means the discovery stopped seeing the declarations.
 CONTRACT_LAYERS = {
-    "crates/eg-types/src/agent_component.rs": "COMPONENT",
-    "crates/eg-types/src/agent_library.rs": "LIBRARY",
-    "crates/eg-types/src/agent_graph.rs": "GRAPH",
-    "crates/eg-types/src/agent_template.rs": "TEMPLATE",
-    "crates/eg-types/src/delegation.rs": None,
+    "crates/medulla-types/src/agent_component.rs": "COMPONENT",
+    "crates/medulla-types/src/agent_library.rs": "LIBRARY",
+    "crates/medulla-types/src/agent_graph.rs": "GRAPH",
+    "crates/medulla-types/src/agent_template.rs": "TEMPLATE",
+    "crates/medulla-types/src/delegation.rs": None,
 }
 
 # What the id half of a pin names.  Derived from the FIELD, so a new pin to an

@@ -64,7 +64,7 @@ pub(crate) async fn begin_session_control_saga(
     request_id: u64,
     verified_context: &VerifiedRequestContext,
     method: &Method,
-    attempt_nonce: Option<eg_types::contract::Nonce>,
+    attempt_nonce: Option<medulla_types::contract::Nonce>,
 ) -> Result<Option<SessionControlSaga>, String> {
     if !is_session_control_mutation(method) {
         return Ok(None);
@@ -95,7 +95,7 @@ pub(crate) async fn begin_session_control_saga(
     _request_id: u64,
     _verified_context: &VerifiedRequestContext,
     method: &Method,
-    _attempt_nonce: Option<eg_types::contract::Nonce>,
+    _attempt_nonce: Option<medulla_types::contract::Nonce>,
 ) -> Result<Option<()>, String> {
     if is_session_control_mutation(method) {
         Err("session control mutation requires the redb MutationBatch coordinator".to_string())
@@ -128,10 +128,10 @@ fn finish_session_control_saga(
 fn validate_session_control_result(method: &Method, result: &ResultPayload) -> Result<(), String> {
     match method {
         Method::CreateChannel { .. } => validate_session_control_json::<
-            eg_types::messaging_wire::ChannelCreated,
+            medulla_types::messaging_wire::ChannelCreated,
         >(method, result),
         Method::LeaveChannel { .. } | Method::CloseChannel { .. } => {
-            validate_session_control_json::<eg_types::messaging_wire::ChannelDeparture>(
+            validate_session_control_json::<medulla_types::messaging_wire::ChannelDeparture>(
                 method, result,
             )
         }

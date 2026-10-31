@@ -1,6 +1,6 @@
 """Named `Method` write families keep every classifier's pre-family membership.
 
-`crates/eg-types/src/protocol/method/families.rs` declares variant families once
+`crates/medulla-types/src/protocol/method/families.rs` declares variant families once
 (`Method::write_family`, one `MethodWriteFamily::X` arm per family) and the
 classifiers select families instead of repeating literal lists. This test
 checks, for every method ID in the generated contract catalog
@@ -26,7 +26,7 @@ import pytest
 pytestmark = pytest.mark.no_engine
 
 ROOT = Path(__file__).resolve().parents[1]
-FAMILIES = "crates/eg-types/src/protocol/method/families.rs"
+FAMILIES = "crates/medulla-types/src/protocol/method/families.rs"
 
 _BROKER_WRITES = frozenset(
     {
@@ -63,14 +63,14 @@ _WORK_ITEM_METHODS = frozenset(
         "CancelWorkItem",
         "DeferWorkItem",
         "CasWorkItemMetadata",
-        # graph-os EG-2: native control-lease writes joined the WorkItemLease
+        # graph-os MEDULLA-2: native control-lease writes joined the WorkItemLease
         # family after the base commit; every classifier selects them with it.
         "IssueHostStartGrant",
         "IssueControlLease",
         "TransitionControlLease",
-        # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
+        # MEDULLA-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
         "PublishCurrentPlan",
-        # EG-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
+        # MEDULLA-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
         "PublishRunCheckpoint",
         "PolicyEvolutionStore",
         "GapUpsert",
@@ -112,7 +112,7 @@ _MEMORY_SCENE_WRITES = frozenset(
     }
 )
 
-# `eg_core::durable_apply::is_durable_mutation` at base (broker block + tail).
+# `medulla_core::durable_apply::is_durable_mutation` at base (broker block + tail).
 _DURABLE_AT_BASE = (
     _BROKER_WRITES
     | _MEMORY_SCENE_WRITES
@@ -136,9 +136,9 @@ _DURABLE_AT_BASE = (
         "IssueHostStartGrant",
         "IssueControlLease",
         "TransitionControlLease",
-        # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
+        # MEDULLA-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
         "PublishCurrentPlan",
-        # EG-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
+        # MEDULLA-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
         "PublishRunCheckpoint",
         "PolicyEvolutionStore",
         "GapUpsert",
@@ -176,9 +176,9 @@ _ATOMIC_BATCH_ROWS_AT_BASE = frozenset(
         "IssueHostStartGrant",
         "IssueControlLease",
         "TransitionControlLease",
-        # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
+        # MEDULLA-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
         "PublishCurrentPlan",
-        # EG-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
+        # MEDULLA-DURABLE-KERNEL-R028.1: fenced checkpoints join the same write family.
         "PublishRunCheckpoint",
         "PolicyEvolutionStore",
         "GapUpsert",
@@ -236,11 +236,11 @@ _UNCONDITIONAL_WRITES_AT_BASE = (
         "KgDelegate",
         "SubmitWorkItems",
         "MintWorkItemClaimCapability",
-        # Declared writes (mutates=true in eg-capabilities) that joined the
+        # Declared writes (mutates=true in medulla-capabilities) that joined the
         # unconditional tail after the family refactor, not family members:
         # DecisionCommit and GraphSchema (a4804f87c), SourceIngest (dcc5d53c0),
         # TelemetryDerive (EH-408/EH-409, a self-translating declared write),
-        # EnrichDocument (EG-UNIFIED-DATA-PLANE-R651.7, a self-routed envelope write).
+        # EnrichDocument (MEDULLA-UNIFIED-DATA-PLANE-R651.7, a self-routed envelope write).
         "DecisionCommit",
         "EnrichDocument",
         "GraphSchema",
@@ -340,7 +340,7 @@ def _tail_expression(module, function: str) -> str:
 def _sources(module) -> dict[str, str]:
     return {
         "families": (ROOT / FAMILIES).read_text(encoding="utf-8"),
-        "durable_apply": module.read("crates/eg-core/src/durable_apply.rs"),
+        "durable_apply": module.read("crates/medulla-core/src/durable_apply.rs"),
         "store_read": module.read("src/redb_store/store_read.rs"),
         "access": module.read_module_tree("src/server/access.rs"),
         "canonical": module.read("src/server/mutation_batch/canonical.rs"),

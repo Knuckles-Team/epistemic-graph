@@ -9,7 +9,7 @@ import pytest
 from _method_vectors import VECTORS, vector_request
 from pydantic import ValidationError
 
-from epistemic_graph.generated import models
+from medulla.generated import models
 
 pytestmark = pytest.mark.no_engine
 

@@ -9,16 +9,16 @@ The engine's secondary indexes grew ad-hoc, each bolted onto `GraphCore`:
 
 | Index | Concept | Where it lives | Shape |
 |-------|---------|----------------|-------|
-| Lazy LABEL index (`label → ids`) | `CONCEPT:EG-KG.compute.consult-lazy` | `eg-core/src/graph.rs` (`label_index` cell) | equality lookup |
-| Bounded PROPERTY equality index (`key → value → ids`) | `CONCEPT:EG-KG.query.concept-12` | `eg-core/src/graph.rs` (`property_index` cell) | equality lookup |
-| aho-corasick ontology term index | `CONCEPT:EG-ORCH.routing.lexical-capability-escalation` | `eg-core/src/graph.rs` (`ontology_index` cell) | lexical scan |
-| Vector index (HNSW / eg-ann IVF-PQ) | `CONCEPT:EG-KG.sharding.semantic-embedding-store-backed` | `eg-core/src/compute/semantic.rs` (`SemanticStore`) | kNN |
+| Lazy LABEL index (`label → ids`) | `CONCEPT:MEDULLA-KG.compute.consult-lazy` | `medulla-core/src/graph.rs` (`label_index` cell) | equality lookup |
+| Bounded PROPERTY equality index (`key → value → ids`) | `CONCEPT:MEDULLA-KG.query.concept-12` | `medulla-core/src/graph.rs` (`property_index` cell) | equality lookup |
+| aho-corasick ontology term index | `CONCEPT:MEDULLA-ORCH.routing.lexical-capability-escalation` | `medulla-core/src/graph.rs` (`ontology_index` cell) | lexical scan |
+| Vector index (HNSW / medulla-ann IVF-PQ) | `CONCEPT:MEDULLA-KG.sharding.semantic-embedding-store-backed` | `medulla-core/src/compute/semantic.rs` (`SemanticStore`) | kNN |
 
 All are lazy + `version()`/`mark_dirty`-invalidated, but there was **no single
-registry**: eg-query's pushdown and eg-plan's Filter leg each had to know the
+registry**: medulla-query's pushdown and medulla-plan's Filter leg each had to know the
 label/property indexes individually.
 
-## The seam — `eg-core/src/index.rs`
+## The seam — `medulla-core/src/index.rs`
 
 ```text
 SecondaryIndex (trait)
@@ -48,20 +48,20 @@ their tests are untouched. The vector + ontology indexes are registered as
 through their own surfaces, but a planner can now list them through the one
 registry.
 
-### The relational sibling — `eg-query`'s `PushdownRegistry`
+### The relational sibling — `medulla-query`'s `PushdownRegistry`
 
-eg-query's `nodes` SQL provider works on row positions over a materialized Arrow
+medulla-query's `nodes` SQL provider works on row positions over a materialized Arrow
 batch (a different data shape than node ids), so it has its own registry —
-`PushdownRegistry` in `crates/eg-query/src/sql/providers.rs` — mirroring the same
+`PushdownRegistry` in `crates/medulla-query/src/sql/providers.rs` — mirroring the same
 seam at the relational boundary. `NodesTableProvider::supports_filters_pushdown`
 and `::scan` consult **one** `PushdownRegistry` (`indexable_eq` /  `lookup`)
 instead of bespoke per-column checks scattered across provider methods. The
-bounded + demand-driven equality policy (`CONCEPT:EG-KG.query.concept-12`,
-`EPISTEMIC_GRAPH_INDEXED_PROPERTIES` / `EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES`) is
+bounded + demand-driven equality policy (`CONCEPT:MEDULLA-KG.query.concept-12`,
+`MEDULLA_INDEXED_PROPERTIES` / `MEDULLA_MAX_INDEXED_PROPERTIES`) is
 preserved exactly, and the predicates stay `Inexact` so DataFusion re-applies them
 — results are byte-identical to the full-scan path.
 
-eg-plan's Filter leg goes through `eg_query::exec_sql` over the same `nodes`
+medulla-plan's Filter leg goes through `medulla_query::exec_sql` over the same `nodes`
 provider, so it consults the same one registry transitively.
 
 ## Extension point — adding a new index TYPE (text / spatial / time)
@@ -85,11 +85,11 @@ it from `IndexManager::invalidate_all`, keeping invalidation a single seam.
 ## Server-layer indexes — the write side (Track D3)
 
 A core-owned index (label / property / vector) is registered once at construction in
-`with_default_indexes()` and read lock-free. But the **text** (`eg-text` Tantivy),
-**temporal** (`eg-tsdb` `SeriesStore`), and **derived-OWL** (`eg-rdf` reasoner) indexes
-live in the SERVER layer, ABOVE `eg-core` in the crate DAG — so `eg-core` cannot name
+`with_default_indexes()` and read lock-free. But the **text** (`medulla-text` Tantivy),
+**temporal** (`medulla-tsdb` `SeriesStore`), and **derived-OWL** (`medulla-rdf` reasoner) indexes
+live in the SERVER layer, ABOVE `medulla-core` in the crate DAG — so `medulla-core` cannot name
 their concrete types, and they can't be in the fixed set. They implement
-`SecondaryIndex` (defined in `eg-core`), and are registered as boxed trait objects
+`SecondaryIndex` (defined in `medulla-core`), and are registered as boxed trait objects
 AFTER construction:
 
 ```text
@@ -119,9 +119,9 @@ deadlock. `full_rebuild`, which does re-read every live node, is available only 
 an explicit out-of-lock operator repair action; served writes always maintain deltas.
 The adapters live in `src/server/secondary_indexes.rs`.
 
-The text (`CONCEPT:EG-KG.storage.incremental-text`), temporal
-(`CONCEPT:EG-KG.storage.incremental-temporal`), and derived-OWL
-(`CONCEPT:EG-KG.storage.incremental-derived-owl`) indexes are now **wired**; the derived-OWL
+The text (`CONCEPT:MEDULLA-KG.storage.incremental-text`), temporal
+(`CONCEPT:MEDULLA-KG.storage.incremental-temporal`), and derived-OWL
+(`CONCEPT:MEDULLA-KG.storage.incremental-derived-owl`) indexes are now **wired**; the derived-OWL
 adapter is a documented no-op because the reasoner already differentially materializes
 on-demand. Spatial (`CONCEPT:AU-KG.query.text-spatial-time`) remains a future index behind
 the same seam.

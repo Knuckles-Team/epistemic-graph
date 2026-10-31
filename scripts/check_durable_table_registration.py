@@ -22,7 +22,7 @@ backup enumerates, and whose first real access panics.  ``agent_component``
 shipped in exactly that state.
 
 The existing mechanism -- the frozen-cardinality assertions in
-``crates/eg-storage/src/owner/tests.rs`` -- only notices when a test happens to
+``crates/medulla-storage/src/owner/tests.rs`` -- only notices when a test happens to
 OPEN the table.  This gate asserts it at the DEFINITION, which is the point a
 new table actually enters the tree.
 
@@ -62,13 +62,13 @@ from scanner_contract import run_git
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "eg-durable-table-registration-gate/v1"
 
-ACCESS_REGISTRY = "crates/eg-storage/src/owner/table_api.rs"
+ACCESS_REGISTRY = "crates/medulla-storage/src/owner/table_api.rs"
 ACCESS_FUNCTION = "owner_table_access"
-OWNER_MANIFEST = "crates/eg-storage/src/owner/contract.rs"
-OWNER_CENSUS = "crates/eg-storage/src/owner/registry.rs"
+OWNER_MANIFEST = "crates/medulla-storage/src/owner/contract.rs"
+OWNER_CENSUS = "crates/medulla-storage/src/owner/registry.rs"
 OWNER_CENSUS_FUNCTION = "owner_table_names"
-LEDGER_CENSUS = "crates/eg-storage/src/tables.rs"
-SHARD_CENSUS = "crates/eg-storage/src/owner/graph_shard.rs"
+LEDGER_CENSUS = "crates/medulla-storage/src/tables.rs"
+SHARD_CENSUS = "crates/medulla-storage/src/owner/graph_shard.rs"
 SHARD_CENSUS_CONSTANT = "GRAPH_SHARD_TABLES"
 
 _DEFINITION = re.compile(

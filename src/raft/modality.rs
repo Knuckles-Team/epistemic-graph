@@ -35,14 +35,14 @@ const SANITIZED_MODALITY_CODEC_VERSION: u16 = 2;
 #[cfg(feature = "modality-serving")]
 fn deserialize_bounded_modality_outcomes<'de, D>(
     deserializer: D,
-) -> Result<Vec<eg_modality::ApplyOutcome>, D::Error>
+) -> Result<Vec<medulla_modality::ApplyOutcome>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     struct BoundedOutcomes;
 
     impl<'de> serde::de::Visitor<'de> for BoundedOutcomes {
-        type Value = Vec<eg_modality::ApplyOutcome>;
+        type Value = Vec<medulla_modality::ApplyOutcome>;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             formatter.write_str("a bounded sequence of modality outcomes")
@@ -85,9 +85,9 @@ pub(crate) enum SanitizedModalityMutation {
 #[cfg(feature = "modality-serving")]
 impl SanitizedModalityMutation {
     pub(crate) fn from_served(
-        op: &eg_types::ServedModalityOp,
-    ) -> Option<(Self, eg_types::ServedModalityKind)> {
-        use eg_types::ServedModalityOp;
+        op: &medulla_types::ServedModalityOp,
+    ) -> Option<(Self, medulla_types::ServedModalityKind)> {
+        use medulla_types::ServedModalityOp;
         match op {
             ServedModalityOp::Ingest { modality, .. } => Some((Self::Ingest, *modality)),
             ServedModalityOp::IngestStream { modality, .. } => {
@@ -134,11 +134,11 @@ pub(crate) enum SanitizedModalityResultKind {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) struct SanitizedModalityResult {
     pub(crate) schema_version: u16,
-    pub(crate) modality: eg_types::ServedModalityKind,
+    pub(crate) modality: medulla_types::ServedModalityKind,
     pub(crate) operation: SanitizedModalityMutation,
     pub(crate) kind: SanitizedModalityResultKind,
     #[serde(deserialize_with = "deserialize_bounded_modality_outcomes")]
-    pub(crate) outcomes: Vec<eg_modality::ApplyOutcome>,
+    pub(crate) outcomes: Vec<medulla_modality::ApplyOutcome>,
 }
 
 #[cfg(feature = "modality-serving")]
@@ -167,7 +167,7 @@ impl SanitizedModalityResult {
     }
 
     fn from_wire(
-        modality: eg_types::ServedModalityKind,
+        modality: medulla_types::ServedModalityKind,
         operation: SanitizedModalityMutation,
         result_msgpack: &[u8],
     ) -> Result<Self, String> {
@@ -175,9 +175,9 @@ impl SanitizedModalityResult {
         {
             return Err("sanitized modality Raft result is invalid".to_string());
         }
-        let payload: crate::protocol::ResultPayload = eg_types::msgpack::decode_bounded(
+        let payload: crate::protocol::ResultPayload = medulla_types::msgpack::decode_bounded(
             result_msgpack,
-            eg_types::msgpack::MsgpackLimits::new(
+            medulla_types::msgpack::MsgpackLimits::new(
                 MAX_REPLICATED_MODALITY_RESULT_BYTES,
                 MAX_REPLICATED_MODALITY_RESULT_VALUES,
                 64,
@@ -194,9 +194,9 @@ impl SanitizedModalityResult {
             }
         };
         let (kind, outcomes) = if matches!(operation, SanitizedModalityMutation::IngestStream) {
-            let outcomes: Vec<eg_modality::ApplyOutcome> = eg_types::msgpack::decode_bounded(
+            let outcomes: Vec<medulla_modality::ApplyOutcome> = medulla_types::msgpack::decode_bounded(
                 &outcome_bytes,
-                eg_types::msgpack::MsgpackLimits::new(
+                medulla_types::msgpack::MsgpackLimits::new(
                     MAX_REPLICATED_MODALITY_RESULT_BYTES,
                     MAX_REPLICATED_MODALITY_RESULT_VALUES,
                     64,
@@ -205,9 +205,9 @@ impl SanitizedModalityResult {
             .map_err(|_| "sanitized modality Raft stream result is malformed".to_string())?;
             (SanitizedModalityResultKind::Stream, outcomes)
         } else {
-            let outcome: eg_modality::ApplyOutcome = eg_types::msgpack::decode_bounded(
+            let outcome: medulla_modality::ApplyOutcome = medulla_types::msgpack::decode_bounded(
                 &outcome_bytes,
-                eg_types::msgpack::MsgpackLimits::new(
+                medulla_types::msgpack::MsgpackLimits::new(
                     MAX_REPLICATED_MODALITY_RESULT_BYTES,
                     MAX_REPLICATED_MODALITY_RESULT_VALUES,
                     64,
@@ -278,7 +278,7 @@ fn encode_sanitized_modality_payload<T: Serialize + ?Sized>(
 /// reimplement the untagged `ResultPayload` or stream-cardinality checks.
 #[cfg(feature = "modality-serving")]
 pub(crate) fn decode_sanitized_modality_result(
-    modality: eg_types::ServedModalityKind,
+    modality: medulla_types::ServedModalityKind,
     operation: SanitizedModalityMutation,
     result_msgpack: &[u8],
 ) -> Result<crate::protocol::ResultPayload, String> {
@@ -331,7 +331,7 @@ impl SanitizedModalityAuthorityBinding {
 pub struct SanitizedModalityRaftCommand {
     pub(crate) schema_version: u16,
     authority: SanitizedModalityAuthorityBinding,
-    pub(crate) modality: eg_types::ServedModalityKind,
+    pub(crate) modality: medulla_types::ServedModalityKind,
     pub(crate) operation: SanitizedModalityMutation,
     pub(crate) node_id: String,
     #[serde(with = "serde_bytes")]
@@ -350,7 +350,7 @@ impl SanitizedModalityRaftCommand {
     pub(crate) fn new(
         server_secret: &str,
         authority: (&str, &str, &str),
-        kind: (eg_types::ServedModalityKind, SanitizedModalityMutation),
+        kind: (medulla_types::ServedModalityKind, SanitizedModalityMutation),
         node_id: String,
         sealed_runtime_state: Vec<u8>,
         receipt_query: String,
@@ -555,12 +555,12 @@ impl SanitizedModalityRaftCommand {
 }
 
 #[cfg(feature = "modality-serving")]
-fn sanitized_modality_name(modality: eg_types::ServedModalityKind) -> &'static str {
+fn sanitized_modality_name(modality: medulla_types::ServedModalityKind) -> &'static str {
     match modality {
-        eg_types::ServedModalityKind::Document => "document",
-        eg_types::ServedModalityKind::Image => "image",
-        eg_types::ServedModalityKind::Audio => "audio",
-        eg_types::ServedModalityKind::Video => "video",
+        medulla_types::ServedModalityKind::Document => "document",
+        medulla_types::ServedModalityKind::Image => "image",
+        medulla_types::ServedModalityKind::Audio => "audio",
+        medulla_types::ServedModalityKind::Video => "video",
     }
 }
 
@@ -571,7 +571,7 @@ struct SanitizedModalityTagInput<'a> {
     tenant_scope: &'a str,
     graph_name: &'a str,
     graph_fname: &'a str,
-    modality: eg_types::ServedModalityKind,
+    modality: medulla_types::ServedModalityKind,
     operation: SanitizedModalityMutation,
     node_id: &'a str,
     state_sha256: &'a str,

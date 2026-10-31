@@ -1,7 +1,7 @@
 //! Read-only RF-019 activation evidence checks under the existing engine lease.
 
 use super::*;
-use eg_storage::SemanticOwnerMergeEvidence;
+use medulla_storage::SemanticOwnerMergeEvidence;
 
 pub(super) fn validate_activation_sources(
     current: &TenantOwnerUpgradeInspection,

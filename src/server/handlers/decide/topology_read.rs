@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use eg_types::contract::BoundedVec;
-use eg_types::decision::{AssemblyRequest, TemplateFacts, TopologyInputs};
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::{AssemblyRequest, TemplateFacts, TopologyInputs};
 
 use super::{capacity_premise, topology_schema, SharedState};
 use crate::server::auth::VerifiedRequestContext;

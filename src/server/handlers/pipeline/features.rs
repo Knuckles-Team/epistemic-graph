@@ -2,11 +2,11 @@
 
 use crate::graph::GraphCore;
 use crate::protocol::GraphSource;
-use eg_compute::graph_algos::AdjacencyGraph;
-use eg_compute::graphlearn::embeddings::{
+use medulla_compute::graph_algos::AdjacencyGraph;
+use medulla_compute::graphlearn::embeddings::{
     fastrp, l2_normalize_rows, node2vec, to_f64_rows, FastRpConfig, Node2VecConfig,
 };
-use eg_types::wire::FeatureStep;
+use medulla_types::wire::FeatureStep;
 
 /// Build the `(node_id, row)` feature matrix by running the ordered feature steps.
 /// Explicit `x` short-circuits the producing steps (only transforms apply).

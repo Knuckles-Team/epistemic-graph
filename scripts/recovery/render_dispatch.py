@@ -23,7 +23,7 @@ if __name__ == "__main__":
     parser.add_argument("output", type=Path)
     args = parser.parse_args()
     template = (
-        Path(__file__).with_name("eg-release-recovery-dispatch.yml.in").read_text()
+        Path(__file__).with_name("medulla-release-recovery-dispatch.yml.in").read_text()
     )
     with args.output.open("x") as target:
         target.write(render(args.reviewed_reusable_sha, template))

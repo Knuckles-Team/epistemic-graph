@@ -190,7 +190,7 @@ const REPLAY_SCOPE_INCARNATION: &str = "request-replay:v1";
 /// deployment** (tracked in `reports/seam-identity-closure.md`, "Raft
 /// replay-ledger replication" section; called out by
 /// `reports/seam-closure-audit-2026-07-22.md`'s Identity row). This ledger is
-/// scoped to ONE node's `EPISTEMIC_GRAPH_SECURITY_STATE_DIR` and is checked
+/// scoped to ONE node's `MEDULLA_SECURITY_STATE_DIR` and is checked
 /// entirely BEFORE any Raft/consensus code runs (see `dispatch_inner` in
 /// `server/dispatch.rs`). In a multi-node `cluster` deployment a captured,
 /// still-signature-valid envelope COULD be replayed once against every node
@@ -202,7 +202,7 @@ const REPLAY_SCOPE_INCARNATION: &str = "request-replay:v1";
 /// multi-node `cluster` rollout.
 #[cfg(feature = "security")]
 pub(crate) struct RedbReplayLedger {
-    durable: crate::sidecar_store::SidecarStore<eg_storage::RequestReplayOwner>,
+    durable: crate::sidecar_store::SidecarStore<medulla_storage::RequestReplayOwner>,
     /// Lock-free fast path: requests signed at or below it need no commit.
     high_water: std::sync::atomic::AtomicU64,
     /// Serializes the commits that ADVANCE the high-water.
@@ -285,7 +285,7 @@ impl RedbReplayLedger {
 /// maintenance write so a fresh file gets its table created.
 #[cfg(feature = "security")]
 fn restore(
-    durable: &crate::sidecar_store::SidecarStore<eg_storage::RequestReplayOwner>,
+    durable: &crate::sidecar_store::SidecarStore<medulla_storage::RequestReplayOwner>,
 ) -> Result<(u64, NonceWindow), String> {
     use redb::ReadableTable;
 
@@ -371,13 +371,13 @@ pub(crate) fn durable_replay_ledger(
     state_dir: Option<&str>,
 ) -> Result<&'static RedbReplayLedger, String> {
     match LEDGER.get_or_init(|| {
-        let dir = std::env::var("EPISTEMIC_GRAPH_SECURITY_STATE_DIR")
+        let dir = std::env::var("MEDULLA_SECURITY_STATE_DIR")
             .ok()
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
             .or_else(|| state_dir.map(str::to_string))
             .ok_or_else(|| {
-                "secure request context requires EPISTEMIC_GRAPH_SECURITY_STATE_DIR or a persist directory".to_string()
+                "secure request context requires MEDULLA_SECURITY_STATE_DIR or a persist directory".to_string()
             })?;
         RedbReplayLedger::open(std::path::Path::new(&dir))
     }) {
@@ -415,7 +415,7 @@ fn presented(nonce: &str, timestamp: u64, now: u64) -> PresentedNonce<'_> {
 mod window_tests {
     use super::*;
 
-    // spec: EG-REPO-INGEST-R005
+    // spec: MEDULLA-REPO-INGEST-R005
     #[test]
     fn nothing_at_or_below_the_floor_is_accepted() {
         let mut window = NonceWindow::with_floor(1_000);
@@ -425,7 +425,7 @@ mod window_tests {
 
     /// Cap eviction forgets nonces, so it must raise the floor over every one
     /// it forgot: none of them may become replayable.
-    // spec: EG-REPO-INGEST-R005
+    // spec: MEDULLA-REPO-INGEST-R005
     #[test]
     fn cap_eviction_raises_the_floor_over_what_it_forgot() {
         let mut window = NonceWindow::with_floor(0);
@@ -455,7 +455,7 @@ mod durable_tests {
     use std::sync::Arc;
 
     fn ledger(tag: &str) -> (RedbReplayLedger, std::path::PathBuf) {
-        let dir = crate::test_support::temp_dir("eg-request-replay", tag);
+        let dir = crate::test_support::temp_dir("medulla-request-replay", tag);
         let ledger = RedbReplayLedger::open(&dir).expect("open the durable replay ledger");
         (ledger, dir)
     }
@@ -467,7 +467,7 @@ mod durable_tests {
     }
 
     fn scope_version(ledger: &RedbReplayLedger) -> u64 {
-        eg_transaction::version(&ledger.durable.read().unwrap()).unwrap()
+        medulla_transaction::version(&ledger.durable.read().unwrap()).unwrap()
     }
 
     #[test]
@@ -483,10 +483,10 @@ mod durable_tests {
     /// restart must not make an accepted envelope usable again. The reopened
     /// ledger refuses the replay (and anything else signed in that second),
     /// and accepts envelopes signed after it.
-    // spec: EG-REPO-INGEST-R005
+    // spec: MEDULLA-REPO-INGEST-R005
     #[test]
     fn an_accepted_nonce_is_refused_after_a_reopen() {
-        let dir = crate::test_support::temp_dir("eg-request-replay", "reopen");
+        let dir = crate::test_support::temp_dir("medulla-request-replay", "reopen");
         {
             let ledger = RedbReplayLedger::open(&dir).unwrap();
             assert!(accept(&ledger, "early", 990));
@@ -515,7 +515,7 @@ mod durable_tests {
     /// bench's restart->ready probe was refused before this).
     #[test]
     fn a_sealed_window_carries_over_a_graceful_restart() {
-        let dir = crate::test_support::temp_dir("eg-request-replay", "handoff");
+        let dir = crate::test_support::temp_dir("medulla-request-replay", "handoff");
         {
             let ledger = RedbReplayLedger::open(&dir).unwrap();
             assert!(accept(&ledger, "nonce", 1_000));
@@ -532,7 +532,7 @@ mod durable_tests {
     /// graceful restart falls back to the high-water floor.
     #[test]
     fn a_handoff_is_used_once_then_a_crash_falls_back_to_the_floor() {
-        let dir = crate::test_support::temp_dir("eg-request-replay", "handoff-once");
+        let dir = crate::test_support::temp_dir("medulla-request-replay", "handoff-once");
         {
             let ledger = RedbReplayLedger::open(&dir).unwrap();
             assert!(accept(&ledger, "nonce", 1_000));

@@ -5,7 +5,7 @@
 use super::*;
 use crate::protocol::{Method, Request};
 use crate::server::auth::dispatch_test_on_heap;
-use eg_types::contract::RecordBytes;
+use medulla_types::contract::RecordBytes;
 
 const SECRET: &str = "sql-source-served-secret";
 const WRITER: &str = "bob";
@@ -67,7 +67,7 @@ fn committed(response: &Response) -> SqlSourceBatchResult {
     let Some(ResultPayload::Raw(bytes)) = &response.result else {
         panic!("SQL source result must be raw MessagePack")
     };
-    eg_storage::decode_ledger_record(bytes).unwrap()
+    medulla_storage::decode_ledger_record(bytes).unwrap()
 }
 
 fn refusal(response: &Response) -> &str {

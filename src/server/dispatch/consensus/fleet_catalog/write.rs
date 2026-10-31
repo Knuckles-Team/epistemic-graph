@@ -9,14 +9,14 @@
 //! protection is keyed by the request, so a second write inside the same
 //! request would be answered as a replay of the first.
 
-use eg_types::fleet_catalog::{
+use medulla_types::fleet_catalog::{
     FleetDiscoveryRecordRequest, FleetOverrideClearRequest, FleetOverrideSetRequest,
     FleetWriteDisposition, FleetWriteReceipt,
 };
-use eg_types::result_contract::cluster::{
+use medulla_types::result_contract::cluster::{
     FleetCatalogClearOverride, FleetCatalogRecordDiscovery, FleetCatalogSetOverride,
 };
-use eg_types::result_contract::MethodResult;
+use medulla_types::result_contract::MethodResult;
 use serde::Serialize;
 
 use super::super::registry::REGISTRY_GRAPH;
@@ -273,7 +273,7 @@ pub(super) async fn clear_override(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_types::fleet_catalog::DiscoveryScope;
+    use medulla_types::fleet_catalog::DiscoveryScope;
 
     fn write() -> RecordWrite {
         let body = DiscoveryBody::reachable_for_tests(
@@ -330,7 +330,7 @@ mod tests {
         else {
             panic!("a later write is a compare-and-set");
         };
-        let conditions = eg_types::msgpack::decode_property_value(&conditions_msgpack).unwrap();
+        let conditions = medulla_types::msgpack::decode_property_value(&conditions_msgpack).unwrap();
         assert_eq!(
             conditions,
             serde_json::json!({"tenant_id": "tenant-a", "revision": 4})

@@ -4,7 +4,7 @@ use super::*;
 /// and report free text as `INVALID_ARGUMENT` under the `SQL error: ` prefix.
 #[cfg(feature = "query")]
 pub(crate) fn sql_refusal(error: impl std::fmt::Display) -> String {
-    eg_types::contract::classify_refusal("INVALID_ARGUMENT", "SQL error: ", &error.to_string())
+    medulla_types::contract::classify_refusal("INVALID_ARGUMENT", "SQL error: ", &error.to_string())
 }
 
 /// Verify that Cypher's explicit wire mode agrees with the native parser.
@@ -16,11 +16,11 @@ pub(crate) fn validate_cypher_mode(method: &Method) -> Result<(), String> {
     let Method::CypherQuery { query, mode } = method else {
         return Ok(());
     };
-    let parsed_mode = match eg_query::classify_cypher(query) {
-        Ok(eg_query::CypherStatementKind::Read) => crate::protocol::CypherMode::Read,
-        Ok(eg_query::CypherStatementKind::Write) => crate::protocol::CypherMode::Write,
+    let parsed_mode = match medulla_query::classify_cypher(query) {
+        Ok(medulla_query::CypherStatementKind::Read) => crate::protocol::CypherMode::Read,
+        Ok(medulla_query::CypherStatementKind::Write) => crate::protocol::CypherMode::Write,
         Err(message) => {
-            return Err(eg_types::contract::classify_refusal(
+            return Err(medulla_types::contract::classify_refusal(
                 "INVALID_ARGUMENT",
                 "Cypher error: ",
                 &message,
@@ -36,16 +36,16 @@ pub(crate) fn validate_cypher_mode(method: &Method) -> Result<(), String> {
     Ok(())
 }
 
-/// Process-wide GraphQL cross-modal transaction registry (CONCEPT:EG-KG.query.facade-reconcile-hook). Holds staged
+/// Process-wide GraphQL cross-modal transaction registry (CONCEPT:MEDULLA-KG.query.facade-reconcile-hook). Holds staged
 /// multi-request cross-modal txns (`beginTransaction` … `stage*` … `commitTransaction`)
 /// across GraphQL requests — GraphQL over the RPC transport has no per-connection session,
 /// and txn ids are process-unique, so ONE shared registry is the carrier (the `OnceLock`
 /// idiom the UQL text-embedder seam uses).
 #[cfg(feature = "graphql")]
-pub(crate) fn graphql_crossmodal_registry() -> &'static eg_graphql::CrossModalTxnRegistry {
+pub(crate) fn graphql_crossmodal_registry() -> &'static medulla_graphql::CrossModalTxnRegistry {
     use std::sync::OnceLock;
-    static REG: OnceLock<eg_graphql::CrossModalTxnRegistry> = OnceLock::new();
-    REG.get_or_init(eg_graphql::CrossModalTxnRegistry::new)
+    static REG: OnceLock<medulla_graphql::CrossModalTxnRegistry> = OnceLock::new();
+    REG.get_or_init(medulla_graphql::CrossModalTxnRegistry::new)
 }
 
 #[cfg(feature = "graphql")]
@@ -60,8 +60,8 @@ pub(crate) fn graphql_field_txn_id(field: &Field) -> Option<String> {
 
 #[cfg(feature = "graphql")]
 pub(crate) fn graphql_query_txn_ids(query: &str) -> Option<(bool, Vec<String>)> {
-    let operation = eg_graphql::parse_operation(query).ok()?;
-    let eg_graphql::Operation::Mutation(mutation) = operation else {
+    let operation = medulla_graphql::parse_operation(query).ok()?;
+    let medulla_graphql::Operation::Mutation(mutation) = operation else {
         return None;
     };
     let has_begin = mutation
@@ -92,7 +92,7 @@ pub(crate) fn graphql_result_txn_ids(value: &serde_json::Value) -> Vec<String> {
 /// Store `payload` in the version-keyed result cache under `hash`/`version`,
 /// then wrap it as a successful [`Response`]. Cypher's cached read reaches
 /// this exact store-then-respond step right after its own execution+encode
-/// path (CONCEPT:EG-KG.coordination.distributed-cache-coherence); one owner keeps the cache write
+/// path (CONCEPT:MEDULLA-KG.coordination.distributed-cache-coherence); one owner keeps the cache write
 /// and the response construction from drifting apart.
 #[cfg(feature = "result-cache")]
 pub(crate) fn cache_and_respond(
@@ -102,7 +102,7 @@ pub(crate) fn cache_and_respond(
     version: u64,
     payload: ResultPayload,
 ) -> Response {
-    eg_core::result_cache::cache_result(core.result_cache(), hash, version, &payload);
+    medulla_core::result_cache::cache_result(core.result_cache(), hash, version, &payload);
     Response::ok(req_id, payload)
 }
 
@@ -111,7 +111,7 @@ pub(crate) fn graphql_lifecycle_replay_is_live(
     owner_scope: &str,
     query: &str,
     result: &ResultPayload,
-    registry: &eg_graphql::CrossModalTxnRegistry,
+    registry: &medulla_graphql::CrossModalTxnRegistry,
 ) -> bool {
     let Some((has_begin, mut txn_ids)) = graphql_query_txn_ids(query) else {
         return false;
@@ -133,11 +133,11 @@ pub(crate) fn graphql_lifecycle_replay_is_live(
 }
 
 #[cfg(all(feature = "query", feature = "tsdb"))]
-pub(crate) fn plan_needs_tsdb(ops: &[eg_plan::Op]) -> bool {
+pub(crate) fn plan_needs_tsdb(ops: &[medulla_plan::Op]) -> bool {
     ops.iter().any(|op| match op {
-        eg_plan::Op::TsScan { .. } => true,
+        medulla_plan::Op::TsScan { .. } => true,
         #[cfg(feature = "text")]
-        eg_plan::Op::FuseRrf { branches, .. } => {
+        medulla_plan::Op::FuseRrf { branches, .. } => {
             branches.iter().any(|branch| plan_needs_tsdb(branch))
         }
         _ => false,
@@ -147,11 +147,11 @@ pub(crate) fn plan_needs_tsdb(ops: &[eg_plan::Op]) -> bool {
 /// Resolve an actor-owned storage namespace before a served plan can touch the
 /// committed TSDB. Graph ACL/RLS actor identity alone is not a tenant carrier.
 /// `pub(crate)`: also the single source of truth `handlers::mining`'s plan-sourced
-/// `TsScan` leg reuses (CONCEPT:EG-KG.mining.tsdb-typed-absent) rather than
+/// `TsScan` leg reuses (CONCEPT:MEDULLA-KG.mining.tsdb-typed-absent) rather than
 /// re-deriving the same tenant/namespace scope a second time.
 #[cfg(all(feature = "query", feature = "tsdb"))]
 pub(crate) fn served_tsdb_scope(
-    plan: &eg_plan::Plan,
+    plan: &medulla_plan::Plan,
     graph: &str,
     read_authority: Option<&GraphReadAuthority>,
 ) -> Result<Option<(String, String)>, String> {
@@ -172,7 +172,7 @@ pub(crate) fn served_tsdb_scope(
 
 /// Bundled context every extracted per-method arm of `try_handle` below needs, so
 /// each stays a plain function of its own destructured request fields plus this
-/// one shared bundle (CONCEPT:EG-KG.query.dispatch-convention). Pure grouping,
+/// one shared bundle (CONCEPT:MEDULLA-KG.query.dispatch-convention). Pure grouping,
 /// mirroring `TryHandleContext` plus the pieces the arm bodies additionally close
 /// over (`state`, `core`, and -- security builds only -- `rls`): no field renamed
 /// or dropped from what `try_handle` already threaded through by hand before this

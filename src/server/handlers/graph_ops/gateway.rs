@@ -20,7 +20,7 @@ where
 /// writes (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`/CAS) — routed through
 /// `mutation::commit_coalescable_mutation` instead of `commit_mutation` so
 /// their prepare→durable-commit→RAM-publish sequence can be queued onto the
-/// per-graph routed-write-coalescer worker (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18
+/// per-graph routed-write-coalescer worker (CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer, L18
 /// rewrite) rather than run inline under this request's own lock hold. `apply`
 /// must be `Send + 'static`: it may run on the worker task, after this
 /// request's own stack frame is gone — every call site below already passes an
@@ -42,7 +42,7 @@ where
 }
 
 /// Shared conversion tail for graph, query, and RDF gateway closures
-/// (CONCEPT:EG-KG.mining.tsdb-typed-absent): a handler `Response` carries its own
+/// (CONCEPT:MEDULLA-KG.mining.tsdb-typed-absent): a handler `Response` carries its own
 /// refusal/result, so folding it into the
 /// `apply: FnOnce(&GraphCore) -> Result<ResultPayload, String>` shape `commit_conditional_mutation`
 /// expects is identical work at every one of the 17 `Mine*` call sites, plus the
@@ -61,10 +61,10 @@ pub(crate) fn mining_response_to_gateway_result(resp: Response) -> Result<Result
 }
 
 /// Route a [`mutation::GATEWAY_ROUTED`] method through the single commit gateway
-/// (CONCEPT:EG-P0-2). Called from `dispatch_graph_op` AHEAD of both the write-
+/// (CONCEPT:MEDULLA-P0-2). Called from `dispatch_graph_op` AHEAD of both the write-
 /// coalescer and the terminal exhaustive match below, so a routed method NEVER falls
 /// through to `g.add_node(...)` etc. directly — the only path left for it is this
-/// one, which builds a [`MutationPlan`] straight from `eg_capabilities::policy` and
+/// one, which builds a [`MutationPlan`] straight from `medulla_capabilities::policy` and
 /// calls [`mutation::commit_mutation`]. A method NOT in the routed set is handed
 /// straight back (`Err(method)`), unchanged, exactly like every other domain
 /// router in `dispatch.rs`'s routing chain.
@@ -73,7 +73,7 @@ pub(crate) async fn try_handle_gateway(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     caller: Option<&str>,
-    attempt_nonce: Option<eg_types::contract::Nonce>,
+    attempt_nonce: Option<medulla_types::contract::Nonce>,
     idempotency_key: &str,
     tenant_scope: &str,
     tenant_id: &str,
@@ -89,11 +89,11 @@ pub(crate) async fn try_handle_gateway(
         &Arc<crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry>,
     >,
     authz_ctx: Option<&GatewayAuthzCtx>,
-    // CONCEPT:EG-KG.mining.tsdb-typed-absent — the server's live tsdb store, needed ONLY by
+    // CONCEPT:MEDULLA-KG.mining.tsdb-typed-absent — the server's live tsdb store, needed ONLY by
     // the gateway-routed `Mine*` arms below to bind a plan-sourced `Op::TsScan` leg (mirrors
     // `mining::try_handle`'s own binding for the one Mine* method NOT gateway-routed).
     #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))] tsdb_store: Option<
-        &Arc<eg_tsdb::store::SeriesStore>,
+        &Arc<medulla_tsdb::store::SeriesStore>,
     >,
     method: Method,
 ) -> Result<Response, Method> {
@@ -134,7 +134,7 @@ pub(crate) async fn try_handle_gateway(
     #[cfg(feature = "security")]
     let method = super::gateway_graph::stamp_owner_id_if_applicable(method, caller, isolation);
 
-    // EG-ORCH-VOCAB-R801.3: a harness-component version write is admitted at
+    // MEDULLA-ORCH-VOCAB-R801.3: a harness-component version write is admitted at
     // the SAME pre-commit point — validated, bitemporally stamped and linked
     // to the current version before either the durable commit or the apply
     // closure sees the method. The admitted (possibly stamped) method is the

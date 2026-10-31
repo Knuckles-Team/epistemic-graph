@@ -11,8 +11,8 @@
 
 use std::collections::BTreeSet;
 
-use eg_types::agent_graph::{AgentGraphDraft, AgentGraphNodeKind};
-use eg_types::decision::{SlotRole, StopRule, TopologyFacts};
+use medulla_types::agent_graph::{AgentGraphDraft, AgentGraphNodeKind};
+use medulla_types::decision::{SlotRole, StopRule, TopologyFacts};
 
 /// The refusal prefix a caller branches on.
 pub(crate) const TOPOLOGY_SHAPE_INVALID: &str = "TOPOLOGY_SHAPE_INVALID";

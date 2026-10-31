@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Atomically promote an epistemic-graph binary through a deployment-owned hook.
+# Atomically promote an medulla binary through a deployment-owned hook.
 #
 # This repository owns artifact validation and atomic replacement. The target
 # topology (systemd, Kubernetes, a container scheduler, or another supervisor)
@@ -33,7 +33,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SOURCE_BINARY="${ENGINE_SOURCE_BINARY:-${REPO_ROOT}/target/release/epistemic-graph-server}"
+SOURCE_BINARY="${ENGINE_SOURCE_BINARY:-${REPO_ROOT}/target/release/medulla-server}"
 DESTINATION="${ENGINE_BIN_DEST:-}"
 PROMOTION_HOOK="${ENGINE_PROMOTION_HOOK:-}"
 BUILD_FEATURES="${ENGINE_BUILD_FEATURES:-full,ast-extended}"
@@ -105,7 +105,7 @@ LOCK_FILE="${DESTINATION}.promotion.lock"
 exec 9>"$LOCK_FILE"
 flock -n 9 || { echo "another promotion is active" >&2; exit 1; }
 
-STAGED="$(mktemp "${DESTINATION_DIR}/.epistemic-graph.XXXXXX")"
+STAGED="$(mktemp "${DESTINATION_DIR}/.medulla.XXXXXX")"
 BACKUP="${DESTINATION}.previous"
 cleanup() { rm -f "$STAGED"; }
 trap cleanup EXIT
@@ -119,7 +119,7 @@ install -m 0755 "$SOURCE_BINARY" "$STAGED"
 HAD_PREVIOUS=0
 if [[ -f "$DESTINATION" ]]; then
   [[ ! -L "$DESTINATION" ]] || { echo "destination changed to a symlink" >&2; exit 1; }
-  PREVIOUS_STAGED="$(mktemp "${DESTINATION_DIR}/.epistemic-graph.previous.XXXXXX")"
+  PREVIOUS_STAGED="$(mktemp "${DESTINATION_DIR}/.medulla.previous.XXXXXX")"
   cp -p "$DESTINATION" "$PREVIOUS_STAGED"
   mv -f "$PREVIOUS_STAGED" "$BACKUP"
   HAD_PREVIOUS=1
@@ -131,7 +131,7 @@ echo "artifact promoted atomically"
 if [[ "$DO_ACTIVATE" -eq 1 ]]; then
   if ! "$PROMOTION_HOOK" activate "$DESTINATION"; then
     if [[ "$HAD_PREVIOUS" -eq 1 ]]; then
-      ROLLBACK_STAGED="$(mktemp "${DESTINATION_DIR}/.epistemic-graph.rollback.XXXXXX")"
+      ROLLBACK_STAGED="$(mktemp "${DESTINATION_DIR}/.medulla.rollback.XXXXXX")"
       cp -p "$BACKUP" "$ROLLBACK_STAGED"
       mv -f "$ROLLBACK_STAGED" "$DESTINATION"
     else

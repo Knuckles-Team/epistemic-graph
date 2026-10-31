@@ -85,7 +85,7 @@ def require_no_noop_features(modality: str, cargo_toml: str) -> None:
 
 def require_modality_crates() -> None:
     for modality in MODALITIES:
-        crate = f"crates/eg-{modality}"
+        crate = f"crates/medulla-{modality}"
         require_native_runtime_contract(
             modality, compiler_source(f"{crate}/src/runtime.rs")
         )
@@ -229,7 +229,7 @@ def main() -> None:
     require_single_knowledge_stream_handler()
     require_modality_crates()
     require_no_compatibility_projection(
-        compiler_source("crates/eg-types/src/knowledge_stream.rs")
+        compiler_source("crates/medulla-types/src/knowledge_stream.rs")
     )
     require_graph_dispatch_ordering(
         read_module_tree("src/server/dispatch.rs", root_dir=ROOT)
@@ -238,7 +238,7 @@ def main() -> None:
         read_module_tree("src/server/mutation.rs", root_dir=ROOT)
     )
     require_modality_raft_replication()
-    require_ingest_stream_item_bound(read("epistemic_graph/client.py"))
+    require_ingest_stream_item_bound(read("medulla/client.py"))
     print("P2 modality architecture gate passed")
 
 

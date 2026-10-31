@@ -74,7 +74,7 @@ fn authoritative_snapshot_and_row_delta_paths_refuse_orphaning_lane_work_item() 
                 created_at_ms: TEST_NOW,
             };
             batch
-                .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                 .expect("a fixture batch reseals its envelope over its final body");
             batch
         };

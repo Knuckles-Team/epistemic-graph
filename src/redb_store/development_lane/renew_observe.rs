@@ -15,7 +15,7 @@ use crate::epistemic_operations::{
     DevelopmentLaneRenewRequest,
 };
 use crate::protocol::DevelopmentLaneWorkItemKind;
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 
 /// The renew tail: prove the lifecycle WorkItem and observation freshness,
 /// then extend the live hold in place.  `row` is the already-gated hold.

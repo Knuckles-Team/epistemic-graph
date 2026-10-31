@@ -1,9 +1,9 @@
-//! SQLite-dialect → engine-dialect translation (CONCEPT:EG-KG.query.concept-3).
+//! SQLite-dialect → engine-dialect translation (CONCEPT:MEDULLA-KG.query.concept-3).
 //!
 //! SQLite has NO client/server wire protocol (it is an embedded library + a file
 //! format), so "SQLite-compatible" here means: accept a statement written in the
 //! **SQLite dialect** and rewrite the handful of SQLite-isms that differ from the
-//! engine's Postgres-ish dialect (`eg_query::classify` parses with the
+//! engine's Postgres-ish dialect (`medulla_query::classify` parses with the
 //! `PostgreSqlDialect`) BEFORE it reaches the shared [`crate::server::wire::WireSession`].
 //! Nothing about classify/exec is reimplemented — this is a pure string rewrite in
 //! front of the one shared execution core.
@@ -12,11 +12,11 @@
 //!   * The ~6 read-only **introspection** pragmas (`table_info`/`table_xinfo`,
 //!     `table_list`, `index_list`, `foreign_key_list`, `function_list`) → a real
 //!     `SELECT` against the engine's OWN synthetic `information_schema`/`pg_catalog`
-//!     (`crates/eg-query/src/sql/catalog.rs`), so a real client that reflects the
+//!     (`crates/medulla-query/src/sql/catalog.rs`), so a real client that reflects the
 //!     schema (DBeaver, litecli, SQLAlchemy, DB Browser for SQLite) gets real rows back
 //!     instead of a silent empty ack. This is a pure string rewrite — the pragma name
 //!     is recognized and swapped for an equivalent `SELECT`, still routed through the
-//!     ONE shared execution core; nothing from `eg-query` is called directly here.
+//!     ONE shared execution core; nothing from `medulla-query` is called directly here.
 //!   * Every OTHER `PRAGMA …` (`journal_mode`, `synchronous`, `busy_timeout`, …) → a
 //!     no-op. Those configure the embedded SQLite *library*; there is nothing to do on
 //!     a served engine, so the surface answers a bare `PRAGMA` tag WITHOUT touching the
@@ -52,7 +52,7 @@ pub enum Translated {
 }
 
 /// Translate a SQLite-dialect statement into either a no-op or engine-dialect SQL
-/// (CONCEPT:EG-KG.query.concept-3). See the module header for the exact rules.
+/// (CONCEPT:MEDULLA-KG.query.concept-3). See the module header for the exact rules.
 pub fn translate_sqlite_sql(sql: &str) -> Translated {
     let trimmed = sql.trim();
     // `PRAGMA …` (with or without a trailing `;`) — most are a no-op the surface acks
@@ -160,7 +160,7 @@ fn sql_literal_escape(s: &str) -> String {
 }
 
 /// `PRAGMA table_info(t)` / `PRAGMA table_xinfo(t)` → a real `SELECT` against the
-/// engine's own `information_schema.columns` (`crates/eg-query/src/sql/catalog.rs`),
+/// engine's own `information_schema.columns` (`crates/medulla-query/src/sql/catalog.rs`),
 /// shaped like SQLite's column set: `cid, name, type, notnull, dflt_value, pk[, hidden]`.
 /// `pk` is always reported `0`: the engine's synthetic catalog does not thread
 /// PK/UNIQUE constraint metadata into `information_schema` yet (documented there as a
@@ -201,7 +201,7 @@ fn table_list_sql() -> String {
 /// `PRAGMA index_list(t)` → a real `SELECT` against `pg_catalog.pg_index`, shaped like
 /// SQLite's `index_list` columns. The engine's secondary indexes are implicit
 /// (index-pushdown providers), not first-class rows, so `pg_index` is genuinely always
-/// empty (CONCEPT:EG-KG.query.route-create-view-create) — an honest "no user-visible indexes" answer, not a
+/// empty (CONCEPT:MEDULLA-KG.query.route-create-view-create) — an honest "no user-visible indexes" answer, not a
 /// fabricated one, and a real improvement over a blind untyped no-op.
 const INDEX_LIST_SQL: &str = "SELECT indexrelid AS seq, indkey AS name, \
      indisunique AS \"unique\", 'c' AS origin, indisprimary AS partial \
@@ -220,7 +220,7 @@ const FOREIGN_KEY_LIST_SQL: &str = "SELECT NULL AS id, NULL AS seq, \
      WHERE tc.constraint_type = 'FOREIGN KEY'";
 
 /// `PRAGMA function_list` → a real `SELECT` against `information_schema.routines`
-/// (the EG-118 durable SQL functions), shaped like SQLite's `function_list` columns.
+/// (the MEDULLA-118 durable SQL functions), shaped like SQLite's `function_list` columns.
 const FUNCTION_LIST_SQL: &str = "SELECT routine_name AS name, 0 AS builtin, \
      'scalar' AS type, 'utf8' AS enc, -1 AS narg, 0 AS flags \
      FROM information_schema.routines \

@@ -36,7 +36,7 @@ impl Operation {
             crate::server::mutation_batch::CompileBatch {
                 batch_id: &self.id,
                 request_id: u64::from(attempt) + 1,
-                attempt_nonce: Some(eg_types::contract::Nonce::from_bytes(
+                attempt_nonce: Some(medulla_types::contract::Nonce::from_bytes(
                     nonce.finalize().into(),
                 )),
                 principal: Some("system"),

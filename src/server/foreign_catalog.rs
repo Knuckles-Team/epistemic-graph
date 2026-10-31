@@ -1,4 +1,4 @@
-//! Owner-scoped foreign-source catalog (CONCEPT:EG-KG.query.query-federation, EH-373).
+//! Owner-scoped foreign-source catalog (CONCEPT:MEDULLA-KG.query.query-federation, EH-373).
 //!
 //! `Method::RegisterForeignSource` records a named [`ForeignSourceSpec`]. A
 //! `RemoteEngine` spec carries a shared `secret` and a signed request `context`, so a
@@ -14,7 +14,7 @@
 //!   [`CarrierAuthority::owner_scope`] — the verified tenant AND principal (actor). It
 //!   comes only from a [`CarrierAuthority`] derived from the verified request envelope,
 //!   never from a request field. One engine is bound to ONE tenant
-//!   (`EPISTEMIC_GRAPH_TENANT`; every verified carrier carries it), so the principal is
+//!   (`MEDULLA_TENANT`; every verified carrier carries it), so the principal is
 //!   the boundary that matters today; the tenant stays inside the owner scope so
 //!   cross-tenant stays closed if engines ever serve more than one tenant. This is the
 //!   same least-privilege ownership the SQL catalog uses.
@@ -42,28 +42,28 @@
 //! session-control saga whose durable record is an opaque receipt; the endpoint
 //! configuration is never persisted, so there is no stored key shape to migrate.
 //!
-//! **Outbound verification at registration time (`EG-UNIFIED-DATA-PLANE-R002.1`).**
+//! **Outbound verification at registration time (`MEDULLA-UNIFIED-DATA-PLANE-R002.1`).**
 //! A `Sql` spec's DSN is checked against the existing SSRF-sensitive destination gate
-//! ([`eg_plan::federation_ssrf::check_sql_dsn`], already enforced at query time by
-//! `crates/eg-plan/src/federation.rs`) BEFORE the entry is inserted, so a disallowed
+//! ([`medulla_plan::federation_ssrf::check_sql_dsn`], already enforced at query time by
+//! `crates/medulla-plan/src/federation.rs`) BEFORE the entry is inserted, so a disallowed
 //! destination is refused at `RegisterForeignSource` time rather than only failing
 //! later when a plan tries to use it. Other [`ForeignSourceSpec`] variants are
 //! unaffected; their own outbound gates (`HttpJson`'s `validate_http_json_target`,
 //! `RemoteEngine`'s dial-time checks) run where they already ran before this change —
 //! unifying every variant's registration-time gate is tracked separately as
-//! `EG-UNIFIED-DATA-PLANE-R002.2`/`.3`.
+//! `MEDULLA-UNIFIED-DATA-PLANE-R002.2`/`.3`.
 
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use eg_plan::federation::{ForeignSourceRegistry, SharedForeignSource};
+use medulla_plan::federation::{ForeignSourceRegistry, SharedForeignSource};
 #[cfg(feature = "federation")]
-use eg_types::connector_pack::PackSourceKind;
-use eg_types::connector_pack::{
+use medulla_types::connector_pack::PackSourceKind;
+use medulla_types::connector_pack::{
     ConnectorPackSourceApprovalResult, PackSourceApproval, PackSourceRegistration,
 };
-use eg_types::contract::Digest256;
-use eg_types::wire::ForeignSourceSpec;
+use medulla_types::contract::Digest256;
+use medulla_types::wire::ForeignSourceSpec;
 use tokio::sync::RwLock;
 
 use super::access::{CarrierAuthority, GraphReadAuthority};
@@ -90,7 +90,7 @@ struct OwnedSpec {
 ///
 /// The descriptor carries no authority. `bind_for` compares it with both the
 /// owner catalog entry and the durable approval result before it can reach the
-/// trusted Rust callback seam in `eg-plan`.
+/// trusted Rust callback seam in `medulla-plan`.
 #[derive(Clone, Debug)]
 pub(crate) struct ForeignSourceBindingDescriptor {
     pub(crate) name: String,
@@ -121,10 +121,10 @@ impl OwnedForeignRegistry {
     #[cfg(feature = "result-cache")]
     pub(crate) fn install_fragment_cache(
         &mut self,
-        sources: std::collections::HashMap<String, eg_plan::federation_opt::SourceWatermark>,
+        sources: std::collections::HashMap<String, medulla_plan::federation_opt::SourceWatermark>,
     ) {
         self.registry.set_cache_scope(std::sync::Arc::new(
-            eg_plan::federation_opt::FragmentCacheScope::new(self.cache_salt.clone(), sources),
+            medulla_plan::federation_opt::FragmentCacheScope::new(self.cache_salt.clone(), sources),
         ));
     }
     /// The verified owner (tenant+principal) scope this registry was built for.
@@ -147,7 +147,7 @@ impl ForeignSourceCatalog {
     /// Record (or replace) `owner`'s source `name`. Another owner's entry under the
     /// same name is a different key, so it can be neither read nor overwritten here.
     ///
-    /// `EG-UNIFIED-DATA-PLANE-R002.1`: a `Sql` spec's DSN is checked against the
+    /// `MEDULLA-UNIFIED-DATA-PLANE-R002.1`: a `Sql` spec's DSN is checked against the
     /// outbound destination gate FIRST; a disallowed destination is refused (`Err`)
     /// and nothing is inserted, so an unverified endpoint never reaches the catalog.
     pub(crate) fn register(
@@ -395,7 +395,7 @@ impl ForeignSourceCatalog {
     /// without a verified carrier is refused rather than run with no scope.
     pub(crate) fn resolve_for_plan(
         &self,
-        ops: &[eg_plan::Op],
+        ops: &[medulla_plan::Op],
         caller: Option<&CarrierAuthority>,
         isolation: &IsolationLayer,
     ) -> Result<Option<OwnedForeignRegistry>, String> {
@@ -425,22 +425,22 @@ impl ForeignSourceCatalog {
     /// grant, known and unknown names both remain the executor's typed not-found response.
     fn plan_names_another_owners_source(
         &self,
-        ops: &[eg_plan::Op],
+        ops: &[medulla_plan::Op],
         caller: &CarrierAuthority,
         isolation: &IsolationLayer,
     ) -> bool {
         ops.iter().any(|op| match op {
-            eg_plan::Op::Foreign { name } => {
+            medulla_plan::Op::Foreign { name } => {
                 self.name_belongs_to_another_owner(name, caller, isolation)
             }
-            eg_plan::Op::ForeignScan { source, .. } => match source.as_ref() {
-                eg_types::wire::ForeignSourceSpec::Named { name } => {
+            medulla_plan::Op::ForeignScan { source, .. } => match source.as_ref() {
+                medulla_types::wire::ForeignSourceSpec::Named { name } => {
                     self.name_belongs_to_another_owner(name, caller, isolation)
                 }
                 _ => false,
             },
             #[cfg(feature = "text")]
-            eg_plan::Op::FuseRrf { branches, .. } => branches
+            medulla_plan::Op::FuseRrf { branches, .. } => branches
                 .iter()
                 .any(|branch| self.plan_names_another_owners_source(branch, caller, isolation)),
             _ => false,
@@ -496,10 +496,10 @@ impl ForeignSourceCatalog {
 /// caller-facing refusal text.
 pub(crate) async fn served_foreign_leg(
     state: &Arc<RwLock<ServerState>>,
-    plan: &eg_plan::Plan,
+    plan: &medulla_plan::Plan,
     read_authority: Option<&GraphReadAuthority>,
-    execution: Option<&eg_types::foreign_read::ForeignReadExecutionRef>,
-    executions: &[eg_types::foreign_read::ForeignReadExecutionRef],
+    execution: Option<&medulla_types::foreign_read::ForeignReadExecutionRef>,
+    executions: &[medulla_types::foreign_read::ForeignReadExecutionRef],
 ) -> Result<Option<OwnedForeignRegistry>, String> {
     let s = state.read().await;
     let caller = read_authority.and_then(GraphReadAuthority::carrier);
@@ -560,15 +560,15 @@ pub(crate) async fn served_foreign_leg(
         .resolve_for_plan(&plan.ops, caller, &s.isolation)
 }
 
-/// `EG-UNIFIED-DATA-PLANE-R002.1` — the registration-time outbound gate. A `Sql` spec's
-/// DSN must pass the same SSRF-sensitive destination check `crates/eg-plan/src/federation.rs`
+/// `MEDULLA-UNIFIED-DATA-PLANE-R002.1` — the registration-time outbound gate. A `Sql` spec's
+/// DSN must pass the same SSRF-sensitive destination check `crates/medulla-plan/src/federation.rs`
 /// already runs at query time, so a disallowed destination is refused before persistence
 /// rather than only when a plan later tries to use it. Other variants are untouched here;
 /// their own gates still run where they ran before (see the module doc).
 fn verify_outbound_before_register(spec: &ForeignSourceSpec) -> Result<(), String> {
     #[cfg(feature = "federation-sql")]
     if let ForeignSourceSpec::Sql { dsn, .. } = spec {
-        return eg_plan::federation_ssrf::check_sql_dsn(dsn);
+        return medulla_plan::federation_ssrf::check_sql_dsn(dsn);
     }
     let _ = spec;
     Ok(())
@@ -651,7 +651,7 @@ mod tests {
         ForeignSourceSpec::HttpJson {
             url: url.into(),
             json_path: "data".into(),
-            field_map: eg_types::wire::HttpFieldMap {
+            field_map: medulla_types::wire::HttpFieldMap {
                 id: "id".into(),
                 score: None,
                 columns: Default::default(),
@@ -659,8 +659,8 @@ mod tests {
         }
     }
 
-    fn foreign_plan(name: &str) -> Vec<eg_plan::Op> {
-        vec![eg_plan::Op::Foreign { name: name.into() }]
+    fn foreign_plan(name: &str) -> Vec<medulla_plan::Op> {
+        vec![medulla_plan::Op::Foreign { name: name.into() }]
     }
 
     #[test]
@@ -740,7 +740,7 @@ mod tests {
         let catalog = ForeignSourceCatalog::default();
         let refused = catalog.resolve_for_plan(&foreign_plan("src"), None, &IsolationLayer::new());
         assert!(matches!(refused, Err(ref e) if e.starts_with("ACCESS_DENIED")));
-        let local = vec![eg_plan::Op::Scan {
+        let local = vec![medulla_plan::Op::Scan {
             label: "Doc".into(),
         }];
         assert!(matches!(
@@ -749,8 +749,8 @@ mod tests {
         ));
     }
 
-    /// `EG-UNIFIED-DATA-PLANE-R002.1`: a `Sql` spec's DSN runs through the same
-    /// SSRF-sensitive destination gate `crates/eg-plan/src/federation.rs` runs at
+    /// `MEDULLA-UNIFIED-DATA-PLANE-R002.1`: a `Sql` spec's DSN runs through the same
+    /// SSRF-sensitive destination gate `crates/medulla-plan/src/federation.rs` runs at
     /// query time, but now BEFORE the entry is inserted into the catalog.
     #[cfg(feature = "federation-sql")]
     mod outbound_verification {
@@ -766,14 +766,14 @@ mod tests {
             }
         }
 
-        // spec: EG-UNIFIED-DATA-PLANE-R002
-        // spec: EG-UNIFIED-DATA-PLANE-R002.1
+        // spec: MEDULLA-UNIFIED-DATA-PLANE-R002
+        // spec: MEDULLA-UNIFIED-DATA-PLANE-R002.1
         #[test]
         fn a_disallowed_sql_destination_is_refused_and_never_persisted() {
             let _allow = crate::test_support::FederationAllowGuard::blocking("");
             let a = carrier("agent-a");
             let catalog = ForeignSourceCatalog::default();
-            // Same fixture `crates/eg-plan/src/federation_ssrf.rs` already proves is
+            // Same fixture `crates/medulla-plan/src/federation_ssrf.rs` already proves is
             // refused: loopback on a non-default port, no allow-list entry.
             let err = catalog
                 .register(
@@ -790,14 +790,14 @@ mod tests {
             );
         }
 
-        // spec: EG-UNIFIED-DATA-PLANE-R002
-        // spec: EG-UNIFIED-DATA-PLANE-R002.1
+        // spec: MEDULLA-UNIFIED-DATA-PLANE-R002
+        // spec: MEDULLA-UNIFIED-DATA-PLANE-R002.1
         #[test]
         fn an_allowed_sql_destination_still_registers() {
             let _allow = crate::test_support::FederationAllowGuard::blocking("127.0.0.1:5432");
             let a = carrier("agent-a");
             let catalog = ForeignSourceCatalog::default();
-            // Same fixture `crates/eg-plan/src/federation_ssrf.rs` already proves is
+            // Same fixture `crates/medulla-plan/src/federation_ssrf.rs` already proves is
             // admitted: loopback with an explicit exact host:port allowlist entry.
             catalog
                 .register(

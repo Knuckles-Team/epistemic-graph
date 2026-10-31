@@ -3,12 +3,12 @@ use super::*;
 /// The read-only resource tables a reservation status query scans.
 pub(crate) struct ResourceReservationStatusTables {
     pub(crate) reservations:
-        eg_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
+        medulla_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
     pub(crate) tenant_index:
-        eg_storage::ScopedOwnerTable<(&'static str, &'static str, &'static str), &'static str>,
-    pub(crate) hosts: eg_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
+        medulla_storage::ScopedOwnerTable<(&'static str, &'static str, &'static str), &'static str>,
+    pub(crate) hosts: medulla_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
     pub(crate) disk_policies:
-        eg_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
+        medulla_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
 }
 
 pub(crate) fn open_resource_reservation_status_tables(
@@ -98,7 +98,7 @@ pub(crate) fn resolve_resource_reservation_status_row(
     reservation_id: &str,
     graph: &str,
     request: &ResourceReservationStatusRequest,
-    reservations: &eg_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
+    reservations: &medulla_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<ResourceReservationStatusRowOutcome, String> {
     let Some(row) = reservations.get((graph, reservation_id))? else {
@@ -132,7 +132,7 @@ pub(crate) struct ResourceReservationStatusRowContext<'row, 'crypto> {
     pub(crate) cursor: &'row str,
     pub(crate) request: &'row ResourceReservationStatusRequest,
     pub(crate) reservations:
-        &'row eg_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
+        &'row medulla_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
     pub(crate) crypto: DurableCrypto<'crypto>,
 }
 
@@ -210,8 +210,8 @@ pub(crate) fn apply_resource_reservation_status_row_outcome(
 }
 
 pub(crate) fn scan_resource_reservation_status_rows(
-    tenant_index: &eg_storage::ScopedOwnerTable<(&str, &str, &str), &str>,
-    reservations: &eg_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
+    tenant_index: &medulla_storage::ScopedOwnerTable<(&str, &str, &str), &str>,
+    reservations: &medulla_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
     graph: &str,
     cursor: &str,
     request: &ResourceReservationStatusRequest,
@@ -254,7 +254,7 @@ pub(crate) fn scan_resource_reservation_status_rows(
 }
 
 pub(crate) fn resource_reservation_status_host(
-    hosts: &eg_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
+    hosts: &medulla_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
     graph: &str,
     request: &ResourceReservationStatusRequest,
     crypto: DurableCrypto<'_>,
@@ -285,7 +285,7 @@ pub(crate) fn decode_resource_disk_policy_row(
 }
 
 pub(crate) fn resource_reservation_status_host_policies(
-    disk_policies: &eg_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
+    disk_policies: &medulla_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
     graph: &str,
     host: Option<&DurableResourceHost>,
     crypto: DurableCrypto<'_>,

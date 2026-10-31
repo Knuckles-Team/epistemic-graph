@@ -1,5 +1,5 @@
 //! Direct AddNode admission of versioned harness-component writes
-//! (EG-ORCH-VOCAB-R801.3).
+//! (MEDULLA-ORCH-VOCAB-R801.3).
 
 use super::{decode_props, direct_add_node};
 use crate::graph::GraphCore;
@@ -12,7 +12,7 @@ fn harness_version_props(
     valid_from: u64,
     confidence: f64,
 ) -> serde_json::Map<String, serde_json::Value> {
-    let digest = eg_types::orchestration::HarnessComponentVersion::content_digest(content_ref);
+    let digest = medulla_types::orchestration::HarnessComponentVersion::content_digest(content_ref);
     let mut props = serde_json::Map::new();
     props.insert("_harness_component".into(), serde_json::json!(true));
     props.insert("component_id".into(), serde_json::json!(component_id));
@@ -31,7 +31,7 @@ fn harness_version_props(
 fn harness_node_id(component_id: &str, content_ref: &str) -> String {
     format!(
         "harness-component:{component_id}:{}",
-        eg_types::orchestration::HarnessComponentVersion::content_digest(content_ref)
+        medulla_types::orchestration::HarnessComponentVersion::content_digest(content_ref)
     )
 }
 
@@ -55,7 +55,7 @@ fn admitted_blob(method: &Method, core: &GraphCore, tx_now: u64) -> Vec<u8> {
     properties_msgpack
 }
 
-// spec: EG-ORCH-VOCAB-R801.3
+// spec: MEDULLA-ORCH-VOCAB-R801.3
 #[test]
 fn harness_component_write_stamps_and_links() {
     let core = GraphCore::new();

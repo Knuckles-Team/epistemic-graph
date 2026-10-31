@@ -1,6 +1,6 @@
 //! Cluster node-info store — durable `node_id -> {cluster_id, member_identity,
 //! raft_addr, advertised_client_addr, TLS/certificate metadata}` map
-//! (CONCEPT:EG-KG.sharding.cluster-topology,
+//! (CONCEPT:MEDULLA-KG.sharding.cluster-topology,
 //! ADR-1 / W1.1, `reports/wave1/ADR-scale-trio.md` §ADR-1).
 //!
 //! ## Why this exists
@@ -30,7 +30,7 @@ use redb::{ReadableTable, ReadableTableMetadata, TableDefinition};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-/// The two owner tables of `OwnerLayout::NodeInfo` (RF-RULING-004). `eg-storage`
+/// The two owner tables of `OwnerLayout::NodeInfo` (RF-RULING-004). `medulla-storage`
 /// declares the layout; this module only names the tables it holds.
 /// `node_id -> msgpack(NodeInfo)`. One row per cluster node — bounded by
 /// [`MAX_NODE_INFO_ENTRIES`], never per-tenant data.
@@ -50,7 +50,7 @@ const NODE_INFO_SCOPE_INCARNATION: &str = "node-info:v1";
 /// this digest remains the member's immutable cluster-scoped identity.
 pub(crate) fn member_identity_for(cluster_id: &str, node_id: u64) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph/member-identity/v1\0");
+    digest.update(b"medulla/member-identity/v1\0");
     digest.update((cluster_id.len() as u64).to_be_bytes());
     digest.update(cluster_id.as_bytes());
     digest.update(node_id.to_be_bytes());
@@ -63,7 +63,7 @@ struct NodeInfoMeta {
     generation: u64,
 }
 
-/// One cluster node's self-reported identity (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1).
+/// One cluster node's self-reported identity (CONCEPT:MEDULLA-KG.sharding.cluster-topology, ADR-1).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeInfo {
     /// Stable identity of the configured Raft cluster. This is an operator /
@@ -75,10 +75,10 @@ pub struct NodeInfo {
     #[serde(default)]
     pub member_identity: String,
     /// This node's Raft-RPC `host:port` — the SAME address it advertises in
-    /// `EPISTEMIC_GRAPH_RAFT_PEERS`.
+    /// `MEDULLA_RAFT_PEERS`.
     pub raft_addr: String,
     /// This node's client-reachable address for the SERVED wire protocol
-    /// (`EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR`) — what `Method::ClusterMembers`
+    /// (`MEDULLA_ADVERTISED_CLIENT_ADDR`) — what `Method::ClusterMembers`
     /// and `PlacementRoute.endpoints` hand back to a discovering client.
     pub advertised_client_addr: String,
     /// TLS server name (SNI / certificate hostname) a client should present when
@@ -230,19 +230,19 @@ fn validate_legacy_node_info(info: &NodeInfo) -> Result<(), String> {
 }
 
 fn decode_node_info(bytes: &[u8]) -> Result<NodeInfo, String> {
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_NODE_INFO_FIELD_BYTES * 4,
             32,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| "node info row is invalid or exceeds resource limits".to_string())
 }
 
 fn load_node_info_entries(
-    durable: &crate::sidecar_store::SidecarStore<eg_storage::NodeInfoOwner>,
+    durable: &crate::sidecar_store::SidecarStore<medulla_storage::NodeInfoOwner>,
 ) -> Result<HashMap<u64, NodeInfo>, String> {
     let mut entries = HashMap::new();
     let read = durable.read()?;
@@ -267,7 +267,7 @@ fn load_node_info_entries(
 }
 
 fn load_node_info_metadata(
-    durable: &crate::sidecar_store::SidecarStore<eg_storage::NodeInfoOwner>,
+    durable: &crate::sidecar_store::SidecarStore<medulla_storage::NodeInfoOwner>,
     entry_count: usize,
 ) -> Result<(Option<String>, u64), String> {
     let read = durable.read()?;
@@ -276,9 +276,9 @@ fn load_node_info_metadata(
         .get(NODE_INFO_META_KEY)
         .map_err(|e| e.to_string())?
         .map(|value| {
-            eg_types::msgpack::decode_bounded::<NodeInfoMeta>(
+            medulla_types::msgpack::decode_bounded::<NodeInfoMeta>(
                 value.value(),
-                eg_types::msgpack::MsgpackLimits::new(1024, 16, 8),
+                medulla_types::msgpack::MsgpackLimits::new(1024, 16, 8),
             )
             .map_err(|_| "node info metadata is invalid".to_string())
         })
@@ -301,7 +301,7 @@ fn load_node_info_metadata(
 }
 
 /// Durable, replicated (via deterministic command re-execution — see module docs)
-/// `node_id -> `[`NodeInfo`] map (CONCEPT:EG-KG.sharding.cluster-topology).
+/// `node_id -> `[`NodeInfo`] map (CONCEPT:MEDULLA-KG.sharding.cluster-topology).
 ///
 /// Thread-safe (an internal `RwLock`): `all`/`get` read the in-memory cache while
 /// `upsert` writes through to the durable table when backed. Mirrors
@@ -310,10 +310,10 @@ fn load_node_info_metadata(
 /// group-commit writer's hot path.
 pub struct NodeInfoStore {
     entries: RwLock<HashMap<u64, NodeInfo>>,
-    durable: Option<crate::sidecar_store::SidecarStore<eg_storage::NodeInfoOwner>>,
+    durable: Option<crate::sidecar_store::SidecarStore<medulla_storage::NodeInfoOwner>>,
     cluster_id: RwLock<Option<String>>,
     /// Local monotonic generation counter, bumped on every successful `upsert`
-    /// (CONCEPT:EG-KG.sharding.cluster-topology). Since an upsert replicates identically to every
+    /// (CONCEPT:MEDULLA-KG.sharding.cluster-topology). Since an upsert replicates identically to every
     /// node (see module docs), this counter converges cluster-wide too. It is an
     /// internal cache-invalidation signal, not part of the `ClusterMembers` wire
     /// result and not a per-partition routing fence (that remains
@@ -334,7 +334,7 @@ impl NodeInfoStore {
     }
 
     /// Open (or create) a durable store at `node_info.redb` under `persist_dir`
-    /// and load every row into memory (CONCEPT:EG-KG.sharding.cluster-topology). A fresh dir yields an
+    /// and load every row into memory (CONCEPT:MEDULLA-KG.sharding.cluster-topology). A fresh dir yields an
     /// empty store — `Method::ClusterMembers` answers an empty topology until a
     /// node self-reports.
     pub fn open(persist_dir: &str) -> Result<Self, String> {
@@ -375,7 +375,7 @@ impl NodeInfoStore {
         })
     }
 
-    /// Upsert `info` (CONCEPT:EG-KG.sharding.cluster-topology). Idempotent: re-reporting the same
+    /// Upsert `info` (CONCEPT:MEDULLA-KG.sharding.cluster-topology). Idempotent: re-reporting the same
     /// `node_id` (e.g. on every restart) simply overwrites its row. Writing
     /// through to the durable table when backed.
     pub fn upsert(&self, info: NodeInfo) -> Result<(), String> {
@@ -464,7 +464,7 @@ impl NodeInfoStore {
 
     /// Resolve `voters ++ learners` to their known [`NodeInfo`] rows, LEADER
     /// FIRST, then the remaining voters (sorted), then learners (sorted)
-    /// (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 — shared by `Method::ClusterMembers`'
+    /// (CONCEPT:MEDULLA-KG.sharding.cluster-topology, ADR-1 — shared by `Method::ClusterMembers`'
     /// per-group member list and `PlacementRoute.endpoints`, so both surfaces
     /// agree on ordering). A member with no durable self-report yet is skipped
     /// (best effort — its endpoint is genuinely unknown), never fabricated.
@@ -508,7 +508,7 @@ impl NodeInfoStore {
 
 /// Stream every row of one owner table off `read`'s MVCC snapshot into
 /// `destination`'s table of the same name, verbatim, returning the row count.
-/// Bundle the durable cluster-topology store (CONCEPT:EG-KG.sharding.cluster-topology) into
+/// Bundle the durable cluster-topology store (CONCEPT:MEDULLA-KG.sharding.cluster-topology) into
 /// an online backup.
 ///
 /// `node_info.redb` was omitted from every bundle before this: the backup path holds
@@ -540,7 +540,7 @@ impl super::durable_stores::BundledStoreSource for NodeInfoStore {
                     .map_err(|e| e.to_string())?,
             );
         drop(read);
-        let counts = eg_storage::backup_recovery_store(durable.kernel(), destination)?;
+        let counts = medulla_storage::backup_recovery_store(durable.kernel(), destination)?;
         Ok(rows.saturating_add(counts.batches))
     }
 
@@ -641,7 +641,7 @@ mod tests {
 
     #[test]
     fn durable_store_survives_reopen() {
-        let dir = std::env::temp_dir().join(format!("eg-node-info-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-node-info-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         {
@@ -661,7 +661,7 @@ mod tests {
     #[test]
     fn durable_generation_advances_across_repeated_updates_and_restart() {
         let dir =
-            std::env::temp_dir().join(format!("eg-node-info-generation-{}", std::process::id()));
+            std::env::temp_dir().join(format!("medulla-node-info-generation-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         {

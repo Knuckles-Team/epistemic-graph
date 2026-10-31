@@ -13,8 +13,8 @@
 
 use std::sync::Arc;
 
-use eg_types::identity::{IdentityOp, IdentityStamp};
-use eg_types::result_contract::security::Identity as IdentityResult;
+use medulla_types::identity::{IdentityOp, IdentityStamp};
+use medulla_types::result_contract::security::Identity as IdentityResult;
 use tokio::sync::RwLock;
 
 use super::elevation::ElevationStampAuthority;
@@ -57,7 +57,7 @@ pub(crate) async fn stamp_identity(
         )
     };
     store
-        .authorize(op, &derived, &eg_capabilities::scopes::ScopeRegistry)
+        .authorize(op, &derived, &medulla_capabilities::scopes::ScopeRegistry)
         .map_err(|refusal| refusal.to_string())?;
     let mut owned = op.clone();
     let now_ms = super::authoritative_now_ms();
@@ -113,13 +113,13 @@ fn respond(
     req_id: u64,
     op: &IdentityOp,
     stamp: &IdentityStamp,
-    outcome: Result<eg_types::identity::IdentityReply<eg_types::acl::RequestContextClaims>, String>,
+    outcome: Result<medulla_types::identity::IdentityReply<medulla_types::acl::RequestContextClaims>, String>,
 ) -> Response {
     match outcome {
         Ok(reply) => {
             if op.is_mutation() {
                 tracing::info!(
-                    target: "epistemic_graph::identity::audit",
+                    target: "medulla::identity::audit",
                     op = op.name(),
                     actor = %stamp.actor.principal_id,
                     "identity op committed"
@@ -132,7 +132,7 @@ fn respond(
         }
         Err(error) => {
             tracing::warn!(
-                target: "epistemic_graph::identity::audit",
+                target: "medulla::identity::audit",
                 op = op.name(),
                 actor = %stamp.actor.principal_id,
                 %error,

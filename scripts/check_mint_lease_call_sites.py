@@ -2,7 +2,7 @@
 """Fail CI when `mint_policy_decision_lease` grows a second production call site.
 
 GRAPH-POLICY-LEASE-CONTRACT.md §3 hardening (`MintAuthorization`,
-`crates/eg-core/src/isolation.rs`) closes the caller-supplied-claims gap by
+`crates/medulla-core/src/isolation.rs`) closes the caller-supplied-claims gap by
 requiring a cryptographic capability token instead of a raw
 `RequestContextClaims` reference. That control is only as good as the claim
 that exactly one production code path ever calls
@@ -85,7 +85,7 @@ _CALL_SITE = re.compile(r"\.mint_policy_decision_lease\s*\(")
 NO_ENCLOSING_FUNCTION = "<no enclosing fn>"
 
 # Directories this repo's own Rust sources live under (mirrors what `cargo
-# check -p epistemic-graph` / `-p eg-core` actually compile — see
+# check -p medulla-engine` / `-p medulla-core` actually compile — see
 # `scripts/check_current_only_architecture.py` for the same read-the-shipped-
 # tree convention this gate follows).
 _SCAN_DIRS = ("src", "crates")

@@ -16,9 +16,9 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
-use eg_core::graph::GraphCore;
-use eg_numeric::decision::adapter::AdapterKernel;
-use eg_types::decision::statistical::retrieval_adapter::AdapterFitted;
+use medulla_core::graph::GraphCore;
+use medulla_numeric::decision::adapter::AdapterKernel;
+use medulla_types::decision::statistical::retrieval_adapter::AdapterFitted;
 
 use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::persistence::decision_jobs::decode_artifact;
@@ -55,7 +55,7 @@ impl ServedAdapter {
     /// Decode a checked body for serving under its content `digest`.
     pub(crate) fn for_body(
         digest: &str,
-        body: &eg_types::decision::statistical::retrieval_adapter::QueryAdapterBody,
+        body: &medulla_types::decision::statistical::retrieval_adapter::QueryAdapterBody,
     ) -> Result<Self, String> {
         Ok(Self {
             digest: digest.to_string(),
@@ -178,7 +178,7 @@ pub(crate) async fn served_plan_adapter(
     state: &Arc<tokio::sync::RwLock<ServerState>>,
     graph: &str,
     authority: Option<&crate::server::access::GraphReadAuthority>,
-    plan: &eg_plan::Plan,
+    plan: &medulla_plan::Plan,
 ) -> Option<Arc<ServedAdapter>> {
     if !plan_ranks_by_vector(&plan.ops) {
         return None;
@@ -190,13 +190,13 @@ pub(crate) async fn served_plan_adapter(
 /// `plan` with every vector rank re-aimed by `adapter` (unchanged without one).
 #[cfg(feature = "query")]
 pub(crate) fn adapt_plan(
-    plan: eg_plan::Plan,
+    plan: medulla_plan::Plan,
     adapter: Option<Arc<ServedAdapter>>,
-) -> eg_plan::Plan {
+) -> medulla_plan::Plan {
     match adapter {
         Some(adapter) => {
             let embedder = crate::server::handlers::query::uql_text_embedder();
-            eg_plan::Plan::new(rewrite_ops(plan.ops, &adapter, embedder))
+            medulla_plan::Plan::new(rewrite_ops(plan.ops, &adapter, embedder))
         }
         None => plan,
     }
@@ -208,11 +208,11 @@ pub(crate) fn adapt_plan(
 /// it reported before.
 #[cfg(feature = "query")]
 fn rewrite_ops(
-    ops: Vec<eg_plan::Op>,
+    ops: Vec<medulla_plan::Op>,
     adapter: &ServedAdapter,
-    embedder: Option<&dyn eg_plan::TextEmbedder>,
-) -> Vec<eg_plan::Op> {
-    use eg_plan::Op;
+    embedder: Option<&dyn medulla_plan::TextEmbedder>,
+) -> Vec<medulla_plan::Op> {
+    use medulla_plan::Op;
     let adapt = |query: Vec<f32>| Op::Rank {
         query: adapter.adapt(&query).unwrap_or(query),
     };
@@ -237,8 +237,8 @@ fn rewrite_ops(
 
 /// Whether a plan ranks by vector anywhere (only then is an adapter looked up).
 #[cfg(feature = "query")]
-pub(crate) fn plan_ranks_by_vector(ops: &[eg_plan::Op]) -> bool {
-    use eg_plan::Op;
+pub(crate) fn plan_ranks_by_vector(ops: &[medulla_plan::Op]) -> bool {
+    use medulla_plan::Op;
     ops.iter().any(|op| match op {
         Op::Rank { .. } | Op::RankEmbed { .. } => true,
         Op::FuseRrf { branches, .. } => branches.iter().any(|b| plan_ranks_by_vector(b)),

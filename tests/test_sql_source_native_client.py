@@ -15,16 +15,16 @@ from typing import Any, cast
 import msgpack
 import pytest
 
-import epistemic_graph.client as client_module
-from epistemic_graph.client import (
-    EpistemicGraphClient,
+import medulla.client as client_module
+from medulla.client import (
+    MedullaClient,
     QueryClient,
     SqlSourceBatchPreparation,
     _canonical_method_body,
     _snapshot_sql_source_input,
     _sql_source_native_codec,
 )
-from epistemic_graph.client_capabilities import (
+from medulla.client_capabilities import (
     SQL_SOURCE_PREPARATION_CAPABILITY,
     require_client_capabilities,
 )
@@ -210,7 +210,7 @@ def test_async_cancellation_retains_worker_and_snapshot(
         return b"discarded"
 
     async def exercise() -> None:
-        client = object.__new__(EpistemicGraphClient)
+        client = object.__new__(MedullaClient)
         client._sql_source_prepare_lock = asyncio.Lock()
         monkeypatch.setattr(client, "_build_sql_source_payload", worker)
         params = {"batch": {"rows": [["before"]]}}
@@ -255,6 +255,6 @@ def test_sql_source_batch_sends_through_the_generated_contract_function() -> Non
             return {"accepted": True}
 
     prepared = SqlSourceBatchPreparation(b"checked", "s", "m", "b", b"body")
-    query = QueryClient(cast(EpistemicGraphClient, Transport()))
+    query = QueryClient(cast(MedullaClient, Transport()))
     assert asyncio.run(query.sql_source_batch(prepared)) == {"accepted": True}
     assert calls == [("SqlSourceBatch", {"batch": b"checked"})]

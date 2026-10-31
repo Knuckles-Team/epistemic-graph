@@ -32,7 +32,7 @@ def test_exact_fault_checker_reads_decomposed_contracts() -> None:
 
 def test_fault_checker_rejects_comment_or_string_marker_spoof(monkeypatch) -> None:
     module = _checker_module()
-    relative = "crates/eg-types/src/mutation_batch.rs"
+    relative = "crates/medulla-types/src/mutation_batch.rs"
     source = module._read_rust_module(relative)
     marker = "pub enum MutationCommitPhase"
     source = source.replace(marker, "pub enum RenamedCommitPhase", 1)
@@ -48,7 +48,7 @@ def test_fault_checker_rejects_retired_request_binding_even_with_decoys(
     monkeypatch,
 ) -> None:
     module = _checker_module()
-    relative = "crates/eg-types/src/mutation_batch.rs"
+    relative = "crates/medulla-types/src/mutation_batch.rs"
     source = module._read_rust_module(relative)
     source = source.replace(
         "batch_matches_request(batch, spec.request_id)",
@@ -84,7 +84,7 @@ fn decoy_fault_markers() {
 def test_store_checker_binds_commit_to_saga_call_path(monkeypatch) -> None:
     module = _checker_module()
     original = module._read
-    relative = "crates/eg-transaction/src/saga.rs"
+    relative = "crates/medulla-transaction/src/saga.rs"
     source = original(relative)
     marker = "commit(write, batch)?;"
     # `saga.rs` calls this exact shape from more than one call site (the

@@ -19,27 +19,27 @@ def _contract_source() -> str:
     return "\n".join(
         _read(path)
         for path in (
-            "crates/eg-types/src/mutation_batch.rs",
-            "crates/eg-types/src/mutation_batch/model/batch.rs",
-            "crates/eg-types/src/mutation_batch/model/identity.rs",
-            "crates/eg-types/src/mutation_batch/model/records.rs",
+            "crates/medulla-types/src/mutation_batch.rs",
+            "crates/medulla-types/src/mutation_batch/model/batch.rs",
+            "crates/medulla-types/src/mutation_batch/model/identity.rs",
+            "crates/medulla-types/src/mutation_batch/model/records.rs",
         )
     )
 
 
 def _store_source() -> str:
-    # crates/eg-mutation-store is deleted. The live bare/ledger table
-    # definitions now live in eg-storage/src/tables.rs and
-    # eg-transaction/src/tables.rs. The physical storage-kernel schema marker
-    # lives in eg-storage/src/physical/incarnation.rs (v2), while the `_v3`
+    # crates/medulla-mutation-store is deleted. The live bare/ledger table
+    # definitions now live in medulla-storage/src/tables.rs and
+    # medulla-transaction/src/tables.rs. The physical storage-kernel schema marker
+    # lives in medulla-storage/src/physical/incarnation.rs (v2), while the `_v3`
     # retired-prototype candidate family lives in physical/root.rs.
     return "\n".join(
         _read(path)
         for path in (
-            "crates/eg-storage/src/tables.rs",
-            "crates/eg-transaction/src/tables.rs",
-            "crates/eg-storage/src/physical/incarnation.rs",
-            "crates/eg-storage/src/physical/root.rs",
+            "crates/medulla-storage/src/tables.rs",
+            "crates/medulla-transaction/src/tables.rs",
+            "crates/medulla-storage/src/physical/incarnation.rs",
+            "crates/medulla-storage/src/physical/root.rs",
         )
     )
 
