@@ -61,7 +61,9 @@ def test_public_connector_names_are_not_private_references(tmp_path: Path) -> No
     (tmp_path / path).parent.mkdir(parents=True)
     (tmp_path / path).write_text(
         "GitLab pipelines use the gitlab connector and gitlab-mcp access contract.\n"
-        "The product is GitLab. GitLab: a public connector competency.\n",
+        "The product is GitLab. GitLab: a public connector competency.\n"
+        "Case file `tests/connector_competency/cases/gitlab.json` and recording\n"
+        "`tests/connector_competency/recordings/gitlab/single.json` are paths.\n",
         encoding="utf-8",
     )
     assert _reference_errors(tmp_path, path) == []
