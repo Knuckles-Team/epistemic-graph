@@ -1,6 +1,6 @@
 use super::*;
 
-// ── EXPLAIN surfaces (CONCEPT:EG-KG.query.plan-dag, E5 phase 4) ──────────────────────
+// ── EXPLAIN surfaces (CONCEPT:MEDULLA-KG.query.plan-dag, E5 phase 4) ──────────────────────
 
 /// The RLS-filtered snapshot [`rls_snapshot`] builds, without that fn's `result-cache`
 /// gating (the EXPLAIN surfaces are diagnostics-only and never participate in the
@@ -21,9 +21,9 @@ pub(crate) fn explain_snapshot(
 }
 
 /// `EXPLAIN PLAN` — serialize `plan` as a `PlanDag` before/after the DAG-aware cost
-/// optimizer (`eg_plan::optimize_dag`), annotated per-node with the SAME plan-time
-/// cost/cardinality estimate (`eg_plan::ModalityCardinality`) the optimizer reordered on,
-/// plus the active rule set (`eg_plan::cost_opt_rule_names()`). Pure diagnostics — no
+/// optimizer (`medulla_plan::optimize_dag`), annotated per-node with the SAME plan-time
+/// cost/cardinality estimate (`medulla_plan::ModalityCardinality`) the optimizer reordered on,
+/// plus the active rule set (`medulla_plan::cost_opt_rule_names()`). Pure diagnostics — no
 /// execution, and no result rows are ever computed (GOC-12 acceptance gate 4: an
 /// unbounded/uncosted EXPLAIN would tell an operator *that* a rewrite happened without
 /// proving *why* it is cheaper).
@@ -32,15 +32,15 @@ pub(crate) fn explain_snapshot(
 /// caller, so every estimate here (candidate counts, selectivity, CPU/IO) is scoped to
 /// what that agent may see — never the full unfiltered store — exactly mirroring the
 /// authorize-before-rank invariant `run_unified`'s executor already enforces on actual
-/// result rows (see `rank_op`'s candidate-allowlist doc in `eg-plan/src/exec.rs`).
+/// result rows (see `rank_op`'s candidate-allowlist doc in `medulla-plan/src/exec.rs`).
 #[cfg(feature = "query")]
 pub(crate) fn explain_plan(
-    plan: eg_plan::Plan,
+    plan: medulla_plan::Plan,
     view: &crate::graph::GraphView,
-    semantic: &eg_core::compute::semantic::SemanticStore,
+    semantic: &medulla_core::compute::semantic::SemanticStore,
 ) -> Result<crate::protocol::ExplainPlanResult, String> {
     use crate::protocol::{ExplainNodeWire, ExplainPlanResult};
-    use eg_plan::{Cardinality, ModalityCardinality, PlanCtx, PlanStats};
+    use medulla_plan::{Cardinality, ModalityCardinality, PlanCtx, PlanStats};
 
     // Keep this byte contract identical to the foreign-read query binder: a
     // host can obtain the authoritative digest from ExplainPlan without
@@ -55,7 +55,7 @@ pub(crate) fn explain_plan(
     /// diagnostics-only surface, so a best-effort annotation beats refusing to EXPLAIN at
     /// all over a shape the optimizer itself already tolerates the same way elsewhere.
     fn to_wire(
-        dag: &eg_plan::PlanDag,
+        dag: &medulla_plan::PlanDag,
         card: &ModalityCardinality,
         ctx: &PlanCtx,
     ) -> Vec<ExplainNodeWire> {
@@ -92,13 +92,13 @@ pub(crate) fn explain_plan(
 
     let ctx = PlanCtx::new(view, semantic);
     let card = ModalityCardinality::new(PlanStats::collect(&ctx));
-    let before = eg_plan::PlanDag::from(plan);
-    let after = eg_plan::optimize_dag(&before, &ctx);
+    let before = medulla_plan::PlanDag::from(plan);
+    let after = medulla_plan::optimize_dag(&before, &ctx);
     Ok(ExplainPlanResult {
         plan_digest: Some(plan_digest),
         before: to_wire(&before, &card, &ctx),
         after: to_wire(&after, &card, &ctx),
-        applied_rules: eg_plan::cost_opt_rule_names()
+        applied_rules: medulla_plan::cost_opt_rule_names()
             .into_iter()
             .map(str::to_string)
             .collect(),
@@ -108,7 +108,7 @@ pub(crate) fn explain_plan(
 /// Project the governed locus onto its DAG-safe wire mirror.
 #[cfg(feature = "epistemic")]
 pub(crate) fn evidence_locus_wire(
-    locus: &eg_modality::EvidenceLocus,
+    locus: &medulla_modality::EvidenceLocus,
 ) -> crate::protocol::EvidenceLocusWire {
     use crate::protocol::EvidenceLocusWire;
     EvidenceLocusWire {
@@ -122,10 +122,10 @@ pub(crate) fn evidence_locus_wire(
 
 #[cfg(feature = "epistemic")]
 fn evidence_resource_wire(
-    subject: &eg_modality::ResourceId,
+    subject: &medulla_modality::ResourceId,
 ) -> crate::protocol::EvidenceResourceWire {
     use crate::protocol::EvidenceResourceWire;
-    use eg_modality::ResourceId;
+    use medulla_modality::ResourceId;
     match subject {
         ResourceId::Artifact(id) => EvidenceResourceWire::Artifact(id.as_ref().to_string()),
         ResourceId::Occurrence(id) => EvidenceResourceWire::Occurrence(id.as_ref().to_string()),
@@ -140,9 +140,9 @@ fn evidence_resource_wire(
 
 #[cfg(feature = "epistemic")]
 fn evidence_address_wire(
-    address: &eg_modality::EvidenceAddress,
+    address: &medulla_modality::EvidenceAddress,
 ) -> crate::protocol::EvidenceAddressWire {
-    use eg_modality::EvidenceAddress;
+    use medulla_modality::EvidenceAddress;
     if matches!(
         address,
         EvidenceAddress::CharacterRange { .. }
@@ -158,10 +158,10 @@ fn evidence_address_wire(
 
 #[cfg(feature = "epistemic")]
 fn evidence_address_wire_document(
-    address: &eg_modality::EvidenceAddress,
+    address: &medulla_modality::EvidenceAddress,
 ) -> crate::protocol::EvidenceAddressWire {
     use crate::protocol::EvidenceAddressWire;
-    use eg_modality::EvidenceAddress;
+    use medulla_modality::EvidenceAddress;
     match address {
         EvidenceAddress::CharacterRange { start, end } => EvidenceAddressWire::CharacterRange {
             start: *start,
@@ -212,10 +212,10 @@ fn evidence_address_wire_document(
 
 #[cfg(feature = "epistemic")]
 fn evidence_address_wire_runtime(
-    address: &eg_modality::EvidenceAddress,
+    address: &medulla_modality::EvidenceAddress,
 ) -> crate::protocol::EvidenceAddressWire {
     use crate::protocol::EvidenceAddressWire;
-    use eg_modality::EvidenceAddress;
+    use medulla_modality::EvidenceAddress;
     match address {
         EvidenceAddress::VideoTimeRange { start_ms, end_ms } => {
             EvidenceAddressWire::VideoTimeRange {
@@ -262,7 +262,7 @@ fn evidence_address_wire_runtime(
 }
 
 /// `EXPLAIN PROVENANCE` — run `plan` and, for each result row, resolve its EVIDENCE-FOR
-/// provenance over the `KnowledgeSet` (E3) row shape (CONCEPT:EG-KG.query.knowledge-set),
+/// provenance over the `KnowledgeSet` (E3) row shape (CONCEPT:MEDULLA-KG.query.knowledge-set),
 /// reusing the SAME belief-substrate resolution `Op::EvidenceFor` runs, PLUS (X1,
 /// CONCEPT:E4) the row's own located `evidence_refs` `KnowledgeSet::from_rowset`
 /// already resolved. With `epistemic` off, every row's `source_refs`/`evidence_loci`
@@ -271,19 +271,19 @@ fn evidence_address_wire_runtime(
 #[cfg(feature = "query")]
 pub(crate) fn explain_provenance(
     request_id: u64,
-    plan: eg_plan::Plan,
+    plan: medulla_plan::Plan,
     view: &crate::graph::GraphView,
-    semantic: &eg_core::compute::semantic::SemanticStore,
+    semantic: &medulla_core::compute::semantic::SemanticStore,
 ) -> Result<crate::epistemic_operations::EvidenceBundle, String> {
-    use eg_plan::PlanCtx;
+    use medulla_plan::PlanCtx;
 
     let ctx = PlanCtx::new(view, semantic);
-    let rs = eg_plan::execute(&plan, &ctx)?;
-    let ks = eg_plan::KnowledgeSet::from_rowset(&rs, view, &[]);
+    let rs = medulla_plan::execute(&plan, &ctx)?;
+    let ks = medulla_plan::KnowledgeSet::from_rowset(&rs, view, &[]);
     Ok(explain_provenance_result(request_id, &ks, &ctx))
 }
 
-/// `EXPLAIN PROVENANCE BY IDS` (CONCEPT:EG-KB-CURRENCY) — the ID-seeded sibling of
+/// `EXPLAIN PROVENANCE BY IDS` (CONCEPT:MEDULLA-KB-CURRENCY) — the ID-seeded sibling of
 /// [`explain_provenance`]: builds the `KnowledgeSet` straight from an explicit id list
 /// (`RowSet::from_ids`, deduplicated/first-occurrence, unranked — no `Op` plan/executor
 /// involved) instead of running a `Plan`, then resolves the IDENTICAL per-row epistemic
@@ -295,18 +295,18 @@ pub(crate) fn explain_provenance_by_ids(
     request_id: u64,
     ids: Vec<String>,
     view: &crate::graph::GraphView,
-    semantic: &eg_core::compute::semantic::SemanticStore,
+    semantic: &medulla_core::compute::semantic::SemanticStore,
 ) -> Result<crate::epistemic_operations::EvidenceBundle, String> {
-    use eg_plan::PlanCtx;
+    use medulla_plan::PlanCtx;
 
     let ctx = PlanCtx::new(view, semantic);
-    let rs = eg_plan::RowSet::from_ids(ids);
-    let ks = eg_plan::KnowledgeSet::from_rowset(&rs, view, &[]);
+    let rs = medulla_plan::RowSet::from_ids(ids);
+    let ks = medulla_plan::KnowledgeSet::from_rowset(&rs, view, &[]);
     Ok(explain_provenance_result(request_id, &ks, &ctx))
 }
 
 /// Shared row-resolution core of [`explain_provenance`]/[`explain_provenance_by_ids`]
-/// (CONCEPT:EG-KB-CURRENCY): map an already-built `KnowledgeSet`'s rows onto the wire
+/// (CONCEPT:MEDULLA-KB-CURRENCY): map an already-built `KnowledgeSet`'s rows onto the wire
 /// shape, widened beyond id/kind/source_refs/evidence_loci to also carry `score`/
 /// `confidence`/`valid_time`/`tx_time`/`policy_labels` — straight field copies off each
 /// `KnowledgeRow` (populated by `KnowledgeSet::from_rowset` regardless of `epistemic`
@@ -315,8 +315,8 @@ pub(crate) fn explain_provenance_by_ids(
 #[cfg(feature = "query")]
 pub(crate) fn explain_provenance_result(
     request_id: u64,
-    ks: &eg_plan::KnowledgeSet,
-    _ctx: &eg_plan::PlanCtx<'_>,
+    ks: &medulla_plan::KnowledgeSet,
+    _ctx: &medulla_plan::PlanCtx<'_>,
 ) -> crate::epistemic_operations::EvidenceBundle {
     use crate::epistemic_operations::{
         EvidenceBundle, EvidenceBundleSchemaVersion, EvidenceClaim, EvidenceTimeRange,
@@ -328,11 +328,11 @@ pub(crate) fn explain_provenance_result(
         .iter()
         .map(|row| {
             // Reuse the SAME `Op::EvidenceFor` resolution the plan-Op surface runs, as
-            // its own tiny one-op plan — no private eg-plan access needed.
-            let evidence_plan = eg_plan::Plan::new(vec![eg_plan::Op::EvidenceFor {
+            // its own tiny one-op plan — no private medulla-plan access needed.
+            let evidence_plan = medulla_plan::Plan::new(vec![medulla_plan::Op::EvidenceFor {
                 claim_id: row.id.clone(),
             }]);
-            let source_refs = eg_plan::execute(&evidence_plan, _ctx)
+            let source_refs = medulla_plan::execute(&evidence_plan, _ctx)
                 .map(|r| r.ids())
                 .unwrap_or_default();
             // X1: the row's own located evidence, already resolved by
@@ -407,21 +407,21 @@ pub(crate) fn explain_provenance_result(
 /// `policy_denied_ids` is always empty.
 #[cfg(feature = "query")]
 pub(crate) fn explain_policy(
-    plan: eg_plan::Plan,
+    plan: medulla_plan::Plan,
     full_view: &crate::graph::GraphView,
     filtered_view: &crate::graph::GraphView,
-    semantic: &eg_core::compute::semantic::SemanticStore,
+    semantic: &medulla_core::compute::semantic::SemanticStore,
 ) -> Result<crate::protocol::ExplainPolicyResult, String> {
     use crate::protocol::ExplainPolicyResult;
-    use eg_plan::PlanCtx;
+    use medulla_plan::PlanCtx;
 
     let full_ctx = PlanCtx::new(full_view, semantic);
     let filtered_ctx = PlanCtx::new(filtered_view, semantic);
-    let full_ids: std::collections::HashSet<String> = eg_plan::execute(&plan, &full_ctx)?
+    let full_ids: std::collections::HashSet<String> = medulla_plan::execute(&plan, &full_ctx)?
         .ids()
         .into_iter()
         .collect();
-    let visible_ids: Vec<String> = eg_plan::execute(&plan, &filtered_ctx)?.ids();
+    let visible_ids: Vec<String> = medulla_plan::execute(&plan, &filtered_ctx)?.ids();
     let visible_set: std::collections::HashSet<&str> =
         visible_ids.iter().map(String::as_str).collect();
     let mut policy_denied_ids: Vec<String> = full_ids
@@ -437,17 +437,17 @@ pub(crate) fn explain_policy(
 }
 
 /// Count `DerivedSupport`/`DerivedContradiction` nodes in an already-computed proof
-/// tree (CONCEPT:EG-OS.observability.slow-query-descriptor — OTEL epistemic span
+/// tree (CONCEPT:MEDULLA-OS.observability.slow-query-descriptor — OTEL epistemic span
 /// attributes, WS-1b): `(supporting, contradicting)`. A cheap walk over data
 /// `explain_belief_tree`/`epistemic_status` already built above — not a new epistemic
-/// computation — feeding `eg_epistemic::classify_policy_labels` for the
+/// computation — feeding `medulla_epistemic::classify_policy_labels` for the
 /// `epistemic.policy_labels` span attribute.
 #[cfg(feature = "epistemic")]
-pub(crate) fn count_tree_rules(node: &eg_epistemic::ProofNode) -> (usize, usize) {
+pub(crate) fn count_tree_rules(node: &medulla_epistemic::ProofNode) -> (usize, usize) {
     let (mut supporting, mut contradicting) = match node.rule {
-        eg_epistemic::JustRule::DerivedSupport => (1, 0),
-        eg_epistemic::JustRule::DerivedContradiction => (0, 1),
-        eg_epistemic::JustRule::Asserted | eg_epistemic::JustRule::BayesianUpdate => (0, 0),
+        medulla_epistemic::JustRule::DerivedSupport => (1, 0),
+        medulla_epistemic::JustRule::DerivedContradiction => (0, 1),
+        medulla_epistemic::JustRule::Asserted | medulla_epistemic::JustRule::BayesianUpdate => (0, 0),
     };
     for p in &node.premises {
         let (s, c) = count_tree_rules(p);
@@ -457,12 +457,12 @@ pub(crate) fn count_tree_rules(node: &eg_epistemic::ProofNode) -> (usize, usize)
     (supporting, contradicting)
 }
 
-/// Wire-project one [`eg_epistemic::ProofNode`] (recursively) — shared by the classic
+/// Wire-project one [`medulla_epistemic::ProofNode`] (recursively) — shared by the classic
 /// `explain_belief` below AND the L53 `epistemic_status_wire` capstone, so both surfaces
 /// render a proof tree identically.
 #[cfg(feature = "epistemic")]
 pub(crate) fn proof_node_wire(
-    node: &eg_epistemic::ProofNode,
+    node: &medulla_epistemic::ProofNode,
 ) -> crate::protocol::JustificationNodeWire {
     crate::protocol::JustificationNodeWire {
         claim: node.claim.clone(),
@@ -473,7 +473,7 @@ pub(crate) fn proof_node_wire(
 }
 
 /// `EXPLAIN BELIEF <node_id>` — the FULL, un-flattened E1 justification tree
-/// (`eg_epistemic::JustificationGraph`, via `eg_plan::explain_belief_tree`), wire-projected
+/// (`medulla_epistemic::JustificationGraph`, via `medulla_plan::explain_belief_tree`), wire-projected
 /// recursively (mirroring `Method::OwlExplain`'s `ProofNodeWire`).
 #[cfg(feature = "epistemic")]
 pub(crate) fn explain_belief(
@@ -483,20 +483,20 @@ pub(crate) fn explain_belief(
     // A minimal semantic store: `explain_belief_tree` only reads `ctx.view` +
     // `ctx.belief_policy` (default, unbound on this path — no facade caller binds a
     // tenant-specific policy today, matching every other served epistemic op).
-    let semantic = eg_core::compute::semantic::SemanticStore::new();
-    let ctx = eg_plan::PlanCtx::new(view, &semantic);
-    let tree = eg_plan::explain_belief_tree(&ctx, node_id);
+    let semantic = medulla_core::compute::semantic::SemanticStore::new();
+    let ctx = medulla_plan::PlanCtx::new(view, &semantic);
+    let tree = medulla_plan::explain_belief_tree(&ctx, node_id);
 
-    // CONCEPT:EG-OS.observability.slow-query-descriptor — OTEL epistemic span attributes (WS-1b).
+    // CONCEPT:MEDULLA-OS.observability.slow-query-descriptor — OTEL epistemic span attributes (WS-1b).
     // Mirrors the `write_coalescer.apply_batch`/`ann_index_build` span idiom (a plain
     // `tracing::debug_span!(...).entered()` guard over a sync block): additive-only,
     // exported by the SAME `tracing-opentelemetry` layer `otel.rs` installs when built
-    // `--features otel` with `EPISTEMIC_GRAPH_OTLP_ENDPOINT` set, a complete no-op
+    // `--features otel` with `MEDULLA_OTLP_ENDPOINT` set, a complete no-op
     // otherwise. Every value is read off `tree`, already computed above — no new
     // epistemic computation.
     let (supporting, contradicting) = count_tree_rules(&tree.root);
     let policy_labels =
-        eg_epistemic::classify_policy_labels(supporting, contradicting, 0).join(",");
+        medulla_epistemic::classify_policy_labels(supporting, contradicting, 0).join(",");
     let _span = tracing::debug_span!(
         "epistemic.explain_belief",
         epistemic.confidence = tree.root.confidence,
@@ -512,15 +512,15 @@ pub(crate) fn explain_belief(
 }
 
 /// Redacted-tree sibling of [`count_tree_rules`] — same walk, over
-/// `eg_epistemic::RedactedProofNode` instead of `ProofNode` (a redaction preserves
+/// `medulla_epistemic::RedactedProofNode` instead of `ProofNode` (a redaction preserves
 /// `rule`/`confidence`/`premises` per that type's own doc comment, so the walk is
 /// identical; the two types just aren't unified by a shared trait).
 #[cfg(feature = "epistemic-redaction")]
-pub(crate) fn count_redacted_tree_rules(node: &eg_epistemic::RedactedProofNode) -> (usize, usize) {
+pub(crate) fn count_redacted_tree_rules(node: &medulla_epistemic::RedactedProofNode) -> (usize, usize) {
     let (mut supporting, mut contradicting) = match node.rule {
-        eg_epistemic::JustRule::DerivedSupport => (1, 0),
-        eg_epistemic::JustRule::DerivedContradiction => (0, 1),
-        eg_epistemic::JustRule::Asserted | eg_epistemic::JustRule::BayesianUpdate => (0, 0),
+        medulla_epistemic::JustRule::DerivedSupport => (1, 0),
+        medulla_epistemic::JustRule::DerivedContradiction => (0, 1),
+        medulla_epistemic::JustRule::Asserted | medulla_epistemic::JustRule::BayesianUpdate => (0, 0),
     };
     for p in &node.premises {
         let (s, c) = count_redacted_tree_rules(p);
@@ -534,8 +534,8 @@ pub(crate) fn count_redacted_tree_rules(node: &eg_epistemic::RedactedProofNode) 
 /// straight off `view` (populating `node_visibility` from the SAME per-node RLS blob
 /// `filter_view` reads elsewhere, since `epistemic-redaction` turns that decode on in
 /// `BeliefGraph::from_graph_view`) and routes through
-/// `eg_epistemic::explain_belief_redacted_capped` under `actor_id`. `cap` is the
-/// wire-requested `DisclosureLevelWire`, converted 1:1 to `eg_epistemic::DisclosureLevel`
+/// `medulla_epistemic::explain_belief_redacted_capped` under `actor_id`. `cap` is the
+/// wire-requested `DisclosureLevelWire`, converted 1:1 to `medulla_epistemic::DisclosureLevel`
 /// (never a grant — see that fn's doc comment).
 #[cfg(feature = "epistemic-redaction")]
 pub(crate) fn explain_belief_redacted_wire(
@@ -547,7 +547,7 @@ pub(crate) fn explain_belief_redacted_wire(
 ) -> crate::protocol::ExplainBeliefRedactedResult {
     use crate::protocol::{ExplainBeliefRedactedResult, RedactedJustificationNodeWire};
 
-    fn redacted_node_wire(node: &eg_epistemic::RedactedProofNode) -> RedactedJustificationNodeWire {
+    fn redacted_node_wire(node: &medulla_epistemic::RedactedProofNode) -> RedactedJustificationNodeWire {
         RedactedJustificationNodeWire {
             claim: node.claim.clone(),
             redaction_label: node.redaction_label.clone(),
@@ -559,9 +559,9 @@ pub(crate) fn explain_belief_redacted_wire(
 
     let cap = disclosure_level_from_wire(cap);
 
-    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
-    let policy = eg_epistemic::AuthorityPolicy::default();
-    let redacted = eg_epistemic::explain_belief_redacted_capped(
+    let bg = medulla_epistemic::BeliefGraph::from_graph_view(view);
+    let policy = medulla_epistemic::AuthorityPolicy::default();
+    let redacted = medulla_epistemic::explain_belief_redacted_capped(
         &bg,
         node_id,
         &policy,
@@ -573,7 +573,7 @@ pub(crate) fn explain_belief_redacted_wire(
     let level = disclosure_level_to_wire(redacted.level);
     let existence = existence_signal_to_wire(redacted.existence);
 
-    // CONCEPT:EG-OS.observability.slow-query-descriptor — OTEL epistemic span attributes (WS-1b),
+    // CONCEPT:MEDULLA-OS.observability.slow-query-descriptor — OTEL epistemic span attributes (WS-1b),
     // same idiom as `explain_belief` above. `redacted.existence` (Supported/Contradicted/
     // Uncertain) is exactly the "status" concept for a redaction-capped read — the
     // caller's RLS actor may not see enough of the tree to justify a finer label.
@@ -607,24 +607,24 @@ pub(crate) fn explain_belief_redacted_wire(
 #[cfg(feature = "epistemic-redaction")]
 pub(crate) fn disclosure_level_from_wire(
     cap: crate::protocol::DisclosureLevelWire,
-) -> eg_epistemic::DisclosureLevel {
+) -> medulla_epistemic::DisclosureLevel {
     match cap {
-        crate::protocol::DisclosureLevelWire::Full => eg_epistemic::DisclosureLevel::Full,
-        crate::protocol::DisclosureLevelWire::Skeleton => eg_epistemic::DisclosureLevel::Skeleton,
+        crate::protocol::DisclosureLevelWire::Full => medulla_epistemic::DisclosureLevel::Full,
+        crate::protocol::DisclosureLevelWire::Skeleton => medulla_epistemic::DisclosureLevel::Skeleton,
         crate::protocol::DisclosureLevelWire::ExistenceOnly => {
-            eg_epistemic::DisclosureLevel::ExistenceOnly
+            medulla_epistemic::DisclosureLevel::ExistenceOnly
         }
     }
 }
 
 #[cfg(feature = "epistemic-redaction")]
 pub(crate) fn disclosure_level_to_wire(
-    level: eg_epistemic::DisclosureLevel,
+    level: medulla_epistemic::DisclosureLevel,
 ) -> crate::protocol::DisclosureLevelWire {
     match level {
-        eg_epistemic::DisclosureLevel::Full => crate::protocol::DisclosureLevelWire::Full,
-        eg_epistemic::DisclosureLevel::Skeleton => crate::protocol::DisclosureLevelWire::Skeleton,
-        eg_epistemic::DisclosureLevel::ExistenceOnly => {
+        medulla_epistemic::DisclosureLevel::Full => crate::protocol::DisclosureLevelWire::Full,
+        medulla_epistemic::DisclosureLevel::Skeleton => crate::protocol::DisclosureLevelWire::Skeleton,
+        medulla_epistemic::DisclosureLevel::ExistenceOnly => {
             crate::protocol::DisclosureLevelWire::ExistenceOnly
         }
     }
@@ -632,14 +632,14 @@ pub(crate) fn disclosure_level_to_wire(
 
 #[cfg(feature = "epistemic-redaction")]
 pub(crate) fn existence_signal_to_wire(
-    existence: eg_epistemic::ExistenceSignal,
+    existence: medulla_epistemic::ExistenceSignal,
 ) -> crate::protocol::ExistenceSignalWire {
     match existence {
-        eg_epistemic::ExistenceSignal::Supported => crate::protocol::ExistenceSignalWire::Supported,
-        eg_epistemic::ExistenceSignal::Contradicted => {
+        medulla_epistemic::ExistenceSignal::Supported => crate::protocol::ExistenceSignalWire::Supported,
+        medulla_epistemic::ExistenceSignal::Contradicted => {
             crate::protocol::ExistenceSignalWire::Contradicted
         }
-        eg_epistemic::ExistenceSignal::Uncertain => crate::protocol::ExistenceSignalWire::Uncertain,
+        medulla_epistemic::ExistenceSignal::Uncertain => crate::protocol::ExistenceSignalWire::Uncertain,
     }
 }
 
@@ -649,7 +649,7 @@ pub(crate) fn existence_signal_to_wire(
 /// never fabricated.
 #[cfg(feature = "epistemic-redaction")]
 pub(crate) fn redacted_tree_summary(
-    root: Option<&eg_epistemic::RedactedProofNode>,
+    root: Option<&medulla_epistemic::RedactedProofNode>,
 ) -> (Option<f64>, usize, String) {
     match root {
         Some(root) => {
@@ -657,26 +657,26 @@ pub(crate) fn redacted_tree_summary(
             (
                 Some(root.confidence),
                 contradicting,
-                eg_epistemic::classify_policy_labels(supporting, contradicting, 0).join(","),
+                medulla_epistemic::classify_policy_labels(supporting, contradicting, 0).join(","),
             )
         }
         None => (None, 0, String::new()),
     }
 }
 
-/// L53 — wire-project an `eg_epistemic::query::WhyNot` (see `WhyNotWire` docs).
+/// L53 — wire-project an `medulla_epistemic::query::WhyNot` (see `WhyNotWire` docs).
 #[cfg(feature = "epistemic-tms")]
-pub(crate) fn why_not_wire(wn: &eg_epistemic::WhyNot) -> crate::protocol::WhyNotWire {
+pub(crate) fn why_not_wire(wn: &medulla_epistemic::WhyNot) -> crate::protocol::WhyNotWire {
     use crate::protocol::WhyNotWire;
     let (reason, blockers, competing) = match &wn.reason {
-        eg_epistemic::WhyNotReason::Unknown => ("Unknown", Vec::new(), Vec::new()),
-        eg_epistemic::WhyNotReason::InsufficientConfidence => {
+        medulla_epistemic::WhyNotReason::Unknown => ("Unknown", Vec::new(), Vec::new()),
+        medulla_epistemic::WhyNotReason::InsufficientConfidence => {
             ("InsufficientConfidence", Vec::new(), Vec::new())
         }
-        eg_epistemic::WhyNotReason::Contradicted { blockers } => {
+        medulla_epistemic::WhyNotReason::Contradicted { blockers } => {
             ("Contradicted", blockers.clone(), Vec::new())
         }
-        eg_epistemic::WhyNotReason::Undecided { competing } => {
+        medulla_epistemic::WhyNotReason::Undecided { competing } => {
             ("Undecided", Vec::new(), competing.clone())
         }
     };
@@ -689,10 +689,10 @@ pub(crate) fn why_not_wire(wn: &eg_epistemic::WhyNot) -> crate::protocol::WhyNot
     }
 }
 
-/// L53 — wire-project an `eg_epistemic::MinimalFlipSet` ("what would invalidate it").
+/// L53 — wire-project an `medulla_epistemic::MinimalFlipSet` ("what would invalidate it").
 #[cfg(feature = "epistemic-tms")]
 pub(crate) fn minimal_flip_set_wire(
-    f: &eg_epistemic::MinimalFlipSet,
+    f: &medulla_epistemic::MinimalFlipSet,
 ) -> crate::protocol::MinimalFlipSetWire {
     crate::protocol::MinimalFlipSetWire {
         claim: f.claim.clone(),
@@ -703,7 +703,7 @@ pub(crate) fn minimal_flip_set_wire(
 }
 
 /// `Method::EpistemicStatus` (EPI-P3-5, L53) — the Phase-3 acceptance capstone: build a
-/// [`BeliefGraph`] off `view` and run `eg_epistemic::epistemic_status` under the
+/// [`BeliefGraph`] off `view` and run `medulla_epistemic::epistemic_status` under the
 /// default `AuthorityPolicy` (no facade caller binds a tenant-specific policy today,
 /// matching `explain_belief`'s own posture), wire-projecting every facet.
 #[cfg(feature = "epistemic-tms")]
@@ -713,17 +713,17 @@ pub(crate) fn epistemic_status_wire(
 ) -> crate::protocol::EpistemicStatusResult {
     use crate::protocol::{AuthorityPolicyWire, EpistemicStatusResult, EpistemicStatusWire};
 
-    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
-    let policy = eg_epistemic::AuthorityPolicy::default();
-    let status = eg_epistemic::epistemic_status(&bg, node_id, &policy);
+    let bg = medulla_epistemic::BeliefGraph::from_graph_view(view);
+    let policy = medulla_epistemic::AuthorityPolicy::default();
+    let status = medulla_epistemic::epistemic_status(&bg, node_id, &policy);
 
-    // CONCEPT:EG-OS.observability.slow-query-descriptor — OTEL epistemic span attributes (WS-1b),
+    // CONCEPT:MEDULLA-OS.observability.slow-query-descriptor — OTEL epistemic span attributes (WS-1b),
     // same idiom as `explain_belief`/`explain_belief_redacted_wire` above. `EpistemicStatus`
     // is the richest already-computed source of the four (`believed`/`confidence`/
-    // `contradicting`/`evidence`/`attacking` are all fields `eg_epistemic::epistemic_status`
+    // `contradicting`/`evidence`/`attacking` are all fields `medulla_epistemic::epistemic_status`
     // already populated above) — no new epistemic computation, just reading them before
     // they're moved into the wire struct below.
-    let policy_labels = eg_epistemic::classify_policy_labels(
+    let policy_labels = medulla_epistemic::classify_policy_labels(
         status.evidence.len(),
         status.contradicting.len(),
         status.attacking.len(),
@@ -766,7 +766,7 @@ pub(crate) fn epistemic_status_wire(
 
 /// `Method::ResolveConflict` (EPI-P3-7, gap-fill) — build a `BeliefGraph` off `view`
 /// and run the Dung argumentation semantics `semantics` names
-/// (`eg_epistemic::tms::{grounded_extension,preferred_extensions,stable_extensions}`
+/// (`medulla_epistemic::tms::{grounded_extension,preferred_extensions,stable_extensions}`
 /// — reused as-is, never reimplemented), then partition `node_ids` into
 /// surviving/defeated/undecided against the computed extension(s):
 ///
@@ -776,7 +776,7 @@ pub(crate) fn epistemic_status_wire(
 ///   NOT in the extension is `defeated` (OUT) iff at least one of its augmented
 ///   (bipolar-closed) attackers IS in the extension (`augmented_attackers`) —
 ///   otherwise it is `undecided` (caught in an unresolved/paraconsistent conflict,
-///   e.g. an odd attack cycle, matching `eg_epistemic::tms`'s own module docs).
+///   e.g. an odd attack cycle, matching `medulla_epistemic::tms`'s own module docs).
 /// * `"preferred"`/`"stable"`: potentially several credulous extensions. An id in
 ///   EVERY extension `survives` (unanimous across every admissible "side"); an id in
 ///   NONE is `defeated` (never credulously acceptable); anything in SOME but not all

@@ -1,7 +1,7 @@
-//! Per-tenant memory budget + autoscale signals (CONCEPT:EG-KG.compute.lane-v, Lane V —
+//! Per-tenant memory budget + autoscale signals (CONCEPT:MEDULLA-KG.compute.lane-v, Lane V —
 //! cost/efficiency).
 //!
-//! The engine already bounds memory per *graph* (`EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH`
+//! The engine already bounds memory per *graph* (`MEDULLA_MAX_NODES_PER_GRAPH`
 //! LRU eviction, KG-2.191) and can drop a cold *graph* entirely (hibernation,
 //! KG-2.224). This module adds the *tenant* dimension and a memory-byte budget on top:
 //!
@@ -41,11 +41,11 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::server::ServerState;
-use eg_types::result_contract::coordination::{GraphResourceStats, ResourceSnapshot};
+use medulla_types::result_contract::coordination::{GraphResourceStats, ResourceSnapshot};
 
 mod resource_stats;
 
-/// Derive the tenant a graph belongs to (CONCEPT:EG-KG.compute.lane-v). The convention across the
+/// Derive the tenant a graph belongs to (CONCEPT:MEDULLA-KG.compute.lane-v). The convention across the
 /// ecosystem is `tenant:scope` graph names (`agent:planner`, `team:research`,
 /// `enterprise-acme:billing`); the tenant is the prefix before the FIRST `:`. A name
 /// with no `:` (e.g. `__commons__`) is its own tenant. This is the one place the
@@ -57,7 +57,7 @@ pub fn tenant_of(graph_name: &str) -> &str {
     }
 }
 
-/// Process-global cost bookkeeping (CONCEPT:EG-KG.compute.lane-v): which graphs the enforcer has
+/// Process-global cost bookkeeping (CONCEPT:MEDULLA-KG.compute.lane-v): which graphs the enforcer has
 /// hibernated (so the snapshot reports resident-vs-hibernated accurately even though a
 /// hibernated graph just looks like an empty one), and a monotonic eviction counter for
 /// the rate signal. A singleton (like `metrics::SEEN_GRAPHS`) so it needs no ServerState
@@ -145,7 +145,7 @@ pub(crate) fn forget_graph_incarnation(graph: &str, incarnation_id: &str) {
 
 // ── Configuration ─────────────────────────────────────────────────────────
 
-/// Per-tenant memory budget configuration (CONCEPT:EG-KG.compute.lane-v), read once at startup.
+/// Per-tenant memory budget configuration (CONCEPT:MEDULLA-KG.compute.lane-v), read once at startup.
 #[derive(Debug, Clone, Copy)]
 pub struct CostConfig {
     /// Process-wide resident-memory ceiling, bytes.
@@ -157,7 +157,7 @@ pub struct CostConfig {
     pub interval_secs: u64,
 }
 
-/// Effective memory available to this process. The shared `eg-resource` resolver
+/// Effective memory available to this process. The shared `medulla-resource` resolver
 /// already intersects host RAM with cgroup v1/v2 and reserves RAM headroom, so
 /// this module must not maintain a second parser.
 fn system_memory_limit_bytes() -> Option<u64> {
@@ -165,18 +165,18 @@ fn system_memory_limit_bytes() -> Option<u64> {
 }
 
 impl CostConfig {
-    /// Resolve from the environment (CONCEPT:EG-KG.compute.lane-v). ONE knob is enough to turn it on
+    /// Resolve from the environment (CONCEPT:MEDULLA-KG.compute.lane-v). ONE knob is enough to turn it on
     /// with a sensible auto-sized default:
     ///
-    /// * `EPISTEMIC_GRAPH_MEMORY_BUDGET` — the global resident-memory ceiling. Accepts a
+    /// * `MEDULLA_MEMORY_BUDGET` — the global resident-memory ceiling. Accepts a
     ///   plain byte count OR a `k`/`m`/`g` suffix (`512m`, `2g`). When UNSET it AUTO-SIZES
     ///   to 40% of the cgroup-aware effective RAM. Explicit values may lower the
     ///   automatic ceiling but are clamped to it, so an override cannot widen a
     ///   constrained process beyond its measured budget.
-    /// * `EPISTEMIC_GRAPH_TENANT_BUDGET` — optional per-tenant budget override. Defaults
+    /// * `MEDULLA_TENANT_BUDGET` — optional per-tenant budget override. Defaults
     ///   to the global ceiling (so a single-tenant box budgets against the ceiling); the
     ///   fair-share cap still applies under multi-tenant pressure regardless.
-    /// * `EPISTEMIC_GRAPH_BUDGET_INTERVAL` — sweep cadence, seconds (default 15).
+    /// * `MEDULLA_BUDGET_INTERVAL` — sweep cadence, seconds (default 15).
     pub fn from_env() -> Result<Self, String> {
         let automatic_ceiling = system_memory_limit_bytes()
             .map(|total| (total / 10 * 4).max(1))
@@ -185,21 +185,21 @@ impl CostConfig {
         // filesystem cache, and peer services. Operators of a dedicated node
         // can explicitly raise these values, up to the cgroup-aware ceiling.
         let global_ceiling_bytes =
-            bounded_bytes_env("EPISTEMIC_GRAPH_MEMORY_BUDGET", automatic_ceiling)?;
+            bounded_bytes_env("MEDULLA_MEMORY_BUDGET", automatic_ceiling)?;
         let per_tenant_budget_bytes =
-            bounded_bytes_env("EPISTEMIC_GRAPH_TENANT_BUDGET", global_ceiling_bytes)?;
-        let interval_secs = match std::env::var("EPISTEMIC_GRAPH_BUDGET_INTERVAL") {
+            bounded_bytes_env("MEDULLA_TENANT_BUDGET", global_ceiling_bytes)?;
+        let interval_secs = match std::env::var("MEDULLA_BUDGET_INTERVAL") {
             Ok(value) => value
                 .trim()
                 .parse::<u64>()
                 .ok()
                 .filter(|interval| (1..=3_600).contains(interval))
                 .ok_or_else(|| {
-                    "EPISTEMIC_GRAPH_BUDGET_INTERVAL must be between 1 and 3600".to_string()
+                    "MEDULLA_BUDGET_INTERVAL must be between 1 and 3600".to_string()
                 })?,
             Err(std::env::VarError::NotPresent) => 15,
             Err(std::env::VarError::NotUnicode(_)) => {
-                return Err("EPISTEMIC_GRAPH_BUDGET_INTERVAL is not valid Unicode".to_string())
+                return Err("MEDULLA_BUDGET_INTERVAL is not valid Unicode".to_string())
             }
         };
         Ok(CostConfig {
@@ -503,7 +503,7 @@ async fn collect_resource_stats_inner(
         let current = state.read().await;
         let permits = current.max_in_flight.available_permits();
         let automatic_max = capacity.max_inflight();
-        let max = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT")
+        let max = std::env::var("MEDULLA_MAX_INFLIGHT")
             .ok()
             .and_then(|value| value.parse::<usize>().ok())
             .filter(|&value| value > 0)
@@ -573,10 +573,10 @@ async fn collect_resource_stats_inner(
 mod budget;
 pub use budget::enforce_memory_budgets;
 
-// ── Cost model / capacity planning (CONCEPT:EG-KG.compute.lane-v) ───────────────────────
+// ── Cost model / capacity planning (CONCEPT:MEDULLA-KG.compute.lane-v) ───────────────────────
 
 /// A capacity estimate for a target tenant count + average working set
-/// (CONCEPT:EG-KG.compute.lane-v). Maps a workload onto a resource footprint so an operator can pick
+/// (CONCEPT:MEDULLA-KG.compute.lane-v). Maps a workload onto a resource footprint so an operator can pick
 /// a deployment tier (Pi → cluster) and size the shard count. See `docs/cost-model.md`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct CapacityEstimate {
@@ -596,7 +596,7 @@ pub struct CapacityEstimate {
 }
 
 /// Estimate the resource footprint for `tenants` tenants each with an `avg_working_set`
-/// (CONCEPT:EG-KG.compute.lane-v). `global_budget` is the per-shard resident-memory ceiling, and
+/// (CONCEPT:MEDULLA-KG.compute.lane-v). `global_budget` is the per-shard resident-memory ceiling, and
 /// `resident_fraction` (0.0–1.0) is the share of tenants expected hot at once (the rest
 /// hibernate / read-through). Pure arithmetic — no engine state — so it is a planning
 /// helper callable offline (and the doc's worked examples derive from it).
@@ -769,7 +769,7 @@ mod tests {
         forget_graph(graph);
     }
 
-    // ── Budget-enforcement integration proofs (CONCEPT:EG-KG.compute.lane-v) ────────────
+    // ── Budget-enforcement integration proofs (CONCEPT:MEDULLA-KG.compute.lane-v) ────────────
     // These need a real durable backend (redb) so eviction is durability-gated and a
     // rehydrate read serves the evicted node back. Gated on `redb` (present in
     // pi/node/cluster/full); the budget/snapshot logic itself is feature `cost`.
@@ -883,7 +883,7 @@ mod tests {
             // still for this whole body. READ guard: it excludes only a key MUTATOR, never
             // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
             let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-            let dir = std::env::temp_dir().join(format!("eg-cost-budget-{}", std::process::id()));
+            let dir = std::env::temp_dir().join(format!("medulla-cost-budget-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             let dir_s = dir.to_string_lossy().to_string();
             let state = redb_state(&dir_s).await;
@@ -1021,7 +1021,7 @@ mod tests {
             // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
             let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
             let dir =
-                std::env::temp_dir().join(format!("eg-cost-cypher-evict-{}", std::process::id()));
+                std::env::temp_dir().join(format!("medulla-cost-cypher-evict-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             let dir_s = dir.to_string_lossy().to_string();
             let state = redb_state(&dir_s).await;
@@ -1126,7 +1126,7 @@ mod tests {
             // still for this whole body. READ guard: it excludes only a key MUTATOR, never
             // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
             let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-            let dir = std::env::temp_dir().join(format!("eg-cost-fair-{}", std::process::id()));
+            let dir = std::env::temp_dir().join(format!("medulla-cost-fair-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             let dir_s = dir.to_string_lossy().to_string();
             let state = redb_state(&dir_s).await;
@@ -1181,7 +1181,7 @@ mod tests {
             // still for this whole body. READ guard: it excludes only a key MUTATOR, never
             // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
             let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-            let dir = std::env::temp_dir().join(format!("eg-cost-stats-{}", std::process::id()));
+            let dir = std::env::temp_dir().join(format!("medulla-cost-stats-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             let dir_s = dir.to_string_lossy().to_string();
             let state = redb_state(&dir_s).await;

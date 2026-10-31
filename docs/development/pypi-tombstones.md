@@ -9,16 +9,16 @@ Two names are tombstoned:
 
 | Retired name | Tombstone version | Depends on | Lives in |
 | --- | --- | --- | --- |
-| `epistemic-graph` | 2.28.0 | `medulla>=2.27.9` | [`packaging/tombstones/epistemic-graph`](../../packaging/tombstones/epistemic-graph) |
-| `epistemic-graph-server` | 2.28.0 | `medulla-stem>=2.27.9` | [`packaging/tombstones/epistemic-graph-server`](../../packaging/tombstones/epistemic-graph-server) |
+| `medulla` | 2.28.0 | `medulla>=2.27.9` | [`packaging/tombstones/medulla`](../../packaging/tombstones/medulla) |
+| `medulla-server` | 2.28.0 | `medulla-stem>=2.27.9` | [`packaging/tombstones/medulla-server`](../../packaging/tombstones/medulla-server) |
 
 ```bash
-pip install epistemic-graph         # resolves to medulla
-pip install epistemic-graph-server  # resolves to medulla-stem
+pip install medulla         # resolves to medulla
+pip install medulla-server  # resolves to medulla-stem
 ```
 
-The import names did not move. `import epistemic_graph` and
-`from epistemic_graph_server import binary_path` still work, because the tombstone
+The import names did not move. `import medulla` and
+`from medulla_server import binary_path` still work, because the tombstone
 installs the package that provides them. Only the distribution name changed.
 
 ## When a tombstone is published

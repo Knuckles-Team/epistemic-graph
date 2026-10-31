@@ -9,7 +9,7 @@ use crate::mutation_batch::{IncarnationId, MutationScopeIdentity, ScopeTenantId}
 use crate::redb_store::resource::*;
 use crate::redb_store::shard::{Shard, ShardWrite};
 use crate::test_rendezvous::{join_bounded, meet};
-use eg_storage::{GraphShardOwner, ScopedRead};
+use medulla_storage::{GraphShardOwner, ScopedRead};
 
 fn host() -> DurableResourceHost {
     DurableResourceHost {
@@ -412,16 +412,16 @@ fn read_reservation(shard: &Shard, reservation_id: &str) -> Option<DurableResour
 
 /// One persisted batch receipt of `graph-a`'s scope, from the kernel ledger
 /// that replaced the shard's private `mutation_batches` table.
-fn ledger_receipt(shard: &Shard, batch_id: &str) -> Option<eg_types::MutationBatchRecord> {
+fn ledger_receipt(shard: &Shard, batch_id: &str) -> Option<medulla_types::MutationBatchRecord> {
     let read = resource_read(shard, "graph-a");
-    eg_transaction::read_ledger(&read, batch_id).expect("read kernel ledger receipt")
+    medulla_transaction::read_ledger(&read, batch_id).expect("read kernel ledger receipt")
 }
 
 /// Every outbox row of one batch of `graph-a`'s scope, from the kernel ledger
 /// that replaced the shard's private `mutation_outbox` table.
-fn ledger_outbox(shard: &Shard, batch_id: &str) -> Vec<eg_types::MutationOutboxRecord> {
+fn ledger_outbox(shard: &Shard, batch_id: &str) -> Vec<medulla_types::MutationOutboxRecord> {
     let read = resource_read(shard, "graph-a");
-    eg_transaction::read_outbox(&read, batch_id).expect("read kernel ledger outbox")
+    medulla_transaction::read_outbox(&read, batch_id).expect("read kernel ledger outbox")
 }
 
 /// Open (creating if absent) one shard file and plant this file's standard
@@ -505,7 +505,7 @@ fn fresh_resource_attempt(batch: &MutationBatch, request_id: u64) -> MutationBat
         retry.idempotency_key(),
     );
     retry
-        .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
         .expect("a resource retry reseals its final body");
     retry
 }
@@ -534,7 +534,7 @@ fn commit_resource_batch(
 }
 
 /// The authoritative version of `graph-a`'s bound shard scope, read fresh
-/// through `eg_transaction::version` -- the same value `commit::begin` will
+/// through `medulla_transaction::version` -- the same value `commit::begin` will
 /// compare a batch's `version_expectation` against, resolved inside the
 /// commit's own transaction.
 ///
@@ -548,7 +548,7 @@ fn commit_resource_batch(
 /// to guess which thread's commit lands first.
 fn current_resource_graph_version(shard: &Shard) -> u64 {
     let read = resource_read(shard, "graph-a");
-    eg_transaction::version(&read).expect("authoritative version of graph-a's shard scope")
+    medulla_transaction::version(&read).expect("authoritative version of graph-a's shard scope")
 }
 
 /// Commit a resource batch that genuinely races another thread for the same
@@ -631,9 +631,9 @@ fn batch_host_result(commit: &MutationBatchCommit) -> ResourceHostUpdateResult {
     let crate::protocol::ResultPayload::Raw(bytes) = payload else {
         panic!("host mutation result must be raw typed payload");
     };
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         &bytes,
-        eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
+        medulla_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
     )
     .expect("decode host mutation result")
 }
@@ -647,7 +647,7 @@ fn single_reserve_decision(
     anti_affinity_count: Option<(&str, u64)>,
 ) -> ResourceReservationResult {
     let path = std::env::temp_dir().join(format!(
-        "eg-resource-policy-{suffix}-{}-{}.redb",
+        "medulla-resource-policy-{suffix}-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -862,7 +862,7 @@ fn native_transaction_policy_refusals_cover_host_and_accounting_guards() {
 #[test]
 fn mutation_batch_same_attempt_race_has_one_durable_winner_and_replay() {
     let path = std::env::temp_dir().join(format!(
-        "eg-resource-batch-race-{}-{}.redb",
+        "medulla-resource-batch-race-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -889,7 +889,7 @@ fn mutation_batch_same_attempt_race_has_one_durable_winner_and_replay() {
     // Each thread races the other for the same live authoritative version of
     // `graph-a`'s shard scope, so neither can carry a version_expectation fixed
     // up front -- `commit_racing_resource_batch` reads the live version through
-    // `eg_transaction::version` and retries on `STALE_VERSION` exactly as a
+    // `medulla_transaction::version` and retries on `STALE_VERSION` exactly as a
     // real caller would. See its doc comment.
     //
     // RF-RULING-004 application note 2: the two racers' caller tenants are no
@@ -1050,7 +1050,7 @@ fn mutation_batch_same_attempt_race_has_one_durable_winner_and_replay() {
 #[test]
 fn mutation_batch_distinct_reservation_id_same_attempt_refuses_without_recharge() {
     let path = std::env::temp_dir().join(format!(
-        "eg-resource-distinct-reservation-{}-{}.redb",
+        "medulla-resource-distinct-reservation-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1064,7 +1064,7 @@ fn mutation_batch_distinct_reservation_id_same_attempt_refuses_without_recharge(
         vec![host()],
     );
     // The seed is itself an admitted maintenance batch, so the chain starts at
-    // whatever version it produced, read through `eg_transaction::version`.
+    // whatever version it produced, read through `medulla_transaction::version`.
     let seeded_version = current_resource_graph_version(&shard);
     let first = resource_batch(
         &request.tenant_ref,
@@ -1121,7 +1121,7 @@ fn mutation_batch_distinct_reservation_id_same_attempt_refuses_without_recharge(
 #[test]
 fn mutation_batch_distinct_work_items_race_for_last_slot() {
     let path = std::env::temp_dir().join(format!(
-        "eg-resource-last-slot-{}-{}.redb",
+        "medulla-resource-last-slot-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1237,7 +1237,7 @@ fn mutation_batch_distinct_work_items_race_for_last_slot() {
 #[test]
 fn mutation_batch_transient_refusal_needs_fresh_invocation_but_acceptance_replays() {
     let path = std::env::temp_dir().join(format!(
-        "eg-resource-fresh-invocation-{}-{}.redb",
+        "medulla-resource-fresh-invocation-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1379,7 +1379,7 @@ fn mutation_batch_transient_refusal_needs_fresh_invocation_but_acceptance_replay
 #[test]
 fn mutation_batch_cross_host_repository_and_branch_exclusivity_is_atomic() {
     let path = std::env::temp_dir().join(format!(
-        "eg-resource-cross-host-exclusive-{}-{}.redb",
+        "medulla-resource-cross-host-exclusive-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1506,7 +1506,7 @@ fn mutation_batch_cross_host_repository_and_branch_exclusivity_is_atomic() {
 #[test]
 fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen() {
     let path = std::env::temp_dir().join(format!(
-        "eg-resource-lifecycle-batch-{}-{}.redb",
+        "medulla-resource-lifecycle-batch-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1520,7 +1520,7 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
         vec![host()],
     );
     // The seed is itself an admitted maintenance batch: the caller chain
-    // starts at the version it produced, read through `eg_transaction::version`.
+    // starts at the version it produced, read through `medulla_transaction::version`.
     let seeded_version = current_resource_graph_version(&shard);
     let reserve_batch = resource_batch(
         &request.tenant_ref,
@@ -1769,7 +1769,7 @@ fn mutation_batch_resource_crashpoints_reopen_all_or_nothing_and_replay() {
     .enumerate()
     {
         let path = std::env::temp_dir().join(format!(
-            "eg-resource-crashpoint-{index}-{}-{}.redb",
+            "medulla-resource-crashpoint-{index}-{}-{}.redb",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1820,7 +1820,7 @@ fn mutation_batch_resource_crashpoints_reopen_all_or_nothing_and_replay() {
     }
 
     let path = std::env::temp_dir().join(format!(
-        "eg-resource-postcommit-crash-{}-{}.redb",
+        "medulla-resource-postcommit-crash-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1930,7 +1930,7 @@ fn disk_hysteresis_uses_used_mib_boundaries() {
 #[test]
 fn host_refresh_rejects_filesystem_shrink_under_existing_held_disk() {
     let path = std::env::temp_dir().join(format!(
-        "eg-resource-host-refresh-{}-{}.redb",
+        "medulla-resource-host-refresh-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2029,7 +2029,7 @@ fn host_refresh_rejects_filesystem_shrink_under_existing_held_disk() {
 #[test]
 fn host_disk_policy_projection_caps_at_schema_bound() {
     let path = std::env::temp_dir().join(format!(
-        "eg-resource-policy-bound-{}-{}.redb",
+        "medulla-resource-policy-bound-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2171,7 +2171,7 @@ fn host_disk_policy_projection_caps_at_schema_bound() {
 #[test]
 fn orphan_attempt_index_fails_closed_without_recharging_host() {
     let path = std::env::temp_dir().join(format!(
-        "eg-resource-orphan-attempt-{}-{}.redb",
+        "medulla-resource-orphan-attempt-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2582,7 +2582,7 @@ fn bounded_query_validation_rejects_untrusted_optional_fields() {
 #[test]
 fn exact_query_missing_reservation_returns_typed_not_found() {
     let path = std::env::temp_dir().join(format!(
-        "eg-resource-query-missing-{}-{}.redb",
+        "medulla-resource-query-missing-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2737,7 +2737,7 @@ fn native_retry_comparison_normalizes_only_authoritative_time() {
         created_at_ms: 1,
     };
     stored_batch
-        .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
         .expect("a fixture batch reseals its envelope over its final body");
     let mut failover_batch = stored_batch.clone();
     failover_batch.placement_epoch = 2;
@@ -2955,7 +2955,7 @@ fn terminal_result_replays_exact_record_without_held_capacity() {
 #[test]
 fn graph_clear_streams_terminal_history_past_bound_and_preserves_active_holds() {
     let path = std::env::temp_dir().join(format!(
-        "eg-resource-clear-{}-{}.redb",
+        "medulla-resource-clear-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -3172,14 +3172,14 @@ fn seed_checkpoint_image(
         meta.insert(graph, encoded.as_slice())
             .expect("insert seeded graph_meta");
     });
-    eg_transaction::version(&resource_read(shard, graph))
+    medulla_transaction::version(&resource_read(shard, graph))
         .expect("authoritative version of the seeded graph's shard scope")
 }
 
 #[test]
 fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
     let path = std::env::temp_dir().join(format!(
-        "eg-resource-checkpoint-domain-{}-{}.redb",
+        "medulla-resource-checkpoint-domain-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -3490,7 +3490,7 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
 #[test]
 fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
     let path = std::env::temp_dir().join(format!(
-        "eg-resource-delete-active-hold-{}-{}.redb",
+        "medulla-resource-delete-active-hold-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -3504,7 +3504,7 @@ fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
         vec![host()],
     );
     // The seed is itself an admitted maintenance batch: read the version it
-    // produced through `eg_transaction::version` rather than assuming zero.
+    // produced through `medulla_transaction::version` rather than assuming zero.
     let seeded_version = current_resource_graph_version(&shard);
 
     let reserve = resource_batch(
@@ -3536,7 +3536,7 @@ fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
             batch.operations[0].surface = MutationSurface::Lifecycle;
             batch.operations[0].domain = DurabilityDomain::Lifecycle;
             batch
-                .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                 .expect("a lifecycle fixture reseals its final body");
             batch
         };

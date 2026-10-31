@@ -1,5 +1,5 @@
 //! Explicit sharing of an owner-scoped foreign source through RBAC grants
-//! (CONCEPT:EG-KG.query.query-federation, EH-378).
+//! (CONCEPT:MEDULLA-KG.query.query-federation, EH-378).
 //!
 //! A registered foreign source belongs to its owner (tenant+principal, EH-373) and only
 //! the owner may use it by its plain name. Sharing reuses the engine's existing RBAC
@@ -134,7 +134,7 @@ mod tests {
     use crate::isolation::{AgentIdentity, AgentRole};
     use crate::server::access::CarrierAuthority;
     use crate::server::foreign_catalog::ForeignSourceCatalog;
-    use eg_types::wire::ForeignSourceSpec;
+    use medulla_types::wire::ForeignSourceSpec;
 
     fn carrier(agent: &str) -> CarrierAuthority {
         CarrierAuthority::verified_for_test(agent)
@@ -144,7 +144,7 @@ mod tests {
         ForeignSourceSpec::HttpJson {
             url: "http://a.invalid/".into(),
             json_path: "data".into(),
-            field_map: eg_types::wire::HttpFieldMap {
+            field_map: medulla_types::wire::HttpFieldMap {
                 id: "id".into(),
                 score: None,
                 columns: Default::default(),
@@ -175,7 +175,7 @@ mod tests {
         (found, scoped.cache_salt().to_string())
     }
 
-    // spec: EG-FEDERATED-QUERY-R014
+    // spec: MEDULLA-FEDERATED-QUERY-R014
     #[test]
     fn a_shared_source_needs_an_exact_grant_and_revocation_stops_use() {
         let mut isolation = crate::server::state::ServerState::test_isolation("share-admin");

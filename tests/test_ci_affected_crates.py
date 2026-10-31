@@ -1,4 +1,4 @@
-"""Pull-request affected-crate selection (spec EG-CONTRACT-R053.7)."""
+"""Pull-request affected-crate selection (spec MEDULLA-CONTRACT-R053.7)."""
 
 from __future__ import annotations
 
@@ -28,11 +28,11 @@ def _meta() -> dict:
         }
 
     pkgs = [
-        pkg("eg-types", "crates/eg-types/"),
-        pkg("eg-storage", "crates/eg-storage/", ["eg-types"]),
-        pkg("eg-viz", "crates/eg-viz/"),
-        pkg("eg-numeric", "crates/eg-numeric/", ["eg-types"]),
-        pkg("facade", "", ["eg-storage", "eg-viz", "eg-numeric"]),
+        pkg("medulla-types", "crates/medulla-types/"),
+        pkg("medulla-storage", "crates/medulla-storage/", ["medulla-types"]),
+        pkg("medulla-viz", "crates/medulla-viz/"),
+        pkg("medulla-numeric", "crates/medulla-numeric/", ["medulla-types"]),
+        pkg("facade", "", ["medulla-storage", "medulla-viz", "medulla-numeric"]),
     ]
     return {
         "workspace_root": "/ws",
@@ -41,38 +41,38 @@ def _meta() -> dict:
     }
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.7")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.7")
 @pytest.mark.parametrize(
     ("changed", "expected"),
     [
         (["docs/a.md", "specs/x/requirements.md", "tests/test_a.py"], []),
-        (["crates/eg-viz/src/lib.rs"], ["eg-viz", "facade"]),
+        (["crates/medulla-viz/src/lib.rs"], ["medulla-viz", "facade"]),
         (
-            ["crates/eg-types/src/lib.rs"],
-            ["eg-numeric", "eg-storage", "eg-types", "facade"],
+            ["crates/medulla-types/src/lib.rs"],
+            ["medulla-numeric", "medulla-storage", "medulla-types", "facade"],
         ),
         (["src/server/mod.rs"], ["facade"]),
-        (["Cargo.lock"], ["eg-numeric", "eg-storage", "eg-types", "eg-viz", "facade"]),
-        (["Cargo.toml"], ["eg-numeric", "eg-storage", "eg-types", "eg-viz", "facade"]),
+        (["Cargo.lock"], ["medulla-numeric", "medulla-storage", "medulla-types", "medulla-viz", "facade"]),
+        (["Cargo.toml"], ["medulla-numeric", "medulla-storage", "medulla-types", "medulla-viz", "facade"]),
     ],
 )
 def test_affected_is_owners_plus_reverse_dependencies(changed, expected) -> None:
     assert mod.affected(_meta(), changed) == expected
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.7")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.7")
 def test_runs_keep_main_feature_profiles() -> None:
-    runs = mod.commands(_meta(), ["eg-numeric", "eg-storage", "eg-types", "facade"])
+    runs = mod.commands(_meta(), ["medulla-numeric", "medulla-storage", "medulla-types", "facade"])
     assert runs == [
-        "{tool} -p eg-types --all-features",
-        "{tool} -p eg-storage --all-features {serial}",
-        f"{{tool}} -p eg-numeric --features {mod.PYO3_FEATURES}",
+        "{tool} -p medulla-types --all-features",
+        "{tool} -p medulla-storage --all-features {serial}",
+        f"{{tool}} -p medulla-numeric --features {mod.PYO3_FEATURES}",
         "{tool} -p facade --features full",
     ]
     assert mod.commands(_meta(), []) == []
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.7")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.7")
 def test_pull_request_runs_one_gate() -> None:
     ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
     jobs = ci["jobs"]

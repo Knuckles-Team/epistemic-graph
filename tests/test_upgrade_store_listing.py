@@ -1,4 +1,4 @@
-"""A reopened store lists its graphs after a patch upgrade (EG-DURABLE-KERNEL-R861.2).
+"""A reopened store lists its graphs after a patch upgrade (MEDULLA-DURABLE-KERNEL-R861.2).
 
 A writer engine bootstraps a store, registers an identity with no grants and creates a
 `Global` tenant graph the way arbora does. This build then reopens the same store.
@@ -10,7 +10,7 @@ The stored policy still decides: the System identity sees both graphs, and the
 registered identity with no grants, or an unregistered principal, sees neither.
 
 The writer is this build, and also the previous patch's published engine when
-`EPISTEMIC_GRAPH_PREVIOUS_PATCH_BINARY` names it (`pip install
+`MEDULLA_PREVIOUS_PATCH_BINARY` names it (`pip install
 medulla-stem==<previous>`). A store binds to its files' device and inode, so a
 copied store cannot be committed as a fixture; the writer creates it in place. Between
 writer and reader the test runs `store-upgrade apply`, the documented offline step. That
@@ -27,8 +27,8 @@ from pathlib import Path
 import pytest
 from conftest import find_server_binary, spawn_server, stop_server, wait_for_server
 
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.generated.cluster import (
+from medulla.client import MedullaClient
+from medulla.generated.cluster import (
     decode_list_graphs,
     send_create_graph,
     send_list_graphs,
@@ -36,7 +36,7 @@ from epistemic_graph.generated.cluster import (
 
 pytestmark = [
     pytest.mark.no_engine,  # Each case owns its engines on its own store.
-    pytest.mark.spec("EG-DURABLE-KERNEL-R861.2"),
+    pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R861.2"),
 ]
 
 AGENT = "service:test-suite"
@@ -46,14 +46,14 @@ TENANT_GRAPH = "tenant__homelab____commons__"
 UNGRANTED = "service:upgrade-ungranted"
 UNREGISTERED = "service:upgrade-unregistered"
 BOTH = ["__commons__", TENANT_GRAPH]
-PREVIOUS_PATCH_ENV = "EPISTEMIC_GRAPH_PREVIOUS_PATCH_BINARY"
+PREVIOUS_PATCH_ENV = "MEDULLA_PREVIOUS_PATCH_BINARY"
 
 
 def _context(agent: str = AGENT, *, roles=None, scopes=None) -> dict[str, object]:
     return {
         "principal": agent,
         "tenant": "tenant:test",
-        "audience": "epistemic-graph-test",
+        "audience": "medulla-test",
         "agent_id": agent,
         "roles": list(roles if roles is not None else ["test"]),
         "scopes": list(scopes if scopes is not None else ["*"]),
@@ -66,17 +66,17 @@ def _env(state_dir: Path) -> dict[str, str]:
     inherited = {
         key: value
         for key, value in os.environ.items()
-        if not key.startswith(("GRAPH_SERVICE_", "EPISTEMIC_GRAPH_"))
+        if not key.startswith(("GRAPH_SERVICE_", "MEDULLA_"))
     }
     return {
         **inherited,
         "GRAPH_SERVICE_AUTH_SECRET": AUTH_SECRET,
-        "EPISTEMIC_GRAPH_REQUIRE_OIDC": "false",
-        "EPISTEMIC_GRAPH_AUDIENCE": "epistemic-graph-test",
-        "EPISTEMIC_GRAPH_TENANT": "tenant:test",
-        "EPISTEMIC_GRAPH_POLICY_VERSION": "policy:test",
-        "EPISTEMIC_GRAPH_SECURITY_STATE_DIR": str(state_dir),
-        "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON": json.dumps(
+        "MEDULLA_REQUIRE_OIDC": "false",
+        "MEDULLA_AUDIENCE": "medulla-test",
+        "MEDULLA_TENANT": "tenant:test",
+        "MEDULLA_POLICY_VERSION": "policy:test",
+        "MEDULLA_SECURITY_STATE_DIR": str(state_dir),
+        "MEDULLA_SIGNER_KEYS_JSON": json.dumps(
             {AGENT: {"key": SIGNER_KEY, "allowed_roles": [], "may_grant_system": True}}
         ),
     }
@@ -84,8 +84,8 @@ def _env(state_dir: Path) -> dict[str, str]:
 
 async def _connect(
     socket_path: str, context: dict[str, object]
-) -> EpistemicGraphClient:
-    return await EpistemicGraphClient.connect(
+) -> MedullaClient:
+    return await MedullaClient.connect(
         socket_path=socket_path, auth_secret=AUTH_SECRET, verified_context=context
     )
 

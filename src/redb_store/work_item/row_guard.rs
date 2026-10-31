@@ -2,15 +2,15 @@
 //!
 //! Two facts are maintained ONLY by the native WorkItem kernel:
 //!
-//! * a `ControlLease` row (graph-os EG-2) -- its grant, timing and lifecycle.
+//! * a `ControlLease` row (graph-os MEDULLA-2) -- its grant, timing and lifecycle.
 //!   A generic writer could otherwise re-activate a revoked lease, extend its
 //!   expiry, or plant a forged one -- an `ActionApproval` row (graph-os
-//!   EG-5), which is filed and decided only as an `action.approval` lease, and
+//!   MEDULLA-5), which is filed and decided only as an `action.approval` lease, and
 //!   a canonical `Gap` row (EH-348), written only by the work-market methods;
 //! * the kernel-owned fields of a WorkItem row -- `row_revision` (the `version`
 //!   the typed reads project) and the provenance references a terminal commit
 //!   binds (`outcome_ref`, `outcome_digest`, `trace_ref`, `tool_call_refs`,
-//!   graph-os EG-3). A lease's own fields are covered by the first rule.
+//!   graph-os MEDULLA-3). A lease's own fields are covered by the first rule.
 //!
 //! * a policy-evolution record row (EH-346) -- written only by the kernel's
 //!   `PolicyEvolutionStore` once `PolicyEvolution` admitted it.
@@ -19,8 +19,8 @@
 //! the generic row applier, so every generic node write -- single, batched or
 //! create-if-absent -- is checked in the same durable transaction it commits in.
 
-use eg_types::policy_evolution::{is_policy_evolution_row, PolicyRefusal};
-use eg_types::work_item_read::NATIVE_WORK_ITEM_ROW_KEYS;
+use medulla_types::policy_evolution::{is_policy_evolution_row, PolicyRefusal};
+use medulla_types::work_item_read::NATIVE_WORK_ITEM_ROW_KEYS;
 
 use super::*;
 
@@ -31,7 +31,7 @@ const LEASE_AUTHORITY: &str =
     "native record authority required for a ControlLease, ActionApproval or Gap row";
 
 /// Node labels whose rows only a native authority writes: `ControlLease`
-/// (graph-os EG-2), `ActionApproval` (graph-os EG-5 -- approvals are filed
+/// (graph-os MEDULLA-2), `ActionApproval` (graph-os MEDULLA-5 -- approvals are filed
 /// and decided as `action.approval` control leases, never as generic nodes)
 /// and `Gap` (EH-348 -- the canonical Gap is upserted, transitioned, settled
 /// and priced only by the work-market methods, which keep it paired with its
@@ -144,8 +144,8 @@ impl RowGuard<'_, '_> {
 
 fn refuse_stored_lease(stored: Option<&NodeMap>) -> Result<(), String> {
     if stored.is_some_and(|row| {
-        row.contains_key(eg_types::run_completion::RUN_COMPLETION_BATCH)
-            || row.contains_key(eg_types::run_completion::RUN_COMPLETION_DIGEST)
+        row.contains_key(medulla_types::run_completion::RUN_COMPLETION_BATCH)
+            || row.contains_key(medulla_types::run_completion::RUN_COMPLETION_DIGEST)
             || row.contains_key("run_owner_binding")
             || row.contains_key(super::run_owner::ADMISSION_REQUEST)
     }) {
@@ -263,7 +263,7 @@ mod tests {
         };
         check(&temp.shard, "ordinary", ordinary).unwrap();
     }
-    // spec: EG-DURABLE-KERNEL-R028.4
+    // spec: MEDULLA-DURABLE-KERNEL-R028.4
     #[test]
     fn run_owner_binding_survives_generic_removal_and_opaque_replacement() {
         let temp = open("run-owner-guard");
@@ -313,7 +313,7 @@ mod tests {
         )
         .is_err());
     }
-    // spec: EG-DURABLE-KERNEL-R028.4.1
+    // spec: MEDULLA-DURABLE-KERNEL-R028.4.1
     #[test]
     fn run_admission_snapshot_cannot_be_planted_or_removed() {
         let temp = open("run-admission-guard");
@@ -386,8 +386,8 @@ mod completion_tests {
     fn ordinary_completion_bindings_cannot_be_planted_on_unlabelled_rows() {
         let temp = open("completion-guard");
         for key in [
-            eg_types::run_completion::RUN_COMPLETION_BATCH,
-            eg_types::run_completion::RUN_COMPLETION_DIGEST,
+            medulla_types::run_completion::RUN_COMPLETION_BATCH,
+            medulla_types::run_completion::RUN_COMPLETION_DIGEST,
         ] {
             let properties = serde_json::json!({key: "forged"});
             let method = Method::AddNode {
@@ -402,8 +402,8 @@ mod completion_tests {
 /// Reserve native bindings even on rows not yet labelled WorkItem.
 fn has_reserved_run_binding(row: &NodeMap) -> bool {
     [
-        eg_types::run_completion::RUN_COMPLETION_BATCH,
-        eg_types::run_completion::RUN_COMPLETION_DIGEST,
+        medulla_types::run_completion::RUN_COMPLETION_BATCH,
+        medulla_types::run_completion::RUN_COMPLETION_DIGEST,
         "current_plan",
         "run_owner_binding",
         super::run_owner::ADMISSION_REQUEST,

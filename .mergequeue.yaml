@@ -1,10 +1,10 @@
-# Merge-queue gate declaration for `epistemic-graph` (a RUST repository).
+# Merge-queue gate declaration for `medulla` (a RUST repository).
 #
 # Copy to the repository root as `.mergequeue.yaml`.
 #
 # This file is the proof that the queue in repository_manager/merge_queue.py is
 # genuinely generic: nothing below is Python, pytest, ruff, or agent-utilities,
-# and the queue needs no change to run it. Until this existed, epistemic-graph
+# and the queue needs no change to run it. Until this existed, medulla
 # had NO merge queue at all -- the engine lane had to hand-apply the discipline
 # from memory (verify the MERGED tree with `cargo check --all-features`,
 # fast-forward only, never merge in the canonical checkout). That is exactly the
@@ -210,7 +210,7 @@ gates:
   #
   # `cargo test --all-features` for real (not this declaration) is also
   # currently RED: the 2026-08-06 test census (D-EGTC-1..12,
-  # plans/au-eg-program/audits/audit-eg-test-census-2026-08-06.md) found 64
+  # plans/au-medulla-program/audits/audit-medulla-test-census-2026-08-06.md) found 64
   # failing tests + 9 crashing binaries under this exact command, needs a
   # dedicated 64-core host to complete in reasonable time, and needs `cmake`
   # (CycloneDDS vendor build) just to link. Wiring it here as a blocking gate,
@@ -235,7 +235,7 @@ gates:
     compare: lines
 
   # D-W6TG-3: rust-ci.yml's "Test (facade full)" step (`cargo test -p
-  # epistemic-graph --features full`) had NO equivalent in this queue at all --
+  # medulla --features full`) had NO equivalent in this queue at all --
   # the queue's own `cargo-test` gate above runs `--all-features` across the
   # WHOLE workspace (broader scope, `slow` tier, not run in the queue), and the
   # matching local full-profile checks are manual-only -- lanes land through
@@ -246,7 +246,7 @@ gates:
   # hit_on_unchanged_then_write_invalidates` (root facade package, `--features
   # full`) reached origin/main (08c6fe6) with NEITHER the commit-stage nor the
   # queue gate ever having exercised that exact package/feature combination.
-  # Root-caused and fixed separately (lane w6-eg-facade-stackoverflow, out of
+  # Root-caused and fixed separately (lane w6-medulla-facade-stackoverflow, out of
   # this gate's own scope) -- this entry closes the STRUCTURAL gap that let it
   # land undetected, mirroring `bf748fa`'s clippy fix one gate over.
   #
@@ -263,14 +263,14 @@ gates:
   # isolates individual `... FAILED` lines and `panicked`/`stack overflow`
   # abort signatures, and `test result: ... N failed` summaries, so the
   # differential is per-test: a NEW failing test id blocks, a pre-existing one
-  # (like the stack-overflow cluster above, until w6-eg-facade-stackoverflow
+  # (like the stack-overflow cluster above, until w6-medulla-facade-stackoverflow
   # lands) does not.
   - name: facade-full
     command:
       - cargo
       - test
       - -p
-      - epistemic-graph
+      - medulla
       - --features
       - full
       - --message-format
@@ -294,7 +294,7 @@ gates:
       - '**/Cargo.toml'
 
   # DE7 (durable-execution-native.md, lane w6-de7-replay-determinism): the
-  # replay-determinism crash-and-reopen proofs for `eg-jobs`/`eg-statechart`
+  # replay-determinism crash-and-reopen proofs for `medulla-jobs`/`medulla-statechart`
   # (see the matching pre-commit `replay-determinism` hook). Scoped to exactly
   # these two crates' `replay_determinism` integration test, not the general
   # `cargo-test` gate above — cheap enough (well under a minute cold) to run in
@@ -307,9 +307,9 @@ gates:
       - cargo
       - test
       - -p
-      - eg-jobs
+      - medulla-jobs
       - -p
-      - eg-statechart
+      - medulla-statechart
       - --test
       - replay_determinism
       - --target-dir
@@ -319,13 +319,13 @@ gates:
     baseline_timeout: 600
     compare: exit
     when_changed:
-      - 'crates/eg-jobs/**'
-      - 'crates/eg-statechart/**'
-      - 'crates/eg-mutation-store/**'
-      - 'crates/eg-types/src/mutation_batch.rs'
+      - 'crates/medulla-jobs/**'
+      - 'crates/medulla-statechart/**'
+      - 'crates/medulla-mutation-store/**'
+      - 'crates/medulla-types/src/mutation_batch.rs'
 
-  # D-W6EFS-1 (w6-eg-facade-stackoverflow, 2026-08-07): rust-ci.yml's "Test
-  # (facade full)" step -- `cargo test -p epistemic-graph --features full` --
+  # D-W6EFS-1 (w6-medulla-facade-stackoverflow, 2026-08-07): rust-ci.yml's "Test
+  # (facade full)" step -- `cargo test -p medulla-engine --features full` --
   # was gated NOWHERE that actually runs on land. Local full-profile checks are
   # manual-only, and lanes land through THIS queue, not `git push`; hosted
   # release CI remains the exhaustive validation path. The general `cargo-test`
@@ -348,7 +348,7 @@ gates:
       - cargo
       - test
       - -p
-      - epistemic-graph
+      - medulla
       - --features
       - full
       - --target-dir
@@ -366,24 +366,24 @@ gates:
       - 'build.rs'
       - 'rust-toolchain.toml'
   # w5-ci-gates-local (D-W5CG-1): rust-ci.yml's `benchmarks` job runs this
-  # (query-pipeline fuzz + concurrency-chaos, CONCEPT:EG-KG.query.pipeline-fuzz)
+  # (query-pipeline fuzz + concurrency-chaos, CONCEPT:MEDULLA-KG.query.pipeline-fuzz)
   # but CI is dark, and it was declared NOWHERE else -- not `.mergequeue.yaml`,
   # not `.config/pre-commit.yaml` -- until now. This is exactly the operator's
-  # second live example: "cargo test -p eg-plan --test fuzz_pipelines -> FOREIGN
+  # second live example: "cargo test -p medulla-plan --test fuzz_pipelines -> FOREIGN
   # fuzz failures" reached CI and only CI. Unlike the workspace-wide cargo-test
   # above, this is ONE crate's ONE test binary with a fixed feature set -- cheap
   # enough to run in the queue's FAST, differential tier exactly like
   # cargo-check/clippy: it catches a NEW fuzz regression on the candidate
   # without requiring the pre-existing findings (D-EGTC-10: FOREIGN registry
   # validation gap, 4 known failures) to be fixed first. `when_changed` scopes
-  # it to eg-plan + its query/federation dependents so unrelated candidates
+  # it to medulla-plan + its query/federation dependents so unrelated candidates
   # never pay for it.
-  - name: eg-plan-fuzz-pipelines
+  - name: medulla-plan-fuzz-pipelines
     command:
       - cargo
       - test
       - -p
-      - eg-plan
+      - medulla-plan
       - --features
       - query,owl,text,timeseries,federation
       - --test
@@ -398,7 +398,7 @@ gates:
     # matching D-EGTC-10): only the per-test `... FAILED` summary lines are
     # kept, deliberately NOT the `panicked at ...` detail lines beneath them.
     # This suite's own proptest cases are persisted in
-    # crates/eg-plan/tests/fuzz_pipelines.proptest-regressions and replayed
+    # crates/medulla-plan/tests/fuzz_pipelines.proptest-regressions and replayed
     # first, but each replay still re-panics once per shrink iteration (112
     # `panicked at` lines observed for 2 failing tests here) -- an iteration
     # count that is proptest-internal and not guaranteed stable across
@@ -412,12 +412,12 @@ gates:
       - '^test .* \.\.\. FAILED'
       - '^error\['
     when_changed:
-      - 'crates/eg-plan/*'
-      - 'crates/eg-plan/**'
-      - 'crates/eg-query/**'
+      - 'crates/medulla-plan/*'
+      - 'crates/medulla-plan/**'
+      - 'crates/medulla-query/**'
       - 'Cargo.lock'
 
-  # D-EGTC-1/D-EGTC-2 (w1-eg-test-census, 2026-08-06): `clients/go` had not
+  # D-EGTC-1/D-EGTC-2 (w1-medulla-test-census, 2026-08-06): `clients/go` had not
   # compiled for 17+ days -- gated NOWHERE (not here, not pre-commit, not any
   # CI workflow) -- and nobody noticed because nothing ever ran `go build`/
   # `go test` against it. `clients/js` was undiscovered the same way, though it
@@ -466,7 +466,7 @@ gates:
       - 'clients/js/**'
 
 # No generated files are regenerated on land for this repo yet. If
-# `docs/capabilities.generated.md` (eg-capabilities' generated ledger) starts
+# `docs/capabilities.generated.md` (medulla-capabilities' generated ledger) starts
 # conflicting across candidates, declare it here together with its generator and
 # the queue will regenerate it from the already-merged tree instead of rejecting
 # the candidate or picking a side.

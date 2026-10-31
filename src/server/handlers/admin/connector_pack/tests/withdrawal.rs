@@ -5,13 +5,13 @@ use super::{
     Served, ADMIN, TENANT,
 };
 use crate::protocol::Method;
-use eg_types::agent_component::{
+use medulla_types::agent_component::{
     AgentComponentContentRequest, AgentComponentContentResult, AgentComponentKind,
     AgentComponentOp, AgentComponentPublishRequest, AgentComponentSearchPage,
     AgentComponentSearchRequest, ComponentDependency,
 };
-use eg_types::agent_library::AgentLibraryLifecycle;
-use eg_types::connector_pack::{PackImportResult, PackViolationCode};
+use medulla_types::agent_library::AgentLibraryLifecycle;
+use medulla_types::connector_pack::{PackImportResult, PackViolationCode};
 
 async fn search(served: &Served) -> Vec<String> {
     let page: AgentComponentSearchPage = ok(
@@ -42,7 +42,7 @@ async fn search(served: &Served) -> Vec<String> {
         .collect()
 }
 
-// spec: EG-DECISION-ENGINE-R073.5
+// spec: MEDULLA-DECISION-ENGINE-R073.5
 #[tokio::test]
 async fn withdrawn_tool_leaves_search_but_keeps_historical_content() {
     let served = Served::new();
@@ -155,8 +155,8 @@ async fn withdrawn_tool_leaves_search_but_keeps_historical_content() {
 /// Upload `pack` and import it over `head` with the given approval.
 async fn import_approved(
     served: &Served,
-    pack: &(eg_types::connector_pack::ConnectorPackIndex, Vec<u8>),
-    head: eg_types::connector_pack::PackHeadRef,
+    pack: &(medulla_types::connector_pack::ConnectorPackIndex, Vec<u8>),
+    head: medulla_types::connector_pack::PackHeadRef,
     allow_mass_withdrawal: bool,
 ) -> PackImportResult {
     let (mut index, archive) = pack.clone();
@@ -171,7 +171,7 @@ async fn import_approved(
 /// component ids (connector + kind + name) stay the same. The import withdraws
 /// every old URI, so it needs the mass-withdrawal approval, and with it the
 /// import lands: each component keeps one revision under its new URI.
-// spec: EG-TYPED-PACKS-R039
+// spec: MEDULLA-TYPED-PACKS-R039
 #[tokio::test]
 async fn an_approved_mass_withdrawal_that_moves_every_uri_imports() {
     let served = Served::new();
@@ -225,7 +225,7 @@ async fn an_approved_mass_withdrawal_that_moves_every_uri_imports() {
     let members = store
         .connector_pack_members(
             TENANT,
-            &eg_types::contract::ResourceId::new(connector).unwrap(),
+            &medulla_types::contract::ResourceId::new(connector).unwrap(),
         )
         .unwrap();
     for name in ["alpha", "beta"] {

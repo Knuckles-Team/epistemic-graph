@@ -1,5 +1,5 @@
-//! SQLite/DuckDB-style embedded usage of the epistemic-graph engine
-//! (CONCEPT:EG-KG.backend.engine-modes). No socket, no server, no auth — the engine is a durable
+//! SQLite/DuckDB-style embedded usage of the medulla engine
+//! (CONCEPT:MEDULLA-KG.backend.engine-modes). No socket, no server, no auth — the engine is a durable
 //! library you open in-process.
 //!
 //! Run with:
@@ -7,8 +7,8 @@
 //!   # with the lean Cypher query surface (the Pi tier):
 //!   cargo run --example embedded --no-default-features --features "embedded pi"
 
-use epistemic_graph::embedded::{EmbeddedEngine, EmbeddedOptions};
-use epistemic_graph::protocol::GraphType;
+use medulla::embedded::{EmbeddedEngine, EmbeddedOptions};
+use medulla::protocol::GraphType;
 
 fn props(v: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&v).unwrap()
@@ -16,7 +16,7 @@ fn props(v: serde_json::Value) -> Vec<u8> {
 
 fn main() -> Result<(), String> {
     // A scratch persist dir — like a SQLite file, but a directory holding graph.redb.
-    let dir = std::env::temp_dir().join("eg-embedded-example");
+    let dir = std::env::temp_dir().join("medulla-embedded-example");
     let _ = std::fs::remove_dir_all(&dir);
 
     // ── Open a durable embedded engine (commit-before-return) ────────────
@@ -33,7 +33,7 @@ fn main() -> Result<(), String> {
     engine.add_node(
         "kg",
         "eng",
-        props(serde_json::json!({"label": "Engine", "name": "epistemic-graph"})),
+        props(serde_json::json!({"label": "Engine", "name": "medulla"})),
     )?;
     engine.add_edge(
         "kg",
@@ -66,7 +66,7 @@ fn main() -> Result<(), String> {
 
     // ── SQLite-equivalent SQL user tables (when built with `query`) ──────
     // No server, no socket: CREATE TABLE / INSERT / SELECT in-process, durably,
-    // against a single-file user-table store (CONCEPT:EG-KG.storage.namespaced-kv-surface / EG-018).
+    // against a single-file user-table store (CONCEPT:MEDULLA-KG.storage.namespaced-kv-surface / MEDULLA-018).
     #[cfg(feature = "query")]
     {
         engine.sql_exec("kg", "CREATE TABLE prices (sym TEXT, px DOUBLE)")?;

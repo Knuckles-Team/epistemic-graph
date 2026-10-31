@@ -1,15 +1,15 @@
 """A previous-patch store migrates when this build opens it (R070.2).
 
-Spec row: EG-DURABLE-KERNEL-R070.2. A writer engine bootstraps a store and creates a
+Spec row: MEDULLA-DURABLE-KERNEL-R070.2. A writer engine bootstraps a store and creates a
 tenant graph the way arbora does. This build then opens the same store with no offline
 step in between. It migrates every older but supported store under its own lock, then
 serves: `ListGraphs` returns both graphs for the System identity. A second restart
-finds nothing to migrate. With `EPISTEMIC_GRAPH_STORE_AUTO_MIGRATE=false` the engine
+finds nothing to migrate. With `MEDULLA_STORE_AUTO_MIGRATE=false` the engine
 keeps the offline refusal. It exits with the store's named format error and the
 `store-upgrade apply` command, and that command still works.
 
 The writer is this build, and also the previous patch's published engine when
-`EPISTEMIC_GRAPH_PREVIOUS_PATCH_BINARY` names it (`pip install
+`MEDULLA_PREVIOUS_PATCH_BINARY` names it (`pip install
 medulla-stem==<previous>`). A store binds to its files' device and inode, so
 the writer creates it in place. The migration stages its scratch copy inside the data
 directory, which must not be under `/tmp`. Run the previous-patch leg with `--basetemp`
@@ -36,10 +36,10 @@ from test_upgrade_store_listing import (
 
 pytestmark = [
     pytest.mark.no_engine,  # Each case owns its engines on its own store.
-    pytest.mark.spec("EG-DURABLE-KERNEL-R070.2"),
+    pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R070.2"),
 ]
 
-SWITCH = "EPISTEMIC_GRAPH_STORE_AUTO_MIGRATE"
+SWITCH = "MEDULLA_STORE_AUTO_MIGRATE"
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 

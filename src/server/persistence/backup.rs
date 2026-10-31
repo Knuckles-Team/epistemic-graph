@@ -1,8 +1,8 @@
-//! Online consistent BACKUP + RESTORE + PITR foundation (CONCEPT:EG-KG.sharding.reshard-on-restore).
+//! Online consistent BACKUP + RESTORE + PITR foundation (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore).
 //!
 //! ## What it solves
 //!
-//! EG-030 (`shard_migrate`) can copy a durable store verbatim, but only OFFLINE — the
+//! MEDULLA-030 (`shard_migrate`) can copy a durable store verbatim, but only OFFLINE — the
 //! engine must be stopped because it opens each authoritative shard exclusively. A
 //! disaster-recovery story needs a **consistent backup taken while the engine RUNS**,
 //! and a matching restore. This is that.
@@ -11,8 +11,8 @@
 //!
 //! [`RedbBackend::backup`](super::redb_backend::RedbBackend::backup) calls
 //! `write_bundle_shard` once per shard, which is one call to
-//! [`eg_storage::backup_recovery_store`] on that shard file's `StorageKernel`.
-//! The kernel takes its own MVCC snapshot (CONCEPT:EG-KG.storage.snapshot-read-off-writer) of the LIVE writer's
+//! [`medulla_storage::backup_recovery_store`] on that shard file's `StorageKernel`.
+//! The kernel takes its own MVCC snapshot (CONCEPT:MEDULLA-KG.storage.snapshot-read-off-writer) of the LIVE writer's
 //! store — redb 4.1 is MVCC, so it sees the shard's LATEST COMMITTED state and runs
 //! CONCURRENTLY with the single writer (no writer involvement, no group-commit, no
 //! quiesce) — and copies, into a fresh bundle file:
@@ -32,7 +32,7 @@
 //!
 //! * value blobs byte-for-byte (no decode/unseal), so encryption-at-rest survives
 //!   WITHOUT the key and the tamper-evident hash-chained `audit_chain`
-//!   (CONCEPT:EG-KG.sharding.row-level-security) stays verifiable;
+//!   (CONCEPT:MEDULLA-KG.sharding.row-level-security) stays verifiable;
 //! * `encryption_canary` — a declared FileWide owner table — so a restore retains the
 //!   original key identity/version boundary and cannot silently establish a new canary
 //!   under a different key;
@@ -47,11 +47,11 @@
 //! is a proven-recoverable owner file, and its [`RecoveryStoreCounts`] census is what the
 //! manifest records per shard.
 //!
-//! **Cross-shard consistency** rides the commit-before-ack guarantee (CONCEPT:EG-KG.backend.authoritative-dispatch):
+//! **Cross-shard consistency** rides the commit-before-ack guarantee (CONCEPT:MEDULLA-KG.backend.authoritative-dispatch):
 //! any ACKED write is already durably committed, so each per-shard snapshot — opened
 //! independently — sees a self-consistent committed prefix of the durable history. The
 //! backup brackets those copies with cryptographic change tokens for both the admin
-//! saga ledger ([`eg_storage::recovery_store_fingerprint`]) and the shard's cross-shard
+//! saga ledger ([`medulla_storage::recovery_store_fingerprint`]) and the shard's cross-shard
 //! prepare/decision records (`xshard_recovery_boundary`). If either recovery boundary
 //! changes, no manifest is published and the caller retries. A stable prepared parent
 //! is safe because its authenticated recovery plan remains available for idempotent
@@ -62,7 +62,7 @@
 //! A backup bundle is a directory holding:
 //!
 //! * `graph-<n>.redb` — one verbatim kernel owner file per shard for every K,
-//!   using the EG-026 [`shard_filename`](super::redb_backend::shard_filename) names, so
+//!   using the MEDULLA-026 [`shard_filename`](super::redb_backend::shard_filename) names, so
 //!   the bundle IS a valid durable shard set on its own.
 //! * `admin-mutations.redb` — the portable local projection of placement-group
 //!   consensus: admin coordinator receipts, fences, child outbox rows and
@@ -92,11 +92,11 @@
 //!
 //! [`restore_bundle`] validates the manifest — including re-deriving every bundle
 //! shard's census from the FILE and comparing it to what the manifest claims — then
-//! rebuilds a persist-dir from the bundle by DELEGATING to EG-030's
+//! rebuilds a persist-dir from the bundle by DELEGATING to MEDULLA-030's
 //! [`shard_migrate::migrate_shards`]: the bundle's shard files are exactly the canonical
 //! `graph-<n>.redb` set that tool consumes. Restoring at the manifest's own K is a 1:1
 //! verbatim row import; restoring at a DIFFERENT K re-shards on restore (each graph
-//! re-routed by the SAME EG-026 `FNV-1a % K`). No decode/re-derive — the audit chain and
+//! re-routed by the SAME MEDULLA-026 `FNV-1a % K`). No decode/re-derive — the audit chain and
 //! at-rest ciphertext survive the round trip.
 //!
 //! ## Point-in-time recovery (PITR)
@@ -110,7 +110,7 @@ use std::collections::BTreeMap;
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
-use eg_storage::RecoveryStoreCounts;
+use medulla_storage::RecoveryStoreCounts;
 use redb::ReadableTable;
 use sha2::{Digest, Sha256};
 
@@ -210,14 +210,14 @@ pub(crate) fn xshard_recovery_fingerprint(shard: &Shard) -> Result<[u8; 32], Str
     Ok(xshard_recovery_boundary(shard)?.fingerprint)
 }
 
-/// Outcome of a backup run (CONCEPT:EG-KG.sharding.reshard-on-restore) — the shard count + the census the kernel
+/// Outcome of a backup run (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore) — the shard count + the census the kernel
 /// derived for every file the bundle carries.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BackupReport {
     /// Number of shard files written into the bundle (= K).
     pub shards: usize,
     /// Per-shard recovery census, in shard order, exactly as
-    /// [`eg_storage::backup_recovery_store`] validated each bundle file.
+    /// [`medulla_storage::backup_recovery_store`] validated each bundle file.
     ///
     /// This is the ONE counter. The dimensions the hand-written copy loops used to
     /// increment (`nodes`, `edges`, `audit`, `capability_and_resource`, …) were a
@@ -232,7 +232,7 @@ pub struct BackupReport {
     /// Integrity totals for the separate admin coordinator ledger.
     pub admin_mutations: RecoveryStoreCounts,
     /// Non-shard durable stores copied into the bundle, as `file name → rows copied`
-    /// (CONCEPT:EG-KG.sharding.reshard-on-restore).
+    /// (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore).
     pub bundled_stores: BTreeMap<String, u64>,
     /// Stable, non-secret encryption key identity captured from the live store.
     /// Material is never included in a report or bundle manifest.
@@ -272,7 +272,7 @@ fn graph_scopes(counts: &[RecoveryStoreCounts]) -> u64 {
     })
 }
 
-/// The bundle manifest (CONCEPT:EG-KG.sharding.reshard-on-restore) — serialized to `MANIFEST.json` at backup and
+/// The bundle manifest (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore) — serialized to `MANIFEST.json` at backup and
 /// validated at restore. All non-derived fields (timestamp, label reference, engine version) are
 /// CALLER-SUPPLIED — this module never calls `Date::now` (no wall-clock / randomness in
 /// library code).
@@ -431,19 +431,19 @@ fn portable_file_digests(
 fn shard_census(shard_files: &[PathBuf]) -> Result<Vec<RecoveryStoreCounts>, String> {
     let mut census = Vec::with_capacity(shard_files.len());
     for path in shard_files {
-        let store = eg_storage::open_read_only(path, None).map_err(|error| {
+        let store = medulla_storage::open_read_only(path, None).map_err(|error| {
             format!(
                 "shard {} is not a readable owner file: {error}",
                 path.display()
             )
         })?;
-        census.push(eg_storage::validate_recovery_store_read_only(&store)?);
+        census.push(medulla_storage::validate_recovery_store_read_only(&store)?);
     }
     Ok(census)
 }
 
 /// Copy ONE shard file into `dst_path` (a fresh bundle file) and return the census the
-/// kernel validated on it (CONCEPT:EG-KG.sharding.reshard-on-restore). Called once per shard by
+/// kernel validated on it (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore). Called once per shard by
 /// [`RedbBackend::backup`](super::redb_backend::RedbBackend::backup).
 ///
 /// The whole shard moves as one unit — no `is_shard0` special case, because the
@@ -454,11 +454,11 @@ pub(crate) fn write_bundle_shard(
     source: &Shard,
     dst_path: &Path,
 ) -> Result<RecoveryStoreCounts, String> {
-    eg_storage::backup_recovery_store(source.kernel(), dst_path)
+    medulla_storage::backup_recovery_store(source.kernel(), dst_path)
         .map_err(|error| format!("bundle shard {}: {error}", dst_path.display()))
 }
 
-/// Serialize + write the bundle manifest to `<dir>/MANIFEST.json` (CONCEPT:EG-KG.sharding.reshard-on-restore).
+/// Serialize + write the bundle manifest to `<dir>/MANIFEST.json` (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore).
 pub(crate) fn write_manifest(
     dir: &Path,
     report: &BackupReport,
@@ -621,11 +621,11 @@ fn validate_manifest_admin_store(dir: &Path, manifest: &BackupManifest) -> Resul
     // `(dev, ino)` only (never the path, so a rename doesn't change it) and never
     // opens a write transaction against the file, so validating it here cannot
     // perturb the digest check that follows.
-    let admin = eg_storage::open_read_only(
+    let admin = medulla_storage::open_read_only(
         &admin_path,
         crate::server::persistence::redb_backend::admin_mutations_private_integrity(),
     )?;
-    let counts = eg_storage::validate_recovery_store_read_only(&admin)?;
+    let counts = medulla_storage::validate_recovery_store_read_only(&admin)?;
     if counts != manifest.admin_mutations {
         return Err("admin mutation coordinator totals do not match the manifest".to_string());
     }
@@ -645,7 +645,7 @@ fn validate_manifest_file_digests(
     Ok(())
 }
 
-/// Read + validate a bundle manifest from `<dir>/MANIFEST.json` (CONCEPT:EG-KG.sharding.reshard-on-restore).
+/// Read + validate a bundle manifest from `<dir>/MANIFEST.json` (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore).
 pub fn read_manifest(dir: &Path) -> Result<BackupManifest, String> {
     let manifest = read_manifest_file(dir)?;
     validate_manifest_header(&manifest)?;
@@ -658,15 +658,15 @@ pub fn read_manifest(dir: &Path) -> Result<BackupManifest, String> {
     Ok(manifest)
 }
 
-/// Outcome of a restore (CONCEPT:EG-KG.sharding.reshard-on-restore) — the validated manifest + the verbatim import
-/// totals produced by the EG-030 migration engine.
+/// Outcome of a restore (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore) — the validated manifest + the verbatim import
+/// totals produced by the MEDULLA-030 migration engine.
 #[derive(Debug, Clone)]
 pub struct RestoreReport {
     /// The bundle's validated manifest.
     pub manifest: BackupManifest,
     /// Explicit shard count the persist-dir was rebuilt at.
     pub restored_shards: usize,
-    /// Verbatim row-import totals (EG-030 `MigrationReport`).
+    /// Verbatim row-import totals (MEDULLA-030 `MigrationReport`).
     pub migration: shard_migrate::MigrationReport,
     /// Recovery census re-derived from the RESTORED shard files, in shard order.
     pub restored_counts: Vec<RecoveryStoreCounts>,
@@ -713,7 +713,7 @@ fn restore_graph_shards(
     manifest: &BackupManifest,
     target_shards: usize,
 ) -> Result<(shard_migrate::MigrationReport, Vec<RecoveryStoreCounts>), String> {
-    // The bundle's graph*.redb files are exactly the source shard set EG-030 consumes.
+    // The bundle's graph*.redb files are exactly the source shard set MEDULLA-030 consumes.
     let migration = shard_migrate::migrate_shards(bundle_dir, persist_dir, target_shards)?;
     if migration.source_shards != manifest.shard_count {
         return Err("restored graph totals do not match the backup manifest".to_string());
@@ -737,7 +737,7 @@ fn restore_admin_store(
     bundle_dir: &Path,
     persist_dir: &Path,
     manifest: &BackupManifest,
-) -> Result<(eg_storage::StorageKernel, RecoveryStoreCounts), String> {
+) -> Result<(medulla_storage::StorageKernel, RecoveryStoreCounts), String> {
     let admin_source = bundle_dir.join(ADMIN_MUTATIONS_FILE);
     let admin_target = persist_dir.join(ADMIN_MUTATIONS_FILE);
     if admin_target.exists() {
@@ -756,7 +756,7 @@ fn restore_admin_store(
         crate::server::persistence::redb_backend::admin_mutations_private_integrity(),
     )?
     .ok_or_else(|| "admin mutation store is not a declared bundled owner".to_string())?;
-    let admin_mutations = eg_storage::validate_recovery_store(&restored_admin)?;
+    let admin_mutations = medulla_storage::validate_recovery_store(&restored_admin)?;
     if admin_mutations != manifest.admin_mutations {
         return Err("restored admin mutation coordinator totals changed".to_string());
     }
@@ -790,12 +790,12 @@ fn restore_bundled_stores(
     Ok(restored_stores)
 }
 
-/// Rebuild a persist-dir from a backup bundle (CONCEPT:EG-KG.sharding.reshard-on-restore). Validates the manifest,
-/// then verbatim-imports every bundle shard into `persist_dir` by delegating to EG-030's
+/// Rebuild a persist-dir from a backup bundle (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore). Validates the manifest,
+/// then verbatim-imports every bundle shard into `persist_dir` by delegating to MEDULLA-030's
 /// [`shard_migrate::migrate_shards`] (the bundle IS a valid `graph*.redb` shard set).
 ///
 /// `target_shards` is mandatory. Passing the manifest's own K performs a 1:1 import;
-/// passing a different K performs RE-SHARD ON RESTORE through the same EG-026
+/// passing a different K performs RE-SHARD ON RESTORE through the same MEDULLA-026
 /// `FNV-1a % K` routing rule.
 ///
 /// `persist_dir` must not already hold target shard files (the migration refuses to
@@ -836,19 +836,19 @@ pub fn restore_bundle(
 fn adopt_bundled_store(
     path: &Path,
     file_name: &str,
-    private_integrity: Option<std::sync::Arc<dyn eg_storage::PrivatePayloadIntegrity>>,
-) -> Result<Option<eg_storage::StorageKernel>, String> {
+    private_integrity: Option<std::sync::Arc<dyn medulla_storage::PrivatePayloadIntegrity>>,
+) -> Result<Option<medulla_storage::StorageKernel>, String> {
     let Some((physical_name, layout)) = super::durable_stores::bundled_store_authority(file_name)
     else {
         return Ok(None);
     };
-    let staged = eg_storage::inspect_staged_mutation_store(
+    let staged = medulla_storage::inspect_staged_mutation_store(
         path,
-        eg_storage::PhysicalStoreIdentity::new(physical_name)?,
+        medulla_storage::PhysicalStoreIdentity::new(physical_name)?,
         layout,
         private_integrity,
     )?;
-    eg_storage::adopt_staged_mutation_store(staged).map(Some)
+    medulla_storage::adopt_staged_mutation_store(staged).map(Some)
 }
 
 /// Set one environment variable for the duration of a test and restore its
@@ -900,7 +900,7 @@ mod tests {
         assert_node_a_carries_graph_tag, props, seed_at_k as seed,
     };
     use crate::server::persistence::PersistenceBackend;
-    use eg_storage::{
+    use medulla_storage::{
         GraphShardOwner, OwnerLayout, PhysicalStoreIdentity, StorageKernel, StrictRecoveryEvidence,
     };
     #[cfg(feature = "security")]
@@ -944,14 +944,14 @@ mod tests {
         }
     }
 
-    /// CONCEPT:EG-KG.sharding.reshard-on-restore — the DR round trip: populate a durable dir → ONLINE backup (live,
+    /// CONCEPT:MEDULLA-KG.sharding.reshard-on-restore — the DR round trip: populate a durable dir → ONLINE backup (live,
     /// no quiesce) → restore into a FRESH dir → reopen and assert every graph's
     /// nodes/edges/ledger survive identically.
     #[tokio::test(flavor = "multi_thread")]
     async fn backup_restore_roundtrip_preserves_everything() {
         // Held for the whole test: it opens a `RedbBackend` (`src`), backs it up, then
         // opens a SECOND `RedbBackend` (`restored`) and requires the restored data to
-        // read back identically — which only holds if `EPISTEMIC_GRAPH_ENCRYPTION_KEY`
+        // read back identically — which only holds if `MEDULLA_ENCRYPTION_KEY`
         // resolves the SAME way at both opens. See
         // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
         #[cfg(feature = "security")]
@@ -969,7 +969,7 @@ mod tests {
             crate::crypto::ENCRYPTION_KEY_ENV,
             "backup-roundtrip-key-material",
         );
-        let root = std::env::temp_dir().join(format!("eg-backup-rt-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("medulla-backup-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let src = root.join("live");
         let bundle = root.join("bundle");
@@ -1056,8 +1056,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// CONCEPT:EG-KG.sharding.reshard-on-restore — RE-SHARD ON RESTORE: a K=1 bundle restores into a K=4 persist-dir,
-    /// every graph re-routed by EG-026 and still fully readable.
+    /// CONCEPT:MEDULLA-KG.sharding.reshard-on-restore — RE-SHARD ON RESTORE: a K=1 bundle restores into a K=4 persist-dir,
+    /// every graph re-routed by MEDULLA-026 and still fully readable.
     #[tokio::test(flavor = "multi_thread")]
     async fn restore_can_reshard() {
         // See `backup_restore_roundtrip_preserves_everything` above: held for the
@@ -1065,7 +1065,7 @@ mod tests {
         // backend that must resolve the same cipher).
         #[cfg(feature = "security")]
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
-        let root = std::env::temp_dir().join(format!("eg-backup-reshard-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("medulla-backup-reshard-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let src = root.join("live");
         let bundle = root.join("bundle");
@@ -1117,7 +1117,7 @@ mod tests {
     async fn backup_restore_carries_non_shard_durable_stores() {
         #[cfg(feature = "security")]
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
-        let root = std::env::temp_dir().join(format!("eg-backup-sib-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("medulla-backup-sib-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let src = root.join("live");
         let bundle = root.join("bundle");
@@ -1128,14 +1128,14 @@ mod tests {
         seed(&src_s, 1, &["alpha"]).await;
 
         // Durable RBAC/identity state beside the shards — the omission that mattered.
-        let identity = eg_core::acl::AgentIdentity {
+        let identity = medulla_core::acl::AgentIdentity {
             agent_id: "restore-probe".to_string(),
-            role: eg_core::acl::AgentRole::Agent,
+            role: medulla_core::acl::AgentRole::Agent,
             teams: Vec::new(),
             roles: vec!["reader".to_string()],
         };
         let authority = crate::store_authority::process_authority();
-        let rbac = eg_core::rbac_persist::RbacStore::open(
+        let rbac = medulla_core::rbac_persist::RbacStore::open(
             &src,
             authority.as_ref(),
             authority.principal(),
@@ -1149,7 +1149,7 @@ mod tests {
             snapshot.revision(),
             snapshot.policy(),
             &identities,
-            eg_core::rbac_persist::IdentityBootstrapState::Consumed,
+            medulla_core::rbac_persist::IdentityBootstrapState::Consumed,
         )
         .expect("persist identity");
 
@@ -1204,7 +1204,7 @@ mod tests {
             );
         }
         // The restored engine knows the identity again — the whole point of BUG-PE-054.
-        let restored_rbac = eg_core::rbac_persist::RbacStore::open(
+        let restored_rbac = medulla_core::rbac_persist::RbacStore::open(
             &restored,
             authority.as_ref(),
             authority.principal(),
@@ -1219,7 +1219,7 @@ mod tests {
         );
         assert_eq!(
             bootstrap,
-            eg_core::rbac_persist::IdentityBootstrapState::Consumed,
+            medulla_core::rbac_persist::IdentityBootstrapState::Consumed,
             "identity bootstrap lifecycle survived the round trip"
         );
         drop(restored_rbac);
@@ -1249,7 +1249,7 @@ mod tests {
                 panic!("must never be copied");
             }
         }
-        let root = std::env::temp_dir().join(format!("eg-backup-bogus-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("medulla-backup-bogus-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let src = root.join("live");
         std::fs::create_dir_all(&src).unwrap();
@@ -1272,7 +1272,7 @@ mod tests {
     /// A restore refuses a manifest with a future format version.
     #[test]
     fn rejects_future_format() {
-        let dir = std::env::temp_dir().join(format!("eg-backup-fmt-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-backup-fmt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         // The manifest schema has grown and shed fields since this fixture was first
@@ -1342,7 +1342,7 @@ mod tests {
             PROVENANCE_ANCHOR_MEMBERS, RESOURCE_RESERVATIONS, WORK_ITEM_COMMAND_SEQUENCE,
         };
 
-        let root = std::env::temp_dir().join(format!("eg-backup-census-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("medulla-backup-census-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let src = root.join("live");
         let bundle = root.join("bundle");
@@ -1360,9 +1360,9 @@ mod tests {
         //
         // It is not decoration. `register_graph` writes the catalog entry under
         // the shard's CONTROL scope, and a graph's own scope is bound LAZILY on
-        // first use (CONCEPT:EG-KG.sharding.lazy-graph-catalog), so a graph that
+        // first use (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog), so a graph that
         // is registered and never read or written has NO scope binding at all.
-        // The EG-030 migration engine that backs both `restore_bundle` and online
+        // The MEDULLA-030 migration engine that backs both `restore_bundle` and online
         // resharding then refuses to move it: `Shard::graft_graph_from_with_payload`
         // fails with "graft source scope is not bound and destination has no
         // recovery binding", because it cannot tell "this scope never existed"
@@ -1370,12 +1370,12 @@ mod tests {
         // marker is missing". Without this write, that refusal -- not the census
         // property named above -- is what this test measured.
         //
-        // KNOWN GAP, reported rather than guessed at (eg-f3 burndown,
+        // KNOWN GAP, reported rather than guessed at (medulla-f3 burndown,
         // 2026-09-11): "registered but never written" is a reachable production
         // state, so a store containing such a graph cannot currently be
         // backed up and restored. Closing it means teaching the graft preflight
         // to distinguish the two cases from durable evidence, which is a change
-        // to graft semantics and belongs with the EG-030 owner -- the same
+        // to graft semantics and belongs with the MEDULLA-030 owner -- the same
         // caution `shard_migrate.rs` records about its own snapshot rebinding.
         backend
             .record_durable(
@@ -1441,7 +1441,7 @@ mod tests {
         // to move.
         let source_evidence = {
             let kernel = shard_kernel(&shard0);
-            eg_storage::strict_recovery_evidence(&kernel).expect("source census")
+            medulla_storage::strict_recovery_evidence(&kernel).expect("source census")
         };
         // The bundle's census is read from a REBOUND COPY, never from the bundle
         // itself, because BOTH ways of touching the bundle directly are
@@ -1461,7 +1461,7 @@ mod tests {
         // physical root is rebound, which is exactly what `rebind_copied_store`
         // is for. Rebinding writes only the physical-identity tables, which are
         // in neither `owner_table_names` nor `declared_table_names` (see
-        // `eg_storage::owner_table_names`' doc: "the ledger and the three
+        // `medulla_storage::owner_table_names`' doc: "the ledger and the three
         // physical-identity tables are never in this set"), so the census this
         // reads is byte-for-byte the one the bundle carries.
         let census_copy = root.join("bundle-census");
@@ -1469,11 +1469,11 @@ mod tests {
         let bundle_shard0 = bundle.join(shard_filename(0));
         let census_shard0 = census_copy.join(shard_filename(0));
         std::fs::copy(&bundle_shard0, &census_shard0).unwrap();
-        eg_storage::rebind_copied_store(&census_shard0, &bundle_shard0)
+        medulla_storage::rebind_copied_store(&census_shard0, &bundle_shard0)
             .expect("rebind the bundle census copy");
         let bundle_evidence = {
             let kernel = shard_kernel(&census_shard0);
-            eg_storage::strict_recovery_evidence(&kernel).expect("bundle census")
+            medulla_storage::strict_recovery_evidence(&kernel).expect("bundle census")
         };
         let mut inventory: Vec<&str> = bundle_evidence
             .tables
@@ -1483,10 +1483,10 @@ mod tests {
         inventory.sort_unstable();
         assert_eq!(
             inventory,
-            eg_storage::declared_table_names(OwnerLayout::GraphShard),
+            medulla_storage::declared_table_names(OwnerLayout::GraphShard),
             "the bundle's tables ARE the declared graph-shard census"
         );
-        for owner_table in eg_storage::owner_table_names(OwnerLayout::GraphShard) {
+        for owner_table in medulla_storage::owner_table_names(OwnerLayout::GraphShard) {
             let expected = source_evidence
                 .tables
                 .iter()
@@ -1513,7 +1513,7 @@ mod tests {
         );
 
         // ── restore into a FRESH dir, which also validates the bundle's manifest ──
-        // Deliberately AFTER the bundle census above: the restore's EG-030 graft
+        // Deliberately AFTER the bundle census above: the restore's MEDULLA-030 graft
         // consumes the bundle (see that block's comment).
         restore_bundle(&bundle, &restored, 1).expect("restore");
 

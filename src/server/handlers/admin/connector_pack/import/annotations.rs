@@ -13,8 +13,8 @@
 //! Every value is a claim; this rule only refuses claims that cannot mean
 //! anything.
 
-use eg_types::agent_ontology::{is_a, is_native, CAPABILITY_ROOT, MODALITY_ROOT};
-use eg_types::connector_pack::{
+use medulla_types::agent_ontology::{is_a, is_native, CAPABILITY_ROOT, MODALITY_ROOT};
+use medulla_types::connector_pack::{
     PackAnnotations, PackEntryKind, PackViolationCode, PackWarningCode,
 };
 
@@ -101,7 +101,7 @@ fn check_capability(iri: &str, findings: &mut AnnotationFindings) {
     } else if resolves_parent_import(iri) {
         // `ontology-import:<parent>`: the pack builder lifted the ontology's
         // `owl:imports` of the parent catalog into this requirement; the engine
-        // resolves it against the parent catalog (EG-TYPED-PACKS-R105).
+        // resolves it against the parent catalog (MEDULLA-TYPED-PACKS-R105).
     } else {
         findings.warnings.push((
             PackWarningCode::UnresolvedCapabilityIri,
@@ -119,7 +119,7 @@ fn resolves_parent_import(iri: &str) -> bool {
 
 #[cfg(feature = "rdf")]
 fn parent_ontology_iri(iri: &str) -> bool {
-    eg_rdf::pack::is_parent_ontology_iri(iri)
+    medulla_rdf::pack::is_parent_ontology_iri(iri)
 }
 
 #[cfg(not(feature = "rdf"))]
@@ -190,7 +190,7 @@ fn iso_4217(code: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_types::agent_component::{DeclaredCost, DeclaredLatency};
+    use medulla_types::agent_component::{DeclaredCost, DeclaredLatency};
 
     fn codes(annotations: &PackAnnotations) -> Vec<PackViolationCode> {
         check_annotations(PackEntryKind::Tool, annotations)
@@ -202,15 +202,15 @@ mod tests {
 
     fn providing(iri: &str) -> PackAnnotations {
         PackAnnotations {
-            provides: eg_types::contract::BoundedVec::new(vec![iri.to_string()]).unwrap(),
+            provides: medulla_types::contract::BoundedVec::new(vec![iri.to_string()]).unwrap(),
             ..PackAnnotations::default()
         }
     }
 
-    // spec: EG-TYPED-PACKS-R013
+    // spec: MEDULLA-TYPED-PACKS-R013
     #[test]
     fn the_split_rule_rejects_eg_typos_and_keeps_foreign_claims() {
-        let native = eg_types::agent_ontology::descendants(CAPABILITY_ROOT)
+        let native = medulla_types::agent_ontology::descendants(CAPABILITY_ROOT)
             .into_iter()
             .find(|term| *term != CAPABILITY_ROOT)
             .unwrap();
@@ -241,12 +241,12 @@ mod tests {
         );
     }
 
-    // spec: EG-TYPED-PACKS-R105.1
+    // spec: MEDULLA-TYPED-PACKS-R105.1
     #[cfg(feature = "rdf")]
     #[test]
     fn parent_ontology_import_requirement_resolves() {
         let requiring = |iri: &str| PackAnnotations {
-            requires_capabilities: eg_types::contract::BoundedVec::new(vec![iri.to_string()])
+            requires_capabilities: medulla_types::contract::BoundedVec::new(vec![iri.to_string()])
                 .unwrap(),
             ..PackAnnotations::default()
         };
@@ -265,8 +265,8 @@ mod tests {
         );
     }
 
-    // spec: EG-TYPED-PACKS-R046
-    // spec: EG-TYPED-PACKS-R047
+    // spec: MEDULLA-TYPED-PACKS-R046
+    // spec: MEDULLA-TYPED-PACKS-R047
     #[test]
     fn cost_latency_and_model_facts_are_bounded() {
         let cost = |currency: &str, micros: u64| PackAnnotations {
@@ -300,7 +300,7 @@ mod tests {
     #[test]
     fn a_tool_mode_belongs_to_tools_only() {
         let declared = PackAnnotations {
-            tool_mode: Some(eg_types::connector_pack::PackToolMode::Condensed),
+            tool_mode: Some(medulla_types::connector_pack::PackToolMode::Condensed),
             ..PackAnnotations::default()
         };
         assert!(check_annotations(PackEntryKind::Tool, &declared)
@@ -312,7 +312,7 @@ mod tests {
         );
     }
 
-    // spec: EG-TYPED-PACKS-R045.4
+    // spec: MEDULLA-TYPED-PACKS-R045.4
     #[test]
     fn unknown_side_effect_is_refused() {
         for (field, value) in [("side_effects", "filesystem"), ("declared_by", "vendor")] {
@@ -344,7 +344,7 @@ mod tests {
     #[test]
     fn context_window_zero_is_refused_by_the_pack_validator() {
         let model = |window: u64, output: u64| PackAnnotations {
-            model: Some(eg_types::connector_pack::PackModelFacts {
+            model: Some(medulla_types::connector_pack::PackModelFacts {
                 provider: "vendor".into(),
                 model_identity: "vendor/m".into(),
                 context_window_tokens: window,

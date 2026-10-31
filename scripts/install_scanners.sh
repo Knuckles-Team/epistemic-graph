@@ -4,7 +4,7 @@
 # `scripts/ci_parity.sh` runs. One definition for `scripts/bootstrap.sh
 # --scanners` and any provisioning job.
 #
-# Usage: scripts/install_scanners.sh [--verify] [ROOT]   (default: ~/.local/share/eg-scanners)
+# Usage: scripts/install_scanners.sh [--verify] [ROOT]   (default: ~/.local/share/medulla-scanners)
 # Prints the bin directories to put on PATH, one per line.
 set -euo pipefail
 
@@ -13,7 +13,7 @@ if [[ "${1:-}" == --verify ]]; then
   verify_only=true
   shift
 fi
-root="${1:-$HOME/.local/share/eg-scanners}"
+root="${1:-$HOME/.local/share/medulla-scanners}"
 # The fork probe changes cwd; keep tool paths absolute without creating ROOT.
 case "$root" in
   /*) ;;

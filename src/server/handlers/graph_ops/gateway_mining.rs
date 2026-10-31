@@ -285,7 +285,7 @@ async fn dispatch_mining_with_tsdb(
     writeback: bool,
     read_authority: Option<&GraphReadAuthority>,
     #[cfg(all(feature = "query", feature = "tsdb"))] tsdb_store: Option<
-        &Arc<eg_tsdb::store::SeriesStore>,
+        &Arc<medulla_tsdb::store::SeriesStore>,
     >,
     apply: fn(
         &Arc<GraphCore>,
@@ -316,7 +316,7 @@ pub(super) async fn try_handle(
     graph_name: &str,
     read_authority: Option<&GraphReadAuthority>,
     #[cfg(all(feature = "query", feature = "tsdb"))] tsdb_store: Option<
-        &Arc<eg_tsdb::store::SeriesStore>,
+        &Arc<medulla_tsdb::store::SeriesStore>,
     >,
 ) -> Option<Response> {
     // `graph_name` is carried on `ctx` too (`dispatch_mining_with_tsdb` reads
@@ -419,7 +419,7 @@ pub(super) async fn try_handle(
     Some(resp)
 }
 
-/// The rest of the data-mining dispatch (CONCEPT:EG-KG.storage.feature) — the methods
+/// The rest of the data-mining dispatch (CONCEPT:MEDULLA-KG.storage.feature) — the methods
 /// `try_handle` doesn't match fall through here (same dispatch-chain convention this
 /// module already uses across handler files). All share `dispatch_simple_mining`'s
 /// shape (no TSDB bind needed), split into its own function purely to keep each

@@ -7,23 +7,23 @@ use super::*;
 #[cfg(feature = "cypher")]
 fn cypher_query_response(
     req_id: u64,
-    outcome: Result<Result<eg_query::QueryResult, String>, Response>,
+    outcome: Result<Result<medulla_query::QueryResult, String>, Response>,
 ) -> Response {
     match outcome {
         Ok(Ok(result)) => dynamic_response::<query_results::CypherQuery, _>(req_id, &result),
         Ok(Err(msg)) => Response::err(
             req_id,
-            eg_types::contract::classify_refusal("INVALID_ARGUMENT", "Cypher error: ", &msg),
+            medulla_types::contract::classify_refusal("INVALID_ARGUMENT", "Cypher error: ", &msg),
         ),
         Err(resp) => resp,
     }
 }
 
 #[cfg(feature = "cypher")]
-/// Cypher WRITE surface (CONCEPT:EG-KG.query.register-each-user-table/EG-023) — the
+/// Cypher WRITE surface (CONCEPT:MEDULLA-KG.query.register-each-user-table/MEDULLA-023) — the
 /// `CypherMode::Write` arm of [`handle_cypher_query`]: a `CREATE`/`MERGE`/`SET`/
 /// `DELETE`/`REMOVE` statement applied to the LIVE `GraphCore` via
-/// `exec_cypher_write` (native eg-core write ops — NO DataFusion; it calls
+/// `exec_cypher_write` (native medulla-core write ops — NO DataFusion; it calls
 /// `mark_dirty` once after the mutation). NOT cached, NOT RLS pre-filtered
 /// (writes are graph-ACL-gated upstream — this method classified Write).
 pub(crate) async fn handle_cypher_write(
@@ -33,7 +33,7 @@ pub(crate) async fn handle_cypher_write(
 ) -> Response {
     let core_w = core.clone();
     let outcome =
-        compute_off_lock(req_id, move || eg_query::exec_cypher_write(&core_w, &query)).await;
+        compute_off_lock(req_id, move || medulla_query::exec_cypher_write(&core_w, &query)).await;
     cypher_query_response(req_id, outcome)
 }
 
@@ -66,7 +66,7 @@ async fn handle_cypher_read(ctx: &QueryHandlerCtx<'_>, query: String) -> Respons
     let rls = ctx.rls;
     // Same off-lock snapshot + blocking-pool idiom as SQL — but DEP-FREE
     // (label index / VF2 / BFS), so it runs in a no-DataFusion Pi build.
-    // Version-keyed, RLS-aware result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231) wraps
+    // Version-keyed, RLS-aware result cache (CONCEPT:MEDULLA-KG.coordination.distributed-cache-coherence × KG-2.231) wraps
     // it identically; this is the lean-Pi cached query path. The cache KEY folds
     // in the caller's RLS context so agent A's filtered rows are never served to
     // agent B, and the snapshot is RLS-filtered before execution.
@@ -111,7 +111,7 @@ async fn handle_cypher_read(ctx: &QueryHandlerCtx<'_>, query: String) -> Respons
             );
         }
         // perf/cold-query-floor-analysis (UNCOMPILED PROPOSAL — see
-        // `crate::rls_view_cache` in eg-core, not yet exercised by any test or
+        // `crate::rls_view_cache` in medulla-core, not yet exercised by any test or
         // build): a whole-RESULT-cache MISS used to unconditionally pay for
         // `analysis_snapshot_versioned()` (an O(V+E) clone of every node/edge
         // property blob's Arc handle) PLUS `rls.filter_view` — which, per node
@@ -126,7 +126,7 @@ async fn handle_cypher_read(ctx: &QueryHandlerCtx<'_>, query: String) -> Respons
         // full O(V) decode again on every distinct query text (a whole-result
         // cache miss), which is exactly the reported ~900ms fixed floor —
         // measured live via the structurally identical `project_core` cache's
-        // own `epistemic_graph_projection_cache_miss_build_seconds` (298
+        // own `medulla_projection_cache_miss_build_seconds` (298
         // misses, mean 1.10s/miss). Probe the per-actor filtered-view cache
         // FIRST; only a genuine cold (actor, version) pair pays for the
         // snapshot + filter, exactly mirroring the `result_cache` probe just
@@ -163,7 +163,7 @@ async fn handle_cypher_read(ctx: &QueryHandlerCtx<'_>, query: String) -> Respons
     // `exec_cypher_params_indexed` an `IndexSource` so an unlabeled `MATCH (n)
     // WHERE n.id = …`/`IN […]` — the fleet/tool-registration slow-query shape —
     // can narrow through the bounded property index instead of a whole-graph
-    // scan (CONCEPT:EG-KG.storage.index-manager-seam). The index answers off `core`'s LIVE
+    // scan (CONCEPT:MEDULLA-KG.storage.index-manager-seam). The index answers off `core`'s LIVE
     // state, so `exec_cypher_params_indexed` brackets it against `core.version()`
     // and discards the answer (full-scan fallback) if a concurrent commit raced
     // this snapshot; the SERVED result is identical to plain `exec_cypher` either
@@ -172,11 +172,11 @@ async fn handle_cypher_read(ctx: &QueryHandlerCtx<'_>, query: String) -> Respons
     let core_for_index = core.clone();
     #[cfg(feature = "result-cache")]
     let resp = match compute_off_lock(req_id, move || {
-        eg_query::exec_cypher_params_indexed(
+        medulla_query::exec_cypher_params_indexed(
             &snap,
             &query,
-            &eg_query::Params::new(),
-            eg_query::IndexSource::new(&core_for_index, version),
+            &medulla_query::Params::new(),
+            medulla_query::IndexSource::new(&core_for_index, version),
         )
     })
     .await
@@ -188,14 +188,14 @@ async fn handle_cypher_read(ctx: &QueryHandlerCtx<'_>, query: String) -> Respons
         },
         Ok(Err(msg)) => Response::err(
             req_id,
-            eg_types::contract::classify_refusal("INVALID_ARGUMENT", "Cypher error: ", &msg),
+            medulla_types::contract::classify_refusal("INVALID_ARGUMENT", "Cypher error: ", &msg),
         ),
         Err(resp) => resp,
     };
     #[cfg(not(feature = "result-cache"))]
     let resp = cypher_query_response(
         req_id,
-        compute_off_lock(req_id, move || eg_query::exec_cypher(&snap, &query)).await,
+        compute_off_lock(req_id, move || medulla_query::exec_cypher(&snap, &query)).await,
     );
     resp
 }

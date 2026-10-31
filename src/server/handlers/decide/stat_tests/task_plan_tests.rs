@@ -1,8 +1,8 @@
 //! Bounded explicit plans through the actual Decide handler.
 
 use super::*;
-use eg_types::decision::statistical::declared::DeclaredOption;
-use eg_types::decision::task_plan::{TaskPlanProposal, TaskPlanTask, TASK_PLAN_POLICY_REVISION};
+use medulla_types::decision::statistical::declared::DeclaredOption;
+use medulla_types::decision::task_plan::{TaskPlanProposal, TaskPlanTask, TASK_PLAN_POLICY_REVISION};
 
 fn task_request(pin: &ComponentDependency) -> DecideRequest {
     let tasks: Vec<TaskPlanTask> = [
@@ -58,8 +58,8 @@ fn task_request(pin: &ComponentDependency) -> DecideRequest {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.3
-// spec: EG-DECISION-ENGINE-R134.111.5
+// spec: MEDULLA-DECISION-ENGINE-R134.111.3
+// spec: MEDULLA-DECISION-ENGINE-R134.111.5
 #[tokio::test]
 async fn decide_routes_task_plan() {
     let h = Harness::new().await;
@@ -78,7 +78,7 @@ async fn decide_routes_task_plan() {
     assert_eq!(record.evidence_class, EvidenceClass::Claim);
     assert_eq!(
         record.resolution_kind,
-        eg_types::decision::ResolutionKind::Constraint
+        medulla_types::decision::ResolutionKind::Constraint
     );
     assert_eq!(record.tenant_id, TENANT);
     assert_eq!(
@@ -87,16 +87,16 @@ async fn decide_routes_task_plan() {
     );
     assert!(record.premises.iter().any(|p| p.subject == "c"
         && p.fact.contains("dependencies=b")
-        && p.class == eg_types::decision::PremiseClass::Claim));
-    assert!(record.premises.iter().any(|p|p.subject==TASK_PLAN_POLICY_REVISION && matches!(&p.provenance, eg_types::decision::PremiseProvenance::Policy {policy_digest} if *policy_digest==plan.policy_digest)));
+        && p.class == medulla_types::decision::PremiseClass::Claim));
+    assert!(record.premises.iter().any(|p|p.subject==TASK_PLAN_POLICY_REVISION && matches!(&p.provenance, medulla_types::decision::PremiseProvenance::Policy {policy_digest} if *policy_digest==plan.policy_digest)));
     assert_eq!(
-        eg_types::decision::digest::statistical_record_digest(record),
+        medulla_types::decision::digest::statistical_record_digest(record),
         record.record_digest
     );
     let mut altered = record.clone();
     altered.task_plan.as_mut().unwrap().max_concurrency = 3;
     assert_ne!(
-        eg_types::decision::digest::statistical_record_digest(&altered),
+        medulla_types::decision::digest::statistical_record_digest(&altered),
         record.record_digest
     );
 }
@@ -115,7 +115,7 @@ async fn assert_invalid(h: &Harness, request: DecideRequest, detail: &str) {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.4
+// spec: MEDULLA-DECISION-ENGINE-R134.111.4
 #[tokio::test]
 async fn invalid_task_requests_refuse() {
     let h = Harness::new().await;
@@ -153,7 +153,7 @@ async fn invalid_task_requests_refuse() {
     assert_invalid(&h, request, "disconnected_output").await;
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.5
+// spec: MEDULLA-DECISION-ENGINE-R134.111.5
 #[tokio::test]
 async fn task_plan_cannot_use_score_replay() {
     let h = Harness::new().await;
@@ -164,7 +164,7 @@ async fn task_plan_cannot_use_score_replay() {
     record.outcome = StatisticalOutcome::Abstained {
         reasons: BoundedVec::default(),
     };
-    record.record_digest = eg_types::decision::digest::statistical_record_digest(&record);
+    record.record_digest = medulla_types::decision::digest::statistical_record_digest(&record);
     let ctx = super::super::stat_executor::ExecutionContext {
         store: h.store.as_ref(),
         tenant_id: TENANT,
@@ -179,10 +179,10 @@ async fn task_plan_cannot_use_score_replay() {
 /// The canonical task-plan schema publishes once per tenant: a repeat publish
 /// under its publish key replays the same component revision and digest, and
 /// that pin routes a task-plan Decide.
-// spec: EG-DECISION-ENGINE-R134.111.7
+// spec: MEDULLA-DECISION-ENGINE-R134.111.7
 #[tokio::test]
 async fn canonical_task_plan_schema_publishes_once_and_routes() {
-    use eg_types::decision::task_plan::{
+    use medulla_types::decision::task_plan::{
         task_plan_feature_schema, TASK_PLAN_FEATURE_SCHEMA_COMPONENT_ID,
     };
     let h = Harness::new().await;
@@ -234,7 +234,7 @@ fn with_call(request: &mut DecideRequest, reference: &str) {
         unreachable!()
     };
     let mut tasks = proposal.tasks.as_slice().to_vec();
-    tasks[3].call = Some(eg_types::decision::task_plan::TaskPlanCall {
+    tasks[3].call = Some(medulla_types::decision::task_plan::TaskPlanCall {
         server: "github".into(),
         tool: "create_issue".into(),
         arguments: serde_json::json!({
@@ -246,7 +246,7 @@ fn with_call(request: &mut DecideRequest, reference: &str) {
     request.params = BoundedVec::new(params).unwrap();
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.12
+// spec: MEDULLA-DECISION-ENGINE-R134.111.12
 #[tokio::test]
 async fn decide_routes_task_plan_with_calls() {
     let h = Harness::new().await;
@@ -281,7 +281,7 @@ async fn decide_routes_task_plan_with_calls() {
     .await;
 }
 
-// spec: EG-DECISION-ENGINE-R134.111.11
+// spec: MEDULLA-DECISION-ENGINE-R134.111.11
 #[tokio::test]
 async fn premises_name_calls_and_bindings() {
     let h = Harness::new().await;
@@ -293,7 +293,7 @@ async fn premises_name_calls_and_bindings() {
     let claims: Vec<&str> = record
         .premises
         .iter()
-        .filter(|p| p.subject == "join" && p.class == eg_types::decision::PremiseClass::Claim)
+        .filter(|p| p.subject == "join" && p.class == medulla_types::decision::PremiseClass::Claim)
         .map(|p| p.fact.as_str())
         .collect();
     assert!(claims.contains(
@@ -304,7 +304,7 @@ async fn premises_name_calls_and_bindings() {
     ));
     assert_eq!(record.evidence_class, EvidenceClass::Claim);
     assert_eq!(
-        eg_types::decision::digest::statistical_record_digest(record),
+        medulla_types::decision::digest::statistical_record_digest(record),
         record.record_digest
     );
 }

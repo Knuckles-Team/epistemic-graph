@@ -20,7 +20,7 @@ use crate::epistemic_operations::{
     DevelopmentLaneHoldState, DevelopmentLaneQuotaCharge, DevelopmentLaneQuotaUpdateRequest,
 };
 use crate::protocol::DevelopmentLaneWorkItemKind;
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 
 /// Load the bounded tenant/global policy snapshot.  The sorted pressure index
 /// supplies exact maxima for the non-tenant scope families; policy CAS never

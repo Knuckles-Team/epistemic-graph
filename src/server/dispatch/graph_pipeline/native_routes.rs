@@ -208,7 +208,7 @@ pub(super) async fn route_native_store_ops(
     Err(method)
 }
 
-/// The typed native read/lease surfaces (EH-219, graph-os EG-2/EG-3), then the
+/// The typed native read/lease surfaces (EH-219, graph-os MEDULLA-2/MEDULLA-3), then the
 /// native resource/capacity routes. Sits in front of `route_native_resource_ops`
 /// so the existing router chain gains no branch.
 async fn route_native_typed_ops(
@@ -255,7 +255,7 @@ async fn route_work_item_reads(
             kind,
             metadata_match,
         } => handlers::work_item_read::WorkItemRead::List(
-            eg_types::work_item_read::WorkItemListRequest {
+            medulla_types::work_item_read::WorkItemListRequest {
                 tenant,
                 cursor,
                 limit,
@@ -397,7 +397,7 @@ async fn route_source_ingestion_or_resources(
         match method {
             Method::SourceIngest { request } => SourceIngestionRoute::Ingest(request),
             Method::SourceIngestStatus { connector, stream } => SourceIngestionRoute::Status(
-                eg_types::source_ingestion::SourceIngestStatusRequest { connector, stream },
+                medulla_types::source_ingestion::SourceIngestStatusRequest { connector, stream },
             ),
             Method::IndexRepository {
                 files_msgpack,
@@ -444,7 +444,7 @@ async fn route_source_ingestion_dispatch(
 
 async fn route_source_ingestion_status(
     ctx: GraphOpRouting<'_>,
-    request: eg_types::source_ingestion::SourceIngestStatusRequest,
+    request: medulla_types::source_ingestion::SourceIngestStatusRequest,
 ) -> Response {
     let Some(persistence) = ctx.persistence.as_ref() else {
         return Response::err(
@@ -465,14 +465,14 @@ async fn route_source_ingestion_status(
 
 async fn route_source_ingestion_request(
     ctx: GraphOpRouting<'_>,
-    request: eg_types::source_ingestion::SourceIngestionRequest,
+    request: medulla_types::source_ingestion::SourceIngestionRequest,
     placement_epoch: u64,
     fencing_token: Option<u64>,
 ) -> Response {
     // Stamp the batch from the authoritative scope version, not the RAM
     // projection alone: a durable scope write the projection missed would
     // otherwise make the kernel refuse this batch as STALE_VERSION
-    // (EG-DURABLE-KERNEL-R031.2).
+    // (MEDULLA-DURABLE-KERNEL-R031.2).
     let graph_version = match ctx.persistence.as_ref() {
         Some(persistence) => match crate::server::mutation_batch::authoritative_graph_version(
             persistence,
@@ -511,13 +511,13 @@ async fn route_source_ingestion_request(
 }
 
 enum SourceIngestionRoute {
-    Ingest(Box<eg_types::source_ingestion::SourceIngestionRequest>),
-    Status(eg_types::source_ingestion::SourceIngestStatusRequest),
+    Ingest(Box<medulla_types::source_ingestion::SourceIngestionRequest>),
+    Status(medulla_types::source_ingestion::SourceIngestStatusRequest),
     /// EH-280 — a branch-aware batch commits its projection through the
     /// same placement fence and ChangeEnvelope authority as source ingestion.
     IndexRepository {
         files_msgpack: Vec<u8>,
-        scope: Box<eg_types::ingestion_wire::IndexRepositoryScope>,
+        scope: Box<medulla_types::ingestion_wire::IndexRepositoryScope>,
     },
 }
 

@@ -2,7 +2,7 @@ use super::store_prelude::*;
 use super::*;
 
 pub(crate) fn decode_durable<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
-    eg_types::msgpack::decode_bounded(bytes, durable_msgpack_limits())
+    medulla_types::msgpack::decode_bounded(bytes, durable_msgpack_limits())
         .map_err(|_| "durable value is invalid or exceeds resource limits".to_string())
 }
 
@@ -286,7 +286,7 @@ pub(crate) const EDGES: TableDefinition<(&str, &str, &str, u32), &[u8]> =
     TableDefinition::new("edges");
 pub(crate) const LEDGER: TableDefinition<(&str, u64), &str> = TableDefinition::new("ledger");
 pub(crate) const SEMANTIC: TableDefinition<&str, &[u8]> = TableDefinition::new("semantic_store");
-// Tamper-evident hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security, feature `security`). One
+// Tamper-evident hash-chained audit log (CONCEPT:MEDULLA-KG.sharding.row-level-security, feature `security`). One
 // row per durable mutation, keyed `(graph, seq)`, value = `prev_hash | entry_hash |
 // line` (see `crate::audit`). Appended in the SAME WriteTransaction as the mutation
 // it records, so the audit entry and the data it audits are durable together. The
@@ -297,7 +297,7 @@ pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::n
 /// the corresponding hash-chain entry and contains only a digest and receipt.
 pub(crate) const AUDIT_REQUESTS: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("audit_requests");
-// Provenance-anchor MEMBER list (CONCEPT:EG-KG.sharding.row-level-security, provenance anchoring): `(graph,
+// Provenance-anchor MEMBER list (CONCEPT:MEDULLA-KG.sharding.row-level-security, provenance anchoring): `(graph,
 // audit_seq) -> msgpack Vec<(node_id, leaf_hash_bytes)>` for the `:ToolCall`/`:RunTrace`
 // window folded into the audit-chain entry at that exact `seq` (a
 // `PROVENANCE_ANCHOR|...` line, see `crate::audit::provenance_anchor_line`). Keyed
@@ -364,38 +364,38 @@ pub(crate) const CHANGE_POLICIES: TableDefinition<(&str, &str, &str), &[u8]> =
     TableDefinition::new("change_policies");
 pub(crate) const CHANGE_LINEAGE: TableDefinition<(&str, &str, &str), &[u8]> =
     TableDefinition::new("change_lineage");
-// Durable Raft log table (CONCEPT:EG-KG.storage.one-fsync-covers-raft). Defined here so `commit_ops` (shared
+// Durable Raft log table (CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft). Defined here so `commit_ops` (shared
 // with the server's group-commit writer, which folds replicated log appends into
 // the SAME `WriteTransaction` as graph mutations) is self-contained. The embedded
 // path never appends log ops, so this table stays empty for an embedded-only DB —
 // the const costs nothing and keeps the two callers on one durable layout.
 pub(crate) const RAFT_LOG: TableDefinition<(u64, u64), &[u8]> = TableDefinition::new("raft_log");
-// Cross-shard 2PC prepare records (CONCEPT:EG-KG.storage.lane-n-increment). One row per participant group
+// Cross-shard 2PC prepare records (CONCEPT:MEDULLA-KG.storage.lane-n-increment). One row per participant group
 // of an in-flight cross-shard transaction, keyed by `(txn_id, group_id)`, holding
 // that group's PREPARED-but-not-applied slice (its staged write-set). Durable so an
 // in-doubt txn survives a coordinator/participant crash between PREPARE and COMMIT
 // and is resolved on restart. Lives in the authoritative shard for the same-file reason
 // as the Raft log; the PURE put/clear/scan logic lives here (shared store) next to
 // NODES/EDGES/purge_graph_rows, while the writer-thread `Cmd` arms in `redb_backend`
-// call into it (mirrors how the graph-row machinery is shared, CONCEPT:EG-KG.backend.engine-modes).
+// call into it (mirrors how the graph-row machinery is shared, CONCEPT:MEDULLA-KG.backend.engine-modes).
 pub(crate) const XSHARD_PREPARE: TableDefinition<(&str, u64), &[u8]> =
     TableDefinition::new("xshard_prepare");
 // The coordinator's durable DECISION record for a cross-shard txn, keyed by `txn_id`
-// (CONCEPT:EG-KG.storage.lane-n-increment). Values `0/1` are ordinary ABORT/COMMIT;
+// (CONCEPT:MEDULLA-KG.storage.lane-n-increment). Values `0/1` are ordinary ABORT/COMMIT;
 // `2/3` are ABORT/COMMIT retained for a separate MutationBatch parent; `4` is a
 // recoverable attempt started before phase 1 but not yet decided. Writing a terminal
 // value is the ATOMIC COMMIT POINT: once it reads COMMIT every participant applies on
 // recovery; absent/pending/ABORT ⇒ no new participant applies (presumed-abort).
 pub(crate) const XSHARD_DECISION: TableDefinition<&str, u8> =
     TableDefinition::new("xshard_decision");
-// Named distributed-compute MATERIALIZED VIEWS (CONCEPT:EG-KG.storage.feature). One row per matview
+// Named distributed-compute MATERIALIZED VIEWS (CONCEPT:MEDULLA-KG.storage.feature). One row per matview
 // keyed by `name`, holding the MessagePack-serialized `MatView` (its definition +
 // current result rows). Durable so a matview survives restart; the handler reloads the
 // in-RAM `MatViewStore` from this table on boot and refreshes incrementally on a delta.
 // Lives in the authoritative shard for the same-file reason as the Raft log + xshard rows.
 pub(crate) const MATVIEWS: TableDefinition<&str, &[u8]> = TableDefinition::new("matviews");
 
-// Named PLAN-BACKED materialized views (CONCEPT:EG-KG.storage.plan-backed-matview). One
+// Named PLAN-BACKED materialized views (CONCEPT:MEDULLA-KG.storage.plan-backed-matview). One
 // row per matview keyed by `name`, holding the MessagePack-serialized plan-backed
 // DEFINITION (name + target graph + `wire::Plan` bytes + reorder hint) — NOT the result
 // rows, which ride the version-keyed result cache. DISJOINT table from the algo-only
@@ -405,7 +405,7 @@ pub(crate) const MATVIEWS: TableDefinition<&str, &[u8]> = TableDefinition::new("
 pub(crate) const PLAN_MATVIEWS: TableDefinition<&str, &[u8]> =
     TableDefinition::new("plan_matviews");
 
-// DBSP INCREMENTAL operator state (CONCEPT:EG-KG.storage.incremental-matview): the durable
+// DBSP INCREMENTAL operator state (CONCEPT:MEDULLA-KG.storage.incremental-matview): the durable
 // snapshot of an incrementally-maintained plan-backed matview's circuit state (its
 // membership map / per-bucket accumulators + CDC watermark), keyed by view name. The
 // direct analogue of turso's `dbsp_state` btree, scoped down to redb. DISJOINT from
@@ -436,22 +436,22 @@ pub(crate) struct GraphShardRetirement;
 
 /// Sweep one scope-prefixed owner table for the capability's own scope.
 pub(crate) fn retire_scoped_table<K, V>(
-    write: &eg_storage::PhysicalWriteCapability<'_, GraphShardOwner>,
+    write: &medulla_storage::PhysicalWriteCapability<'_, GraphShardOwner>,
     definition: TableDefinition<'static, K, V>,
 ) -> Result<(), String>
 where
     K: redb::Key + 'static,
-    for<'k> K::SelfType<'k>: eg_storage::OwnerRowScope,
+    for<'k> K::SelfType<'k>: medulla_storage::OwnerRowScope,
     V: redb::Value + 'static,
 {
     write.scoped_owner_table_mut(definition)?.purge_scope_rows()
 }
 
-impl eg_storage::OwnerPayloadRetirement<GraphShardOwner> for GraphShardRetirement {
+impl medulla_storage::OwnerPayloadRetirement<GraphShardOwner> for GraphShardRetirement {
     fn retire_owner_payload(
         &self,
-        write: &eg_storage::PhysicalWriteCapability<'_, GraphShardOwner>,
-        _scope: &eg_types::MutationScopeIdentity,
+        write: &medulla_storage::PhysicalWriteCapability<'_, GraphShardOwner>,
+        _scope: &medulla_types::MutationScopeIdentity,
     ) -> Result<(), String> {
         retire_scoped_table(write, NODES)?;
         retire_scoped_table(write, EDGES)?;
@@ -487,20 +487,20 @@ impl eg_storage::OwnerPayloadRetirement<GraphShardOwner> for GraphShardRetiremen
 }
 
 /// In-doubt cross-shard prepare records `(txn_id, group_id, slice-blob)` returned by
-/// the recovery scan (CONCEPT:EG-KG.storage.lane-n-increment).
+/// the recovery scan (CONCEPT:MEDULLA-KG.storage.lane-n-increment).
 pub(crate) type XshardPrepareScan = Result<Vec<(String, u64, Vec<u8>)>, String>;
 /// Durable 2PC decisions `(opaque_parent_id, outcome, retained_for_parent)`.
 /// `outcome=None` is the recoverable protocol-start marker (not yet decided).
 pub(crate) type XshardDecisionScan = Result<Vec<(String, Option<bool>, bool)>, String>;
 
 /// Persisted materialized views `(name, blob)` returned by the boot reload scan
-/// (CONCEPT:EG-KG.storage.feature). Shared by the algo-only distributed matview
+/// (CONCEPT:MEDULLA-KG.storage.feature). Shared by the algo-only distributed matview
 /// (`compute-dist`) and the plan-backed incremental matview (`matview`) scan surfaces.
 #[cfg(any(feature = "compute-dist", feature = "matview"))]
 pub(crate) type MatViewScanResult = Result<Vec<(String, Vec<u8>)>, String>;
 
 /// Encryption-at-rest cipher handle threaded through the durable read/write paths
-/// (CONCEPT:EG-KG.sharding.row-level-security). A thin wrapper so the SAME function signatures carry it
+/// (CONCEPT:MEDULLA-KG.sharding.row-level-security). A thin wrapper so the SAME function signatures carry it
 /// whether or not the `security` feature is compiled: without `security` it is a
 /// zero-sized no-op (every `seal`/`unseal` is the identity), so the durable format
 /// and code path are byte-for-byte unchanged; with `security` + a configured key it
@@ -528,7 +528,7 @@ impl<'a> DurableCrypto<'a> {
     /// Seal a value blob for storage. Identity when no cipher is active.
     ///
     /// Returns `Cow` so the **encryption-OFF** path (the default — no key configured)
-    /// BORROWS the caller's plaintext with ZERO allocation/copy (CONCEPT:EG-KG.storage.redb-store #4): the
+    /// BORROWS the caller's plaintext with ZERO allocation/copy (CONCEPT:MEDULLA-KG.storage.redb-store #4): the
     /// bytes are handed straight to redb's `insert` via `as_ref()`, byte-for-byte
     /// identical to what `plaintext.to_vec()` produced before, so the on-disk format is
     /// unchanged. Only when a cipher IS active does it allocate the owned ciphertext

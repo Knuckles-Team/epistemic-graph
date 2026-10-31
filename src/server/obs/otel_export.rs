@@ -1,37 +1,37 @@
-//! CONCEPT:EG-OS.observability.prometheus-ingest — the OTLP EXPORT half: push the engine's OWN observability signals
+//! CONCEPT:MEDULLA-OS.observability.prometheus-ingest — the OTLP EXPORT half: push the engine's OWN observability signals
 //! (its Prometheus metrics + its stored distributed-trace spans) OUT to an external
 //! OpenTelemetry collector over OTLP/HTTP JSON.
 //!
 //! ## Why this exists
 //!
-//! The engine already INGESTS the full observability trilogy — logs (EG-160), metrics
-//! + PromQL (EG-172) and OTLP-JSON traces (EG-163). This closes the loop on the EGRESS
+//! The engine already INGESTS the full observability trilogy — logs (MEDULLA-160), metrics
+//! + PromQL (MEDULLA-172) and OTLP-JSON traces (MEDULLA-163). This closes the loop on the EGRESS
 //! side: the engine now also EMITS. It serializes:
 //!
 //!  * its own [`crate::metrics`] Prometheus registry (rendered to the text exposition
 //!    format, then parsed) into an OTLP `ExportMetricsServiceRequest`
 //!    (`resourceMetrics[].scopeMetrics[].metrics[]`), and
-//!  * its stored [`eg_tsdb::traces::Span`]s into an OTLP `ExportTraceServiceRequest`
+//!  * its stored [`medulla_tsdb::traces::Span`]s into an OTLP `ExportTraceServiceRequest`
 //!    (`resourceSpans[].scopeSpans[].spans[]`) — the EXACT shape [`super::super::traces::parse_otlp_traces`]
 //!    reads, so an export round-trips back through our own ingest.
 //!
 //! The wire is OTLP/HTTP **JSON** (no protobuf/prost on the export path — kept lean);
 //! the POST uses the same pure-Rust `ureq` client the federation surfaces link. The
 //! export is opt-in: nothing is pushed unless [`export_once`] is called with a
-//! collector endpoint (the binary wires it to `EPISTEMIC_GRAPH_OTLP_EXPORT_ENDPOINT`).
+//! collector endpoint (the binary wires it to `MEDULLA_OTLP_EXPORT_ENDPOINT`).
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use eg_tsdb::traces::Span;
+use medulla_tsdb::traces::Span;
 
 use super::ObsState;
 
 /// The `service.name` the engine advertises on its exported resource.
-pub const EXPORT_SERVICE_NAME: &str = "epistemic-graph";
+pub const EXPORT_SERVICE_NAME: &str = "medulla";
 /// Env var carrying the OTLP/HTTP collector base endpoint (e.g. `http://collector:4318`).
 /// Unset ⇒ nothing is exported.
-pub const OTLP_EXPORT_ENDPOINT_ENV: &str = "EPISTEMIC_GRAPH_OTLP_EXPORT_ENDPOINT";
+pub const OTLP_EXPORT_ENDPOINT_ENV: &str = "MEDULLA_OTLP_EXPORT_ENDPOINT";
 
 /// Wall-clock now in epoch nanoseconds.
 fn now_ns() -> i64 {
@@ -163,7 +163,7 @@ fn otlp_str_attr(key: &str, value: &str) -> serde_json::Value {
 }
 
 /// Serialize the engine's Prometheus metrics text into an OTLP/HTTP JSON
-/// `ExportMetricsServiceRequest` (CONCEPT:EG-OS.observability.prometheus-ingest). Counter-family samples (name ending
+/// `ExportMetricsServiceRequest` (CONCEPT:MEDULLA-OS.observability.prometheus-ingest). Counter-family samples (name ending
 /// `_total`/`_count`/`_sum`/`_bucket`) become a monotonic cumulative `sum`; everything
 /// else a `gauge`. Labels ride as data-point attributes; `now_unix_nano` stamps every
 /// point. Returns the JSON string.
@@ -215,7 +215,7 @@ fn is_sum_metric(name: &str) -> bool {
 
 // ── OTLP traces serialization (Span → ExportTraceServiceRequest) ────────────────
 
-/// Map a status text back onto an OTLP status code object (the inverse of the EG-163
+/// Map a status text back onto an OTLP status code object (the inverse of the MEDULLA-163
 /// ingest mapping): `ERROR` ⇒ `STATUS_CODE_ERROR`, `OK` ⇒ `STATUS_CODE_OK`, else unset.
 fn otlp_status_obj(status: &str) -> serde_json::Value {
     let code = match status {
@@ -261,7 +261,7 @@ fn span_to_otlp(sp: &Span) -> serde_json::Value {
 }
 
 /// Serialize a batch of spans into an OTLP/HTTP JSON `ExportTraceServiceRequest`
-/// (CONCEPT:EG-OS.observability.prometheus-ingest), grouping spans by their `service` into one `resourceSpans` entry
+/// (CONCEPT:MEDULLA-OS.observability.prometheus-ingest), grouping spans by their `service` into one `resourceSpans` entry
 /// each (resource `service.name` = the span's service). Returns the JSON string.
 pub fn otlp_traces_json(spans: &[Span]) -> String {
     // Group by service, preserving first-seen order for a stable serialization.
@@ -297,7 +297,7 @@ pub fn otlp_traces_json(spans: &[Span]) -> String {
 /// Collect every stored span out of the trace store (all traces, unbounded window),
 /// flattening the assembled parent→child trees back to a flat span list.
 fn gather_spans(state: &Arc<ObsState>) -> Vec<Span> {
-    use eg_tsdb::traces::{SpanNode, TraceQuery};
+    use medulla_tsdb::traces::{SpanNode, TraceQuery};
     let q = TraceQuery {
         from: i64::MIN,
         to: i64::MAX,
@@ -319,7 +319,7 @@ fn gather_spans(state: &Arc<ObsState>) -> Vec<Span> {
 }
 
 /// Push the engine's current metrics + stored spans to an OTLP/HTTP collector at
-/// `endpoint` (CONCEPT:EG-OS.observability.prometheus-ingest). Posts the metrics JSON to `{endpoint}/v1/metrics` and
+/// `endpoint` (CONCEPT:MEDULLA-OS.observability.prometheus-ingest). Posts the metrics JSON to `{endpoint}/v1/metrics` and
 /// the traces JSON to `{endpoint}/v1/traces` (the OTLP/HTTP defaults). Runs the
 /// blocking `ureq` calls off the reactor. Returns `(metrics_ok, traces_ok)` — a dead
 /// collector degrades to `Ok((false, false))` rather than failing the caller.
@@ -352,20 +352,20 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
-    /// CONCEPT:EG-OS.observability.prometheus-ingest — the engine's Prometheus metrics text serializes into a
+    /// CONCEPT:MEDULLA-OS.observability.prometheus-ingest — the engine's Prometheus metrics text serializes into a
     /// well-formed OTLP `ExportMetricsServiceRequest`: a counter (`_total`) becomes a
     /// monotonic `sum`, a gauge stays a `gauge`, labels ride as data-point attributes,
     /// and every point carries the service resource + a `timeUnixNano`.
     #[test]
     fn eg316_metrics_serialize_to_otlp_shape() {
-        let text = "# HELP epistemic_graph_requests_total Requests\n\
-                    # TYPE epistemic_graph_requests_total counter\n\
-                    epistemic_graph_requests_total{op=\"Ping\"} 7\n\
-                    epistemic_graph_in_flight_requests 3\n";
+        let text = "# HELP medulla_requests_total Requests\n\
+                    # TYPE medulla_requests_total counter\n\
+                    medulla_requests_total{op=\"Ping\"} 7\n\
+                    medulla_in_flight_requests 3\n";
         let json = otlp_metrics_json(text, 1_700_000_000_000_000_000);
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-        // Resource carries service.name = epistemic-graph.
+        // Resource carries service.name = medulla.
         let rm = &v["resourceMetrics"][0];
         assert_eq!(
             rm["resource"]["attributes"][0]["value"]["stringValue"],
@@ -377,7 +377,7 @@ mod tests {
         // The `_total` counter → a monotonic cumulative sum, its label an attribute.
         let counter = metrics
             .iter()
-            .find(|m| m["name"] == "epistemic_graph_requests_total")
+            .find(|m| m["name"] == "medulla_requests_total")
             .unwrap();
         assert_eq!(counter["sum"]["isMonotonic"], true);
         assert_eq!(counter["sum"]["aggregationTemporality"], 2);
@@ -390,7 +390,7 @@ mod tests {
         // The bare gauge → a `gauge` with no label attributes.
         let gauge = metrics
             .iter()
-            .find(|m| m["name"] == "epistemic_graph_in_flight_requests")
+            .find(|m| m["name"] == "medulla_in_flight_requests")
             .unwrap();
         assert_eq!(gauge["gauge"]["dataPoints"][0]["asDouble"], 3.0);
         assert!(gauge["gauge"]["dataPoints"][0]["attributes"]
@@ -399,8 +399,8 @@ mod tests {
             .is_empty());
     }
 
-    /// CONCEPT:EG-OS.observability.prometheus-ingest — spans serialize into the OTLP `ExportTraceServiceRequest` shape
-    /// and ROUND-TRIP back through the engine's OWN EG-163 OTLP-JSON parser to the same
+    /// CONCEPT:MEDULLA-OS.observability.prometheus-ingest — spans serialize into the OTLP `ExportTraceServiceRequest` shape
+    /// and ROUND-TRIP back through the engine's OWN MEDULLA-163 OTLP-JSON parser to the same
     /// spans (service, ids, operation, duration, ERROR status, attribute all preserved).
     #[test]
     fn eg316_traces_serialize_to_otlp_and_roundtrip_through_ingest() {
@@ -440,7 +440,7 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["resourceSpans"].as_array().unwrap().len(), 2);
 
-        // Round-trip through the engine's own EG-163 OTLP-JSON span parser.
+        // Round-trip through the engine's own MEDULLA-163 OTLP-JSON span parser.
         let parsed = crate::server::traces::parse_otlp_traces(&json).unwrap();
         assert_eq!(parsed.len(), 2);
         let api = parsed.iter().find(|s| s.service == "api").unwrap();
@@ -453,7 +453,7 @@ mod tests {
         assert_eq!(api.attributes.get("http.status_code").unwrap(), "500");
     }
 
-    /// CONCEPT:EG-OS.observability.prometheus-ingest — the Prometheus exposition parser skips `# HELP`/`# TYPE` comment
+    /// CONCEPT:MEDULLA-OS.observability.prometheus-ingest — the Prometheus exposition parser skips `# HELP`/`# TYPE` comment
     /// lines and blanks, and reads NaN/Inf value tokens.
     #[test]
     fn eg316_prom_exposition_parse_skips_comments_and_reads_special_values() {

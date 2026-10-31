@@ -56,7 +56,7 @@ macro_rules! writer_command_arms {
         }
         Cmd::ReadGraphDump { graph, reply } => {
             // Flush pending so the rehydrated dump reflects the latest durable state,
-            // then range-scan ONE graph's rows (CONCEPT:EG-KG.storage.100m-tenant).
+            // then range-scan ONE graph's rows (CONCEPT:MEDULLA-KG.storage.100m-tenant).
             flush(pending);
             let _ = reply.send(read_graph_dump(shard, &graph, crypto));
             false
@@ -67,7 +67,7 @@ macro_rules! writer_command_arms {
             reply,
         } => {
             // Flush pending first (same consistency contract as ReadGraphDump), then
-            // fetch ONE bounded page straight off the durable store (CONCEPT:EG-KG.sharding.paged-lazy-open, L38).
+            // fetch ONE bounded page straight off the durable store (CONCEPT:MEDULLA-KG.sharding.paged-lazy-open, L38).
             flush(pending);
             let _ = reply.send(crate::redb_store::read_graph_dump_page(
                 shard,
@@ -86,14 +86,14 @@ macro_rules! writer_command_arms {
             false
         }
         Cmd::ExportGraphRaw { graph, reply } => {
-            // CONCEPT:EG-KG.backend.catalog-shard-resolve — flush pending so every committed mutation is captured, then
+            // CONCEPT:MEDULLA-KG.backend.catalog-shard-resolve — flush pending so every committed mutation is captured, then
             // scan this graph's rows VERBATIM (raw blobs — encryption + audit chain kept).
             flush(pending);
             let _ = reply.send(super::super::online_reshard::export_graph_raw(shard, &graph));
             false
         }
         Cmd::ImportGraphRaw { graph, rows, reply } => {
-            // CONCEPT:EG-KG.backend.catalog-shard-resolve — flush pending first (consistency), then land the migrated
+            // CONCEPT:MEDULLA-KG.backend.catalog-shard-resolve — flush pending first (consistency), then land the migrated
             // rows verbatim in ONE durable commit (the move's commit-before-ack point).
             flush(pending);
             let _ = reply.send(super::super::online_reshard::import_graph_raw(
@@ -106,7 +106,7 @@ macro_rules! writer_command_arms {
             delta,
             reply,
         } => {
-            // CONCEPT:EG-KG.backend.flush-pending-first — flush pending first (consistency), then land ONLY the delta
+            // CONCEPT:MEDULLA-KG.backend.flush-pending-first — flush pending first (consistency), then land ONLY the delta
             // rows (upserts + removals) in ONE durable commit (the under-quiesce write).
             flush(pending);
             let _ = reply.send(super::super::online_reshard::import_graph_delta(
@@ -117,7 +117,7 @@ macro_rules! writer_command_arms {
         #[cfg(feature = "security")]
         Cmd::AuditVerify { graph, reply } => {
             // Flush pending so the chain walk includes the latest durable audit
-            // entries, then verify the hash chain (CONCEPT:EG-KG.sharding.row-level-security).
+            // entries, then verify the hash chain (CONCEPT:MEDULLA-KG.sharding.row-level-security).
             flush(pending);
             let _ = reply.send(crate::redb_store::verify_audit(shard, &graph));
             false
@@ -213,7 +213,7 @@ macro_rules! writer_command_arms {
                 &op_id,
                 crate::server::txn::now_ms(),
                 crypto,
-                // Shares the writer's persistent tail cache (CONCEPT:EG-KG.storage.embedded-store).
+                // Shares the writer's persistent tail cache (CONCEPT:MEDULLA-KG.storage.embedded-store).
                 #[cfg(feature = "security")]
                 &mut pending.audit_tail,
             );

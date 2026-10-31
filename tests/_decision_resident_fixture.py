@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from conftest import TEST_TENANT
 
-from epistemic_graph import decision_stat as ds
-from epistemic_graph.decision_client import (
+from medulla import decision_stat as ds
+from medulla.decision_client import (
     DeclaredOption,
     decide_request,
     declared,

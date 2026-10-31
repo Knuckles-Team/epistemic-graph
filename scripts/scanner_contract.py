@@ -302,7 +302,7 @@ def _matches_directory_suffix(value: str, pattern: str) -> bool:
 def _matches_path_pattern(value: str, pattern: str) -> bool:
     # pathlib's ``match`` treats a pattern without a leading ``**/`` as
     # matching at any path depth.  Scanner exclusions follow native walker
-    # semantics: ``contract/**`` and ``epistemic_graph/contract/**`` are
+    # semantics: ``contract/**`` and ``medulla/contract/**`` are
     # root-anchored, while ``**/contract/**`` explicitly opts into depth.
     if not pattern.startswith("**/"):
         return False
@@ -475,13 +475,13 @@ def _read_contract(path: Path) -> dict:
 
 def _scanner_table(document: dict) -> dict:
     try:
-        table = document["tool"]["epistemic_graph"]["scanners"]
+        table = document["tool"]["medulla"]["scanners"]
     except (KeyError, TypeError) as exc:
         raise ScannerContractError(
-            "pyproject.toml is missing [tool.epistemic_graph.scanners]"
+            "pyproject.toml is missing [tool.medulla.scanners]"
         ) from exc
     if not isinstance(table, dict):
-        _fail("[tool.epistemic_graph.scanners] must be a table")
+        _fail("[tool.medulla.scanners] must be a table")
     return table
 
 

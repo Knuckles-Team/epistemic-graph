@@ -1,5 +1,5 @@
 //! Hand-rolled MSSQL **TDS** (Tabular Data Stream) framing + token codec
-//! (CONCEPT:EG-KG.query.hand-rolled-tds-server). PURE bytes — no sockets, no async, no engine coupling — so every
+//! (CONCEPT:MEDULLA-KG.query.hand-rolled-tds-server). PURE bytes — no sockets, no async, no engine coupling — so every
 //! layout is unit-testable against the MS-TDS wire spec. `mod.rs` drives these over a
 //! `tokio` `TcpListener` and bridges the decoded `SQLBatch` into the shared
 //! [`crate::server::wire::WireSession`], then encodes the wire-neutral
@@ -768,7 +768,7 @@ mod tests {
 
     #[test]
     fn error_token_layout() {
-        let tok = encode_error(50000, 1, 16, "permission denied", "epistemic-graph");
+        let tok = encode_error(50000, 1, 16, "permission denied", "medulla");
         assert_eq!(tok[0], TOKEN_ERROR);
         let inner_len = u16::from_le_bytes([tok[1], tok[2]]) as usize;
         assert_eq!(tok.len(), 3 + inner_len, "declared length matches the body");
@@ -780,7 +780,7 @@ mod tests {
 
     #[test]
     fn loginack_layout() {
-        let tok = encode_loginack("epistemic-graph");
+        let tok = encode_loginack("medulla");
         assert_eq!(tok[0], TOKEN_LOGINACK);
         let inner_len = u16::from_le_bytes([tok[1], tok[2]]) as usize;
         assert_eq!(tok.len(), 3 + inner_len);

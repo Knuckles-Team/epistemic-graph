@@ -1,4 +1,4 @@
-//! CONCEPT:EG-KG.ingest.resets-socket-so-assimilation — `GetEdgesPage` keyset pagination over the REAL
+//! CONCEPT:MEDULLA-KG.ingest.resets-socket-so-assimilation — `GetEdgesPage` keyset pagination over the REAL
 //! served `dispatch` surface (the edge-count sibling of `GetNodesByLabel`'s
 //! coverage). Proves a full page walk (small `limit`, advancing the cursor)
 //! recovers EXACTLY the same edges — including every parallel edge under one
@@ -21,7 +21,7 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use epistemic_graph::protocol::{GraphType, Method};
+use medulla::protocol::{GraphType, Method};
 
 const SECRET: &str = "edge-pagination-secret";
 

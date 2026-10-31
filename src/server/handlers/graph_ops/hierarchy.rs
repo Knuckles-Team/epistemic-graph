@@ -2,11 +2,11 @@ use super::*;
 
 use super::subgraph::decoded_edge_properties;
 use super::terminal::GraphOpsContext;
-use eg_types::compute_result::algorithms::{
+use medulla_types::compute_result::algorithms::{
     ClusterExpansion, ClusterHierarchySummary, ClusterLevelView, ClusterMemberEdge,
     ClusterMemberNode, ClusterSummary, InterClusterEdge,
 };
-use eg_types::result_contract::compute as results;
+use medulla_types::result_contract::compute as results;
 
 /// `ClusterHierarchyRefresh`: pure extract-method from `try_handle`'s match arm,
 /// byte-identical behaviour, no signature change.
@@ -232,7 +232,7 @@ fn expand_leaf_cluster_to_nodes(
         .iter()
         .map(|(id, blob)| ClusterMemberNode {
             id: id.clone(),
-            properties: eg_types::msgpack::decode_property_value(blob)
+            properties: medulla_types::msgpack::decode_property_value(blob)
                 .unwrap_or(serde_json::Value::Null),
         })
         .collect();
@@ -334,7 +334,7 @@ pub(super) async fn try_handle_hierarchy_visualization(
         Method::ClusterHierarchyExpand { cluster_id } => {
             handle_cluster_hierarchy_expand(state, req_id, graph_name, core, cluster_id).await
         }
-        // PruneByLifecycle (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED —
+        // PruneByLifecycle (CONCEPT:MEDULLA-P0-2 bypass guard, L11): GATEWAY_ROUTED —
         // see the AddNode/RemoveNode comment above.
         other => return ControlFlow::Continue(other),
     })

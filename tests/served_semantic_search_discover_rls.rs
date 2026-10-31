@@ -1,29 +1,29 @@
-//! GOC-08 (vector/text/hybrid retrieval quality) security check: does the eg-side
+//! GOC-08 (vector/text/hybrid retrieval quality) security check: does the medulla-side
 //! retrieval surface order/trim BEFORE authorization is applied, the same defect class
 //! an independent audit confirmed on the au side (`HybridRetriever` reranks and trims
 //! candidates BEFORE ACL enforcement, so a denied high-score row can consume the
 //! visible top-k budget and influence rankings)?
 //!
-//! Code-path finding (recorded in the GOC-08 handoff, not just this test): `eg-plan`'s
+//! Code-path finding (recorded in the GOC-08 handoff, not just this test): `medulla-plan`'s
 //! `Op::Rank`/`Op::RankEmbed`/`Op::RankText`/`Op::FuseRrf`/`Op::RankMmr`/
-//! `Op::RankNodeDistance`/`Op::RankMentions` (`crates/eg-plan/src/exec.rs`) only ever
+//! `Op::RankNodeDistance`/`Op::RankMentions` (`crates/medulla-plan/src/exec.rs`) only ever
 //! REORDER an already-seeded candidate `RowSet` — a bare `Rank` on an empty input (the
 //! executor's starting state, `RowSet::new()`) yields nothing, so a candidate can enter
 //! the pipeline only through a SOURCE op (`Scan`/`Reason`/`SparqlBgp`/`ForeignScan`),
 //! every one of which reads `ctx.view` — and every served caller of
-//! `eg_plan::execute`/`run_unified` (`src/server/handlers/query.rs`) calls
+//! `medulla_plan::execute`/`run_unified` (`src/server/handlers/query.rs`) calls
 //! `rls.filter_view(caller, &mut snap)` on that view BEFORE the plan ever runs (already
 //! proven end-to-end for `Reason -> Rank` by `advanced_crossmodal_roundtrip.rs`'s
-//! `rls_per_agent_fused_reason_rank_overlay_eg391`, EG-391). So the eg-plan hybrid
+//! `rls_per_agent_fused_reason_rank_overlay_eg391`, MEDULLA-391). So the medulla-plan hybrid
 //! surface authorizes the SOURCE, not a downstream trim -- structurally immune to the
 //! au bug's ordering.
 //!
 //! The OTHER retrieval surface -- `Method::SemanticSearch` / `Method::Discover`
 //! (`src/server/handlers/graph_ops.rs`), which call `SemanticStore::semantic_search`
-//! directly rather than going through `eg-plan` -- had NO wire-level RLS regression
+//! directly rather than going through `medulla-plan` -- had NO wire-level RLS regression
 //! test anywhere in this repo before this file (grep-confirmed: zero references to
 //! either method under `tests/`). Their authorization argument is different from
-//! eg-plan's: `try_handle` (`src/server/handlers/graph_ops.rs`) unconditionally shadows
+//! medulla-plan's: `try_handle` (`src/server/handlers/graph_ops.rs`) unconditionally shadows
 //! its `core` parameter with `read_authority.project_core(&core)` BEFORE the method
 //! `match` runs, and `GraphReadAuthority::build_projection` (`src/server/access.rs`)
 //! REBUILDS the semantic store's embedding arena from scratch containing ONLY the
@@ -55,9 +55,9 @@ mod test_support;
 
 use serde_json::json;
 
-use epistemic_graph::isolation::AgentRole;
-use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
-use epistemic_graph::server::dispatch;
+use medulla::isolation::AgentRole;
+use medulla::protocol::{Method, Request, Response, ResultPayload};
+use medulla::server::dispatch;
 
 const SECRET: &str = "served-semantic-search-discover-rls-secret";
 
@@ -78,9 +78,9 @@ async fn state() -> test_support::SharedState {
 /// `System`-role and bypasses RBAC, but the `alice`/`bob` peers this file registers
 /// (plain `AgentRole::Agent`) do not, or every RPC they make is `ACCESS_DENIED` before
 /// row-level RLS is ever reached.
-fn commons_isolation() -> epistemic_graph::isolation::IsolationLayer {
+fn commons_isolation() -> medulla::isolation::IsolationLayer {
     let mut isolation = common::current_isolation();
-    use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+    use medulla::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
     isolation.add_role(Role::new(COMMONS_USER_ROLE));
     let grant = |action: RbacAction| Grant {
         role: COMMONS_USER_ROLE.to_string(),
@@ -228,7 +228,7 @@ async fn seed(state: &test_support::SharedState) {
                 "_visibility": "public",
                 // BUG-064: a bare `_visibility: "public"` with no owner is
                 // deliberately UNCORROBORATED and treated as non-public
-                // (`row_visibility`, crates/eg-core/src/isolation.rs) --
+                // (`row_visibility`, crates/medulla-core/src/isolation.rs) --
                 // stamp_owner_id_if_absent doesn't run for this seed either,
                 // since it is written by the System-role test identity, which
                 // is explicitly exempt (not a real per-agent owner). An
@@ -354,7 +354,7 @@ async fn served_semantic_search_never_returns_another_agents_private_node() {
     );
 }
 
-/// Sibling proof for `Method::Discover` (CONCEPT:EG-KG.retrieval.one-round-trip-discovery):
+/// Sibling proof for `Method::Discover` (CONCEPT:MEDULLA-KG.retrieval.one-round-trip-discovery):
 /// the hybrid keyword+vector discovery surface must not hydrate or return another
 /// agent's private node's id/name/description, even when both its embedding AND its
 /// keywords are the strongest possible match.

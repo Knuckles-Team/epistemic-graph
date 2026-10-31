@@ -1,8 +1,8 @@
 """Round-trip tests for the compiled semantic reasoner
-(CONCEPT:EG-KG.compute.compiled-semantic-reasoner).
+(CONCEPT:MEDULLA-KG.compute.compiled-semantic-reasoner).
 
 Exercises the live UDS path: ``client.reasoning.reason`` against the running
-epistemic-graph-server (started by the conftest session fixture).
+medulla-server (started by the conftest session fixture).
 
 Regression guard for the wiring fix: ``run_datalog_reasoning`` /
 ``infer_domain_range`` / ``infer_property_chains`` exist in ``src/reasoning.rs``
@@ -25,7 +25,7 @@ def test_transitive_closure_infers_edge(clean_graph):
     clean_graph.nodes.add("b", {"type": "Person"})
     clean_graph.nodes.add("c", {"type": "Person"})
     # Edge predicate/type rides the `relationship` property key (the convention
-    # `extract_facts` in `crates/eg-compute/src/reasoning.rs` reads), not `type`
+    # `extract_facts` in `crates/medulla-compute/src/reasoning.rs` reads), not `type`
     # (which is the NODE-type key) -- see that function's `val.get("relationship")`.
     clean_graph.edges.add("a", "b", {"relationship": "ancestor"})
     clean_graph.edges.add("b", "c", {"relationship": "ancestor"})

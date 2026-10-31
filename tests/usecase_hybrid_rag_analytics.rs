@@ -1,4 +1,4 @@
-//! HIGH-VALUE USE-CASE SUITE #3 — hybrid RAG + IN-ENGINE analytics (CONCEPT:EG-KG.query.usecase-hybrid-rag-analytics).
+//! HIGH-VALUE USE-CASE SUITE #3 — hybrid RAG + IN-ENGINE analytics (CONCEPT:MEDULLA-KG.query.usecase-hybrid-rag-analytics).
 //!
 //! The differentiator: retrieve candidates via a graph+vector+text FUSED plan, then run
 //! numeric/ML analytics (PCA + kmeans) over the JOINED properties of exactly those
@@ -7,7 +7,7 @@
 //! them. This tests the RANK → ANALYTICS seam.
 //!
 //! Two real engine surfaces are wired end-to-end:
-//!   1. RETRIEVAL — `eg_plan::execute` over a live `PlanCtx` (graph seed → RRF of vector +
+//!   1. RETRIEVAL — `medulla_plan::execute` over a live `PlanCtx` (graph seed → RRF of vector +
 //!      BM25 legs) returns the fused candidate ids.
 //!   2. ANALYTICS — the candidates' embeddings, hydrated from the SAME in-engine
 //!      `SemanticStore`, are fed to `Method::DsPca` / `Method::DsKMeans` through the REAL
@@ -26,14 +26,14 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use eg_core::compute::semantic::SemanticStore;
-use eg_core::graph::{GraphCore, GraphView};
-use eg_plan::{execute, Op, Plan, PlanCtx};
-use eg_text::TextIndex;
+use medulla_core::compute::semantic::SemanticStore;
+use medulla_core::graph::{GraphCore, GraphView};
+use medulla_plan::{execute, Op, Plan, PlanCtx};
+use medulla_text::TextIndex;
 use serde_json::json;
 
-use epistemic_graph::protocol::{Method, Response, ResultPayload};
-use epistemic_graph::server::dispatch;
+use medulla::protocol::{Method, Response, ResultPayload};
+use medulla::server::dispatch;
 
 const SECRET: &str = "usecase-analytics-secret";
 
@@ -100,7 +100,7 @@ fn as_json(resp: &Response) -> serde_json::Value {
     }
 }
 
-/// THE hybrid-RAG + analytics proof (CONCEPT:EG-KG.query.usecase-hybrid-rag-analytics): fused retrieval feeds in-engine
+/// THE hybrid-RAG + analytics proof (CONCEPT:MEDULLA-KG.query.usecase-hybrid-rag-analytics): fused retrieval feeds in-engine
 /// analytics; the compute runs over exactly the retrieved candidates, in-process.
 #[tokio::test]
 async fn fused_retrieval_feeds_in_engine_analytics_eg436() {

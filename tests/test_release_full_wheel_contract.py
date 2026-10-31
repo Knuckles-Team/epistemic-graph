@@ -51,10 +51,10 @@ def _build_job_source(raw: str) -> str:
 def test_maturin_default_and_python_extra_are_full() -> None:
     project = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
     maturin = project["tool"]["maturin"]
-    # The public wheel is the eg-pyengine extension crate, not the server bin.
+    # The public wheel is the medulla-pyengine extension crate, not the server bin.
     assert maturin["features"] == ["python", "security"]
-    assert maturin["manifest-path"] == "crates/eg-pyengine/Cargo.toml"
-    assert maturin["module-name"] == "epistemic_graph.engine"
+    assert maturin["manifest-path"] == "crates/medulla-pyengine/Cargo.toml"
+    assert maturin["module-name"] == "medulla.engine"
     assert maturin.get("bindings") != "bin"
     dependencies = project["project"]["dependencies"]
     assert not any(
@@ -109,9 +109,9 @@ def test_agent_skills_have_one_canonical_owner() -> None:
     project = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
     entry_points = project["project"].get("entry-points", {})
     assert entry_points["agent_utilities.skill_providers"] == {
-        "epistemic-graph": "epistemic_graph.skills"
+        "medulla": "medulla.skills"
     }
-    skills = REPO / "epistemic_graph" / "skills"
+    skills = REPO / "medulla" / "skills"
     assert (skills / "__init__.py").is_file()
     try:
         out = subprocess.run(
@@ -142,7 +142,7 @@ def test_agent_skills_have_one_canonical_owner() -> None:
         assert identity == path.parent.name, f"skill identity/path mismatch: {path}"
         assert identity.casefold() not in identities, f"duplicate skill: {identity}"
         identities.add(identity.casefold())
-    assert "epistemic-graph-development" in identities, (
+    assert "medulla-development" in identities, (
         "the development skill must ship from the engine provider, not a sibling"
     )
 
@@ -151,11 +151,11 @@ def _verified_x86_workflow() -> dict:
     """Bind the local structural proof to the reviewed immutable workflow."""
     caller = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     expected = (
-        "Knuckles-Team/medulla/.github/workflows/eg-release-x86.yml@"
+        "Knuckles-Team/medulla/.github/workflows/medulla-release-x86.yml@"
         "219c853efa7aacb8cf7032abf67fc7f70aefb1ce"
     )
     assert caller["jobs"]["build-x86"]["uses"] == expected
-    source = (WORKFLOW.parent / "eg-release-x86.yml").read_bytes()
+    source = (WORKFLOW.parent / "medulla-release-x86.yml").read_bytes()
     assert hashlib.sha256(source).hexdigest() == (
         "cb93273beb1a92326b67415bb209e362213314b0d1d63684d3f8cb00cd98500f"
     )
@@ -180,7 +180,7 @@ def test_every_supported_release_target_uses_one_full_wheel_pipeline() -> None:
     )
     target_name = upload["with"]["name"].removeprefix("wheel-")
     assert target_name == "linux-x86_64" and target_name not in targets
-    targets[target_name] = x86["env"]["EG_WHEEL_TARGET"]
+    targets[target_name] = x86["env"]["MEDULLA_WHEEL_TARGET"]
     assert targets == {
         "linux-aarch64": "aarch64-unknown-linux-gnu",
         "linux-x86_64": "x86_64-unknown-linux-gnu",
@@ -192,7 +192,7 @@ def test_every_supported_release_target_uses_one_full_wheel_pipeline() -> None:
     both = raw + CI_WORKFLOW.read_text(encoding="utf-8")
     assert "scripts/inject_numeric_kernel.py" in both
     assert "scripts/normalize_wheel_build_paths.py" in both
-    assert "import epistemic_graph.numeric" in both
+    assert "import medulla.numeric" in both
     # The release smoke test must exercise the native module without importing
     # or installing NumPy; parity keeps its reference dependency isolated in the
     # separate gates job.
@@ -245,7 +245,7 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     )
     assert shared[0]["with"]["sccache"] == "false"
     assert (
-        "CARGO_TARGET_DIR=$RUNNER_TEMP/epistemic-graph-release-target"
+        "CARGO_TARGET_DIR=$RUNNER_TEMP/medulla-release-target"
     ) in wheel_pass
     for script in (
         "scripts/inject_numeric_kernel.py",
@@ -256,9 +256,9 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     ):
         assert wheel_pass.count(script) == 1, script
     # The `gates` job folds its OWN numeric kernel into a real wheel
-    # (CONCEPT:EG-346) and normalizes/audits its numeric kernel, pyengine
+    # (CONCEPT:MEDULLA-346) and normalizes/audits its numeric kernel, pyengine
     # kernel and folded wheel, rather than `pip install`ing the standalone
-    # `eg-numeric` build (the 2026-08-21 stale-install incident).
+    # `medulla-numeric` build (the 2026-08-21 stale-install incident).
     ci_raw = CI_WORKFLOW.read_text(encoding="utf-8")
     both = raw + ci_raw
     # Artifact recipe hashes also name these scripts, but do not execute them.
@@ -365,7 +365,7 @@ def test_runner_jobs_keep_build_budget_and_bounded_authorization() -> None:
 def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
     if "uses" in job:  # reusable-workflow call: GitHub rejects a timeout here
         return
-    if (workflow.name, name) == ("eg-release-x86.yml", "authorize"):
+    if (workflow.name, name) == ("medulla-release-x86.yml", "authorize"):
         assert job == _verified_x86_workflow()["jobs"]["authorize"]
         assert job["runs-on"] == "ubuntu-latest"
         assert job.get("timeout-minutes") == 5
@@ -437,7 +437,7 @@ def _assert_short_runner_budget(workflow: Path, name: str, job: dict) -> None:
     [10, 15, 45, 60, 360, "${{ github.event_name == 'pull_request' && 45 || 60 }}"],
 )
 def test_workspace_clippy_budget_rejects_unscoped_limits(timeout: int | str) -> None:
-    """EG-CONTRACT-R031: only the workspace matrix leg receives extra time."""
+    """MEDULLA-CONTRACT-R031: only the workspace matrix leg receives extra time."""
     with pytest.raises(AssertionError):
         _assert_runner_budget(
             CI_WORKFLOW, "quality-advisory", {"timeout-minutes": timeout}
@@ -455,7 +455,7 @@ def test_workspace_clippy_budget_rejects_unscoped_limits(timeout: int | str) -> 
 def test_workspace_clippy_budget_cannot_expand_other_jobs(
     workflow: str, name: str
 ) -> None:
-    """EG-CONTRACT-R031: the matrix budget is not a general runner exception."""
+    """MEDULLA-CONTRACT-R031: the matrix budget is not a general runner exception."""
     budget = "${{ github.event_name == 'pull_request' && 30 || 60 }}"
     with pytest.raises(AssertionError):
         _assert_runner_budget(Path(workflow), name, {"timeout-minutes": budget})
@@ -487,7 +487,7 @@ def test_release_concurrency_never_cancels_a_publication() -> None:
 
 
 def test_ci_concurrency_supersedes_older_runs_per_pr_and_per_ref() -> None:
-    """spec EG-CONTRACT-R053.7: main pushes and PR pushes cancel the older run."""
+    """spec MEDULLA-CONTRACT-R053.7: main pushes and PR pushes cancel the older run."""
     doc = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
     concurrency = doc["concurrency"]
     assert concurrency["cancel-in-progress"] is True
@@ -642,7 +642,7 @@ def test_sdist_requires_root_build_script(tmp_path):
 
 
 def test_extensions_only_sdist_inputs_are_the_real_build_inputs():
-    # maturin builds crates/eg-pyengine, so the root crate is not an sdist input,
+    # maturin builds crates/medulla-pyengine, so the root crate is not an sdist input,
     # but the in-tree PEP 517 backend and the helpers it imports are.
     required = required_sources(REPO)
     assert not {"build.rs", "src/lib.rs", "src/main.rs"} & required
@@ -654,7 +654,7 @@ def test_extensions_only_sdist_inputs_are_the_real_build_inputs():
         "scripts/normalize_wheel_build_paths.py",
         "scripts/normalize_wheel_sbom.py",
         "scripts/strip_wheel_executables.py",
-        "crates/eg-pyengine/Cargo.toml",
+        "crates/medulla-pyengine/Cargo.toml",
     } <= required
 
 
@@ -800,7 +800,7 @@ def test_sdist_requires_engine_composition_helper(tmp_path):
         )
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.7")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.7")
 def test_tag_pipeline_builds_checks_and_publishes_only() -> None:
     """A tag publishes only a commit main CI already passed (spec R053.7)."""
     doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))

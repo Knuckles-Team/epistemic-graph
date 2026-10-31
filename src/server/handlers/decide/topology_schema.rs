@@ -17,13 +17,13 @@
 
 use std::collections::BTreeSet;
 
-use eg_types::contract::BoundedVec;
-use eg_types::decision::{SchemaAuthority, TopologyAdmission};
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::{SchemaAuthority, TopologyAdmission};
 
 /// The engine's admissibility role.
-pub(crate) const ADMITS_TOPOLOGY: &str = "http://epistemic-graph/owl#admitsTopology";
+pub(crate) const ADMITS_TOPOLOGY: &str = "http://medulla/owl#admitsTopology";
 /// The engine's "needs an independent check" task class.
-pub(crate) const NEEDS_INDEPENDENT_CHECK: &str = "http://epistemic-graph/owl#NeedsIndependentCheck";
+pub(crate) const NEEDS_INDEPENDENT_CHECK: &str = "http://medulla/owl#NeedsIndependentCheck";
 
 /// What the schema entailed for one topology question.
 pub(super) struct Entailed {
@@ -62,17 +62,17 @@ fn authority_of(source_id: &str) -> SchemaAuthority {
 /// authority among the sources that mention the admissibility role.
 fn ontology(
     sources: &crate::graph::GraphSchemaSources,
-) -> Result<(Vec<eg_rdf::oxrdf::Triple>, SchemaAuthority, String), String> {
+) -> Result<(Vec<medulla_rdf::oxrdf::Triple>, SchemaAuthority, String), String> {
     let mut triples = Vec::new();
     let mut authority = SchemaAuthority::Admin;
     let mut keys = BTreeSet::new();
     for (source_id, document) in sources.ontologies() {
-        let scope = eg_types::contract::Digest256::sha256(source_id.as_bytes()).to_hex();
+        let scope = medulla_types::contract::Digest256::sha256(source_id.as_bytes()).to_hex();
         if document.contains("admits") {
             keys.insert(source_id.to_string());
             authority = authority.max(authority_of(source_id));
         }
-        for triple in eg_rdf::mapping::parse_turtle(document)? {
+        for triple in medulla_rdf::mapping::parse_turtle(document)? {
             triples.push(crate::server::graph_schema::compose::scope_blank_nodes(
                 triple,
                 &scope[..16],
@@ -92,7 +92,7 @@ pub(super) fn entail(
     let sources = core.schema_sources();
     crate::server::graph_schema::compose::validate_and_compose(&sources)?;
     let (triples, authority, source_key) = ontology(&sources)?;
-    let classification = eg_rdf::owl::classify_hybrid_weighted(&triples);
+    let classification = medulla_rdf::owl::classify_hybrid_weighted(&triples);
     let reach = Reach {
         classification: &classification,
         authority,
@@ -121,7 +121,7 @@ pub(super) fn entail(
 }
 
 struct Reach<'c> {
-    classification: &'c eg_rdf::owl::Classification,
+    classification: &'c medulla_rdf::owl::Classification,
     authority: SchemaAuthority,
     source_key: String,
 }
@@ -160,7 +160,7 @@ impl Reach<'_> {
     }
 }
 
-fn collect_axioms(node: &eg_rdf::owl::ProofNode, out: &mut Vec<String>) {
+fn collect_axioms(node: &medulla_rdf::owl::ProofNode, out: &mut Vec<String>) {
     out.extend(node.axioms.iter().cloned());
     for premise in &node.premises {
         collect_axioms(premise, out);
@@ -172,11 +172,11 @@ mod tests {
     use super::*;
 
     /// The shipped core vocabulary itself (`core:swarm-topology@1`).
-    const TBOX: &str = include_str!("../../../../crates/eg-core/ontology/swarm_topology-v1.ttl");
+    const TBOX: &str = include_str!("../../../../crates/medulla-core/ontology/swarm_topology-v1.ttl");
 
     const S: &str = "http://knuckles.team/kg/swarm#";
 
-    fn reach(classification: &eg_rdf::owl::Classification) -> Reach<'_> {
+    fn reach(classification: &medulla_rdf::owl::Classification) -> Reach<'_> {
         Reach {
             classification,
             authority: SchemaAuthority::Admin,
@@ -186,8 +186,8 @@ mod tests {
 
     #[test]
     fn a_task_admits_its_stated_class_and_that_class_s_subclasses_only() {
-        let triples = eg_rdf::mapping::parse_turtle(TBOX).expect("parses");
-        let classification = eg_rdf::owl::classify_hybrid_weighted(&triples);
+        let triples = medulla_rdf::mapping::parse_turtle(TBOX).expect("parses");
+        let classification = medulla_rdf::owl::classify_hybrid_weighted(&triples);
         let reach = reach(&classification);
         let iri = |local: &str| format!("{S}{local}");
         assert!(reach
@@ -210,7 +210,7 @@ mod tests {
         ));
     }
 
-    // spec: EG-DECISION-ENGINE-R109.1
+    // spec: MEDULLA-DECISION-ENGINE-R109.1
     #[test]
     fn varying_the_composed_schema_digest_changes_derived_topology_admissibility() {
         let core = crate::graph::GraphCore::new();

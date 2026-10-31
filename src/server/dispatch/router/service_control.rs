@@ -19,12 +19,12 @@ pub(super) async fn dispatch_service_control_methods(
         // ── Service-level ────────────────────────────────────────────
         Method::Ping => Response::ok(
             req.id,
-            ResultPayload::scalar::<eg_types::result_contract::cluster::Ping>("pong".to_string()),
+            ResultPayload::scalar::<medulla_types::result_contract::cluster::Ping>("pong".to_string()),
         ),
 
         Method::Health => dispatch_boxed(health_response(state, req.id)).await,
 
-        // L36: cooperative cancellation of an in-flight request by its `req_id` (CONCEPT:EG-KG.query.streaming-spillable-collect).
+        // L36: cooperative cancellation of an in-flight request by its `req_id` (CONCEPT:MEDULLA-KG.query.streaming-spillable-collect).
         // Service-level (no graph resolution needed — the registry is keyed by req_id,
         // process-wide) so it works regardless of which graph the target request is
         // running against. `false` covers every "nothing to cancel" case uniformly
@@ -32,7 +32,7 @@ pub(super) async fn dispatch_service_control_methods(
         #[cfg(feature = "query")]
         Method::CancelRequest { target_req_id } => Response::ok(
             req.id,
-            ResultPayload::scalar::<eg_types::result_contract::cluster::CancelRequest>(
+            ResultPayload::scalar::<medulla_types::result_contract::cluster::CancelRequest>(
                 crate::server::request_cancel::cancel(target_req_id),
             ),
         ),
@@ -44,7 +44,7 @@ pub(super) async fn dispatch_service_control_methods(
                     info!("Shutdown requested via protocol");
                     Response::ok(
                         req_id,
-                        ResultPayload::scalar::<eg_types::result_contract::cluster::Shutdown>(
+                        ResultPayload::scalar::<medulla_types::result_contract::cluster::Shutdown>(
                             "shutting_down".to_string(),
                         ),
                     )
@@ -76,7 +76,7 @@ async fn health_response(state: &Arc<RwLock<ServerState>>, req_id: u64) -> Respo
             .filter(|manifest| manifest.phase == crate::registry::MaterializationPhase::Failed)
             .count();
         (
-            eg_types::result_contract::cluster::GraphLifecycleHealth {
+            medulla_types::result_contract::cluster::GraphLifecycleHealth {
                 catalog_graphs: state.registry.catalog_len() as u64,
                 resident_graphs: state.registry.resident_len() as u64,
                 complete_graphs: complete as u64,
@@ -106,11 +106,11 @@ async fn health_response(state: &Arc<RwLock<ServerState>>, req_id: u64) -> Respo
     append_native_work_item_ops(&mut served_ops, native_work_item_ops_available);
     // ``version`` + ``ops`` let clients negotiate capabilities (e.g. only
     // use ``ParseFiles`` against an engine that advertises it) and fall
-    // back gracefully against an older binary. (CONCEPT:EG-KG.query.dispatch-routing)
+    // back gracefully against an older binary. (CONCEPT:MEDULLA-KG.query.dispatch-routing)
     Response::ok(
         req_id,
-        ResultPayload::of::<eg_types::result_contract::cluster::Health>(
-            eg_types::result_contract::cluster::HealthReport {
+        ResultPayload::of::<medulla_types::result_contract::cluster::Health>(
+            medulla_types::result_contract::cluster::HealthReport {
                 status: "ok".to_string(),
                 uptime_s,
                 mem_bytes,
@@ -136,7 +136,7 @@ fn backend_gated_ops() -> Vec<&'static str> {
     ops
 }
 
-/// Every method this build's registry (`eg_capabilities::method_descriptors`,
+/// Every method this build's registry (`medulla_capabilities::method_descriptors`,
 /// the one the dispatcher is policy-checked against) serves unconditionally:
 /// the registry minus backend-gated methods (appended by their own condition),
 /// methods whose server feature is absent, and contract-wave methods whose
@@ -144,7 +144,7 @@ fn backend_gated_ops() -> Vec<&'static str> {
 /// missing from `client.supports(..)`.
 fn registry_served_ops() -> Vec<&'static str> {
     let backend_gated = backend_gated_ops();
-    eg_capabilities::method_descriptors()
+    medulla_capabilities::method_descriptors()
         .map(|descriptor| descriptor.id.as_str())
         .filter(|id| !backend_gated.contains(id) && !build_absent(id))
         .filter(|id| !crate::server::contract_wave::PENDING_METHODS.contains(id))
@@ -182,7 +182,7 @@ mod health_ops_tests {
     /// and nothing withheld is advertised.
     #[test]
     fn withheld_methods_are_registry_methods_and_never_advertised() {
-        let registry: Vec<&str> = eg_capabilities::method_descriptors()
+        let registry: Vec<&str> = medulla_capabilities::method_descriptors()
             .map(|descriptor| descriptor.id.as_str())
             .collect();
         let served = registry_served_ops();

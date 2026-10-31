@@ -5,7 +5,7 @@
 
 use super::super::test_support::{refused_with, send, state, verified};
 use super::*;
-use eg_types::governed_change::{
+use medulla_types::governed_change::{
     GovernedApproval, GovernedProposal, GovernedStatus, SCHEMA_REPAIR_KIND,
 };
 
@@ -56,7 +56,7 @@ async fn status(
         .status
 }
 
-// spec: EG-DURABLE-KERNEL-R027.2
+// spec: MEDULLA-DURABLE-KERNEL-R027.2
 #[tokio::test]
 async fn a_second_direct_approver_with_the_exact_scope_approves() {
     let state = state();
@@ -106,7 +106,7 @@ async fn a_second_direct_approver_with_the_exact_scope_approves() {
     assert_eq!(status(&state).await, GovernedStatus::Approved);
 }
 
-// spec: EG-DURABLE-KERNEL-R027.2
+// spec: MEDULLA-DURABLE-KERNEL-R027.2
 #[tokio::test]
 async fn a_forged_actor_in_the_body_is_overwritten() {
     let state = state();

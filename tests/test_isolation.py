@@ -19,7 +19,7 @@ from conftest import (
     wait_for_server,
 )
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
 RUST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 # `find_server_binary()` honors `CARGO_TARGET_DIR`/the repo's own
@@ -27,7 +27,7 @@ RUST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 # subprocess directly, so a hardcoded `target/debug` path never resolves in an
 # ordinary checkout of this repo (see conftest.py's `find_server_binary` doc).
 SERVER_BIN = find_server_binary() or os.path.join(
-    RUST_DIR, "target", "debug", "epistemic-graph-server"
+    RUST_DIR, "target", "debug", "medulla-server"
 )
 SECRET = "test-isolation-secret"  # sanitizer:ignore
 
@@ -44,7 +44,7 @@ def isolation_server(tmp_path_factory):
     # run. Omitting `persist_dir` here means `env = {**os.environ, **strict_
     # server_env(...)}` silently inherits that ambient value instead of this
     # module's own, and the dedicated server then refuses to start ("persist dir
-    # ... is already locked by another epistemic-graph engine") because the
+    # ... is already locked by another medulla engine") because the
     # still-running session engine already holds that directory's lock -- the
     # exact ambient-global-state class this repo's AGENTS.md (GOC-70) calls out.
     persist_dir = str(runtime / "persist")
@@ -61,7 +61,7 @@ def isolation_server(tmp_path_factory):
         log_path=log_path,
     )
     wait_for_server(proc, sock, name="isolation server", log_path=log_path)
-    bootstrap = SyncEpistemicGraphClient.connect(
+    bootstrap = SyncMedullaClient.connect(
         socket_path=sock,
         auth_secret=SECRET,
         verified_context=bootstrap_context(),
@@ -79,7 +79,7 @@ def isolation_server(tmp_path_factory):
 
 
 def _client(sock, agent_id=TEST_AGENT_ID, graph_name="__commons__"):
-    return SyncEpistemicGraphClient.connect(
+    return SyncMedullaClient.connect(
         socket_path=sock,
         auth_secret=SECRET,
         graph_name=graph_name,
@@ -87,7 +87,7 @@ def _client(sock, agent_id=TEST_AGENT_ID, graph_name="__commons__"):
     )
 
 
-@pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
+@pytest.mark.concept("CONCEPT:MEDULLA-KG.query.wire-protocol")
 def test_unregistered_identity_is_denied(isolation_server):
     intruder = _client(
         isolation_server, agent_id="service:unregistered", graph_name="agent:restricted"
@@ -99,7 +99,7 @@ def test_unregistered_identity_is_denied(isolation_server):
         intruder.close()
 
 
-@pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
+@pytest.mark.concept("CONCEPT:MEDULLA-KG.query.wire-protocol")
 def test_acl_enforced_once_identities_registered(isolation_server):
     sock = isolation_server
 
@@ -110,7 +110,7 @@ def test_acl_enforced_once_identities_registered(isolation_server):
     try:
         # Under the `security` feature (in every `full`/default build) `check_access`
         # ignores `graph_type`/`graph_owner` entirely and decides PURELY from
-        # `eg_capabilities`/`eg-core::rbac`'s durable grant policy
+        # `medulla_capabilities`/`medulla-core::rbac`'s durable grant policy
         # (`RbacPolicy::evaluate(identity.roles, resource, action)`) -- the legacy
         # "Agent-graph owner always has access" / "manager reaches subordinate's
         # graph" rules only exist in the `#[cfg(not(feature = "security"))]` branch,
@@ -157,7 +157,7 @@ def test_acl_enforced_once_identities_registered(isolation_server):
         )
 
         # Owner creates + writes its own graph. Row-level security
-        # (CONCEPT:EG-KG.sharding.row-level-security) is a SEPARATE, per-row concern
+        # (CONCEPT:MEDULLA-KG.sharding.row-level-security) is a SEPARATE, per-row concern
         # from the graph-level ACL this test exercises: an untagged row (no `_owner`/
         # `_visibility`/`_grants` key at all) is `tagged=false` and denied to
         # everyone but `System`, even the identity that just wrote it -- explicit
@@ -209,7 +209,7 @@ def test_acl_enforced_once_identities_registered(isolation_server):
         manager.close()
 
 
-@pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
+@pytest.mark.concept("CONCEPT:MEDULLA-KG.query.wire-protocol")
 def test_check_access_answers_a_principals_current_authority(isolation_server):
     """``CheckAccess`` (EH-416): a deputy executor asks whether a principal's
     own read would be admitted now -- a registered reader yes, an unknown
@@ -237,9 +237,9 @@ def test_check_access_answers_a_principals_current_authority(isolation_server):
         system.close()
 
 
-@pytest.mark.concept("CONCEPT:EG-KG.query.wire-protocol")
+@pytest.mark.concept("CONCEPT:MEDULLA-KG.query.wire-protocol")
 def test_check_access_needs_the_security_check_scope(isolation_server):
-    narrow = SyncEpistemicGraphClient.connect(
+    narrow = SyncMedullaClient.connect(
         socket_path=isolation_server,
         auth_secret=SECRET,
         graph_name="__commons__",

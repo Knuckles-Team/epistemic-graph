@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use eg_types::mutation_batch::RepositoryEnrichmentTopUp;
-use eg_types::MutationOutboxRecord;
+use medulla_types::mutation_batch::RepositoryEnrichmentTopUp;
+use medulla_types::MutationOutboxRecord;
 use tokio::sync::RwLock;
 
 use crate::parser::enrichment_reactivation::{plan_reactivation, BudgetRevisionProposal};
@@ -67,7 +67,7 @@ async fn bind_retained_top_up_identity(
     verified: &VerifiedRequestContext,
     retained: &RepositoryEnrichmentPolicyRevision,
     proposal: &BudgetRevisionProposal,
-    replacement: &eg_types::native_control::EnrichmentBudgetCheckpoint,
+    replacement: &medulla_types::native_control::EnrichmentBudgetCheckpoint,
 ) -> Result<RepositoryEnrichmentPolicyRevision, String> {
     let current = state.read().await;
     let entry = current
@@ -112,7 +112,7 @@ async fn prepare(
             graph,
             entry.graph_type,
             entry.owner.as_deref(),
-            eg_types::acl::AccessCheck::Write,
+            medulla_types::acl::AccessCheck::Write,
         ) {
             return Err("ACCESS_DENIED: repository enrichment graph Write grant is absent".into());
         }
@@ -180,16 +180,16 @@ async fn prepare_replay(
     proposal: &BudgetRevisionProposal,
     retained: &RepositoryEnrichmentPolicyRevision,
     routed: &crate::raft::multi::RoutedRaftHandle,
-    record: eg_types::mutation_batch::MutationBatchRecord,
+    record: medulla_types::mutation_batch::MutationBatchRecord,
 ) -> Result<(EnrichmentTopUpTransition, u64), String> {
     let graph = proposal.graph.as_str();
     let bytes = record
         .result_msgpack
         .as_deref()
         .ok_or("CONFLICT: repository enrichment prior receipt is absent")?;
-    let original: EnrichmentTopUpTransition = eg_types::msgpack::decode_bounded(
+    let original: EnrichmentTopUpTransition = medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(16 * 1024 * 1024, 200_000, 96),
+        medulla_types::msgpack::MsgpackLimits::new(16 * 1024 * 1024, 200_000, 96),
     )
     .map_err(|_| "CONFLICT: repository enrichment prior receipt is invalid")?;
     original.validate(graph, record.committed_at_ms)?;
@@ -271,7 +271,7 @@ async fn prepare_fresh(
     let replacement_intent =
         crate::server::dispatch::enrichment_intent_for_snapshot(plan.snapshot)?;
     let replacement_batch =
-        eg_types::MutationBatch::repository_enrichment_top_up(RepositoryEnrichmentTopUp {
+        medulla_types::MutationBatch::repository_enrichment_top_up(RepositoryEnrichmentTopUp {
             old_delivery: &old_delivery,
             policy_sequence: revision.sequence,
             revision_idempotency_key: revision.idempotency_key.as_deref().unwrap_or_default(),

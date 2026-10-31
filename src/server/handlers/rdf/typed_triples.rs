@@ -2,19 +2,19 @@
 //! that owns no RDF syntax send data as plain values; the engine alone turns them
 //! into terms, so an IRI or language tag is checked here, once.
 
-use eg_rdf::oxrdf::{Literal, NamedNode, Term, Triple};
-use eg_types::ontology_inspection::{RdfObject, RdfTriple, MAX_TYPED_TRIPLES};
+use medulla_rdf::oxrdf::{Literal, NamedNode, Term, Triple};
+use medulla_types::ontology_inspection::{RdfObject, RdfTriple, MAX_TYPED_TRIPLES};
 
 /// Build the data graph from typed triples, refusing the whole request on the first
 /// malformed triple (named by its index) rather than validating a partial graph.
-pub(super) fn graph_from_typed_triples(triples: &[RdfTriple]) -> Result<eg_shacl::Graph, String> {
+pub(super) fn graph_from_typed_triples(triples: &[RdfTriple]) -> Result<medulla_shacl::Graph, String> {
     if triples.len() > MAX_TYPED_TRIPLES {
         return Err(format!(
             "{} triples exceed the maximum of {MAX_TYPED_TRIPLES}",
             triples.len()
         ));
     }
-    let mut graph = eg_shacl::Graph::new();
+    let mut graph = medulla_shacl::Graph::new();
     for (index, triple) in triples.iter().enumerate() {
         let triple = typed_triple(triple).map_err(|error| format!("triple {index}: {error}"))?;
         graph.insert(&triple);
@@ -128,7 +128,7 @@ mod tests {
                       kg:wf a kg:WorkflowDefinition ; kg:name \"deploy\" ; kg:step_count 2 ;\n\
                       <http://www.w3.org/2000/01/rdf-schema#label> \"Bereitstellen\"@de .\n";
         let from_typed = graph_from_typed_triples(&typed).unwrap();
-        let from_turtle = eg_shacl::graph_from_turtle(turtle).unwrap();
+        let from_turtle = medulla_shacl::graph_from_turtle(turtle).unwrap();
         assert_eq!(from_typed, from_turtle);
     }
 
@@ -176,7 +176,7 @@ mod tests {
     }
     #[test]
     fn wire_preserves_absent_versus_explicit_empty_typed_data() {
-        use eg_types::protocol::Method;
+        use medulla_types::protocol::Method;
         use serde_json::json;
 
         for (params, expected) in [

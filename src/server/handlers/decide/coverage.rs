@@ -1,16 +1,16 @@
-//! `Method::CapabilityCoverage` (EG-DECISION-ENGINE-R126.2.1): which visible
+//! `Method::CapabilityCoverage` (MEDULLA-DECISION-ENGINE-R126.2.1): which visible
 //! components cover each capability a task needs.
 //!
 //! Reads the same tenant-bound Agent Library snapshot `AgentAssemble` reads
 //! (the caller's candidate scope, plus every registered `A2aAgentCard`
 //! component) and hands it to the pure
-//! `eg_types::decision::derivation::capability_coverage_query`. No model, no
+//! `medulla_types::decision::derivation::capability_coverage_query`. No model, no
 //! ranking, no commit.
 
 use super::SharedState;
 use crate::protocol::Response;
 use crate::server::auth::VerifiedRequestContext;
-use eg_types::decision::coverage::CapabilityCoverageRequest;
+use medulla_types::decision::coverage::CapabilityCoverageRequest;
 
 /// Resolve the tenant's visible candidates and A2A cards and answer their
 /// per-capability coverage of the request's closure.
@@ -25,7 +25,7 @@ pub(crate) async fn handle_capability_coverage(
         Ok(result) => Response::ok(
             req_id,
             crate::protocol::ResultPayload::of_ref::<
-                eg_types::result_contract::storage::CapabilityCoverage,
+                medulla_types::result_contract::storage::CapabilityCoverage,
             >(&result),
         ),
         Err(error) => Response::err(req_id, error),
@@ -37,14 +37,14 @@ async fn coverage_for(
     state: &SharedState,
     verified: &VerifiedRequestContext,
     request: &CapabilityCoverageRequest,
-) -> Result<eg_types::decision::coverage::CapabilityCoverageResult, String> {
-    use eg_types::agent_component::AgentComponentKind;
-    use eg_types::decision::coverage::{
+) -> Result<medulla_types::decision::coverage::CapabilityCoverageResult, String> {
+    use medulla_types::agent_component::AgentComponentKind;
+    use medulla_types::decision::coverage::{
         CapabilityCoverageOutcome, CapabilityCoverageResult,
         CAPABILITY_COVERAGE_RESULT_SCHEMA_VERSION,
     };
-    use eg_types::decision::derivation::capability_coverage_query;
-    use eg_types::decision::LibraryCandidateScope;
+    use medulla_types::decision::derivation::capability_coverage_query;
+    use medulla_types::decision::LibraryCandidateScope;
 
     if request.tenant_id != verified.tenant() {
         return Err("ACCESS_DENIED: coverage tenant must match the verified request tenant".into());
@@ -57,7 +57,7 @@ async fn coverage_for(
         .collect();
     let candidates = crate::server::persistence::decision_record::candidate_facts(&library)?;
     let card_scope = LibraryCandidateScope {
-        kinds: eg_types::contract::BoundedVec::new(vec![AgentComponentKind::A2aAgentCard])
+        kinds: medulla_types::contract::BoundedVec::new(vec![AgentComponentKind::A2aAgentCard])
             .map_err(|error| error.to_string())?,
         classification_under: None,
     };
@@ -66,7 +66,7 @@ async fn coverage_for(
         .into_iter()
         .map(|entry| (entry.component_id, entry.declared_capabilities))
         .collect();
-    let ontology_digest = eg_types::agent_ontology::ontology_digest();
+    let ontology_digest = medulla_types::agent_ontology::ontology_digest();
     let coverage = match capability_coverage_query(
         &request.requirements,
         &ontology_digest,

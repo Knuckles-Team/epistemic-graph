@@ -1,14 +1,14 @@
-//! Multi-Raft manager + routing (CONCEPT:EG-KG.sharding.raft-resharding).
+//! Multi-Raft manager + routing (CONCEPT:MEDULLA-KG.sharding.raft-resharding).
 //!
 //! A [`MultiRaft`] holds N openraft groups in one process, keyed by [`GroupId`],
-//! each its OWN [`store::EgStore`] state machine applying to its own graph data —
+//! each its OWN [`store::MedullaStore`] state machine applying to its own graph data —
 //! but ALL groups share:
 //!
 //! * **ONE redb Database** (the M2 authoritative shard): every group's durable log + meta
-//!   is keyed by `(group_id, …)` (CONCEPT:EG-KG.storage.one-fsync-covers-raft). This is the spike's FD-ceiling
+//!   is keyed by `(group_id, …)` (CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft). This is the spike's FD-ceiling
 //!   fix — NOT a redb file per group.
 //! * **ONE TCP listener per node**: the [`network`] frame is tagged with the group
-//!   id, and the shared listener demuxes each RPC to the right group's [`EgRaft`]
+//!   id, and the shared listener demuxes each RPC to the right group's [`MedullaRaft`]
 //!   (the spike's shared-channel design, productionized).
 //!
 //! ### Routing — one graph = one group (this increment)
@@ -40,9 +40,9 @@ use tokio::sync::RwLock;
 use super::membership_shrink::MembershipShrinkJournal;
 use super::network::{self, RaftFrame, RaftFrameReply};
 use super::placement::{self, PlacementCatalog, PlacementRoute};
-use super::store::EgStore;
+use super::store::MedullaStore;
 use super::{
-    AppCtx, EgRaft, GroupId, NodeId, RaftHandle, RaftRequest, RaftResponse, DEFAULT_GROUP,
+    AppCtx, MedullaRaft, GroupId, NodeId, RaftHandle, RaftRequest, RaftResponse, DEFAULT_GROUP,
 };
 use crate::lock_recovery::LockRecovery;
 use crate::protocol::Method;
@@ -52,7 +52,7 @@ mod membership_follow;
 mod membership_removal;
 mod placement_commit;
 
-/// Routes a graph name to the Raft group that owns it (CONCEPT:EG-KG.sharding.raft-resharding +
+/// Routes a graph name to the Raft group that owns it (CONCEPT:MEDULLA-KG.sharding.raft-resharding +
 /// KG-2.266). One graph belongs to exactly one group. Resolution order:
 ///
 /// 1. an explicit per-graph **override** ([`assign`], used by reshard + tests) —
@@ -136,7 +136,7 @@ impl GroupRouter {
         self.overrides.insert(graph_name.to_string(), group_id);
     }
 
-    /// The distinct groups a set of graph names spans (CONCEPT:EG-KG.storage.lane-n-increment). A txn whose
+    /// The distinct groups a set of graph names spans (CONCEPT:MEDULLA-KG.storage.lane-n-increment). A txn whose
     /// write-set touches graphs that resolve to >1 group is a CROSS-SHARD txn and must
     /// route through the 2PC coordinator; a set that resolves to exactly one group is
     /// the single-group FAST PATH (unchanged). This is the span-detection the commit
@@ -165,7 +165,7 @@ impl GroupRouter {
 }
 
 /// The deterministic round-robin target leader for group `gid` over its SORTED voter
-/// set (CONCEPT:EG-KG.sharding.multi-raft). Identical on every node (the voter set is the replicated
+/// set (CONCEPT:MEDULLA-KG.sharding.multi-raft). Identical on every node (the voter set is the replicated
 /// membership, sorted), so all nodes agree which node should lead each group WITHOUT
 /// coordination — the property that makes the cooperative balancer converge. `None`
 /// for an empty voter set.
@@ -193,7 +193,7 @@ pub(crate) fn failure_domain_safe(
 }
 
 /// What one [`rebalance_leaders`](MultiRaft::rebalance_leaders) pass decided, for
-/// observability + tests (CONCEPT:EG-KG.sharding.multi-raft → KG-2.273).
+/// observability + tests (CONCEPT:MEDULLA-KG.sharding.multi-raft → KG-2.273).
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct RebalanceReport {
     /// Per local group: the round-robin target leader node id.
@@ -210,10 +210,10 @@ pub struct RebalanceReport {
     pub skipped: Vec<(GroupId, String)>,
 }
 
-/// A single running group: its `EgRaft` handle + the node id it runs as. Cloneable.
+/// A single running group: its `MedullaRaft` handle + the node id it runs as. Cloneable.
 #[derive(Clone)]
 pub struct Group {
-    pub raft: EgRaft,
+    pub raft: MedullaRaft,
     pub node_id: NodeId,
 }
 
@@ -253,13 +253,13 @@ impl Group {
     }
 }
 
-/// The per-node multi-group manager (CONCEPT:EG-KG.sharding.raft-resharding). Holds the live group map +
+/// The per-node multi-group manager (CONCEPT:MEDULLA-KG.sharding.raft-resharding). Holds the live group map +
 /// the single shared RPC listener that demuxes by group id. The group map is shared
 /// (`Arc<RwLock<…>>`) with the listener so a `create_group` is visible to incoming
 /// RPCs immediately.
 pub struct MultiRaft {
     node_id: NodeId,
-    groups: Arc<RwLock<BTreeMap<GroupId, EgRaft>>>,
+    groups: Arc<RwLock<BTreeMap<GroupId, MedullaRaft>>>,
     router: Arc<GroupRouter>,
     /// The shared M2 backend handle every group's store is opened over.
     backend: Arc<dyn crate::server::persistence::PersistenceBackend>,
@@ -273,7 +273,7 @@ pub struct MultiRaft {
     /// bootstrap task retains the read service/group store and its redb backend
     /// after shutdown, preventing an in-process restart from reopening the files.
     connection_tasks: Arc<ConnectionTaskSet>,
-    /// Per-tenant migration locks (CONCEPT:EG-KG.storage.100m-tenant). A reshard or hibernate of a
+    /// Per-tenant migration locks (CONCEPT:MEDULLA-KG.storage.100m-tenant). A reshard or hibernate of a
     /// graph takes its lock so the two cannot race / interleave for one tenant; ops
     /// on DIFFERENT graphs proceed concurrently. Lazily created per graph name.
     tenant_locks: Arc<DashMap<String, Arc<tokio::sync::Mutex<()>>>>,
@@ -294,7 +294,7 @@ pub struct MultiRaft {
     /// Periodic, policy-free observation loop.  Each actual transfer still passes
     /// through the benefit, failure-domain, and cooldown gates below.
     leader_balance_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
-    /// The ONE placement authority (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1): a durable,
+    /// The ONE placement authority (CONCEPT:MEDULLA-KG.sharding.placement-catalog, DIST-P2-1): a durable,
     /// Raft-replicated virtual-partition → group map that [`route_graph`] consults
     /// before returning [`router`]'s engine-owned unplaced policy. Always present (even with an
     /// empty catalog it changes nothing — see [`route_graph`]).
@@ -547,7 +547,7 @@ impl MultiRaft {
         auth: Option<Arc<network::RaftTransportAuth>>,
         failure_domains: BTreeMap<NodeId, String>,
     ) -> Result<Arc<Self>, String> {
-        let groups: Arc<RwLock<BTreeMap<GroupId, EgRaft>>> = Arc::new(RwLock::new(BTreeMap::new()));
+        let groups: Arc<RwLock<BTreeMap<GroupId, MedullaRaft>>> = Arc::new(RwLock::new(BTreeMap::new()));
         let groups_for_listener = groups.clone();
         let auth_for_listener = auth.clone();
         let owner: Arc<membership_follow::MembershipOwner> = Arc::default();
@@ -659,7 +659,7 @@ impl MultiRaft {
         Ok(multi)
     }
 
-    /// Acquire the per-tenant migration lock for `graph_name` (CONCEPT:EG-KG.storage.100m-tenant), so a
+    /// Acquire the per-tenant migration lock for `graph_name` (CONCEPT:MEDULLA-KG.storage.100m-tenant), so a
     /// reshard and a hibernate of the SAME graph serialize. Lazily creates the lock.
     /// Returns an owned guard the caller holds for the duration of the migration.
     pub async fn tenant_lock(&self, graph_name: &str) -> tokio::sync::OwnedMutexGuard<()> {
@@ -672,7 +672,7 @@ impl MultiRaft {
     }
 
     /// Ensure group `gid` is running on this node, creating it (single-member,
-    /// bootstrap) if absent — the resharding target-group seam (CONCEPT:EG-KG.storage.100m-tenant).
+    /// bootstrap) if absent — the resharding target-group seam (CONCEPT:MEDULLA-KG.storage.100m-tenant).
     /// Idempotent: a no-op if the group already runs. The new group shares the SAME
     /// listener + authoritative shard; its durable log/meta are keyed by `gid`.
     pub async fn ensure_group(&self, gid: GroupId) -> Result<(), String> {
@@ -724,7 +724,7 @@ impl MultiRaft {
 
     /// The shared `ServerState` (registry + persistence) every group applies into —
     /// reached via the manager's [`AppCtx`]. Used by the cross-shard 2PC coordinator
-    /// (CONCEPT:EG-KG.storage.lane-n-increment) to validate slices against live group state.
+    /// (CONCEPT:MEDULLA-KG.storage.lane-n-increment) to validate slices against live group state.
     pub fn app_state(&self) -> Arc<RwLock<crate::server::ServerState>> {
         self.ctx.state.clone()
     }
@@ -784,7 +784,7 @@ impl MultiRaft {
     async fn read_leader(
         &self,
         group_id: GroupId,
-    ) -> Result<(EgRaft, Option<String>), super::xread::ReadPageError> {
+    ) -> Result<(MedullaRaft, Option<String>), super::xread::ReadPageError> {
         let raft = self
             .groups
             .read()
@@ -879,7 +879,7 @@ impl MultiRaft {
     }
 
     /// Create + start group `gid` on this node with the given peer set. The store is
-    /// opened over the SHARED M2 backend keyed by `gid` (CONCEPT:EG-KG.storage.one-fsync-covers-raft), so all
+    /// opened over the SHARED M2 backend keyed by `gid` (CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft), so all
     /// groups share ONE authoritative shard. The lowest-id member bootstraps.
     pub async fn create_group(
         &self,
@@ -905,12 +905,12 @@ impl MultiRaft {
             state: self.ctx.state.clone(),
             router: Some(self.router.clone()),
         };
-        let store = EgStore::open(gid, self.backend.clone(), store_ctx)?;
+        let store = MedullaStore::open(gid, self.backend.clone(), store_ctx)?;
         // openraft's heartbeat worker uses `heartbeat_interval` itself as EACH heartbeat
         // RPC's own timeout (`openraft::core::heartbeat::worker`), not a separate knob —
         // there is no way to decouple "how often" from "how long one attempt gets" in
         // openraft 0.10. ADR-2 puts many independent groups on ONE shared listener/pool
-        // per node (CONCEPT:EG-KG.sharding.raft-resharding), so busier deployments (more
+        // per node (CONCEPT:MEDULLA-KG.sharding.raft-resharding), so busier deployments (more
         // groups, more concurrent client writes) have proportionally more heartbeat/vote/
         // append-entries RPC traffic contending for the same node's connections and CPU.
         // 250ms was too tight for that contention: reproduced on an otherwise-quiet build
@@ -931,7 +931,7 @@ impl MultiRaft {
         // open question about whether even this is sufficient under load.
         let raft_config = Arc::new(
             Config {
-                cluster_name: format!("epistemic-graph-g{gid}"),
+                cluster_name: format!("medulla-g{gid}"),
                 heartbeat_interval: 1000,
                 election_timeout_min: 4000,
                 election_timeout_max: 8000,
@@ -941,8 +941,8 @@ impl MultiRaft {
             .map_err(|e| format!("invalid raft config: {e}"))?,
         );
         // openraft 0.10 (CONCEPT:AU-KG.backend.authority-has-already-acked): the v1 `RaftStorage`/`Adaptor` split is
-        // gone — `EgStore` implements `RaftLogStorage` AND `RaftStateMachine` on
-        // `Arc<EgStore>`, so we hand the SAME store in as both (a cheap clone). They
+        // gone — `MedullaStore` implements `RaftLogStorage` AND `RaftStateMachine` on
+        // `Arc<MedullaStore>`, so we hand the SAME store in as both (a cheap clone). They
         // share the one underlying redb-backed log + state machine.
         let log_store = store.clone();
         let state_machine = store;
@@ -952,7 +952,7 @@ impl MultiRaft {
             self.pool.clone(),
             self.heartbeat_coalescer.clone(),
         );
-        let raft: EgRaft =
+        let raft: MedullaRaft =
             openraft::Raft::new(self.node_id, raft_config, network, log_store, state_machine)
                 .await
                 .map_err(|e| format!("raft new g{gid}: {e}"))?;
@@ -978,7 +978,7 @@ impl MultiRaft {
         Ok(())
     }
 
-    // ── R3: multi-node membership join (CONCEPT:EG-KG.storage.kg-kg-2) ──────────────────
+    // ── R3: multi-node membership join (CONCEPT:MEDULLA-KG.storage.kg-kg-2) ──────────────────
     //
     // `create_group(.., is_bootstrap=true)` brings a group up as a SINGLE-member
     // cluster on one node. To make a group span multiple NODES you (a) stand the
@@ -992,7 +992,7 @@ impl MultiRaft {
     // (src/server/handlers/raft_admin.rs), not just this in-process API.
 
     /// Stand group `gid` up on THIS node as an EMPTY, non-bootstrapping member ready to
-    /// receive replication (CONCEPT:EG-KG.storage.kg-kg-2). Unlike [`ensure_group`] (which
+    /// receive replication (CONCEPT:MEDULLA-KG.storage.kg-kg-2). Unlike [`ensure_group`] (which
     /// single-member bootstraps), this NEVER calls `initialize`: the group joins an
     /// existing cluster only when its leader calls [`add_group_member`] for this node.
     /// Idempotent. `peers` may be empty — a follower learns peer addresses from the
@@ -1013,7 +1013,7 @@ impl MultiRaft {
     /// The current VOTER set of group `gid` as this node sees it (sorted), or `None` if
     /// the group isn't running here. Read from openraft's replicated membership config,
     /// so on a caught-up node it is the committed cluster membership.
-    /// Every group id currently running on THIS node, sorted (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 /
+    /// Every group id currently running on THIS node, sorted (CONCEPT:MEDULLA-KG.sharding.cluster-topology, ADR-1 /
     /// W1.1 — `Method::ClusterMembers`' group enumeration). `DEFAULT_GROUP` is
     /// always included once any group has started (`ensure_group`/`create_group`/
     /// `join_group` populate it).
@@ -1034,7 +1034,7 @@ impl MultiRaft {
     }
 
     /// The current NON-VOTING LEARNER set of group `gid` as this node sees it (sorted;
-    /// voters excluded), or `None` if the group isn't running here (CONCEPT:EG-KG.storage.kg-kg-2). The
+    /// voters excluded), or `None` if the group isn't running here (CONCEPT:MEDULLA-KG.storage.kg-kg-2). The
     /// [`add_group_learner`](MultiRaft::add_group_learner) counterpart to
     /// [`group_membership`](MultiRaft::group_membership)'s voter set, so a caller can
     /// observe a learner attached but not yet promoted.
@@ -1095,7 +1095,7 @@ impl MultiRaft {
         true
     }
 
-    /// A cloneable handle to one group's `EgRaft` (None if this node doesn't run it).
+    /// A cloneable handle to one group's `MedullaRaft` (None if this node doesn't run it).
     pub async fn group(&self, gid: GroupId) -> Option<Group> {
         self.groups
             .read()
@@ -1114,7 +1114,7 @@ impl MultiRaft {
         self.group(route.group).await
     }
 
-    /// The placement catalog (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1) — the ONE placement
+    /// The placement catalog (CONCEPT:MEDULLA-KG.sharding.placement-catalog, DIST-P2-1) — the ONE placement
     /// authority. Exposed for admin/diagnostic queries (`route`, `redirect_if_stale`,
     /// `all_entries`); mutations go through this manager's `placement_*` methods so
     /// they commit through Raft.
@@ -1122,7 +1122,7 @@ impl MultiRaft {
         self.placement.clone()
     }
 
-    /// Resolve `graph_name`'s group (CONCEPT:EG-KG.sharding.placement-catalog — the dispatch/routing seam):
+    /// Resolve `graph_name`'s group (CONCEPT:MEDULLA-KG.sharding.placement-catalog — the dispatch/routing seam):
     /// the placement catalog FIRST (an explicit virtual-partition placement for the
     /// graph's tenant), then applying the engine-owned unplaced policy when no
     /// durable row exists. The returned answer is authoritative in both cases;
@@ -1229,7 +1229,7 @@ impl MultiRaft {
     }
 
     /// Commit a batch of placement-catalog mutations through the DEFAULT group's Raft
-    /// consensus (CONCEPT:EG-KG.sharding.placement-catalog — the replication seam). Ensures the default
+    /// consensus (CONCEPT:MEDULLA-KG.sharding.placement-catalog — the replication seam). Ensures the default
     /// group is running (idempotent) so the catalog is usable even on a fresh
     /// single-group deployment that never called [`configure_group_ring`](Self::configure_group_ring).
     async fn commit_placement(&self, methods: &[Method]) -> Result<(), String> {
@@ -1262,7 +1262,7 @@ impl MultiRaft {
     }
 
     /// Commit this node's [`super::node_info_store::NodeInfo`][ni] self-report
-    /// through the DEFAULT group's Raft consensus (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1 —
+    /// through the DEFAULT group's Raft consensus (CONCEPT:MEDULLA-KG.sharding.cluster-topology, ADR-1 / W1.1 —
     /// the cluster-topology replication seam; mirrors [`commit_placement`](Self::commit_placement)).
     /// Ensures the default group is running (idempotent) so a fresh single-group
     /// deployment that never called [`configure_group_ring`](Self::configure_group_ring)
@@ -1355,7 +1355,7 @@ impl MultiRaft {
         self.commit_placement(&[method]).await
     }
 
-    /// Assign the WHOLE keyspace of `tenant` to `group` (CONCEPT:EG-KG.sharding.placement-catalog admin
+    /// Assign the WHOLE keyspace of `tenant` to `group` (CONCEPT:MEDULLA-KG.sharding.placement-catalog admin
     /// API). Collapses any prior split. Returns the new routing epoch.
     pub async fn placement_assign(&self, tenant: &str, group: GroupId) -> Result<u64, String> {
         let _placement_guard = crate::server::txn::consensus_placement_fence_guard().await;
@@ -1375,7 +1375,7 @@ impl MultiRaft {
     }
 
     /// Split `tenant`'s partition covering `at` into `[.., at) → group_a` and
-    /// `[at, ..] → group_b` (CONCEPT:EG-KG.sharding.placement-catalog admin API — one tenant spans two
+    /// `[at, ..] → group_b` (CONCEPT:MEDULLA-KG.sharding.placement-catalog admin API — one tenant spans two
     /// groups). Returns the new routing epoch (shared by both halves).
     pub async fn placement_split(
         &self,
@@ -1403,7 +1403,7 @@ impl MultiRaft {
         Err("placement epoch CAS contention exceeded retry bound".to_string())
     }
 
-    /// Merge every one of `tenant`'s ranged partitions back onto `group` (CONCEPT:EG-KG.sharding.placement-catalog
+    /// Merge every one of `tenant`'s ranged partitions back onto `group` (CONCEPT:MEDULLA-KG.sharding.placement-catalog
     /// admin API — the inverse of `placement_split`; also how independent small
     /// tenants are made to share a group, by `placement_assign`ing each to it).
     pub async fn placement_merge(&self, tenant: &str, group: GroupId) -> Result<u64, String> {
@@ -1423,7 +1423,7 @@ impl MultiRaft {
         Err("placement epoch CAS contention exceeded retry bound".to_string())
     }
 
-    /// Mark `(tenant, range)` mid-move to `target` (CONCEPT:EG-KG.sharding.placement-catalog admin API —
+    /// Mark `(tenant, range)` mid-move to `target` (CONCEPT:MEDULLA-KG.sharding.placement-catalog admin API —
     /// online-move step 1). `route` keeps answering with the source group until
     /// [`placement_fence_cutover`](Self::placement_fence_cutover) commits. Prefer
     /// [`super::reshard::TenantManager::move_partition`], which drives this + the
@@ -1447,7 +1447,7 @@ impl MultiRaft {
         Ok(())
     }
 
-    /// Fence the cutover of `(tenant, range)` to `target` (CONCEPT:EG-KG.sharding.placement-catalog admin API
+    /// Fence the cutover of `(tenant, range)` to `target` (CONCEPT:MEDULLA-KG.sharding.placement-catalog admin API
     /// — online-move step 3): bumps the epoch and flips the authoritative group in one
     /// commit. Returns the new epoch.
     pub(crate) async fn placement_fence_cutover(
@@ -1614,11 +1614,11 @@ impl MultiRaft {
 }
 
 /// Serve one connection on the shared listener, demuxing each framed RPC to the
-/// group it is tagged for (CONCEPT:EG-KG.sharding.raft-resharding). An RPC for a group this node doesn't
+/// group it is tagged for (CONCEPT:MEDULLA-KG.sharding.raft-resharding). An RPC for a group this node doesn't
 /// run gets a per-variant error reply (openraft treats it as a transient failure).
 /// What one inbound peer connection serves.
 struct PeerServices {
-    groups: Arc<RwLock<BTreeMap<GroupId, EgRaft>>>,
+    groups: Arc<RwLock<BTreeMap<GroupId, MedullaRaft>>>,
     owner: Arc<membership_follow::MembershipOwner>,
     read_service: Arc<super::xread::ReadPageService>,
 }
@@ -1651,7 +1651,7 @@ async fn serve_conn(
         };
         let frame: RaftFrame = network::decode_wire(&body)?;
         // A `One` frame demuxes to one group; a `Batch` (coalesced heartbeats,
-        // CONCEPT:EG-KG.storage.concept-2) demuxes each tagged sub-RPC to ITS group and replies in the
+        // CONCEPT:MEDULLA-KG.storage.concept-2) demuxes each tagged sub-RPC to ITS group and replies in the
         // SAME order so each awaiting caller matches its own reply.
         let reply = match frame {
             RaftFrame::One(rpc) => RaftFrameReply::One(

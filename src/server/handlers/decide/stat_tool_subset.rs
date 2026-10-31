@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R045.2: wires the typed tool-subset selection
+//! MEDULLA-DECISION-ENGINE-R045.2: wires the typed tool-subset selection
 //! (`tool_subset::smallest_covering_subset`, R045.1) into the `ToolSubset`
 //! `Decide` question kind.
 //!
@@ -12,28 +12,28 @@
 //! every other question kind -- this module decides only which tools were
 //! selected.
 //!
-//! EG-DECISION-ENGINE-R056.2.2: the selection is an exact statistical-path
+//! MEDULLA-DECISION-ENGINE-R056.2.2: the selection is an exact statistical-path
 //! solve. The covering problem is lowered to a bounded 0-1 programme (one
 //! covering row per required capability, one budget row, a lexicographic
-//! objective: fewest tools, then fewest tokens) and solved by `eg-compute`'s
+//! objective: fewest tools, then fewest tokens) and solved by `medulla-compute`'s
 //! deterministic branch-and-bound. The certificate is re-checked by the
 //! independent verifier and reported through
 //! `StatisticalSolverCertificate::solved` under the solver's own node budget;
 //! a certificate that fails either check refuses the question.
 
-use eg_compute::solve::{solve, verify, Model, SolveStatus, SolverConfig};
-use eg_types::contract::BoundedVec;
-use eg_types::decision::rapid_r056::StatisticalSolverCertificate;
-use eg_types::decision::statistical::declared::DeclaredOption;
-use eg_types::decision::statistical::tool_subset::{
+use medulla_compute::solve::{solve, verify, Model, SolveStatus, SolverConfig};
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::rapid_r056::StatisticalSolverCertificate;
+use medulla_types::decision::statistical::declared::DeclaredOption;
+use medulla_types::decision::statistical::tool_subset::{
     ToolCoverageCandidate, ToolSubsetRefusal, ToolSubsetRequestBody,
 };
-use eg_types::decision::statistical::{
+use medulla_types::decision::statistical::{
     CandidateSource, DecideRequest, QuestionKind, ScoredOption, StatisticalErrorCode,
     StatisticalOutcome, TypedValue,
 };
-use eg_types::decision::{QuantScaleTag, QuantisedValue};
-use eg_types::solve::{
+use medulla_types::decision::{QuantScaleTag, QuantisedValue};
+use medulla_types::solve::{
     Coefficient, ConstraintBody, ConstraintSpec, ModelSpec, ObjectiveLevelSpec, ObjectiveTerm,
     Relation, Term, VarId,
 };
@@ -337,7 +337,7 @@ mod tests {
         )
     }
 
-    // spec: EG-DECISION-ENGINE-R056.2.2
+    // spec: MEDULLA-DECISION-ENGINE-R056.2.2
     #[test]
     fn the_statistical_solve_calls_the_exact_solver_and_certifies_deterministically() {
         let request = greedy_trap();

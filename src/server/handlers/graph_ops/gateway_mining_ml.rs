@@ -10,7 +10,7 @@ pub(super) async fn try_handle(
         // request's own `writeback` field decides whether THIS call mutates;
         // `commit_conditional_mutation` only drives the write-authz/durability/
         // audit/CDC gateway when it actually does (see the module docs' L11 note
-        // and `eg-capabilities`'s `RUNTIME_CONDITIONAL` divergence table). ──
+        // and `medulla-capabilities`'s `RUNTIME_CONDITIONAL` divergence table). ──
         #[cfg(feature = "graphlearn")]
         Method::GraphLearnFit {
             source,
@@ -56,7 +56,7 @@ pub(super) async fn try_handle(
             })
             .await
         }
-        // ── ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): RUNTIME-CONDITIONAL writes,
+        // ── ML pipeline (CONCEPT:MEDULLA-KG.mining.ml-pipeline): RUNTIME-CONDITIONAL writes,
         // same `commit_conditional_mutation` shape as the GraphLearn*/Mine* families.
         // Train/Predict mutate only when their own `writeback` is true; Serve ALWAYS
         // writes the `:ServedModel` pointer (it passes an unconditional `true`). ──

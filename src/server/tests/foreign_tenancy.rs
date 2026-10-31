@@ -1,10 +1,10 @@
 //! EH-373 foreign-source ownership proofs through the FULL served dispatch chain
-//! (CONCEPT:EG-KG.query.query-federation, CONCEPT:EG-KG.query.closure-backed-source).
+//! (CONCEPT:MEDULLA-KG.query.query-federation, CONCEPT:MEDULLA-KG.query.closure-backed-source).
 //!
 //! `RegisterForeignSource` used to write ONE process-global `name → spec` map that every
 //! caller's plan resolved against, so a principal could make the server spend another
 //! principal's registered credential. One engine is bound to ONE tenant (every verified
-//! carrier carries `EPISTEMIC_GRAPH_TENANT`), so the boundary is the principal: these
+//! carrier carries `MEDULLA_TENANT`), so the boundary is the principal: these
 //! tests register as one principal (`worker1`) and query as another (`worker2`) in the
 //! same tenant, both with R/W on `__commons__`, over every served name-resolving
 //! surface: a `Named` `Op::ForeignScan` (`UnifiedQuery`), the UQL `FOREIGN "<name>"`
@@ -19,7 +19,7 @@ const OTHER_B: &str = "worker2";
 /// own foreign binding with a deterministic plan.
 struct EchoPlanner;
 
-impl eg_plan::NlPlanner for EchoPlanner {
+impl medulla_plan::NlPlanner for EchoPlanner {
     fn plan(&self, nl: &str, _schema_hint: &str) -> Result<String, String> {
         Ok(nl.to_string())
     }
@@ -33,7 +33,7 @@ async fn register_in(
     state: &Arc<RwLock<ServerState>>,
     id: u64,
     agent: &str,
-    source: eg_types::wire::ForeignSourceSpec,
+    source: medulla_types::wire::ForeignSourceSpec,
 ) {
     let method = Method::RegisterForeignSource {
         name: "remote_docs".into(),
@@ -54,17 +54,17 @@ async fn registered_by_owner_a(id: u64) -> (Arc<RwLock<ServerState>>, Arc<RwLock
 
 fn named_scan_plan() -> Method {
     Method::UnifiedQuery {
-        plan: eg_plan::Plan::new(vec![
-            eg_plan::Op::Scan {
+        plan: medulla_plan::Plan::new(vec![
+            medulla_plan::Op::Scan {
                 label: "Doc".into(),
             },
-            eg_plan::Op::ForeignScan {
-                source: Box::new(eg_types::wire::ForeignSourceSpec::Named {
+            medulla_plan::Op::ForeignScan {
+                source: Box::new(medulla_types::wire::ForeignSourceSpec::Named {
                     name: "remote_docs".into(),
                 }),
                 join: true,
             },
-            eg_plan::Op::Limit { k: 10 },
+            medulla_plan::Op::Limit { k: 10 },
         ]),
         foreign_execution: None,
 
@@ -135,7 +135,7 @@ fn assert_access_denied_for_caller(resp: &crate::protocol::Response, surface: &s
 /// A registers `remote_docs`; A's queries succeed on every surface and B's ungranted names are
 /// concealed. A queries FIRST with the identical plan, so B's refusal also proves the result cache
 /// is keyed by the foreign owner (B is never served A's cached foreign rows).
-// spec: EG-FEDERATED-QUERY-R013
+// spec: MEDULLA-FEDERATED-QUERY-R013
 #[tokio::test]
 async fn foreign_source_resolves_only_for_the_registering_principal() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -172,7 +172,7 @@ async fn foreign_column_read_is_owner_scoped_and_mapping_gated() {
         &state,
         940,
         OWNER_A,
-        eg_types::wire::ForeignSourceSpec::Sql {
+        medulla_types::wire::ForeignSourceSpec::Sql {
             // Registration validates the destination; subsequent mapping refusals never dial it.
             dsn: "postgres://127.0.0.1:5432/records".into(),
             query: "SELECT id, name FROM records".into(),
@@ -226,9 +226,9 @@ async fn foreign_column_read_is_owner_scoped_and_mapping_gated() {
         Method::QueryForeignColumns {
             name: "remote_docs".into(),
             columns: vec!["name".into()],
-            predicates: vec![eg_types::wire::ForeignColumnPredicate {
+            predicates: vec![medulla_types::wire::ForeignColumnPredicate {
                 column: "name".into(),
-                comparison: eg_types::wire::ForeignColumnComparison::Eq,
+                comparison: medulla_types::wire::ForeignColumnComparison::Eq,
                 value: serde_json::json!(42),
             }],
         },
@@ -251,7 +251,7 @@ async fn foreign_column_http_read_returns_projected_filtered_rows() {
     struct RestoreAllow(Option<std::ffi::OsString>);
     impl Drop for RestoreAllow {
         fn drop(&mut self) {
-            let key = eg_plan::federation::HTTP_JSON_FEDERATION_ALLOW_ENV;
+            let key = medulla_plan::federation::HTTP_JSON_FEDERATION_ALLOW_ENV;
             if let Some(previous) = self.0.take() {
                 std::env::set_var(key, previous);
             } else {
@@ -274,7 +274,7 @@ async fn foreign_column_http_read_returns_projected_filtered_rows() {
         );
         socket.write_all(response.as_bytes()).await.unwrap();
     });
-    let key = eg_plan::federation::HTTP_JSON_FEDERATION_ALLOW_ENV;
+    let key = medulla_plan::federation::HTTP_JSON_FEDERATION_ALLOW_ENV;
     let _restore = RestoreAllow(std::env::var_os(key));
     std::env::set_var(key, &origin);
 
@@ -283,10 +283,10 @@ async fn foreign_column_http_read_returns_projected_filtered_rows() {
         &state,
         945,
         OWNER_A,
-        eg_types::wire::ForeignSourceSpec::HttpJson {
+        medulla_types::wire::ForeignSourceSpec::HttpJson {
             url: format!("{origin}/"),
             json_path: "data".into(),
-            field_map: eg_types::wire::HttpFieldMap {
+            field_map: medulla_types::wire::HttpFieldMap {
                 id: "ref".into(),
                 score: None,
                 columns: BTreeMap::from([
@@ -300,9 +300,9 @@ async fn foreign_column_http_read_returns_projected_filtered_rows() {
     let query = || Method::QueryForeignColumns {
         name: "remote_docs".into(),
         columns: vec!["name".into()],
-        predicates: vec![eg_types::wire::ForeignColumnPredicate {
+        predicates: vec![medulla_types::wire::ForeignColumnPredicate {
             column: "age".into(),
-            comparison: eg_types::wire::ForeignColumnComparison::Ge,
+            comparison: medulla_types::wire::ForeignColumnComparison::Ge,
             value: serde_json::json!(40),
         }],
     };
@@ -311,7 +311,7 @@ async fn foreign_column_http_read_returns_projected_filtered_rows() {
     let Some(ResultPayload::Raw(raw)) = owner.result else {
         panic!("foreign column response must be typed MessagePack rows");
     };
-    let rows: Vec<eg_types::wire::ForeignColumnRow> = rmp_serde::from_slice(&raw).unwrap();
+    let rows: Vec<medulla_types::wire::ForeignColumnRow> = rmp_serde::from_slice(&raw).unwrap();
     assert_eq!(
         rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
         vec!["b", "c"]
@@ -344,10 +344,10 @@ async fn foreign_column_http_read_returns_projected_filtered_rows() {
 async fn same_name_for_two_principals_resolves_each_owners_own_spec() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let (_remote, local) = registered_by_owner_a(910).await;
-    let b_spec = eg_types::wire::ForeignSourceSpec::HttpJson {
+    let b_spec = medulla_types::wire::ForeignSourceSpec::HttpJson {
         url: "http://127.0.0.1:9/eh373-principal-b".into(),
         json_path: "data".into(),
-        field_map: eg_types::wire::HttpFieldMap {
+        field_map: medulla_types::wire::HttpFieldMap {
             id: "id".into(),
             score: None,
             columns: Default::default(),
@@ -375,7 +375,7 @@ async fn same_name_for_two_principals_resolves_each_owners_own_spec() {
 
 /// NL grounding and execution bind the same owner-scoped registry. The local
 /// fixture belongs to system, so the foreign-only query needs no hidden local label.
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[tokio::test]
 async fn nl_query_foreign_leg_is_owner_scoped() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -433,7 +433,7 @@ async fn nl_query_foreign_leg_is_owner_scoped() {
 /// engine-provisioned share role, by its qualified name; revoking the role stops use.
 /// The granted success is result-cached, so the post-revocation refusal also proves the
 /// cache key follows the grant.
-// spec: EG-FEDERATED-QUERY-R013
+// spec: MEDULLA-FEDERATED-QUERY-R013
 #[tokio::test]
 async fn shared_source_needs_an_explicit_grant() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;

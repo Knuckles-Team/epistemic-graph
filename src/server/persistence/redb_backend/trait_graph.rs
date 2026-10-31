@@ -21,7 +21,7 @@ macro_rules! persistence_graph {
                 }),
                 done,
             };
-            // CONCEPT:EG-KG.backend.catalog-shard-resolve — same routing-epoch quiesce as `record_durable` when a catalog
+            // CONCEPT:MEDULLA-KG.backend.catalog-shard-resolve — same routing-epoch quiesce as `record_durable` when a catalog
             // is attached, so a cross-modal commit cannot race an online reshard's route flip.
             self.enqueue(graph_fname, cmd, "commit_crossmodal").await?;
             match rx.await {
@@ -97,23 +97,23 @@ macro_rules! persistence_graph {
             graph_fname: &str,
             node_id: &str,
         ) -> Result<Option<Vec<u8>>, String> {
-            // CONCEPT:EG-KG.storage.snapshot-read-off-writer — SNAPSHOT READ OFF THE WRITER. The read-through point-read
-            // (only hit on a RAM miss, CONCEPT:EG-KG.storage.read-through-seam-exercised) now serves the node DIRECTLY from
+            // CONCEPT:MEDULLA-KG.storage.snapshot-read-off-writer — SNAPSHOT READ OFF THE WRITER. The read-through point-read
+            // (only hit on a RAM miss, CONCEPT:MEDULLA-KG.storage.read-through-seam-exercised) now serves the node DIRECTLY from
             // a kernel-issued MVCC snapshot on the TARGET SHARD's shared `Shard`
-            // (routed by the SAME EG-026 `shard_for` the writer uses). It NEVER routes
+            // (routed by the SAME MEDULLA-026 `shard_for` the writer uses). It NEVER routes
             // through the writer thread's channel and NEVER forces a group-commit, so a
             // read can no longer block on / be serialized behind the durable write path —
             // critical on a Pi (frequent eviction/read-through) and across shards.
             //
             // Consistency: redb is MVCC, so the snapshot sees the LATEST COMMITTED state
-            // of this shard. Commit-before-ack (CONCEPT:EG-KG.backend.authoritative-dispatch) guarantees any ACKED
+            // of this shard. Commit-before-ack (CONCEPT:MEDULLA-KG.backend.authoritative-dispatch) guarantees any ACKED
             // write is already committed, so a snapshot opened after that ack sees
             // it. Writes still buffered in the writer's `Pending` are NOT yet acked (no
             // happens-before to any reader), so omitting the old forced commit changes no
             // observable read result. Eviction is durability-gated (a node leaves RAM only
             // after redb confirms it on disk), so an evicted node is always served here.
             let writer = self.shard_for(graph_fname);
-            // Upgrade the `Weak` to the writer's shared `Shard` (CONCEPT:EG-KG.storage.snapshot-read-off-writer). `None`
+            // Upgrade the `Weak` to the writer's shared `Shard` (CONCEPT:MEDULLA-KG.storage.snapshot-read-off-writer). `None`
             // only after shutdown dropped the writer's strong Arc — fail fast like the old
             // "writer thread is gone" channel error.
             let shard = writer
@@ -128,7 +128,7 @@ macro_rules! persistence_graph {
         }
 
         fn shutdown(&self) {
-            // Stop every shard's writer thread (CONCEPT:EG-KG.backend.sharded-k-way-durable).
+            // Stop every shard's writer thread (CONCEPT:MEDULLA-KG.backend.sharded-k-way-durable).
             for shard in &self.shards {
                 shard.shutdown();
             }

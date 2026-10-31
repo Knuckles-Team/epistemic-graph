@@ -15,10 +15,10 @@ import (
 // Rust declaration order, serde defaults materialized, maps sorted, float and byte
 // widths per field. Restating that in Go mis-signed most of the contract's
 // method-body vectors, so the client runs the engine's own decoder and encoder:
-// crates/eg-method-codec compiled to WebAssembly by scripts/build_method_codec_wasm.py
+// crates/medulla-method-codec compiled to WebAssembly by scripts/build_method_codec_wasm.py
 // (CI rebuilds it and byte-compares this copy). The module has no imports.
 //
-//go:embed eg_method_codec.wasm
+//go:embed medulla_method_codec.wasm
 var methodCodecModule []byte
 
 // methodBodyCodec is the canonical-body format the module must report; the Python
@@ -65,12 +65,12 @@ func instantiateMethodCodec(ctx context.Context) (*methodCodec, error) {
 	}
 	codec := &methodCodec{
 		module:  module,
-		reserve: module.ExportedFunction("eg_input_reserve"),
-		body:    module.ExportedFunction("eg_canonical_body"),
-		outPtr:  module.ExportedFunction("eg_output_ptr"),
-		outLen:  module.ExportedFunction("eg_output_len"),
+		reserve: module.ExportedFunction("medulla_input_reserve"),
+		body:    module.ExportedFunction("medulla_canonical_body"),
+		outPtr:  module.ExportedFunction("medulla_output_ptr"),
+		outLen:  module.ExportedFunction("medulla_output_len"),
 	}
-	identity, err := codec.read(ctx, module.ExportedFunction("eg_codec_ptr"), module.ExportedFunction("eg_codec_len"))
+	identity, err := codec.read(ctx, module.ExportedFunction("medulla_codec_ptr"), module.ExportedFunction("medulla_codec_len"))
 	if err != nil || string(identity) != methodBodyCodec {
 		_ = module.Close(ctx)
 		return nil, fmt.Errorf("the embedded method-body codec is not %s", methodBodyCodec)

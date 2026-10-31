@@ -24,7 +24,7 @@ def _message_record(
     *,
     level: str = "warning",
     code: str | None = "clippy::needless_return",
-    crate: str = "eg-modality",
+    crate: str = "medulla-modality",
     file: str = "src/lib.rs",
     line: int = 12,
     is_primary: bool = True,
@@ -49,7 +49,7 @@ def test_finding_row_extracts_lint_crate_file_line():
     row = _finding_row(_message_record())
     assert row == {
         "lint": "clippy::needless_return",
-        "crate": "eg-modality",
+        "crate": "medulla-modality",
         "file": "src/lib.rs",
         "line": 12,
     }
@@ -76,22 +76,22 @@ def test_finding_row_no_primary_span_reports_unknown_location():
 
 def test_tally_counts_by_lint_and_crate_and_skips_non_findings():
     messages = [
-        _message_record(code="clippy::needless_return", crate="eg-modality"),
-        _message_record(code="clippy::needless_return", crate="eg-modality"),
-        _message_record(code="clippy::too_many_arguments", crate="eg-server"),
+        _message_record(code="clippy::needless_return", crate="medulla-modality"),
+        _message_record(code="clippy::needless_return", crate="medulla-modality"),
+        _message_record(code="clippy::too_many_arguments", crate="medulla-server"),
         _message_record(level="note"),  # excluded
     ]
     by_lint, by_crate, rows = _tally(messages)
     assert by_lint["clippy::needless_return"] == 2
     assert by_lint["clippy::too_many_arguments"] == 1
-    assert by_crate["eg-modality"] == 2
-    assert by_crate["eg-server"] == 1
+    assert by_crate["medulla-modality"] == 2
+    assert by_crate["medulla-server"] == 1
     assert len(rows) == 3
 
 
 def test_main_writes_json_out_with_exact_rows(tmp_path, monkeypatch, capsys):
     messages = [
-        _message_record(code="clippy::needless_return", crate="eg-modality"),
+        _message_record(code="clippy::needless_return", crate="medulla-modality"),
         _message_record(level="note"),
     ]
     monkeypatch.setattr(
@@ -107,7 +107,7 @@ def test_main_writes_json_out_with_exact_rows(tmp_path, monkeypatch, capsys):
     assert rows == [
         {
             "lint": "clippy::needless_return",
-            "crate": "eg-modality",
+            "crate": "medulla-modality",
             "file": "src/lib.rs",
             "line": 12,
         }

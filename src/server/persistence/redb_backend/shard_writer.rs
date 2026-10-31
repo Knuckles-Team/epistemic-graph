@@ -6,24 +6,24 @@ use std::thread::JoinHandle;
 
 use crate::server::persistence::writer_reply::await_writer_reply;
 
-// ── Sharded K-way durable writer (CONCEPT:EG-KG.backend.sharded-k-way-durable) ────────────────────────────
+// ── Sharded K-way durable writer (CONCEPT:MEDULLA-KG.backend.sharded-k-way-durable) ────────────────────────────
 //
 // redb is single-writer-PER-FILE: one authoritative shard + one writer thread
 // serializes EVERY tenant's durable commits onto ONE core — a 64-core box writes
-// on 1 core. EG-026 shards by graph into K independent redb files, each with its
-// OWN writer thread / channel / `Pending` (incl. the EG-024 micro-linger + the
-// EG-025 audit tail cache), so K cores commit in parallel. A graph ALWAYS routes
+// on 1 core. MEDULLA-026 shards by graph into K independent redb files, each with its
+// OWN writer thread / channel / `Pending` (incl. the MEDULLA-024 micro-linger + the
+// MEDULLA-025 audit tail cache), so K cores commit in parallel. A graph ALWAYS routes
 // to the same shard (`shard_index(graph_fname) % K`), so its data + audit chain +
 // group-commit stay co-located and single-writer-correct PER SHARD — every
 // durability invariant (commit-before-ack, group-commit, backpressure-not-drop)
 // holds unchanged inside each shard.
 //
-// K = clamp(effective-cgroup-cpu/2, 1, 8), overridable via `EPISTEMIC_GRAPH_REDB_SHARDS`. Every K uses
+// K = clamp(effective-cgroup-cpu/2, 1, 8), overridable via `MEDULLA_REDB_SHARDS`. Every K uses
 // the same canonical `graph-<n>.redb` naming contract, including `graph-0.redb` for
 // K=1. K is FIXED per persist-dir once created: `reconcile_shard_layout` validates
 // and honors the current on-disk layout (changing K needs an offline migration).
 
-/// Stable FNV-1a routing of a graph's sanitized fname to a shard index (CONCEPT:EG-KG.backend.sharded-k-way-durable).
+/// Stable FNV-1a routing of a graph's sanitized fname to a shard index (CONCEPT:MEDULLA-KG.backend.sharded-k-way-durable).
 /// Deterministic across processes/restarts (NOT `DefaultHasher` randomness) — a graph
 /// MUST resolve to the same shard every boot or its durable rows become unreachable.
 pub(crate) fn shard_index(graph_fname: &str, k: usize) -> usize {
@@ -42,7 +42,7 @@ pub(crate) fn shard_index(graph_fname: &str, k: usize) -> usize {
 /// their results in shard order (CONCEPT:AU-KG.backend.roadmap-f-parallel-cross, roadmap F — parallel cross-shard read
 /// fan-out). EVERY task is spawned BEFORE any is awaited, which is the property that
 /// makes a K-shard fan-out overlap instead of serialize (a spawn-then-await-each loop is
-/// serial). The closures run off each shard's `begin_read()` MVCC snapshot (CONCEPT:EG-KG.storage.snapshot-read-off-writer),
+/// serial). The closures run off each shard's `begin_read()` MVCC snapshot (CONCEPT:MEDULLA-KG.storage.snapshot-read-off-writer),
 /// so the fan-out never routes through a writer thread. The first error short-circuits.
 pub(super) async fn join_blocking_in_order<T, F>(tasks: Vec<F>) -> Result<Vec<T>, String>
 where
@@ -60,15 +60,15 @@ where
     Ok(out)
 }
 
-/// Resolve the shard count K (CONCEPT:EG-KG.backend.sharded-k-way-durable).
+/// Resolve the shard count K (CONCEPT:MEDULLA-KG.backend.sharded-k-way-durable).
 ///   * Under the `raft` feature AND a configured Raft node (ADR-2 / W1.2,
 ///     `reports/wave1/ADR-scale-trio.md` §ADR-2): K == N raft groups — raft group `g`
 ///     owns redb shard `g`, so HA no longer forces K=1. The count follows the group
-///     count (`EPISTEMIC_GRAPH_RAFT_GROUPS`, default cores-derived up to `MAX_SHARD_COUNT`);
-///     `EPISTEMIC_GRAPH_REDB_SHARDS` does NOT apply under raft (K is pinned to N so the
+///     count (`MEDULLA_RAFT_GROUPS`, default cores-derived up to `MAX_SHARD_COUNT`);
+///     `MEDULLA_REDB_SHARDS` does NOT apply under raft (K is pinned to N so the
 ///     group↔shard alignment is exact). An existing K=1 store on disk stays K=1 until the
 ///     offline `migrate-shards` tool rewrites its layout (the detected layout wins at open).
-///   * `EPISTEMIC_GRAPH_REDB_SHARDS` overrides the non-raft count (clamped 1..=64).
+///   * `MEDULLA_REDB_SHARDS` overrides the non-raft count (clamped 1..=64).
 ///   * In `cfg(test)` default to 1 so the existing single-writer durability/audit/
 ///     group-commit tests run the byte-for-byte K=1 path unless they opt in via the env.
 ///   * Otherwise K = clamp(effective-cgroup-cpu/2, 1, 8) — mirrors the shared
@@ -76,11 +76,11 @@ where
 pub(super) fn resolve_shard_count() -> usize {
     // Raft active ⇒ K == N groups (ADR-2 / W1.2), NOT the forced K=1 of the M2 spike.
     #[cfg(feature = "raft")]
-    if std::env::var("EPISTEMIC_GRAPH_RAFT_NODE_ID").is_ok() {
-        if std::env::var("EPISTEMIC_GRAPH_REDB_SHARDS").is_ok() {
+    if std::env::var("MEDULLA_RAFT_NODE_ID").is_ok() {
+        if std::env::var("MEDULLA_REDB_SHARDS").is_ok() {
             tracing::warn!(
-                "EPISTEMIC_GRAPH_REDB_SHARDS is ignored under an active Raft node; the durable \
-                 shard count follows EPISTEMIC_GRAPH_RAFT_GROUPS (K == N groups, group g owns \
+                "MEDULLA_REDB_SHARDS is ignored under an active Raft node; the durable \
+                 shard count follows MEDULLA_RAFT_GROUPS (K == N groups, group g owns \
                  shard g)"
             );
         }
@@ -92,7 +92,7 @@ pub(super) fn resolve_shard_count() -> usize {
         );
         return groups as usize;
     }
-    if let Ok(v) = std::env::var("EPISTEMIC_GRAPH_REDB_SHARDS") {
+    if let Ok(v) = std::env::var("MEDULLA_REDB_SHARDS") {
         if let Ok(n) = v.trim().parse::<usize>() {
             return n.clamp(1, crate::redb_layout::MAX_SHARD_COUNT);
         }
@@ -111,13 +111,13 @@ pub(super) fn resolve_shard_count() -> usize {
 /// Resolve the per-shard early-flush op threshold (CONCEPT:AU-KG.backend.b-auto-sizeb — auto-size the
 /// previously HARDCODED `4096`). The writer flushes a `Pending` batch early once it
 /// holds this many ops, bounding writer memory before the bounded channel saturates.
-///   * `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` may lower the automatic bound,
+///   * `MEDULLA_REDB_FLUSH_THRESHOLD` may lower the automatic bound,
 ///     but is capped by it after the hard 64..=1_048_576 validation window.
 ///   * Else ~half the authoritative writer queue depth (`capacity`, itself
 ///     hardware-auto-sized via `Capacity::writer_queue()`), clamped 256..=16384.
 pub(super) fn resolve_flush_threshold(capacity: usize) -> usize {
     let automatic = (capacity / 2).clamp(256, 16_384);
-    if let Ok(v) = std::env::var("EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD") {
+    if let Ok(v) = std::env::var("MEDULLA_REDB_FLUSH_THRESHOLD") {
         if let Ok(n) = v.trim().parse::<usize>() {
             if n > 0 {
                 return n.clamp(64, 1_048_576).min(automatic);
@@ -127,9 +127,9 @@ pub(super) fn resolve_flush_threshold(capacity: usize) -> usize {
     automatic
 }
 
-/// The WRITER of one durable shard (CONCEPT:EG-KG.backend.sharded-k-way-durable): the off-reactor
+/// The WRITER of one durable shard (CONCEPT:MEDULLA-KG.backend.sharded-k-way-durable): the off-reactor
 /// group-commit thread that owns one shard file, its bounded channel, its `Pending`
-/// (incl. the EG-024 linger + EG-025 audit tail cache) and its commit counters.
+/// (incl. the MEDULLA-024 linger + MEDULLA-025 audit tail cache) and its commit counters.
 /// Single-writer-per-FILE, so K writers commit in parallel on K cores.
 ///
 /// It is NOT the store: the store is [`crate::redb_store::shard::Shard`], the
@@ -138,7 +138,7 @@ pub(super) fn resolve_flush_threshold(capacity: usize) -> usize {
 /// in front of it, which is what its name says.
 pub(super) struct ShardWriter {
     pub(super) db_path: String,
-    /// `Weak` handle to THIS shard's kernel-owned store (CONCEPT:EG-KG.storage.snapshot-read-off-writer —
+    /// `Weak` handle to THIS shard's kernel-owned store (CONCEPT:MEDULLA-KG.storage.snapshot-read-off-writer —
     /// snapshot reads off the writer). redb 4.1 is MVCC: a kernel-issued `ScopedRead`
     /// runs CONCURRENTLY with the single writer, so the point-read / read-through
     /// path `upgrade()`s this `Weak` and serves an evicted node DIRECTLY off
@@ -152,16 +152,16 @@ pub(super) struct ShardWriter {
     /// warm graph never re-binds.
     pub(super) shard: Weak<Shard>,
     pub(super) tx: SyncSender<Cmd>,
-    /// Group-commit batch-size / linger counters (CONCEPT:EG-KG.backend.adaptive-linger-coalesce), per shard.
+    /// Group-commit batch-size / linger counters (CONCEPT:MEDULLA-KG.backend.adaptive-linger-coalesce), per shard.
     pub(super) stats: Arc<RedbCommitStats>,
-    /// Value-blob cipher for snapshot reads off the writer (CONCEPT:EG-KG.storage.snapshot-read-off-writer). The same
+    /// Value-blob cipher for snapshot reads off the writer (CONCEPT:MEDULLA-KG.storage.snapshot-read-off-writer). The same
     /// cipher the writer thread owns; resolved ONCE at open. `None` ⇒ encryption off ⇒
     /// the read path is byte-for-byte the plaintext path.
     #[cfg(feature = "security")]
     pub(super) cipher: Option<crate::crypto::ValueCipher>,
-    /// Transaction-recovery-plan cipher (D-ORC-50, CONCEPT:EG-KG.txn.multi-op-occ-acid) —
+    /// Transaction-recovery-plan cipher (D-ORC-50, CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid) —
     /// DELIBERATELY SEPARATE from `cipher` above. Resolved from
-    /// `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY` (falling back to the shared data key when that
+    /// `MEDULLA_TXN_RECOVERY_KEY` (falling back to the shared data key when that
     /// alone is set — see `crypto::resolve_txn_recovery_key`), so an operator can
     /// unblock multi-op OCC `Commit` durability WITHOUT enabling at-rest encryption of
     /// ordinary node/edge/property values. Turning this on never changes `cipher`, so it
@@ -198,7 +198,7 @@ impl ShardWriter {
     /// to what it was before the call — see [`CanaryPlan`] for the bricking this
     /// separation prevents.
     pub(super) fn prepare(db_path: String) -> Result<PreparedShard, String> {
-        // ONE shared `Shard` per file (CONCEPT:EG-KG.storage.snapshot-read-off-writer): the writer thread and
+        // ONE shared `Shard` per file (CONCEPT:MEDULLA-KG.storage.snapshot-read-off-writer): the writer thread and
         // the snapshot-read path both hold a clone of this `Arc`, and redb's exclusive
         // per-file lock is why reads share it rather than re-opening.
         //
@@ -210,12 +210,12 @@ impl ShardWriter {
         // that used to run here is deleted: beside `create_owner` it would be a
         // second physical authority over the same file.
         let shard = Arc::new(Shard::open(std::path::Path::new(&db_path))?);
-        // Encryption-at-rest (CONCEPT:EG-KG.sharding.row-level-security): resolve the value-blob cipher ONCE at
-        // open from EPISTEMIC_GRAPH_ENCRYPTION_KEY (the KMS seam). `None` ⇒ encryption
+        // Encryption-at-rest (CONCEPT:MEDULLA-KG.sharding.row-level-security): resolve the value-blob cipher ONCE at
+        // open from MEDULLA_ENCRYPTION_KEY (the KMS seam). `None` ⇒ encryption
         // OFF ⇒ the durable format + write/read paths are byte-for-byte unchanged.
         #[cfg(feature = "security")]
         let cipher = crate::crypto::ValueCipher::from_env_checked()?;
-        // GOC-16: encryption-at-rest readiness posture (EPISTEMIC_GRAPH_ENCRYPTION_
+        // GOC-16: encryption-at-rest readiness posture (MEDULLA_ENCRYPTION_
         // REQUIRED). Previously the `None` branch here logged NOTHING at all — a
         // production deployment could run fully unencrypted with zero signal to the
         // operator. `Warn` (the shipped default) fixes the silence without changing
@@ -287,7 +287,7 @@ impl ShardWriter {
         if txn_recovery_cipher.is_some() && cipher.is_none() {
             tracing::info!(
                 "redb transaction-recovery-plan sealing ENABLED via a dedicated key \
-                 (EPISTEMIC_GRAPH_TXN_RECOVERY_KEY) — data-at-rest encryption remains OFF"
+                 (MEDULLA_TXN_RECOVERY_KEY) — data-at-rest encryption remains OFF"
             );
         }
         Ok(PreparedShard {
@@ -352,19 +352,19 @@ impl ShardWriter {
             }
         }
         let (tx, rx) = sync_channel::<Cmd>(capacity.max(1));
-        // Adaptive group-commit micro-linger config + observability (CONCEPT:EG-KG.backend.adaptive-linger-coalesce).
+        // Adaptive group-commit micro-linger config + observability (CONCEPT:MEDULLA-KG.backend.adaptive-linger-coalesce).
         // Resolved once by the backend open path (Configuration discipline); the
         // writer thread owns the supplied config and a clone of the stats Arc so
         // callers can read batch-size/throughput live.
         let stats = Arc::new(RedbCommitStats::default());
         let stats_writer = stats.clone();
-        // Keep a clone of the cipher for the snapshot-read path (CONCEPT:EG-KG.storage.snapshot-read-off-writer); the
+        // Keep a clone of the cipher for the snapshot-read path (CONCEPT:MEDULLA-KG.storage.snapshot-read-off-writer); the
         // writer thread takes ownership of the original below.
         #[cfg(feature = "security")]
         let cipher_for_reads = cipher.clone();
-        // A `Weak` for the off-writer snapshot-read path (CONCEPT:EG-KG.storage.snapshot-read-off-writer). The writer
+        // A `Weak` for the off-writer snapshot-read path (CONCEPT:MEDULLA-KG.storage.snapshot-read-off-writer). The writer
         // thread below takes the SOLE STRONG `Arc`, so the redb file lock releases
-        // exactly when that thread exits on shutdown — matching the pre-EG-027 lifetime
+        // exactly when that thread exits on shutdown — matching the pre-MEDULLA-027 lifetime
         // (a reopen after shutdown succeeds; a read after shutdown upgrades to `None`).
         let shard_weak = Arc::downgrade(&shard);
         let handle = std::thread::Builder::new()

@@ -1,4 +1,4 @@
-//! EG-ORCH-VOCAB-R801.6 hot-path receipt: the versioned harness-component
+//! MEDULLA-ORCH-VOCAB-R801.6 hot-path receipt: the versioned harness-component
 //! write over a 1k-version chain.
 //!
 //! Budget (spec): p99 under 5 ms per write as the chain grows to 1,000
@@ -18,9 +18,9 @@
 #[path = "common/harness_admission.rs"]
 mod harness_bench;
 
-use eg_types::orchestration::HarnessComponentVersion;
-use epistemic_graph::graph::GraphCore;
-use epistemic_graph::protocol::Method;
+use medulla_types::orchestration::HarnessComponentVersion;
+use medulla::graph::GraphCore;
+use medulla::protocol::Method;
 
 const COMPONENT: &str = "comp:bench-prompt";
 const KIND: &str = "system_prompt";
@@ -35,7 +35,7 @@ fn version_write(index: usize, tx_now: u64) -> (String, Method) {
     let content_ref = format!("blob:v{index:04}");
     let record = HarnessComponentVersion {
         component_id: COMPONENT.to_string(),
-        kind: eg_types::orchestration::HarnessComponentKind::from_wire(KIND).unwrap(),
+        kind: medulla_types::orchestration::HarnessComponentKind::from_wire(KIND).unwrap(),
         content_ref: content_ref.clone(),
         content_digest: HarnessComponentVersion::content_digest(&content_ref),
         valid_from: index as u64 * 10,
@@ -96,7 +96,7 @@ fn main() {
         .get_node_properties(&last_id)
         .expect("the newest version is stored");
     let head_props =
-        eg_types::msgpack::decode_property_object(&head).expect("the stored head decodes");
+        medulla_types::msgpack::decode_property_object(&head).expect("the stored head decodes");
     assert_eq!(
         head_props
             .get("supersedes_id")

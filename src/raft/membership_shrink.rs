@@ -126,7 +126,7 @@ fn operation_id(
     expected_voters: &[NodeId],
 ) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph/membership-shrink/v1\0");
+    digest.update(b"medulla/membership-shrink/v1\0");
     digest.update(group_id.to_be_bytes());
     digest.update(target.to_be_bytes());
     digest.update(learner.to_be_bytes());

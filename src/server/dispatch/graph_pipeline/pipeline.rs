@@ -9,7 +9,7 @@ pub(super) struct DispatchPipelineCtx<'a> {
     pub(super) req_id: u64,
     pub(super) graph_name: &'a str,
     pub(super) caller: Option<&'a str>,
-    pub(super) attempt_nonce: Option<eg_types::contract::Nonce>,
+    pub(super) attempt_nonce: Option<medulla_types::contract::Nonce>,
     pub(super) idempotency_key: &'a str,
     pub(super) read_authority: Option<GraphReadAuthority>,
     pub(super) verified_actor: &'a str,
@@ -27,7 +27,7 @@ pub(super) struct DispatchPipelineCtx<'a> {
     #[cfg(feature = "security")]
     pub(super) rls: std::sync::Arc<crate::isolation::IsolationLayer>,
     #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
-    pub(super) tsdb_store: Option<Arc<eg_tsdb::store::SeriesStore>>,
+    pub(super) tsdb_store: Option<Arc<medulla_tsdb::store::SeriesStore>>,
 }
 
 /// Stage 1: the universal mutation gateway, then the per-graph write
@@ -58,7 +58,7 @@ pub(super) async fn route_gateway_and_stateless_domains(
     let routed_write_coalescer = &ctx.routed_write_coalescer;
     #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
     let tsdb_store = &ctx.tsdb_store;
-    // Mutation-gateway routing (CONCEPT:EG-P0-2): the primary CRUD + agent-
+    // Mutation-gateway routing (CONCEPT:MEDULLA-P0-2): the primary CRUD + agent-
     // memory writes (`mutation::GATEWAY_ROUTED`) are routed through the
     // single `commit_mutation` gateway — policy-driven authz, durability,
     // audit, CDC, and TMS in ONE call. Native stores use their own explicit
@@ -91,7 +91,7 @@ pub(super) async fn route_gateway_and_stateless_domains(
     };
     // Pure-compute domains (stateless: no graph core / lock) route first; a
     // method that isn't theirs is handed back via Err and falls through to the
-    // graph-op match below. (CONCEPT:EG-KG.query.dispatch-routing — thin routing; logic in handlers/.)
+    // graph-op match below. (CONCEPT:MEDULLA-KG.query.dispatch-routing — thin routing; logic in handlers/.)
     // Feature-gated: in a slim build the line is absent and the method flows
     // straight through to graph_ops (whose catch-all reports "not available").
     #[cfg(feature = "finance")]
@@ -124,7 +124,7 @@ pub(super) async fn route_graph_scoped_domains(
         Ok(r) => return Ok(r),
         Err(m) => m,
     };
-    // Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining): GRAPH-SCOPED
+    // Data-mining domain (CONCEPT:MEDULLA-KG.mining.frequent-itemset-mining): GRAPH-SCOPED
     // (unlike finance/datascience), so it takes the graph core — the graph-derived
     // transaction source reads node neighborhoods and write-back materializes
     // `:AssociationRule` nodes into it. A method whose feature is off falls through
@@ -143,7 +143,7 @@ pub(super) async fn route_graph_scoped_domains(
         Ok(r) => return Ok(r),
         Err(m) => m,
     };
-    // Graph-learning domain (CONCEPT:EG-KG.graphlearn.link-predictor): GRAPH-SCOPED
+    // Graph-learning domain (CONCEPT:MEDULLA-KG.graphlearn.link-predictor): GRAPH-SCOPED
     // like mining — the KAN link-predictor reads the live subgraph and write-back
     // materializes `:PredictedEdge`/`:EdgeFunction` nodes into the core. A method
     // whose feature is off falls through to the graph_ops not-available catch-all.
@@ -152,7 +152,7 @@ pub(super) async fn route_graph_scoped_domains(
         Ok(r) => return Ok(r),
         Err(m) => m,
     };
-    // ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): the READ verbs
+    // ML pipeline (CONCEPT:MEDULLA-KG.mining.ml-pipeline): the READ verbs
     // (Evaluate/Compare) route here with the graph core; Train/Serve/Predict are
     // GATEWAY_ROUTED (writeback) and never reach this fallback. A build without
     // `ml-pipeline` omits this line.
@@ -191,9 +191,9 @@ pub(super) async fn route_query_and_rdf_surfaces(
     let cdc = &ctx.cdc;
     #[cfg(feature = "security")]
     let rls = &ctx.rls;
-    // Read-only query surface — SQL (CONCEPT:EG-KG.query.read-only-sql-query, DataFusion behind
-    // `query`) AND Cypher (CONCEPT:EG-KG.query.dep-free-behind, dep-free behind `cypher`) AND GraphQL
-    // (CONCEPT:EG-KG.query.sparql-completeness, pure-Rust eg-graphql behind `graphql`): borrows the graph
+    // Read-only query surface — SQL (CONCEPT:MEDULLA-KG.query.read-only-sql-query, DataFusion behind
+    // `query`) AND Cypher (CONCEPT:MEDULLA-KG.query.dep-free-behind, dep-free behind `cypher`) AND GraphQL
+    // (CONCEPT:MEDULLA-KG.query.sparql-completeness, pure-Rust medulla-graphql behind `graphql`): borrows the graph
     // core for an off-lock snapshot, runs on the blocking pool. Gated on ANY of the
     // three features so CypherQuery still routes in a cypher-only (no-DataFusion) Pi
     // build and GraphQl routes in a graphql build; the handler's per-method arm
@@ -204,7 +204,7 @@ pub(super) async fn route_query_and_rdf_surfaces(
     // to the caller) so a GraphQL read NEVER leaks across agents. Slim builds with
     // NONE of the three omit this line.
     //
-    // Runtime-conditional query gateway (CONCEPT:EG-P0-2, L11): `Sql`/
+    // Runtime-conditional query gateway (CONCEPT:MEDULLA-P0-2, L11): `Sql`/
     // `CypherQuery`/`GraphQl` are `mutation::GATEWAY_ROUTED`, but their execution
     // is `async` and needs `state`/`rls`, so they are routed HERE (not at the
     // graph-ops `try_handle_gateway`, which hands them back). The SAME runtime
@@ -242,14 +242,14 @@ pub(super) async fn route_query_and_rdf_surfaces(
         Ok(resp) => return Ok(resp),
         Err(m) => m,
     };
-    // Native RDF/SPARQL surface (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql/218, features `rdf`/`sparql`):
+    // Native RDF/SPARQL surface (CONCEPT:MEDULLA-KG.ontology.kg-native-rdf-sparql/218, features `rdf`/`sparql`):
     // AddTriples (durable — the shell below records it like any write),
     // GetRdf + Sparql (read-only, off-lock snapshot). Graph-scoped, so the
     // handler takes the graph core + name. Multi-valued literals are embedded
     // losslessly in that graph image. Gated on `rdf`; a method whose feature is
     // off falls through (Err) to the graph_ops not-available catch-all.
     //
-    // Native-RDF write gateway (CONCEPT:EG-P0-2, L11): `AddTriples`/
+    // Native-RDF write gateway (CONCEPT:MEDULLA-P0-2, L11): `AddTriples`/
     // `RemoveTriples`/`DropNamedGraph` are `mutation::GATEWAY_ROUTED` (GraphRedb-
     // durable, audited), routed HERE (not at `try_handle_gateway`) because their
     // handler is async and also performs RDF policy validation. They always
@@ -313,7 +313,7 @@ pub(super) async fn route_process_global_domains(
             .as_ref()
             .and_then(GraphReadAuthority::carrier),
     };
-    // WASM-sandboxed UDF surface (CONCEPT:EG-KG.query.rowset-execution, feature `wasm-udf`):
+    // WASM-sandboxed UDF surface (CONCEPT:MEDULLA-KG.query.rowset-execution, feature `wasm-udf`):
     // RegisterUdf compiles+caches, RunUdf runs sandboxed (fuel+memory+no host
     // caps) — both off-reactor. Process-global (not graph-scoped), so it takes
     // `state` for the owner-scoped UdfCatalog, keyed by the VERIFIED carrier's
@@ -323,7 +323,7 @@ pub(super) async fn route_process_global_domains(
         Ok(r) => return Ok(r),
         Err(m) => m,
     };
-    // Query federation (CONCEPT:EG-KG.query.query-federation, feature `federation`):
+    // Query federation (CONCEPT:MEDULLA-KG.query.query-federation, feature `federation`):
     // RegisterForeignSource records a named foreign source in the owner-scoped
     // catalog on ServerState, under the VERIFIED carrier's tenant+principal (EH-373) — never a
     // request field. Plans resolve names through the caller's own entries only. A
@@ -334,7 +334,7 @@ pub(super) async fn route_process_global_domains(
         Ok(r) => return Ok(r),
         Err(m) => m,
     };
-    // Distributed graph compute (CONCEPT:EG-KG.storage.feature, feature `compute-dist`):
+    // Distributed graph compute (CONCEPT:MEDULLA-KG.storage.feature, feature `compute-dist`):
     // DistributedCompute + the matview lifecycle. Cross-shard, so it takes
     // `state` (it gathers each shard graph's snapshot from the registry).
     #[cfg(any(feature = "compute-dist", feature = "matview"))]

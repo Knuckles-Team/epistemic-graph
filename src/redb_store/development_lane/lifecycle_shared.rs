@@ -6,7 +6,7 @@ use crate::epistemic_operations::{
     DevelopmentLaneFinishRequest, DevelopmentLaneHold, DevelopmentLaneHoldState,
     DevelopmentLaneObserveRequest, DevelopmentLaneQuotaPolicy, DevelopmentLaneRenewRequest,
 };
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 
 // Private redb-transaction-scoped helper; see `load_work_item`'s justification
 // above -- each identity/fencing field must be checked against `hold`

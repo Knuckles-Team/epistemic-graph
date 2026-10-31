@@ -5,14 +5,14 @@ from __future__ import annotations
 import importlib.machinery
 import math
 
-import epistemic_graph.numeric as numeric
+import medulla.numeric as numeric
 import pytest
 
 pytestmark = pytest.mark.no_engine
 
 
 def test_uses_native_extension() -> None:
-    assert numeric.__kernel__ == "eg-numeric"
+    assert numeric.__kernel__ == "medulla-numeric"
     assert any(
         numeric.__file__.endswith(suffix)
         for suffix in importlib.machinery.EXTENSION_SUFFIXES

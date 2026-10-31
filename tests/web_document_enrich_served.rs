@@ -1,4 +1,4 @@
-//! EG-UNIFIED-DATA-PLANE-R651.7 and EG-DECISION-ENGINE-R802 through the real
+//! MEDULLA-UNIFIED-DATA-PLANE-R651.7 and MEDULLA-DECISION-ENGINE-R802 through the real
 //! `dispatch` shell over a redb-backed `ServerState`.
 //!
 //! A held web Document is enriched: its chunks, `chunkOf` edges and vectors
@@ -18,14 +18,14 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use eg_plan::TextEmbedder;
-use eg_types::decision::web_fetch_selection::{
+use medulla_plan::TextEmbedder;
+use medulla_types::decision::web_fetch_selection::{
     SelectWebPagesAnswer, SelectWebPagesRequest, SkipReason, WebCandidate,
 };
-use eg_types::source_ingestion::web_document::{
+use medulla_types::source_ingestion::web_document::{
     EnrichDocumentReceipt, EnrichDocumentRequest, FetchBackend,
 };
-use epistemic_graph::protocol::{Method, Response, ResultPayload};
+use medulla::protocol::{Method, Response, ResultPayload};
 
 const SECRET: &str = "web-document-enrich-secret";
 const GRAPH: &str = "webenrich";
@@ -123,7 +123,7 @@ async fn chunk_props(state: &test_support::SharedState, id: u64, node: &str) -> 
     .await;
     match response.result {
         Some(ResultPayload::Raw(bytes)) => {
-            eg_types::msgpack::decode_property_value(&bytes).unwrap()
+            medulla_types::msgpack::decode_property_value(&bytes).unwrap()
         }
         Some(ResultPayload::Json(value)) => value,
         other => panic!("unexpected payload {other:?}"),
@@ -179,7 +179,7 @@ async fn diagnose(
         )
         .await;
         let value = match &response.result {
-            Some(ResultPayload::Raw(bytes)) => eg_types::msgpack::decode_property_value(bytes)
+            Some(ResultPayload::Raw(bytes)) => medulla_types::msgpack::decode_property_value(bytes)
                 .map(|v| v.to_string())
                 .unwrap_or_else(|_| format!("{} raw bytes", bytes.len())),
             other => format!("{other:?}"),
@@ -208,20 +208,20 @@ async fn durable_graph() -> (
     test_support::durable_graph_state(
         SECRET,
         "web-document-enrich-encryption-key",
-        "eg-webenrich",
+        "medulla-webenrich",
         common::current_isolation(),
         GRAPH,
     )
     .await
 }
 
-// spec: EG-UNIFIED-DATA-PLANE-R651.7
-// spec: EG-UNIFIED-DATA-PLANE-R651.7.3
-// spec: EG-UNIFIED-DATA-PLANE-R651.7.5
-// spec: EG-UNIFIED-DATA-PLANE-R651.7.6
-// spec: EG-DECISION-ENGINE-R802
-// spec: EG-DECISION-ENGINE-R802.3
-// spec: EG-DECISION-ENGINE-R802.6
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R651.7
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R651.7.3
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R651.7.5
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R651.7.6
+// spec: MEDULLA-DECISION-ENGINE-R802
+// spec: MEDULLA-DECISION-ENGINE-R802.3
+// spec: MEDULLA-DECISION-ENGINE-R802.6
 #[test]
 fn test_web_page_enriches_once_for_both_backends() {
     test_support::on_engine(enrich_replay_supersede_and_search);
@@ -292,7 +292,7 @@ async fn enrich_replay_supersede_and_search() {
     assert_eq!(first["text"], cited, "offsets address the exact passage");
 
     // The vector path: SemanticSearch finds the chunk by its own vector.
-    let query = eg_plan::HashEmbedder::new(a.dimensions as usize)
+    let query = medulla_plan::HashEmbedder::new(a.dimensions as usize)
         .embed(&cited)
         .unwrap();
     let hits: Vec<(String, f32)> = raw(call(
@@ -418,7 +418,7 @@ async fn enrich_replay_supersede_and_search() {
     assert_eq!(answer.selected[0].canonical_url, "https://example.org/new");
 }
 
-// spec: EG-UNIFIED-DATA-PLANE-R651.7.4
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R651.7.4
 #[test]
 fn test_web_document_refusals() {
     test_support::on_engine(refusals);

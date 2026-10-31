@@ -1,15 +1,15 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-transaction", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-asr-whisper", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-storage", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-viz-kernels", "crates/eg-viz-graph-tiles", "crates/eg-durable", "crates/eg-quantum-hardware", "crates/eg-quantum-jobs", "crates/eg-quantum-workloads", "crates/eg-tts-piper", "crates/eg-resource", "crates/eg-method-codec", "crates/eg-enrich"]
-# D-QN-1 / lane w0-eg-quantum-contracts (Q0) -- eg-quantum-core: the quantum-as-a-
-# governed-epistemic-graph-capability CONTRACTS crate (QuantumProgram IR,
+members = ["crates/medulla-types", "crates/medulla-transaction", "crates/medulla-ann", "crates/medulla-geo", "crates/medulla-tensor", "crates/medulla-stream", "crates/medulla-core", "crates/medulla-compute", "crates/medulla-query", "crates/medulla-plan", "crates/medulla-tsdb", "crates/medulla-text", "crates/medulla-rdf", "crates/medulla-shacl", "crates/medulla-shex", "crates/medulla-wasm", "crates/medulla-graphql", "crates/medulla-kvcache", "crates/medulla-lake", "crates/medulla-numeric", "crates/medulla-epistemic", "crates/medulla-modality", "crates/medulla-image", "crates/medulla-audio", "crates/medulla-asr-whisper", "crates/medulla-video", "crates/medulla-document", "crates/medulla-alignment", "crates/medulla-capabilities", "crates/medulla-jobs", "crates/medulla-program", "crates/medulla-statechart", "crates/medulla-storage", "crates/medulla-sqlite-format", "crates/medulla-pyengine", "crates/medulla-quantum-core", "crates/medulla-quantum-gates", "crates/medulla-quantum-sim", "crates/medulla-viz-core", "crates/medulla-viz-columnstore", "crates/medulla-viz-export", "crates/medulla-viz-kernels", "crates/medulla-viz-graph-tiles", "crates/medulla-durable", "crates/medulla-quantum-hardware", "crates/medulla-quantum-jobs", "crates/medulla-quantum-workloads", "crates/medulla-tts-piper", "crates/medulla-resource", "crates/medulla-method-codec", "crates/medulla-enrich"]
+# D-QN-1 / lane w0-medulla-quantum-contracts (Q0) -- medulla-quantum-core: the quantum-as-a-
+# governed-medulla-engine-capability CONTRACTS crate (QuantumProgram IR,
 # QuantumBackend trait + capability flags, estimate()/planner rule engine R0-R5, and
 # the exactness-typed QuantumResult). A workspace member so `cargo build/test
-# --workspace -p eg-quantum-core` works standalone; the root package links it ONLY
+# --workspace -p medulla-quantum-core` works standalone; the root package links it ONLY
 # behind the optional, default-off `quantum` feature below (see that feature's own
 # comment) -- a default `cargo build` here links NONE of it. Ships no simulator, no
 # vendored SDK (QuantRS2/QuEST), no CUDA/MPI -- see its own crate-level doc for the
-# numeric-stack decision (bridges to eg-numeric, does not carry its own).
-# D-VZ-1 (lane V0, `plans/au-eg-program/deferred/lane-viz-native.md`) -- eg-viz-core:
+# numeric-stack decision (bridges to medulla-numeric, does not carry its own).
+# D-VZ-1 (lane V0, `plans/au-medulla-program/deferred/lane-viz-native.md`) -- medulla-viz-core:
 # native visualization contracts (ViewSpec chart IR, ViewResult exact-vs-approximated
 # metadata, the mark capability matrix, and the primitives/bytes LOD tier-selection
 # rules). Reimplements the ARCHITECTURE of open-source-libraries/xy in-tree (Rust LOD
@@ -22,34 +22,34 @@ members = ["crates/eg-types", "crates/eg-transaction", "crates/eg-ann", "crates/
 # runtime cost when unused" posture as the sibling quantum contract's `quantum`/
 # `quantum-quest`/`quantum-gpu`/`quantum-hardware` features, because V0 ships
 # contracts only: no ColumnStore, no LOD kernel, no renderer exist yet to serve.
-# CONCEPT:INT-P2-1 -- eg-jobs: the durable analytics-job plane (async submit/status/
+# CONCEPT:INT-P2-1 -- medulla-jobs: the durable analytics-job plane (async submit/status/
 # progress/cancel/resume over a redb-backed `AnalyticsJob` state machine, committing
-# results as provenance'd epistemic claims via `eg-core::GraphCore` +  the SAME
-# typed-node convention `eg-epistemic` reads). A leaf crate ALONG the DAG (deps =
-# eg-types + eg-core), added as a workspace member ONLY -- mirroring the eg-document/
-# eg-alignment/eg-image/eg-audio/eg-video precedent above. The root package exposes
+# results as provenance'd epistemic claims via `medulla-core::GraphCore` +  the SAME
+# typed-node convention `medulla-epistemic` reads). A leaf crate ALONG the DAG (deps =
+# medulla-types + medulla-core), added as a workspace member ONLY -- mirroring the medulla-document/
+# medulla-alignment/medulla-image/medulla-audio/medulla-video precedent above. The root package exposes
 # it behind the composable `jobs` feature and includes that feature in the one main
-# `full`/default build (CONCEPT:EG-371), wiring `Method::AnalyticsJob` and the bounded
+# `full`/default build (CONCEPT:MEDULLA-371), wiring `Method::AnalyticsJob` and the bounded
 # distributed worker runtime.
-# CONCEPT:EG-P0-1 -- eg-capabilities: the machine-checked MethodPolicy capability-ledger
-# crate (exhaustive, no-wildcard `policy()` over eg-types::protocol::Method, generated
+# CONCEPT:MEDULLA-P0-1 -- medulla-capabilities: the machine-checked MethodPolicy capability-ledger
+# crate (exhaustive, no-wildcard `policy()` over medulla-types::protocol::Method, generated
 # docs/capabilities.generated.md, a consistency test cross-checking access.rs/wal.rs/
-# audit.rs/cdc.rs). A leaf crate (deps = eg-types ONLY, all its optional features on --
-# see eg-capabilities/Cargo.toml). Build/test it targeted:
-# `cargo build -p eg-capabilities` / `cargo test -p eg-capabilities` /
-# `cargo clippy -p eg-capabilities -- -D warnings`.
-# CONCEPT:EG-P0-2 -- as of the mutation-gateway workstream, eg-capabilities IS also an
-# optional dependency of the root `epistemic-graph` package (see `[dependencies]` +
+# audit.rs/cdc.rs). A leaf crate (deps = medulla-types ONLY, all its optional features on --
+# see medulla-capabilities/Cargo.toml). Build/test it targeted:
+# `cargo build -p medulla-capabilities` / `cargo test -p medulla-capabilities` /
+# `cargo clippy -p medulla-capabilities -- -D warnings`.
+# CONCEPT:MEDULLA-P0-2 -- as of the mutation-gateway workstream, medulla-capabilities IS also an
+# optional dependency of the root `medulla-engine` package (see `[dependencies]` +
 # the `server` feature below): `src/server/mutation.rs`'s `MutationPlan` calls
-# `eg_capabilities::policy(&method)` as its ONE source of per-method authz/durability/
+# `medulla_capabilities::policy(&method)` as its ONE source of per-method authz/durability/
 # audit/CDC/idempotency truth, so the server binary linking it is the point.
-# eg-types' optional features that eg-capabilities forces on are pure serde/enum-variant
+# medulla-types' optional features that medulla-capabilities forces on are pure serde/enum-variant
 # gates, confirmed to add no heavy transitive dependency. The one main build includes
 # `server`, and therefore this ledger.
-# EG-185/186: eg-kvcache is the tiered + shared KV-cache leaf crate, a sibling of
-# eg-ann/eg-tensor. Its path dependency and server endpoint are included through the
+# MEDULLA-185/186: medulla-kvcache is the tiered + shared KV-cache leaf crate, a sibling of
+# medulla-ann/medulla-tensor. Its path dependency and server endpoint are included through the
 # main build's `kvcache-server` feature.
-# CONCEPT:EG-317: eg-lake is the LTAP lakehouse-interop leaf crate — Parquet
+# CONCEPT:MEDULLA-317: medulla-lake is the LTAP lakehouse-interop leaf crate — Parquet
 # materialization + Delta/Iceberg logs + LSN as-of snapshots + Iceberg-REST catalog)
 # behind the composable `lake`/`lake-rest` features. `lake` is not another deployment
 # tier: as of W4.8 it is folded into the one main `full` build (the Polars-native-Parquet
@@ -58,29 +58,29 @@ members = ["crates/eg-types", "crates/eg-transaction", "crates/eg-ann", "crates/
 # now serves the Iceberg-REST catalog when `--iceberg-addr` is configured, exactly like
 # every other opt-in-at-runtime, compiled-in-by-default listener (`--metrics-addr`/
 # `--obs-addr`/`--s3-addr`).
-# CONCEPT:E4 — eg-modality: the ModalityContract trait + conformance harness. A tiny
-# leaf crate BELOW eg-plan/eg-core in the DAG (deps = eg-types ONLY — see its own
+# CONCEPT:E4 — medulla-modality: the ModalityContract trait + conformance harness. A tiny
+# leaf crate BELOW medulla-plan/medulla-core in the DAG (deps = medulla-types ONLY — see its own
 # Cargo.toml/lib.rs docs for why). The contract/TCK is adopted across the modality
 # fleet; the universal governed artifact protocol and served state machine now live
 # here as well. Tensor/geo remain value-level contract implementations, while
 # document/media are production served modalities through the facade's
 # `modality-serving` feature.
-# CONCEPT:E4 / EG-P1-3 — document/image/audio/video are governed served modality
+# CONCEPT:E4 / MEDULLA-P1-3 — document/image/audio/video are governed served modality
 # leaves. Native runtimes extract bounded UTF-8 structure + private lexical postings,
 # decode PNG pixels + pHash, decode PCM/WAV + waveform/spectral windows, and parse
 # ISOBMFF tracks/sample tables + raw RGB frames. Every leaf persists SHA-256 content
 # identity and normalized source-free features, maintains native posting indexes, and
 # executes exact typed predicates through the universal artifact/evidence protocol.
-# eg-alignment is the shared alignment graph:
-#   * eg-alignment -- the shared alignment graph (CONCEPT:EG-P1-3): a typed
+# medulla-alignment is the shared alignment graph:
+#   * medulla-alignment -- the shared alignment graph (CONCEPT:MEDULLA-P1-3): a typed
 #     structure connecting document spans <-> image regions <-> audio intervals <->
 #     video frames/shots <-> extracted entities <-> claims <-> source blobs (nodes
-#     wrap `eg_modality::EvidenceLocus` plus bare entity/claim/blob ids; edges are a
+#     wrap `medulla_modality::EvidenceLocus` plus bare entity/claim/blob ids; edges are a
 #     typed `AlignmentRelation`), plus an `EvidenceResolver` seam that resolves an
-#     `EvidenceLocus` to its located artifact. Depends on `eg-modality` ONLY in its
+#     `EvidenceLocus` to its located artifact. Depends on `medulla-modality` ONLY in its
 #     default build (no heavy artifact-crate dependency); its integration test pulls
-#     eg-document/eg-image/eg-audio/eg-video as DEV-dependencies only (does not
-#     affect what a consumer of the published `eg-alignment` library links).
+#     medulla-document/medulla-image/medulla-audio/medulla-video as DEV-dependencies only (does not
+#     affect what a consumer of the published `medulla-alignment` library links).
 # Runtime modules remain feature boundaries at the leaf and are enabled by the main
 # `modality-serving` facade feature.
 
@@ -94,7 +94,7 @@ members = ["crates/eg-types", "crates/eg-transaction", "crates/eg-ann", "crates/
 redb = "~4.1"
 
 [package]
-name = "epistemic-graph"
+name = "medulla-engine"
 version = "2.27.10"
 edition = "2021"
 authors = ["Repository Maintainers <maintainers@example.invalid>"]
@@ -102,11 +102,11 @@ description = "Rust-native durable multimodal and epistemic database for governe
 license = "MIT"
 
 [lib]
-name = "epistemic_graph"
+name = "medulla"
 crate-type = ["rlib"]
 
 [[bin]]
-name = "epistemic-graph-server"
+name = "medulla-server"
 path = "src/main.rs"
 required-features = ["server"]
 
@@ -119,8 +119,8 @@ name = "nemesis"
 path = "src/bin/nemesis.rs"
 required-features = ["harness"]
 
-# The offline tools (`restore`, `migrate-shards`, `epistemic-graph-rf019-observe`,
-# `lake-fixture-export`) are subcommands of `epistemic-graph-server`
+# The offline tools (`restore`, `migrate-shards`, `medulla-engine-rf019-observe`,
+# `lake-fixture-export`) are subcommands of `medulla-server`
 # (`src/offline_tools/`); they are not separate executables.
 
 # SQLite-style embedded usage (CONCEPT:KG-2.216). Needs the in-process library API.
@@ -130,7 +130,7 @@ path = "examples/embedded.rs"
 required-features = ["embedded"]
 
 [features]
-# ── ONE main build (CONCEPT:EG-371) ──
+# ── ONE main build (CONCEPT:MEDULLA-371) ──
 # The DEFAULT build IS the full-featured build. There is no longer a pi/pi-max/node
 # tier distinction: `cargo build` (and the single published wheel) links ALL MAIN
 # features that build without an external toolchain/GPU — compute, the Tokio server,
@@ -152,10 +152,10 @@ algorithms = []
 # Prometheus observability: request/latency/in-flight counters, per-graph
 # gauges and a /metrics HTTP listener (--metrics-addr). ON by default; opt out
 # with --no-default-features for a leaner lib-only build.
-metrics = ["dep:prometheus", "eg-types/metrics"]
-# OpenTelemetry OTLP span export (CONCEPT:EG-091). Layers a `tracing-opentelemetry`
+metrics = ["dep:prometheus", "medulla-types/metrics"]
+# OpenTelemetry OTLP span export (CONCEPT:MEDULLA-091). Layers a `tracing-opentelemetry`
 # batch OTLP exporter ON TOP of the existing `tracing` subscriber, additively: it
-# installs ONLY when built with this feature AND `EPISTEMIC_GRAPH_OTLP_ENDPOINT` is
+# installs ONLY when built with this feature AND `MEDULLA_OTLP_ENDPOINT` is
 # set, exporting the spans the engine already emits — no new spans, no behavior
 # change when off/unset. All four dependencies remain isolated behind
 # `#[cfg(feature = "otel")]`; the default `full` artifact enables the feature while
@@ -168,61 +168,61 @@ otel = [
     "dep:tracing-opentelemetry",
     "server",
 ]
-finance = ["eg-compute/finance", "eg-types/finance"]
-ast = ["eg-compute/ast"]
+finance = ["medulla-compute/finance", "medulla-types/finance"]
+ast = ["medulla-compute/ast"]
 # Extended-language grammar tier (CONCEPT:KG-2.106), folded into `full`.
-ast-extended = ["eg-compute/ast-extended"]
-datascience = ["eg-compute/datascience", "eg-types/datascience"]
-# Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining): association-rule
+ast-extended = ["medulla-compute/ast-extended"]
+datascience = ["medulla-compute/datascience", "medulla-types/datascience"]
+# Data-mining domain (CONCEPT:MEDULLA-KG.mining.frequent-itemset-mining): association-rule
 # mining (Apriori/FP-Growth/Eclat) + the `graph_mine` surface. Pure-Rust, no heavy
-# dep, folded into `full`. Gates eg-compute/mining + eg-types/mining + the
+# dep, folded into `full`. Gates medulla-compute/mining + medulla-types/mining + the
 # handlers/mining.rs dispatch arm.
-mining = ["eg-compute/mining", "eg-types/mining"]
-# Graph-learning / neuro-symbolic domain (CONCEPT:EG-KG.graphlearn.link-predictor): a
+mining = ["medulla-compute/mining", "medulla-types/mining"]
+# Graph-learning / neuro-symbolic domain (CONCEPT:MEDULLA-KG.graphlearn.link-predictor): a
 # pure-Rust KAN link-predictor over the resident graph + the `graph_learn` surface,
 # whose learned per-feature edge functions are queryable `:EdgeFunction` KG nodes.
 # Pure-Rust (no torch — heavy training is delegated to data-science-mcp), folded into
-# `full` via `compute`. Gates eg-compute/graphlearn + eg-types/graphlearn + the
+# `full` via `compute`. Gates medulla-compute/graphlearn + medulla-types/graphlearn + the
 # handlers/graphlearn.rs dispatch arm. Implies datascience (shared Adam kernels).
-graphlearn = ["datascience", "eg-compute/graphlearn", "eg-types/graphlearn"]
-# ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): the composable train→eval→serve→
+graphlearn = ["datascience", "medulla-compute/graphlearn", "medulla-types/graphlearn"]
+# ML pipeline (CONCEPT:MEDULLA-KG.mining.ml-pipeline): the composable train→eval→serve→
 # predict surface over a versioned `:Model` artifact, generalizing the KAN one-off. It
-# COMPOSES existing eg-compute primitives — classify (mining), regression estimators
+# COMPOSES existing medulla-compute primitives — classify (mining), regression estimators
 # (datascience), the KAN link-predictor (graphlearn), structural embeddings + metrics —
-# so it pulls all three domains + eg-types/ml-pipeline. Gates the handlers/pipeline.rs
+# so it pulls all three domains + medulla-types/ml-pipeline. Gates the handlers/pipeline.rs
 # dispatch arm. Pure-Rust, folded into `full` via `compute`.
-ml-pipeline = ["mining", "datascience", "graphlearn", "eg-types/ml-pipeline"]
-reasoning = ["eg-compute/reasoning"]
-# Engine-native epistemic layer (CONCEPT:EG-KG.epistemic.epistemic-substrate, E6+E2): the
-# eg-epistemic leaf crate (claims/evidence/belief-state + confidence propagation) over
-# the EXISTING NodeData/EdgeData fields (no new persistence). Pulls eg-epistemic (pure
-# Rust: eg-types + eg-core + eg-compute/reasoning — no heavy dep) + eg-types/epistemic
-# (the pure-serde `as_claim` wire gate, E6) + eg-plan/epistemic (E2: the
+ml-pipeline = ["mining", "datascience", "graphlearn", "medulla-types/ml-pipeline"]
+reasoning = ["medulla-compute/reasoning"]
+# Engine-native epistemic layer (CONCEPT:MEDULLA-KG.epistemic.epistemic-substrate, E6+E2): the
+# medulla-epistemic leaf crate (claims/evidence/belief-state + confidence propagation) over
+# the EXISTING NodeData/EdgeData fields (no new persistence). Pulls medulla-epistemic (pure
+# Rust: medulla-types + medulla-core + medulla-compute/reasoning — no heavy dep) + medulla-types/epistemic
+# (the pure-serde `as_claim` wire gate, E6) + medulla-plan/epistemic (E2: the
 # `Op::{EvidenceFor,Contradicts,SupportedBy,BeliefAsOf,SourceReliability,ConfidenceOp,
 # ExplainBelief}` UQL/plan surface + its `BELIEF AS OF`/`VALID AS OF`/… keywords — IMPLIES
 # `query` because those ops live inside the `query`-gated `Op` enum, beside `owl`/
 # `probabilistic`/`tensor`). Gates the ADDITIVE mining→epistemic-object write-back (E6): with
 # `mining` ALSO on, `MineAssociate`/`MineCluster`/`MineAnomaly`/`MineSequence`/`MineForecast`/
 # `MineSubgraph` accept `as_claim=true` and materialize a `:Claim` (+ `:Evidence`) per
-# finding, SUPPORTS-linked so `eg_epistemic` can propagate belief over them. Additive: with
+# finding, SUPPORTS-linked so `medulla_epistemic` can propagate belief over them. Additive: with
 # `as_claim` unset the write-back is byte-identical, and a build without `query` simply lacks
 # the E2 plan ops (the E6 mining write-back is unaffected either way). The default
 # `full` artifact enables this feature.
 epistemic = [
     "query",
-    "dep:eg-epistemic",
-    "eg-types/epistemic",
-    "dep:eg-plan",
-    "eg-plan/epistemic",
-    # X1 (CONCEPT:E4): `dep:eg-modality` makes `eg_modality::EvidenceLocus` nameable in
+    "dep:medulla-epistemic",
+    "medulla-types/epistemic",
+    "dep:medulla-plan",
+    "medulla-plan/epistemic",
+    # X1 (CONCEPT:E4): `dep:medulla-modality` makes `medulla_modality::EvidenceLocus` nameable in
     # `explain_provenance`'s `evidence_locus_wire` mapper (see that dep's own comment —
-    # `eg-plan/epistemic` above already links `eg-modality` transitively; this adds no
+    # `medulla-plan/epistemic` above already links `medulla-modality` transitively; this adds no
     # new weight, only visibility).
-    "dep:eg-modality",
+    "dep:medulla-modality",
 ]
 # L51 — policy-aware proof redaction + selective disclosure wired onto the
 # `Method::ExplainBelief` facade surface (`disclosure_level`): turns on
-# `eg-epistemic`'s own `epistemic-redaction` feature (which pulls `eg-core/security`
+# `medulla-epistemic`'s own `epistemic-redaction` feature (which pulls `medulla-core/security`
 # for the SAME `IsolationLayer`/`RowVisibility` every other RLS-aware read path
 # already links) and requires `epistemic` + `security` so the handler's
 # `caller`/`rls` context is always present alongside it. WS-1b: included in the one
@@ -230,7 +230,7 @@ epistemic = [
 # expensive recompute, reuses the always-linked RLS check). The formerly
 # opt-in TMS/causal siblings are also in the one main build as of P2 closure.
 # `--all-features` still enables it (redundantly, once `full` already does).
-epistemic-redaction = ["epistemic", "security", "eg-epistemic/epistemic-redaction"]
+epistemic-redaction = ["epistemic", "security", "medulla-epistemic/epistemic-redaction"]
 # L53 + L46 — the bitemporal/paraconsistent-TMS query family
 # (`why`/`why_not`/`what_changed`/`what_evidence_would_change_this`/`is_believed`/the
 # `epistemic_status` acceptance capstone) wired onto the facade as
@@ -238,73 +238,73 @@ epistemic-redaction = ["epistemic", "security", "eg-epistemic/epistemic-redactio
 # durable incremental projection that consumes committed base-fact
 # `RemoveNode`/`RemoveEdge`/`CompareAndSetNodeFields` from the write path
 # (`mutation::commit_finalize`'s post-commit hook) into
-# eg-epistemic's `TruthMaintenance` index (`ChangeEvent`/`on_change`). Turns on
-# `eg-epistemic`'s own `epistemic-tms` feature; implies `epistemic` (the wire `Method`
-# variants + facade `eg-epistemic` dep, which also satisfies the write-path hook's bare
-# `eg-epistemic` need). HEAVY (paraconsistent Dung argumentation grounded/preferred/
+# medulla-epistemic's `TruthMaintenance` index (`ChangeEvent`/`on_change`). Turns on
+# `medulla-epistemic`'s own `epistemic-tms` feature; implies `epistemic` (the wire `Method`
+# variants + facade `medulla-epistemic` dep, which also satisfies the write-path hook's bare
+# `medulla-epistemic` need). HEAVY (paraconsistent Dung argumentation grounded/preferred/
 # stable extension search is NP-hard in the worst case). It is included in the
 # one main `full` build; expensive searches remain request-bounded and the
 # incremental projection worker avoids full-graph steady-state recomputation.
-epistemic-tms = ["epistemic", "eg-epistemic/epistemic-tms"]
-# X-1 (CONCEPT:EG-X1) — the multimodal-evidence citation resolver wired onto the
+epistemic-tms = ["epistemic", "medulla-epistemic/epistemic-tms"]
+# X-1 (CONCEPT:MEDULLA-X1) — the multimodal-evidence citation resolver wired onto the
 # facade as `Method::ExplainEvidence`: given a claim/evidence node id, walk the
 # SAME support/contradiction/attack `BeliefGraph` topology `ExplainBelief` walks
 # and return every transitively-cited node's complete governed `EvidenceLocus`
 # (page region, audio/video interval, row version, code range, trace span, …).
-# Turns on `eg-epistemic`'s own
+# Turns on `medulla-epistemic`'s own
 # `evidence-graph` feature (no new dependency — it reuses the SAME optional
-# `eg-modality` dep `epistemic` already links for `EvidenceLocusWire`); implies
-# `epistemic` (the wire `Method` variant + facade `eg-epistemic` dep). WS-1b: included
+# `medulla-modality` dep `epistemic` already links for `EvidenceLocusWire`); implies
+# `epistemic` (the wire `Method` variant + facade `medulla-epistemic` dep). WS-1b: included
 # in the one main `full` build — LIGHT,
 # same posture as `epistemic-redaction` above. `--all-features` still enables it
 # (redundantly, once `full` already does).
-evidence-graph = ["epistemic", "eg-epistemic/evidence-graph"]
+evidence-graph = ["epistemic", "medulla-epistemic/evidence-graph"]
 # EPI-P3-3 — calibrated causal reasoning + provenance-aware retrieval ranking
 # wired onto the facade as `Method::CausalEstimate` (do-calculus intervention
 # over a request-carried linear-Gaussian structural causal model) and
 # `Method::RankByProvenance` (rank request-carried retrieval candidates by
-# evidence quality/provenance, not similarity alone). Turns on `eg-epistemic`'s
+# evidence quality/provenance, not similarity alone). Turns on `medulla-epistemic`'s
 # own `epistemic-causal` feature (pure Rust, no new dependency — see that
 # crate's `Cargo.toml`); implies `epistemic` (the wire `Method` variants +
-# facade `eg-epistemic` dep). HEAVY (genuine Pearl do-calculus intervention/
+# facade `medulla-epistemic` dep). HEAVY (genuine Pearl do-calculus intervention/
 # counterfactual computation). It is included in the one main `full` build.
-epistemic-causal = ["epistemic", "eg-epistemic/epistemic-causal"]
-# CONCEPT:EG-321 — the Analytics-Program numeric kernel (eg-numeric: nalgebra + ndarray,
+epistemic-causal = ["epistemic", "medulla-epistemic/epistemic-causal"]
+# CONCEPT:MEDULLA-321 — the Analytics-Program numeric kernel (medulla-numeric: nalgebra + ndarray,
 # BLAS/LAPACK-free). Links the PURE Rust kernel (rlib) for Surface B in-database
-# analytics — the Python-extension FFI layer is behind eg-numeric's OWN `python`
+# analytics — the Python-extension FFI layer is behind medulla-numeric's OWN `python`
 # feature (OFF here), so the engine's `numeric` feature pulls nalgebra/ndarray but NO Python
 # FFI (the Plan-01 no-Python-extension-in-engine contract + its `scripts/`
 # CI gate stay green). It is included in the one main `full` build and therefore in
-# both source-built layers. Surface A is compiled from eg-numeric with `--features
-# python` and injected into the SAME published epistemic-graph wheel; it is not a
+# both source-built layers. Surface A is compiled from medulla-numeric with `--features
+# python` and injected into the SAME published medulla-engine wheel; it is not a
 # separate published package.
-# CONCEPT:EG-329 — the main build also includes the SQL query surface, so turn on its
-# `numeric` feature so the eg-numeric-backed Surface-B SQL UDFs/UDAFs
+# CONCEPT:MEDULLA-329 — the main build also includes the SQL query surface, so turn on its
+# `numeric` feature so the medulla-numeric-backed Surface-B SQL UDFs/UDAFs
 # (`cosine_sim`/`l2_normalize`/`zscore`/`covariance`) register on the
-# DataFusion context. The weak `eg-query?/numeric` edge keeps the feature composable
+# DataFusion context. The weak `medulla-query?/numeric` edge keeps the feature composable
 # for targeted crate checks; it does not define another supported product build. The
-# weak `eg-plan?/numeric` edge turns on the UQL `ATTRIBUTE` executor (EH-523) whenever
+# weak `medulla-plan?/numeric` edge turns on the UQL `ATTRIBUTE` executor (EH-523) whenever
 # the query planner is built.
-numeric = ["dep:eg-numeric", "eg-query?/numeric", "eg-plan?/numeric"]
+numeric = ["dep:medulla-numeric", "medulla-query?/numeric", "medulla-plan?/numeric"]
 # The general bounded 0-1 integer programme (`Method::Solve`). Wire DTOs are
-# unconditional in eg-types; this gates the eg-compute search and verifier.
-solve = ["eg-compute/solve"]
+# unconditional in medulla-types; this gates the medulla-compute search and verifier.
+solve = ["medulla-compute/solve"]
 # RF-ADR-010: the Decide layer's handlers. The wire contract is unconditional
 # (the capability rows are, following the `SemanticIndex` precedent), so this
 # gates only the server-side implementation and the crates it needs.
-decide = ["solve", "eg-capabilities?/decide", "eg-compute/decide", "eg-compute/decide-stats", "numeric", "eg-numeric/decision", "eg-ann?/drift", "jobs", "redb", "shacl"]
-# Native eg-ann IVF-PQ + OPQ + SQ8-refine vector index (CONCEPT:KG-2.207) as the
+decide = ["solve", "medulla-capabilities?/decide", "medulla-compute/decide", "medulla-compute/decide-stats", "numeric", "medulla-numeric/decision", "medulla-ann?/drift", "jobs", "redb", "shacl"]
+# Native medulla-ann IVF-PQ + OPQ + SQ8-refine vector index (CONCEPT:KG-2.207) as the
 # SemanticStore compression backend alongside the in-tree native HNSW index. Pure-Rust,
 # CPU integer-table serving (no GPU/native-ML/faiss in the tree). It is included in
 # the one main build; a persisted index reopens WITHOUT rebuilding from raw vectors.
-ann = ["eg-core/ann", "dep:eg-ann"]
+ann = ["medulla-core/ann", "dep:medulla-ann"]
 # Persist the ANN codes into the redb durable tier too (needs `redb`).
-ann-redb = ["ann", "redb", "eg-core/ann-redb"]
-# CONCEPT:EG-P0-2 -- `dep:eg-capabilities` folded in here (not a standalone feature):
+ann-redb = ["ann", "redb", "medulla-core/ann-redb"]
+# CONCEPT:MEDULLA-P0-2 -- `dep:medulla-capabilities` folded in here (not a standalone feature):
 # the mutation gateway (`src/server/mutation.rs`) is server-only, so the binary
 # linking the MethodPolicy ledger is exactly the `server` build, matching every other
 # server-only dependency in this list.
-server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber", "dep:async-trait", "dep:eg-capabilities"]
+server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber", "dep:async-trait", "dep:medulla-capabilities"]
 # Pure-Rust TLS/mTLS for the native MessagePack TCP service. The one main build
 # includes it so remote-engine deployments can terminate TLS in the binary.
 server-tls = ["server", "dep:rustls", "dep:tokio-rustls"]
@@ -315,96 +315,96 @@ server-tls = ["server", "dep:rustls", "dep:tokio-rustls"]
 # is layered ON TOP and is itself gated on `server` (it talks to `ServerState`
 # + the Tokio dispatch). So `redb` alone (no `server`) compiles a usable durable
 # store — exactly what the EMBEDDED API drives on an edge host with no Tokio.
-redb = ["dep:redb", "dep:eg-storage", "dep:eg-transaction"]
+redb = ["dep:redb", "dep:medulla-storage", "dep:medulla-transaction"]
 # Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206): the bytes tier
 # under multimodal `:Media`/`:Blob`. Pulls `redb` (the native CAS lives in
 # `blob.redb`) + `server` (the streaming protocol rides the Tokio transport). The
 # native redb-CAS links NO object-store SDK — that remains isolated behind the
 # explicit `blob-s3` source feature below. `blob` is included in the one main build.
-blob = ["server", "redb", "eg-types/blob", "dep:chrono"]
-# Generic namespaced Key→Value surface (CONCEPT:EG-022): the `Method::Kv*` ops over a
+blob = ["server", "redb", "medulla-types/blob", "dep:chrono"]
+# Generic namespaced Key→Value surface (CONCEPT:MEDULLA-022): the `Method::Kv*` ops over a
 # redb-backed `(namespace, key) -> bytes` store, so the engine is a drop-in KV store.
 # Pulls `server` (the handler routes through the Tokio dispatch) + `redb` (the durable
 # `kv.redb` substrate; no persist dir ⇒ in-memory scratch). It adds no dependency
 # beyond redb and is included in the one main build. A targeted feature build without
 # it drops the Kv* arm.
-kv = ["server", "redb", "eg-types/kv"]
+kv = ["server", "redb", "medulla-types/kv"]
 # S3/MinIO object-store chunk backend behind the SAME `ChunkStore` trait
 # (CONCEPT:KG-2.206). It is separate from `blob` and absent from the main, `cluster`,
 # and `full-extras` bundles, so only an explicit source build selecting `blob-s3`
 # links the `object_store` SDK (asserted by cargo tree).
 blob-s3 = ["blob", "dep:object_store"]
-# L21 / W4.7 (CONCEPT:EG-P1-3 follow-up, DONE) — a REAL `eg_alignment::EvidenceResolver`
+# L21 / W4.7 (CONCEPT:MEDULLA-P1-3 follow-up, DONE) — a REAL `medulla_alignment::EvidenceResolver`
 # backed by the engine's own blob CAS: `src/server/blob/cas_resolver.rs`'s
 # `CasEvidenceResolver` looks a locus's opaque subject up in a `GraphView` snapshot's
 # stored `blob_ref` property, then reads the actual bytes back off the SAME
 # content-addressed `ChunkStore` the `blob` feature already wires (`stream_blob_get`) —
 # a `CharacterRange` or `CodeSymbol` resolves to a real UTF-8 excerpt; every other
 # address kind yields a `ResolvedArtifact::Blob` naming the real CAS digest, never a
-# fabricated excerpt. `eg-alignment` cannot reach the blob CAS itself by design (a leaf
-# crate BELOW the server, deps = eg-modality ONLY — see its own crate docs on why it
+# fabricated excerpt. `medulla-alignment` cannot reach the blob CAS itself by design (a leaf
+# crate BELOW the server, deps = medulla-modality ONLY — see its own crate docs on why it
 # ships no resolver implementation of its own), so the resolver lives HERE instead: the
-# one place that already links both `eg-alignment` (for the `EvidenceResolver` trait)
-# and the blob CAS (`blob`, for `ChunkStore`). Pulls `blob` + `dep:eg-alignment` +
-# `dep:eg-modality` (the `EvidenceLocus` type, already nameable under `epistemic` — this
+# one place that already links both `medulla-alignment` (for the `EvidenceResolver` trait)
+# and the blob CAS (`blob`, for `ChunkStore`). Pulls `blob` + `dep:medulla-alignment` +
+# `dep:medulla-modality` (the `EvidenceLocus` type, already nameable under `epistemic` — this
 # makes it nameable standalone too, with no new dependency CLASS). Included in
 # the one main `full` serving build. `cas_resolver`'s own tests prove a cross-modal
 # `AlignmentGraph` join (doc span <-> image region <-> claim) resolving end-to-end
 # through fixture CAS content — the alignment graph itself never links `blob`; only
 # this resolver does.
-alignment = ["blob", "dep:eg-alignment", "dep:eg-modality"]
+alignment = ["blob", "dep:medulla-alignment", "dep:medulla-modality"]
 # CONCEPT:INT-P2-1 — the durable analytics-job plane: `Method::AnalyticsJob` (async
 # submit/status/cancel/resume over a redb-backed `AnalyticsJob` state machine) +
 # `src/server/handlers/jobs.rs`. Pulls `server` (Tokio dispatch) + `mining` (the
-# reference job kind reuses `eg_compute::mining::association`) + `epistemic` (the
-# result-commit path writes the SAME `:Claim`/`:Evidence` convention `eg-epistemic`
-# reads) + `dep:eg-jobs` (the durable store + state machine) + the matching
-# `eg-types/jobs` and `eg-capabilities/jobs` wire/policy features (kept in LOCKSTEP —
-# see both crates' own docs on why `eg-types/jobs` can never be forced on
-# unconditionally by `eg-capabilities`). Included in the one main `full` build.
+# reference job kind reuses `medulla_compute::mining::association`) + `epistemic` (the
+# result-commit path writes the SAME `:Claim`/`:Evidence` convention `medulla-epistemic`
+# reads) + `dep:medulla-jobs` (the durable store + state machine) + the matching
+# `medulla-types/jobs` and `medulla-capabilities/jobs` wire/policy features (kept in LOCKSTEP —
+# see both crates' own docs on why `medulla-types/jobs` can never be forced on
+# unconditionally by `medulla-capabilities`). Included in the one main `full` build.
 jobs = [
     "server", "mining", "epistemic",
-    "dep:eg-jobs", "eg-types/jobs", "eg-capabilities/jobs",
+    "dep:medulla-jobs", "medulla-types/jobs", "medulla-capabilities/jobs",
 ]
 # CONCEPT:INT-P2-2 -- the native finite-state-machine / statechart engine:
 # `Method::Statechart` (define/instantiate/send_event/get_state/list over a durable,
 # rehydratable `(state, context)` machine-instance record in `statecharts.redb`) +
 # `src/server/handlers/statechart.rs`. Pulls `server` (Tokio dispatch + ServerState) +
-# `dep:eg-statechart` (the typed model + pure transition fn + redb store) + the matching
-# `eg-types/statechart` and `eg-capabilities/statechart` wire/policy features (kept in
+# `dep:medulla-statechart` (the typed model + pure transition fn + redb store) + the matching
+# `medulla-types/statechart` and `medulla-capabilities/statechart` wire/policy features (kept in
 # LOCKSTEP, exactly like `jobs`). Unlike `jobs` it needs neither `mining` nor `epistemic`
 # -- phase-1 does not reuse a compute kernel or write claims. Included in the main `full`
 # build.
 statechart = [
     "server",
-    "dep:eg-statechart", "eg-types/statechart", "eg-capabilities/statechart",
+    "dep:medulla-statechart", "medulla-types/statechart", "medulla-capabilities/statechart",
 ]
 # Graph-native, provider-neutral LM programs and governed self-improvement. This
 # extends the one analytics-job authority; it does not introduce another network,
 # cache, provider, or graph-mutation path.
-program-optimization = ["jobs", "dep:eg-program", "eg-types/program-optimization"]
-# D-VZ-1 (lane V0, `plans/au-eg-program/deferred/lane-viz-native.md`) -- native
-# visualization contracts. `viz` links `eg-viz-core` alone (ViewSpec IR, ViewResult
+program-optimization = ["jobs", "dep:medulla-program", "medulla-types/program-optimization"]
+# D-VZ-1 (lane V0, `plans/au-medulla-program/deferred/lane-viz-native.md`) -- native
+# visualization contracts. `viz` links `medulla-viz-core` alone (ViewSpec IR, ViewResult
 # metadata, capability matrix, tier-selection rules, trait boundaries only -- no
-# ColumnStore, no LOD kernel, no renderer) PLUS the `eg-types` wire DTO
-# (`eg-types/viz` -> `Method::Viz`, lanes V4/V6) so a caller can already build/parse
-# a `VizOp` even before a server handler exists to serve it -- `eg-capabilities?/viz`
+# ColumnStore, no LOD kernel, no renderer) PLUS the `medulla-types` wire DTO
+# (`medulla-types/viz` -> `Method::Viz`, lanes V4/V6) so a caller can already build/parse
+# a `VizOp` even before a server handler exists to serve it -- `medulla-capabilities?/viz`
 # is a WEAK-dep edge (Cargo `pkg?/feature` syntax): it only takes effect if
-# `eg-capabilities` is ALSO linked via `server` from elsewhere (bare `viz` alone
-# does not pull `server`/`eg-capabilities`), keeping `policy()`'s exhaustive
+# `medulla-capabilities` is ALSO linked via `server` from elsewhere (bare `viz` alone
+# does not pull `server`/`medulla-capabilities`), keeping `policy()`'s exhaustive
 # `Method` match in lockstep whenever both happen to be active together. `cargo
-# build`'s DEFAULT feature set still gains no `eg-viz-core` dependency at all --
+# build`'s DEFAULT feature set still gains no `medulla-viz-core` dependency at all --
 # bare `viz` needs an explicit `--features viz` (or `full`, see below).
 #
 # VIZ-2 (million-node graph visualization program, 2026-08): `viz`/
 # `viz-columnstore`/`viz-static-export`/`viz-interactive`/`viz-graph-tiles` were
-# ALL previously excluded from `full` -- this is WHY `epistemic-graph-server` had
-# zero `VizRenderRequest`/`ColumnStoreExportBackend`/`eg_viz_*` strings and
+# ALL previously excluded from `full` -- this is WHY `medulla-server` had
+# zero `VizRenderRequest`/`ColumnStoreExportBackend`/`medulla_viz_*` strings and
 # `/api/enhanced/graph/viz/capabilities` 500'd in production: the production wheel
 # builds `--features full,ast-extended` (see `pyproject.toml`, `scripts/
 # wheel_privacy_gate.sh`, `scripts/promote_engine.sh`), and none of this DAG was
 # reachable from it. Re-verified against a fresh worktree at the time of this
-# change: confirmed by `cargo tree` (no eg-viz-* hit without an explicit `--features
+# change: confirmed by `cargo tree` (no medulla-viz-* hit without an explicit `--features
 # viz...`) prior to this edit. Folded into `full` now because every tier below is
 # real, bounded, dependency-light work (never a placeholder -- see each feature's
 # own comment), `viz-interactive`'s loopback HTTP listener stays OFF at runtime
@@ -414,13 +414,13 @@ program-optimization = ["jobs", "dep:eg-program", "eg-types/program-optimization
 # stays excluded -- it gates nothing but a reserved, unimplemented trait slot, so
 # folding it in would cost nothing but would also prove nothing; it joins `full`
 # once V3a/V6 GPU work actually lands behind it.
-viz = ["dep:eg-viz-core", "eg-types/viz", "eg-capabilities?/viz"]
+viz = ["dep:medulla-viz-core", "medulla-types/viz", "medulla-capabilities?/viz"]
 viz-gpu-export = ["viz"]
 # GOC-34 (`OWNER-VOICE-TTS`) -- native Piper-ONNX text-to-speech PROVIDER behind the
-# frozen `eg-audio::tts` wire contract (crates/eg-audio/src/tts.rs, itself validation-
-# only: "no I/O, no inference"). `dep:eg-tts-piper` links a pinned crates.io `piper-rs`
+# frozen `medulla-audio::tts` wire contract (crates/medulla-audio/src/tts.rs, itself validation-
+# only: "no I/O, no inference"). `dep:medulla-tts-piper` links a pinned crates.io `piper-rs`
 # 0.2.0 + `espeak-rs` 0.2.0 (NOT a `git =` source -- both are genuinely published, see
-# `crates/eg-tts-piper/src/lib.rs`'s doc for the full provenance/rationale) plus a real
+# `crates/medulla-tts-piper/src/lib.rs`'s doc for the full provenance/rationale) plus a real
 # ONNX Runtime (`ort`) and an espeak-ng C build (cmake/cc/libclang at build time, no
 # network) -- heavy native inference deps that must NOT reach the default listener
 # (acceptance gate: "the default EG listener builds and starts without ORT, eSpeak,
@@ -430,14 +430,14 @@ viz-gpu-export = ["viz"]
 # exposes only the internal provider library. No public synthesis method is served
 # until the accepted CAS-backed job/consent contract exists.
 tts-piper = [
-    "dep:eg-tts-piper", "dep:eg-audio", "eg-audio/tts",
+    "dep:medulla-tts-piper", "dep:medulla-audio", "medulla-audio/tts",
 ]
 # D-VZ-1 lane V1: the ColumnStore (canonical columns, zone maps, content-addressed
-# chunks, validity bitmaps, dictionary categoricals) implementing `eg-viz-core`'s
+# chunks, validity bitmaps, dictionary categoricals) implementing `medulla-viz-core`'s
 # `ColumnStoreIngest` trait. Pure Rust; adds zero new external crates.io
-# dependencies beyond what `eg-viz-core` itself already resolves (serde/sha2/hex)
+# dependencies beyond what `medulla-viz-core` itself already resolves (serde/sha2/hex)
 # plus `bitvec`, already resolved elsewhere in this lockfile at the same version.
-viz-columnstore = ["viz", "dep:eg-viz-columnstore"]
+viz-columnstore = ["viz", "dep:medulla-viz-columnstore"]
 # D-VZ-1 lane V3a: static PNG/SVG/PDF export -- "the matplotlib replacement" --
 # resolved from a ViewSpec against a viz-columnstore ColumnStore, honoring
 # (never re-deriving) the tier `select_tier` chose. Hand-rolled PNG/PDF encoders
@@ -448,34 +448,34 @@ viz-columnstore = ["viz", "dep:eg-viz-columnstore"]
 # (`src/server/handlers/viz.rs`) and its dispatch arm -- both gated
 # `#[cfg(feature = "viz-static-export")]`, a deliberate deviation from gating them
 # on bare `viz` (see that handler's module doc): the handler needs a real
-# `eg_viz_columnstore::ColumnStore` + `eg_viz_export::ColumnStoreExportBackend` to
+# `medulla_viz_columnstore::ColumnStore` + `medulla_viz_export::ColumnStoreExportBackend` to
 # do anything, which only exist at this tier, so bare `viz` (V0's bare wire/IR
 # contracts) staying handler-free keeps its own "no ColumnStore, no LOD kernel, no
 # renderer" doc claim honest. `server` is therefore pulled in HERE (not on bare
 # `viz`) -- this is the ONLY tier that needs it, and pulling it here (rather than
 # relying on it merely being present in `full`) means `--features viz-static-export`
 # alone (no `--no-default-features`) is enough for `Method::Viz` to be reachable.
-viz-static-export = ["viz-columnstore", "dep:eg-viz-export", "server"]
+viz-static-export = ["viz-columnstore", "dep:medulla-viz-export", "server"]
 # D-VZ-1 lane V3b: the interactive rendering surface -- a loopback-only,
 # dependency-free HTTP/1.1 listener (`src/server/viz_interactive.rs`, the SAME
 # hand-rolled idiom `--metrics-addr`/`--obs-addr`/`lake/rest.rs` already use;
 # no axum/hyper/websocket dependency added) serving a reference WebGPU/WebGL2
 # client (`GET /`, honest degradation -- see that module's doc) and a binary
-# viewport-tile protocol (`GET /tile`) built on `eg_viz_kernels::lttb_reduce`
+# viewport-tile protocol (`GET /tile`) built on `medulla_viz_kernels::lttb_reduce`
 # over the SAME persistent `VizEngineState` (lane V4) the RPC render path
 # uses. Implies `viz-static-export` (needs the persistent ColumnStore/render
-# cache) and pulls `eg-viz-kernels` directly (this crate calls `lttb_reduce`
-# itself; `viz-static-export`/`eg-viz-export` alone would only bring it in
+# cache) and pulls `medulla-viz-kernels` directly (this crate calls `lttb_reduce`
+# itself; `viz-static-export`/`medulla-viz-export` alone would only bring it in
 # transitively, not name it for THIS crate's own `use`).
-viz-interactive = ["viz-static-export", "dep:eg-viz-kernels"]
+viz-interactive = ["viz-static-export", "dep:medulla-viz-kernels"]
 # VIZ-2 (million-node graph visualization program, lane VIZ-2): the binary
 # tile/streaming protocol for GRAPH payloads (nodes + edges together, edges
 # referencing nodes by array index rather than repeating string ids), addressed
 # by cluster id -- this is the wire form of the shared `clusters(graph, level,
 # parent?)`/`expand(graph, cluster_id)` contract VIZ-1's server-side
 # hierarchical clustering and VIZ-3's client both build against (see
-# `crates/eg-viz-graph-tiles`'s own doc for the format and why it does NOT reuse
-# `eg_viz_kernels::lttb_reduce`/`m4_reduce` -- those are ordered-x-axis
+# `crates/medulla-viz-graph-tiles`'s own doc for the format and why it does NOT reuse
+# `medulla_viz_kernels::lttb_reduce`/`m4_reduce` -- those are ordered-x-axis
 # time-series kernels, "LTTB over edges is nonsense"). Deliberately a SEPARATE
 # feature from bare `viz-interactive` (not folded directly into it) because it
 # names its own crate dependency and its own routes
@@ -483,32 +483,32 @@ viz-interactive = ["viz-static-export", "dep:eg-viz-kernels"]
 # implying `viz-interactive` rather than duplicating a second listener/port.
 # Pure Rust, zero new external crates.io dependencies beyond serde/serde_json
 # already resolved workspace-wide (see that crate's own Cargo.toml).
-viz-graph-tiles = ["viz-interactive", "dep:eg-viz-graph-tiles"]
-# D-DE-0 (lane w6-de0-contracts, `plans/au-eg-program/program/durable-execution-native.md`)
-# -- the durable-execution ROUTING contract. `durable` links `eg-durable` alone (the
+viz-graph-tiles = ["viz-interactive", "dep:medulla-viz-graph-tiles"]
+# D-DE-0 (lane w6-de0-contracts, `plans/au-medulla-program/program/durable-execution-native.md`)
+# -- the durable-execution ROUTING contract. `durable` links `medulla-durable` alone (the
 # CallShape/WorkShape/DurableBackendKind routing table + the DurableExecutionUnitMirror
-# DTO, no journal/lease/2PC/state-store code -- those already exist in eg-statechart/
-# eg-jobs/eg-transaction and are not reimplemented here, see that crate's own docs).
+# DTO, no journal/lease/2PC/state-store code -- those already exist in medulla-statechart/
+# medulla-jobs/medulla-transaction and are not reimplemented here, see that crate's own docs).
 # Deliberately EXCLUDED from `full`, same posture as `viz`/`quantum` above: DE0 ships
 # contracts only, nothing here is wired to a server handler yet, so folding it into the
 # one main build would add a dependency with zero behavior to show for it. `cargo
-# build`'s default feature set gains no `eg-durable` dependency at all -- confirmed by
+# build`'s default feature set gains no `medulla-durable` dependency at all -- confirmed by
 # `cargo tree` (no hit without `--features durable`).
-durable = ["dep:eg-durable"]
+durable = ["dep:medulla-durable"]
 # Concrete governed document/image/audio/video service. The dependency-light native
 # decoders feed the shared ServedModalityRuntime; graph snapshots and the universal
 # MutationBatch gateway provide the authoritative restart/idempotency boundary.
 modality-serving = [
     "server", "redb", "security", "streaming",
-    "dep:eg-modality",
-    "dep:eg-document", "eg-document/serving",
-    "dep:eg-image", "eg-image/runtime",
-    "dep:eg-audio", "eg-audio/runtime",
-    "dep:eg-video", "eg-video/runtime",
-    "eg-types/modality-serving", "eg-capabilities/modality-serving",
+    "dep:medulla-modality",
+    "dep:medulla-document", "medulla-document/serving",
+    "dep:medulla-image", "medulla-image/runtime",
+    "dep:medulla-audio", "medulla-audio/runtime",
+    "dep:medulla-video", "medulla-video/runtime",
+    "medulla-types/modality-serving", "medulla-capabilities/modality-serving",
 ]
 # Native ASR provider surface (GOC-33, `OWNER-VOICE-ASR`): `Method::Asr { op }` over
-# the heavy `eg-asr-whisper` (whisper-rs/whisper.cpp) crate. Deliberately EXCLUDED
+# the heavy `medulla-asr-whisper` (whisper-rs/whisper.cpp) crate. Deliberately EXCLUDED
 # from `full`/`default` — the ENTIRE point (lane doc: "heavy ML/native deps do not
 # enter the lean serving plane... keep it behind a Cargo feature so a build that
 # does not want ASR does not pay for it"). `cargo build`'s default feature set links
@@ -516,131 +516,131 @@ modality-serving = [
 # `--features asr-whisper`). NOT graph-scoped (a transcription reads no persisted
 # graph state) — self-routes in `dispatch.rs`, ahead of the per-graph
 # `dispatch_graph_op` chain, exactly like `quantum-agent-api`/`viz-static-export`.
-asr-whisper = ["server", "dep:eg-asr-whisper", "eg-audio/asr", "eg-types/asr-native", "eg-capabilities/asr-native"]
-# Read-only SQL query surface (CONCEPT:KG-2.178). Pulls eg-query + DataFusion/Arrow
+asr-whisper = ["server", "dep:medulla-asr-whisper", "medulla-audio/asr", "medulla-types/asr-native", "medulla-capabilities/asr-native"]
+# Read-only SQL query surface (CONCEPT:KG-2.178). Pulls medulla-query + DataFusion/Arrow
 # and is included in the one main build.
 # `redb` is REQUIRED, not incidental: RF-RULING-006 opens the SQL catalog through
 # the storage kernel, so `TableStore::open` now takes this binary's
-# `eg_storage::ScopeGrantVerifier` (`store_authority`) -- a type that only exists
-# when `dep:eg-storage` is linked, which is what the `redb` feature does. A
+# `medulla_storage::ScopeGrantVerifier` (`store_authority`) -- a type that only exists
+# when `dep:medulla-storage` is linked, which is what the `redb` feature does. A
 # `--features query` build without it cannot name the composition root's
 # verifier, so the edge is stated here rather than left to fail at link time.
-query = ["redb", "dep:eg-query", "eg-query/sql", "dep:eg-plan", "eg-plan/query", "eg-types/query", "eg-tsdb?/arrow-seg"]
+query = ["redb", "dep:medulla-query", "medulla-query/sql", "dep:medulla-plan", "medulla-plan/query", "medulla-types/query", "medulla-tsdb?/arrow-seg"]
 # The one native streaming query/job result currency. Every served family adapts to
 # governed, bounded KnowledgeBatch envelopes with stable Arrow schemas.
 knowledge-batch = [
     "query",
-    "dep:eg-plan",
-    "dep:eg-modality",
-    "eg-plan/knowledge-batch",
-    "eg-types/knowledge-batch",
-    "eg-capabilities/knowledge-batch",
+    "dep:medulla-plan",
+    "dep:medulla-modality",
+    "medulla-plan/knowledge-batch",
+    "medulla-types/knowledge-batch",
+    "medulla-capabilities/knowledge-batch",
 ]
-# Cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer, handoff-1
-# Lane A). Facade feature selector for `eg-plan/cost-opt`; implies `query`. The optimizer
+# Cross-modal cost-based optimizer (CONCEPT:MEDULLA-KG.query.xmodal-cost-optimizer, handoff-1
+# Lane A). Facade feature selector for `medulla-plan/cost-opt`; implies `query`. The optimizer
 # body already runs whenever `query` is linked (its runtime kill-switch is
-# `EPISTEMIC_GRAPH_COST_OPT=0` → identity), so this feature simply makes the optimizer an
+# `MEDULLA_COST_OPT=0` → identity), so this feature simply makes the optimizer an
 # explicit part of the one main `full` build. Cheap (no extra deps — cost-opt = query).
-cost-opt = ["query", "dep:eg-plan", "eg-plan/cost-opt"]
-# Physical parallel runtime (CONCEPT:EG-KG.query.parallel-runtime, handoff-1 Lane B): the
+cost-opt = ["query", "dep:medulla-plan", "medulla-plan/cost-opt"]
+# Physical parallel runtime (CONCEPT:MEDULLA-KG.query.parallel-runtime, handoff-1 Lane B): the
 # opt-in rayon-morsel `ParallelDriver` behind the Lane-0 `Driver` seam (pool width /
-# spill budget from `EPISTEMIC_GRAPH_EXEC_THREADS` / `_SPILL_MB`). Pulls rayon via
-# `eg-plan/par-runtime`. It is an explicit source feature outside the supported product
+# spill budget from `MEDULLA_EXEC_THREADS` / `_SPILL_MB`). Pulls rayon via
+# `medulla-plan/par-runtime`. It is an explicit source feature outside the supported product
 # bundles; the one main build routes through the byte-identical `SerialDriver`.
-par-runtime = ["query", "dep:eg-plan", "eg-plan/par-runtime"]
+par-runtime = ["query", "dep:medulla-plan", "medulla-plan/par-runtime"]
 # Embedded BM25 full-text search + the lexical `RankText` op + the RRF `FuseRrf`
-# hybrid (CONCEPT:KG-2.215). Pulls eg-text's Tantivy index (the Rust Lucene —
-# zstd-sys etc.) via eg-plan's `text`, which IMPLIES `query`. HEAVY (≈140 transitive
+# hybrid (CONCEPT:KG-2.215). Pulls medulla-text's Tantivy index (the Rust Lucene —
+# zstd-sys etc.) via medulla-plan's `text`, which IMPLIES `query`. HEAVY (≈140 transitive
 # crates incl. zstd-sys's C build). It is included in the one main build and pulls
-# eg-plan (the planner that hosts the op) just as `query` does.
-text = ["dep:eg-plan", "eg-plan/text", "eg-types/text", "query"]
+# medulla-plan (the planner that hosts the op) just as `query` does.
+text = ["dep:medulla-plan", "medulla-plan/text", "medulla-types/text", "query"]
 # Query federation / foreign sources (CONCEPT:KG-2.232, Lane P): the `Op::ForeignScan`
 # SOURCE op + the `RegisterForeignSource` Method. A federated UnifiedQuery reads an
-# EXTERNAL source (a REMOTE epistemic-graph engine over the same transport, OR a generic
+# EXTERNAL source (a REMOTE medulla-engine engine over the same transport, OR a generic
 # HTTP/JSON API) as a RowSet and composes it with the local graph/vector/SQL ops in ONE
-# plan. Pulls eg-plan's `federation` (the `ForeignSource` trait + the rustls HTTP client
+# plan. Pulls medulla-plan's `federation` (the `ForeignSource` trait + the rustls HTTP client
 # `ureq` + hmac/sha2/hex), which IMPLIES `query`. The rustls/ring TLS stack is included
 # in the one main build.
-federation = ["dep:eg-plan", "eg-plan/federation", "eg-types/federation", "query", "server"]
+federation = ["dep:medulla-plan", "medulla-plan/federation", "medulla-types/federation", "query", "server"]
 # External relational-SQL federation (CONCEPT:KG-2.239): the THIRD `ForeignSource` kind
 # — `ForeignSourceSpec::Sql` — so a federated UnifiedQuery JOINS an external Postgres/MySQL
 # table with the LOCAL graph/vector in ONE plan (the "engine federates external SQL" half
-# sql-mcp alone cannot give). Pulls eg-plan's `federation-sql` (a `sqlx` client on the
+# sql-mcp alone cannot give). Pulls medulla-plan's `federation-sql` (a `sqlx` client on the
 # PURE-RUST `runtime-tokio-rustls` backend — NEVER openssl), which IMPLIES `federation`.
 # The SQL driver uses the pure-Rust rustls backend and is included in the one main build;
 # no OpenSSL dependency is introduced.
-federation-sql = ["dep:eg-plan", "eg-plan/federation-sql", "federation"]
-# Spatial / geospatial modality (CONCEPT:EG-083): the `Op::SpatialScan { layer, bbox }`
+federation-sql = ["dep:medulla-plan", "medulla-plan/federation-sql", "federation"]
+# Spatial / geospatial modality (CONCEPT:MEDULLA-083): the `Op::SpatialScan { layer, bbox }`
 # SOURCE op + the `Pred::SpatialWithin`/`SpatialDWithin` FILTER predicates, so a spatial
-# filter composes with Traverse/Rank/Filter in ONE UnifiedQuery plan. Pulls eg-plan's
-# `geo` (the executor + the pure-Rust eg-geo leaf crate: geometry + WKT + planar
+# filter composes with Traverse/Rank/Filter in ONE UnifiedQuery plan. Pulls medulla-plan's
+# `geo` (the executor + the pure-Rust medulla-geo leaf crate: geometry + WKT + planar
 # predicates + a packed Hilbert R-tree — only serde, NO GEOS/PROJ/C dep), which IMPLIES
 # `query` (the ops live inside the `query`-gated `Op`/`Pred` enums). It is pure Rust and
 # included in the one main build.
-geo = ["query", "dep:eg-plan", "eg-plan/geo", "eg-types/geo", "dep:eg-geo"]
-# Array / tensor modality (CONCEPT:EG-085): the `Op::TensorScan { layer }` SOURCE op +
+geo = ["query", "dep:medulla-plan", "medulla-plan/geo", "medulla-types/geo", "dep:medulla-geo"]
+# Array / tensor modality (CONCEPT:MEDULLA-085): the `Op::TensorScan { layer }` SOURCE op +
 # the `Op::TensorOp { kind }` TRANSFORM op (slice/reduce/elementwise), so an array
-# modality composes with Traverse/Rank/Filter in ONE UnifiedQuery plan. Pulls eg-plan's
-# `tensor` (the executor + the pure-Rust eg-tensor leaf crate: dense N-D array + ops +
+# modality composes with Traverse/Rank/Filter in ONE UnifiedQuery plan. Pulls medulla-plan's
+# `tensor` (the executor + the pure-Rust medulla-tensor leaf crate: dense N-D array + ops +
 # byte-blob codec — only serde, NO BLAS/LAPACK/C dep), which IMPLIES `query` (the ops
-# live inside the `query`-gated `Op` enum). Also pulls `dep:eg-tensor` directly (mirrors
-# `geo`'s `dep:eg-geo`): the served `run_unified` binds the process-lifetime
+# live inside the `query`-gated `Op` enum). Also pulls `dep:medulla-tensor` directly (mirrors
+# `geo`'s `dep:medulla-geo`): the served `run_unified` binds the process-lifetime
 # `TensorStore` write-back sink itself (`src/server/handlers/query.rs`), so the facade
-# needs the leaf crate's type, not just eg-plan's internal use of it. It is pure Rust
+# needs the leaf crate's type, not just medulla-plan's internal use of it. It is pure Rust
 # and included in the one main build.
-tensor = ["query", "dep:eg-plan", "eg-plan/tensor", "eg-types/tensor", "dep:eg-tensor"]
-# Event-stream + complex-event-processing (CEP) modality (CONCEPT:EG-088): the
+tensor = ["query", "dep:medulla-plan", "medulla-plan/tensor", "medulla-types/tensor", "dep:medulla-tensor"]
+# Event-stream + complex-event-processing (CEP) modality (CONCEPT:MEDULLA-088): the
 # `Op::Cep { pattern }` TRANSFORM op — interpret a RowSet as a time-ordered event stream
 # and run a bounded NFA (Sequence/Within/Absence over sliding/tumbling windows) — so a
-# CEP match composes with Traverse/Rank/Filter in ONE UnifiedQuery plan. Pulls eg-plan's
-# `stream` (the executor + the pure-Rust eg-stream leaf crate: bounded NFA CEP engine +
+# CEP match composes with Traverse/Rank/Filter in ONE UnifiedQuery plan. Pulls medulla-plan's
+# `stream` (the executor + the pure-Rust medulla-stream leaf crate: bounded NFA CEP engine +
 # per-event attribute predicates — serde + serde_json only, NO tokio/async/C dep), which
 # IMPLIES `query` (the op lives inside the `query`-gated `Op` enum). It is pure Rust and
-# included in the one main build. EG-067
-# `Op::Window` is the windowing primitive; the live standing-query loop fed by the EG-064
+# included in the one main build. MEDULLA-067
+# `Op::Window` is the windowing primitive; the live standing-query loop fed by the MEDULLA-064
 # CDC bus is a documented follow-up.
-stream = ["query", "dep:eg-plan", "eg-plan/stream", "eg-types/stream", "dep:eg-stream", "eg-stream/stream"]
-# Natural-language query surface (CONCEPT:EG-078/EG-080): the NL→query planning SEAM
-# (`eg_plan::NlPlanner` + the LLM-optional `Option<&dyn NlPlanner>` entry point) and the
+stream = ["query", "dep:medulla-plan", "medulla-plan/stream", "medulla-types/stream", "dep:medulla-stream", "medulla-stream/stream"]
+# Natural-language query surface (CONCEPT:MEDULLA-078/MEDULLA-080): the NL→query planning SEAM
+# (`medulla_plan::NlPlanner` + the LLM-optional `Option<&dyn NlPlanner>` entry point) and the
 # concrete standalone `UreqNlPlanner`, plus the facade wiring — the `Method::NlQuery`
 # handler + the `/nl` HTTP route. NL is turned into a UQL query STRING by a pluggable
 # planner, then run through the IDENTICAL deterministic UQL pipeline, so
-# the engine core stays pure-Rust + LLM-optional. Pulls eg-plan's `nl-query` (the SAME
+# the engine core stays pure-Rust + LLM-optional. Pulls medulla-plan's `nl-query` (the SAME
 # pure-Rust rustls `ureq` client the federation sources use — NO new HTTP dep, NO
 # openssl), which IMPLIES `query`. Needs `server` (the handler + route live in the
 # facade) and is included in the one main build.
-nl-query = ["query", "dep:eg-plan", "eg-plan/nl-query", "server"]
+nl-query = ["query", "dep:medulla-plan", "medulla-plan/nl-query", "server"]
 # Dep-free Cypher query surface (CONCEPT:KG-2.179): `MATCH … RETURN …` compiled to
 # the engine's own primitives (label index / VF2 / BFS). It is included in the one main
 # build; a targeted `cypher`-only feature check links no DataFusion.
-cypher = ["dep:eg-query", "eg-query/cypher"]
-# CONCEPT:EG-KG.query.cypher-engine-shadow — the `EPISTEMIC_GRAPH_CYPHER_ENGINE`
+cypher = ["dep:medulla-query", "medulla-query/cypher"]
+# CONCEPT:MEDULLA-KG.query.cypher-engine-shadow — the `MEDULLA_CYPHER_ENGINE`
 # rollout surface (legacy | plan | shadow) + its shadow-differential divergence log.
 # In the one main `full` build; a lean `cypher`-only build stays legacy-only.
-cypher-plan = ["cypher", "eg-query/cypher-plan"]
+cypher-plan = ["cypher", "medulla-query/cypher-plan"]
 # Native GraphQL READ surface (CONCEPT:KG-2.235): a GraphQL query compiled to scans +
-# BFS over the GraphView via the eg-graphql crate (schema-from-graph + a hand-written
+# BFS over the GraphView via the medulla-graphql crate (schema-from-graph + a hand-written
 # parser + resolver). PURE-RUST — NO async-graphql (evaluated: ~80+ transitive crates +
 # a proc-macro schema-derive). GraphQL is included in the one main build;
-# `eg-types/graphql` carries the `Method::GraphQl` variant. Needs `server` (the
+# `medulla-types/graphql` carries the `Method::GraphQl` variant. Needs `server` (the
 # handler routes through dispatch) and `security`: both the RPC surface and the SSE
 # carrier require the current verified request context, graph ACL, and default-deny
 # row projection. There is no unfiltered GraphQL build or listener fallback.
-graphql = ["dep:eg-graphql", "eg-graphql/hardening", "eg-types/graphql", "server", "security"]
-# Native time-series store + TS primitives (CONCEPT:KG-2.210/211). Pulls eg-tsdb's
+graphql = ["dep:medulla-graphql", "medulla-graphql/hardening", "medulla-types/graphql", "server", "security"]
+# Native time-series store + TS primitives (CONCEPT:KG-2.210/211). Pulls medulla-tsdb's
 # redb chunk store + the native ASOF/gap-fill/time_bucket/OHLC/decay primitives.
 # A targeted `tsdb`-only feature check links no DataFusion.
 # Requires `redb` (the durable series store sits beside the graph shards) + `server` (the
 # series handler routes through dispatch) and is included in the one main build. With
-# `query`, eg-tsdb's `arrow-seg` lights up the
+# `query`, medulla-tsdb's `arrow-seg` lights up the
 # DataFusion `time_bucket = GROUP BY (ts/w)*w` leg (see the `query` feature below).
-tsdb = ["server", "redb", "dep:eg-tsdb", "eg-tsdb/redb-store", "dep:eg-plan", "eg-plan/timeseries"]
+tsdb = ["server", "redb", "dep:medulla-tsdb", "medulla-tsdb/redb-store", "dep:medulla-plan", "medulla-plan/timeseries"]
 # Observability log ingestion front door + Parquet-on-blob-CAS segments
-# (CONCEPT:EG-160/161) — the first slice of Phase T ("surpass OpenObserve"). A
+# (CONCEPT:MEDULLA-160/161) — the first slice of Phase T ("surpass OpenObserve"). A
 # hand-rolled HTTP listener (the SAME dep-free idiom as `metrics`/`sparql-http` — NO
 # axum/hyper) accepting OTLP/HTTP, Elasticsearch
-# `_bulk`/`_doc` and JSON-lines log records, landing them in an eg-tsdb series (time
-# range + retention) + a per-stream eg-text Tantivy index (full-text), and rolling
+# `_bulk`/`_doc` and JSON-lines log records, landing them in an medulla-tsdb series (time
+# range + retention) + a per-stream medulla-text Tantivy index (full-text), and rolling
 # Parquet columnar segments into the blob CAS (S3 when `blob-s3` is on). IMPLIES
 # `tsdb` (series) + `text` (Tantivy full-text — which itself implies `query`) +
 # `blob` (the CAS). Pulls the maintained Polars Parquet codec (+ `arrow`, which is
@@ -651,36 +651,36 @@ obs = [
     "tsdb",
     "text",
     "blob",
-    "dep:eg-text",
-    "eg-text/tantivy",
+    "dep:medulla-text",
+    "medulla-text/tantivy",
     "dep:arrow",
     "dep:polars-core",
     "dep:polars-io",
     # EH-408/EH-409: the pure telemetry→fact engine (serde + serde_json only).
-    "dep:eg-stream",
+    "dep:medulla-stream",
 ]
-# CONCEPT:EG-172 — PromQL + the Prometheus HTTP query API (`/api/v1/query[_range]`,
-# `/labels`) served on the obs listener over the durable eg-tsdb series. Pure-Rust
-# parser + evaluator (`eg-tsdb/promql`) + the facade glue in `src/server/promql`; NO
+# CONCEPT:MEDULLA-172 — PromQL + the Prometheus HTTP query API (`/api/v1/query[_range]`,
+# `/labels`) served on the obs listener over the durable medulla-tsdb series. Pure-Rust
+# parser + evaluator (`medulla-tsdb/promql`) + the facade glue in `src/server/promql`; NO
 # new heavy dep. Implies `obs` (needs the listener + the durable SeriesStore + tsdb)
 # and is included in the one main build.
-promql = ["obs", "eg-tsdb/promql"]
-# CONCEPT:EG-163 — distributed traces: OTLP-JSON span ingest + a Jaeger/OpenObserve
+promql = ["obs", "medulla-tsdb/promql"]
+# CONCEPT:MEDULLA-163 — distributed traces: OTLP-JSON span ingest + a Jaeger/OpenObserve
 # trace-search / assembly / service-dependency-graph HTTP API served on the obs
-# listener, over the pure-Rust `eg-tsdb/traces` span store + the facade glue in
+# listener, over the pure-Rust `medulla-tsdb/traces` span store + the facade glue in
 # `src/server/traces`. Completes the observability trilogy (logs + metrics + traces).
 # NO new heavy dep. Implies `obs` (needs the listener + ObsState) and is included in
 # the one main build.
-traces = ["obs", "eg-tsdb/traces"]
-# CONCEPT:EG-316 — the OBSERVABILITY EGRESS half + a Prometheus push receiver. Two
+traces = ["obs", "medulla-tsdb/traces"]
+# CONCEPT:MEDULLA-316 — the OBSERVABILITY EGRESS half + a Prometheus push receiver. Two
 # additive, feature-gated capabilities that close the obs loop the engine already
-# INGESTS (logs EG-160, metrics/PromQL EG-172, traces EG-163):
+# INGESTS (logs MEDULLA-160, metrics/PromQL MEDULLA-172, traces MEDULLA-163):
 #   1. OTLP EXPORT — push the engine's OWN Prometheus metrics + its stored spans to an
 #      external OpenTelemetry collector over OTLP/HTTP JSON (the same OTLP shape the
-#      EG-160/163 ingest side parses), via the pure-Rust `ureq` client.
+#      MEDULLA-160/163 ingest side parses), via the pure-Rust `ureq` client.
 #   2. Prometheus `remote_write` RECEIVER — accept snappy-compressed protobuf
 #      `WriteRequest` POSTs (`/api/v1/write`) on the obs listener and land the samples
-#      in the durable eg-tsdb SeriesStore, so an external Prometheus can PUSH to us.
+#      in the durable medulla-tsdb SeriesStore, so an external Prometheus can PUSH to us.
 # Implies `obs` (the listener + ObsState + SeriesStore), `metrics` (the engine's own
 # Prometheus registry to export) and `traces` (the span store to export). Pulls
 # `prost` (protobuf codec for the remote-write WriteRequest) + `snap` (snappy block
@@ -695,36 +695,36 @@ otel-export = ["obs", "metrics", "traces", "dep:prost", "dep:snap", "dep:ureq"]
 # SAME one-Response-per-Request transport (cursor / long-poll — no side-channel). The
 # core is a bounded VecDeque ring + a tokio Notify: PURE-RUST, NO heavy dep, and is
 # included in the one main build. Needs `server` (the handler routes
-# through dispatch); `eg-types/streaming` carries the Method variants + wire DTOs.
-streaming = ["server", "eg-types/streaming"]
+# through dispatch); `medulla-types/streaming` carries the Method variants + wire DTOs.
+streaming = ["server", "medulla-types/streaming"]
 # CDC -> Kafka sink (CA-11, DEC-CA-03), off by default. Originally declared as
 # `["streaming"]` by CA-17's single feature-stub commit; CA-11 widened the parent
-# list to `dep:eg-stream, eg-stream/cdc-kafka` -- flagged in CA-11's report per the
+# list to `dep:medulla-stream, medulla-stream/cdc-kafka` -- flagged in CA-11's report per the
 # `ca17_feature_stub_contract` test's own escape hatch ("a lane changing its own
 # feature's parents must say so"). This is the ONLY way the `CdcSink`
-# trait/`rdkafka` producer (living in the leaf crate `eg-stream`, per the lane
+# trait/`rdkafka` producer (living in the leaf crate `medulla-stream`, per the lane
 # brief's own file list) becomes reachable when `cdc-kafka` is armed WITHOUT also
 # requiring the unrelated `stream` feature (the only other path that currently
-# pulls `dep:eg-stream`). Implies `streaming` -- the engine-side CDC stream it
+# pulls `dep:medulla-stream`). Implies `streaming` -- the engine-side CDC stream it
 # sinks from.
-cdc-kafka = ["streaming", "dep:eg-stream", "eg-stream/cdc-kafka"]
+cdc-kafka = ["streaming", "dep:medulla-stream", "medulla-stream/cdc-kafka"]
 # Version-keyed query-RESULT cache (CONCEPT:KG-2.233): caches the serialized bytes
 # of a read query (Sql/Cypher/Sparql/UnifiedQuery) on `GraphCore`, keyed by
 # `(query-hash, version())`. A repeated identical query on an UNCHANGED graph hits;
 # any write bumps the version → miss → recompute (staleness impossible). Pure-Rust
 # bounded LRU + hash (NO new dep, NO DataFusion/openraft/object_store), included in
 # the one main build. The CDC feed (feature `streaming`)
-# drives cross-replica invalidation when both are present. The weak `eg-query?/result-cache`
-# edge additionally unlocks `eg-query`'s named graph-projection catalog
-# (CONCEPT:EG-KG.query.named-graph-projection-catalog, W4.5/N5 — `gds.graph.project`/`.drop`/
+# drives cross-replica invalidation when both are present. The weak `medulla-query?/result-cache`
+# edge additionally unlocks `medulla-query`'s named graph-projection catalog
+# (CONCEPT:MEDULLA-KG.query.named-graph-projection-catalog, W4.5/N5 — `gds.graph.project`/`.drop`/
 # `.exists`/`.list` + named-projection reuse in the other `gds.*` procedures), which needs
-# `GraphView::projection_scope` — a field that only exists under `eg-core/result-cache` — and is
-# therefore compiled in ONLY when `eg-query` is already enabled (`cypher`/`query`), mirroring the
+# `GraphView::projection_scope` — a field that only exists under `medulla-core/result-cache` — and is
+# therefore compiled in ONLY when `medulla-query` is already enabled (`cypher`/`query`), mirroring the
 # `numeric`/`wasm-udf` weak-dep precedents below.
-result-cache = ["eg-core/result-cache", "eg-query?/result-cache"]
-# Plan-backed materialized views (CONCEPT:EG-KG.storage.plan-backed-matview): a NAMED,
+result-cache = ["medulla-core/result-cache", "medulla-query?/result-cache"]
+# Plan-backed materialized views (CONCEPT:MEDULLA-KG.storage.plan-backed-matview): a NAMED,
 # DURABLE `wire::Plan` over one graph whose RESULT rides the version-keyed, RLS-aware
-# result cache. Defining it executes the plan once (via the eg-plan runtime) and caches
+# result cache. Defining it executes the plan once (via the medulla-plan runtime) and caches
 # the bytes; a committed write bumps the graph version — and the CDC hub marks the view
 # stale (`src/server/matview/`) — so the next Get recomputes, never serving stale rows.
 # It generalizes the algo-only distributed-compute matview, but that kinship is only a
@@ -738,7 +738,7 @@ matview = [
     "query",
     "result-cache",
     "streaming",
-    "eg-types/matview",
+    "medulla-types/matview",
 ]
 # Cold object-store tier seam (CONCEPT:KG-2.233): a `ColdTier` trait (RAM→redb→
 # object-store) + an in-memory/redb default impl so a cold graph offloads its whole
@@ -746,7 +746,7 @@ matview = [
 # The trait + default are pure Rust and included in the one main build. An S3-backed
 # implementation lives behind the separate `cold-tier-s3` source feature so the
 # product bundles link no object-store SDK.
-cold-tier = ["eg-core/cold-tier"]
+cold-tier = ["medulla-core/cold-tier"]
 # S3/object-store ColdTier impl — reuses the blob `ChunkStore` S3 seam. It is absent
 # from the main, `cluster`, and `full-extras` bundles; only an explicit source feature
 # selection links the object_store SDK.
@@ -762,15 +762,15 @@ cold-tier-s3 = ["cold-tier", "blob-s3"]
 # enforcer is a periodic sweep over the registry + the existing evict/hibernate ops),
 # included in the one main build. Needs `server` (the
 # budget enforcer + ResourceStatsPage handler live on ServerState + the dispatch path);
-# `eg-types/cost` carries `ResourceStatsPage` + the snapshot wire DTOs.
-cost = ["server", "eg-types/cost"]
+# `medulla-types/cost` carries `ResourceStatsPage` + the snapshot wire DTOs.
+cost = ["server", "medulla-types/cost"]
 # In-engine Raft replication (CONCEPT:KG-2.188): runs the engine as a multi-node
 # HA cluster replicating its AUTHORITATIVE state via openraft. It is included only in
 # the source-built `cluster` layer; the mandatory single-node main build links no openraft.
 # It pulls `redb` because Raft replicates the redb-AUTHORITATIVE store (M2): a
 # committed log entry applies through the same PersistenceBackend/GraphCore path.
 # Activates only when built `--features raft` AND configured at runtime
-# (EPISTEMIC_GRAPH_RAFT_NODE_ID + EPISTEMIC_GRAPH_RAFT_PEERS); off → single-node.
+# (MEDULLA_RAFT_NODE_ID + MEDULLA_RAFT_PEERS); off → single-node.
 raft = [
     "server",
     "redb",
@@ -793,10 +793,10 @@ raft = [
 #
 # WARNING (found 2026-09-19, D-CFG-1): this feature does NOT control whether the
 # `Method::DistributedCompute`/`CreateMatView`/`GetMatView`/`RefreshMatView` wire
-# variants EXIST in `eg-types` -- `crates/eg-capabilities/Cargo.toml`'s base
-# `[dependencies.eg-types] features` list forces `eg-types/compute-dist` on
-# unconditionally, and `eg-capabilities` is itself unconditional under this
-# crate's `server` feature (`server = [..., "dep:eg-capabilities"]`). So those
+# variants EXIST in `medulla-types` -- `crates/medulla-capabilities/Cargo.toml`'s base
+# `[dependencies.medulla-types] features` list forces `medulla-types/compute-dist` on
+# unconditionally, and `medulla-capabilities` is itself unconditional under this
+# crate's `server` feature (`server = [..., "dep:medulla-capabilities"]`). So those
 # four variants exist in ANY `server` build, `full` included, regardless of
 # whether THIS feature (hence `raft`/openraft) is on. `compute-dist` here gates
 # only the real cross-shard execution engine. Do not `#[cfg(feature =
@@ -805,13 +805,13 @@ raft = [
 # `domain_for` comment for the arm this bit and the non-exhaustive-match defect
 # it caused under `--no-default-features --features full`. The proper long-term
 # fix is mirroring `jobs`/`statechart`/`quantum-agent-api`/`viz`/`asr-native`'s
-# pattern in `eg-capabilities` (exclude `compute-dist` from its unconditional
-# list, add a mirrored `eg-capabilities/compute-dist` companion feature enabled
+# pattern in `medulla-capabilities` (exclude `compute-dist` from its unconditional
+# list, add a mirrored `medulla-capabilities/compute-dist` companion feature enabled
 # here too, cfg-gate its four ROWS entries) -- deferred because it also requires
 # regenerating and re-verifying the committed capability-ledger contract
 # artifacts, which no lane has done yet for this feature.
-compute-dist = ["raft", "eg-types/compute-dist"]
-# Non-blocking cross-shard commit (CONCEPT:EG-082) — Paxos-Commit-lite. ADDITIVE: the
+compute-dist = ["raft", "medulla-types/compute-dist"]
+# Non-blocking cross-shard commit (CONCEPT:MEDULLA-082) — Paxos-Commit-lite. ADDITIVE: the
 # default cross-shard path stays classic 2PC (`src/raft/cross_shard_txn/`), which
 # holds its sole durable COMMIT decision in the coordinator's private redb and so
 # inherits 2PC's ONE blocking window (a coordinator crash between decision and apply
@@ -826,13 +826,13 @@ compute-dist = ["raft", "eg-types/compute-dist"]
 # under `test`/`harness` too (the new code is `cfg(any(feature="nonblocking", test,
 # feature="harness"))`), so `cargo test --features harness` also exercises it.
 nonblocking = ["raft"]
-# FULL Calvin deterministic-ordering cross-shard commit (CONCEPT:EG-324). ADDITIVE: a
+# FULL Calvin deterministic-ordering cross-shard commit (CONCEPT:MEDULLA-324). ADDITIVE: a
 # THIRD commit path alongside 2PC and Paxos-Commit-lite. Instead of an OCC prepare +
 # vote round, a global `CalvinSequencer` stamps each cross-shard txn with a monotone
 # total-order position, that ORDER is replicated through the Raft decision group (the
 # Calvin "input log"), and participants EXECUTE it deterministically with no vote and no
 # abort — so agreement on the order IS agreement on the outcome and a crashed coordinator
-# is resolved by any node replaying the replicated sequence. Reuses the EG-082 replicated
+# is resolved by any node replaying the replicated sequence. Reuses the MEDULLA-082 replicated
 # decision-graph machinery (hence `implies nonblocking`); the new code is
 # `cfg(any(feature="calvin", test, feature="harness"))`, so `cargo test --features
 # harness` exercises it. Pure-Rust, NO new dep. It is an explicit source feature outside
@@ -841,9 +841,9 @@ calvin = ["nonblocking"]
 # WASM-sandboxed UDF/extension model (CONCEPT:KG-2.228): an agent pushes a safe custom
 # compute function (a WebAssembly module) the engine runs SANDBOXED over a RowSet —
 # wasmtime with fuel-metering + a hard memory limit + NO host capabilities (pure
-# compute, no fs/net). Pulls eg-wasm → wasmtime + cranelift and is included in the one
+# compute, no fs/net). Pulls medulla-wasm → wasmtime + cranelift and is included in the one
 # main build. The `Udf{id}` plan op + the RegisterUdf/RunUdf methods light up with it.
-wasm-udf = ["dep:eg-wasm", "eg-wasm/wasm-udf", "server", "eg-types/wasm-udf", "eg-plan?/wasm-udf"]
+wasm-udf = ["dep:medulla-wasm", "medulla-wasm/wasm-udf", "server", "medulla-types/wasm-udf", "medulla-plan?/wasm-udf"]
 # Correctness + load harness (CONCEPT:KG-2.212 / KG-2.222) — the standing proof-engine
 # that gates every distributed/durability claim (multi-raft, M2 durability, distributed
 # txns, PITR/replication, the cross-shard 2PC atomicity + recovery proof). TEST/DEV-ONLY:
@@ -857,14 +857,14 @@ wasm-udf = ["dep:eg-wasm", "eg-wasm/wasm-udf", "server", "eg-types/wasm-udf", "e
 # production network path.
 harness = ["raft"]
 # Postgres wire-protocol shim (CONCEPT:KG-2.189). A facade-only listener that lets
-# psql / BI tools / ORMs run SQL against a graph, reusing the eg-query DataFusion
+# psql / BI tools / ORMs run SQL against a graph, reusing the medulla-query DataFusion
 # path (so it IMPLIES `query`) over the Tokio server (`server`) via the wire-neutral
-# `wire` core (CONCEPT:EG-074). The `pgwire` + `futures` crates are pure-Rust, and the
+# `wire` core (CONCEPT:MEDULLA-074). The `pgwire` + `futures` crates are pure-Rust, and the
 # mandatory main build already carries `query`/DataFusion plus the `_ring` crypto
-# backend. PGWire is therefore part of the one full main build (CONCEPT:EG-352) and
+# backend. PGWire is therefore part of the one full main build (CONCEPT:MEDULLA-352) and
 # remains present in both source-built layers. The listener starts only when configured
-# via EPISTEMIC_GRAPH_PGWIRE_ADDR.
-# The wire-agnostic SQL execution core (CONCEPT:EG-074, `server::wire`) — the wire-NEUTRAL
+# via MEDULLA_PGWIRE_ADDR.
+# The wire-agnostic SQL execution core (CONCEPT:MEDULLA-074, `server::wire`) — the wire-NEUTRAL
 # `classify → dispatch → exec` pipeline + session/txn state that EVERY SQL wire reuses
 # (`WireProtocol`/`WireSession`) — is compiled by every `query` + `server` build, because
 # the native `Method::Sql` catalog path shares its authorization and replay-receipt
@@ -877,108 +877,108 @@ pgwire = [
     "query",
     "server",
 ]
-# SQLite-compatible served surface (CONCEPT:EG-075) — Phase J of the multi-wire program.
+# SQLite-compatible served surface (CONCEPT:MEDULLA-075) — Phase J of the multi-wire program.
 # SQLite has NO client/server wire protocol (embedded library + file format), so this is
 # a lightweight dependency-free NDJSON-over-TCP endpoint (the same hand-rolled tokio idiom
 # as `sparql-http`/`metrics`) that accepts SQLite-dialect SQL, rewrites the SQLite-isms
 # (AUTOINCREMENT / INTEGER PRIMARY KEY / PRAGMA no-ops) and runs them through the shared
-# `WireProtocol`/`WireSession` core (CONCEPT:EG-074) — NO reimplemented SQL. PURE-RUST:
+# `WireProtocol`/`WireSession` core (CONCEPT:MEDULLA-074) — NO reimplemented SQL. PURE-RUST:
 # links NO C sqlite (no rusqlite/bundled). Needs `query` + `server` (which carry the
 # shared core) and is included in the one main build. Real `.db` file import/export is
 # the separate `sqlite-file` feature below.
 sqlite-wire = ["query", "server"]
-# SQLite `.db` FILE import/export (CONCEPT:EG-331/EG-332) — reading/writing a real
-# on-disk `sqlite3` `.db` file (the documented EG-075 follow-up), DISTINCT from the
+# SQLite `.db` FILE import/export (CONCEPT:MEDULLA-331/MEDULLA-332) — reading/writing a real
+# on-disk `sqlite3` `.db` file (the documented MEDULLA-075 follow-up), DISTINCT from the
 # `sqlite-wire` NDJSON dialect surface above. Import reads a `.db`'s tables+rows into
-# the engine's user-table store (the SAME `eg_query::TableStore` the `Method::Sql`
+# the engine's user-table store (the SAME `medulla_query::TableStore` the `Method::Sql`
 # DDL/DML + pgwire paths write); export writes selected user tables OUT to a valid
-# `.db` a `sqlite3` CLI can open. PURE-RUST (CONCEPT:EG-KG.query.eg-feature): both
-# directions go through `eg-sqlite-format`, a from-scratch SQLite page-format reader +
+# `.db` a `sqlite3` CLI can open. PURE-RUST (CONCEPT:MEDULLA-KG.query.medulla-feature): both
+# directions go through `medulla-sqlite-format`, a from-scratch SQLite page-format reader +
 # bulk-load writer — no rusqlite, no libsqlite3-sys, no C toolchain (falsifying the old
 # "a spec-correct pure-Rust writer is infeasible" blocker; proved by a real-`sqlite3`
 # `PRAGMA integrity_check` differential test). Needs `query` (the TableStore) + `server`
-# (the dispatch handler); `eg-types/sqlite-file` gates the two `Method` variants.
+# (the dispatch handler); `medulla-types/sqlite-file` gates the two `Method` variants.
 sqlite-file = [
     "query",
     "server",
-    "dep:eg-sqlite-format",
+    "dep:medulla-sqlite-format",
     "dep:rustix",
-    "eg-types/sqlite-file",
+    "medulla-types/sqlite-file",
 ]
-# MySQL / MariaDB wire-protocol listener (CONCEPT:EG-076) — the SECOND `WireProtocol`
-# adapter (CONCEPT:EG-074), a HAND-ROLLED MySQL client/server protocol (handshake v10,
+# MySQL / MariaDB wire-protocol listener (CONCEPT:MEDULLA-076) — the SECOND `WireProtocol`
+# adapter (CONCEPT:MEDULLA-074), a HAND-ROLLED MySQL client/server protocol (handshake v10,
 # `mysql_native_password` auth, `COM_QUERY`/`COM_PING`/`COM_QUIT`/`COM_INIT_DB`,
 # text-protocol result-set + OK/ERR packets) framed directly over `tokio::net`. Links
 # NO server-side mysql protocol crate — only `sha1` (the mysql_native_password digest),
 # gated behind this feature. Reuses the shared `wire::WireSession` classify→exec→txn
 # core (needs `query` + `server`) and is included in the one main build. The
-# listener starts only when configured via EPISTEMIC_GRAPH_MYSQL_ADDR.
+# listener starts only when configured via MEDULLA_MYSQL_ADDR.
 mysql-wire = ["dep:sha1", "query", "server"]
-# Message broker (CONCEPT:EG-275): RabbitMQ-class exchanges/bindings/topic-routing on
-# top of the KG-2.303 work-queue. Turns on `eg-core/broker` (the pure `broker` module
-# + `GraphCore::broker_enqueue`) + `eg-types/broker` (the broker `Method` variants).
+# Message broker (CONCEPT:MEDULLA-275): RabbitMQ-class exchanges/bindings/topic-routing on
+# top of the KG-2.303 work-queue. Turns on `medulla-core/broker` (the pure `broker` module
+# + `GraphCore::broker_enqueue`) + `medulla-types/broker` (the broker `Method` variants).
 # PURE-RUST — NO new dependency (only serde/serde_json/rmp already linked) — and
 # included in the one main build.
-broker = ["eg-core/broker", "eg-types/broker"]
-# AMQP 0.9.1 wire listener (CONCEPT:EG-275): a HAND-ROLLED AMQP 0.9.1 server with no
+broker = ["medulla-core/broker", "medulla-types/broker"]
+# AMQP 0.9.1 wire listener (CONCEPT:MEDULLA-275): a HAND-ROLLED AMQP 0.9.1 server with no
 # third-party AMQP crate that maps connection/channel/exchange/queue/basic.*
 # frames onto the `broker` primitives via the engine dispatch. Needs `broker` + `server`
 # (the listener rides the Tokio transport), is included in the one main build, and
-# starts only when configured via EPISTEMIC_GRAPH_AMQP_ADDR.
+# starts only when configured via MEDULLA_AMQP_ADDR.
 amqp-wire = ["broker", "server"]
-# MQTT 3.1.1 (+ basic 5.0) wire listener (CONCEPT:EG-281): a HAND-ROLLED MQTT server (no
+# MQTT 3.1.1 (+ basic 5.0) wire listener (CONCEPT:MEDULLA-281): a HAND-ROLLED MQTT server (no
 # third-party MQTT crate) that maps CONNECT/PUBLISH/SUBSCRIBE/… onto the
 # `broker` TOPIC exchange + per-session queues via the engine dispatch (MQTT `+`/`#`
 # filters → broker topic bindings). Needs `broker` + `server` (the listener rides the
 # Tokio transport), is included in the one main build, and starts only when configured
-# via EPISTEMIC_GRAPH_MQTT_ADDR.
+# via MEDULLA_MQTT_ADDR.
 mqtt-wire = ["broker", "server"]
-# STOMP 1.2 wire listener (CONCEPT:EG-282): a HAND-ROLLED STOMP text-frame server with
+# STOMP 1.2 wire listener (CONCEPT:MEDULLA-282): a HAND-ROLLED STOMP text-frame server with
 # no third-party STOMP crate that maps CONNECT/SEND/SUBSCRIBE/ACK/… onto the
 # `broker` primitives (STOMP destinations → a broker exchange + per-subscription queues)
 # via the engine dispatch. Needs `broker` + `server` (the listener rides the Tokio
 # transport), is included in the one main build, and starts only when configured via
-# EPISTEMIC_GRAPH_STOMP_ADDR.
+# MEDULLA_STOMP_ADDR.
 stomp-wire = ["broker", "server"]
-# MSSQL TDS wire-protocol listener (CONCEPT:EG-077) — the MSSQL `WireProtocol` adapter
-# (CONCEPT:EG-074), sibling of `pgwire`. A HAND-ROLLED TDS server over `tokio` with
+# MSSQL TDS wire-protocol listener (CONCEPT:MEDULLA-077) — the MSSQL `WireProtocol` adapter
+# (CONCEPT:MEDULLA-074), sibling of `pgwire`. A HAND-ROLLED TDS server over `tokio` with
 # no server-side `tiberius`/`tds` crate, so it adds NO new dependency — only `query` +
 # `server`, which carry the shared `server::wire` core. It is included in the one main build and starts
-# only when configured via EPISTEMIC_GRAPH_MSSQL_ADDR.
+# only when configured via MEDULLA_MSSQL_ADDR.
 mssql-wire = ["query", "server"]
-# Neo4j Bolt wire-protocol listener (CONCEPT:EG-159) — a native Bolt v4.4 server so
+# Neo4j Bolt wire-protocol listener (CONCEPT:MEDULLA-159) — a native Bolt v4.4 server so
 # Neo4j drivers/tools connect DIRECTLY to the engine's Cypher surface. HAND-ROLLED,
 # pure-Rust: a PackStream v2 codec + Bolt chunked framing + the message state machine
-# framed over `tokio::net` — links NO third-party bolt/packstream crate. Routes RUN's Cypher straight to the eg-query cypher
+# framed over `tokio::net` — links NO third-party bolt/packstream crate. Routes RUN's Cypher straight to the medulla-query cypher
 # engine (so it IMPLIES `cypher`) over the Tokio server (`server`); it does NOT use the
 # SQL `wire`/`WireSession` core (Bolt speaks Cypher, not SQL). It is included in the one
-# main build and starts only when configured via EPISTEMIC_GRAPH_BOLT_ADDR.
+# main build and starts only when configured via MEDULLA_BOLT_ADDR.
 bolt-wire = ["cypher", "server"]
-# Redis RESP wire-protocol listener (CONCEPT:EG-174) — a native, HAND-ROLLED Redis
+# Redis RESP wire-protocol listener (CONCEPT:MEDULLA-174) — a native, HAND-ROLLED Redis
 # server so a Redis client / ORM cache / `redis-cli` connects DIRECTLY to the engine.
 # A pure-Rust RESP2 + RESP3 codec + the core command set (string/list/hash/set/zset,
 # GET/SET/DEL/EXPIRE/TTL/INCR/SCAN/TYPE/HELLO/…), framed over `tokio::net`. Redis
-# values are stored on the engine's own durable KV surface (CONCEPT:EG-022), so this
+# values are stored on the engine's own durable KV surface (CONCEPT:MEDULLA-022), so this
 # pulls `kv` (⇒ `server` + `redb`). Links NO server-side redis crate — PURE-RUST, no
 # new dependency. It is included in the one main build and starts only when configured
-# via EPISTEMIC_GRAPH_REDIS_ADDR.
+# via MEDULLA_REDIS_ADDR.
 redis-wire = ["kv", "server"]
-# S3-compatible object-storage REST surface (CONCEPT:EG-176) — an Amazon-S3/MinIO-
+# S3-compatible object-storage REST surface (CONCEPT:MEDULLA-176) — an Amazon-S3/MinIO-
 # shaped HTTP API so any S3 SDK / `aws s3` CLI / `mc` talks to the engine directly.
 # Object BYTES land in the content-addressed BLOB CAS (⇒ `blob`), the bucket/object
 # listing index lives on the durable KV surface (⇒ `kv`), and a SigV4-lite auth guard
 # gates writes when credentials are configured. A HAND-ROLLED HTTP/1.1 listener (the
 # same dependency-free tokio idiom as `obs`/`sparql-http`) — links NO aws/object-store
 # SDK, no XML crate (hand-built XML), so it adds NO new dependency. It is included in
-# the one main build and starts only when configured via EPISTEMIC_GRAPH_S3_ADDR.
+# the one main build and starts only when configured via MEDULLA_S3_ADDR.
 s3-api = ["blob", "kv", "server"]
-# LTAP lakehouse materialization (INT-P2-3, CONCEPT:EG-317 engine-side seam): wires the
-# `eg-lake` leaf crate onto the engine's OWN durable data. `src/server/lake::LakeManager`
-# converts real `eg_tsdb::store::SeriesStore` series (the WAL-backed table/series data
-# source) into `eg_lake::LakeBatch`es, materializes them to real Parquet (via eg-lake's
+# LTAP lakehouse materialization (INT-P2-3, CONCEPT:MEDULLA-317 engine-side seam): wires the
+# `medulla-lake` leaf crate onto the engine's OWN durable data. `src/server/lake::LakeManager`
+# converts real `medulla_tsdb::store::SeriesStore` series (the WAL-backed table/series data
+# source) into `medulla_lake::LakeBatch`es, materializes them to real Parquet (via medulla-lake's
 # OWN `lake` sub-feature — arrow/apache-avro), stores the bytes in the SAME
 # content-addressed blob CAS `obs`'s Parquet log segments already write through
-# (`crate::server::blob::store::ChunkStore` — CONCEPT:EG-KG.retrieval.observability-search), and renders/persists a
+# (`crate::server::blob::store::ChunkStore` — CONCEPT:MEDULLA-KG.retrieval.observability-search), and renders/persists a
 # Delta `_delta_log` + a real Iceberg `metadata.json` + real Iceberg Avro manifests
 # describing the live file set, registering each table into an in-process Iceberg-REST
 # catalog. Supports append, compaction (rewrite-all-live-files-into-one) and row-level
@@ -990,16 +990,16 @@ s3-api = ["blob", "kv", "server"]
 # materialize/compact/delete run also builds + keeps (bounded ring, `lake-rest`-servable)
 # an OpenLineage `RunEvent` (job/run/input-dataset/output-dataset + `schema` /
 # `dataSource` / `outputStatistics` / `lifecycleStateChange` facets), optionally pushed
-# to `EPISTEMIC_GRAPH_OPENLINEAGE_URL` over the SAME pure-Rust `ureq` client
+# to `MEDULLA_OPENLINEAGE_URL` over the SAME pure-Rust `ureq` client
 # `sparql-service`/`federation-search` already link (no new HTTP dep). Needs `server`
 # (the manager + the periodic drain sweep live on `ServerState`) + `blob` (the CAS) +
-# `tsdb` (the series source). W4.8 (CONCEPT:EG-317 / INT-P2-3, M4): folded into the one
-# main `full` build — `eg-lake`'s deps are the maintained Polars native-Parquet codec
+# `tsdb` (the series source). W4.8 (CONCEPT:MEDULLA-317 / INT-P2-3, M4): folded into the one
+# main `full` build — `medulla-lake`'s deps are the maintained Polars native-Parquet codec
 # (default-features off) + pure-Rust `apache-avro` (default-features off, so no
 # snappy/zstd/bzip/xz C codec), NOT the heavier upstream `arrow`/`parquet` crates a Pi
 # build must avoid; see `docs/architecture/lakehouse_ltap.md` and the W4.8 report for the
 # measured release-binary size delta.
-lake = ["server", "blob", "tsdb", "dep:eg-lake", "eg-lake/lake", "dep:ureq"]
+lake = ["server", "blob", "tsdb", "dep:medulla-lake", "medulla-lake/lake", "dep:ureq"]
 # Iceberg-REST catalog HTTP surface (INT-P2-3, `iceberg.apache.org/rest-catalog-spec`)
 # over the `lake` materialization tier: a hand-rolled, DEPENDENCY-FREE HTTP/1.1
 # listener (the SAME idiom as `--metrics-addr`/`--sparql-addr`/`--obs-addr`/`--s3-addr`
@@ -1010,7 +1010,7 @@ lake = ["server", "blob", "tsdb", "dep:eg-lake", "eg-lake/lake", "dep:ureq"]
 # engine's own compaction pass rather than ingesting externally-authored manifests, a
 # documented scope note), so a standard Iceberg REST client (PyIceberg/Spark/Trino) can
 # list + load the engine's materialized tables. The listener only starts when ALSO
-# configured via --iceberg-addr / EPISTEMIC_GRAPH_ICEBERG_ADDR. W4.8: folded into the
+# configured via --iceberg-addr / MEDULLA_ICEBERG_ADDR. W4.8: folded into the
 # one main `full` build alongside `lake` (previously an explicit source feature outside
 # every product bundle) — adds no dependency beyond `lake` itself (the listener reuses
 # the same dependency-free tokio idiom every other auxiliary HTTP surface in this file
@@ -1032,11 +1032,11 @@ lineage-transport = ["lake"]
 # DEC-CA-03), off by default. A SEPARATE feature from `lineage-transport` (not folded
 # into it) so a plain HTTP-only `lineage-transport` build never pulls `rdkafka` --
 # matching `cdc-kafka`'s own "heavy C dependency stays opt-in" precedent. Composes the
-# ALREADY-DECLARED `cdc-kafka` feature (`dep:eg-stream` + `eg-stream/cdc-kafka`) rather
+# ALREADY-DECLARED `cdc-kafka` feature (`dep:medulla-stream` + `medulla-stream/cdc-kafka`) rather
 # than declaring a second Kafka dependency anywhere in the workspace
-# (file-ownership.yaml FO-CA-026: `crates/eg-stream/Cargo.toml`'s `rdkafka` dep is
+# (file-ownership.yaml FO-CA-026: `crates/medulla-stream/Cargo.toml`'s `rdkafka` dep is
 # CA-11-exclusive) -- CA-15's `KafkaTransport` (`src/server/lake/lineage_transport.rs`)
-# is built on `eg_stream::sink::RawKafkaProducer`, a schema-agnostic producer added
+# is built on `medulla_stream::sink::RawKafkaProducer`, a schema-agnostic producer added
 # alongside CA-11's `KafkaCdcSink` in that same feature-gated module, sharing its
 # construction but publishing OpenLineage JSON to `openlineage.events` (keyed by
 # `run.runId`) instead of CDC's per-graph `Envelope`/topic. Enabling both `cdc-kafka`
@@ -1044,20 +1044,20 @@ lineage-transport = ["lake"]
 # its own independently-configured producer instance/env-var namespace at runtime, the
 # normal shape for two distinct topics, not a double-initialization of the dependency.
 lineage-transport-kafka = ["lineage-transport", "cdc-kafka"]
-# Remote KV-cache HTTP surface (CONCEPT:EG-187) — exposes the `eg-kvcache` shared,
-# content-addressed backend (EG-186) over HTTP so parallel vLLM/LMCache instances SHARE
+# Remote KV-cache HTTP surface (CONCEPT:MEDULLA-187) — exposes the `medulla-kvcache` shared,
+# content-addressed backend (MEDULLA-186) over HTTP so parallel vLLM/LMCache instances SHARE
 # KV blocks by token-hash (GET/PUT/HEAD /kv/<hash> + /kv/stats, bearer-token guard). A
 # HAND-ROLLED HTTP/1.1 listener (the same dependency-free tokio idiom as `s3-api`/`obs`)
 # — links NO axum/hyper, so it adds NO new HTTP dependency; it pulls only the pure-Rust
-# `eg-kvcache` leaf crate plus `oidc` (its bearer-token guard's JWT validation, shared
+# `medulla-kvcache` leaf crate plus `oidc` (its bearer-token guard's JWT validation, shared
 # with the primary protocol's identity binding). It is included in the one main build
-# and starts only when configured via EPISTEMIC_GRAPH_KVCACHE_ADDR.
-kvcache-server = ["server", "oidc", "dep:eg-kvcache"]
-# Real WARM-tier KV-cache codec (CONCEPT:EG-315): turns on `eg-kvcache/compression`
+# and starts only when configured via MEDULLA_KVCACHE_ADDR.
+kvcache-server = ["server", "oidc", "dep:medulla-kvcache"]
+# Real WARM-tier KV-cache codec (CONCEPT:MEDULLA-315): turns on `medulla-kvcache/compression`
 # (zstd) so the KV-cache warm tier can compress with a production-grade codec instead of
 # the built-in RLE. It is included in the one main build; zstd is reached only through
 # this feature.
-kvcache-compression = ["kvcache-server", "eg-kvcache/compression"]
+kvcache-compression = ["kvcache-server", "medulla-kvcache/compression"]
 # Embedded in-process library API (CONCEPT:KG-2.216). An `EmbeddedEngine` handle
 # that owns a `GraphRegistry` + the redb durable store DIRECTLY — NO Tokio server,
 # NO socket, NO HMAC (in-process, the caller IS trusted). SQLite/DuckDB-style: open
@@ -1069,66 +1069,66 @@ kvcache-compression = ["kvcache-server", "eg-kvcache/compression"]
 embedded = ["redb"]
 # Native RDF surface (CONCEPT:KG-2.217, Lane W): maps an RDF dataset onto the
 # property-graph + serializes it back (Turtle/N-Triples via oxrdf/oxttl in the
-# eg-rdf crate). PURE-RUST — links NO C/native dep (proven by cargo tree) — and is
+# medulla-rdf crate). PURE-RUST — links NO C/native dep (proven by cargo tree) — and is
 # included in the one main build. Needs `server` (the handler routes through dispatch)
-# + `eg-types/rdf` (the Method variants).
-rdf = ["server", "dep:eg-rdf", "eg-rdf/rdf", "eg-types/rdf"]
+# + `medulla-types/rdf` (the Method variants).
+rdf = ["server", "dep:medulla-rdf", "medulla-rdf/rdf", "medulla-types/rdf"]
 # Native SPARQL 1.1 surface (CONCEPT:KG-2.218): compiles spargebra's algebra to
-# GraphView scans (eg-rdf). IMPLIES `rdf`; pure-Rust (spargebra), no native dep.
-sparql = ["rdf", "eg-rdf/sparql", "eg-types/sparql"]
+# GraphView scans (medulla-rdf). IMPLIES `rdf`; pure-Rust (spargebra), no native dep.
+sparql = ["rdf", "medulla-rdf/sparql", "medulla-types/sparql"]
 # SPARQL graph publication to an external Fuseki endpoint (CA-12), off by default and
 # EMPTY until CA-12 implements it. Declared here by CA-17's single feature-stub commit so
 # that CA-12 never edits this shared table. Implies `sparql`. NOTE: distinct from the
 # pre-existing `sparql-service` feature below, which is the inbound SERVICE federation
 # CLIENT; this one publishes this engine's graphs OUT to a Fuseki server.
 sparql-fuseki = ["sparql"]
-# SPARQL standards completeness (CONCEPT:EG-127/130/131) forwarded from eg-rdf. All
+# SPARQL standards completeness (CONCEPT:MEDULLA-127/130/131) forwarded from medulla-rdf. All
 # pure-Rust (RustCrypto hashes; quick-xml/oxjsonld; oxrdf/oxttl/spargebra rdf-12 flags)
 # and included in the one main build.
-sparql-hash = ["sparql", "eg-rdf/sparql-hash"]     # MD5/SHA1/SHA2 SPARQL hash builtins
-rdf-xml = ["rdf", "eg-rdf/rdf-xml"]                 # RDF/XML reader+writer
-json-ld = ["rdf", "eg-rdf/json-ld"]                 # JSON-LD 1.1 (expansion form)
-sparql-star = ["sparql", "eg-rdf/sparql-star"]      # RDF-star / SPARQL-star quoted triples
-# OGC GeoSPARQL baseline (CONCEPT:EG-261): the `geo:`/`geof:` vocabulary, `geo:wktLiteral`
+sparql-hash = ["sparql", "medulla-rdf/sparql-hash"]     # MD5/SHA1/SHA2 SPARQL hash builtins
+rdf-xml = ["rdf", "medulla-rdf/rdf-xml"]                 # RDF/XML reader+writer
+json-ld = ["rdf", "medulla-rdf/json-ld"]                 # JSON-LD 1.1 (expansion form)
+sparql-star = ["sparql", "medulla-rdf/sparql-star"]      # RDF-star / SPARQL-star quoted triples
+# OGC GeoSPARQL baseline (CONCEPT:MEDULLA-261): the `geo:`/`geof:` vocabulary, `geo:wktLiteral`
 # parsing, and the core `geof:` spatial FILTER functions (sfWithin/sfIntersects/sfContains/
-# sfEquals/distance/buffer) over the SPARQL surface, forwarded from eg-rdf's `geosparql`.
+# sfEquals/distance/buffer) over the SPARQL surface, forwarded from medulla-rdf's `geosparql`.
 # Composes the RDF/SPARQL surface with the existing spatial modality: IMPLIES both `sparql`
-# and `geo` (CONCEPT:EG-083 — the eg-geo executor/leaf crate), reusing eg-geo for ALL
+# and `geo` (CONCEPT:MEDULLA-083 — the medulla-geo executor/leaf crate), reusing medulla-geo for ALL
 # geometry math (NO new external dep). Included in the one main build.
-geosparql = ["sparql", "geo", "eg-rdf/geosparql"]
-# W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017): a minimal hand-rolled
+geosparql = ["sparql", "geo", "medulla-rdf/geosparql"]
+# W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:MEDULLA-017): a minimal hand-rolled
 # HTTP/1.1 listener (the SAME dep-free idiom as the Prometheus `--metrics-addr`
 # exposition — NO axum/hyper/warp) so existing Stardog/Jena/rdflib SPARQL clients can
 # query + update the engine unchanged via `--sparql-addr`. IMPLIES `sparql` (+ `server`
 # for the Tokio listener). Pure-Rust, no new native dep, and included in the main build.
 sparql-http = ["sparql", "server", "shacl", "security"]
-# SPARQL SERVICE federation (CONCEPT:EG-052): the `/sparql` endpoint's SELECT path binds a
+# SPARQL SERVICE federation (CONCEPT:MEDULLA-052): the `/sparql` endpoint's SELECT path binds a
 # `ureq`-backed `RemoteSparql` client so a `SERVICE <ep> { … }` clause evaluates against a
-# remote endpoint (SILENT semantics, SSRF allowlist `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW`,
+# remote endpoint (SILENT semantics, SSRF allowlist `MEDULLA_SPARQL_SERVICE_ALLOW`,
 # default fail-closed). REUSES the SAME `ureq`/rustls stack `federation` already links
 # (NO new crate enters the tree), so it IMPLIES both `sparql-http` and `federation` and
 # is included in the one main build.
 sparql-service = ["sparql-http", "federation", "dep:ureq"]
-# Super-cluster federated search (CONCEPT:EG-243): a `/federated` POST surface that fans a
+# Super-cluster federated search (CONCEPT:MEDULLA-243): a `/federated` POST surface that fans a
 # read query across a registry of peer engine instances AND the local store, then unions /
 # de-dups + RRF-re-ranks the partials (a slow/dead peer degrades to `partial: true` +
 # `failed_peers` instead of failing). REUSES the SAME pure-Rust `ureq`/rustls stack the
 # other federation surfaces link (NO new HTTP crate enters the tree); SSRF-vetted with the
-# SAME allowlist/internal-range guard as EG-052. Included in the one main build.
+# SAME allowlist/internal-range guard as MEDULLA-052. Included in the one main build.
 federation-search = ["server", "federation", "dep:ureq"]
 # OpenSearch adapter for the federated-search fan-out (CA-14), off by default and EMPTY
 # until CA-14 implements it. Declared here by CA-17's single feature-stub commit so that
 # CA-14 never edits this shared table. Implies `federation-search`.
 federation-opensearch = ["federation-search"]
-# ROS2 bridge over the rosbridge-WebSocket JSON protocol (CONCEPT:EG-325). Bridges engine
+# ROS2 bridge over the rosbridge-WebSocket JSON protocol (CONCEPT:MEDULLA-325). Bridges engine
 # CDC events ↔ ROS2 topics by talking the standard `rosbridge_suite` JSON-over-WebSocket
 # protocol (advertise/subscribe/publish/unsubscribe) to a `rosbridge_server` — so NO
 # CycloneDDS/rmw/DDS C stack, NO `ros` toolchain, just a pure-Rust `tokio-tungstenite`
 # client. It is included only in the source-built `full-extras` layer; the main and
 # `cluster` builds link no tokio-tungstenite (asserted by `cargo tree`).
 ros2-bridge = ["server", "streaming", "dep:tokio-tungstenite", "dep:futures"]
-# Native DDS/RTPS ROS2 wire (CONCEPT:EG-347) — the native leg of the ROS2 transport seam
-# (`src/server/dds.rs`, the `DdsTransport` trait). Where `ros2-bridge` (EG-325) tunnels
+# Native DDS/RTPS ROS2 wire (CONCEPT:MEDULLA-347) — the native leg of the ROS2 transport seam
+# (`src/server/dds.rs`, the `DdsTransport` trait). Where `ros2-bridge` (MEDULLA-325) tunnels
 # ROS2 topics through a `rosbridge_server` over WebSocket JSON, this leg speaks REAL
 # DDS/RTPS on the wire so the engine's CDC↔ROS2 topic path can publish/subscribe to a
 # ROS2 graph DIRECTLY — behind the SAME `DdsTransport` interface, so the path targets
@@ -1139,7 +1139,7 @@ ros2-bridge = ["server", "streaming", "dep:tokio-tungstenite", "dep:futures"]
 # main and `cluster` builds link no Dust DDS (asserted by `cargo tree`). The
 # CycloneDDS-C-backed `rmw` leg stays a documented, toolchain-gated future option.
 ros2-dds = ["server", "streaming", "dep:dust_dds", "dep:futures"]
-# CycloneDDS-C-backed `rmw` ROS2 wire (CONCEPT:EG-347 follow-on, S5) — the SECOND native
+# CycloneDDS-C-backed `rmw` ROS2 wire (CONCEPT:MEDULLA-347 follow-on, S5) — the SECOND native
 # leg of the ROS2 transport seam (`src/server/dds.rs`, `DdsTransport` trait), implementing
 # the SAME interface as `ros2-dds` (`NativeDdsTransport`/Dust DDS) so the CDC↔ROS2 path
 # targets EITHER pure-Rust RTPS or the real CycloneDDS-C `rmw` wire behind one choice.
@@ -1156,17 +1156,17 @@ ros2-dds = ["server", "streaming", "dep:dust_dds", "dep:futures"]
 # is included only in the source-built `full-extras` layer; the main and `cluster`
 # builds link no cyclonedds/cyclonedds-rust-sys/cyclonedds-src (asserted by `cargo tree`).
 ros2-rmw = ["server", "streaming", "dep:cyclonedds", "dep:futures"]
-# GPU-accelerated distance/tensor (CONCEPT:EG-326 seam / EG-327 CUDA). `gpu` opts the
-# eg-ann distance + eg-tensor elementwise kernels into the `DistanceBackend`/`TensorBackend`
+# GPU-accelerated distance/tensor (CONCEPT:MEDULLA-326 seam / MEDULLA-327 CUDA). `gpu` opts the
+# medulla-ann distance + medulla-tensor elementwise kernels into the `DistanceBackend`/`TensorBackend`
 # dispatch seam (the pure-Rust CPU backend stays the compiled-in fallback). `gpu-cuda` adds
 # the REAL cudarc-backed CUDA backends — `dynamic-loading`, so the leg BUILDS with no CUDA
 # toolkit (libcuda/libnvrtc are dlopen'd at runtime) and runs on a GPU host, else falls
 # back to CPU. The real CUDA backends are included only in the source-built
 # `full-extras` layer; the main and `cluster` builds link no cudarc (asserted by
 # `cargo tree`).
-gpu = ["ann", "eg-core/ann-gpu", "tensor", "eg-plan/tensor-gpu", "reasoning", "eg-compute/gpu"]
-gpu-cuda = ["gpu", "eg-core/ann-gpu-cuda", "eg-plan/tensor-gpu-cuda", "eg-compute/gpu-cuda"]
-# Opt-in umbrella (CONCEPT:EG-371) = the ONE main build (`full`) PLUS the heavy extras that
+gpu = ["ann", "medulla-core/ann-gpu", "tensor", "medulla-plan/tensor-gpu", "reasoning", "medulla-compute/gpu"]
+gpu-cuda = ["gpu", "medulla-core/ann-gpu-cuda", "medulla-plan/tensor-gpu-cuda", "medulla-compute/gpu-cuda"]
+# Opt-in umbrella (CONCEPT:MEDULLA-371) = the ONE main build (`full`) PLUS the heavy extras that
 # require an external toolchain/GPU to actually RUN (but build clean everywhere via
 # dynamic-loading, or a vendored cmake C build for `ros2-rmw`): the real CUDA backends +
 # the rosbridge ROS2 bridge + native DDS/RTPS (Dust DDS) + the CycloneDDS-C `rmw` leg.
@@ -1179,51 +1179,51 @@ full-extras = ["full", "gpu-cuda", "ros2-bridge", "ros2-dds", "ros2-rmw"]
 # `OwlReason` Method surface. PURE-RUST — it parses OWL from the SAME oxttl as `rdf`,
 # links NO C/native crate (no horned-owl/whelk-rs), IMPLIES `sparql`, and is included
 # in the one main build.
-owl = ["sparql", "eg-rdf/owl", "eg-types/owl"]
-# OWL-DL tableau reasoner (CONCEPT:EG-059) — the complete-but-worst-case-harder DL
+owl = ["sparql", "medulla-rdf/owl", "medulla-types/owl"]
+# OWL-DL tableau reasoner (CONCEPT:MEDULLA-059) — the complete-but-worst-case-harder DL
 # path (full cardinality/negation/nominals/reasoning-by-cases) that the tractable `owl`
 # EL⁺/RL path cannot decide. Pure Rust, no new dep, IMPLIES `owl`, and is included in
 # the one main build.
-owl-dl = ["owl", "eg-rdf/owl-dl"]
+owl-dl = ["owl", "medulla-rdf/owl-dl"]
 # The OWL/SPARQL cross-modal plan SOURCE ops `Op::Reason` / `Op::SparqlBgp`
 # (CONCEPT:KG-2.220) inside a UnifiedQuery plan. The unified-plan executor needs
 # DataFusion, so this IMPLIES `query` and is included in the one main build. Pulls
-# eg-plan's `owl` (the op exec).
-owl-plan = ["owl", "query", "eg-plan/owl", "eg-types/owl-plan"]
-# OBDA / R2RML virtual graphs (CONCEPT:EG-KG.query.r2rml-virtual-graph / EG-KG.query.obda-query-rewrite,
-# Track J): expose the engine's OWN SQL user-tables (`eg_query::TableStore`, behind
-# `query`) as a virtual RDF graph via an R2RML-style mapping (`eg_rdf::obda`, behind
+# medulla-plan's `owl` (the op exec).
+owl-plan = ["owl", "query", "medulla-plan/owl", "medulla-types/owl-plan"]
+# OBDA / R2RML virtual graphs (CONCEPT:MEDULLA-KG.query.r2rml-virtual-graph / MEDULLA-KG.query.obda-query-rewrite,
+# Track J): expose the engine's OWN SQL user-tables (`medulla_query::TableStore`, behind
+# `query`) as a virtual RDF graph via an R2RML-style mapping (`medulla_rdf::obda`, behind
 # `sparql`) — a `Method::SparqlVirtual` query rewrites to a projection-pushed scan of
 # the table and evaluates SPARQL over a TRANSIENT view, never materializing the whole
-# dataset. IMPLIES `sparql` + `query` (the bare OBDA library in eg-rdf is pure Rust;
+# dataset. IMPLIES `sparql` + `query` (the bare OBDA library in medulla-rdf is pure Rust;
 # wiring it to user tables needs DataFusion). No new external dependency; included in
 # the one main build.
-obda = ["sparql", "query", "eg-types/obda"]
+obda = ["sparql", "query", "medulla-types/obda"]
 # OBDA wire method + Python client seam (CA-13), off by default and EMPTY until CA-13
 # implements it. Declared here by CA-17's single feature-stub commit so that CA-13 never
 # edits this shared table. Implies `obda` -- the mapping/rewrite engine already exists.
 obda-wire = ["obda"]
-# SHACL Core validation (CONCEPT:EG-132) — the pure-Rust eg-shacl engine over the
+# SHACL Core validation (CONCEPT:MEDULLA-132) — the pure-Rust medulla-shacl engine over the
 # RDF term/graph model. IMPLIES `rdf` plus `owl-dl`: GraphSchema commits validate
 # the composed SHACL and mixed OWL authority atomically, so a SHACL-capable server
 # cannot accept a schema while silently dropping its DL restrictions. The
 # `Method::ShaclValidate` handler is gated on this feature. Pure Rust — links NO
 # C/native dep — and is included in the one main build alongside rdf/sparql.
-shacl = ["rdf", "owl-dl", "dep:eg-shacl"]
-# ShEx (Shape Expressions) Core validation (CONCEPT:EG-133) — the pure-Rust eg-shex
+shacl = ["rdf", "owl-dl", "dep:medulla-shacl"]
+# ShEx (Shape Expressions) Core validation (CONCEPT:MEDULLA-133) — the pure-Rust medulla-shex
 # engine, the complement to `shacl`. IMPLIES `rdf` (it validates focus nodes of an RDF
 # data graph against a ShExJ schema); the `Method::ShexValidate` handler is gated on this
-# feature. Pure Rust — links NO C/native dep (regex rides eg-rdf's sparql stack,
+# feature. Pure Rust — links NO C/native dep (regex rides medulla-rdf's sparql stack,
 # serde_json is workspace-wide) — and is included in the one main build alongside
 # rdf/sparql/shacl.
-shex = ["rdf", "dep:eg-shex"]
+shex = ["rdf", "dep:medulla-shex"]
 compute = ["finance", "ast", "ast-extended", "datascience", "mining", "graphlearn", "ml-pipeline", "reasoning"]
-# `full`/`all`/`default` = THE ONE MAIN BUILD (CONCEPT:EG-371). It deliberately stays
+# `full`/`all`/`default` = THE ONE MAIN BUILD (CONCEPT:MEDULLA-371). It deliberately stays
 # SINGLE-NODE: raft is NOT folded in, so a `full` build links no openraft (replication
 # is the opt-in `cluster` layer). Consequently `compute-dist` (which NEEDS raft for
 # cross-shard supersteps) is NOT in `full` either — it ships only in `cluster`. Every
 # other MAIN feature that builds without an external GPU/robotics toolchain IS folded in
-# here: the whole hand-rolled wire family (pgwire — CONCEPT:EG-352 — PLUS the pure-Rust
+# here: the whole hand-rolled wire family (pgwire — CONCEPT:MEDULLA-352 — PLUS the pure-Rust
 # mysql/mssql/sqlite/bolt/redis/amqp/mqtt/stomp listeners, formerly cluster-only), the
 # observability egress (`otel-export`), the compressed KV-cache warm tier
 # (`kvcache-compression`) and the redb-persisted ANN codes (`ann-redb`). `redb` IS folded
@@ -1241,7 +1241,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "mining", "graphlear
 # capability (verified-identity envelope claims, not just HMAC channel integrity).
 # Security is mandatory in the one main `full` build and remains present in both
 # source-built layers.
-security = ["redb", "oidc", "dep:chacha20poly1305", "dep:argon2", "dep:sha1", "eg-types/security", "eg-core/security"]
+security = ["redb", "oidc", "dep:chacha20poly1305", "dep:argon2", "dep:sha1", "medulla-types/security", "medulla-core/security"]
 # RLS marking-predicate export (CA-16), off by default. This is one authenticated
 # HTTP implementation (`/policy/export`), not a duplicate unbound MessagePack method.
 # Implies `security` for the shared verified-identity authority.
@@ -1255,19 +1255,19 @@ policy_export = ["security"]
 # `eg2.` protocol identity binding and `kvcache-server`'s KV-cache HTTP bearer auth —
 # rather than each surface vendoring its own copy.
 oidc = ["dep:jsonwebtoken", "dep:ureq"]
-full = ["compute", "decide", "server", "server-tls", "query", "knowledge-batch", "cypher", "cypher-plan", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "oidc", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic", "epistemic-redaction", "evidence-graph", "epistemic-tms", "epistemic-causal", "alignment", "jobs", "program-optimization", "statechart", "modality-serving", "embedded", "matview", "lake", "lake-rest", "viz", "viz-columnstore", "viz-static-export", "viz-interactive", "viz-graph-tiles"]
+full = ["compute", "decide", "server", "server-tls", "query", "knowledge-batch", "cypher", "cypher-plan", "graphql", "medulla-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "oidc", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic", "epistemic-redaction", "evidence-graph", "epistemic-tms", "epistemic-causal", "alignment", "jobs", "program-optimization", "statechart", "modality-serving", "embedded", "matview", "lake", "lake-rest", "viz", "viz-columnstore", "viz-static-export", "viz-interactive", "viz-graph-tiles"]
 all = ["full"]
-# D4 (CONCEPT:EG-KG.epistemic.epistemic-substrate): `epistemic` (the eg-epistemic
+# D4 (CONCEPT:MEDULLA-KG.epistemic.epistemic-substrate): `epistemic` (the medulla-epistemic
 # claims/evidence/belief-state layer, E6/E2/D3/D5) is folded into `full` above so a
 # default/full build carries it — it was left OUT of the aggregate during development
 # to avoid a merge conflict with concurrent waves (mirroring the temporary aggregate-
 # wiring convention documented at those features' definitions), now closed.
-# The retired `pi`/`pi-max`/`node` deployment tiers (EG-371, just above) no longer
+# The retired `pi`/`pi-max`/`node` deployment tiers (MEDULLA-371, just above) no longer
 # exist to fold it into separately — `full` (== `default`) is the one main build. `contract`
-# (eg-tensor/eg-geo's own opt-in `ModalityContract` retrofit feature, `eg-epistemic`'s
+# (medulla-tensor/medulla-geo's own opt-in `ModalityContract` retrofit feature, `medulla-epistemic`'s
 # own `contract` submodule gate) stays OUT of every product build here, confirmed: it is a
 # capability-discovery/testing seam selected per-crate directly (`cargo test -p
-# eg-epistemic --features contract`), never part of the served product surface — `cargo
+# medulla-epistemic --features contract`), never part of the served product surface — `cargo
 # tree --features full | grep -i contract` links no `contract`-gated code.
 #
 # WS-1b (2026-07-12): `epistemic-redaction` (policy-aware proof redaction / selective
@@ -1281,7 +1281,7 @@ all = ["full"]
 # contradiction maintenance is change-driven from the durable mutation outbox.
 
 
-# ── Opt-in build layers ON TOP of the ONE main build (CONCEPT:EG-371) ──
+# ── Opt-in build layers ON TOP of the ONE main build (CONCEPT:MEDULLA-371) ──
 # The former `pi` / `pi-max` / `node` deployment tiers are GONE — they existed only to
 # STRIP heavy deps (DataFusion, etc.) for a tiny Pi-3 binary, at the cost of every tier
 # sharing the SAME wheel filename (only one could publish to PyPI). The main build
@@ -1312,43 +1312,43 @@ cluster = ["full", "raft", "compute-dist", "nonblocking", "matview"]
 # ── Unified single binary — the opt-in in-process pyo3-engine (unified-binary
 # program, workstream W-A; see docs/architecture/unified-inprocess-engine.md) ──
 #
-# Embeds `eg-core`'s `GraphCore`/`GraphRegistry` directly in the SAME process as a
-# Python extension module `epistemic_graph.engine`, so a self-contained deployment
+# Embeds `medulla-core`'s `GraphCore`/`GraphRegistry` directly in the SAME process as a
+# Python extension module `medulla.engine`, so a self-contained deployment
 # (one `graph-os`, no horizontal fan-out) can reach the engine with NO socket
 # serialize/round-trip. This is the OTHER of the "two deployment shapes, one
 # performance discipline" (AGENTS.md): the out-of-process Tokio/UDS server above
 # remains the default, horizontal-scale-safe path; this feature is the opt-in
 # self-contained path, never linked unless explicitly requested.
 #
-# `dep:eg-pyengine` pulls in the crate; `eg-pyengine/python` turns on ITS OWN
-# Python-extension-gated `python` feature (mirroring eg-numeric's
+# `dep:medulla-pyengine` pulls in the crate; `medulla-pyengine/python` turns on ITS OWN
+# Python-extension-gated `python` feature (mirroring medulla-numeric's
 # Surface-A/Surface-B split), so enabling this facade feature is what actually
 # compiles the native binding, not just the inert rlib half. NOT in
 # `default`/`full`/`cluster` — the scale-out build's no-pyo3-engine gate
 # (`scripts/check_no_pyo3.sh`) only allows this to compile when a caller
 # explicitly opts in here.
 #
-# `eg-pyengine/security` is folded in here (unlike the 15 Wave-1 DOMAIN
-# features `crates/eg-pyengine/Cargo.toml` pre-adds, EG-PYENGINE-PLAN.md §4.5)
+# `medulla-pyengine/security` is folded in here (unlike the 15 Wave-1 DOMAIN
+# features `crates/medulla-pyengine/Cargo.toml` pre-adds, MEDULLA-PYENGINE-PLAN.md §4.5)
 # because per-agent RLS is Wave 0's own proven-end-to-end contract
-# (`crates/eg-pyengine/src/authority.rs`), not a domain a later lane owns, and
-# it is cheap: it only forwards to `eg-core/security`, which `full` (hence
+# (`crates/medulla-pyengine/src/authority.rs`), not a domain a later lane owns, and
+# it is cheap: it only forwards to `medulla-core/security`, which `full` (hence
 # `default`) already links today, so it adds no NEW dependency to a build that
 # also has `full`/`default` on. The 15 domain features are DELIBERATELY left
 # off this line for now — each pulls a real, sometimes heavy, dependency
-# (DataFusion/Arrow via `eg-query`'s `sql` feature, `wasmtime` via `eg-wasm`,
-# `oxrdf`/`oxttl` via `eg-rdf`, ...) that Wave 0's stub domain files
-# (`crates/eg-pyengine/src/<domain>.rs`) do not yet call at all — turning them
+# (DataFusion/Arrow via `medulla-query`'s `sql` feature, `wasmtime` via `medulla-wasm`,
+# `oxrdf`/`oxttl` via `medulla-rdf`, ...) that Wave 0's stub domain files
+# (`crates/medulla-pyengine/src/<domain>.rs`) do not yet call at all — turning them
 # on here today would only inflate `pyo3-engine`'s build without exercising
-# anything. Each Wave-1 domain lane adds its OWN `eg-pyengine/<domain>` name
+# anything. Each Wave-1 domain lane adds its OWN `medulla-pyengine/<domain>` name
 # to this line as a single-line append once its domain methods actually call
-# that dependency (`EG-PYENGINE-PLAN.md` §4.5's own stated default —
+# that dependency (`MEDULLA-PYENGINE-PLAN.md` §4.5's own stated default —
 # "all domains implemented so far are on" — deferred to be decided AS they
 # are implemented, not before, since none is implemented yet at Wave 0).
-pyo3-engine = ["dep:eg-pyengine", "eg-pyengine/python", "eg-pyengine/security"]
+pyo3-engine = ["dep:medulla-pyengine", "medulla-pyengine/python", "medulla-pyengine/security"]
 
-# ── Quantum as a governed epistemic-graph capability (D-QN-1, lane
-# w0-eg-quantum-contracts, Q0 contracts) ──
+# ── Quantum as a governed medulla-engine capability (D-QN-1, lane
+# w0-medulla-quantum-contracts, Q0 contracts) ──
 #
 # Mirrors the `pyo3-engine` posture directly above: an opt-in layer, NOT folded into
 # `default`/`full`/`cluster`/`full-extras`, so a build that never asks for it pays
@@ -1357,7 +1357,7 @@ pyo3-engine = ["dep:eg-pyengine", "eg-pyengine/python", "eg-pyengine/security"]
 # behind the same trait, never a requirement (see PROGRAM.md's quantum section,
 # "Does any of this run on classical hardware? Yes — effectively all of it.").
 #
-# `quantum` is the BASE contracts feature: it links `eg-quantum-core` (the IR, the
+# `quantum` is the BASE contracts feature: it links `medulla-quantum-core` (the IR, the
 # `QuantumBackend` trait, the planner, the exactness-typed result) and NOTHING else —
 # turning this on alone gets a caller a compilable surface to build against, not an
 # executable backend. `quantum-quest`/`quantum-gpu` are the two REMAINING
@@ -1371,9 +1371,9 @@ pyo3-engine = ["dep:eg-pyengine", "eg-pyengine/python", "eg-pyengine/security"]
 #
 # `quantum-sim` (D-QN-1, lane Q1 vendoring, register `lane-quantum-native.md`) is the
 # FOURTH backend-family layer, delivered here: pure-Rust, in-process CPU backends
-# with NO third-party SDK/FFI at all -- `eg-quantum-gates` (dense unitary matrices,
+# with NO third-party SDK/FFI at all -- `medulla-quantum-gates` (dense unitary matrices,
 # content ported with attribution from QuantRS2/Apache-2.0, see its own NOTICE) and
-# `eg-quantum-sim` (the `StateVectorSimulator`/`StabilizerSimulator` `QuantumBackend`
+# `medulla-quantum-sim` (the `StateVectorSimulator`/`StabilizerSimulator` `QuantumBackend`
 # impls: a dense-amplitude evolution loop and a clean-room Aaronson-Gottesman CHP
 # tableau). Planner rule R1 (a Clifford circuit always selects `stabilizer`, never
 # statevector -- the exponential-vs-polynomial routing decision PROGRAM.md's quantum
@@ -1381,217 +1381,217 @@ pyo3-engine = ["dep:eg-pyengine", "eg-pyengine/python", "eg-pyengine/security"]
 # backend pair to route between for the first time once this feature is on.
 #
 # `quantum-hardware` (register `D-QN-1`, lane Q10, `w6-quantum-q10-providers`,
-# `plans/au-eg-program/program/quantum-external-providers.md` ss1.3) is the FIFTH
+# `plans/au-medulla-program/program/quantum-external-providers.md` ss1.3) is the FIFTH
 # backend-family layer: optional, feature-gated adapters to real third-party
 # hardware/cloud providers (IBM Quantum Open Plan, Amazon Braket, Azure Quantum),
 # all implementing the SAME `QuantumBackend` trait, all `BackendFamily::Hardware`,
-# all NEVER exact (see `eg-quantum-hardware`'s crate docs for why the whole family is
+# all NEVER exact (see `medulla-quantum-hardware`'s crate docs for why the whole family is
 # conservatively non-exact even for a provider's cloud-simulator SKU), all
 # budget-tracked with refuse-before-submit quota enforcement (a hard, shared, easily-
 # exhausted resource -- IBM's Open Plan is ~10 QPU-minutes per 28-day window), and
 # all credential-sourced from named environment variables ONLY (OpenBao-populated at
 # deploy time, matching this repo's existing `S3_SECRET_KEY_ENV`/`KVCACHE_TOKEN_ENV`
 # convention -- never a ConfigMap, never committed, never a plaintext default). Like
-# `quantum-sim`, `eg-quantum-sim` remains the DEFAULT backend regardless of whether
+# `quantum-sim`, `medulla-quantum-sim` remains the DEFAULT backend regardless of whether
 # this feature is on; these adapters exist for validation, noise studies, and
 # workloads exceeding local capacity, never as the front door (an explicitly
 # rejected alternative was routing through a third-party Qiskit MCP server, which
 # would bypass planner rule R1's exponential-vs-polynomial routing decision).
-quantum = ["dep:eg-quantum-core"]
+quantum = ["dep:medulla-quantum-core"]
 quantum-quest = ["quantum"]
 quantum-gpu = ["quantum"]
 quantum-hardware = [
     "quantum",
-    "dep:eg-quantum-hardware",
-    "eg-quantum-hardware/ibm",
-    "eg-quantum-hardware/braket",
-    "eg-quantum-hardware/azure",
+    "dep:medulla-quantum-hardware",
+    "medulla-quantum-hardware/ibm",
+    "medulla-quantum-hardware/braket",
+    "medulla-quantum-hardware/azure",
 ]
-quantum-sim = ["quantum", "dep:eg-quantum-gates", "dep:eg-quantum-sim"]
+quantum-sim = ["quantum", "dep:medulla-quantum-gates", "dep:medulla-quantum-sim"]
 # Lanes Q5/Q6 (`quantum-external-providers.md` addendum) -- quantum as a DURABLE
-# `eg-jobs` job, never a synchronous `Op`: `eg-quantum-jobs` submits a
+# `medulla-jobs` job, never a synchronous `Op`: `medulla-quantum-jobs` submits a
 # `QuantumProgram` built from a candidate RowSet through the REAL
-# `eg_jobs::JobStore` (no parallel job abstraction -- see that crate's own docs for
+# `medulla_jobs::JobStore` (no parallel job abstraction -- see that crate's own docs for
 # why this reuses, not forks, the durable-execution plane this workspace already
 # has), runs it via the SAME planner rules R0-R5 against `quantum-sim`'s backends,
-# and bridges the result (expectations/distributions/bitstrings) into `eg-numeric`
+# and bridges the result (expectations/distributions/bitstrings) into `medulla-numeric`
 # arrays. Mirrors `quantum-sim`'s posture exactly: NOT in `default`/`full`/`cluster`,
 # zero new crates.io dependencies (every edge below is an existing workspace
 # member). `quantum-jobs-federation` additionally wires the crate's `federation-
 # bridge` feature (a named `ForeignSource` reading a completed quantum job's
-# results through the EXISTING `crates/eg-plan/src/federation.rs` seam, staging-
+# results through the EXISTING `crates/medulla-plan/src/federation.rs` seam, staging-
 # discipline step 2 -- see the addendum) -- implies the facade's own `federation`
-# so the same DataFusion+TLS-bearing `eg-plan` build the server already links is
+# so the same DataFusion+TLS-bearing `medulla-plan` build the server already links is
 # reused, not duplicated.
-quantum-jobs = ["quantum-sim", "dep:eg-quantum-jobs"]
-quantum-jobs-federation = ["quantum-jobs", "federation", "eg-quantum-jobs/federation-bridge"]
+quantum-jobs = ["quantum-sim", "dep:medulla-quantum-jobs"]
+quantum-jobs-federation = ["quantum-jobs", "federation", "medulla-quantum-jobs/federation-bridge"]
 
-# `crates/eg-quantum-workloads` (Q7 epistemic hooks + Q11 domain workloads, register
-# `D-QN-6`, plans/au-eg-program/program/quantum-external-providers.md §1.4) is
-# DELIBERATELY a workspace member ONLY -- no `dep:eg-quantum-workloads` feature
-# exists here and the root `epistemic-graph` package does not depend on it. That is
+# `crates/medulla-quantum-workloads` (Q7 epistemic hooks + Q11 domain workloads, register
+# `D-QN-6`, plans/au-medulla-program/program/quantum-external-providers.md §1.4) is
+# DELIBERATELY a workspace member ONLY -- no `dep:medulla-quantum-workloads` feature
+# exists here and the root `medulla-engine` package does not depend on it. That is
 # the addendum's staged-rollout step 1 ("a tool pulls a subgraph, runs the
 # algorithm, writes results back as proposals. Works today.") taken literally: zero
 # change to this package or to `src/server/`, so `cargo build`/`cargo test` at the
 # workspace root are unaffected by its existence and the sibling
 # `w6-quantum-q5q6-jobplane` lane's durable job-plane work has a clean, unclaimed
 # surface to later host it behind (`Op::SubmitQuantum`/`Op::JoinQuantumResults`).
-# Build/test it targeted: `cargo test -p eg-quantum-workloads`.
-# Q8 (`plans/au-eg-program/program/quantum-native.md` 2026-08-07 status block +
+# Build/test it targeted: `cargo test -p medulla-quantum-workloads`.
+# Q8 (`plans/au-medulla-program/program/quantum-native.md` 2026-08-07 status block +
 # `quantum-external-providers.md` §1.5) -- the agent-facing control-plane surface:
 # `Method::Quantum { op }` (`quantum_rank`/`optimize_with_qaoa`/`quantum_expectation`)
-# + `src/server/handlers/quantum.rs`'s dispatch, wired into `eg-capabilities`'
+# + `src/server/handlers/quantum.rs`'s dispatch, wired into `medulla-capabilities`'
 # machine-checked policy ledger (R5 override audit, Q9) + the `:ToolCall`/`RunTrace`
 # provenance model on the agent-utilities side. Pulls `quantum-sim` (a REAL backend
 # to route to -- an agent op with no executable backend is still just contracts, not
-# "reachable") + `server` (Tokio dispatch + ServerState; `eg-capabilities` itself is
-# folded into `server`) + the matching `eg-types/quantum` and `eg-capabilities/quantum`
+# "reachable") + `server` (Tokio dispatch + ServerState; `medulla-capabilities` itself is
+# folded into `server`) + the matching `medulla-types/quantum` and `medulla-capabilities/quantum`
 # wire/policy features (kept in LOCKSTEP -- see both crates' own docs on why
-# `eg-types/quantum` can never be forced on unconditionally by `eg-capabilities`,
+# `medulla-types/quantum` can never be forced on unconditionally by `medulla-capabilities`,
 # exactly like `jobs`/`statechart`). This is the ONE feature that makes the quantum
 # surface reachable from graph-os/agent-utilities at all -- `quantum`/`quantum-sim`
 # alone remain Rust-internal, no wire protocol Method, no KG concept mapping.
 quantum-agent-api = [
-    "quantum-sim", "server", "eg-types/quantum", "eg-capabilities/quantum",
+    "quantum-sim", "server", "medulla-types/quantum", "medulla-capabilities/quantum",
 ]
 
 [dependencies]
 chrono = { version = "0.4", optional = true, default-features = false, features = ["std"] }
-eg-resource = { path = "crates/eg-resource" }
-eg-types = { path = "crates/eg-types" }
-eg-core = { path = "crates/eg-core" }
+medulla-resource = { path = "crates/medulla-resource" }
+medulla-types = { path = "crates/medulla-types" }
+medulla-core = { path = "crates/medulla-core" }
 # The exact-performance probe is part of the digest-bound full server binary and
 # exercises the native ANN implementations directly. Keep this edge behind the
-# existing `ann` feature; `eg-core` already links the same crate for ANN serving.
-eg-ann = { path = "crates/eg-ann", optional = true }
+# existing `ann` feature; `medulla-core` already links the same crate for ANN serving.
+medulla-ann = { path = "crates/medulla-ann", optional = true }
 # Compute domains (always linked for `algorithms`, used by the graph-op handlers);
 # the heavy finance/datascience/ast/reasoning code + deps are gated behind the
-# facade features that pass through to eg-compute's matching features.
-eg-compute = { path = "crates/eg-compute" }
-# Engine-native epistemic layer (feature `epistemic`, CONCEPT:EG-KG.epistemic.epistemic-substrate,
-# E6). Pure-Rust leaf (eg-types + eg-core + eg-compute/reasoning) — claims/evidence/
+# facade features that pass through to medulla-compute's matching features.
+medulla-compute = { path = "crates/medulla-compute" }
+# Engine-native epistemic layer (feature `epistemic`, CONCEPT:MEDULLA-KG.epistemic.epistemic-substrate,
+# E6). Pure-Rust leaf (medulla-types + medulla-core + medulla-compute/reasoning) — claims/evidence/
 # belief-state + confidence propagation over the EXISTING NodeData/EdgeData fields.
 # Referenced only under `#[cfg(feature = "epistemic")]` (the mining→claim write-back +
-# its tests), so a build without `epistemic` links no eg-epistemic.
-eg-epistemic = { path = "crates/eg-epistemic", optional = true }
-# CONCEPT:EG-321 — Analytics-Program numeric kernel (feature `numeric`, in the one
+# its tests), so a build without `epistemic` links no medulla-epistemic.
+medulla-epistemic = { path = "crates/medulla-epistemic", optional = true }
+# CONCEPT:MEDULLA-321 — Analytics-Program numeric kernel (feature `numeric`, in the one
 # main `full` build). Links only the PURE rlib (nalgebra + ndarray, NO Python-extension FFI —
-# that layer is behind eg-numeric's OWN `python` feature, off here) for Surface B
+# that layer is behind medulla-numeric's OWN `python` feature, off here) for Surface B
 # in-database analytics. The separately compiled Python component is injected into the
 # same published wheel and does not change the server binary's dependency graph.
-eg-numeric = { path = "crates/eg-numeric", optional = true }
+medulla-numeric = { path = "crates/medulla-numeric", optional = true }
 # Unified single binary — the opt-in in-process pyo3-engine (feature `pyo3-engine`,
 # NOT in default/full/cluster; see docs/architecture/unified-inprocess-engine.md).
-# Links only the PURE rlib (eg-core + parking_lot, no Python-extension FFI) unless
-# `pyo3-engine` also turns on its OWN `python` feature (`eg-pyengine/python`,
-# above) — mirrors `eg-numeric`'s optional-dependency shape exactly. The
+# Links only the PURE rlib (medulla-core + parking_lot, no Python-extension FFI) unless
+# `pyo3-engine` also turns on its OWN `python` feature (`medulla-pyengine/python`,
+# above) — mirrors `medulla-numeric`'s optional-dependency shape exactly. The
 # out-of-process scale-out build's no-pyo3-engine gate (`scripts/check_no_pyo3.sh`)
 # never enables this.
-eg-pyengine = { path = "crates/eg-pyengine", optional = true }
+medulla-pyengine = { path = "crates/medulla-pyengine", optional = true }
 # SQL query surface dependency (feature `query`, included in the main build); pulls
 # DataFusion when that composable feature is enabled.
-eg-query = { path = "crates/eg-query", optional = true }
+medulla-query = { path = "crates/medulla-query", optional = true }
 # Unified cross-modal planner (feature `query`, CONCEPT:KG-2.208/209). The main build
 # includes the facade `query`, its DataFusion FILTER leg, and both dependencies.
-eg-plan = { path = "crates/eg-plan", optional = true }
+medulla-plan = { path = "crates/medulla-plan", optional = true }
 # The `ModalityContract` trait + the `EvidenceLocus` shape (CONCEPT:E4/X1). Referenced
 # only under `#[cfg(feature = "epistemic")]` (`src/server/handlers/query.rs`'s
-# `evidence_locus_wire`, mapping `eg_plan::KnowledgeRow::evidence_refs` onto the wire
-# `EvidenceLocusWire`), so a build without `epistemic` links none of it. `eg-plan`
-# already links it unconditionally (deps = eg-types only, per its own crate docs), so
+# `evidence_locus_wire`, mapping `medulla_plan::KnowledgeRow::evidence_refs` onto the wire
+# `EvidenceLocusWire`), so a build without `epistemic` links none of it. `medulla-plan`
+# already links it unconditionally (deps = medulla-types only, per its own crate docs), so
 # this adds no NEW transitive dependency to the tree — only makes the type nameable
 # here too.
-eg-modality = { path = "crates/eg-modality", optional = true }
+medulla-modality = { path = "crates/medulla-modality", optional = true }
 # Concrete governed serving leaves. All remain optional outside the main
 # `modality-serving` feature and link no native codec/toolchain dependency.
-eg-document = { path = "crates/eg-document", optional = true }
-eg-image = { path = "crates/eg-image", optional = true }
-eg-audio = { path = "crates/eg-audio", optional = true }
-eg-video = { path = "crates/eg-video", optional = true }
+medulla-document = { path = "crates/medulla-document", optional = true }
+medulla-image = { path = "crates/medulla-image", optional = true }
+medulla-audio = { path = "crates/medulla-audio", optional = true }
+medulla-video = { path = "crates/medulla-video", optional = true }
 # Native ASR provider (GOC-33, `OWNER-VOICE-ASR`): whisper-rs/whisper.cpp behind
-# `eg_audio::asr`'s frozen contract. The ONLY crate in this workspace that links
+# `medulla_audio::asr`'s frozen contract. The ONLY crate in this workspace that links
 # whisper-rs/whisper.cpp — optional, and NOT part of `full`/`default` (see the
 # `asr-whisper` feature below), so a default build pays zero cost for it.
-eg-asr-whisper = { path = "crates/eg-asr-whisper", optional = true }
+medulla-asr-whisper = { path = "crates/medulla-asr-whisper", optional = true }
 # GOC-34 native Piper-ONNX TTS provider (feature `tts-piper`, deliberately excluded
 # from `full` — see that feature's own comment). Heavy (real `ort` ONNX Runtime +
 # espeak-ng C build) only when explicitly requested.
-eg-tts-piper = { path = "crates/eg-tts-piper", optional = true }
+medulla-tts-piper = { path = "crates/medulla-tts-piper", optional = true }
 # The shared alignment graph + `EvidenceResolver` trait (feature `alignment`, L21,
-# CONCEPT:EG-P1-3 follow-up). `src/server/blob/cas_resolver.rs` implements that trait
+# CONCEPT:MEDULLA-P1-3 follow-up). `src/server/blob/cas_resolver.rs` implements that trait
 # with a real CAS-backed resolver — see the `alignment` feature's own comment above
-# for why the resolver lives HERE rather than in `eg-alignment` itself. Referenced
-# only under `#[cfg(feature = "alignment")]`; `eg-alignment`'s own default build
-# depends on `eg-modality` ONLY (no heavy artifact crate), so this adds no new
+# for why the resolver lives HERE rather than in `medulla-alignment` itself. Referenced
+# only under `#[cfg(feature = "alignment")]`; `medulla-alignment`'s own default build
+# depends on `medulla-modality` ONLY (no heavy artifact crate), so this adds no new
 # dependency CLASS to the tree.
-eg-alignment = { path = "crates/eg-alignment", optional = true }
-# CONCEPT:EG-P0-2 -- the machine-checked MethodPolicy capability ledger (feature
-# `server`, via the `dep:eg-capabilities` requirement folded into that feature below).
-# `src/server/mutation.rs`'s `MutationPlan::for_method` calls `eg_capabilities::policy`
+medulla-alignment = { path = "crates/medulla-alignment", optional = true }
+# CONCEPT:MEDULLA-P0-2 -- the machine-checked MethodPolicy capability ledger (feature
+# `server`, via the `dep:medulla-capabilities` requirement folded into that feature below).
+# `src/server/mutation.rs`'s `MutationPlan::for_method` calls `medulla_capabilities::policy`
 # as its ONE source of per-method authz-action/durability-domain/idempotent/audited/
 # emits-cdc truth for the gateway-routed mutation set -- see that module's docs. Its
-# OWN Cargo.toml turns on ALL of eg-types' optional features so `policy()`'s
+# OWN Cargo.toml turns on ALL of medulla-types' optional features so `policy()`'s
 # exhaustive match sees every `Method` variant regardless of which of THIS crate's
-# features are on; those eg-types features are confirmed pure serde/enum-variant
+# features are on; those medulla-types features are confirmed pure serde/enum-variant
 # gates (no heavy transitive dependency), so this is safe even though it forces them
 # on unconditionally in any `server` build.
-eg-capabilities = { path = "crates/eg-capabilities", optional = true }
+medulla-capabilities = { path = "crates/medulla-capabilities", optional = true }
 # CONCEPT:INT-P2-1 -- the durable analytics-job plane (feature `jobs`): the
 # `AnalyticsJob` state machine + its own `jobs.redb` store + the result->claim
-# commit helper (`eg_jobs::claim::commit_result_claim`), consumed by
+# commit helper (`medulla_jobs::claim::commit_result_claim`), consumed by
 # `src/server/handlers/jobs.rs`. See the workspace `[workspace]` comment above for
 # why it is a workspace member with an optional direct edge from the facade.
-eg-jobs = { path = "crates/eg-jobs", optional = true }
+medulla-jobs = { path = "crates/medulla-jobs", optional = true }
 # CONCEPT:INT-P2-2 -- the native statechart engine (feature `statechart`): the typed
 # StatechartDef model + pure transition function + its own `statecharts.redb` instance
-# store (`eg_statechart::StatechartStore`), consumed by
+# store (`medulla_statechart::StatechartStore`), consumed by
 # `src/server/handlers/statechart.rs`. An optional direct edge from the facade, exactly
-# like `eg-jobs`.
-eg-statechart = { path = "crates/eg-statechart", optional = true }
+# like `medulla-jobs`.
+medulla-statechart = { path = "crates/medulla-statechart", optional = true }
 # D-VZ-1 (lane V0) -- native visualization contracts (ViewSpec IR, ViewResult
 # metadata, capability matrix, tier-selection rules, trait boundaries for
 # ColumnStore/LOD-kernel/render-backend). A leaf crate with no workspace-internal
 # dependency of its own -- see the crate's own Cargo.toml/lib.rs docs. Gated behind
 # the `viz`/`viz-interactive`/`viz-gpu-export` features below, ALL default-off and
-# deliberately NOT folded into `full` (contrast `eg-jobs`/`eg-statechart` above): V0
+# deliberately NOT folded into `full` (contrast `medulla-jobs`/`medulla-statechart` above): V0
 # ships contracts only, so there is no ColumnStore/kernel/renderer yet for a build
 # to serve, and the posture matches the sibling quantum contract's default-off
 # feature family.
-eg-viz-core = { path = "crates/eg-viz-core", optional = true }
-eg-viz-columnstore = { path = "crates/eg-viz-columnstore", optional = true }
-eg-viz-export = { path = "crates/eg-viz-export", optional = true }
+medulla-viz-core = { path = "crates/medulla-viz-core", optional = true }
+medulla-viz-columnstore = { path = "crates/medulla-viz-columnstore", optional = true }
+medulla-viz-export = { path = "crates/medulla-viz-export", optional = true }
 # D-VZ-1 lane V2 -- M4/LTTB decimation kernels, runtime-detected AVX2. Named
-# directly here (not just pulled in transitively via `eg-viz-export`) because
+# directly here (not just pulled in transitively via `medulla-viz-export`) because
 # `src/server/viz_interactive.rs` (feature `viz-interactive`) calls
-# `eg_viz_kernels::lttb_reduce` itself for the interactive tile protocol.
-eg-viz-kernels = { path = "crates/eg-viz-kernels", optional = true }
+# `medulla_viz_kernels::lttb_reduce` itself for the interactive tile protocol.
+medulla-viz-kernels = { path = "crates/medulla-viz-kernels", optional = true }
 # VIZ-2 -- the binary tile/streaming protocol for graph payloads (feature
 # `viz-graph-tiles`): contract types + binary encoder/decoder + a deterministic
 # demo `GraphSource`, consumed by `src/server/graph_tile_server.rs`. Named
 # directly here (not just pulled in transitively) for the same reason
-# `eg-viz-kernels` is: the facade's own server module calls into it directly.
-eg-viz-graph-tiles = { path = "crates/eg-viz-graph-tiles", optional = true }
+# `medulla-viz-kernels` is: the facade's own server module calls into it directly.
+medulla-viz-graph-tiles = { path = "crates/medulla-viz-graph-tiles", optional = true }
 # D-DE-0 (feature `durable`, see that feature's own comment above): the
 # durable-execution routing contract -- CallShape/WorkShape/DurableBackendKind + the
 # DurableExecutionUnitMirror DTO. Pure serde (already resolved workspace-wide); no
-# dependency on eg-statechart/eg-jobs/eg-transaction -- wiring an actual call
+# dependency on medulla-statechart/medulla-jobs/medulla-transaction -- wiring an actual call
 # through to one of those crates is DE2, not this contracts-only crate.
-eg-durable = { path = "crates/eg-durable", optional = true }
+medulla-durable = { path = "crates/medulla-durable", optional = true }
 # Clean-room graph-native LM-program contracts, deterministic kernels, and governed
 # runtime plans. The crate deliberately has no provider SDK or HTTP client.
-eg-program = { path = "crates/eg-program", optional = true }
+medulla-program = { path = "crates/medulla-program", optional = true }
 # D-QN-1 (feature `quantum`, see that feature's own comment above): the quantum IR /
 # QuantumBackend trait / planner contracts crate. No simulator, no vendor SDK; pure
 # serde + thiserror + sha2 (all already resolved workspace-wide).
-eg-quantum-core = { path = "crates/eg-quantum-core", optional = true }
+medulla-quantum-core = { path = "crates/medulla-quantum-core", optional = true }
 # D-QN-1 (feature `quantum-sim`, see that feature's own comment above): dense unitary
 # gate matrices (content ported with Apache-2.0 attribution from QuantRS2, see
-# crates/eg-quantum-gates/NOTICE) for eg-quantum-core's GateKind vocabulary.
-eg-quantum-gates = { path = "crates/eg-quantum-gates", optional = true }
+# crates/medulla-quantum-gates/NOTICE) for medulla-quantum-core's GateKind vocabulary.
+medulla-quantum-gates = { path = "crates/medulla-quantum-gates", optional = true }
 # D-QN-1 (feature `quantum-sim`): the pure-Rust statevector + stabilizer
 # QuantumBackend implementations -- the first real backends planner rule R1 (Clifford
 # -> stabilizer, never statevector) has to route between.
-eg-quantum-sim = { path = "crates/eg-quantum-sim", optional = true }
+medulla-quantum-sim = { path = "crates/medulla-quantum-sim", optional = true }
 # D-QN-1 (feature `quantum-hardware`, see that feature's own comment above): the
 # optional third-party hardware/cloud QuantumBackend adapters (IBM Quantum, Amazon
 # Braket, Azure Quantum). Its own internal `ibm`/`braket`/`azure` features (all
@@ -1600,53 +1600,53 @@ eg-quantum-sim = { path = "crates/eg-quantum-sim", optional = true }
 # opentelemetry-otlp's default observability build) and, for the Braket adapter's
 # AWS SigV4 request signing, `hmac`/`sha2` at the SAME versions the S3 gateway
 # (`src/server/s3/mod.rs`) already pins.
-eg-quantum-hardware = { path = "crates/eg-quantum-hardware", optional = true }
+medulla-quantum-hardware = { path = "crates/medulla-quantum-hardware", optional = true }
 # Lanes Q5/Q6 (feature `quantum-jobs`, see that feature's own comment above): quantum
-# as a durable `eg-jobs` job (submit/claim/run/join through the REAL JobStore state
-# machine, no parallel job abstraction) + the Q6 numeric bridge into eg-numeric.
-eg-quantum-jobs = { path = "crates/eg-quantum-jobs", optional = true }
+# as a durable `medulla-jobs` job (submit/claim/run/join through the REAL JobStore state
+# machine, no parallel job abstraction) + the Q6 numeric bridge into medulla-numeric.
+medulla-quantum-jobs = { path = "crates/medulla-quantum-jobs", optional = true }
 # Live CEP standing-query engine (feature `stream`, included in the main build,
-# CONCEPT:EG-088/EG-299). The
-# BATCH `Op::Cep` executor already pulls eg-stream transitively via `eg-plan/stream`; this
-# DIRECT edge (with eg-stream's own `stream` feature, the ONLY thing that pulls tokio in
-# that leaf crate) makes `eg_stream::live::CepEngine` nameable so the server can own a live
+# CONCEPT:MEDULLA-088/MEDULLA-299). The
+# BATCH `Op::Cep` executor already pulls medulla-stream transitively via `medulla-plan/stream`; this
+# DIRECT edge (with medulla-stream's own `stream` feature, the ONLY thing that pulls tokio in
+# that leaf crate) makes `medulla_stream::live::CepEngine` nameable so the server can own a live
 # standing-query surface (`src/server/cep.rs`) fed by the CDC hub.
-eg-stream = { path = "crates/eg-stream", optional = true }
+medulla-stream = { path = "crates/medulla-stream", optional = true }
 # Optional native time-series store + primitives (feature `tsdb`, CONCEPT:KG-2.210/
 # 211); pulls redb only (native primitives), and DataFusion only when `query` is ALSO
 # on (its `arrow-seg` feature, enabled transitively by the facade `query` feature).
-eg-tsdb = { path = "crates/eg-tsdb", optional = true }
-# LTAP lakehouse-interop leaf crate (feature `lake`, CONCEPT:EG-317 / INT-P2-3): Parquet
+medulla-tsdb = { path = "crates/medulla-tsdb", optional = true }
+# LTAP lakehouse-interop leaf crate (feature `lake`, CONCEPT:MEDULLA-317 / INT-P2-3): Parquet
 # materialization + Delta/Iceberg transaction logs + LSN as-of snapshots + the
 # Iceberg-REST catalog contents. Pulled behind the `lake` source feature (with its own
 # `lake` sub-feature, which uses the maintained Polars native Parquet codec); as of
 # W4.8, `lake` (and `lake-rest`) are part of the one main `full` build. The
-# engine-side seam (`src/server/lake/`) converts real `eg_tsdb::store::SeriesStore`
-# series into `eg_lake::LakeBatch`es and drives the materialize/compact/delete +
+# engine-side seam (`src/server/lake/`) converts real `medulla_tsdb::store::SeriesStore`
+# series into `medulla_lake::LakeBatch`es and drives the materialize/compact/delete +
 # catalog-registration + OpenLineage-event calls this crate does not (and, per its own
 # docs, deliberately should not) own.
-eg-lake = { path = "crates/eg-lake", optional = true }
+medulla-lake = { path = "crates/medulla-lake", optional = true }
 # Embedded BM25 full-text index (feature `obs`, included in the main build,
-# CONCEPT:EG-160). Reused DIRECTLY for the per-stream log text index. NOTE:
-# eg-text is ALSO pulled transitively via eg-plan's `text` (the facade `text` feature),
-# so this direct edge adds no NEW crate — it only makes `eg_text::TextIndex` nameable.
-eg-text = { path = "crates/eg-text", optional = true }
+# CONCEPT:MEDULLA-160). Reused DIRECTLY for the per-stream log text index. NOTE:
+# medulla-text is ALSO pulled transitively via medulla-plan's `text` (the facade `text` feature),
+# so this direct edge adds no NEW crate — it only makes `medulla_text::TextIndex` nameable.
+medulla-text = { path = "crates/medulla-text", optional = true }
 # Optional pure-Rust geometry/WKT/planar-predicates/packed-Hilbert-R-tree crate (feature
-# `geo`, CONCEPT:EG-083). Pulled transitively via eg-plan's `geo` feature already (the
+# `geo`, CONCEPT:MEDULLA-083). Pulled transitively via medulla-plan's `geo` feature already (the
 # `Op::SpatialScan`/`Pred::Spatial*` executor); this direct edge adds NO new crate — it
-# only makes `eg_geo::{Bbox, RTree, parse_wkt}` nameable here, for the server-layer
-# maintained `GraphSpatialIndex` (L37, CONCEPT:EG-KG.storage.incremental-spatial) —
-# mirroring eg-text's identical direct-edge precedent above.
-eg-geo = { path = "crates/eg-geo", optional = true }
-# Array/tensor leaf crate (feature `tensor`, CONCEPT:EG-085). Pulled transitively via
-# eg-plan's `tensor` feature already (the `Op::TensorScan`/`Op::TensorOp` executor);
-# this direct edge adds NO new crate — it only makes `eg_tensor::TensorStore` nameable
+# only makes `medulla_geo::{Bbox, RTree, parse_wkt}` nameable here, for the server-layer
+# maintained `GraphSpatialIndex` (L37, CONCEPT:MEDULLA-KG.storage.incremental-spatial) —
+# mirroring medulla-text's identical direct-edge precedent above.
+medulla-geo = { path = "crates/medulla-geo", optional = true }
+# Array/tensor leaf crate (feature `tensor`, CONCEPT:MEDULLA-085). Pulled transitively via
+# medulla-plan's `tensor` feature already (the `Op::TensorScan`/`Op::TensorOp` executor);
+# this direct edge adds NO new crate — it only makes `medulla_tensor::TensorStore` nameable
 # here, so the served `run_unified` (`src/server/handlers/query.rs`) can bind the
-# process-lifetime write-back sink `Op::TensorOp` requires — mirroring eg-geo's
+# process-lifetime write-back sink `Op::TensorOp` requires — mirroring medulla-geo's
 # identical direct-edge precedent above.
-eg-tensor = { path = "crates/eg-tensor", optional = true }
+medulla-tensor = { path = "crates/medulla-tensor", optional = true }
 # Arrow + maintained Polars Parquet columnar segment encode for observability logs
-# (feature `obs`, CONCEPT:EG-161). Apache `parquet` is deliberately not used: its
+# (feature `obs`, CONCEPT:MEDULLA-161). Apache `parquet` is deliberately not used: its
 # metadata codec still carries the unmaintained `thrift` and `paste` crates. Polars
 # uses its safe native Parquet-format implementation. These edges are optional and
 # `obs`-gated; the writer explicitly chooses uncompressed pages.
@@ -1656,28 +1656,28 @@ polars-io = { version = "0.54.4", optional = true, default-features = false, fea
 # Native RDF/SPARQL surface (features `rdf`/`sparql`, included in the main build,
 # CONCEPT:KG-2.217/218). Pulls pure-Rust oxrdf/oxttl/spargebra. Multi-valued literals
 # remain inside the authoritative graph image.
-eg-rdf = { path = "crates/eg-rdf", optional = true }
-# Optional pure-Rust SHACL Core validator (feature `shacl`, CONCEPT:EG-132). Sits above
-# eg-rdf (reuses its oxrdf term/graph model); pulled only when `shacl` is on.
-eg-shacl = { path = "crates/eg-shacl", optional = true }
-# Optional pure-Rust ShEx Core validator (feature `shex`, CONCEPT:EG-133). The complement
-# to eg-shacl; sits above eg-rdf (reuses its oxrdf term/graph model); pulled only when
+medulla-rdf = { path = "crates/medulla-rdf", optional = true }
+# Optional pure-Rust SHACL Core validator (feature `shacl`, CONCEPT:MEDULLA-132). Sits above
+# medulla-rdf (reuses its oxrdf term/graph model); pulled only when `shacl` is on.
+medulla-shacl = { path = "crates/medulla-shacl", optional = true }
+# Optional pure-Rust ShEx Core validator (feature `shex`, CONCEPT:MEDULLA-133). The complement
+# to medulla-shacl; sits above medulla-rdf (reuses its oxrdf term/graph model); pulled only when
 # `shex` is on.
-eg-shex = { path = "crates/eg-shex", optional = true }
+medulla-shex = { path = "crates/medulla-shex", optional = true }
 # Native GraphQL read surface (feature `graphql`, included in the main build,
 # CONCEPT:KG-2.235). Pure-Rust: schema-from-graph plus a hand-written parser/resolver,
 # with no async-graphql dependency.
-eg-graphql = { path = "crates/eg-graphql", optional = true }
-# EG-187: the tiered + shared content-addressed KV-cache leaf crate (EG-185/186). Pulled
+medulla-graphql = { path = "crates/medulla-graphql", optional = true }
+# MEDULLA-187: the tiered + shared content-addressed KV-cache leaf crate (MEDULLA-185/186). Pulled
 # behind `kvcache-server`, which the main build includes. Pure-Rust; its shared backend
 # is exposed over HTTP by `src/server/kvcache_http/` for vLLM/LMCache.
-eg-kvcache = { path = "crates/eg-kvcache", optional = true }
+medulla-kvcache = { path = "crates/medulla-kvcache", optional = true }
 # WASM-sandboxed UDF runtime (feature `wasm-udf`, included in the main build,
 # CONCEPT:KG-2.228). Pulls wasmtime + cranelift. The sandboxed `UdfRegistry` lives on
 # ServerState.
-eg-wasm = { path = "crates/eg-wasm", optional = true }
-# SPARQL SERVICE federation client (feature `sparql-service`, CONCEPT:EG-052). The SAME
-# pure-Rust rustls HTTP client `federation` already links via eg-plan — pinned to the
+medulla-wasm = { path = "crates/medulla-wasm", optional = true }
+# SPARQL SERVICE federation client (feature `sparql-service`, CONCEPT:MEDULLA-052). The SAME
+# pure-Rust rustls HTTP client `federation` already links via medulla-plan — pinned to the
 # same 3.x, so activating it here adds a direct edge but no new crate to the tree. The
 # main build includes both federation features. Also the JWKS-fetch transport for
 # `oidc` (`src/server/oidc.rs::JwtValidator::refresh`).
@@ -1730,23 +1730,23 @@ tracing-subscriber = { version = "0.3", optional = true }
 async-trait = { version = "0.1", optional = true }
 # Durable embedded KV for the redb write-through substrate (feature `redb`).
 redb = { workspace = true, optional = true }
-# RF-RULING-004: `eg-storage` is the SOLE physical authority that opens any
+# RF-RULING-004: `medulla-storage` is the SOLE physical authority that opens any
 # durable file this binary owns (every `OwnerLayout` its stores declare), and
-# `eg-transaction` is the SOLE mutation authority over them. The root binary is
+# `medulla-transaction` is the SOLE mutation authority over them. The root binary is
 # the composition root: it mints the one `ScopeGrantVerifier`, holds the one
 # `MutationOwnerAuthority` per store, and hands domain crates only the
 # capabilities those two kernels issue. Both ride the `redb` feature because
 # that is the feature the durable substrate itself rides.
-eg-storage = { path = "crates/eg-storage", optional = true }
-eg-transaction = { path = "crates/eg-transaction", optional = true }
+medulla-storage = { path = "crates/medulla-storage", optional = true }
+medulla-transaction = { path = "crates/medulla-transaction", optional = true }
 # Encryption-at-rest AEAD for the redb durable value blobs (feature `security`,
 # included in the main build, CONCEPT:KG-2.231). RustCrypto ChaCha20-Poly1305 is
 # pure Rust and links no ring, OpenSSL, or C crate. Cluster builds also use the
 # security feature for authenticated Raft transport.
 chacha20poly1305 = { version = "0.10", optional = true }
-# SQLite `.db` FILE import/export (feature `sqlite-file`, CONCEPT:EG-331/EG-332).
+# SQLite `.db` FILE import/export (feature `sqlite-file`, CONCEPT:MEDULLA-331/MEDULLA-332).
 # Pure-Rust page-format reader + bulk-load writer — no C dependency.
-eg-sqlite-format = { path = "crates/eg-sqlite-format", optional = true }
+medulla-sqlite-format = { path = "crates/medulla-sqlite-format", optional = true }
 # S3/MinIO object-store chunk backend (feature `blob-s3`, CONCEPT:KG-2.206). The
 # ONLY dep that pulls an object-store/AWS SDK, gated behind `blob-s3` (NOT `blob`),
 # so the main, cluster, and full-extras bundles link no object_store/AWS crate. Select
@@ -1756,17 +1756,17 @@ eg-sqlite-format = { path = "crates/eg-sqlite-format", optional = true }
 # revision existed to obtain before 0.14.1 was published. Per the crates.io-only
 # dependency edict (AGENTS.md), do not move this back to a `git = `/`rev = ` source.
 object_store = { version = "0.14.2", optional = true, features = ["aws"] }
-# rosbridge-WebSocket client for the CONCEPT:EG-325 ROS2 bridge. No-TLS pure-Rust build
+# rosbridge-WebSocket client for the CONCEPT:MEDULLA-325 ROS2 bridge. No-TLS pure-Rust build
 # (ws:// to a local rosbridge_server); `connect`+`handshake` only — links NO native-tls/
 # openssl. This dependency is selected only by the `full-extras` source-build layer.
 tokio-tungstenite = { version = "0.30", optional = true, default-features = false, features = ["connect", "handshake"] }
-# Native pure-Rust DDS/RTPS stack for the CONCEPT:EG-347 native ROS2 wire (feature
+# Native pure-Rust DDS/RTPS stack for the CONCEPT:MEDULLA-347 native ROS2 wire (feature
 # `ros2-dds`). Dust DDS is 100% Rust — it links NO
 # CycloneDDS/rmw/`ros` C toolchain, so unlike a `cyclonedds-rs` leg it builds in CI
 # everywhere. It is selected only by the `full-extras` source-build layer.
 dust_dds = { version = "0.15", optional = true }
 # CycloneDDS-C-backed `rmw` stack for the S5 ROS2-rmw leg (feature `ros2-rmw`,
-# CONCEPT:EG-347 follow-on). `cyclonedds` (a safe Rust wrapper, mzet97/cyclonedds-rust)
+# CONCEPT:MEDULLA-347 follow-on). `cyclonedds` (a safe Rust wrapper, mzet97/cyclonedds-rust)
 # pulls `cyclonedds-rust-sys` (FFI) → `cyclonedds-src` (the CycloneDDS C sources VENDORED
 # inside the crate tarball). `cyclonedds-rust-sys`'s build.rs configures+builds the
 # vendored source with `cmake` (static lib, BUILD_SHARED_LIBS=OFF, security/SSL/IDLC/
@@ -1805,7 +1805,7 @@ windows-sys = { version = "0.61.2", optional = true, features = ["Win32_Storage_
 # Stream/sink combinators for the pgwire DataRow result stream (feature `pgwire`).
 futures = { version = "0.3", optional = true }
 # SHA-1 digest for the hand-rolled MySQL `mysql_native_password` auth exchange
-# (feature `mysql-wire`, included in the main build, CONCEPT:EG-076). Pure Rust; the
+# (feature `mysql-wire`, included in the main build, CONCEPT:MEDULLA-076). Pure Rust; the
 # mysql_native_password specification mandates SHA-1 specifically.
 sha1 = { version = "0.10", optional = true }
 # The identity store (feature `security`): argon2id password and one-time
@@ -1818,13 +1818,13 @@ argon2 = { version = "0.5", optional = true, default-features = false, features 
 # default-features = false drops the protobuf encoder — text exposition only.
 prometheus = { version = "0.14", optional = true, default-features = false }
 # OpenTelemetry OTLP span export (feature `otel`, included in the main build,
-# CONCEPT:EG-091). The batch span processor runs on the tokio runtime
+# CONCEPT:MEDULLA-091). The batch span processor runs on the tokio runtime
 # (`opentelemetry_sdk` `rt-tokio`); `grpc-tonic` is the OTLP transport.
 opentelemetry = { version = "0.33", optional = true }
 opentelemetry_sdk = { version = "0.33.1", optional = true, features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.33", optional = true, features = ["grpc-tonic"] }
 tracing-opentelemetry = { version = "0.34", optional = true }
-# CONCEPT:EG-316 — protobuf codec for the Prometheus `remote_write` WriteRequest, and
+# CONCEPT:MEDULLA-316 — protobuf codec for the Prometheus `remote_write` WriteRequest, and
 # snappy block decompression for its wire framing. BOTH are pure-Rust (NO C, NO
 # tonic/grpc, NO build.rs codegen — the WriteRequest schema is hand-declared with the
 # `prost::Message` derive). Both are selected through `otel-export`, which is included
@@ -1858,38 +1858,38 @@ wat = "1"
 # Integration tests in `tests/` construct a full `ServerState` literal directly, so
 # they must be able to name the crates behind the feature-gated fields the lib's own
 # (`crate::`-pathed) test literals use: `parking_lot::Mutex` for the `compute-dist`
-# matview store and `eg_wasm::UdfRegistry` for the `wasm-udf` registry. Already linked
+# matview store and `medulla_wasm::UdfRegistry` for the `wasm-udf` registry. Already linked
 # by the relevant facade features — declaring them here only makes the names resolvable
 # from an integration test (e.g. `tests/pgwire_roundtrip.rs` under `--features cluster`).
 parking_lot = "0.12"
-eg-wasm = { path = "crates/eg-wasm", features = ["wasm-udf"] }
-# `src/server/mutation_batch/tests.rs` calls `eg_query::TableStore::open_temp`,
-# which eg-query gates on `cfg(any(test, feature = "dev-scope-grant"))`.
+medulla-wasm = { path = "crates/medulla-wasm", features = ["wasm-udf"] }
+# `src/server/mutation_batch/tests.rs` calls `medulla_query::TableStore::open_temp`,
+# which medulla-query gates on `cfg(any(test, feature = "dev-scope-grant"))`.
 # `cfg(test)` does NOT cross a crate boundary -- it is set only while compiling
-# eg-query's OWN tests -- so a consumer needs the feature. No root feature
-# forwards it, which meant `cargo test -p epistemic-graph --all-features` could
+# medulla-query's OWN tests -- so a consumer needs the feature. No root feature
+# forwards it, which meant `cargo test -p medulla-engine --all-features` could
 # not compile the root test suite at all: it built only under
 # `cargo test --workspace --all-features`, where the workspace-wide flag happens
-# to turn the feature on in eg-query directly. That is an invisible dependency
+# to turn the feature on in medulla-query directly. That is an invisible dependency
 # on how the suite is invoked, and it fails as a confusing "no associated
 # function `open_temp`" rather than as a missing feature.
 #
-# Declared as a DEV-dependency (same precedent as `eg-wasm` above) so the
+# Declared as a DEV-dependency (same precedent as `medulla-wasm` above) so the
 # feature is on for test/bench builds and stays off in the engine -- which is
-# what eg-query's gate is protecting: `open_temp` supplies its own dev scope
+# what medulla-query's gate is protecting: `open_temp` supplies its own dev scope
 # grant, and a production build must not be able to link one.
-eg-query = { path = "crates/eg-query", features = ["dev-scope-grant"] }
+medulla-query = { path = "crates/medulla-query", features = ["dev-scope-grant"] }
 # Cross-crate repository-enrichment snapshot fixture for parser and Raft tests.
-# The feature is test-only; release builds retain the ordinary eg-compute dependency.
-eg-compute = { path = "crates/eg-compute", features = ["test-support"] }
-# `eg_types::test_support` (the shared SQL source batch fixture) for the lib's
+# The feature is test-only; release builds retain the ordinary medulla-compute dependency.
+medulla-compute = { path = "crates/medulla-compute", features = ["test-support"] }
+# `medulla_types::test_support` (the shared SQL source batch fixture) for the lib's
 # own tests; `cfg(test)` does not cross the crate boundary, same reason as above.
-eg-types = { path = "crates/eg-types", features = ["test-support"] }
-# Criterion harness for the write-coalescer contention bench (CONCEPT:EG-012)
-# and the massive-scale core harness (CONCEPT:EG-096). DEV-only — never linked
+medulla-types = { path = "crates/medulla-types", features = ["test-support"] }
+# Criterion harness for the write-coalescer contention bench (CONCEPT:MEDULLA-012)
+# and the massive-scale core harness (CONCEPT:MEDULLA-096). DEV-only — never linked
 # into the engine binary; zero release-build impact.
 criterion = "0.8"
-# Write-coalescer `__commons__` contention reproduction (CONCEPT:EG-012): N
+# Write-coalescer `__commons__` contention reproduction (CONCEPT:MEDULLA-012): N
 # concurrent producers fan single-op writes into ONE graph, swept across the batch
 # window so the lock-acquisition / throughput contention curve is visible. The
 # coalescer is Tokio-based and lives behind the `server` feature, so this bench is
@@ -1901,7 +1901,7 @@ path = "benches/write_coalescer_bench.rs"
 harness = false
 required-features = ["server"]
 
-# Redb durable group-commit micro-linger reproduction (CONCEPT:EG-024): N concurrent
+# Redb durable group-commit micro-linger reproduction (CONCEPT:MEDULLA-024): N concurrent
 # authoritative writers fanned into ONE redb backend, swept across the linger knob so
 # the ops-per-fsync (batch-size) win over the commit-on-drain baseline is visible.
 # Needs the redb backend + tokio server runtime, so it is gated to `--features full`
@@ -1923,11 +1923,11 @@ path = "benches/redb_write_latency_bench.rs"
 harness = false
 required-features = ["full"]
 
-# Schema-drift classification hot-path receipt (EG-TYPED-PACKS-R712): the
-# five-way classifier of `eg_types::graph_schema::drift` over a 1,000-field
+# Schema-drift classification hot-path receipt (MEDULLA-TYPED-PACKS-R712): the
+# five-way classifier of `medulla_types::graph_schema::drift` over a 1,000-field
 # approved contract, rotated over deterministic drift shapes; prints p50/p99
 # and the process RSS growth (budget: p50 < 0.5 ms, p99 < 3 ms, memory < 16
-# MiB). Touches only the unconditional `eg-types` `graph_schema` surface, so
+# MiB). Touches only the unconditional `medulla-types` `graph_schema` surface, so
 # it builds under any feature set; run with
 # `cargo bench --features full --bench schema_drift_classify`. DEV-only;
 # never linked into the engine binary.
@@ -1936,7 +1936,7 @@ name = "schema_drift_classify"
 path = "benches/schema_drift_classify.rs"
 harness = false
 
-# Massive-scale core micro-benchmark harness (CONCEPT:EG-096): in-process node/edge
+# Massive-scale core micro-benchmark harness (CONCEPT:MEDULLA-096): in-process node/edge
 # write throughput, in-process query latency (single-hop + label lookup), and IVF-PQ
 # kNN search latency. Feature-LIGHT — builds under DEFAULT features (no server/redb),
 # so a plain `cargo bench --no-run` compiles it while the two benches above skip. Uses
@@ -1958,7 +1958,7 @@ path = "benches/cold_warm_reopen.rs"
 harness = false
 required-features = ["full"]
 
-# Provenance-anchoring write-path overhead (provenance anchoring, CONCEPT:EG-KG.sharding.row-level-security):
+# Provenance-anchoring write-path overhead (provenance anchoring, CONCEPT:MEDULLA-KG.sharding.row-level-security):
 # N concurrent authoritative writers fanned into ONE redb backend, with vs.
 # without a concurrent (deliberately aggressive) anchor-sweep loop contending
 # for the SAME writer thread, so the anchoring job's write-throughput overhead
@@ -1971,12 +1971,12 @@ path = "benches/provenance_anchor_bench.rs"
 harness = false
 required-features = ["security"]
 
-# In-process (the shape eg-pyengine embeds) vs out-of-process (UDS wire) latency
+# In-process (the shape medulla-pyengine embeds) vs out-of-process (UDS wire) latency
 # for the SAME AddNode/GetNodeProperties op (unified-binary program, workstream
 # W-A; see
 # docs/architecture/unified-inprocess-engine.md). Both arms call the IDENTICAL
-# `epistemic_graph::graph::GraphCore` mutation — the in-process arm calls it
-# directly (what `eg-pyengine` does), the out-of-process arm additionally pays
+# `medulla::graph::GraphCore` mutation — the in-process arm calls it
+# directly (what `medulla-pyengine` does), the out-of-process arm additionally pays
 # real length-prefixed MessagePack framing over a real Unix domain socket
 # (what the served transport does), isolating the transport tax the "two
 # deployment shapes, one performance discipline" edict is about. Needs the
@@ -1989,7 +1989,7 @@ path = "benches/pyo3_inprocess_vs_uds_bench.rs"
 harness = false
 required-features = ["server"]
 
-# EG-ORCH-VOCAB-R801.6 hot-path receipt: the engine's per-write path for the
+# MEDULLA-ORCH-VOCAB-R801.6 hot-path receipt: the engine's per-write path for the
 # versioned harness components — pre-commit admission (strict decode,
 # evidence checks, immutability + head-relative supersession checks, the
 # bitemporal stamp and the supersession link) plus the RAM projection — over
@@ -2026,7 +2026,7 @@ panic = "unwind"
 strip = true
 
 # The Go/JavaScript clients' embedded eg2. method-body codec
-# (`crates/eg-method-codec`, built for wasm32-unknown-unknown by
+# (`crates/medulla-method-codec`, built for wasm32-unknown-unknown by
 # `scripts/build_method_codec_wasm.py`). The module is committed into both
 # clients and re-derived byte-for-byte in CI, so every setting is chosen for
 # the smallest reproducible module: optimize for size ("z"), fat LTO, one
@@ -2050,8 +2050,8 @@ panic = "abort"
 # DATABASE — unwind keeps a panic recoverable at the dispatch boundary instead of
 # aborting the whole process and masking a recoverable error. Normal `release` builds
 # are unaffected (this is a separate named profile).
-# Size profile for the standalone `epistemic-graph-server` package (built natively on
-# x86_64 and aarch64 from packaging/epistemic-graph-server, so fat LTO has no cross-build
+# Size profile for the standalone `medulla-server` package (built natively on
+# x86_64 and aarch64 from packaging/medulla-server, so fat LTO has no cross-build
 # memory limit). panic = "unwind": the multi-tenant server must not abort every tenant on one panic.
 [profile.release-server]
 inherits = "release"

@@ -4,19 +4,19 @@
 //! ## Why this exists
 //!
 //! The engine already IS OpenObserve's stack: Rust + redb + Arrow/DataFusion + a
-//! Tantivy full-text index (`eg-text`) + a content-addressed blob store on S3
+//! Tantivy full-text index (`medulla-text`) + a content-addressed blob store on S3
 //! (`blob-s3`). OpenObserve (O2) is: ingest logs/metrics/traces over standard
 //! wire protocols → land them as time-series + full-text → roll them into
 //! Parquet-on-object-store → search with SQL. This module lands the **log
 //! ingestion front door**; [`segment`] lands the **Parquet segment substrate**
-//! (CONCEPT:EG-KG.retrieval.observability-search). Search / PromQL / dashboards are later Phase T items.
+//! (CONCEPT:MEDULLA-KG.retrieval.observability-search). Search / PromQL / dashboards are later Phase T items.
 //!
 //! ## The listener
 //!
 //! A HAND-ROLLED HTTP/1.1 listener over `tokio::net::TcpListener` — the SAME
 //! dependency-free idiom as [`crate::metrics::serve`] and
 //! [`crate::server::sparql_http`] (NO axum/hyper/warp, so the Pi contract holds).
-//! Bound via `EPISTEMIC_GRAPH_OBS_ADDR`. It accepts log records over three
+//! Bound via `MEDULLA_OBS_ADDR`. It accepts log records over three
 //! interchange shapes so EXISTING agents/collectors point at it unchanged:
 //!
 //!  * `POST /v1/logs`            — OTLP/HTTP JSON (`ExportLogsServiceRequest`)
@@ -25,23 +25,23 @@
 //!  * `POST /` or `/api/logs`    — plain JSON-lines (one JSON object per line)
 //!
 //! Every shape is normalized into a common [`LogRecord`] and stored into (a) an
-//! `eg-tsdb` series keyed by stream (time-range + retention) and (b) a per-stream
-//! `eg-text` Tantivy index (full-text search) — schema-on-read: attributes are a
+//! `medulla-tsdb` series keyed by stream (time-range + retention) and (b) a per-stream
+//! `medulla-text` Tantivy index (full-text search) — schema-on-read: attributes are a
 //! dynamic map, never a fixed column. Multi-tenant by **stream**: an org/stream
 //! name gets its own tsdb series id + its own text-index namespace.
 
 pub mod search;
 pub mod segment;
 
-/// CONCEPT:EG-OS.observability.prometheus-ingest — the observability EGRESS half: OTLP/HTTP-JSON export of the engine's
+/// CONCEPT:MEDULLA-OS.observability.prometheus-ingest — the observability EGRESS half: OTLP/HTTP-JSON export of the engine's
 /// OWN Prometheus metrics + its stored distributed-trace spans to an external
 /// OpenTelemetry collector (closing the loop the engine already ingests). Behind the
 /// `otel-export` feature.
 #[cfg(feature = "otel-export")]
 pub mod otel_export;
 
-/// CONCEPT:EG-OS.observability.prometheus-ingest — the Prometheus `remote_write` receiver: land snappy-compressed
-/// protobuf `WriteRequest` POSTs (`/api/v1/write`) into the durable eg-tsdb SeriesStore
+/// CONCEPT:MEDULLA-OS.observability.prometheus-ingest — the Prometheus `remote_write` receiver: land snappy-compressed
+/// protobuf `WriteRequest` POSTs (`/api/v1/write`) into the durable medulla-tsdb SeriesStore
 /// so an external Prometheus can PUSH to the engine. Behind the `otel-export` feature.
 #[cfg(feature = "otel-export")]
 pub mod remote_write;
@@ -65,8 +65,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use parking_lot::Mutex;
 
 use crate::server::blob::store::ChunkStore;
-use eg_text::TextIndex;
-use eg_tsdb::store::SeriesStore;
+use medulla_text::TextIndex;
+use medulla_tsdb::store::SeriesStore;
 
 pub use http::{serve, serve_with_security};
 pub use parse::{parse_es_bulk, parse_json_lines, parse_otlp_logs};
@@ -77,10 +77,10 @@ use manifests::SegmentManifestUsage;
 
 /// Env var carrying the observability-ingest listener bind address (`host:port`),
 /// e.g. `127.0.0.1:5080` (O2's default log-ingest port). Unset ⇒ no listener.
-pub const OBS_ADDR_ENV: &str = "EPISTEMIC_GRAPH_OBS_ADDR";
+pub const OBS_ADDR_ENV: &str = "MEDULLA_OBS_ADDR";
 /// Env var overriding the per-stream buffered-record count that triggers a Parquet
-/// segment flush (CONCEPT:EG-KG.retrieval.observability-search). Default [`DEFAULT_FLUSH_RECORDS`].
-pub const OBS_FLUSH_RECORDS_ENV: &str = "EPISTEMIC_GRAPH_OBS_FLUSH_RECORDS";
+/// segment flush (CONCEPT:MEDULLA-KG.retrieval.observability-search). Default [`DEFAULT_FLUSH_RECORDS`].
+pub const OBS_FLUSH_RECORDS_ENV: &str = "MEDULLA_OBS_FLUSH_RECORDS";
 
 /// Default flush window: buffer this many records per stream, then roll a segment.
 pub const DEFAULT_FLUSH_RECORDS: usize = 1024;
@@ -138,7 +138,7 @@ fn stream_storage_key(stream: &str) -> String {
     use sha2::{Digest as _, Sha256};
 
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph/observability-stream\0");
+    digest.update(b"medulla/observability-stream\0");
     digest.update(stream.as_bytes());
     hex::encode(digest.finalize())
 }
@@ -178,10 +178,10 @@ pub struct ObsState {
     flush_threshold: usize,
     /// Monotonic doc-id sequence for text-index document ids.
     next_doc: AtomicU64,
-    /// CONCEPT:EG-OS.observability.trace-assembly — the distributed-trace span store (in-memory; a durable tier
+    /// CONCEPT:MEDULLA-OS.observability.trace-assembly — the distributed-trace span store (in-memory; a durable tier
     /// mirroring logs is a follow-up). Present only under the `traces` sub-feature.
     #[cfg(feature = "traces")]
-    traces: Arc<eg_tsdb::traces::SpanStore>,
+    traces: Arc<medulla_tsdb::traces::SpanStore>,
 }
 
 #[cfg(test)]
@@ -865,7 +865,7 @@ mod tests {
         let dir = private_tempdir();
         let persist_dir = dir.path().to_str().expect("utf8 temp path");
 
-        let span = eg_tsdb::traces::Span {
+        let span = medulla_tsdb::traces::Span {
             trace_id: "t1".into(),
             span_id: "root".into(),
             parent_span_id: String::new(),
@@ -1250,7 +1250,7 @@ mod tests {
     }
 
     /// The `_search` HTTP surface: a structured search returns ES-shaped hits, and a
-    /// `{"sql":…}` body aggregates over the log segments (CONCEPT:EG-KG.query.concept-4).
+    /// `{"sql":…}` body aggregates over the log segments (CONCEPT:MEDULLA-KG.query.concept-4).
     #[tokio::test]
     async fn http_search_end_to_end() {
         // flush_threshold=2 → two records roll a segment, one stays hot.

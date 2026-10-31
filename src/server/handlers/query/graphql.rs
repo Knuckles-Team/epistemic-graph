@@ -28,7 +28,7 @@ pub(crate) async fn handle_graphql_mutation(
             ));
         }
     };
-    // Cross-modal transaction routing (CONCEPT:EG-KG.query.eg-9/419). A GraphQL mutation
+    // Cross-modal transaction routing (CONCEPT:MEDULLA-KG.query.medulla-9/419). A GraphQL mutation
     // is one of three shapes: a `commitTransaction` — landed DURABLY via
     // `commit_cross_modal_txn` (ONE redb WriteTransaction across graph + vector
     // + tsdb + axioms), exactly as pgwire's commit path; a begin/stage/read/
@@ -36,11 +36,11 @@ pub(crate) async fn handle_graphql_mutation(
     // `CrossModalTxnRegistry` (staging + read-your-own-writes, no durable side
     // effect until commit); or an ordinary mutation — the native `execute_mutation`
     // write path. `classify_crossmodal` picks the route with ONE parse.
-    match eg_graphql::classify_crossmodal(&query) {
-        eg_graphql::CrossModalRoute::Commit(txn_id) => {
+    match medulla_graphql::classify_crossmodal(&query) {
+        medulla_graphql::CrossModalRoute::Commit(txn_id) => {
             handle_graphql_commit_txn(state, req_id, graph_name, core, &txn_id, carrier).await
         }
-        eg_graphql::CrossModalRoute::Staging => {
+        medulla_graphql::CrossModalRoute::Staging => {
             handle_graphql_staging_mutation(
                 state,
                 req_id,
@@ -52,8 +52,8 @@ pub(crate) async fn handle_graphql_mutation(
             )
             .await
         }
-        eg_graphql::CrossModalRoute::Invalid(message) => Ok(Response::err(req_id, message)),
-        eg_graphql::CrossModalRoute::NotCrossModal => {
+        medulla_graphql::CrossModalRoute::Invalid(message) => Ok(Response::err(req_id, message)),
+        medulla_graphql::CrossModalRoute::NotCrossModal => {
             handle_graphql_plain_mutation(req_id, core, query).await
         }
     }
@@ -197,12 +197,12 @@ async fn begin_graphql_staging_admission(
 async fn execute_graphql_staging(
     req_id: u64,
     core: Arc<GraphCore>,
-    registry: &'static eg_graphql::CrossModalTxnRegistry,
+    registry: &'static medulla_graphql::CrossModalTxnRegistry,
     owner_scope: String,
     query: String,
 ) -> Result<serde_json::Value, Response> {
     match compute_off_lock(req_id, move || {
-        eg_graphql::execute_crossmodal(&core, registry, &owner_scope, &query)
+        medulla_graphql::execute_crossmodal(&core, registry, &owner_scope, &query)
     })
     .await
     {
@@ -231,7 +231,7 @@ pub(crate) async fn handle_graphql_plain_mutation(
 ) -> Result<Response, Method> {
     let core_w = core.clone();
     let resp = match compute_off_lock(req_id, move || {
-        eg_graphql::execute_mutation(&core_w, &query)
+        medulla_graphql::execute_mutation(&core_w, &query)
     })
     .await
     {
@@ -256,8 +256,8 @@ pub(crate) async fn handle_graphql(
     let core = ctx.core.clone();
     #[cfg(feature = "security")]
     let rls = ctx.rls;
-    // GraphQL WRITE surface (CONCEPT:EG-KG.query.mutation/EG-023): a `mutation { … }` document
-    // maps onto eg-core's native write ops over the LIVE `GraphCore` via
+    // GraphQL WRITE surface (CONCEPT:MEDULLA-KG.query.mutation/MEDULLA-023): a `mutation { … }` document
+    // maps onto medulla-core's native write ops over the LIVE `GraphCore` via
     // `execute_mutation` (which bumps the OCC version / `mark_dirty` once it
     // lands). NOT cached (it is a write) and NOT RLS pre-filtered (writes are
     // graph-ACL-gated in `dispatch_graph_op` — this method classified Write).
@@ -274,26 +274,26 @@ pub(crate) async fn handle_graphql(
         .await;
     }
     // A `subscription { … }` is a read-only POLL of the current matches (a full
-    // push transport is a documented eg-graphql deferral); a `query { … }` is the
+    // push transport is a documented medulla-graphql deferral); a `query { … }` is the
     // ordinary read. Both run over the SAME RLS-filtered off-lock snapshot below.
     let is_subscription = matches!(
-        eg_graphql::parse_operation(&query),
-        Ok(eg_graphql::Operation::Subscription(_))
+        medulla_graphql::parse_operation(&query),
+        Ok(medulla_graphql::Operation::Subscription(_))
     );
-    // GraphQL READ surface (CONCEPT:EG-KG.query.sparql-completeness): compile the GraphQL query to
+    // GraphQL READ surface (CONCEPT:MEDULLA-KG.query.sparql-completeness): compile the GraphQL query to
     // scans + BFS over the SAME off-lock snapshot the Cypher path uses, via the
-    // pure-Rust eg-graphql resolver (NO async-graphql / DataFusion). The result
+    // pure-Rust medulla-graphql resolver (NO async-graphql / DataFusion). The result
     // is the GraphQL `{"data": …}` JSON, returned via `ResultPayload::Raw`.
     //
     // GraphQL runs under the SAME version-keyed, RLS-aware result cache the
-    // SQL/Cypher/SPARQL paths do (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231): the cache KEY
+    // SQL/Cypher/SPARQL paths do (CONCEPT:MEDULLA-KG.coordination.distributed-cache-coherence × KG-2.231): the cache KEY
     // folds in the caller's RLS context so agent A's filtered `{data}` is NEVER
     // served to agent B for the same GraphQL query text, and the snapshot is
     // RLS-FILTERED to the caller's visible rows BEFORE the resolver runs — a
     // GraphQL read cannot leak rows across agents any more than a Cypher read.
     // Bind the request's GraphQL `$variables` (task #23): a `query { … }` runs
     // through `execute_with_variables` so `$var` args + `@skip`/`@include`
-    // resolve (CONCEPT:EG-KG.query.fragments-variables-directives); absent ⇒ an empty object, byte-identical to the
+    // resolve (CONCEPT:MEDULLA-KG.query.fragments-variables-directives); absent ⇒ an empty object, byte-identical to the
     // no-vars path. (A `subscription { … }` stays a poll of the current matches.)
     let vars = variables.unwrap_or_else(|| serde_json::json!({}));
     #[cfg(feature = "result-cache")]
@@ -341,9 +341,9 @@ pub(crate) async fn handle_graphql(
     );
     let resp = match compute_off_lock(req_id, move || {
         if is_subscription {
-            eg_graphql::subscribe(&snap, &query)
+            medulla_graphql::subscribe(&snap, &query)
         } else {
-            eg_graphql::execute_with_variables(&snap, &query, &vars)
+            medulla_graphql::execute_with_variables(&snap, &query, &vars)
         }
     })
     .await
@@ -351,7 +351,7 @@ pub(crate) async fn handle_graphql(
         Ok(Ok(value)) => match ResultPayload::of_dynamic::<query_results::GraphQl, _>(&value) {
             Ok(payload) => {
                 #[cfg(feature = "result-cache")]
-                eg_core::result_cache::cache_result(core.result_cache(), hash, version, &payload);
+                medulla_core::result_cache::cache_result(core.result_cache(), hash, version, &payload);
                 Response::ok(req_id, payload)
             }
             Err(error) => Response::err(req_id, error),

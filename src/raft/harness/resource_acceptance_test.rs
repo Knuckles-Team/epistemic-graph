@@ -82,7 +82,7 @@ where
 {
     // Every scenario below brings up a durable redb-backed cluster and reopens
     // members over the SAME directories across a restart, and a durable open resolves
-    // its at-rest cipher from the process-global `EPISTEMIC_GRAPH_ENCRYPTION_KEY`. The
+    // its at-rest cipher from the process-global `MEDULLA_ENCRYPTION_KEY`. The
     // env therefore has to hold still for the whole scenario, not just its first open.
     // A READ guard: it excludes only a key MUTATOR, never another opener, so these
     // keep running concurrently with the rest of the durable suite. See
@@ -504,7 +504,7 @@ fn signed_request_as(request_id: u64, agent_id: &str, method: Method) -> Request
     let context = RequestContextClaims {
         principal: agent_id.to_string(),
         tenant: TENANT.to_string(),
-        audience: "epistemic-graph-test".to_string(),
+        audience: "medulla-test".to_string(),
         agent_id: agent_id.to_string(),
         roles: vec!["resource-controller".to_string()],
         // Wildcard includes both the controller write scope and the native
@@ -547,41 +547,41 @@ fn signed_request_as(request_id: u64, agent_id: &str, method: Method) -> Request
 }
 
 #[cfg(feature = "redb")]
-fn delegation_library_draft() -> eg_types::AgentLibraryEntryDraft {
+fn delegation_library_draft() -> medulla_types::AgentLibraryEntryDraft {
     let prefixed = |seed: char| format!("sha256:{}", seed.to_string().repeat(64));
     let policy_digest =
         crate::server::persistence::agent_library::current_agent_library_policy_digest()
             .expect("Agent Library policy digest");
-    eg_types::AgentLibraryEntryDraft {
+    medulla_types::AgentLibraryEntryDraft {
         agent_id: DELEGATE_AGENT.to_string(),
         package_id: "rmdd27-delegate-package".to_string(),
         version: "1.0.0".to_string(),
         role: "worker".to_string(),
         role_digest: prefixed('1'),
-        system_prompt: eg_types::agent_component::ComponentDependency {
+        system_prompt: medulla_types::agent_component::ComponentDependency {
             component_id: "cas:rmdd27-delegate-prompt".to_string(),
-            kind: eg_types::agent_component::AgentComponentKind::SystemPrompt,
+            kind: medulla_types::agent_component::AgentComponentKind::SystemPrompt,
             definition_digest: prefixed('2'),
         },
-        tools: vec![eg_types::agent_component::ComponentDependency {
+        tools: vec![medulla_types::agent_component::ComponentDependency {
             component_id: "tool:rmdd27-search".to_string(),
-            kind: eg_types::agent_component::AgentComponentKind::Tool,
+            kind: medulla_types::agent_component::AgentComponentKind::Tool,
             definition_digest: prefixed('3'),
         }],
-        skills: vec![eg_types::agent_component::ComponentDependency {
+        skills: vec![medulla_types::agent_component::ComponentDependency {
             component_id: "skill:rmdd27-delegate".to_string(),
-            kind: eg_types::agent_component::AgentComponentKind::Skill,
+            kind: medulla_types::agent_component::AgentComponentKind::Skill,
             definition_digest: prefixed('4'),
         }],
-        model_profile: eg_types::agent_component::ComponentDependency {
+        model_profile: medulla_types::agent_component::ComponentDependency {
             component_id: "model-profile:rmdd27".to_string(),
-            kind: eg_types::agent_component::AgentComponentKind::ModelProfile,
+            kind: medulla_types::agent_component::AgentComponentKind::ModelProfile,
             definition_digest: prefixed('5'),
         },
         model_identity: "model:rmdd27".to_string(),
-        ontologies: vec![eg_types::agent_component::ComponentDependency {
+        ontologies: vec![medulla_types::agent_component::ComponentDependency {
             component_id: "ontology:rmdd27".to_string(),
-            kind: eg_types::agent_component::AgentComponentKind::Ontology,
+            kind: medulla_types::agent_component::AgentComponentKind::Ontology,
             definition_digest: prefixed('6'),
         }],
         tenant_id: TENANT.to_string(),
@@ -596,12 +596,12 @@ fn delegation_library_draft() -> eg_types::AgentLibraryEntryDraft {
 }
 
 #[cfg(feature = "redb")]
-async fn seed_delegation_library(cluster: &Cluster) -> eg_types::AgentLibraryEntry {
+async fn seed_delegation_library(cluster: &Cluster) -> medulla_types::AgentLibraryEntry {
     let mut draft = delegation_library_draft();
     let policy_digest = draft.policy_digest.clone();
     let caller_principal = crate::server::mutation_batch::principal_fingerprint(AUTH_AGENT)
         .expect("harness caller principal fingerprint");
-    let mut retained: Option<eg_types::AgentLibraryEntry> = None;
+    let mut retained: Option<medulla_types::AgentLibraryEntry> = None;
     for node_id in cluster.all_ids() {
         let state = state_for(cluster, node_id);
         let store = state
@@ -614,11 +614,11 @@ async fn seed_delegation_library(cluster: &Cluster) -> eg_types::AgentLibraryEnt
         crate::server::persistence::agent_component::seed_draft_components_for_test(
             &store, &mut draft, 1,
         );
-        let context = eg_types::AgentLibraryMutationContext {
+        let context = medulla_types::AgentLibraryMutationContext {
             request_id: 10_000 + node_id,
             principal: store.owner_principal().to_string(),
             caller_principal: caller_principal.clone(),
-            attempt_nonce: eg_types::contract::Nonce::from_bytes([node_id as u8; 32]),
+            attempt_nonce: medulla_types::contract::Nonce::from_bytes([node_id as u8; 32]),
             tenant_id: TENANT.to_string(),
             actor_scope: "delegate:builder".to_string(),
             purpose_id: "agent-library:publish".to_string(),
@@ -631,7 +631,7 @@ async fn seed_delegation_library(cluster: &Cluster) -> eg_types::AgentLibraryEnt
             created_at_ms: 1,
         };
         let result = store
-            .publish(eg_types::AgentLibraryPublishRequest {
+            .publish(medulla_types::AgentLibraryPublishRequest {
                 context,
                 entry: draft.clone(),
             })
@@ -677,7 +677,7 @@ async fn seed_delegation_library(cluster: &Cluster) -> eg_types::AgentLibraryEnt
 }
 
 #[cfg(feature = "redb")]
-async fn advance_delegation_library(cluster: &Cluster, retained: &eg_types::AgentLibraryEntry) {
+async fn advance_delegation_library(cluster: &Cluster, retained: &medulla_types::AgentLibraryEntry) {
     let mut draft = retained.as_draft();
     draft.version = "2.0.0".to_string();
     draft.source_revision = "agent-library:rmdd27:2".to_string();
@@ -694,12 +694,12 @@ async fn advance_delegation_library(cluster: &Cluster, retained: &eg_types::Agen
             .ensure_agent_library()
             .expect("open Agent Library owner for revision advance");
         let result = store
-            .publish(eg_types::AgentLibraryPublishRequest {
-                context: eg_types::AgentLibraryMutationContext {
+            .publish(medulla_types::AgentLibraryPublishRequest {
+                context: medulla_types::AgentLibraryMutationContext {
                     request_id: 11_000 + node_id,
                     principal: store.owner_principal().to_string(),
                     caller_principal: caller_principal.clone(),
-                    attempt_nonce: eg_types::contract::Nonce::from_bytes([100 + node_id as u8; 32]),
+                    attempt_nonce: medulla_types::contract::Nonce::from_bytes([100 + node_id as u8; 32]),
                     tenant_id: TENANT.to_string(),
                     actor_scope: "delegate:builder".to_string(),
                     purpose_id: "agent-library:publish".to_string(),
@@ -720,7 +720,7 @@ async fn advance_delegation_library(cluster: &Cluster, retained: &eg_types::Agen
 }
 
 #[cfg(feature = "redb")]
-async fn retire_delegation_library(cluster: &Cluster, retained: &eg_types::AgentLibraryEntry) {
+async fn retire_delegation_library(cluster: &Cluster, retained: &medulla_types::AgentLibraryEntry) {
     let policy_digest =
         crate::server::persistence::agent_library::current_agent_library_policy_digest()
             .expect("Agent Library policy digest for retirement");
@@ -735,12 +735,12 @@ async fn retire_delegation_library(cluster: &Cluster, retained: &eg_types::Agent
             .ensure_agent_library()
             .expect("open Agent Library owner for retirement");
         let result = store
-            .retire(eg_types::AgentLibraryRetireRequest {
-                context: eg_types::AgentLibraryMutationContext {
+            .retire(medulla_types::AgentLibraryRetireRequest {
+                context: medulla_types::AgentLibraryMutationContext {
                     request_id: 12_000 + node_id,
                     principal: store.owner_principal().to_string(),
                     caller_principal: caller_principal.clone(),
-                    attempt_nonce: eg_types::contract::Nonce::from_bytes([150 + node_id as u8; 32]),
+                    attempt_nonce: medulla_types::contract::Nonce::from_bytes([150 + node_id as u8; 32]),
                     tenant_id: TENANT.to_string(),
                     actor_scope: "delegate:builder".to_string(),
                     purpose_id: "agent-library:retire".to_string(),
@@ -761,18 +761,18 @@ async fn retire_delegation_library(cluster: &Cluster, retained: &eg_types::Agent
 }
 
 #[cfg(feature = "redb")]
-fn delegation_method(entry: &eg_types::AgentLibraryEntry) -> Method {
+fn delegation_method(entry: &medulla_types::AgentLibraryEntry) -> Method {
     let now_ms = unix_ms();
-    let context = eg_types::epistemic_operations::RequestContext {
-        schema_version: eg_types::epistemic_operations::RequestContextSchemaVersion::V2,
+    let context = medulla_types::epistemic_operations::RequestContext {
+        schema_version: medulla_types::epistemic_operations::RequestContextSchemaVersion::V2,
         request_id: "rmdd27-delegate-context-request".to_string(),
         subject_id: AUTH_AGENT.to_string(),
         tenant_id: TENANT.to_string(),
         agent_id: AUTH_AGENT.to_string(),
         scopes: vec!["work:delegate".to_string()],
-        audience: "epistemic-graph-test".to_string(),
+        audience: "medulla-test".to_string(),
         authentication_method:
-            eg_types::epistemic_operations::RequestContextAuthenticationMethod::LocalProcess,
+            medulla_types::epistemic_operations::RequestContextAuthenticationMethod::LocalProcess,
         policy_version: "policy-test".to_string(),
         graph: GRAPH.to_string(),
         placement_epoch: None,
@@ -787,19 +787,19 @@ fn delegation_method(entry: &eg_types::AgentLibraryEntry) -> Method {
             .to_string()
     };
     Method::KgDelegate {
-        request: Box::new(eg_types::KgDelegateRequest {
-            schema_version: eg_types::KgDelegateSchemaVersion::V2,
+        request: Box::new(medulla_types::KgDelegateRequest {
+            schema_version: medulla_types::KgDelegateSchemaVersion::V2,
             context,
             delegation_id: "rmdd27-delegation".to_string(),
             run_id: "rmdd27-run".to_string(),
             trace_id: "rmdd27-trace".to_string(),
-            target: eg_types::delegation::DelegationTarget::Agent {
-                entry: eg_types::AgentLibraryEntryRef::from_entry(entry),
+            target: medulla_types::delegation::DelegationTarget::Agent {
+                entry: medulla_types::AgentLibraryEntryRef::from_entry(entry),
             },
             input_ref: "cas:rmdd27-delegate-input".to_string(),
             command_digest: IMMUTABLE_DIGEST.to_string(),
             capability_digest: raw_digest(&entry.tool_surface_digest()),
-            catalog_digest: eg_capabilities::contract_catalog_digest().to_string(),
+            catalog_digest: medulla_capabilities::contract_catalog_digest().to_string(),
             policy_digest: entry.policy_digest.clone(),
             model_digest: Some(raw_digest(entry.model_profile_digest())),
             idempotency_key: "rmdd27-delegation-idempotency".to_string(),
@@ -817,7 +817,7 @@ fn delegation_method(entry: &eg_types::AgentLibraryEntry) -> Method {
 
 #[cfg(feature = "redb")]
 fn replayable_delegation_method(
-    entry: &eg_types::AgentLibraryEntry,
+    entry: &medulla_types::AgentLibraryEntry,
     deadline_unix: Option<f64>,
 ) -> Method {
     let mut method = delegation_method(entry);
@@ -828,16 +828,16 @@ fn replayable_delegation_method(
 }
 
 #[cfg(feature = "redb")]
-fn decode_delegation_result(response: crate::protocol::Response) -> eg_types::KgDelegateResult {
+fn decode_delegation_result(response: crate::protocol::Response) -> medulla_types::KgDelegateResult {
     assert!(response.error.is_none(), "delegation failed: {response:?}");
     let payload = response.result.expect("delegation result");
     let bytes = match payload {
         ResultPayload::Raw(bytes) => bytes,
         other => panic!("delegation result has unexpected payload: {other:?}"),
     };
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         &bytes,
-        eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
+        medulla_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
     )
     .expect("decode typed kg-delegate result")
 }
@@ -847,37 +847,37 @@ fn decode_delegation_result(response: crate::protocol::Response) -> eg_types::Kg
 /// Extracted so `seed_draft_components_for_test` can rewrite each pin to the real
 /// component digest before the publish, which now resolves them.
 #[cfg(feature = "redb")]
-fn restart_delegate_draft(digest: &dyn Fn(char) -> String) -> eg_types::AgentLibraryEntryDraft {
-    eg_types::AgentLibraryEntryDraft {
+fn restart_delegate_draft(digest: &dyn Fn(char) -> String) -> medulla_types::AgentLibraryEntryDraft {
+    medulla_types::AgentLibraryEntryDraft {
         agent_id: "rmdd27-selected-agent".to_string(),
         package_id: "rmdd27-agent-package".to_string(),
         version: "1.0.0".to_string(),
         role: "worker".to_string(),
         role_digest: digest('a'),
-        system_prompt: eg_types::agent_component::ComponentDependency {
+        system_prompt: medulla_types::agent_component::ComponentDependency {
             component_id: "prompt:rmdd27-agent-v1".to_string(),
-            kind: eg_types::agent_component::AgentComponentKind::SystemPrompt,
+            kind: medulla_types::agent_component::AgentComponentKind::SystemPrompt,
             definition_digest: digest('b'),
         },
-        tools: vec![eg_types::agent_component::ComponentDependency {
+        tools: vec![medulla_types::agent_component::ComponentDependency {
             component_id: "tool:rmdd27-search".to_string(),
-            kind: eg_types::agent_component::AgentComponentKind::Tool,
+            kind: medulla_types::agent_component::AgentComponentKind::Tool,
             definition_digest: digest('c'),
         }],
-        skills: vec![eg_types::agent_component::ComponentDependency {
+        skills: vec![medulla_types::agent_component::ComponentDependency {
             component_id: "skill:rmdd27-reason".to_string(),
-            kind: eg_types::agent_component::AgentComponentKind::Skill,
+            kind: medulla_types::agent_component::AgentComponentKind::Skill,
             definition_digest: digest('d'),
         }],
-        model_profile: eg_types::agent_component::ComponentDependency {
+        model_profile: medulla_types::agent_component::ComponentDependency {
             component_id: "model-profile:rmdd27-default".to_string(),
-            kind: eg_types::agent_component::AgentComponentKind::ModelProfile,
+            kind: medulla_types::agent_component::AgentComponentKind::ModelProfile,
             definition_digest: digest('e'),
         },
         model_identity: "model:rmdd27-default".to_string(),
-        ontologies: vec![eg_types::agent_component::ComponentDependency {
+        ontologies: vec![medulla_types::agent_component::ComponentDependency {
             component_id: "ontology:rmdd27-core".to_string(),
-            kind: eg_types::agent_component::AgentComponentKind::Ontology,
+            kind: medulla_types::agent_component::AgentComponentKind::Ontology,
             definition_digest: digest('f'),
         }],
         tenant_id: TENANT.to_string(),
@@ -892,9 +892,9 @@ fn restart_delegate_draft(digest: &dyn Fn(char) -> String) -> eg_types::AgentLib
 }
 
 #[cfg(feature = "redb")]
-fn seed_restart_delegate_entry(persist_dir: &str) -> eg_types::AgentLibraryEntry {
-    use eg_types::agent_library::AgentLibraryMutationContext;
-    use eg_types::contract::Nonce;
+fn seed_restart_delegate_entry(persist_dir: &str) -> medulla_types::AgentLibraryEntry {
+    use medulla_types::agent_library::AgentLibraryMutationContext;
+    use medulla_types::contract::Nonce;
 
     let digest = |seed: char| format!("sha256:{}", seed.to_string().repeat(64));
     let store = crate::server::persistence::agent_library::AgentLibraryStore::open(persist_dir)
@@ -909,7 +909,7 @@ fn seed_restart_delegate_entry(persist_dir: &str) -> eg_types::AgentLibraryEntry
         20,
     );
     let entry = store
-        .publish(eg_types::AgentLibraryPublishRequest {
+        .publish(medulla_types::AgentLibraryPublishRequest {
             context: AgentLibraryMutationContext {
                 request_id: 90_001,
                 principal: store.owner_principal().to_string(),
@@ -935,24 +935,24 @@ fn seed_restart_delegate_entry(persist_dir: &str) -> eg_types::AgentLibraryEntry
 }
 
 #[cfg(feature = "redb")]
-fn restart_delegate_method(entry: &eg_types::AgentLibraryEntry) -> Method {
+fn restart_delegate_method(entry: &medulla_types::AgentLibraryEntry) -> Method {
     let raw_digest = |seed: char| seed.to_string().repeat(64);
     let now_ms = unix_ms();
-    let agent_entry = eg_types::AgentLibraryEntryRef::from_entry(entry);
+    let agent_entry = medulla_types::AgentLibraryEntryRef::from_entry(entry);
     let unprefixed = |digest: &str| digest.strip_prefix("sha256:").unwrap().to_string();
     Method::KgDelegate {
-        request: Box::new(eg_types::KgDelegateRequest {
-            schema_version: eg_types::KgDelegateSchemaVersion::V2,
-            context: eg_types::epistemic_operations::RequestContext {
-                schema_version: eg_types::epistemic_operations::RequestContextSchemaVersion::V2,
+        request: Box::new(medulla_types::KgDelegateRequest {
+            schema_version: medulla_types::KgDelegateSchemaVersion::V2,
+            context: medulla_types::epistemic_operations::RequestContext {
+                schema_version: medulla_types::epistemic_operations::RequestContextSchemaVersion::V2,
                 request_id: "rmdd27-restart-delegate-request".to_string(),
                 subject_id: "rmdd27-restart-delegate-subject".to_string(),
                 tenant_id: TENANT.to_string(),
                 agent_id: AUTH_AGENT.to_string(),
                 scopes: vec!["work:delegate".to_string()],
-                audience: "epistemic-graph-test".to_string(),
+                audience: "medulla-test".to_string(),
                 authentication_method:
-                    eg_types::epistemic_operations::RequestContextAuthenticationMethod::LocalProcess,
+                    medulla_types::epistemic_operations::RequestContextAuthenticationMethod::LocalProcess,
                 policy_version: "policy-test".to_string(),
                 graph: GRAPH.to_string(),
                 placement_epoch: None,
@@ -963,11 +963,11 @@ fn restart_delegate_method(entry: &eg_types::AgentLibraryEntry) -> Method {
             delegation_id: "rmdd27-restart-delegation".to_string(),
             run_id: "rmdd27-restart-run".to_string(),
             trace_id: "rmdd27-restart-trace".to_string(),
-            target: eg_types::delegation::DelegationTarget::Agent { entry: agent_entry },
+            target: medulla_types::delegation::DelegationTarget::Agent { entry: agent_entry },
             input_ref: "cas:rmdd27-restart-input".to_string(),
             command_digest: raw_digest('2'),
             capability_digest: unprefixed(&entry.tool_surface_digest()),
-            catalog_digest: eg_capabilities::contract_catalog_digest().to_string(),
+            catalog_digest: medulla_capabilities::contract_catalog_digest().to_string(),
             policy_digest: entry.policy_digest.clone(),
             model_digest: Some(unprefixed(entry.model_profile_digest())),
             idempotency_key: "rmdd27-restart-delegate-idempotency".to_string(),
@@ -989,18 +989,18 @@ fn missing_authority_delegate_method() -> Method {
     let prefixed_digest = |seed: char| format!("sha256:{}", raw_digest(seed));
     let now_ms = unix_ms();
     Method::KgDelegate {
-        request: Box::new(eg_types::KgDelegateRequest {
-            schema_version: eg_types::KgDelegateSchemaVersion::V2,
-            context: eg_types::epistemic_operations::RequestContext {
-                schema_version: eg_types::epistemic_operations::RequestContextSchemaVersion::V2,
+        request: Box::new(medulla_types::KgDelegateRequest {
+            schema_version: medulla_types::KgDelegateSchemaVersion::V2,
+            context: medulla_types::epistemic_operations::RequestContext {
+                schema_version: medulla_types::epistemic_operations::RequestContextSchemaVersion::V2,
                 request_id: "rmdd27-missing-authority-request".to_string(),
                 subject_id: "rmdd27-missing-authority-subject".to_string(),
                 tenant_id: TENANT.to_string(),
                 agent_id: AUTH_AGENT.to_string(),
                 scopes: vec!["work:delegate".to_string()],
-                audience: "epistemic-graph-test".to_string(),
+                audience: "medulla-test".to_string(),
                 authentication_method:
-                    eg_types::epistemic_operations::RequestContextAuthenticationMethod::LocalProcess,
+                    medulla_types::epistemic_operations::RequestContextAuthenticationMethod::LocalProcess,
                 policy_version: "policy-test".to_string(),
                 graph: GRAPH.to_string(),
                 placement_epoch: None,
@@ -1011,8 +1011,8 @@ fn missing_authority_delegate_method() -> Method {
             delegation_id: "rmdd27-missing-authority-delegation".to_string(),
             run_id: "rmdd27-missing-authority-run".to_string(),
             trace_id: "rmdd27-missing-authority-trace".to_string(),
-            target: eg_types::delegation::DelegationTarget::Agent {
-                entry: eg_types::AgentLibraryEntryRef {
+            target: medulla_types::delegation::DelegationTarget::Agent {
+                entry: medulla_types::AgentLibraryEntryRef {
                     tenant_id: TENANT.to_string(),
                     agent_id: "rmdd27-selected-agent".to_string(),
                     entry_revision: 1,
@@ -1027,7 +1027,7 @@ fn missing_authority_delegate_method() -> Method {
             input_ref: "cas:rmdd27-missing-authority-input".to_string(),
             command_digest: raw_digest('d'),
             capability_digest: raw_digest('e'),
-            catalog_digest: eg_capabilities::contract_catalog_digest().to_string(),
+            catalog_digest: medulla_capabilities::contract_catalog_digest().to_string(),
             policy_digest: prefixed_digest('c'),
             model_digest: Some(raw_digest('f')),
             idempotency_key: "rmdd27-missing-authority-idempotency".to_string(),
@@ -1053,7 +1053,7 @@ fn native_work_item_batch_id(idempotency_key: &str) -> String {
     use sha2::{Digest, Sha256};
 
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph.work-item-terminal.v1");
+    digest.update(b"medulla.work-item-terminal.v1");
     for field in [
         GRAPH.as_bytes(),
         TENANT.as_bytes(),
@@ -1364,9 +1364,9 @@ fn decode_raw<T: serde::de::DeserializeOwned>(
         Some(ResultPayload::Raw(bytes)) => bytes,
         _ => panic!("{label} did not return a typed byte result: {response:?}"),
     };
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
+        medulla_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
     )
     .unwrap_or_else(|error| panic!("decode {label} result: {error:?}"))
 }
@@ -1491,9 +1491,9 @@ fn assert_redirect(response: crate::protocol::Response, expected_leader: NodeId)
         Some(ResultPayload::Raw(bytes)) => bytes,
         _ => panic!("redirect did not carry the structured operation result: {response:?}"),
     };
-    let detail: OperationResult = eg_types::msgpack::decode_bounded(
+    let detail: OperationResult = medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
+        medulla_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
     )
     .expect("decode operation redirect");
     assert_eq!(detail.status, OperationResultStatus::Redirected);
@@ -1574,9 +1574,9 @@ async fn wait_for_public_active_status(
         } else {
             match response.result {
                 Some(ResultPayload::Raw(bytes)) => {
-                    match eg_types::msgpack::decode_bounded::<ResourceReservationStatusResult>(
+                    match medulla_types::msgpack::decode_bounded::<ResourceReservationStatusResult>(
                         &bytes,
-                        eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
+                        medulla_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
                     ) {
                         Ok(status) if reservation_is_active(&status, expected_host_revision) => {
                             return;
@@ -2322,7 +2322,7 @@ async fn kg_delegate_public_dispatch_replicates_and_replays_after_failover_scena
     let accepted = decode_delegation_result(
         dispatch_method(&cluster, leader, 1, accepted_method.clone()).await,
     );
-    assert_eq!(accepted.decision, eg_types::KgDelegateDecision::Accepted);
+    assert_eq!(accepted.decision, medulla_types::KgDelegateDecision::Accepted);
     assert_eq!(accepted.work_item_id, DELEGATE_WORK_ITEM);
 
     // The native idempotency key is stable across fresh authenticated envelopes,
@@ -2343,7 +2343,7 @@ async fn kg_delegate_public_dispatch_replicates_and_replays_after_failover_scena
     );
     assert_eq!(
         native_replay.decision,
-        eg_types::KgDelegateDecision::Replayed
+        medulla_types::KgDelegateDecision::Replayed
     );
     let nonce_replay = dispatch_bounded(&state_for(&cluster, leader), same_envelope).await;
     let refusal = nonce_replay
@@ -2458,7 +2458,7 @@ async fn kg_delegate_public_dispatch_replicates_and_replays_after_failover_scena
         )
         .await,
     );
-    assert_eq!(replayed.decision, eg_types::KgDelegateDecision::Replayed);
+    assert_eq!(replayed.decision, medulla_types::KgDelegateDecision::Replayed);
     assert_eq!(replayed.work_item_id, accepted.work_item_id);
     assert_eq!(replayed.outbox_id, accepted.outbox_id);
 
@@ -2500,7 +2500,7 @@ async fn kg_delegate_public_dispatch_replicates_and_replays_after_failover_scena
         )
         .await,
     );
-    assert_eq!(reopened.decision, eg_types::KgDelegateDecision::Replayed);
+    assert_eq!(reopened.decision, medulla_types::KgDelegateDecision::Replayed);
     assert_eq!(reopened.work_item_id, accepted.work_item_id);
     assert_eq!(reopened.outbox_id, accepted.outbox_id);
     assert_eq!(reopened.command_digest, accepted.command_digest);
@@ -2521,18 +2521,18 @@ async fn kg_delegate_public_dispatch_replicates_and_replays_after_failover_scena
         .await
         .expect("read reopened native delegation receipt")
         .expect("reopened native delegation receipt exists");
-    let native_payload: ResultPayload = eg_types::msgpack::decode_bounded(
+    let native_payload: ResultPayload = medulla_types::msgpack::decode_bounded(
         record
             .result_msgpack
             .as_ref()
             .expect("native receipt result"),
-        eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
+        medulla_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
     )
     .expect("decode reopened native result envelope");
-    let native: eg_types::native_control::SubmitWorkItemResult = match native_payload {
-        ResultPayload::Raw(bytes) => eg_types::msgpack::decode_bounded(
+    let native: medulla_types::native_control::SubmitWorkItemResult = match native_payload {
+        ResultPayload::Raw(bytes) => medulla_types::msgpack::decode_bounded(
             &bytes,
-            eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
+            medulla_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
         )
         .expect("decode reopened native delegation receipt"),
         ResultPayload::Json(value) => {
@@ -2567,7 +2567,7 @@ async fn kg_delegate_public_dispatch_replicates_and_replays_after_failover_scena
 /// the crash, then deliberately leaves the reopened ServerState's in-memory
 /// `agent_library` handle unset until this public route is dispatched.
 #[cfg(feature = "redb")]
-// spec: EG-DURABLE-KERNEL-R006
+// spec: MEDULLA-DURABLE-KERNEL-R006
 #[test]
 fn kg_delegate_public_dispatch_first_request_after_restart() {
     run_cluster_acceptance(
@@ -2624,16 +2624,16 @@ async fn kg_delegate_public_dispatch_first_request_after_restart_scenario() {
         .await
         .expect("restarted single-node cluster elects a leader");
     let response = dispatch_method(&cluster, leader, 1, restart_delegate_method(&entry)).await;
-    let result: eg_types::KgDelegateResult = decode_raw(response, "KgDelegate after restart");
+    let result: medulla_types::KgDelegateResult = decode_raw(response, "KgDelegate after restart");
     assert_eq!(
         result.decision,
-        eg_types::KgDelegateDecision::Accepted,
+        medulla_types::KgDelegateDecision::Accepted,
         "first post-restart delegation must commit through native admission"
     );
     assert_eq!(
         result.target,
-        eg_types::delegation::DelegationTarget::Agent {
-            entry: eg_types::AgentLibraryEntryRef::from_entry(&entry),
+        medulla_types::delegation::DelegationTarget::Agent {
+            entry: medulla_types::AgentLibraryEntryRef::from_entry(&entry),
         }
     );
     assert!(

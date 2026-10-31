@@ -2,11 +2,11 @@
 //! ceiling, leaves the operator's declared capacity alone, and counts each
 //! window once.
 
-use eg_types::capacity_lease::{CapacityCell, CapacityResourceClass};
-use eg_types::capacity_throttle::{
+use medulla_types::capacity_lease::{CapacityCell, CapacityResourceClass};
+use medulla_types::capacity_throttle::{
     CapacityThrottle, CapacityThrottlePolicy, ErrorBudgetSample, ThrottleAction,
 };
-use eg_types::native_control::{
+use medulla_types::native_control::{
     CapacityCellUpdateRequest, CapacityStatusRequest, CapacityThrottleRequest,
     CapacityThrottleResult, NativeControlSchemaVersion,
 };
@@ -32,7 +32,7 @@ impl Drop for Harness {
 
 impl Harness {
     fn open(tag: &str) -> Self {
-        let path = crate::redb_store::temp_path("eg-capacity-throttle", tag);
+        let path = crate::redb_store::temp_path("medulla-capacity-throttle", tag);
         let shard = Shard::open(&path).expect("temp shard opens");
         Self {
             path,

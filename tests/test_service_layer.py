@@ -1,4 +1,4 @@
-"""Integration tests for the epistemic-graph Tokio service layer.
+"""Integration tests for the medulla Tokio service layer.
 
 These tests require the service binary to be built and start a local
 server instance per test session using a temporary UDS socket.
@@ -27,12 +27,12 @@ from conftest import (
 # -- a hardcoded `target/debug`+`target/release` fallback never resolves in an
 # ordinary checkout of this repo (see conftest.py's `find_server_binary` doc).
 _SERVER_BIN = find_server_binary() or os.path.join(
-    os.path.dirname(__file__), "..", "target", "debug", "epistemic-graph-server"
+    os.path.dirname(__file__), "..", "target", "debug", "medulla-server"
 )
 
 pytestmark = pytest.mark.skipif(
     not os.path.isfile(_SERVER_BIN),
-    reason="epistemic-graph-server binary not built. Run 'cargo build' first.",
+    reason="medulla-server binary not built. Run 'cargo build' first.",
 )
 
 
@@ -50,7 +50,7 @@ def service():
     # run. Omitting `persist_dir` here means `env = {**os.environ, **strict_
     # server_env(...)}` silently inherits that ambient value instead of this
     # module's own, and the dedicated server then refuses to start ("persist dir
-    # ... is already locked by another epistemic-graph engine") because the
+    # ... is already locked by another medulla engine") because the
     # still-running session engine already holds that directory's lock -- the
     # exact ambient-global-state class this repo's AGENTS.md (GOC-70) calls out.
     persist_dir = os.path.join(tmpdir, "persist")
@@ -71,9 +71,9 @@ def service():
     )
     wait_for_server(proc, socket_path, name="service-layer server", log_path=log_path)
 
-    from epistemic_graph.client import SyncEpistemicGraphClient
+    from medulla.client import SyncMedullaClient
 
-    bootstrap = SyncEpistemicGraphClient.connect(
+    bootstrap = SyncMedullaClient.connect(
         socket_path=socket_path,
         auth_secret=secret,
         verified_context=bootstrap_context(),
@@ -98,7 +98,7 @@ def service():
     # admin scope (`request_context()`'s default `scopes=["*"]`), NOT the narrowly
     # `security:bootstrap`-scoped context `bootstrap_context()` mints, which is only
     # good for the one-time `bootstrap_system_identity` call above.
-    system = SyncEpistemicGraphClient.connect(
+    system = SyncMedullaClient.connect(
         socket_path=socket_path,
         auth_secret=secret,
         verified_context=request_context(),
@@ -134,12 +134,12 @@ def service():
 @pytest.fixture
 def client_factory(service):
     """Factory for creating connected clients."""
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import MedullaClient
 
     clients = []
 
     async def _make(graph_name="__commons__", agent_id=TEST_AGENT_ID):
-        c = await EpistemicGraphClient.connect(
+        c = await MedullaClient.connect(
             socket_path=service["socket_path"],
             auth_secret=service["auth_secret"],
             graph_name=graph_name,
@@ -361,9 +361,9 @@ def test_service_auth_required(service):
     """Test that unauthenticated requests are rejected."""
 
     async def _test():
-        from epistemic_graph.client import EpistemicGraphClient
+        from medulla.client import MedullaClient
 
-        client = await EpistemicGraphClient.connect(
+        client = await MedullaClient.connect(
             socket_path=service["socket_path"],
             auth_secret="wrong-secret",
             graph_name="__commons__",

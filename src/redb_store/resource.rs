@@ -18,7 +18,7 @@
 
 use super::*;
 
-use eg_storage::{GraphShardOwner, ScopedRead};
+use medulla_storage::{GraphShardOwner, ScopedRead};
 
 use crate::redb_store::shard::Shard;
 

@@ -10,7 +10,7 @@
 //! `cmake-build,ssl,sasl`, no consumer group machinery). Run explicitly:
 //!
 //! ```text
-//! EPISTEMIC_GRAPH_LINEAGE_KAFKA_BROKERS=<host:port> \
+//! MEDULLA_LINEAGE_KAFKA_BROKERS=<host:port> \
 //!   cargo test --features lake,lineage-transport,lineage-transport-kafka \
 //!   --target-dir ./target-isolated -j 12 \
 //!   --test e2e_ca_lineage_kafka -- --ignored --nocapture
@@ -25,15 +25,15 @@
 
 #![cfg(feature = "lineage-transport-kafka")]
 
-use eg_tsdb::point::Point;
-use eg_tsdb::store::SeriesStore;
-use epistemic_graph::server::blob::store::RedbChunkStore;
-use epistemic_graph::server::lake::lineage_transport::{KafkaTransport, LineageTransport};
-use epistemic_graph::server::lake::LakeManager;
+use medulla_tsdb::point::Point;
+use medulla_tsdb::store::SeriesStore;
+use medulla::server::blob::store::RedbChunkStore;
+use medulla::server::lake::lineage_transport::{KafkaTransport, LineageTransport};
+use medulla::server::lake::LakeManager;
 
 fn tsdb_dir(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
-        "eg-lineage-kafka-e2e-{tag}-{}-{}",
+        "medulla-lineage-kafka-e2e-{tag}-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -58,7 +58,7 @@ fn lake_materialize_lineage_event_reaches_the_openlineage_topic() {
     // transport directly from env instead, so a misconfigured invocation
     // fails loudly rather than reporting a false pass.
     let kafka = KafkaTransport::from_env().expect(
-        "EPISTEMIC_GRAPH_LINEAGE_KAFKA_BROKERS must be set to a reachable broker for this test",
+        "MEDULLA_LINEAGE_KAFKA_BROKERS must be set to a reachable broker for this test",
     );
 
     let series_id = format!(
@@ -72,9 +72,9 @@ fn lake_materialize_lineage_event_reaches_the_openlineage_topic() {
     let s = store();
     let tsdb = SeriesStore::open_in_dir(
         &tsdb_dir("tsdb"),
-        epistemic_graph::store_authority::process_verifier(),
-        epistemic_graph::store_authority::process_authority().principal(),
-        &epistemic_graph::store_authority::process_authority().proof(),
+        medulla::store_authority::process_verifier(),
+        medulla::store_authority::process_authority().principal(),
+        &medulla::store_authority::process_authority().proof(),
     )
     .unwrap();
     tsdb.append_batch(

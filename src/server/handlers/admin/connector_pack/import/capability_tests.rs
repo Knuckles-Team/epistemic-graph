@@ -1,13 +1,13 @@
 //! Native G12 checks for both capability annotation fields.
 
 use super::*;
-use eg_types::contract::BoundedVec;
+use medulla_types::contract::BoundedVec;
 
 fn annotated(field: &str, terms: &[&str]) -> PackAnnotations {
     serde_json::from_value(serde_json::json!({field: terms})).unwrap()
 }
 
-// spec: EG-TYPED-PACKS-R042.1
+// spec: MEDULLA-TYPED-PACKS-R042.1
 #[test]
 fn both_capability_fields_accept_native_terms_and_round_trip() {
     for field in ["provides", "requires_capabilities"] {
@@ -25,7 +25,7 @@ fn both_capability_fields_accept_native_terms_and_round_trip() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R042.1
+// spec: MEDULLA-TYPED-PACKS-R042.1
 #[test]
 fn both_capability_fields_refuse_native_typos_roots_and_wrong_kinds() {
     for field in ["provides", "requires_capabilities"] {
@@ -45,7 +45,7 @@ fn both_capability_fields_refuse_native_typos_roots_and_wrong_kinds() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R042.1
+// spec: MEDULLA-TYPED-PACKS-R042.1
 #[test]
 fn both_capability_fields_refuse_relative_and_invalid_scheme_claims() {
     for field in ["provides", "requires_capabilities"] {
@@ -65,7 +65,7 @@ fn both_capability_fields_refuse_relative_and_invalid_scheme_claims() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R042.1
+// spec: MEDULLA-TYPED-PACKS-R042.1
 #[test]
 fn foreign_terms_warn_and_stay_only_in_the_declared_partition() {
     let native = "eg:capability/retrieval";
@@ -93,12 +93,12 @@ fn foreign_terms_warn_and_stay_only_in_the_declared_partition() {
             let (classified, declared) = partition_capabilities(terms.as_slice());
             assert_eq!(classified, [native]);
             assert_eq!(declared, [foreign]);
-            assert!(!eg_types::agent_ontology::is_capability(&declared[0]));
+            assert!(!medulla_types::agent_ontology::is_capability(&declared[0]));
         }
     }
 }
 
-// spec: EG-TYPED-PACKS-R042.1
+// spec: MEDULLA-TYPED-PACKS-R042.1
 #[test]
 fn capability_fields_remain_bounded_typed_string_lists() {
     for field in ["provides", "requires_capabilities"] {

@@ -12,10 +12,10 @@
 //! ACK away the remaining eligible units. This module deliberately exposes no
 //! public top-up method or implicit budget replenishment.
 
-use eg_storage::{GraphShardOwner, PhysicalWriteCapability, ScopedOwnerTableMut};
+use medulla_storage::{GraphShardOwner, PhysicalWriteCapability, ScopedOwnerTableMut};
 use redb::TableDefinition;
 
-use eg_types::native_control::{
+use medulla_types::native_control::{
     EnrichmentBudgetCheckpoint as BudgetCheckpoint, EnrichmentBudgetPark,
     EnrichmentBudgetReservation, NativeControlSchemaVersion, SubmitWorkItemsRequest,
 };
@@ -57,7 +57,7 @@ pub struct SourceBudgetAuthority {
 /// own ChangeEnvelope. The same check runs before proposal and on every Raft
 /// apply, so a sealed authority cannot be attached to a different source.
 pub(crate) fn validate_source_envelope(
-    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    envelope: &medulla_types::change_envelope::ChangeEnvelope,
     authority: Option<&SourceBudgetAuthority>,
 ) -> Result<(), String> {
     const TOPIC: &str = "repository.enrichment.pending";
@@ -77,9 +77,9 @@ pub(crate) fn validate_source_envelope(
 }
 
 fn source_envelope_matches(
-    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    envelope: &medulla_types::change_envelope::ChangeEnvelope,
     authority: &SourceBudgetAuthority,
-    intent: &eg_types::mutation_batch::MutationOutboxIntent,
+    intent: &medulla_types::mutation_batch::MutationOutboxIntent,
 ) -> bool {
     authority.tenant_id == envelope.mutation.identity.tenant().as_str()
         && authority.source_envelope == envelope.envelope_id
@@ -94,9 +94,9 @@ fn source_envelope_matches(
 
 #[cfg(feature = "ast")]
 fn validate_source_intent(
-    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    envelope: &medulla_types::change_envelope::ChangeEnvelope,
     authority: &SourceBudgetAuthority,
-    intent: &eg_types::mutation_batch::MutationOutboxIntent,
+    intent: &medulla_types::mutation_batch::MutationOutboxIntent,
 ) -> Result<(), String> {
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -113,9 +113,9 @@ fn validate_source_intent(
     if intent.payload.len() > MAX_BYTES {
         return Err("CONFLICT: repository enrichment source intent exceeds bound".into());
     }
-    let pending: Pending = eg_types::msgpack::decode_bounded(
+    let pending: Pending = medulla_types::msgpack::decode_bounded(
         &intent.payload,
-        eg_types::msgpack::MsgpackLimits::new(MAX_BYTES, 100_000, 64),
+        medulla_types::msgpack::MsgpackLimits::new(MAX_BYTES, 100_000, 64),
     )
     .map_err(|_| "CONFLICT: repository enrichment source intent is invalid")?;
     let BudgetStatus::Unreserved = pending.budget_status;
@@ -144,15 +144,15 @@ fn validate_source_intent(
 
 #[cfg(not(feature = "ast"))]
 fn validate_source_intent(
-    _envelope: &eg_types::change_envelope::ChangeEnvelope,
+    _envelope: &medulla_types::change_envelope::ChangeEnvelope,
     _authority: &SourceBudgetAuthority,
-    _intent: &eg_types::mutation_batch::MutationOutboxIntent,
+    _intent: &medulla_types::mutation_batch::MutationOutboxIntent,
 ) -> Result<(), String> {
     Err("CONFLICT: repository enrichment source requires AST authority".into())
 }
 
 fn valid_digest(value: &str) -> bool {
-    eg_types::contract::Digest256::parse(value).is_ok()
+    medulla_types::contract::Digest256::parse(value).is_ok()
 }
 
 /// The three persisted accounting buckets must partition the committed total.
@@ -416,7 +416,7 @@ pub(crate) fn reserve_submit_page(
 }
 
 fn ensure_active_source(
-    scope: &eg_transaction::AdmittedOwnerWrite<'_, GraphShardOwner>,
+    scope: &medulla_transaction::AdmittedOwnerWrite<'_, GraphShardOwner>,
     graph: &str,
     source_envelope: &str,
 ) -> Result<(), String> {
@@ -670,7 +670,7 @@ mod tests {
 
     #[test]
     fn parked_marker_is_durable_before_a_lease_can_be_released() {
-        let path = crate::redb_store::temp_path("eg-enrichment-park", "durable");
+        let path = crate::redb_store::temp_path("medulla-enrichment-park", "durable");
         let shard = Shard::open(&path).unwrap();
         let graph = "park-graph";
         let authority = SourceBudgetAuthority {

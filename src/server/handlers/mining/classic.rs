@@ -1,21 +1,21 @@
 use super::*;
 use super::{association::*, writeback::*};
-use eg_compute::mining::{
+use medulla_compute::mining::{
     forecast,
     sequence::{self, LabeledPattern},
     subgraph::{self, HostGraph},
     text,
 };
-use eg_types::compute_result::mining::{
+use medulla_types::compute_result::mining::{
     DocTerms, ForecastMiningResult, GspanMiningResult, MotifCountsRow, MotifMiningResult,
     PatternEdge, SequenceMiningResult, SequentialPatternRow, SubgraphMiningResult,
     SubgraphPatternRow, TermWeight, TextMiningResult, TopicTerms,
 };
-use eg_types::result_contract::compute as results;
+use medulla_types::result_contract::compute as results;
 
 // ─────────────────────────── Sequential-pattern mining ───────────────────────────
 
-/// Handle `MineSequence` (CONCEPT:EG-KG.mining.prefixspan — Phase 4): build the
+/// Handle `MineSequence` (CONCEPT:MEDULLA-KG.mining.prefixspan — Phase 4): build the
 /// ordered sequences (explicit or graph-derived), run the chosen engine
 /// (PrefixSpan/GSP — both agree), return `{patterns, ...}`, and optionally write
 /// `:SequentialPattern` nodes back.
@@ -79,7 +79,7 @@ pub(super) fn build_sequences(
 }
 
 /// Build one ORDERED sequence per `node_label` instance from its neighbor list
-/// (CONCEPT:EG-KG.mining.prefixspan): each sequence is the `item_field` values of
+/// (CONCEPT:MEDULLA-KG.mining.prefixspan): each sequence is the `item_field` values of
 /// the owner's neighbors in `direction`, restored to chronological (edge
 /// insertion) order — unlike `derive_from_graph`'s unordered dedup, order is the
 /// whole point of a sequence — optionally filtered to a `relation`.
@@ -118,7 +118,7 @@ pub(super) fn to_seq_algo(a: MineSeqAlgorithm) -> sequence::Algorithm {
 }
 
 /// Materialize each mined pattern as a typed `:SequentialPattern` node
-/// (CONCEPT:EG-KG.mining.sequence-writeback), id = a deterministic digest of its
+/// (CONCEPT:MEDULLA-KG.mining.sequence-writeback), id = a deterministic digest of its
 /// (order-preserving) item list. Linked to any item that is a resident node via
 /// a `PATTERN_ITEM` edge, mirroring `materialize_rules`.
 pub(super) fn materialize_patterns(core: &GraphCore, patterns: &[LabeledPattern]) -> usize {
@@ -156,7 +156,7 @@ pub(super) fn pattern_node_id(items: &[String]) -> String {
 
 // ─────────────────────────── Forecasting ───────────────────────────
 
-/// Handle `MineForecast` (CONCEPT:EG-KG.mining.arima — Phase 4): forecast
+/// Handle `MineForecast` (CONCEPT:MEDULLA-KG.mining.arima — Phase 4): forecast
 /// `horizon` future points off a 1-D `values` series (a tsdb window handed in
 /// by the caller — the same client-supplied cut `MineAnomaly` took in Phase 2)
 /// via ARIMA/Holt-Winters/STL, return `{forecast, lower, upper, ...}`, and
@@ -280,7 +280,7 @@ pub(super) fn forecast_algo_name(a: ForecastAlgorithm) -> &'static str {
 }
 
 /// Materialize the forecast as a typed `:Forecast` node
-/// (CONCEPT:EG-KG.mining.forecast-writeback), id = a deterministic digest of
+/// (CONCEPT:MEDULLA-KG.mining.forecast-writeback), id = a deterministic digest of
 /// `algo` + (`series_id` when given, else the input `values` — so identical
 /// explicit input reproduces the same id on WAL replay). Linked to a resident
 /// node named `series_id` via a `FORECAST_OF` edge when one exists.
@@ -328,7 +328,7 @@ pub(super) fn forecast_node_id(algo: &str, series_id: &str, values: &[f64]) -> S
 
 // ─────────────────────────── Text mining ───────────────────────────
 
-/// Handle `MineText` (CONCEPT:EG-KG.mining.tfidf — Phase 4): tokenize the
+/// Handle `MineText` (CONCEPT:MEDULLA-KG.mining.tfidf — Phase 4): tokenize the
 /// corpus (explicit or graph-derived), run the chosen engine, return
 /// `{doc_terms}` (tfidf) or `{topics, doc_topics}` (lda/nmf), and optionally
 /// write `:Topic` nodes back (lda/nmf only).
@@ -468,7 +468,7 @@ pub(super) fn text_algo_name(a: TextAlgorithm) -> &'static str {
 
 /// Resolve the tokenized corpus: explicit `docs` win (already tokenized, ids
 /// empty); otherwise tokenize the `field` string property of every
-/// `source.node_label` instance (compute-near-data — no Tantivy/eg-text
+/// `source.node_label` instance (compute-near-data — no Tantivy/medulla-text
 /// dependency), skipping nodes with no non-empty text. Returns the corpus AND
 /// a parallel `ids` vec (node ids for the graph-derived path).
 pub(super) fn build_text_docs(
@@ -486,7 +486,7 @@ pub(super) fn build_text_docs(
     let mut tokenized = Vec::with_capacity(owners.len());
     let mut ids = Vec::with_capacity(owners.len());
     for (node_id, blob) in owners {
-        let Ok(props) = eg_types::msgpack::decode_property_value(&blob) else {
+        let Ok(props) = medulla_types::msgpack::decode_property_value(&blob) else {
             continue;
         };
         let Some(text_val) = props.get(&spec.field).and_then(|v| v.as_str()) else {
@@ -503,7 +503,7 @@ pub(super) fn build_text_docs(
 }
 
 /// Materialize each topic as a typed `:Topic` node
-/// (CONCEPT:EG-KG.mining.topic-writeback), id = a deterministic digest of `algo` +
+/// (CONCEPT:MEDULLA-KG.mining.topic-writeback), id = a deterministic digest of `algo` +
 /// its top terms (order-sensitive — the terms are already sorted by
 /// descending weight). Linked, via a `HAS_TOPIC` edge, to every resident
 /// source document whose DOMINANT topic (argmax of its `doc_topics`
@@ -564,7 +564,7 @@ pub(super) fn topic_node_id(algo: &str, terms: &[&str]) -> String {
 
 // ─────────────────────────── Frequent subgraph mining + motifs ───────────────────────────
 
-/// Handle `MineSubgraph` (CONCEPT:EG-KG.mining.gspan-frequent-subgraph — Phase
+/// Handle `MineSubgraph` (CONCEPT:MEDULLA-KG.mining.gspan-frequent-subgraph — Phase
 /// 4, the graph-native family member): build a labeled host graph from the
 /// RESIDENT graph itself (no rows/vectors handed in), run gSpan-style
 /// frequent-subgraph mining or a motif census, and optionally write
@@ -647,7 +647,7 @@ pub(in crate::server::handlers) fn handle_subgraph(
     }
 }
 
-/// Build a [`HostGraph`] from the resident graph (CONCEPT:EG-KG.mining.gspan-frequent-subgraph):
+/// Build a [`HostGraph`] from the resident graph (CONCEPT:MEDULLA-KG.mining.gspan-frequent-subgraph):
 /// every node's type/label property (checked in the same `type`/`node_type`/
 /// `label` precedence as `extract_item`'s `"label"` field), every edge's
 /// canonical `relationship` label (defaulting to `"_"` when absent). When
@@ -689,7 +689,7 @@ pub(super) fn build_host_graph(
 /// Extract a node's type/label from its property blob, per the
 /// `type`/`node_type`/`label` precedence used elsewhere in this handler.
 pub(super) fn node_type_label(blob: &[u8]) -> Option<String> {
-    let val = eg_types::msgpack::decode_property_value(blob).ok()?;
+    let val = medulla_types::msgpack::decode_property_value(blob).ok()?;
     for key in ["type", "node_type", "label"] {
         if let Some(s) = val.get(key).and_then(|v| v.as_str()) {
             return Some(s.to_string());
@@ -702,7 +702,7 @@ pub(super) fn node_type_label(blob: &[u8]) -> Option<String> {
 /// to `"_"` when none is set — an unlabeled edge is
 /// still a valid, matchable edge, just under one shared label.
 pub(super) fn edge_relation_label(blob: &[u8]) -> String {
-    let Ok(val) = eg_types::msgpack::decode_property_value(blob) else {
+    let Ok(val) = medulla_types::msgpack::decode_property_value(blob) else {
         return "_".to_string();
     };
     if let Some(s) = val.get("relationship").and_then(|v| v.as_str()) {
@@ -719,7 +719,7 @@ pub(super) fn subgraph_algo_name(a: SubgraphAlgorithm) -> &'static str {
 }
 
 /// Materialize each frequent pattern as a typed `:FrequentSubgraph` node
-/// (CONCEPT:EG-KG.mining.gspan-frequent-subgraph), id = a deterministic digest
+/// (CONCEPT:MEDULLA-KG.mining.gspan-frequent-subgraph), id = a deterministic digest
 /// of its canonical shape (node labels + edges). Linked, via a
 /// `SUBGRAPH_MEMBER` edge, to every resident host node appearing in ANY of its
 /// embeddings.

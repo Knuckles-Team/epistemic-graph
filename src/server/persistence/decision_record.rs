@@ -28,13 +28,13 @@
 
 use std::collections::BTreeMap;
 
-use eg_types::agent_component::{
+use medulla_types::agent_component::{
     AgentComponentDraft, AgentComponentEntry, AgentComponentKind, AgentComponentMutationKind,
     DraftPublication, DraftSubject, COMPONENT_MEDIA_TYPE_ATTRIBUTE,
 };
-use eg_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
-use eg_types::agent_ontology::satisfies;
-use eg_types::decision::{
+use medulla_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
+use medulla_types::agent_ontology::satisfies;
+use medulla_types::decision::{
     digest, CandidateFacts, DecisionErrorCode, DecisionRecord, LibraryCandidateScope,
     MAX_ASSEMBLY_CANDIDATES,
 };
@@ -46,9 +46,9 @@ use super::agent_revision::{
 };
 
 /// Media type a committed record's body is served under.
-pub const DECISION_RECORD_MEDIA_TYPE: &str = "application/vnd.eg.decision-record+json";
+pub const DECISION_RECORD_MEDIA_TYPE: &str = "application/vnd.medulla.decision-record+json";
 /// Prefix of a decision record's engine-owned body reference.
-pub const DECISION_BODY_REF_PREFIX: &str = "eg-decision:";
+pub const DECISION_BODY_REF_PREFIX: &str = "medulla-decision:";
 /// Head rows one candidate read may examine. A tenant larger than this is
 /// refused by name rather than decided over a silently partial catalog.
 const MAX_CANDIDATE_SCAN: usize = 4_096;
@@ -160,7 +160,7 @@ pub(crate) fn verify_policy_component(draft: &AgentComponentDraft) -> Result<(),
     if draft.kind != AgentComponentKind::DecisionPolicy {
         return Ok(());
     }
-    eg_types::decision::policy::policy_from_attributes(&draft.attributes, &draft.content_digest)
+    medulla_types::decision::policy::policy_from_attributes(&draft.attributes, &draft.content_digest)
         .map(|_| ())
         .map_err(|code| {
             refuse(
@@ -179,8 +179,8 @@ impl AgentLibraryStore {
         scope: &LibraryCandidateScope,
     ) -> Result<Vec<AgentComponentEntry>, String> {
         let read = self.read()?;
-        let heads = read.open_owner_table(eg_storage::AGENT_COMPONENT_HEADS)?;
-        let revisions = read.open_owner_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
+        let heads = read.open_owner_table(medulla_storage::AGENT_COMPONENT_HEADS)?;
+        let revisions = read.open_owner_table(medulla_storage::AGENT_COMPONENT_REVISIONS)?;
         let range = heads
             .range((tenant_id, "")..)
             .map_err(|error| error.to_string())?;
@@ -200,7 +200,7 @@ impl AgentLibraryStore {
         record_id: &str,
     ) -> Result<Option<Vec<u8>>, String> {
         let read = self.read()?;
-        let table = read.open_owner_table(eg_storage::DECISION_RECORDS)?;
+        let table = read.open_owner_table(medulla_storage::DECISION_RECORDS)?;
         Ok(table
             .get((tenant_id, record_id))
             .map_err(|error| error.to_string())?
@@ -214,7 +214,7 @@ impl AgentLibraryStore {
         &self,
         tenant_id: &str,
         component_id: &str,
-    ) -> Result<eg_types::agent_component::AgentComponentContentResult, String> {
+    ) -> Result<medulla_types::agent_component::AgentComponentContentResult, String> {
         let entry = self
             .current_component(tenant_id, component_id)?
             .ok_or_else(|| "agent component does not exist".to_string())?;
@@ -228,8 +228,8 @@ impl AgentLibraryStore {
                 "COMPONENT_BODY_UNAVAILABLE: the record body does not match its digest".into(),
             );
         }
-        Ok(eg_types::agent_component::AgentComponentContentResult {
-            schema_version: eg_types::agent_component::COMPONENT_CONTENT_SCHEMA_VERSION,
+        Ok(medulla_types::agent_component::AgentComponentContentResult {
+            schema_version: medulla_types::agent_component::COMPONENT_CONTENT_SCHEMA_VERSION,
             component_id: entry.component_id,
             entry_revision: entry.entry_revision,
             definition_digest: entry.definition_digest,
@@ -294,7 +294,7 @@ impl AgentLibraryStore {
                 )
             },
             |rows| {
-                let mut table = rows.open_table(eg_storage::DECISION_RECORDS)?;
+                let mut table = rows.open_table(medulla_storage::DECISION_RECORDS)?;
                 table
                     .insert((tenant.as_str(), record_id.as_str()), body.as_slice())
                     .map_err(|error| error.to_string())?;
@@ -316,8 +316,8 @@ fn committed_replay(
         );
     }
     Ok(AgentComponentWriteResult {
-        result: eg_types::agent_component::AgentComponentCommittedResult {
-            schema_version: eg_types::agent_component::AGENT_COMPONENT_SCHEMA_VERSION,
+        result: medulla_types::agent_component::AgentComponentCommittedResult {
+            schema_version: medulla_types::agent_component::AGENT_COMPONENT_SCHEMA_VERSION,
             component: existing,
             batch_id: String::new(),
             committed_version: 0,
@@ -328,12 +328,12 @@ fn committed_replay(
 
 /// Steps 3 and 4 of §4.2, inside the admitting write.
 fn snapshot_check(
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+    txn: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
     record: &DecisionRecord,
 ) -> Result<(), String> {
     let tenant_id = record.tenant_id.as_str();
-    let heads = txn.open_read_table(eg_storage::AGENT_COMPONENT_HEADS)?;
-    let revisions = txn.open_read_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
+    let heads = txn.open_read_table(medulla_storage::AGENT_COMPONENT_HEADS)?;
+    let revisions = txn.open_read_table(medulla_storage::AGENT_COMPONENT_REVISIONS)?;
     let revision = |component_id: &str, revision: u64| {
         let row = revisions
             .get((tenant_id, component_id, revision))?

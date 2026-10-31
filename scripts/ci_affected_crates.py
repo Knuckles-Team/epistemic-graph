@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Select the workspace crates a pull request affects and print the cargo runs.
 
-The pull-request ``CI`` job (spec EG-CONTRACT-R053.7) builds, lints and tests
+The pull-request ``CI`` job (spec MEDULLA-CONTRACT-R053.7) builds, lints and tests
 only what the diff can break: every workspace package that owns a changed
 file, plus every workspace package that depends on one of those (normal,
 dev or build edge, transitively). A change to a workspace-wide input
@@ -41,15 +41,15 @@ WORKSPACE_WIDE = (
 )
 
 PYO3_FEATURES = (
-    "eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,"
-    "eg-numeric/decision,eg-numeric/motif,eg-pyengine/security,"
-    "eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,"
-    "eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,"
-    "eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,"
-    "eg-pyengine/statechart,eg-pyengine/finance"
+    "medulla-numeric/analytics,medulla-numeric/contract,medulla-numeric/complex,"
+    "medulla-numeric/decision,medulla-numeric/motif,medulla-pyengine/security,"
+    "medulla-pyengine/ml-pipeline,medulla-pyengine/reasoning,medulla-pyengine/query,"
+    "medulla-pyengine/cypher,medulla-pyengine/tsdb,medulla-pyengine/streaming,"
+    "medulla-pyengine/wasm-udf,medulla-pyengine/rdf,medulla-pyengine/blob,medulla-pyengine/jobs,"
+    "medulla-pyengine/statechart,medulla-pyengine/finance"
 )
-PYO3_PACKAGES = ("eg-numeric", "eg-pyengine")
-SERIAL_PACKAGES = ("eg-storage",)
+PYO3_PACKAGES = ("medulla-numeric", "medulla-pyengine")
+SERIAL_PACKAGES = ("medulla-storage",)
 
 
 def _packages(metadata: dict) -> dict[str, pathlib.PurePosixPath]:

@@ -1,7 +1,7 @@
 //! Caller-context aggregation from the existing ordinary completion ledger.
 use super::*;
-use eg_types::native_control::SubmitWorkItemRequest;
-use eg_types::run_usage::{
+use medulla_types::native_control::SubmitWorkItemRequest;
+use medulla_types::run_usage::{
     aggregate_session_usage, SessionUsage, SessionUsageRecord, MAX_SESSION_USAGE_RUNS,
 };
 
@@ -15,7 +15,7 @@ pub(crate) fn read_session_usage(
     principal: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<SessionUsage, String> {
-    eg_types::work_item_read::validate_work_item_get(tenant, context_id)?;
+    medulla_types::work_item_read::validate_work_item_get(tenant, context_id)?;
     if principal.is_empty() {
         return Err("ACCESS_DENIED: usage owner required".into());
     }
@@ -139,7 +139,7 @@ fn validate_session_admission(
 }
 
 fn usage_counts(
-    usage: eg_types::run_completion::RunUsage,
+    usage: medulla_types::run_completion::RunUsage,
 ) -> std::collections::BTreeMap<String, u64> {
     [
         ("requests", usage.requests),

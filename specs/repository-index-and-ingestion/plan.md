@@ -1,12 +1,12 @@
-# EG-REPO-INGEST implementation plan
+# MEDULLA-REPO-INGEST implementation plan
 
 Governing outcome: [spec.md](spec.md). Normative data and failure contract: [architecture.md](plan.md).
 
 ## Existing implementation to extend
 
-The generated/public shapes are `crates/eg-types/src/ingestion_wire.rs` and `epistemic_graph/generated/index_repository.py`. The native parser and branch projection live in `crates/eg-compute/src/parser/branch_index.rs`. `src/server/dispatch/graph_pipeline/repository_index.rs` applies graph scope and ACL, parses off the reactor, admits source bytes and calls `src/server/handlers/repository_index.rs`. That handler lowers to a canonical write set and one `ChangeEnvelope`, with current `REPOSITORY_BATCH_TOO_LARGE` budgeting. `src/server/repository_enrichment_worker.rs` and its dispatch consumer are the existing durable work path. `src/server/handlers/source_ingestion.rs`, `crates/eg-types/src/source_ingestion.rs` and `docs/architecture/source_ingestion.md` implement the general source contract. These are the owners to reuse, not templates for a second service.
+The generated/public shapes are `crates/medulla-types/src/ingestion_wire.rs` and `medulla/generated/index_repository.py`. The native parser and branch projection live in `crates/medulla-compute/src/parser/branch_index.rs`. `src/server/dispatch/graph_pipeline/repository_index.rs` applies graph scope and ACL, parses off the reactor, admits source bytes and calls `src/server/handlers/repository_index.rs`. That handler lowers to a canonical write set and one `ChangeEnvelope`, with current `REPOSITORY_BATCH_TOO_LARGE` budgeting. `src/server/repository_enrichment_worker.rs` and its dispatch consumer are the existing durable work path. `src/server/handlers/source_ingestion.rs`, `crates/medulla-types/src/source_ingestion.rs` and `docs/architecture/source_ingestion.md` implement the general source contract. These are the owners to reuse, not templates for a second service.
 
-Current evidence includes branch-aware durable tests in `tests/repository_index_durable.rs`, parser tests in `crates/eg-compute/src/parser/branch_index_tests.rs`, generated result contract tests, and source-ingest tests. They establish parts of RI-01–RI-06 and RI-11. They do not prove full semantic bridge coverage, all failure reparse behavior, production throughput, or an accepted release. The implementation must inspect the exact current revision before claiming a gap is still present.
+Current evidence includes branch-aware durable tests in `tests/repository_index_durable.rs`, parser tests in `crates/medulla-compute/src/parser/branch_index_tests.rs`, generated result contract tests, and source-ingest tests. They establish parts of RI-01–RI-06 and RI-11. They do not prove full semantic bridge coverage, all failure reparse behavior, production throughput, or an accepted release. The implementation must inspect the exact current revision before claiming a gap is still present.
 
 ## Sequenced changes
 
@@ -90,7 +90,7 @@ A restart reads the committed envelope and source marker from durable storage. I
 
 ### Recorded design decision: edge identity is the `(source, target, relation_type)` triple
 
-The graph previously keyed some edges by endpoint pair alone, so multiple relation types between the same two endpoints had no canonical representation. Decided (operator-approved, EG-REPO-INGEST-R009.1/R009.2): an edge's identity is the triple `(source_id, target_id, relation_type)`, not the bare `(source_id, target_id)` pair. An untyped legacy edge migrates deterministically by reading its stored blob's `type`/`label` field as `relation_type`, falling back to `related_to` when neither is present; a migration collision (two untyped edges landing on the same triple) is resolved by a deterministic collapse rule and recorded in a collision receipt rather than silently dropped. The semantic bridge's nine relations (`declares`, `calls`, `inherits`, `realizes`, `depends_on`, `definedBy`, `testedBy`, `specifiedBy`, `releasedIn`) each project onto their own typed triple between the same two endpoints, so they never collide with each other or with an untyped edge.
+The graph previously keyed some edges by endpoint pair alone, so multiple relation types between the same two endpoints had no canonical representation. Decided (operator-approved, MEDULLA-REPO-INGEST-R009.1/R009.2): an edge's identity is the triple `(source_id, target_id, relation_type)`, not the bare `(source_id, target_id)` pair. An untyped legacy edge migrates deterministically by reading its stored blob's `type`/`label` field as `relation_type`, falling back to `related_to` when neither is present; a migration collision (two untyped edges landing on the same triple) is resolved by a deterministic collapse rule and recorded in a collision receipt rather than silently dropped. The semantic bridge's nine relations (`declares`, `calls`, `inherits`, `realizes`, `depends_on`, `definedBy`, `testedBy`, `specifiedBy`, `releasedIn`) each project onto their own typed triple between the same two endpoints, so they never collide with each other or with an untyped edge.
 
 Rejected alternatives:
 
@@ -103,9 +103,9 @@ Rejected alternatives:
 ### 2026-10-11: correct acceptance-evidence scope
 
 Audit of revision `660ae016` found that the bindings for
-`EG-REPO-INGEST-R003.1`–`EG-REPO-INGEST-R003.11` identified typed enum
+`MEDULLA-REPO-INGEST-R003.1`–`MEDULLA-REPO-INGEST-R003.11` identified typed enum
 serialization and local claim-list checks in
-`crates/eg-types/src/source_ingestion/tests.rs`. These remain useful
+`crates/medulla-types/src/source_ingestion/tests.rs`. These remain useful
 supplementary unit evidence, but do not execute the migrated capabilities or
 prove that their legacy modules no longer perform the same computation.
 The child acceptance and therefore the R003 rollup remain unverified by this
@@ -135,13 +135,13 @@ Each work item below extends its named parent and preserves existing obligations
 
 | Requirement | Plan | Open dependency |
 |---|---|---|
-| `EG-REPO-INGEST-R002.1` | Compile a pinned skill directory into a typed plan through SourceIngest and Meristem. Use the existing graph orchestration path. | Versioned grammar and capability/type lookup remain owner prerequisites. AU-CONTROL-R037.30 remains unmerged. |
-| `EG-REPO-INGEST-R006.1` | Measure distinct completed papers over 24 hours. Admit maintenance only with authorization and bounded goal allocation. | Stage roster, freshness policy, allocation policy, and Arbora operation remain owner prerequisites. |
-| `EG-REPO-INGEST-R006.2` | Queue re-embedding outside query routing. Gate promotion through unified data-plane R040.2/.3 before tag_batch. | Importance producer and compatible embedding-space policy remain owner prerequisites. |
-| `EG-REPO-INGEST-R006.3` | Serve typed code maps through current-revision UnifiedQuery. Refuse changed and unchanged-symbol queries against a stale generation. | Source-inventory producer and code-entity IDs remain owner prerequisites. |
-| `EG-REPO-INGEST-R006.4` | Apply revision-scoped deltas under host-granted working-memory limits. | Semantic support matrix and host resource-grant binding remain owner prerequisites. |
-| `EG-REPO-INGEST-R002.100` | Require independently authorized readback before ingestion success. | Meristem success-transition consumer ID remains unassigned. |
-| `EG-REPO-INGEST-R002.101` | Gate graph-loaded workflow completion on durable hydration readback. | Meristem execution-success consumer ID remains unassigned. |
+| `MEDULLA-REPO-INGEST-R002.1` | Compile a pinned skill directory into a typed plan through SourceIngest and Meristem. Use the existing graph orchestration path. | Versioned grammar and capability/type lookup remain owner prerequisites. MERISTEM-CONTROL-R037.30 remains unmerged. |
+| `MEDULLA-REPO-INGEST-R006.1` | Measure distinct completed papers over 24 hours. Admit maintenance only with authorization and bounded goal allocation. | Stage roster, freshness policy, allocation policy, and Arbora operation remain owner prerequisites. |
+| `MEDULLA-REPO-INGEST-R006.2` | Queue re-embedding outside query routing. Gate promotion through unified data-plane R040.2/.3 before tag_batch. | Importance producer and compatible embedding-space policy remain owner prerequisites. |
+| `MEDULLA-REPO-INGEST-R006.3` | Serve typed code maps through current-revision UnifiedQuery. Refuse changed and unchanged-symbol queries against a stale generation. | Source-inventory producer and code-entity IDs remain owner prerequisites. |
+| `MEDULLA-REPO-INGEST-R006.4` | Apply revision-scoped deltas under host-granted working-memory limits. | Semantic support matrix and host resource-grant binding remain owner prerequisites. |
+| `MEDULLA-REPO-INGEST-R002.100` | Require independently authorized readback before ingestion success. | Meristem success-transition consumer ID remains unassigned. |
+| `MEDULLA-REPO-INGEST-R002.101` | Gate graph-loaded workflow completion on durable hydration readback. | Meristem execution-success consumer ID remains unassigned. |
 
 Acceptance cases and exact refusal conditions remain in the linked requirements rows.
 All seven definitions remain SPECIFIED with empty `landed_in` and `verified_by` fields.
@@ -189,7 +189,7 @@ source revision/digest in `identity_scheme` = `{source_revision, source_digest}`
 Reuse `branch_index::ParseUnits::build` / `unit_name`,
 `tree_sitter_walk::{emit_symbol,hash_fields}`, and
 `branch_scope::{blob_node_id,file_version_id,branch_node_id}` under
-`crates/eg-compute/src/parser/`. Symbols hash length-prefixed parse-unit path,
+`crates/medulla-compute/src/parser/`. Symbols hash length-prefixed parse-unit path,
 symbol type, qualified name and ordinal; branch parse-unit paths bind blob
 content and grammar suffix. FileVersion binds repository/path/blob; Branch
 binds repository/ref. Revision and current path/span are query bindings through

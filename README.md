@@ -1,10 +1,10 @@
 # Medulla
 
-The `medulla` distribution provides Medulla; import it as `epistemic_graph`.
+The `medulla` distribution provides Medulla; import it as `medulla`.
 The repository is `medulla`. Package, CLI and API identifiers remain unchanged.
 
 <p align="center">
-  <img src="docs/assets/brands/epistemic-graph-logo-v1.png" alt="Medulla logo" width="176">
+  <img src="docs/assets/brands/medulla-logo-v1.png" alt="Medulla logo" width="176">
 </p>
 
 <p align="center">
@@ -84,7 +84,7 @@ The server executable, module and packaging-path identifiers remain unchanged.
 | Artifact | Contents | Install |
 |---|---|---|
 | `medulla` | The Python client, the in-process engine module and the numeric kernel. Carries no executable. | `pip install medulla` |
-| `medulla-stem` | The native `epistemic-graph-server` executable (Linux x86_64 and aarch64) and `epistemic_graph_server.binary_path()`. Source in [`packaging/epistemic-graph-server`](packaging/epistemic-graph-server). | `pip install medulla-stem` |
+| `medulla-stem` | The native `medulla-server` executable (Linux x86_64 and aarch64) and `medulla_server.binary_path()`. Source in [`packaging/medulla-server`](packaging/medulla-server). | `pip install medulla-stem` |
 | `medulla[server]` | The client plus the server package pinned to the same version. | `pip install "medulla[server]"` |
 | `medulla-stem` image | The server binary on a slim base, one tag for `linux/amd64` and `linux/arm64`, built from the server wheel. | `docker pull <registry-user>/medulla-stem:<version>` |
 
@@ -132,10 +132,10 @@ ephemeral, and needs no server or TLS configuration.
 
 ```bash
 python -m pip install medulla
-python -m epistemic_graph.cli status  # no server is expected in embedded mode
+python -m medulla.cli status  # no server is expected in embedded mode
 python - <<'PY'
 import msgpack
-from epistemic_graph.engine import Engine
+from medulla.engine import Engine
 
 engine = Engine(persist_dir=":memory:")
 engine.create_graph("demo")

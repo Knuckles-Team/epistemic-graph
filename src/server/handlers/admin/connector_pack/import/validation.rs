@@ -2,11 +2,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use eg_types::connector_pack::{
+use medulla_types::connector_pack::{
     ConnectorPackImportRequest, PackEntry, PackEntryKind, PackViolation, PackViolationCode,
     PackWarning, PackWarningCode,
 };
-use eg_types::contract::Digest256;
+use medulla_types::contract::Digest256;
 use sha2::{Digest, Sha256};
 
 use crate::server::persistence::connector_pack::{
@@ -32,8 +32,8 @@ pub(super) fn validate_index(
     finish_validation(&mut validator);
 }
 
-/// EG-DECISION-ENGINE-R075.2: wire the standalone
-/// `eg_types::connector_pack::rapid_r075::check_unique_component_ids` into
+/// MEDULLA-DECISION-ENGINE-R075.2: wire the standalone
+/// `medulla_types::connector_pack::rapid_r075::check_unique_component_ids` into
 /// this real pack-import entry point, over every entry's actual minted
 /// component id (connector + kind + name), rather than leaving it exercised
 /// only by its own module test.
@@ -45,10 +45,10 @@ fn check_duplicate_component_ids(
     let ids: Vec<String> = all
         .iter()
         .map(|entry| {
-            eg_types::connector_pack::pack_component_id(connector, entry.kind, &entry.name)
+            medulla_types::connector_pack::pack_component_id(connector, entry.kind, &entry.name)
         })
         .collect();
-    if eg_types::connector_pack::rapid_r075::check_unique_component_ids(
+    if medulla_types::connector_pack::rapid_r075::check_unique_component_ids(
         ids.iter().map(String::as_str),
     )
     .is_err()
@@ -186,7 +186,7 @@ impl<'a> IndexValidator<'a> {
                 "server URI must name the pack connector exactly",
             );
         }
-        let id = eg_types::connector_pack::pack_component_id(
+        let id = medulla_types::connector_pack::pack_component_id(
             self.request.index.connector.as_str(),
             entry.kind,
             &entry.name,
@@ -201,18 +201,18 @@ impl<'a> IndexValidator<'a> {
     }
 
     fn validate_sections(&mut self, entry: &PackEntry) {
-        let sections = [(&entry.body, eg_types::connector_pack::MAX_PACK_BODY_BYTES)]
+        let sections = [(&entry.body, medulla_types::connector_pack::MAX_PACK_BODY_BYTES)]
             .into_iter()
             .chain(entry.input_schema.iter().map(|section| {
                 (
                     section,
-                    eg_types::connector_pack::MAX_PACK_SCHEMA_SECTION_BYTES,
+                    medulla_types::connector_pack::MAX_PACK_SCHEMA_SECTION_BYTES,
                 )
             }))
             .chain(entry.output_schema.iter().map(|section| {
                 (
                     section,
-                    eg_types::connector_pack::MAX_PACK_SCHEMA_SECTION_BYTES,
+                    medulla_types::connector_pack::MAX_PACK_SCHEMA_SECTION_BYTES,
                 )
             }));
         for (section, limit) in sections {
@@ -223,7 +223,7 @@ impl<'a> IndexValidator<'a> {
     fn validate_section(
         &mut self,
         entry: &PackEntry,
-        section: &eg_types::connector_pack::PackSection,
+        section: &medulla_types::connector_pack::PackSection,
         limit: u64,
     ) {
         let Ok(bytes) = section_bytes(self.archive, section) else {
@@ -391,7 +391,7 @@ impl<'a> IndexValidator<'a> {
     fn validate_schema(
         &mut self,
         entry: &PackEntry,
-        section: &eg_types::connector_pack::PackSection,
+        section: &medulla_types::connector_pack::PackSection,
     ) {
         let Ok(bytes) = section_bytes(self.archive, section) else {
             return;
@@ -535,12 +535,12 @@ enum OrphanPolicy {
     Refuse,
 }
 
-/// `EPISTEMIC_GRAPH_ONTOLOGY_ORPHANS=warn|refuse`, read once; any other value
+/// `MEDULLA_ONTOLOGY_ORPHANS=warn|refuse`, read once; any other value
 /// keeps the default.
 fn orphan_policy() -> OrphanPolicy {
     static POLICY: std::sync::OnceLock<OrphanPolicy> = std::sync::OnceLock::new();
     *POLICY.get_or_init(|| {
-        match std::env::var("EPISTEMIC_GRAPH_ONTOLOGY_ORPHANS")
+        match std::env::var("MEDULLA_ONTOLOGY_ORPHANS")
             .unwrap_or_default()
             .trim()
             .to_ascii_lowercase()
@@ -581,7 +581,7 @@ fn parent_classes() -> &'static BTreeSet<String> {
     CLASSES.get_or_init(|| {
         crate::graph::GraphSchemaSources::default()
             .ontologies()
-            .flat_map(|(_, text)| eg_rdf::pack::declared_classes_and_ontologies(text).0)
+            .flat_map(|(_, text)| medulla_rdf::pack::declared_classes_and_ontologies(text).0)
             .collect()
     })
 }
@@ -597,7 +597,7 @@ fn flag_ontology_orphans_with(validator: &mut IndexValidator<'_>, policy: Orphan
         return;
     }
     let documents: Vec<&str> = validator.ontologies.iter().map(String::as_str).collect();
-    let orphans = eg_rdf::pack::ontology_orphan_classes(&documents, parent_classes());
+    let orphans = medulla_rdf::pack::ontology_orphan_classes(&documents, parent_classes());
     if orphans.is_empty() {
         return;
     }
@@ -649,14 +649,14 @@ fn text_kind(kind: PackEntryKind) -> bool {
 }
 
 #[cfg(feature = "rdf")]
-pub(super) use eg_rdf::pack::{declared_shape_iris, validate_ontology_imports};
+pub(super) use medulla_rdf::pack::{declared_shape_iris, validate_ontology_imports};
 
 #[cfg(feature = "rdf")]
 fn parse_rdf_bounded(
     kind: PackEntryKind,
     text: &str,
 ) -> Result<(), (PackViolationCode, &'static str)> {
-    eg_rdf::pack::validate_document(rdf_invalid_code(kind), text)
+    medulla_rdf::pack::validate_document(rdf_invalid_code(kind), text)
 }
 
 #[cfg(not(feature = "rdf"))]
@@ -692,7 +692,7 @@ fn validate_rdf_unions(
     if ontologies.is_empty() && shapes.is_empty() {
         return Ok(());
     }
-    let ontology = eg_rdf::pack::scoped_union(ontologies).map_err(|_| {
+    let ontology = medulla_rdf::pack::scoped_union(ontologies).map_err(|_| {
         (
             PackViolationCode::OntologyInvalid,
             "an ontology file is not valid Turtle",
@@ -709,15 +709,15 @@ fn validate_rdf_unions(
     // full-ABox tableau, each inside one deterministic step budget -- the same
     // verdict on every host, and the same budget the schema attach uses.
     const MAX_REASONING_STEPS: u64 = 10_000_000;
-    match eg_rdf::tableau::check_pack_ontology(&triples, MAX_REASONING_STEPS) {
+    match medulla_rdf::tableau::check_pack_ontology(&triples, MAX_REASONING_STEPS) {
         Ok(()) => {}
-        Err(eg_rdf::tableau::BoundedCheckRefusal::Inconsistent { .. }) => {
+        Err(medulla_rdf::tableau::BoundedCheckRefusal::Inconsistent { .. }) => {
             return Err((
                 PackViolationCode::OntologyInconsistent,
                 "ontology union is inconsistent: an unsatisfiable class or individual",
             ));
         }
-        Err(eg_rdf::tableau::BoundedCheckRefusal::BudgetExceeded { .. }) => {
+        Err(medulla_rdf::tableau::BoundedCheckRefusal::BudgetExceeded { .. }) => {
             return Err((
                 PackViolationCode::ValidationBudgetExceeded,
                 "ontology reasoning exceeds the deterministic step budget",
@@ -737,7 +737,7 @@ fn validate_shapes_union(
     ontology: &str,
     ontology_triples: usize,
 ) -> Result<(), (PackViolationCode, &'static str)> {
-    let shape_union = eg_rdf::pack::scoped_union(shapes).map_err(|_| {
+    let shape_union = medulla_rdf::pack::scoped_union(shapes).map_err(|_| {
         (
             PackViolationCode::ShapesInvalid,
             "a shapes file is not valid Turtle",
@@ -751,7 +751,7 @@ fn validate_shapes_union(
     const SH_PATH: &str = "http://www.w3.org/ns/shacl#path";
     if shape_triples.iter().any(|triple| {
         triple.predicate.as_str() == SH_PATH
-            && !matches!(&triple.object, eg_rdf::oxrdf::Term::NamedNode(_))
+            && !matches!(&triple.object, medulla_rdf::oxrdf::Term::NamedNode(_))
     }) {
         return Err((
             PackViolationCode::ShapesInvalid,
@@ -771,13 +771,13 @@ fn validate_shapes_union(
             "SHACL SPARQL SERVICE constraints are forbidden",
         ));
     }
-    eg_shacl::IcvPolicy::from_turtle(&shape_graph).map_err(|_| {
+    medulla_shacl::IcvPolicy::from_turtle(&shape_graph).map_err(|_| {
         (
             PackViolationCode::ShapesInvalid,
             "shapes union is not a supported ICV policy",
         )
     })?;
-    let report = eg_shacl::validate_icv_turtle(&shape_graph, ontology).map_err(|_| {
+    let report = medulla_shacl::validate_icv_turtle(&shape_graph, ontology).map_err(|_| {
         (
             PackViolationCode::ShapesInvalid,
             "SHACL validation could not evaluate the shapes union",
@@ -796,11 +796,11 @@ fn validate_shapes_union(
 /// `SERVICE` keyword. Only constraint queries can federate: the word in a
 /// label, comment or IRI of a shape is not a SERVICE clause.
 #[cfg(all(feature = "owl", feature = "shacl"))]
-fn sparql_constraint_names_service(triple: &eg_rdf::oxrdf::Triple) -> bool {
+fn sparql_constraint_names_service(triple: &medulla_rdf::oxrdf::Triple) -> bool {
     const SH_SELECT: &str = "http://www.w3.org/ns/shacl#select";
     const SH_ASK: &str = "http://www.w3.org/ns/shacl#ask";
     let predicate = triple.predicate.as_str();
-    let eg_rdf::oxrdf::Term::Literal(query) = &triple.object else {
+    let medulla_rdf::oxrdf::Term::Literal(query) = &triple.object else {
         return false;
     };
     (predicate == SH_SELECT || predicate == SH_ASK)
@@ -886,7 +886,7 @@ pub(super) fn valid_skill_frontmatter(body: &[u8], expected_name: &str) -> bool 
 }
 pub(super) fn section_bytes<'a>(
     archive: &'a [u8],
-    section: &eg_types::connector_pack::PackSection,
+    section: &medulla_types::connector_pack::PackSection,
 ) -> Result<&'a [u8], String> {
     let start =
         usize::try_from(section.offset).map_err(|_| "section offset overflow".to_string())?;
@@ -932,8 +932,8 @@ mod mcp_resource_uri_tests {
 #[cfg(test)]
 mod duplicate_component_id_wiring_tests {
     use super::{check_duplicate_component_ids, PackEntry, PackEntryKind, PackViolationCode};
-    use eg_types::connector_pack::{PackAnnotations, PackSection};
-    use eg_types::contract::Digest256;
+    use medulla_types::connector_pack::{PackAnnotations, PackSection};
+    use medulla_types::contract::Digest256;
 
     fn entry(name: &str, uri: &str) -> PackEntry {
         PackEntry {
@@ -953,7 +953,7 @@ mod duplicate_component_id_wiring_tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R075.2
+    // spec: MEDULLA-DECISION-ENGINE-R075.2
     #[test]
     fn the_real_entry_point_calls_the_shared_duplicate_id_check() {
         let a = entry("search", "tool://connector/a");
@@ -984,7 +984,7 @@ mod duplicate_component_id_wiring_tests {
 #[cfg(all(test, feature = "owl", feature = "shacl"))]
 mod shacl_service_tests {
     use super::sparql_constraint_names_service;
-    use eg_rdf::oxrdf::{Literal, NamedNode, Triple};
+    use medulla_rdf::oxrdf::{Literal, NamedNode, Triple};
 
     fn triple(predicate: &str, object: &str) -> Triple {
         Triple::new(

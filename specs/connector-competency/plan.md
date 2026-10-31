@@ -1,4 +1,4 @@
-# EG-CQ-CONN — Design and implementation plan
+# MEDULLA-CQ-CONN — Design and implementation plan
 
 Owner: Medulla. The governing behavior and requirement
 IDs are in [spec.md](spec.md) and [requirements.md](requirements.md). The complete
@@ -63,7 +63,7 @@ with copied source data or an independently implemented planner.
 
 ### Method
 
-Each live connector gets one rollup with three children: a single-source competency question, a cross-source question that needs at least one other connector, and an acceptance test. Questions are specific to what the system holds. The vocabulary column was decided from the single listing of `crates/eg-core/ontology/` by file name only (files were not opened); MISSING means no file obviously matches, so a vocabulary file must be added before the question can be answered.
+Each live connector gets one rollup with three children: a single-source competency question, a cross-source question that needs at least one other connector, and an acceptance test. Questions are specific to what the system holds. The vocabulary column was decided from the single listing of `crates/medulla-core/ontology/` by file name only (files were not opened); MISSING means no file obviously matches, so a vocabulary file must be added before the question can be answered.
 
 Mechanism is existing engine functionality, not new: cross-source answers use federated query and foreign sources (`specs/federated-query-and-reasoning`, `specs/unified-data-plane`); source authority and connector mapping use the native source connector vocabulary (`native_source_connector-v1.ttl`). Typed abstention names the unconnected source when a linked connector has no data. Rows here only add the question, the vocabulary assignment and the acceptance test.
 
@@ -223,7 +223,7 @@ competency question -> vocabulary file (the coverage table) -> classes/propertie
    -> fetch at query time -> provenance-carrying answer or typed abstention
 ```
 
-Owners: ontology files and `schema_sources.rs` registration are Medulla (`crates/eg-core`); connector-side mappings stay with the connector package (cross-repo, not in this spec).
+Owners: ontology files and `schema_sources.rs` registration are Medulla (`crates/medulla-core`); connector-side mappings stay with the connector package (cross-repo, not in this spec).
 
 #### Vocabulary
 
@@ -247,7 +247,7 @@ Terms to add, by file. Each is one child row (a 5-minute unit: one class or prop
 | `enterprise-v1.ttl` | 3 | `:factSheetType`, `:lifecyclePhase`, `:activeUserCount` |
 | `nutrition-v1.ttl` | 8 | `:Recipe`, `:usesIngredient`, `:ShoppingListItem`, `:MealPlanEntry`, `:WorkoutRoutine`, `:Exercise`, `:includesExercise`, `:WorkoutSession` |
 | `action-v1.ttl` | 1 | `:failureReason` |
-| `commercial-v1.ttl` | See `EG-SUPPLY-VOCAB-R003` | Commercial declarations belong to the supply-chain vocabulary. |
+| `commercial-v1.ttl` | See `MEDULLA-SUPPLY-VOCAB-R003` | Commercial declarations belong to the supply-chain vocabulary. |
 
 Only `finance-v1` has a `.shapes.ttl` companion today. Other files register
 `shapes: None`. Each constrained file rollup has a first child. That child
@@ -255,7 +255,7 @@ creates and registers its companion. Shape children therefore have a home.
 
 #### Wiring
 
-- Ontology files: `crates/eg-core/ontology/<file>.ttl`; registration: `CoreSpec` entries in `crates/eg-core/src/graph/schema_sources.rs` (precedent `governance-shapes`, `personal`, `government`).
+- Ontology files: `crates/medulla-core/ontology/<file>.ttl`; registration: `CoreSpec` entries in `crates/medulla-core/src/graph/schema_sources.rs` (precedent `governance-shapes`, `personal`, `government`).
 - `catalog-v1.ttl` is generated; it is never hand-edited. The `commercial` module appears in it by regeneration.
 - Connector mappings to the new terms are `vg:VirtualMapping` rows (`virtual_graph-v1.ttl`: `mapsOntologyClass`, `mapsEntity`, `hasPredicateFieldPair`); they belong to the connector lanes, not here.
 - Reassignment rows change the Coverage table and `Vocabulary:` text in `specs/connector-competency` after their producer terms land. They carry exact row-level assertions in both documents.
@@ -292,14 +292,14 @@ Ciso Assistant and OneTrust use `government-v1.ttl`.
 OneTrust derives overdue status from assessmentDueDate and assessmentStatus; assessedVendor refers to the existing TRM Vendor class.
 ServiceNow uses the shared kg Incident and Change anchors in `archimate-v1.ttl`.
 GitHub, GitLab, and Repository Manager use canonical Repository and Branch classes from `software-v1.ttl` together with the lifecycle-specific Worktree and other terms in `sdlc_lifecycle-v1.ttl`.
-DockerHub uses `infrastructure-v1.ttl` and the canonical `software-v1.ttl` Repository via `EG-CQ-CONN-R069.2`.
+DockerHub uses `infrastructure-v1.ttl` and the canonical `software-v1.ttl` Repository via `MEDULLA-CQ-CONN-R069.2`.
 Egeria and Legal Peripherals use `core-foundation-v1.ttl`; the generated catalog remains term-free.
 Gramps, Paperless, and Nextcloud use `personal-v1.ttl`.
 StirlingPDF uses `action-v1.ttl`.
-Erpnext, Salesforce, and Twenty use `commercial-v1.ttl`, owned by `EG-SUPPLY-VOCAB-R003`.
+Erpnext, Salesforce, and Twenty use `commercial-v1.ttl`, owned by `MEDULLA-SUPPLY-VOCAB-R003`.
 Commercial Party and Contact representations reuse Organization and Person under that owner's current requirements.
 
-`EG-CQ-CONN-R083` requires exact commercial vocabulary cells, registered IRIs, and missing-producer refusal fixtures.
+`MEDULLA-CQ-CONN-R083` requires exact commercial vocabulary cells, registered IRIs, and missing-producer refusal fixtures.
 The fifteen noncommercial `.3` acceptance rows list exact producer dependencies in requirements.md.
 Their tests check exact coverage and requirement cells, registered IRIs, and refusal fixtures.
 Tests must resolve full IRIs from registered modules, including cross-module prerequisites.
@@ -309,13 +309,13 @@ Vocabulary declarations alone do not prove runtime competency.
 
 ## Connector-pack competency questions (R084)
 
-Every connector ships an OWL/RDF ontology pack with its domain ontology, ingest contract and surface. The engine imports it as native relationships (`EG-TYPED-PACKS-R101`, `EG-TYPED-PACKS-R102`). R084 states the acceptance questions for that design. The engine answers each by SPARQL over imported packs. The method-selection question also runs through `Decide` (`EG-DECISION-ENGINE-R172.12`). Call path: `ConnectorPack.Import` → pack graph → `SourceIngest` → served SPARQL handler (`src/server/handlers/rdf/sparql.rs:30`) and `handle_decide` (`src/server/handlers/decide/stat_decide.rs:50`).
+Every connector ships an OWL/RDF ontology pack with its domain ontology, ingest contract and surface. The engine imports it as native relationships (`MEDULLA-TYPED-PACKS-R101`, `MEDULLA-TYPED-PACKS-R102`). R084 states the acceptance questions for that design. The engine answers each by SPARQL over imported packs. The method-selection question also runs through `Decide` (`MEDULLA-DECISION-ENGINE-R172.12`). Call path: `ConnectorPack.Import` → pack graph → `SourceIngest` → served SPARQL handler (`src/server/handlers/rdf/sparql.rs:30`) and `handle_decide` (`src/server/handlers/decide/stat_decide.rs:50`).
 
 ## Amendments
 
 ### 2026-10-25: fixture SPARQL answers for R020.1, R026.1, R039.1
 
-`crates/eg-rdf/tests/connector_competency.rs` answers the three question rows
+`crates/medulla-rdf/tests/connector_competency.rs` answers the three question rows
 fully expressible in the vocabulary on main: fan-manager (R020.1) and
 home-assistant (R026.1) over `infrastructure-v1.ttl`, microsoft (R039.1) over
 `calendar-v1.ttl` plus `core-foundation-v1.ttl`. Each test loads a
@@ -336,7 +336,7 @@ four named bulk rows:
   not exist on main.
 - R069.2 (`:Repository`), R069.3 (`:Branch`) and R069.11 (`:proposalState`)
   need `sdlc_lifecycle-v1.ttl`; R084.5 needs `finance-v1.ttl` and
-  `finance-v1.shapes.ttl`. The vocabulary lane (EG-SUPPLY-VOCAB-R003.x)
+  `finance-v1.shapes.ttl`. The vocabulary lane (MEDULLA-SUPPLY-VOCAB-R003.x)
   owns those ontology files, not this delivery lane.
 
 Engine gaps observed. The ordering comparator parses operands as f64, so a
@@ -344,18 +344,18 @@ FILTER comparison over a dateTime lexical silently drops the row. The tests
 express windows with the `YEAR()`, `MONTH()`, `DAY()`, `HOURS()` and
 `MINUTES()` accessors instead. The typed abstention is the source-selection
 `Abstained { reason: Unconnected }` verdict. The function `question_abstention`
-(`crates/eg-rdf/src/source_selection.rs`) selects each `(source, concept)` a
+(`crates/medulla-rdf/src/source_selection.rs`) selects each `(source, concept)` a
 question reads. It checks them against the sources that
 `connected_sources_from_turtle` finds connected: an approved `vg:VirtualMapping`
 under a `vg:MetadataContract`. It returns the `AuthorityAudit` naming each
 unconnected source. The `.3` acceptance helper `assert_acceptance`
-(`crates/eg-rdf/tests/common/mod.rs`) proves two cases per question. With every
+(`crates/medulla-rdf/tests/common/mod.rs`) proves two cases per question. With every
 source connected, the question gets its answer. With one source unconnected, the
 typed abstention names that source.
 
 ### 2026-10-27: fixture SPARQL answers for R039.2, R042.1
 
-`crates/eg-rdf/tests/connector_competency.rs` adds two fixture-backed tests
+`crates/medulla-rdf/tests/connector_competency.rs` adds two fixture-backed tests
 over the vocabulary on main. No new vocabulary lands. The microsoft
 cross-source question (R039.2) federates `calendar-v1.ttl`
 `CalendarEvent`/`attendedBy` with the imported core `Person` link concept.

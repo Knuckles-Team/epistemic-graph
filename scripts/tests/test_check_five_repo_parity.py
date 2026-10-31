@@ -1,4 +1,4 @@
-"""Negative/positive tests for EG-CONTRACT-R008.2 (check_five_repo_parity.py CLI)."""
+"""Negative/positive tests for MEDULLA-CONTRACT-R008.2 (check_five_repo_parity.py CLI)."""
 
 from pathlib import Path
 
@@ -7,7 +7,7 @@ import pytest
 from scripts.check_five_repo_parity import check_five_repo_parity
 
 
-@pytest.mark.spec("EG-CONTRACT-R008.2")
+@pytest.mark.spec("MEDULLA-CONTRACT-R008.2")
 def test_mismatched_directory_fails_closed(tmp_path: Path) -> None:
     requested = tmp_path / "requested-repo"
     actual = tmp_path / "a-different-checkout"

@@ -14,7 +14,7 @@ from render_dispatch import render
 class RecoveryBoundary(unittest.TestCase):
     def setUp(self):
         self.workflow = yaml.safe_load(
-            (ROOT / ".github/workflows/eg-release-recovery.yml").read_text()
+            (ROOT / ".github/workflows/medulla-release-recovery.yml").read_text()
         )
         self.job = self.workflow["jobs"]["wheel"]
 
@@ -23,7 +23,7 @@ class RecoveryBoundary(unittest.TestCase):
             repository="Knuckles-Team/medulla",
             event_name="workflow_dispatch",
             ref="refs/heads/main",
-            workflow_ref="Knuckles-Team/medulla/.github/workflows/eg-release-recovery-dispatch.yml@refs/heads/main",
+            workflow_ref="Knuckles-Team/medulla/.github/workflows/medulla-release-recovery-dispatch.yml@refs/heads/main",
         )
         context.update(changes)
         expression = self.job["if"].replace("&&", " and ")
@@ -34,7 +34,7 @@ class RecoveryBoundary(unittest.TestCase):
     def test_manual_canonical_caller_only(self):
         self.assertTrue(self.admits())
         for change in (
-            {"repository": "attacker/epistemic-graph"},
+            {"repository": "attacker/medulla"},
             {"ref": "refs/tags/v2.27.0"},
             {"ref": "refs/heads/feature"},
             {
@@ -90,9 +90,9 @@ class RecoveryBoundary(unittest.TestCase):
             any("compare_wheel_reproducibility.py" in s.get("run", "") for s in steps)
         )
         self.assertTrue(
-            any("epistemic_graph.engine" in s.get("run", "") for s in steps)
+            any("medulla.engine" in s.get("run", "") for s in steps)
         )
-        self.assertEqual(self.job["runs-on"]["group"], "eg-release-recovery")
+        self.assertEqual(self.job["runs-on"]["group"], "medulla-release-recovery")
         for step in steps:
             use = step.get("uses", "")
             if use and not use.startswith("./"):
@@ -111,9 +111,9 @@ class RecoveryBoundary(unittest.TestCase):
 
     def test_active_caller_pins_reviewed_workflow(self):
         template = (
-            ROOT / "scripts/recovery/eg-release-recovery-dispatch.yml.in"
+            ROOT / "scripts/recovery/medulla-release-recovery-dispatch.yml.in"
         ).read_text()
-        caller = ROOT / ".github/workflows/eg-release-recovery-dispatch.yml"
+        caller = ROOT / ".github/workflows/medulla-release-recovery-dispatch.yml"
         sha = "4b232785086ae47791f1e58fe075c1ee74e6c877"
         self.assertEqual(caller.read_text(), render(sha, template))
         parsed = yaml.load(caller.read_text(), Loader=yaml.BaseLoader)
@@ -123,7 +123,7 @@ class RecoveryBoundary(unittest.TestCase):
 
     def test_caller_template_fails_closed_until_real_sha(self):
         template = (
-            ROOT / "scripts/recovery/eg-release-recovery-dispatch.yml.in"
+            ROOT / "scripts/recovery/medulla-release-recovery-dispatch.yml.in"
         ).read_text()
         for value in ("main", "v2.27.0", "0" * 40, "a" * 39, "a" * 40 + "\n"):
             with self.subTest(value=value), self.assertRaises(ValueError):

@@ -1,9 +1,9 @@
 """B1.7 multi-language client drivers — Python bindings
-(CONCEPT:EG-KG.ingest.broker-streams-namespaces).
+(CONCEPT:MEDULLA-KG.ingest.broker-streams-namespaces).
 
 Covers the thin Python surface added for the Program-B engine `Method`s that had no
-client binding: the native broker + append-log streams (EG-275..284/314), RBAC admin
-(EG-092), online backup/restore (EG-090), and NL->query (EG-080).
+client binding: the native broker + append-log streams (MEDULLA-275..284/314), RBAC admin
+(MEDULLA-092), online backup/restore (MEDULLA-090), and NL->query (MEDULLA-080).
 
 Two layers:
 
@@ -26,19 +26,19 @@ from typing import Any
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import (
+from medulla.client import (
     AdminClient,
     BrokerClient,
-    EpistemicGraphClient,
+    MedullaClient,
     QueryClient,
     RbacClient,
-    SyncEpistemicGraphClient,
+    SyncMedullaClient,
 )
 
 # ─────────────────────────── Wire-shape (fake client) ───────────────────────────
 
 
-class _FakeClient(EpistemicGraphClient):
+class _FakeClient(MedullaClient):
     """Records every ``(method, params, graph)`` and returns a canned per-method
     payload mimicking the engine's ``ResultPayload`` (Count/Bool/String/Raw/Json)."""
 
@@ -85,7 +85,7 @@ _CANNED: dict[str, Any] = {
 }
 
 
-@pytest.mark.spec("EG-FEDERATED-QUERY-R058.2.2.1")
+@pytest.mark.spec("MEDULLA-FEDERATED-QUERY-R058.2.2.1")
 @pytest.mark.asyncio
 async def test_nl_query_explain_wire_shape() -> None:
     fake = _FakeClient()
@@ -282,7 +282,7 @@ def live_client():
     while time.time() < deadline:
         if os.path.exists(socket_path):
             try:
-                client = SyncEpistemicGraphClient.connect(
+                client = SyncMedullaClient.connect(
                     socket_path=socket_path,
                     auth_secret=secret,
                     graph_name=_LIVE_GRAPH,

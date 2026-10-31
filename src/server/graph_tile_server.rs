@@ -1,7 +1,7 @@
 //! VIZ-2: the binary tile/streaming protocol for GRAPH payloads, feature
 //! `viz-graph-tiles`. Serves `clusters(graph, level, parent?)`/`expand(graph,
 //! cluster_id)` (the shared VIZ-1/VIZ-2/VIZ-3 contract, see
-//! `eg_viz_graph_tiles::contract`) over the SAME loopback-only, dependency-free
+//! `medulla_viz_graph_tiles::contract`) over the SAME loopback-only, dependency-free
 //! HTTP/1.1 listener `viz_interactive` already runs (implies `viz-interactive`
 //! — see the root `Cargo.toml`'s `viz-graph-tiles` feature comment), as three
 //! new routes:
@@ -15,7 +15,7 @@
 //!   level's [`ClusterLevel`] summary tile first, flushes it to the socket,
 //!   then computes and flushes an [`ClusterExpansion`] tile for each of the
 //!   `top_k` largest clusters (by `node_count`) in turn, and finally a
-//!   [`eg_viz_graph_tiles::TileKind::StreamEnd`] sentinel — using genuine HTTP
+//!   [`medulla_viz_graph_tiles::TileKind::StreamEnd`] sentinel — using genuine HTTP
 //!   chunked transfer encoding (`Transfer-Encoding: chunked`), so a client
 //!   reading the response body as a stream (`fetch()` + `ReadableStream`, or
 //!   any HTTP/1.1 client) can decode and render the first tile the moment its
@@ -29,11 +29,11 @@
 //! VIZ-1's real `GraphCore`-backed hierarchical clustering
 //! (`Method::ClusterHierarchyRefresh`/`server::graph_tile_source::RealClusterSource`)
 //! is now the DEFAULT source: `?graph=` names which cached tenant graph to
-//! serve (default `__commons__`, matching `EpistemicGraphClient.connect`'s own
+//! serve (default `__commons__`, matching `MedullaClient.connect`'s own
 //! default), and a route returns an honestly EMPTY tile — never an error page,
 //! matching this trait's infallible contract — when that graph has no cached
 //! hierarchy yet (call `ClusterHierarchyRefresh` first, e.g. via
-//! `epistemic-graph-service cluster refresh --graph <name>`). Passing `?demo=1`
+//! `medulla-service cluster refresh --graph <name>`). Passing `?demo=1`
 //! opts back into the original deterministic [`DemoGraph`] (query-param
 //! controlled [`DemoParams`]) for local dev/testing without a populated tenant —
 //! the SAME "engine-side generated, clearly labeled, capped" idiom
@@ -41,7 +41,7 @@
 //! production, now opt-in rather than the only option. The routes, the wire
 //! encoding, and the streaming behavior below are unchanged either way — only
 //! which `impl GraphSource` gets constructed changes, per the contract's own
-//! design (`eg_viz_graph_tiles::contract`'s module doc).
+//! design (`medulla_viz_graph_tiles::contract`'s module doc).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -50,8 +50,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::sync::RwLock;
 
-use eg_viz_graph_tiles::demo::{DemoGraph, DemoParams};
-use eg_viz_graph_tiles::{
+use medulla_viz_graph_tiles::demo::{DemoGraph, DemoParams};
+use medulla_viz_graph_tiles::{
     encode_cluster_expansion, encode_cluster_level, write_frame, write_stream_end, GraphSource,
 };
 
@@ -163,7 +163,7 @@ async fn end_chunked(stream: &mut TcpStream) {
 /// Resolve which [`GraphSource`] a request should be served from — see the
 /// module doc's "Data source" section. `?demo=1` opts into the original
 /// deterministic [`DemoGraph`]; otherwise `?graph=` (default `__commons__`,
-/// matching `EpistemicGraphClient.connect`'s own default) names a tenant
+/// matching `MedullaClient.connect`'s own default) names a tenant
 /// graph, and this resolves its LIVE `Arc<GraphCore>` plus its cached
 /// hierarchy (`Method::ClusterHierarchyRefresh`'s output) off the registry —
 /// every async step this function needs happens HERE, before any
@@ -360,12 +360,12 @@ mod tests {
         let mut over = HashMap::new();
         over.insert(
             "node_count".to_string(),
-            (eg_viz_graph_tiles::demo::MAX_DEMO_NODE_COUNT + 1).to_string(),
+            (medulla_viz_graph_tiles::demo::MAX_DEMO_NODE_COUNT + 1).to_string(),
         );
         let clamped = demo_params_from_query(&over);
         assert_eq!(
             clamped.node_count,
-            eg_viz_graph_tiles::demo::MAX_DEMO_NODE_COUNT
+            medulla_viz_graph_tiles::demo::MAX_DEMO_NODE_COUNT
         );
     }
 

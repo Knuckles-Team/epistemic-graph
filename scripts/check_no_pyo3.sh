@@ -2,7 +2,7 @@
 # Plan 01 CI gate, SCOPED to the SCALE-OUT (out-of-process) build: prove PyO3 is
 # fully excised from it — in SOURCE *and* in shipped BINARIES. A plain
 # `grep -rn pyo3` is insufficient because a stale compiled
-# `_epistemic_graph*.so` extension is a binary artifact that no source grep can
+# `_medulla*.so` extension is a binary artifact that no source grep can
 # see (Plan 01 review finding #1). This gate fails on either.
 #
 # Two deployment shapes now exist (AGENTS.md, "two deployment shapes, one
@@ -10,20 +10,20 @@
 #
 #   (a) Out-of-process (the horizontal-scale default, what THIS gate covers) —
 #       Python talks to the engine over a socket. No pyo3 anywhere: `src/`,
-#       `epistemic_graph/` (the pure-Python client package), and the top-level
+#       `medulla/` (the pure-Python client package), and the top-level
 #       `Cargo.toml`/`pyproject.toml` (the server is not a maturin target).
 #   (b) Unified single binary (opt-in, the self-contained shape) — the engine
-#       is embedded in-process via pyo3, in `crates/eg-pyengine` (its OWN
+#       is embedded in-process via pyo3, in `crates/medulla-pyengine` (its OWN
 #       Cargo.toml + pyproject.toml — a SEPARATE maturin target, exactly like
-#       `crates/eg-numeric`'s pre-existing pyo3 Surface-A kernel), reached ONLY
+#       `crates/medulla-numeric`'s pre-existing pyo3 Surface-A kernel), reached ONLY
 #       through the facade's `pyo3-engine` cargo feature. That feature is NOT
 #       in `default`/`full`/`cluster` — checks 4 and 5 below prove that
 #       mechanically, not just by convention.
 #
 # So this script is deliberately scoped to (a): it does NOT scan `crates/`
-# (where eg-numeric's and eg-pyengine's OWN pyo3 bindings legitimately live),
+# (where medulla-numeric's and medulla-pyengine's OWN pyo3 bindings legitimately live),
 # and it explicitly allow-lists the opt-in feature/dependency NAMES
-# (`pyo3-engine`, `eg-pyengine`) that the top-level Cargo.toml legitimately
+# (`pyo3-engine`, `medulla-pyengine`) that the top-level Cargo.toml legitimately
 # mentions to gate that path — neither name is an actual pyo3 crate reference.
 # Any OTHER pyo3/PyO3 mention in the scanned files still fails the gate, and
 # check 4 independently proves the default/full dependency GRAPH links no pyo3
@@ -41,8 +41,8 @@ fail=0
 hits="$(grep -rn --include='*.rs' --include='*.py' --include='*.toml' \
      -e 'pyo3' -e 'PyO3' -e '#\[pymethod' -e '#\[pyclass' \
      -e '#\[pymodule' -e 'allow_threads' \
-     src epistemic_graph Cargo.toml pyproject.toml 2>/dev/null \
-     | grep -v -e 'pyo3-engine' -e 'eg-pyengine' -e 'eg_pyengine' \
+     src medulla Cargo.toml pyproject.toml 2>/dev/null \
+     | grep -v -e 'pyo3-engine' -e 'medulla-pyengine' -e 'medulla_pyengine' \
                -e 'check_no_pyo3' -e 'pyo3_inprocess_vs_uds' || true)"
 if [[ -n "$hits" ]]; then
   echo "FAIL: PyO3 reference found in source/metadata above." >&2
@@ -52,28 +52,28 @@ fi
 
 # 2. No compiled PyO3 extension shipped in the package dir. Scoped to the
 #    filenames the pre-Plan-01 whole-package extension used
-#    (`_epistemic_graph*`/`epistemic_graph*.so`) — the two KNOWN, ALLOWED,
-#    opt-in native extensions (`epistemic_graph/numeric*.so`, the eg-numeric
-#    kernel; `epistemic_graph/engine*.so`, the eg-pyengine unified binding) are
+#    (`_medulla*`/`medulla*.so`) — the two KNOWN, ALLOWED,
+#    opt-in native extensions (`medulla/numeric*.so`, the medulla-numeric
+#    kernel; `medulla/engine*.so`, the medulla-pyengine unified binding) are
 #    module-named differently on purpose and are never produced by this
 #    (scale-out) build path anyway — only an explicit
-#    `maturin build -m crates/{eg-numeric,eg-pyengine}/Cargo.toml --features
+#    `maturin build -m crates/{medulla-numeric,medulla-pyengine}/Cargo.toml --features
 #    python` + injection step produces them, never `cargo build`/plain
 #    `maturin build` at the repo root.
-if compgen -G "epistemic_graph/_epistemic_graph*.so" > /dev/null \
-   || compgen -G "epistemic_graph/_epistemic_graph*.pyi" > /dev/null \
-   || compgen -G "epistemic_graph/epistemic_graph*.so" > /dev/null; then
-  echo "FAIL: compiled PyO3 extension / stub present in epistemic_graph/:" >&2
-  ls -1 epistemic_graph/_epistemic_graph* epistemic_graph/epistemic_graph*.so 2>/dev/null >&2 || true
+if compgen -G "medulla/_medulla*.so" > /dev/null \
+   || compgen -G "medulla/_medulla*.pyi" > /dev/null \
+   || compgen -G "medulla/medulla*.so" > /dev/null; then
+  echo "FAIL: compiled PyO3 extension / stub present in medulla/:" >&2
+  ls -1 medulla/_medulla* medulla/medulla*.so 2>/dev/null >&2 || true
   fail=1
 fi
 
-# 3. The public wheel is built from the eg-pyengine extension crate, never from the
+# 3. The public wheel is built from the medulla-pyengine extension crate, never from the
 #    server binary: no `bindings = "bin"`, and maturin's manifest-path is the
-#    extension crate (EG-CONTRACT-R053.8).
+#    extension crate (MEDULLA-CONTRACT-R053.8).
 if grep -q 'bindings *= *"bin"' pyproject.toml \
-   || ! grep -q 'manifest-path *= *"crates/eg-pyengine/Cargo.toml"' pyproject.toml; then
-  echo "FAIL: pyproject.toml [tool.maturin] must build crates/eg-pyengine, not a bin." >&2
+   || ! grep -q 'manifest-path *= *"crates/medulla-pyengine/Cargo.toml"' pyproject.toml; then
+  echo "FAIL: pyproject.toml [tool.maturin] must build crates/medulla-pyengine, not a bin." >&2
   fail=1
 fi
 
@@ -92,7 +92,7 @@ fi
 #    dependency's checkout directory, and a bare `grep -i pyo3` false-positives
 #    on any checkout path that happens to contain "pyo3" — e.g. exactly the
 #    worktree name this workstream itself uses
-#    (`repository-worktrees/epistemic-graph/wA-pyo3-engine`). Verified against
+#    (`repository-worktrees/medulla/wA-pyo3-engine`). Verified against
 #    both a default-feature tree (no match) and a `--features pyo3-engine`
 #    tree (matches `pyo3`/`pyo3-ffi`/`pyo3-macros`) while building this gate.
 pyo3_crate_pattern='(^|── )pyo3(-[a-z]+)? v[0-9]'

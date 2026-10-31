@@ -38,7 +38,7 @@ pub(super) fn stamp_resource_and_capacity_timestamps(method: &mut Method) {
     stamp_capacity_timestamp(method);
 }
 
-/// Cold-path lazy open (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3).
+/// Cold-path lazy open (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog, DIST-P2-3).
 /// Only a registry MISS escalates to a write lock. The graph may be
 /// catalog-known but not yet materialized (a lazy-startup boot scan, or a graph
 /// the bounded hot-context cache evicted back to catalog-only); `lazy_open` is a
@@ -51,7 +51,7 @@ pub(super) async fn lazy_open_graph(state: &Arc<RwLock<ServerState>>, graph_name
     crate::server::persistence::cold_offload::lazy_open(state, graph_name, cap, page_size).await;
 }
 
-/// Universal served-data authority (CONCEPT:EG-P0-4): derive the row actor from
+/// Universal served-data authority (CONCEPT:MEDULLA-P0-4): derive the row actor from
 /// the cryptographically verified RequestContext while the authoritative
 /// IsolationLayer is under the registry lock. Every graph read either consumes
 /// this authority's detached projection or an existing handler that receives the
@@ -75,7 +75,7 @@ pub(super) fn resolve_graph_read_authority(
     Ok((authority, tenant_scope))
 }
 
-/// Mutation-gateway authz context (CONCEPT:EG-P0-2): for a
+/// Mutation-gateway authz context (CONCEPT:MEDULLA-P0-2): for a
 /// `mutation::GATEWAY_ROUTED` method, `commit_mutation` re-derives its OWN authz
 /// decision from `(isolation, graph_type, owner)` rather than trusting the graph
 /// ACL check — captured before the registry lock drops, ONLY for the routed set
@@ -285,7 +285,7 @@ pub(super) async fn finalize_graph_op_response(
         core.mark_dirty();
     }
 
-    // W0.4 semantic-ANN activation (CONCEPT:EG-KG.storage.semantic-index-directory): a graph created, or
+    // W0.4 semantic-ANN activation (CONCEPT:MEDULLA-KG.storage.semantic-index-directory): a graph created, or
     // one whose embedding count crosses `ANN_BUILD_THRESHOLD`, AFTER the boot-time
     // warm task's one-shot snapshot never gets a trigger from it otherwise. Every
     // write that adds embeddings (`AddEmbedding`, and every mining/graph-learning

@@ -1,10 +1,10 @@
-//! SQLite `.db` FILE import/export handler (CONCEPT:EG-KG.query.eg-feature / CONCEPT:EG-KG.query.full-protocol) — the
-//! documented EG-075 follow-up: reading/writing a real on-disk `sqlite3` `.db` FILE,
+//! SQLite `.db` FILE import/export handler (CONCEPT:MEDULLA-KG.query.medulla-feature / CONCEPT:MEDULLA-KG.query.full-protocol) — the
+//! documented MEDULLA-075 follow-up: reading/writing a real on-disk `sqlite3` `.db` FILE,
 //! distinct from the `sqlite-wire` NDJSON dialect surface (which speaks SQLite SQL over
 //! a socket but never touches a `.db` file).
 //!
 //! ## Pure-Rust, no C sqlite
-//! Both halves go through `eg-sqlite-format`, a from-scratch SQLite page-format reader +
+//! Both halves go through `medulla-sqlite-format`, a from-scratch SQLite page-format reader +
 //! bulk-load writer (no rusqlite, no libsqlite3-sys, no C toolchain). The export half
 //! produces a `.db` a stock `sqlite3` CLI can open — a spec-correct b-tree page file whose
 //! output passes a real `sqlite3 PRAGMA integrity_check` (see the differential test below).
@@ -12,7 +12,7 @@
 //!
 //! ## What moves
 //! Rows flow between the `.db` file and the caller's owner-scoped user-table store
-//! (`eg_query::TableStore`, behind `query`) — the SAME durable store the `Method::Sql`
+//! (`medulla_query::TableStore`, behind `query`) — the SAME durable store the `Method::Sql`
 //! DDL/DML path and the pgwire shim write, so a table imported here is immediately
 //! visible to `SELECT … FROM <table>` over every SQL surface. Both ops are BATCH — ONE
 //! engine round-trip reads/writes the whole file (import: one `insert_rows` per table;
@@ -20,31 +20,31 @@
 //!
 //! ## Type mapping (dynamic ↔ typed)
 //! SQLite is dynamically typed; the engine store is statically typed. On IMPORT each
-//! column's declared type is mapped by SQLite affinity to an `eg_query::ColumnType`
+//! column's declared type is mapped by SQLite affinity to an `medulla_query::ColumnType`
 //! (INTEGER→BigInt, REAL→Double, TEXT→Text, BLOB/none→Bytes, numeric→Double) and every
 //! column is imported NULLABLE + non-PK so exact stored values pass through the store's
 //! coercion unchanged (constraints are not mirrored — VALUES are). On EXPORT the inverse
 //! map picks a SQLite declared type per column so a re-import round-trips.
 
-use eg_query::{Cell, Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
-use eg_sqlite_format::{ColumnDef as SqliteColumnDef, Reader, Value as SqliteValue, Writer};
+use medulla_query::{Cell, Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
+use medulla_sqlite_format::{ColumnDef as SqliteColumnDef, Reader, Value as SqliteValue, Writer};
 use serde_json::Value as JsonValue;
 use std::path::{Path, PathBuf};
 
 use crate::mutation_batch::{DurabilityDomain, MutationBatch, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
-use eg_types::contract::Nonce;
-use eg_types::result_contract::storage as results;
-use eg_types::storage_wire::{
+use medulla_types::contract::Nonce;
+use medulla_types::result_contract::storage as results;
+use medulla_types::storage_wire::{
     SqliteExportDestination, SqliteExportReport, SqliteImportReport, SqliteImportSource,
     SqliteTableRows,
 };
 
 mod transfer_fs;
 
-const SQLITE_MAX_BYTES_ENV: &str = "EPISTEMIC_GRAPH_SQLITE_MAX_BYTES";
-const SQLITE_MAX_ROWS_ENV: &str = "EPISTEMIC_GRAPH_SQLITE_MAX_ROWS";
+const SQLITE_MAX_BYTES_ENV: &str = "MEDULLA_SQLITE_MAX_BYTES";
+const SQLITE_MAX_ROWS_ENV: &str = "MEDULLA_SQLITE_MAX_ROWS";
 const DEFAULT_SQLITE_MAX_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_CONFIGURED_SQLITE_BYTES: u64 = 16 * 1024 * 1024 * 1024;
 const DEFAULT_SQLITE_MAX_ROWS: u64 = 1_000_000;
@@ -89,7 +89,7 @@ fn sqlite_limits() -> Result<(u64, u64), String> {
 
 /// The configured served-engine persistence directory, or the SAME error
 /// `sql_tables::user_table_store`/`tenant_table_store` themselves report when it
-/// is unset (CONCEPT:NE-046 — EG-WIRE-CATALOG).
+/// is unset (CONCEPT:NE-046 — MEDULLA-WIRE-CATALOG).
 async fn tenant_persist_dir(
     state: &std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>,
 ) -> Result<PathBuf, String> {
@@ -109,7 +109,7 @@ async fn tenant_persist_dir(
 /// blocking pool so the reactor is never stalled. `Err(method)` for a method
 /// that isn't ours (unreachable — dispatch only routes the two variants here).
 ///
-/// CONCEPT:NE-046 (EG-WIRE-CATALOG) — both methods are gated `require_admin`
+/// CONCEPT:NE-046 (MEDULLA-WIRE-CATALOG) — both methods are gated `require_admin`
 /// above, and `sql_catalog_acl::authorize` already treats an admin carrier as an
 /// unconditional bypass (ownership/grants AND the row-level predicate — an admin
 /// import/export is a bulk backup/restore tool, not a scoped query, so it is
@@ -301,14 +301,14 @@ fn export_sqlite_lifecycle(
 }
 
 fn decode_committed_import_report(
-    committed: &eg_types::mutation_batch::MutationBatchCommit,
+    committed: &medulla_types::mutation_batch::MutationBatchCommit,
 ) -> Result<SqliteImportReport, String> {
     let bytes = committed
         .record
         .result_msgpack
         .as_deref()
         .ok_or_else(|| "committed SQLite import batch has no result".to_string())?;
-    let report: SqliteImportReport = eg_types::msgpack::decode_property_value(bytes)
+    let report: SqliteImportReport = medulla_types::msgpack::decode_property_value(bytes)
         .ok()
         .and_then(|value| serde_json::from_value(value).ok())
         .ok_or_else(|| "committed SQLite import batch has an invalid result".to_string())?;
@@ -389,7 +389,7 @@ fn validated_import_tables(report: &SqliteImportReport) -> Result<Vec<&str>, Str
     Ok(names)
 }
 
-// ── Import (CONCEPT:EG-KG.query.eg-feature) ───────────────────────────────────────────────────
+// ── Import (CONCEPT:MEDULLA-KG.query.medulla-feature) ───────────────────────────────────────────────────
 
 fn prepare_sqlite_import(reader: &Reader) -> Result<(TableTxn, SqliteImportReport), String> {
     let tables = list_user_tables(reader)?;
@@ -588,7 +588,7 @@ fn sqlite_value_to_json(v: SqliteValue, ty: ColumnType) -> Result<JsonValue, Str
     }
 }
 
-// ── Export (CONCEPT:EG-KG.query.full-protocol) ───────────────────────────────────────────────────
+// ── Export (CONCEPT:MEDULLA-KG.query.full-protocol) ───────────────────────────────────────────────────
 
 /// Write the selected user tables OUT to a FRESH, valid transfer-root `sqlite3` `.db`
 /// (the `sqlite3` CLI can open it). `tables` empty ⇒ every user table; else exactly the
@@ -745,7 +745,7 @@ fn export_rows(
         .map_err(|e| format!("export insert rows: {e}"))
 }
 
-/// Convert a stored [`Cell`] to an `eg-sqlite-format` value for export.
+/// Convert a stored [`Cell`] to an `medulla-sqlite-format` value for export.
 fn cell_to_sqlite_value(cell: &Cell) -> SqliteValue {
     match cell {
         Cell::Null => SqliteValue::Null,
@@ -770,7 +770,7 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, Barrier};
 
-    use eg_query::tables::schema::ArrayElemType;
+    use medulla_query::tables::schema::ArrayElemType;
 
     use super::*;
     use crate::test_rendezvous::meet;
@@ -818,7 +818,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let pid = std::process::id();
-        let dir = std::env::temp_dir().join(format!("eg_sqlite_roundtrip_{pid}_{nanos}"));
+        let dir = std::env::temp_dir().join(format!("medulla_sqlite_roundtrip_{pid}_{nanos}"));
         rustix::fs::mkdir(&dir, rustix::fs::Mode::from_raw_mode(0o700)).unwrap();
         (
             dir.clone(),
@@ -827,16 +827,16 @@ mod tests {
         )
     }
 
-    /// The real `sqlite3` CLI the round-trip test diffs against: `$EG_SQLITE3`, else
+    /// The real `sqlite3` CLI the round-trip test diffs against: `$MEDULLA_SQLITE3`, else
     /// `sqlite3` on `$PATH`. Panics with how to provide it when neither runs.
     fn sqlite3_bin() -> std::ffi::OsString {
-        let bin = std::env::var_os("EG_SQLITE3").unwrap_or_else(|| "sqlite3".into());
+        let bin = std::env::var_os("MEDULLA_SQLITE3").unwrap_or_else(|| "sqlite3".into());
         match std::process::Command::new(&bin).arg("--version").output() {
             Ok(out) if out.status.success() => bin,
             other => panic!(
                 "the sqlite `.db` round-trip test needs the real sqlite3 CLI, but {bin:?} is \
                  not runnable ({other:?}). Install sqlite3 on PATH, or run \
-                 `export EG_SQLITE3=\"$(scripts/fetch_sqlite3.sh)\"` from the repository root."
+                 `export MEDULLA_SQLITE3=\"$(scripts/fetch_sqlite3.sh)\"` from the repository root."
             ),
         }
     }
@@ -856,14 +856,14 @@ mod tests {
         String::from_utf8_lossy(&out.stdout).into_owned()
     }
 
-    /// CONCEPT:EG-KG.query.eg-feature / CONCEPT:EG-KG.query.full-protocol — the full `.db`
+    /// CONCEPT:MEDULLA-KG.query.medulla-feature / CONCEPT:MEDULLA-KG.query.full-protocol — the full `.db`
     /// file round-trip, now fully pure-Rust on the engine side and DIFFERENTIALLY verified
     /// against the real `sqlite3` CLI: author a source `.db` with `sqlite3`, IMPORT it
     /// (pure-Rust `Reader`) into an isolated engine store, EXPORT that store back out
     /// (pure-Rust `Writer`), then prove the export with `sqlite3`: `PRAGMA integrity_check`
     /// must be `ok`, and the `.schema`/`SELECT` output must match — including a NULL, a
     /// BLOB, an overflow-forcing large TEXT, and a multi-leaf/interior b-tree. Never skips:
-    /// it FAILS when neither `$EG_SQLITE3` nor `sqlite3` on `$PATH` runs (see
+    /// it FAILS when neither `$MEDULLA_SQLITE3` nor `sqlite3` on `$PATH` runs (see
     /// `scripts/fetch_sqlite3.sh`).
     #[cfg(target_os = "linux")]
     #[test]
@@ -1056,7 +1056,7 @@ mod tests {
     #[test]
     fn export_fails_source_authority_before_opening_store_or_destination() {
         let _env_lock = crate::crypto::acquire_test_env_lock_blocking();
-        let key = "EPISTEMIC_GRAPH_RAFT_NODE_ID";
+        let key = "MEDULLA_RAFT_NODE_ID";
         let _env_restore = EnvVarRestore::set(key, "sqlite-export-order-test");
         let error = export_sqlite_lifecycle(
             &authority("sqlite-exporter", "sqlite-export-order"),
@@ -1079,7 +1079,7 @@ mod tests {
         std::fs::set_permissions(transfer_root.path(), std::fs::Permissions::from_mode(0o700))
             .unwrap();
         let _env_restore = EnvVarRestore::set(
-            "EPISTEMIC_GRAPH_SQLITE_TRANSFER_ROOT",
+            "MEDULLA_SQLITE_TRANSFER_ROOT",
             transfer_root.path().to_str().unwrap(),
         );
         let persist_dir = crate::server::sql_tables::test_persist_dir();

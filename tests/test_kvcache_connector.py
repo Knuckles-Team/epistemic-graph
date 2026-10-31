@@ -1,7 +1,7 @@
-"""Unit tests for the EG-187 Python KV-cache driver
-(CONCEPT:EG-KG.backend.shipped-pip-installable-python).
+"""Unit tests for the MEDULLA-187 Python KV-cache driver
+(CONCEPT:MEDULLA-KG.backend.shipped-pip-installable-python).
 
-Runs a tiny in-process HTTP server implementing the EG-187 ``/kv`` surface
+Runs a tiny in-process HTTP server implementing the MEDULLA-187 ``/kv`` surface
 (``GET|PUT|HEAD /kv/<hash>``, ``GET /kv/<hash>/exists``, ``GET /kv/stats``) with
 mandatory bearer-token enforcement, and exercises the driver end-to-end over a
 real socket — no mocking of the HTTP layer, no third-party test deps.
@@ -21,7 +21,7 @@ from urllib.parse import unquote, urlsplit
 
 import pytest
 
-from epistemic_graph.kvcache import (
+from medulla.kvcache import (
     HTTPX_AVAILABLE,
     HttpxTransport,
     KvCacheConfig,
@@ -33,7 +33,7 @@ from epistemic_graph.kvcache import (
 
 # This module runs its own throwaway in-process HTTP server (see the module
 # docstring) -- it never talks to the shared native graph engine, so it never
-# needs conftest.py's session-scoped `start_epistemic_graph_server` fixture.
+# needs conftest.py's session-scoped `start_medulla_server` fixture.
 # Marker replaces the docstring's old `--noconftest` standalone-run workaround.
 pytestmark = pytest.mark.no_engine
 
@@ -255,26 +255,26 @@ def test_graceful_degradation_when_engine_down():
 
 
 # --------------------------------------------------------------------------- #
-# Config from environment (EG-187 vars)
+# Config from environment (MEDULLA-187 vars)
 # --------------------------------------------------------------------------- #
 def test_config_from_env(monkeypatch):
-    monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_ADDR", "10.0.0.5:9130")
-    monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_TOKEN", "tok")
-    monkeypatch.delenv("EPISTEMIC_GRAPH_KVCACHE_URL", raising=False)
+    monkeypatch.setenv("MEDULLA_KVCACHE_ADDR", "10.0.0.5:9130")
+    monkeypatch.setenv("MEDULLA_KVCACHE_TOKEN", "tok")
+    monkeypatch.delenv("MEDULLA_KVCACHE_URL", raising=False)
     cfg = KvCacheConfig.from_env()
     assert cfg.base_url == "https://10.0.0.5:9130"
     assert cfg.token == "tok"
 
 
 def test_config_from_env_bare_port(monkeypatch):
-    monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_TOKEN", _TEST_TOKEN)
-    monkeypatch.delenv("EPISTEMIC_GRAPH_KVCACHE_URL", raising=False)
-    monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_ADDR", "9200")
+    monkeypatch.setenv("MEDULLA_KVCACHE_TOKEN", _TEST_TOKEN)
+    monkeypatch.delenv("MEDULLA_KVCACHE_URL", raising=False)
+    monkeypatch.setenv("MEDULLA_KVCACHE_ADDR", "9200")
     assert KvCacheConfig.from_env().base_url == "http://127.0.0.1:9200"
 
 
 def test_tls_profile_uses_standard_ca_bundle_environment(monkeypatch):
-    monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_TOKEN", _TEST_TOKEN)
+    monkeypatch.setenv("MEDULLA_KVCACHE_TOKEN", _TEST_TOKEN)
     monkeypatch.delenv("SSL_CERT_FILE", raising=False)
     monkeypatch.setenv("REQUESTS_CA_BUNDLE", "runtime-ca-bundle.pem")
     config = KvCacheConfig.from_env()
@@ -287,7 +287,7 @@ def test_mtls_identity_must_be_a_pair():
 
 
 def test_bearer_or_jwt_token_is_mandatory(monkeypatch):
-    monkeypatch.delenv("EPISTEMIC_GRAPH_KVCACHE_TOKEN", raising=False)
+    monkeypatch.delenv("MEDULLA_KVCACHE_TOKEN", raising=False)
     with pytest.raises(ValueError, match="token must be configured"):
         KvCacheConfig.from_env()
     with pytest.raises(ValueError, match="token must be configured"):
@@ -397,7 +397,7 @@ def test_l2_injected_connector(kv_server):
 
 # --------------------------------------------------------------------------- #
 # Fleet-shared prefix reuse — two vLLM instances share blocks THROUGH one engine
-# (W4.9 / CONCEPT:EG-KG.backend.networked-shared-kv). A shared in-memory engine
+# (W4.9 / CONCEPT:MEDULLA-KG.backend.networked-shared-kv). A shared in-memory engine
 # behind a dependency-injected transport models "N instances, one engine".
 # --------------------------------------------------------------------------- #
 class _Resp:

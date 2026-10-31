@@ -1,4 +1,4 @@
-"""EG-T-12.1 to EG-T-12.3: the R052 architecture map in plan.md matches source."""
+"""MEDULLA-T-12.1 to MEDULLA-T-12.3: the R052 architecture map in plan.md matches source."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def _workspace_packages() -> set[str]:
 
 
 @pytest.mark.no_engine
-@pytest.mark.spec("EG-CONTRACT-R052.1")
+@pytest.mark.spec("MEDULLA-CONTRACT-R052.1")
 def test_module_inventory_matches_workspace_manifests() -> None:
     section = _section("#### Model: module owners and dependencies")
     table_rows = [
@@ -65,15 +65,15 @@ def test_module_inventory_matches_workspace_manifests() -> None:
             name for name in manifest.get("dependencies", {}) if name.startswith("eg-")
         }
 
-    assert deps("eg-types") == set()
-    assert "eg-types" in deps("eg-modality")
-    assert "eg-types" in deps("eg-capabilities")
-    assert "eg-types" in deps("eg-storage")
-    assert {"eg-types", "eg-storage"} <= deps("eg-transaction")
+    assert deps("medulla-types") == set()
+    assert "medulla-types" in deps("medulla-modality")
+    assert "medulla-types" in deps("medulla-capabilities")
+    assert "medulla-types" in deps("medulla-storage")
+    assert {"medulla-types", "medulla-storage"} <= deps("medulla-transaction")
 
 
 @pytest.mark.no_engine
-@pytest.mark.spec("EG-CONTRACT-R052.2")
+@pytest.mark.spec("MEDULLA-CONTRACT-R052.2")
 def test_build_package_and_runtime_boundaries_match_source() -> None:
     section = _section("#### Behavior: builds, packages, and deployments")
     features = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))[
@@ -93,17 +93,17 @@ def test_build_package_and_runtime_boundaries_match_source() -> None:
     assert "`full = []` and `numeric = []`" in section
 
     maturin = pyproject["tool"]["maturin"]
-    assert maturin["manifest-path"] == "crates/eg-pyengine/Cargo.toml"
+    assert maturin["manifest-path"] == "crates/medulla-pyengine/Cargo.toml"
     assert set(maturin["features"]) == {"python", "security"}
     action = (ROOT / ".github/actions/folded-wheel/action.yml").read_text(
         encoding="utf-8"
     )
-    assert "crates/eg-numeric/Cargo.toml" in action
+    assert "crates/medulla-numeric/Cargo.toml" in action
     assert "--features python" in action
     assert "--require-engine-kernel" in action
     assert "no server crate" in action
-    assert "`eg-pyengine/python,security`" in section
-    assert "`eg-numeric/python`" in section
+    assert "`medulla-pyengine/python,security`" in section
+    assert "`medulla-numeric/python`" in section
     assert "compiles no server crate" in section
 
     backend = (ROOT / "build_backend.py").read_text(encoding="utf-8")
@@ -117,7 +117,7 @@ ANCHOR = re.compile(
 
 
 @pytest.mark.no_engine
-@pytest.mark.spec("EG-CONTRACT-R052.3")
+@pytest.mark.spec("MEDULLA-CONTRACT-R052.3")
 def test_shared_contract_anchors_resolve_to_source() -> None:
     section = _section("#### Wiring: shared contracts and call sites")
     anchors = [
@@ -131,15 +131,15 @@ def test_shared_contract_anchors_resolve_to_source() -> None:
         assert symbol in lines[line - 1], f"{path}:{line} names {symbol}"
 
     symbols = {
-        "crates/eg-capabilities/src/lib.rs": "pub fn policy(",
-        "crates/eg-transaction/src/kernel.rs": "pub struct MutationKernel",
+        "crates/medulla-capabilities/src/lib.rs": "pub fn policy(",
+        "crates/medulla-transaction/src/kernel.rs": "pub struct MutationKernel",
     }
     for path, needle in symbols.items():
         assert needle in (ROOT / path).read_text(encoding="utf-8"), path
-    modality = (ROOT / "crates/eg-modality/src/lib.rs").read_text(encoding="utf-8")
+    modality = (ROOT / "crates/medulla-modality/src/lib.rs").read_text(encoding="utf-8")
     for exported in ("OpaqueRef", "ArtifactBundle", "EvidenceLocus", "Provenance"):
         assert re.search(rf"pub use [^;]*\b{exported}\b", modality, re.S), exported
-    assert "KnowledgeSet" in (ROOT / "crates/eg-plan/src/lib.rs").read_text(
+    assert "KnowledgeSet" in (ROOT / "crates/medulla-plan/src/lib.rs").read_text(
         encoding="utf-8"
     )
     # The map adds no second authority and makes no universal-planner claim.

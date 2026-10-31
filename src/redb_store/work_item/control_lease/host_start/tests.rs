@@ -1,15 +1,15 @@
 use super::*;
 use crate::redb_store::work_item::test_shard::{open, with_nodes, GRAPH};
-use eg_types::host_start::HostStartInterfaces;
+use medulla_types::host_start::HostStartInterfaces;
 
 fn request() -> IssueHostStartGrantRequest {
-    let mut request = eg_types::test_support::host_start::host_start_request("tenant-a");
+    let mut request = medulla_types::test_support::host_start::host_start_request("tenant-a");
     request.binding.interfaces = HostStartInterfaces::Terminal;
     request.binding.policy_revision = "revision-1".into();
     request
 }
 
-// spec: EG-DURABLE-KERNEL-R030.1.2
+// spec: MEDULLA-DURABLE-KERNEL-R030.1.2
 #[test]
 fn native_writer_requires_issuer_and_stamps_immutable_top_level_provenance() {
     let temp = open("host-start-native");
@@ -56,7 +56,7 @@ fn native_writer_requires_issuer_and_stamps_immutable_top_level_provenance() {
 
 #[test]
 fn generic_transition_can_revoke_but_cannot_consume_host_grants() {
-    use eg_types::control_lease::{
+    use medulla_types::control_lease::{
         ControlLeaseStatus, ControlLeaseTarget, TransitionControlLeaseRequest,
     };
     let temp = open("host-start-transitions");

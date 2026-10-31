@@ -1,6 +1,6 @@
-"""CLI entry point for EG-CONTRACT-R008.2: validate the resolved checkout.
+"""CLI entry point for MEDULLA-CONTRACT-R008.2: validate the resolved checkout.
 
-Wraps the typed contract in ``scripts/repo_root_parity.py`` (EG-CONTRACT-R008.1)
+Wraps the typed contract in ``scripts/repo_root_parity.py`` (MEDULLA-CONTRACT-R008.1)
 behind a small CLI: given a repository root argument, resolve it and the actual
 checkout directory this script is running from, and fail closed (non-zero exit,
 no traceback) if they diverge instead of silently comparing against an

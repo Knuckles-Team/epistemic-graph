@@ -54,7 +54,7 @@ def test_registry_is_unique_complete_and_domain_ordered() -> None:
     )
 
 
-# spec: EG-DURABLE-KERNEL-R066
+# spec: MEDULLA-DURABLE-KERNEL-R066
 
 
 def test_duplicate_domain_declaration_fails_closed() -> None:
@@ -138,17 +138,17 @@ def test_domain_registry_reordering_fails_closed() -> None:
 
 
 def test_no_retired_flat_policy_surface_exists() -> None:
-    capability_source = (ROOT / "crates/eg-capabilities/src/lib.rs").read_text(
+    capability_source = (ROOT / "crates/medulla-capabilities/src/lib.rs").read_text(
         encoding="utf-8"
     )
-    registry_source = (ROOT / "crates/eg-capabilities/src/domains/mod.rs").read_text(
+    registry_source = (ROOT / "crates/medulla-capabilities/src/domains/mod.rs").read_text(
         encoding="utf-8"
     )
     scanner_source = (ROOT / "scripts/method_policy_inventory.py").read_text(
         encoding="utf-8"
     )
 
-    assert not (ROOT / "crates/eg-capabilities/src/dispatch.rs").exists()
+    assert not (ROOT / "crates/medulla-capabilities/src/dispatch.rs").exists()
     assert "ALL_METHODS" not in capability_source
     assert "historical" not in capability_source.lower()
     assert "compatib" not in capability_source.lower()

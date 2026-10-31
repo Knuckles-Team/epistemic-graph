@@ -1,0 +1,26 @@
+# Surface (Python) wheel build for the medulla-pyengine in-process binding. Builds the
+# pyo3 extension `medulla.engine` (feature `python`). This is a SEPARATE
+# maturin target from the main medulla wheel (which is `bindings="bin"` —
+# the server binary, no pyo3), mirroring crates/medulla-numeric/pyproject.toml exactly.
+# In a shipped unified build the CI wheel build folds this module into the
+# `medulla` package (see docs/architecture/unified-inprocess-engine.md);
+# here it builds standalone for local proving / smoke tests.
+#
+#   maturin build --release -m crates/medulla-pyengine/Cargo.toml --features python,security
+#
+[build-system]
+requires = ["maturin>=1.15.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "medulla-pyengine"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "medulla in-process engine binding — pyo3 extension medulla.engine (unified-binary program, workstream W-A)"
+
+[tool.maturin]
+# The #[pymodule] is `engine`; ship it inside the `medulla` package so it
+# imports as `medulla.engine`, exactly the way medulla-numeric's `numeric`
+# #[pymodule] ships as `medulla.numeric`.
+module-name = "medulla.engine"
+features = ["python", "security"]

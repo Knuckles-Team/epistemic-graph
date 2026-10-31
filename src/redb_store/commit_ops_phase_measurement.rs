@@ -59,7 +59,7 @@ fn report_series(
 #[test]
 #[ignore = "EH-290 measurement: prints a timing report, not a correctness assertion"]
 fn eh_290_commit_ops_phase_decomposition() {
-    let path = crate::redb_store::temp_path("eg-commit-ops-phase", "decompose");
+    let path = crate::redb_store::temp_path("medulla-commit-ops-phase", "decompose");
     let shard = Shard::open(&path).expect("open measurement shard");
 
     const ITERATIONS: usize = 60;
@@ -106,7 +106,7 @@ fn eh_290_commit_ops_phase_decomposition() {
     ] {
         match report_series(
             &rendered,
-            "epistemic_graph_commit_ops_phase_seconds",
+            "medulla_commit_ops_phase_seconds",
             "phase",
             phase,
         ) {
@@ -122,7 +122,7 @@ fn eh_290_commit_ops_phase_decomposition() {
     }
     for kind in ["logical", "physical_delta"] {
         if let Some((sum, count)) =
-            report_series(&rendered, "epistemic_graph_commit_ops_bytes", "kind", kind)
+            report_series(&rendered, "medulla_commit_ops_bytes", "kind", kind)
         {
             eprintln!("  bytes kind={kind:<15} count={count} sum={sum:.0}");
         }

@@ -1,9 +1,9 @@
 #![cfg(feature = "server")]
-use epistemic_graph::protocol::Request;
+use medulla::protocol::Request;
 #[test]
 fn test_parse() {
     // `agent_id` is a REQUIRED-present (possibly-null) field on the wire `Request`
-    // envelope (`deserialize_required_option`, CONCEPT:EG-KG.security.signed-request-envelope):
+    // envelope (`deserialize_required_option`, CONCEPT:MEDULLA-KG.security.signed-request-envelope):
     // unlike an ordinary `Option<T>`, serde does not default it to `None` when the key
     // is simply absent from the map, so a fixture minted before that field existed must
     // now explicitly carry `agent_id: nil`. This message is a 6-entry fixmap (`\x86`)
