@@ -10,7 +10,7 @@ name: CI
 # changed files, the spec-trailer check, and cargo clippy + nextest on the
 # affected crates only (scripts/ci_affected_crates.py: owning packages of the
 # changed files plus their reverse dependencies). A documentation- or
-# specs-only diff runs no cargo. `CI required` (the branch-protection context)
+# specs-only diff runs no cargo and only the shared spec gate set. `CI required` (the branch-protection context)
 # needs only that job on a pull request. Every other gate runs on main pushes,
 # the nightly schedule and manual dispatch. Optional feature-combination
 # builds and benchmarks run on manual dispatch only. GitHub Pages deploys in
@@ -1418,6 +1418,13 @@ jobs:
           git diff --name-only "$BASE...$HEAD" > "$RUNNER_TEMP/changed.txt"
           cat "$RUNNER_TEMP/changed.txt"
           python3 scripts/ci_change_scope.py --event pull_request --base "$BASE" --head "$HEAD" | grep '^code=' | tee -a "$GITHUB_OUTPUT"
+      # The shared fleet classifier (pipelines change-scope): a spec or docs only
+      # diff runs only the spec gate set; every other hook id goes to SKIP.
+      - name: Classify the change (shared gate-to-class map)
+        id: gates-scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook change-scope --base-ref "$BASE" --config .config/pre-commit.yaml
       - name: Install uv, pre-commit and the hooks' one third-party import
         run: uv pip install --python "$(command -v python)" pre-commit==4.6.2 pyyaml==6.0.3
       - name: Check out meristem gate scripts
@@ -1456,7 +1463,16 @@ jobs:
           con.commit()
           PY
 
-      - *medulla-gates-toolchain
+      - name: Rust toolchain
+        if: steps.gates-scope.outputs.scope != 'spec'
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - name: Report gates not applicable to this change
+        if: steps.gates-scope.outputs.scope == 'spec'
+        run: |
+          echo "cargo build, clippy and nextest: not applicable: spec/docs-only change"
+          echo "skipped hooks: ${{ steps.gates-scope.outputs.skip-hooks }}"
       - name: Install pre-commit environments
         id: hook-install
         run: |
@@ -1478,16 +1494,16 @@ jobs:
           key: pre-commit-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.config/pre-commit.yaml') }}-${{ steps.hook-rev.outputs.sha }}-partial-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Lint the changed files (pre-commit)
         env:
-          SKIP: lane-guard,cargo-deny-advisories
+          SCOPE_SKIP: ${{ steps.gates-scope.outputs.skip-hooks }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-        run: pre-commit run --config .config/pre-commit.yaml --from-ref "$BASE" --to-ref "$HEAD" --show-diff-on-failure
+        run: SKIP="lane-guard,cargo-deny-advisories${SCOPE_SKIP:+,$SCOPE_SKIP}" pre-commit run --config .config/pre-commit.yaml --from-ref "$BASE" --to-ref "$HEAD" --show-diff-on-failure
       - name: Spec trailers
         if: ${{ !cancelled() }}
         run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-trailers --base-ref "origin/${{ github.base_ref }}"
       - name: Select the affected crates
         id: crates
-        if: steps.scope.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true' && steps.gates-scope.outputs.scope != 'spec'
         run: |
           set -euo pipefail
           cargo metadata --format-version 1 --no-deps --locked > "$RUNNER_TEMP/cargo-metadata.json"

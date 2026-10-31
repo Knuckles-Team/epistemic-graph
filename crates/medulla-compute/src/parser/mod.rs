@@ -6,6 +6,9 @@
 #[cfg(feature = "ast")]
 pub mod tree_sitter;
 
+// MEDULLA-SDLC-R014.1 — deterministic spec-artifact parser; no feature gate.
+pub mod spec_artifacts;
+
 // CONCEPT:MEDULLA-KG.compute.turn-each-project — cross-file call/import resolution over a parsed batch.
 #[cfg(feature = "ast")]
 pub mod resolve;

@@ -14,7 +14,7 @@ Tool-neutral rules for any AI agent or human working in this repository. This bl
 
 ## Spec-driven development
 
-Every feature starts with a spec, in this order. Read `.specify/memory/constitution.md` first. It inherits the [organization constitution](https://github.com/Knuckles-Team/pipelines/blob/main/.specify/memory/constitution.md). Route the feature with the [ecosystem boundaries](https://github.com/Knuckles-Team/pipelines/blob/main/reference/ecosystem-boundaries.md) and file each part in its owner's `specs/`. Load the `medulla-development` skill, which runs the flow. Rules: [spec standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/spec-standard.md); templates: pipelines `specs/_template/`.
+Every feature starts with a spec, in this order. Read `.specify/memory/constitution.md` first. It inherits the [organization constitution](https://github.com/Knuckles-Team/pipelines/blob/main/.specify/memory/constitution.md). Route the feature with the [ecosystem boundaries](https://github.com/Knuckles-Team/pipelines/blob/main/reference/ecosystem-boundaries.md) and file each part in its owner's `specs/`. Load the `medulla-development` skill, which runs the flow. Rules: [spec standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/spec-standard.md); templates: `.specify/templates/`, vended by pipelines.
 
 | Step | Skill | Writes | Checked by |
 |---|---|---|---|

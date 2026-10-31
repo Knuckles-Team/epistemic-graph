@@ -1612,12 +1612,12 @@
     skos:inScheme <http://knuckles.team/kg/scheme/AU> ;
     skos:prefLabel "cache lives as 248" .
 
-<http://knuckles.team/kg/concept/AU/KG/backend/company-brain-write-guard> a :GovernedConcept ;
-    :conceptId "AU-KG.backend.company-brain-write-guard" ;
+<http://knuckles.team/kg/concept/AU/KG/backend/concurrent-write-guard> a :GovernedConcept ;
+    :conceptId "AU-KG.backend.concurrent-write-guard" ;
     :partOf <http://knuckles.team/kg/concept/AU/KG/backend> ;
     skos:broader <http://knuckles.team/kg/concept/AU/KG/backend> ;
     skos:inScheme <http://knuckles.team/kg/scheme/AU> ;
-    skos:prefLabel "company brain write guard" .
+    skos:prefLabel "concurrent write guard" .
 
 <http://knuckles.team/kg/concept/AU/KG/backend/concept-2> a :GovernedConcept ;
     :conceptId "AU-KG.backend.concept-2" ;
