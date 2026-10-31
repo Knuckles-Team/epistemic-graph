@@ -620,12 +620,31 @@ Main `28ceffdbcff7042f266aa7b8be999d89635a4e7d` adds `NlQueryExplain`, the canon
 
 The initial union's 2,405 passing native tests and reviewed generated artifacts remain evidence for their recorded source only. All 74 canonical outputs, both codec copies and the artifact ledger now retain exact current-main bytes as explicitly stale placeholders. No receipt or codec hash is combined by hand. Fresh current-union generation and native, client and parity gates must qualify this composition. The installed, served and resource residuals above remain open.
 
+## Build contract
+
+The crate split (`MEDULLA-CONTRACT-R056`) must pass the repository quality gates unchanged.
+The numbers come from `.config/kiss.toml`, `.config/pre-commit.yaml` and `[tool.medulla.scanners]`.
+
+- **KISS:** at most 35 statements, 8 arguments, 20 local variables and 45 calls per function.
+  At most 900 lines, 250 statements and 40 functions per file. Indentation depth 5. No cycles.
+- **cccc:** no new function over cyclomatic 10 or cognitive 15, and none may regress.
+- **dupehound:** similarity threshold 0.85 with at least 40 tokens. A move must not create a clone.
+- **jscpd:** at least 50 tokens and 5 lines in mild mode. New clone pairs fail the gate.
+
+Shapes for every move lane:
+
+- A move is re-export-free. Callers are rewritten to the new path; no `pub use` bridge stays.
+- Widen `pub(crate)` to `pub` only where `placement.toml` puts a caller in another crate.
+- Move helpers, do not copy them. A copied helper fails dupehound and jscpd.
+- A lane touches the files placement assigns to its crate and the callers `rewrite_paths.py` edits.
+- `scripts/check_crate_graph.py` and `scripts/crate_split/edges.py` pass before the train is enqueued.
+
 ## North star
 
 Deployment comes only from published package releases. Releases ship delivered cross-repository spec bundles. Development is graph-native. The whole ecosystem is ingested into the engine. Developers work through arbora. The repository connector reads code from the graph.
 
 ## Delivery phase
 
-Rows `MEDULLA-CONTRACT-R056.11` to `.13` serve P5, scale and breadth. They lower build cost for every later delivery lane.
+Rows `MEDULLA-CONTRACT-R056.14` to `.16` serve P5, scale and breadth. They lower build cost for every later delivery lane.
 
 Crate split: the generated-contract machinery goes first. Then each subsystem moves behind the handler registry (`MEDULLA-CONTRACT-R056.1` to `.10`). Build profiles, test layout and feature layout are part of the split, not follow-ups. A timings report before and after proves the gain.
