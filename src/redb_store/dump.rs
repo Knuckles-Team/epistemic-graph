@@ -15,7 +15,7 @@
 //! prefix, because a scoped read cannot see another graph's rows -- which is the
 //! point of the scoping, not an obstacle to it.
 
-use eg_storage::{GraphShardOwner, ScopeRow, ScopedRead};
+use medulla_storage::{GraphShardOwner, ScopeRow, ScopedRead};
 use redb::ReadableTable;
 
 use super::shard::{Shard, ShardWrite};
@@ -330,7 +330,7 @@ pub(crate) fn read_graph_catalog(shard: &Shard) -> Result<Vec<(String, GraphMeta
     Ok(out)
 }
 
-/// Read ONE graph's durable rows into a read-only [`GraphDump`] (CONCEPT:EG-KG.storage.100m-tenant —
+/// Read ONE graph's durable rows into a read-only [`GraphDump`] (CONCEPT:MEDULLA-KG.storage.100m-tenant —
 /// tenant rehydration). Every scan is bounded to that graph's own scope, so a cold
 /// tenant rehydrates from redb without reading the whole store — and, unlike the
 /// key-prefix scans this replaces, without the file's other graphs even being
@@ -350,7 +350,7 @@ pub(crate) fn read_graph_dump(
     };
     let handle = shard.graph(graph)?;
     let read = shard.read(&handle)?;
-    let source_snapshot_version = eg_transaction::version(&read)?;
+    let source_snapshot_version = medulla_transaction::version(&read)?;
     let core = read_graph_core_rows(&read, graph, crypto)?;
     // BUG-CX-096: expose native lane/resource authority rows for diagnostics.
     // The private read-only origin marker prevents this incomplete view from
@@ -373,8 +373,8 @@ pub(crate) fn read_graph_dump(
     }))
 }
 
-/// One bounded, SOURCE-level page of ONE graph's durable rows (CONCEPT:EG-KG.memory.graph-guided-paging,
-/// CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged adjacency"). The paged sibling of
+/// One bounded, SOURCE-level page of ONE graph's durable rows (CONCEPT:MEDULLA-KG.memory.graph-guided-paging,
+/// CONCEPT:MEDULLA-KG.sharding.paged-lazy-open, L38 "paged adjacency"). The paged sibling of
 /// [`read_graph_dump`]: instead of collecting the WHOLE graph's node/edge rows into one
 /// `Vec` before returning (the thing that makes a lazy first-open of a 10M+-node/token
 /// graph spike RAM), this walks the SAME per-graph scope scan but stops after `page_size`
@@ -385,7 +385,7 @@ pub(crate) struct GraphDumpPage {
     pub nodes: Vec<(String, Vec<u8>)>,
     pub edges: Vec<(String, String, Vec<u8>)>,
     /// Only populated on the first page (no keyset cursor) — mirrors
-    /// [`eg_core::registry::GraphMaterializer::materialize_page`]'s single-blob
+    /// [`medulla_core::registry::GraphMaterializer::materialize_page`]'s single-blob
     /// convention so a paged replay attaches the semantic store exactly once.
     pub semantic: Vec<u8>,
     /// Authoritative graph-control state, populated on the first page only.
@@ -595,7 +595,7 @@ pub(crate) fn read_graph_dump_page(
     let read = shard.read(&handle)?;
     // The graph's authoritative version is the kernel's ledger row for this
     // scope, resolved on the same read the rows come from.
-    let source_snapshot_version = eg_transaction::version(&read)?;
+    let source_snapshot_version = medulla_transaction::version(&read)?;
 
     let (nodes, nodes_exhausted, next_node_after) =
         read_graph_dump_page_nodes(&read, node_after, page_size, crypto)?;
@@ -676,7 +676,7 @@ mod keyset_page_tests {
     }
 
     fn temp_path() -> std::path::PathBuf {
-        crate::redb_store::temp_path("eg-keyset-page", "")
+        crate::redb_store::temp_path("medulla-keyset-page", "")
     }
 
     #[test]
@@ -782,7 +782,7 @@ pub(crate) fn read_all_dumps(
     for (graph, record) in catalog {
         let handle = shard.graph(&graph)?;
         let read = shard.read(&handle)?;
-        let source_snapshot_version = eg_transaction::version(&read)?;
+        let source_snapshot_version = medulla_transaction::version(&read)?;
         let core = read_graph_core_rows(&read, &graph, crypto)?;
         dumps.push(GraphDump {
             kind: GraphDumpKind::DurableReadOnlyMaterialization,
@@ -803,7 +803,7 @@ pub(crate) fn read_all_dumps(
 }
 
 /// Cheap CATALOG-ONLY scan: every graph's identity row `(fname, name, graph_type)`
-/// (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3) — NO node/edge/ledger/semantic table is
+/// (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog, DIST-P2-3) — NO node/edge/ledger/semantic table is
 /// touched, and no graph scope is bound. Booting with millions of persisted graphs costs
 /// one sequential scan of small `{name, graph_type}` rows on the control scope, not
 /// `read_all_dumps`'s full per-graph rehydrate. Each returned graph materializes its
@@ -990,7 +990,7 @@ pub(crate) struct LegacyGraphMetaRecord {
 pub(crate) fn legacy_incarnation_id(graph: &str) -> String {
     use sha2::{Digest, Sha256};
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph-incarnation-legacy-v1\0");
+    digest.update(b"medulla-incarnation-legacy-v1\0");
     digest.update(graph.as_bytes());
     format!("{:x}", digest.finalize())[..32].to_string()
 }
@@ -999,7 +999,7 @@ pub(crate) fn new_incarnation_id(graph: &str) -> String {
     static NEXT_INCARNATION: AtomicU64 = AtomicU64::new(1);
     use sha2::{Digest, Sha256};
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph-incarnation-v1\0");
+    digest.update(b"medulla-incarnation-v1\0");
     digest.update(graph.as_bytes());
     digest.update(
         std::time::SystemTime::now()

@@ -1,9 +1,9 @@
-//! M3 catalog-driven resharding ADMIN RPC (CONCEPT:EG-KG.backend.m3-admin-dispatch).
+//! M3 catalog-driven resharding ADMIN RPC (CONCEPT:MEDULLA-KG.backend.m3-admin-dispatch).
 //!
 //! The wire surface that DRIVES the M3 ops the engine already has the building blocks for:
-//! online single-node resharding (CONCEPT:EG-KG.backend.catalog-shard-resolve `RedbBackend::reshard_graph`), the durable
-//! tenant catalog (CONCEPT:EG-KG.sharding.empty-catalog-routing `RedbBackend::catalog`), the rebalancing planner
-//! (CONCEPT:EG-KG.sharding.even-load-rebalance `rebalance::plan_rebalance`), and its execution (CONCEPT:EG-KG.backend.r3-plan-execution
+//! online single-node resharding (CONCEPT:MEDULLA-KG.backend.catalog-shard-resolve `RedbBackend::reshard_graph`), the durable
+//! tenant catalog (CONCEPT:MEDULLA-KG.sharding.empty-catalog-routing `RedbBackend::catalog`), the rebalancing planner
+//! (CONCEPT:MEDULLA-KG.sharding.even-load-rebalance `rebalance::plan_rebalance`), and its execution (CONCEPT:MEDULLA-KG.backend.r3-plan-execution
 //! `RedbBackend::rebalance_execute`). These CALL the existing persistence APIs — they do not
 //! reimplement them.
 //!
@@ -16,7 +16,7 @@ use crate::protocol::{Method, Response};
 #[cfg(not(feature = "redb"))]
 use crate::server::state::ServerState;
 #[cfg(not(feature = "redb"))]
-use eg_types::contract::Nonce;
+use medulla_types::contract::Nonce;
 #[cfg(not(feature = "redb"))]
 use std::sync::Arc;
 #[cfg(not(feature = "redb"))]
@@ -117,8 +117,8 @@ mod agent_library_security_tests {
     use crate::protocol::{Method, Request};
     use crate::server::authority_context::VerifiedRequestContext;
     use crate::server::persistence::durable_stores::BundledStoreSource;
-    use eg_types::contract::Nonce;
-    use eg_types::{
+    use medulla_types::contract::Nonce;
+    use medulla_types::{
         AgentLibraryEntryDraft, AgentLibraryMutationContext, AgentLibraryMutationKind,
         AgentLibraryOp, AgentLibraryPublishRequest, AgentLibraryRetireRequest,
         AgentLibraryStatusRequest,
@@ -132,7 +132,7 @@ mod agent_library_security_tests {
         TableDefinition::new("ledger_batches");
     const LEDGER_OUTBOX: TableDefinition<'static, (&str, &str, u32), &[u8]> =
         TableDefinition::new("ledger_outbox");
-    // The durable table names are `eg_storage::tables`' own (they are
+    // The durable table names are `medulla_storage::tables`' own (they are
     // `pub(crate)` there, so this owner-inspection test restates them). The
     // typed replay receipt lives in `mutation_replay_operations` -- the
     // `mutation_` prefix is part of the name, not a namespace this test may
@@ -190,30 +190,30 @@ mod agent_library_security_tests {
             version: "1.0.0".to_string(),
             role: "researcher".to_string(),
             role_digest: digest('1'),
-            system_prompt: eg_types::agent_component::ComponentDependency {
+            system_prompt: medulla_types::agent_component::ComponentDependency {
                 component_id: "prompt:a".to_string(),
-                kind: eg_types::agent_component::AgentComponentKind::SystemPrompt,
+                kind: medulla_types::agent_component::AgentComponentKind::SystemPrompt,
                 definition_digest: digest('2'),
             },
-            tools: vec![eg_types::agent_component::ComponentDependency {
+            tools: vec![medulla_types::agent_component::ComponentDependency {
                 component_id: "tool:search".to_string(),
-                kind: eg_types::agent_component::AgentComponentKind::Tool,
+                kind: medulla_types::agent_component::AgentComponentKind::Tool,
                 definition_digest: digest('3'),
             }],
-            skills: vec![eg_types::agent_component::ComponentDependency {
+            skills: vec![medulla_types::agent_component::ComponentDependency {
                 component_id: "skill:research".to_string(),
-                kind: eg_types::agent_component::AgentComponentKind::Skill,
+                kind: medulla_types::agent_component::AgentComponentKind::Skill,
                 definition_digest: digest('4'),
             }],
-            model_profile: eg_types::agent_component::ComponentDependency {
+            model_profile: medulla_types::agent_component::ComponentDependency {
                 component_id: "model:default".to_string(),
-                kind: eg_types::agent_component::AgentComponentKind::ModelProfile,
+                kind: medulla_types::agent_component::AgentComponentKind::ModelProfile,
                 definition_digest: digest('5'),
             },
             model_identity: "model:default".to_string(),
-            ontologies: vec![eg_types::agent_component::ComponentDependency {
+            ontologies: vec![medulla_types::agent_component::ComponentDependency {
                 component_id: "ontology:core".to_string(),
-                kind: eg_types::agent_component::AgentComponentKind::Ontology,
+                kind: medulla_types::agent_component::AgentComponentKind::Ontology,
                 definition_digest: digest('6'),
             }],
             tenant_id: tenant_id.to_string(),
@@ -236,7 +236,7 @@ mod agent_library_security_tests {
         RequestContextClaims {
             principal: principal.to_string(),
             tenant: tenant.to_string(),
-            audience: "epistemic-graph-test".to_string(),
+            audience: "medulla-test".to_string(),
             agent_id: "agent-a".to_string(),
             scopes: scopes.iter().map(|scope| (*scope).to_string()).collect(),
             delegation: vec![principal.to_string(), "agent-a".to_string()],
@@ -278,7 +278,7 @@ mod agent_library_security_tests {
 
     fn response_write_result(
         response: crate::protocol::Response,
-    ) -> eg_types::AgentLibraryWriteResult {
+    ) -> medulla_types::AgentLibraryWriteResult {
         crate::test_support::decode_raw_response("Agent Library route", response)
     }
 
@@ -330,7 +330,7 @@ mod agent_library_security_tests {
             RequestContextClaims {
                 principal: "caller-a".to_string(),
                 tenant: "tenant-a".to_string(),
-                audience: "epistemic-graph".to_string(),
+                audience: "medulla".to_string(),
                 agent_id: "agent-a".to_string(),
                 scopes: vec!["agent:library-write".to_string()],
                 policy_version: "policy-signed-v2".to_string(),
@@ -373,7 +373,7 @@ mod agent_library_security_tests {
             RequestContextClaims {
                 principal: "caller-a".to_string(),
                 tenant: "tenant-a".to_string(),
-                audience: "epistemic-graph".to_string(),
+                audience: "medulla".to_string(),
                 agent_id: "agent-a".to_string(),
                 scopes: vec!["agent:library-write".to_string()],
                 policy_version: "policy-signed-v2".to_string(),
@@ -403,7 +403,7 @@ mod agent_library_security_tests {
         let claims = RequestContextClaims {
             principal: "agent-a".to_string(),
             tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
+            audience: "medulla-test".to_string(),
             agent_id: "agent-a".to_string(),
             scopes: vec!["agent:library-write".to_string()],
             policy_version: "policy-test".to_string(),
@@ -647,14 +647,14 @@ mod agent_library_security_tests {
         assert!(store.copy_into(&backup_path).unwrap() >= 1);
         let database = redb::Database::open(&backup_path).unwrap();
         let read = database.begin_read().unwrap();
-        let identity = eg_types::MutationScopeIdentity::fixed_native(
+        let identity = medulla_types::MutationScopeIdentity::fixed_native(
             "tenant-shared",
-            eg_types::mutation_batch::DurabilityDomain::ControlPlane,
+            medulla_types::mutation_batch::DurabilityDomain::ControlPlane,
             "agent-library",
             "agent-library:v1",
         )
         .unwrap();
-        let scope_key = eg_storage::ledger_scope_key(&identity);
+        let scope_key = medulla_storage::ledger_scope_key(&identity);
         let batches = read.open_table(LEDGER_BATCHES).unwrap();
         let publish_batch = batches
             .get((
@@ -665,20 +665,20 @@ mod agent_library_security_tests {
             .expect("published batch in copied owner")
             .value()
             .to_vec();
-        let publish_batch = eg_storage::decode_batch_record(&publish_batch).unwrap();
+        let publish_batch = medulla_storage::decode_batch_record(&publish_batch).unwrap();
         assert!(publish_batch.result_msgpack.is_some());
-        let result = eg_types::msgpack::decode_bounded::<eg_types::mutation::MutationResult>(
+        let result = medulla_types::msgpack::decode_bounded::<medulla_types::mutation::MutationResult>(
             publish_batch.result_msgpack.as_deref().unwrap(),
-            eg_types::msgpack::MsgpackLimits::new(
+            medulla_types::msgpack::MsgpackLimits::new(
                 16 * 1024 * 1024,
                 200_000,
-                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+                medulla_types::msgpack::DEFAULT_MAX_DEPTH,
             ),
         )
         .unwrap();
         assert!(matches!(
             result,
-            eg_types::mutation::MutationResult::DomainResult { .. }
+            medulla_types::mutation::MutationResult::DomainResult { .. }
         ));
         let replay_operations = read.open_table(REPLAY_OPERATIONS).unwrap();
         let publish_replay = replay_operations
@@ -688,11 +688,11 @@ mod agent_library_security_tests {
             .value()
             .to_vec();
         let publish_replay =
-            eg_storage::decode_ledger_record::<eg_storage::OperationReplayRow>(&publish_replay)
+            medulla_storage::decode_ledger_record::<medulla_storage::OperationReplayRow>(&publish_replay)
                 .unwrap();
         assert!(matches!(
             publish_replay.recorded,
-            eg_storage::RecordedOperation::Receipt(_)
+            medulla_storage::RecordedOperation::Receipt(_)
         ));
         let outbox = read.open_table(LEDGER_OUTBOX).unwrap();
         let publish_outbox = outbox
@@ -705,17 +705,17 @@ mod agent_library_security_tests {
             .expect("published outbox row in copied owner")
             .value()
             .to_vec();
-        let publish_outbox = eg_storage::decode_outbox_record(&publish_outbox).unwrap();
+        let publish_outbox = medulla_storage::decode_outbox_record(&publish_outbox).unwrap();
         assert_eq!(
             publish_outbox.intent.headers.get("actor"),
             Some(&expected_publish_actor)
         );
-        let event = eg_types::msgpack::decode_bounded::<eg_types::AgentLibraryOutboxEvent>(
+        let event = medulla_types::msgpack::decode_bounded::<medulla_types::AgentLibraryOutboxEvent>(
             &publish_outbox.intent.payload,
-            eg_types::msgpack::MsgpackLimits::new(
+            medulla_types::msgpack::MsgpackLimits::new(
                 16 * 1024 * 1024,
                 200_000,
-                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+                medulla_types::msgpack::DEFAULT_MAX_DEPTH,
             ),
         )
         .unwrap();
@@ -731,7 +731,7 @@ mod agent_library_security_tests {
             .expect("retire batch in copied owner")
             .value()
             .to_vec();
-        let retire_batch = eg_storage::decode_batch_record(&retire_batch).unwrap();
+        let retire_batch = medulla_storage::decode_batch_record(&retire_batch).unwrap();
         let retire_replay = replay_operations
             .get((scope_key.as_str(), retire_key))
             .unwrap()
@@ -739,11 +739,11 @@ mod agent_library_security_tests {
             .value()
             .to_vec();
         let retire_replay =
-            eg_storage::decode_ledger_record::<eg_storage::OperationReplayRow>(&retire_replay)
+            medulla_storage::decode_ledger_record::<medulla_storage::OperationReplayRow>(&retire_replay)
                 .unwrap();
         assert!(matches!(
             retire_replay.recorded,
-            eg_storage::RecordedOperation::Receipt(_)
+            medulla_storage::RecordedOperation::Receipt(_)
         ));
         let retire_outbox = outbox
             .get((
@@ -755,17 +755,17 @@ mod agent_library_security_tests {
             .expect("retire outbox row in copied owner")
             .value()
             .to_vec();
-        let retire_outbox = eg_storage::decode_outbox_record(&retire_outbox).unwrap();
+        let retire_outbox = medulla_storage::decode_outbox_record(&retire_outbox).unwrap();
         assert_eq!(
             retire_outbox.intent.headers.get("actor"),
             Some(&expected_retire_actor)
         );
-        let retire_event = eg_types::msgpack::decode_bounded::<eg_types::AgentLibraryOutboxEvent>(
+        let retire_event = medulla_types::msgpack::decode_bounded::<medulla_types::AgentLibraryOutboxEvent>(
             &retire_outbox.intent.payload,
-            eg_types::msgpack::MsgpackLimits::new(
+            medulla_types::msgpack::MsgpackLimits::new(
                 16 * 1024 * 1024,
                 200_000,
-                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+                medulla_types::msgpack::DEFAULT_MAX_DEPTH,
             ),
         )
         .unwrap();

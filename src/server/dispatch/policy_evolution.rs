@@ -13,11 +13,11 @@
 //! * `store` -- node encoding, and decoding that re-verifies each record's id.
 //! * `blobs` -- held Blob-CAS references.
 
-use eg_types::policy_evolution::{
+use medulla_types::policy_evolution::{
     PolicyEvolutionRecord, PolicyRecordGetRequest, PolicyRecordKind, PolicyRecordReceipt,
     PolicyRecordStored, PolicyWriteDisposition, StoredPolicyRecord,
 };
-use eg_types::result_contract::graph::{
+use medulla_types::result_contract::graph::{
     ModelPolicyVersionRegister, PolicyCapabilityPut, PolicyCaptureCommit, PolicyEvaluationCommit,
     PolicyRecordGet, TrainingRunCommit,
 };
@@ -45,7 +45,7 @@ pub(super) async fn handle_policy_evolution(
     state: &Arc<RwLock<ServerState>>,
     target: PolicyEvolutionTarget<'_>,
     verified: &VerifiedRequestContext,
-    op: eg_types::policy_evolution::PolicyEvolutionOp,
+    op: medulla_types::policy_evolution::PolicyEvolutionOp,
 ) -> Response {
     match op.into_record() {
         Ok(record) => {
@@ -182,9 +182,9 @@ async fn write_node(
 
 /// The kernel's typed answer, in either result encoding.
 fn decode_stored(payload: ResultPayload) -> Result<PolicyRecordStored, String> {
-    let limits = eg_types::msgpack::MsgpackLimits::new(64 * 1024, 1_024, 8);
+    let limits = medulla_types::msgpack::MsgpackLimits::new(64 * 1024, 1_024, 8);
     match payload {
-        ResultPayload::Raw(bytes) => eg_types::msgpack::decode_bounded(&bytes, limits)
+        ResultPayload::Raw(bytes) => medulla_types::msgpack::decode_bounded(&bytes, limits)
             .map_err(|_| "policy record store answered a corrupt result".to_string()),
         ResultPayload::Json(value) => serde_json::from_value(value)
             .map_err(|_| "policy record store answered a corrupt result".to_string()),

@@ -13,13 +13,13 @@
 //! * `decision_pointers` -- every governed pointer move (adapter, generation)
 //!   of the caller's tenant.
 
-use eg_numeric::decision::retrieval::{class_usage, hard_negatives, proven_paths, Verdict};
-use eg_query::ColumnType;
-use eg_types::decision::digest::digest_text;
-use eg_types::decision::statistical::retrieval::{
+use medulla_numeric::decision::retrieval::{class_usage, hard_negatives, proven_paths, Verdict};
+use medulla_query::ColumnType;
+use medulla_types::decision::digest::digest_text;
+use medulla_types::decision::statistical::retrieval::{
     ClassUsage, HardNegative, ProvenPath, RetrievalPathTemplate, ReturnedEvidence,
 };
-use eg_types::decision::statistical::retrieval_pointer::PointerEvent;
+use medulla_types::decision::statistical::retrieval_pointer::PointerEvent;
 use serde_json::Value;
 
 use super::stat_log::LogReader;

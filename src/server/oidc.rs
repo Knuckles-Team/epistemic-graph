@@ -4,24 +4,24 @@
 //! Keycloak-compatible) reused by three independently-configured surfaces:
 //!
 //! * the ancillary KV-cache HTTP surface (`server::kvcache_http`,
-//!   `EPISTEMIC_GRAPH_KVCACHE_JWT_*`) — [`JwtValidator::from_env`] +
+//!   `MEDULLA_KVCACHE_JWT_*`) — [`JwtValidator::from_env`] +
 //!   [`JwtValidator::validate`] (a bare bool: does this bearer token belong to
 //!   a caller allowed to touch KV pages);
 //! * the `/sparql` SELECT/CONSTRUCT/ASK read leg (`server::sparql_http`, A18,
-//!   `EPISTEMIC_GRAPH_SPARQL_JWT_*`) — [`JwtValidator::from_env_sparql`] +
+//!   `MEDULLA_SPARQL_JWT_*`) — [`JwtValidator::from_env_sparql`] +
 //!   [`JwtValidator::validate`], the SAME bearer/JWT credential SHAPE as the
 //!   KV-cache surface (a caller entitled to KV pages is not automatically
 //!   entitled to run federated SPARQL reads, so it is independently
 //!   configured rather than sharing the KV-cache surface's issuer);
 //! * the Iceberg-REST catalog surface (`server::lake::rest`, BUG-222,
-//!   `EPISTEMIC_GRAPH_ICEBERG_JWT_*`) — [`JwtValidator::from_env_iceberg`] +
+//!   `MEDULLA_ICEBERG_JWT_*`) — [`JwtValidator::from_env_iceberg`] +
 //!   [`JwtValidator::validate_claims`] (the Iceberg REST spec's own native
 //!   mechanism is an OAuth2 bearer, and — unlike the two bare-boolean surfaces
 //!   above — the verified `tenant` claim is itself compared against this
 //!   deployment's configured tenant before a `CarrierAuthority` is minted, so
 //!   a validly-signed bearer for a different tenant is rejected);
 //! * the primary `eg2.` request envelope (`server::auth`,
-//!   `EPISTEMIC_GRAPH_OIDC_JWT_*`) — [`JwtValidator::from_env_primary`] +
+//!   `MEDULLA_OIDC_JWT_*`) — [`JwtValidator::from_env_primary`] +
 //!   [`JwtValidator::validate_claims`] (the verified subject/tenant/roles/
 //!   scopes, so `server::auth` can bind the envelope's SELF-ASSERTED
 //!   principal/tenant/roles/scopes to a REAL external identity and reject a
@@ -50,39 +50,39 @@ use serde::Deserialize;
 /// Env: explicit KV-cache-surface issuer, else reuse the platform's inbound-JWT
 /// / OIDC issuer.
 const ISSUER_ENVS: &[&str] = &[
-    "EPISTEMIC_GRAPH_KVCACHE_JWT_ISSUER",
+    "MEDULLA_KVCACHE_JWT_ISSUER",
     "FASTMCP_SERVER_AUTH_JWT_ISSUER",
     "OIDC_ISSUER",
 ];
 /// Env: explicit KV-cache-surface audience, else the platform's fleet audience.
 const AUDIENCE_ENVS: &[&str] = &[
-    "EPISTEMIC_GRAPH_KVCACHE_JWT_AUDIENCE",
+    "MEDULLA_KVCACHE_JWT_AUDIENCE",
     "FASTMCP_SERVER_AUTH_JWT_AUDIENCE",
     "OIDC_AUDIENCE",
 ];
 /// Env: explicit KV-cache-surface JWKS URL. Discovery and vendor-specific URL
 /// construction belong at the deployment boundary; the engine never guesses an
 /// identity-provider layout.
-const JWKS_URL_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_JWKS_URL";
+const JWKS_URL_ENV: &str = "MEDULLA_KVCACHE_JWKS_URL";
 
 /// Env: explicit `/sparql` SELECT/CONSTRUCT/ASK read-leg issuer (A18), else
 /// reuse the platform's inbound-JWT / OIDC issuer. Independent of the
 /// KV-cache surface's issuer — a caller entitled to KV pages is not
 /// automatically entitled to run federated SPARQL reads.
 const SPARQL_ISSUER_ENVS: &[&str] = &[
-    "EPISTEMIC_GRAPH_SPARQL_JWT_ISSUER",
+    "MEDULLA_SPARQL_JWT_ISSUER",
     "FASTMCP_SERVER_AUTH_JWT_ISSUER",
     "OIDC_ISSUER",
 ];
 /// Env: explicit `/sparql` read-leg audience, else the platform's fleet audience.
 const SPARQL_AUDIENCE_ENVS: &[&str] = &[
-    "EPISTEMIC_GRAPH_SPARQL_JWT_AUDIENCE",
+    "MEDULLA_SPARQL_JWT_AUDIENCE",
     "FASTMCP_SERVER_AUTH_JWT_AUDIENCE",
     "OIDC_AUDIENCE",
 ];
 /// Env: explicit `/sparql` read-leg JWKS URL. No generic fallback, same
 /// reasoning as [`JWKS_URL_ENV`].
-const SPARQL_JWKS_URL_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_JWKS_URL";
+const SPARQL_JWKS_URL_ENV: &str = "MEDULLA_SPARQL_JWKS_URL";
 
 /// Env: explicit Iceberg-REST catalog surface issuer (BUG-222), else reuse
 /// the platform's inbound-JWT / OIDC issuer. Independent of the KV-cache/
@@ -90,38 +90,38 @@ const SPARQL_JWKS_URL_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_JWKS_URL";
 /// SPARQL reads is not automatically entitled to open Iceberg-REST catalog
 /// tables.
 const ICEBERG_ISSUER_ENVS: &[&str] = &[
-    "EPISTEMIC_GRAPH_ICEBERG_JWT_ISSUER",
+    "MEDULLA_ICEBERG_JWT_ISSUER",
     "FASTMCP_SERVER_AUTH_JWT_ISSUER",
     "OIDC_ISSUER",
 ];
 /// Env: explicit Iceberg-REST surface audience, else the platform's fleet audience.
 const ICEBERG_AUDIENCE_ENVS: &[&str] = &[
-    "EPISTEMIC_GRAPH_ICEBERG_JWT_AUDIENCE",
+    "MEDULLA_ICEBERG_JWT_AUDIENCE",
     "FASTMCP_SERVER_AUTH_JWT_AUDIENCE",
     "OIDC_AUDIENCE",
 ];
 /// Env: explicit Iceberg-REST surface JWKS URL. No generic fallback, same
 /// reasoning as [`JWKS_URL_ENV`].
-const ICEBERG_JWKS_URL_ENV: &str = "EPISTEMIC_GRAPH_ICEBERG_JWKS_URL";
+const ICEBERG_JWKS_URL_ENV: &str = "MEDULLA_ICEBERG_JWKS_URL";
 
 /// Env: explicit observability-ingest issuer (EH-410: the `alloy-telemetry`
 /// collector identity), else the platform's inbound-JWT / OIDC issuer.
-const OBS_ISSUER_ENVS: &[&str] = &["EPISTEMIC_GRAPH_OBS_JWT_ISSUER", "OIDC_ISSUER"];
+const OBS_ISSUER_ENVS: &[&str] = &["MEDULLA_OBS_JWT_ISSUER", "OIDC_ISSUER"];
 /// Env: explicit observability-ingest audience, else the platform's `OIDC_AUDIENCE`.
-const OBS_AUDIENCE_ENVS: &[&str] = &["EPISTEMIC_GRAPH_OBS_JWT_AUDIENCE", "OIDC_AUDIENCE"];
+const OBS_AUDIENCE_ENVS: &[&str] = &["MEDULLA_OBS_JWT_AUDIENCE", "OIDC_AUDIENCE"];
 /// Env: explicit observability-ingest JWKS URL. No generic fallback, same
 /// reasoning as [`JWKS_URL_ENV`].
-const OBS_JWKS_URL_ENV: &str = "EPISTEMIC_GRAPH_OBS_JWKS_URL";
+const OBS_JWKS_URL_ENV: &str = "MEDULLA_OBS_JWKS_URL";
 
 /// Env: explicit primary-`eg2.`-protocol issuer, else the platform's shared
 /// `OIDC_ISSUER`. Independent of the KV-cache surface's issuer — a deployment
 /// may point the two at different realms/audiences, though most will share one.
-const PRIMARY_ISSUER_ENVS: &[&str] = &["EPISTEMIC_GRAPH_OIDC_JWT_ISSUER", "OIDC_ISSUER"];
+const PRIMARY_ISSUER_ENVS: &[&str] = &["MEDULLA_OIDC_JWT_ISSUER", "OIDC_ISSUER"];
 /// Env: explicit primary-protocol audience, else the platform's `OIDC_AUDIENCE`.
-const PRIMARY_AUDIENCE_ENVS: &[&str] = &["EPISTEMIC_GRAPH_OIDC_JWT_AUDIENCE", "OIDC_AUDIENCE"];
+const PRIMARY_AUDIENCE_ENVS: &[&str] = &["MEDULLA_OIDC_JWT_AUDIENCE", "OIDC_AUDIENCE"];
 /// Env: explicit primary-protocol JWKS URL. No generic fallback, same reasoning
 /// as [`JWKS_URL_ENV`].
-const PRIMARY_JWKS_URL_ENV: &str = "EPISTEMIC_GRAPH_OIDC_JWKS_URL";
+const PRIMARY_JWKS_URL_ENV: &str = "MEDULLA_OIDC_JWKS_URL";
 
 fn env_first(names: &[&str]) -> Option<String> {
     names.iter().find_map(|n| {
@@ -521,7 +521,7 @@ pub(crate) mod tests {
     const TEST_RSA_EXPONENT_HEX: &str = "010001";
 
     pub(crate) const ISSUER: &str = "https://identity.example.test/realms/eg";
-    pub(crate) const AUDIENCE: &str = "epistemic-graph";
+    pub(crate) const AUDIENCE: &str = "medulla";
     pub(crate) const KID: &str = "test-kid-1";
 
     pub(crate) fn now() -> u64 {

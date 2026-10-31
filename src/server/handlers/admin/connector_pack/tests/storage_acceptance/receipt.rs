@@ -1,13 +1,13 @@
 //! R073.4 reads receipts produced by the signed served import, not synthetic receipts.
 
-use eg_types::agent_library::AgentLibraryMutationContext;
-use eg_types::connector_pack::{
+use medulla_types::agent_library::AgentLibraryMutationContext;
+use medulla_types::connector_pack::{
     PackImportRecord, PackImportResult, CONNECTOR_PACK_IMPORT_TOPIC,
     CONNECTOR_PACK_RESULT_SCHEMA_ID,
 };
-use eg_types::contract::{Digest256, Nonce};
-use eg_types::mutation::{MutationReceipt, MutationResult};
-use eg_types::mutation_batch::{MutationBatchRecord, MutationBatchStatus, MutationOutboxIntent};
+use medulla_types::contract::{Digest256, Nonce};
+use medulla_types::mutation::{MutationReceipt, MutationResult};
+use medulla_types::mutation_batch::{MutationBatchRecord, MutationBatchStatus, MutationOutboxIntent};
 
 use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::persistence::connector_pack::admitted::{PackWriteEffects, PackWriteIdentity};
@@ -18,18 +18,18 @@ use super::{
 
 fn evidence(store: &AgentLibraryStore, batch_id: &str) -> (MutationBatchRecord, MutationReceipt) {
     let read = store.connector_pack_test_read(TENANT).unwrap();
-    let record = eg_transaction::read_ledger(&read, batch_id)
+    let record = medulla_transaction::read_ledger(&read, batch_id)
         .unwrap()
         .unwrap();
     assert_eq!(record.status, MutationBatchStatus::Committed);
     let envelope = record.batch.envelope.operation().unwrap();
     let key = envelope.authority.idempotency_key.as_ref().unwrap();
-    let replay = eg_transaction::read_replay_operation(&read, key.as_str())
+    let replay = medulla_transaction::read_replay_operation(&read, key.as_str())
         .unwrap()
         .unwrap();
     assert_eq!(replay.batch_id, batch_id);
     assert_eq!(replay.identity, record.identity);
-    let eg_storage::RecordedOperation::Receipt(receipt) = replay.recorded else {
+    let medulla_storage::RecordedOperation::Receipt(receipt) = replay.recorded else {
         panic!("import must commit a typed receipt");
     };
     receipt.validate().unwrap();
@@ -40,9 +40,9 @@ fn evidence(store: &AgentLibraryStore, batch_id: &str) -> (MutationBatchRecord, 
     );
     assert_eq!(receipt.envelope_digest, envelope.authority.context_digest);
     let result: MutationResult =
-        eg_storage::decode_ledger_record(record.result_msgpack.as_ref().unwrap()).unwrap();
+        medulla_storage::decode_ledger_record(record.result_msgpack.as_ref().unwrap()).unwrap();
     assert_eq!(receipt.result, result);
-    let rows = eg_transaction::read_outbox(&read, batch_id).unwrap();
+    let rows = medulla_transaction::read_outbox(&read, batch_id).unwrap();
     assert_eq!(rows.len(), record.batch.outbox.len());
     for (ordinal, (row, intent)) in rows.iter().zip(&record.batch.outbox).enumerate() {
         assert_eq!(row.ordinal, ordinal as u32);
@@ -134,7 +134,7 @@ fn assert_all_fields_bound(intents: &[MutationOutboxIntent], expected: Digest256
     }
 }
 
-// spec: EG-DECISION-ENGINE-R073.4
+// spec: MEDULLA-DECISION-ENGINE-R073.4
 #[tokio::test]
 async fn committed_multi_intent_receipt_binds_all_effects_and_survives_replay() {
     let served = Served::new();
@@ -165,9 +165,9 @@ async fn committed_multi_intent_receipt_binds_all_effects_and_survives_replay() 
     assert_eq!(intents.len(), 4, "server, two tools, and pack");
     let mut components = std::collections::BTreeSet::new();
     for intent in &intents[..3] {
-        assert_eq!(intent.topic, "eg.agent-component.revision.v1");
-        let event: eg_types::agent_component::AgentComponentOutboxEvent =
-            eg_storage::decode_ledger_record(&intent.payload).unwrap();
+        assert_eq!(intent.topic, "medulla.agent-component.revision.v1");
+        let event: medulla_types::agent_component::AgentComponentOutboxEvent =
+            medulla_storage::decode_ledger_record(&intent.payload).unwrap();
         event.validate().unwrap();
         assert!(components.insert(event.component.component_id));
     }
@@ -175,7 +175,7 @@ async fn committed_multi_intent_receipt_binds_all_effects_and_survives_replay() 
     assert!(components.contains(&format!("mcp:{CONNECTOR}/tool/b")));
     assert_eq!(intents[3].topic, CONNECTOR_PACK_IMPORT_TOPIC);
     let pack_record: PackImportRecord =
-        eg_storage::decode_ledger_record(&intents[3].payload).unwrap();
+        medulla_storage::decode_ledger_record(&intents[3].payload).unwrap();
     assert!(components.contains(&pack_record.server.component.component_id));
     assert_eq!(pack_record.record_id, imported.record_id);
     assert_eq!(pack_record.pack_digest, imported.pack_digest);
@@ -187,7 +187,7 @@ async fn committed_multi_intent_receipt_binds_all_effects_and_survives_replay() 
         panic!("typed receipt must carry the import result");
     };
     assert_eq!(schema_id.as_str(), CONNECTOR_PACK_RESULT_SCHEMA_ID);
-    let original: PackImportResult = eg_storage::decode_ledger_record(payload.as_slice()).unwrap();
+    let original: PackImportResult = medulla_storage::decode_ledger_record(payload.as_slice()).unwrap();
     assert_eq!(
         original,
         PackImportResult::Imported {
@@ -198,8 +198,8 @@ async fn committed_multi_intent_receipt_binds_all_effects_and_survives_replay() 
     // Rebuild attempt context from durable provenance; keep operation identity, change nonce.
     let envelope = record.batch.envelope.operation().unwrap();
     let authority = &envelope.authority;
-    let event: eg_types::agent_component::AgentComponentOutboxEvent =
-        eg_storage::decode_ledger_record(&intents[0].payload).unwrap();
+    let event: medulla_types::agent_component::AgentComponentOutboxEvent =
+        medulla_storage::decode_ledger_record(&intents[0].payload).unwrap();
     let context = AgentLibraryMutationContext {
         request_id: 9001,
         principal: store.owner_principal().into(),

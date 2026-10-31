@@ -17,18 +17,18 @@
 use super::*;
 
 #[cfg(feature = "security")]
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 
 #[cfg(feature = "security")]
 use super::shard::{Shard, ShardWrite};
 
-/// Per-graph audit-chain tail cache (CONCEPT:EG-KG.storage.embedded-store): `graph -> (last_seq, last_hash)`.
+/// Per-graph audit-chain tail cache (CONCEPT:MEDULLA-KG.storage.embedded-store): `graph -> (last_seq, last_hash)`.
 ///
-/// **Why this exists (profiling rationale).** After EG-024 (group-commit micro-linger)
-/// freed the disk, the single `eg-redb-writer` thread became ~99.9% CPU-bound in
+/// **Why this exists (profiling rationale).** After MEDULLA-024 (group-commit micro-linger)
+/// freed the disk, the single `medulla-redb-writer` thread became ~99.9% CPU-bound in
 /// userspace. The hot spot was [`append_audit_entry`]: it range-scanned this graph's
 /// audit tail **per op** to find `(last_seq, last_hash)` — O(ops) B-tree walks inside
-/// the held write transaction, and the cost GREW as EG-024 made batches bigger.
+/// the held write transaction, and the cost GREW as MEDULLA-024 made batches bigger.
 ///
 /// The shard file has a single exclusive writer, so within the server process the
 /// writer thread is the **only** mutator of the `AUDIT` table. That makes an in-memory
@@ -72,7 +72,7 @@ pub(super) fn fresh_attempt_id(prefix: &str) -> String {
 }
 
 /// Append ONE tamper-evident audit-chain entry for a durable mutation, inside the
-/// caller's open admitted write (CONCEPT:EG-KG.sharding.row-level-security; O(1) via CONCEPT:EG-KG.storage.embedded-store). Uses the
+/// caller's open admitted write (CONCEPT:MEDULLA-KG.sharding.row-level-security; O(1) via CONCEPT:MEDULLA-KG.storage.embedded-store). Uses the
 /// cached per-graph chain tail (`last seq` + its hash) to get `prev_hash` + next `seq`,
 /// links the new entry, inserts it, and updates the cache to the just-appended entry —
 /// so the NEXT op chains off RAM with NO per-op range scan. On a cache miss (first touch
@@ -222,7 +222,7 @@ pub(crate) fn cold_seed_rows_touched_take() -> u64 {
     COLD_SEED_ROWS_TOUCHED.with(|c| c.replace(0))
 }
 
-/// Verify a graph's hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security). Walks every
+/// Verify a graph's hash-chained audit log (CONCEPT:MEDULLA-KG.sharding.row-level-security). Walks every
 /// row of THIS graph's audit scope in seq order and checks the chain via
 /// `crate::audit::verify_chain`.
 ///
@@ -249,7 +249,7 @@ pub(crate) fn verify_audit(
     ))
 }
 
-// ── Provenance anchoring (CONCEPT:EG-KG.sharding.row-level-security) ───────────────────────────────
+// ── Provenance anchoring (CONCEPT:MEDULLA-KG.sharding.row-level-security) ───────────────────────────────
 //
 // A periodic engine job (`server::persistence::provenance_anchor`) Merkle-anchors a
 // graph's `:ToolCall`/`:RunTrace` provenance-node window into the SAME hash-chained

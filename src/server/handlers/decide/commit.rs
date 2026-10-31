@@ -12,7 +12,7 @@
 use super::SharedState;
 use crate::protocol::Response;
 use crate::server::auth::VerifiedRequestContext;
-use eg_types::decision::DecisionCommitRequest;
+use medulla_types::decision::DecisionCommitRequest;
 
 /// Commit one `DecisionRecord` as a component revision, idempotently.
 #[cfg(feature = "decide")]
@@ -26,7 +26,7 @@ pub(crate) async fn handle_decision_commit(
         Ok(result) => Response::ok(
             req_id,
             crate::protocol::ResultPayload::of_ref::<
-                eg_types::result_contract::storage::DecisionCommit,
+                medulla_types::result_contract::storage::DecisionCommit,
             >(&result),
         ),
         Err(error) => Response::err(req_id, error),
@@ -39,8 +39,8 @@ async fn commit(
     req_id: u64,
     verified: &VerifiedRequestContext,
     request: DecisionCommitRequest,
-) -> Result<eg_types::decision::DecisionCommitResult, String> {
-    use eg_types::decision::{DecisionErrorCode, MAX_DECISION_RECORD_BYTES};
+) -> Result<medulla_types::decision::DecisionCommitResult, String> {
+    use medulla_types::decision::{DecisionErrorCode, MAX_DECISION_RECORD_BYTES};
 
     let DecisionCommitRequest {
         context,
@@ -52,7 +52,7 @@ async fn commit(
             "ACCESS_DENIED: the record tenant must match the verified request tenant".into(),
         );
     }
-    let bytes = eg_compute::assemble::encoded_len(&record);
+    let bytes = medulla_compute::assemble::encoded_len(&record);
     if bytes > MAX_DECISION_RECORD_BYTES {
         return Err(format!(
             "{}: {bytes} bytes exceed {MAX_DECISION_RECORD_BYTES}",
@@ -60,12 +60,12 @@ async fn commit(
         ));
     }
     let checked = record.clone();
-    tokio::task::spawn_blocking(move || eg_compute::assemble::replay_check(&checked))
+    tokio::task::spawn_blocking(move || medulla_compute::assemble::replay_check(&checked))
         .await
         .map_err(|error| format!("decision replay task failed: {error}"))?
         .map_err(|error| error.to_string())?;
     super::shape::check_decision_shape(&record)?;
-    // EG-DECISION-ENGINE-R113.2.1: the library and capacity ledger have
+    // MEDULLA-DECISION-ENGINE-R113.2.1: the library and capacity ledger have
     // separate owners. Do not publish a capacity-backed decision until a
     // shared transaction can also publish its leases and graph evidence.
     // Inputs alone are advisory; abstentions and zero-demand plans acquire
@@ -90,8 +90,8 @@ async fn commit(
     )?;
     let written = store.commit_decision_record(context, &record, &expected_catalog_digest)?;
     super::assemble::audit_line("decision-commit", &record, verified);
-    Ok(eg_types::decision::DecisionCommitResult {
-        schema_version: eg_types::decision::DECISION_COMMIT_RESULT_SCHEMA_VERSION,
+    Ok(medulla_types::decision::DecisionCommitResult {
+        schema_version: medulla_types::decision::DECISION_COMMIT_RESULT_SCHEMA_VERSION,
         record_id: record.record_id,
         component: written.result,
         replayed: written.replayed,

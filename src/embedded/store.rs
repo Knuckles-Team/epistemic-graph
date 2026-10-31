@@ -1,5 +1,5 @@
 //! Synchronous in-process redb durable store for the embedded engine
-//! (CONCEPT:EG-KG.backend.engine-modes).
+//! (CONCEPT:MEDULLA-KG.backend.engine-modes).
 //!
 //! Unlike the server's `redb_backend` — which spawns an off-reactor group-commit
 //! writer thread so thousands of concurrent socket clients amortize fsyncs — the
@@ -28,8 +28,8 @@ struct RegisterFailureBlock {
 /// Owns the canonical single shard `{persist_dir}/graph-0.redb` and commits synchronously.
 pub(super) struct EmbeddedRedbStore {
     shard: Shard,
-    /// Encryption-at-rest cipher (CONCEPT:EG-KG.sharding.row-level-security), resolved once from
-    /// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` at open. `None` ⇒ encryption off ⇒ durable
+    /// Encryption-at-rest cipher (CONCEPT:MEDULLA-KG.sharding.row-level-security), resolved once from
+    /// `MEDULLA_ENCRYPTION_KEY` at open. `None` ⇒ encryption off ⇒ durable
     /// format unchanged. Only present in a `security` build.
     #[cfg(feature = "security")]
     cipher: Option<crate::crypto::ValueCipher>,
@@ -115,7 +115,7 @@ impl EmbeddedRedbStore {
         let mut ops = vec![(graph_fname.to_string(), method.clone())];
         let mut raft_log_ops = Vec::new();
         // The embedded path commits ONE op per transaction in its own process, so a
-        // fresh per-call tail cache (CONCEPT:EG-KG.storage.embedded-store) seeds from one scan and is O(1) for
+        // fresh per-call tail cache (CONCEPT:MEDULLA-KG.storage.embedded-store) seeds from one scan and is O(1) for
         // the single op — identical cost to before. The hot, CPU-bound writer is the
         // server's group-commit thread, which keeps its cache hot across batches.
         #[cfg(feature = "security")]
@@ -177,7 +177,7 @@ impl EmbeddedRedbStore {
     }
 
     /// Durably PURGE every row for a deleted graph (nodes/edges/ledger/semantic +
-    /// the `graph_meta` identity) in one immediate transaction (CONCEPT:EG-KG.backend.tenant-delete-recreate-same).
+    /// the `graph_meta` identity) in one immediate transaction (CONCEPT:MEDULLA-KG.backend.tenant-delete-recreate-same).
     /// Reuses the SHARED `purge_graph_rows`, so a recreate of the same name starts
     /// from a clean durable slate — the embedded analogue of the server's
     /// `Cmd::PurgeGraph` tenant-delete teardown.

@@ -1,5 +1,5 @@
 //! The catalog attributes a pack member carries for the fleet catalog
-//! projection (contract request eg-fleet-catalog R1).
+//! projection (contract request medulla-fleet-catalog R1).
 //!
 //! Each is a pure function of the entry's own content, so each belongs in the
 //! definition digest like every other pack attribute:
@@ -11,8 +11,8 @@
 
 use std::collections::BTreeMap;
 
-use eg_types::connector_pack::digest::tool_mode_token;
-use eg_types::connector_pack::{PackEntry, PackEntryKind};
+use medulla_types::connector_pack::digest::tool_mode_token;
+use medulla_types::connector_pack::{PackEntry, PackEntryKind};
 
 use super::front_matter::declared_skill_type;
 

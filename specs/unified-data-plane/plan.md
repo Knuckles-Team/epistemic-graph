@@ -4,11 +4,11 @@
 
 ## Authority and reuse
 
-Use the existing Medulla foreign catalog and `eg-plan::ForeignSourceSpec`, the server OBDA rewriter and R2RML support, `CdcHub`/`ChangeEnvelope`, `eg-lake`, DataFusion providers, `KvStore`/GraphCore, DepClock cache, pgwire/MySQL/MSSQL/RESP listeners, and Medulla's native backup. Extend the actual owners in place; retire superseded registration paths after migration. Reuse the Graft SDK connector contract and Arbora query surface, with no duplicate engine-side connector catalog. EG-DURABLE-KERNEL-R024 moves fan-out mirror behavior into Medulla before the registry folds it in. Credentials stay as references to the deployment's secret provider.
+Use the existing Medulla foreign catalog and `medulla-plan::ForeignSourceSpec`, the server OBDA rewriter and R2RML support, `CdcHub`/`ChangeEnvelope`, `medulla-lake`, DataFusion providers, `KvStore`/GraphCore, DepClock cache, pgwire/MySQL/MSSQL/RESP listeners, and Medulla's native backup. Extend the actual owners in place; retire superseded registration paths after migration. Reuse the Graft SDK connector contract and Arbora query surface, with no duplicate engine-side connector catalog. MEDULLA-DURABLE-KERNEL-R024 moves fan-out mirror behavior into Medulla before the registry folds it in. Credentials stay as references to the deployment's secret provider.
 
 ## Module ownership and request path
 
-`src/server/foreign_catalog.rs` is the server-side source-record boundary. `crates/eg-plan` owns planning of bound foreign sources. `src/server/handlers/rdf/obda.rs` and `crates/eg-rdf/src/obda.rs` own virtual graph rewriting. `src/server/cdc.rs` and `src/server/cdc_sink/` own change envelopes and sinks; `crates/eg-lake` owns accelerated columnar copies. `crates/eg-query/src/tables/` owns native user-table storage. Wire listeners authenticate and classify requests before planning. Keep one registry, one source ID and one policy path across these modules.
+`src/server/foreign_catalog.rs` is the server-side source-record boundary. `crates/medulla-plan` owns planning of bound foreign sources. `src/server/handlers/rdf/obda.rs` and `crates/medulla-rdf/src/obda.rs` own virtual graph rewriting. `src/server/cdc.rs` and `src/server/cdc_sink/` own change envelopes and sinks; `crates/medulla-lake` owns accelerated columnar copies. `crates/medulla-query/src/tables/` owns native user-table storage. Wire listeners authenticate and classify requests before planning. Keep one registry, one source ID and one policy path across these modules.
 
 The request envelope carries tenant, actor, source grant, consistency mode, last committed source position (if any), timeout and trace ID. The server checks these before selecting a path. An attached table plan carries a bound source ID and catalog version, never a raw caller DSN. EXPLAIN can show route, pushdown fragments, source/copy position and fallback reason, with credentials and sensitive predicate values redacted. A prepared plan is invalidated on schema-version or grant change.
 
@@ -20,8 +20,8 @@ An adapter provides `connect`, `render`, `read_catalog`, `decode_types`, and `ca
 
 ### SQL destination fixture contract
 
-The SQL registration fixtures for EG-UNIFIED-DATA-PLANE-R002.1 and the OBDA
-constructor fixtures for EG-UNIFIED-DATA-PLANE-R002.2 explicitly allow
+The SQL registration fixtures for MEDULLA-UNIFIED-DATA-PLANE-R002.1 and the OBDA
+constructor fixtures for MEDULLA-UNIFIED-DATA-PLANE-R002.2 explicitly allow
 `127.0.0.1:5432` for positive cases and install an empty allowlist for refusals.
 Loopback is not implicitly trusted. A restore-on-drop test guard holds the shared
 crypto environment write lock, or a local lock when crypto is not compiled, for
@@ -39,15 +39,15 @@ that registry-level test remains required.
 2. **Adapter seam.** Each adapter implements connection, dialect SQL rendering, catalog extraction, type conversion, and capture or an explicit `unsupported` capability. Versioned capabilities drive planning and conformance. Postgres uses `pg_catalog` and `pgoutput`. MySQL and MariaDB use separate binlog/GTID fixtures. SQLite uses lock-safe read-only file access. MSSQL uses CDC/Change Tracking. ClickHouse and warehouses are federation-only unless a later approved contract adds capture. Oracle/Db2 use Debezium. Do not fabricate CDC from a periodic full scan.
 3. **Schema intelligence.** Hash a typed catalog snapshot. Collect bounded, policy-gated column and JSON shape statistics. Infer unary/n-ary inclusion dependencies, functional dependencies and candidate keys with support counts, then use fixed-seed Leiden grouping. View definitions and captured joins can provide co-query edges. Deterministic name/type/value/structure matchers propose ontology mapping first. Optional model suggestions remain proposals and cannot approve or activate a mapping. Approved mappings become immutable versioned R2RML named graphs. DDL drift creates a new catalog version and suspends affected mappings pending review. `schema_context` reads the same graph and explains owner, joins, class and impact. Catalog artifacts without an OBDA or context consumer are not admitted.
 4. **Queries.** The planner uses typed source values and capability-aware pushdown, including same-source joins/aggregates/order/limit. Fallback is explicit in EXPLAIN and retains tenant filters. The router compares freshness requirement, source position, copy position and latency policy before selecting native/live/accelerated. A bounded wait for the caller's last source commit is required for read-your-writes; timeout is a typed failure or policy-authorized live retry, never a silent stale result.
-5. **Change path.** Adapters emit a source-keyed `ChangeEnvelope` carrying source position, transaction/order boundary, table/object ID, operation, before/after shape when available, schema version and event ID. The durable subscription cursor and idempotency key are committed with its consumer effects, or recovered by replay. Existing `CdcHub` fans into approved graph deltas, search/vector indexes, CEP/outbox and optional `eg-lake` copies. Keyless updates, DDL changes, WAL/binlog retention and lag are explicit states with alerts. A snapshot/catch-up handshake prevents the gap between initial read and streaming. Mirrors are sink direction on the same registry and keep per-target cursor, replay and reconciliation; they never answer reads.
-6. **Write path.** External mutation requires EG-DURABLE-KERNEL-R031 reservation, checked actor and target policy, idempotency and an approval receipt. Graft SDK/app API is used when application rules require it. Return an indeterminate outcome if the external effect may have succeeded but its acknowledgement/audit completion failed; reconcile before retrying.
+5. **Change path.** Adapters emit a source-keyed `ChangeEnvelope` carrying source position, transaction/order boundary, table/object ID, operation, before/after shape when available, schema version and event ID. The durable subscription cursor and idempotency key are committed with its consumer effects, or recovered by replay. Existing `CdcHub` fans into approved graph deltas, search/vector indexes, CEP/outbox and optional `medulla-lake` copies. Keyless updates, DDL changes, WAL/binlog retention and lag are explicit states with alerts. A snapshot/catch-up handshake prevents the gap between initial read and streaming. Mirrors are sink direction on the same registry and keep per-target cursor, replay and reconciliation; they never answer reads.
+6. **Write path.** External mutation requires MEDULLA-DURABLE-KERNEL-R031 reservation, checked actor and target policy, idempotency and an approval receipt. Graft SDK/app API is used when application rules require it. Return an indeterminate outcome if the external effect may have succeeded but its acknowledgement/audit completion failed; reconcile before retrying.
 7. **Native path dependency.** Before app admission, consume the `durable-graph-kernel` proof for point/KV routing, authz/audit parity, durability classes, hot/cold union, crash recovery and store choice. The pgrx companion remains a separate spike admitted only by ADR; this data-plane plan does not implement a second native store.
 
-8. **Virtual-graph metadata.** Add `core:virtual-graph@1` and its shapes to the core ontology corpus. Extend the catalog reader so every source kind writes a hashed `MetadataContract`. Reuse the source registry identity and the R2RML mapping approval path. Add the acceleration policy fields to the source record. Copy no entity row outside that policy. (EG-UNIFIED-DATA-PLANE-R037, EG-UNIFIED-DATA-PLANE-R038)
+8. **Virtual-graph metadata.** Add `core:virtual-graph@1` and its shapes to the core ontology corpus. Extend the catalog reader so every source kind writes a hashed `MetadataContract`. Reuse the source registry identity and the R2RML mapping approval path. Add the acceleration policy fields to the source record. Copy no entity row outside that policy. (MEDULLA-UNIFIED-DATA-PLANE-R037, MEDULLA-UNIFIED-DATA-PLANE-R038)
 
 ## Delivery sequence
 
-The dependency triggers in [tasks](tasks.md) control implementation. Begin with EG-UNIFIED-DATA-PLANE-R001 and the kernel-owned EG-DURABLE-KERNEL-R036 mirror interface. Build the conformance harness before T1 adapters. Then catalog/mapping/query/capture and three app admissions. Add acceleration, router and write-back after durable positions and audit reservation. T2/T3 dialects follow T1 evidence. Gramps P0–P5 is isolated from production. P6 is a separate operator cutover. The kernel's bursty lane begins after EG-DURABLE-KERNEL-R016 and supplies EG-DURABLE-KERNEL-R042 benchmark evidence before this spec makes a comparative claim. Keep feature changes partitioned by actual owner files, not requirement IDs.
+The dependency triggers in [tasks](tasks.md) control implementation. Begin with MEDULLA-UNIFIED-DATA-PLANE-R001 and the kernel-owned MEDULLA-DURABLE-KERNEL-R036 mirror interface. Build the conformance harness before T1 adapters. Then catalog/mapping/query/capture and three app admissions. Add acceleration, router and write-back after durable positions and audit reservation. T2/T3 dialects follow T1 evidence. Gramps P0–P5 is isolated from production. P6 is a separate operator cutover. The kernel's bursty lane begins after MEDULLA-DURABLE-KERNEL-R016 and supplies MEDULLA-DURABLE-KERNEL-R042 benchmark evidence before this spec makes a comparative claim. Keep feature changes partitioned by actual owner files, not requirement IDs.
 
 ### Dialect implementation matrix
 
@@ -55,7 +55,7 @@ The dependency triggers in [tasks](tasks.md) control implementation. Begin with 
 |---|---|---|
 | 1 | Postgres | `sqlx`/`tokio-postgres`, `pg_catalog`, `pgoutput`; preserve `jsonb`, arrays, enum and vector types. |
 | 1 | MySQL and MariaDB | `sqlx mysql`, `information_schema`, row binlog plus GTID; separate conformance for both engines. |
-| 2 | SQLite | Extend `eg-sqlite-format` for `WITHOUT ROWID`, lock-safe read-only attach; WAL-frame tail only where safe, otherwise declared watermark polling. |
+| 2 | SQLite | Extend `medulla-sqlite-format` for `WITHOUT ROWID`, lock-safe read-only attach; WAL-frame tail only where safe, otherwise declared watermark polling. |
 | 2 | SQL Server | `tiberius`, `sys.*` catalog, T-SQL `TOP` and `OFFSET/FETCH`, CDC or Change Tracking positions. |
 | 2 | ClickHouse | HTTP/native query, `system.*` catalog, federation and acceleration; declare no native CDC. |
 | 3 | Oracle and Db2 | Driver/ODBC query and catalog; Debezium bridge for change events. |
@@ -81,14 +81,14 @@ The dependency triggers in [tasks](tasks.md) control implementation. Begin with 
 
 | Component owner | Inputs to Medulla | Outputs and obligations | Acceptance |
 |---|---|---|---|
-| Agent utilities | Existing graph-source schema proposal pattern and legacy fan-out/Debezium behavior are migration inputs, not new runtime authorities (EG-DURABLE-KERNEL-R024). | Remove old ingest/mirror execution only after Medulla source registry, cursor replay, SQL-table mirror restore and catalog parity are live. | No duplicate source or mirror registry remains reachable; differential and restore reports identify old and new behavior. |
-| Agent connector Graft SDK | Connector identity, app API client and write-back idempotency key (EG-UNIFIED-DATA-PLANE-R012). | Carry tenant/actor/source ID and approval receipt to Medulla. Prefer an app API when the app owns validation, triggers or other business rules. | Replayed write returns the prior outcome. Missing audit reservation or approval produces no effect. |
-| Arbora | Authenticated request envelope, `schema_context` query and last committed source position (EG-UNIFIED-DATA-PLANE-R011). | Propagate tenant, actor, source grant, freshness mode, timeout and trace ID unchanged; display typed route/freshness errors. | Wrong tenant, stale copy, missing source and missing audit all fail closed; a valid context answer names owner, joins, class and impact. |
-| Immich API connector | Version-pinned OpenAPI schema and per-user authorized API reads (EG-UNIFIED-DATA-PLANE-R032). | MCP tools, incremental asset/album/person ingest and approved Person-link proposals; do not ingest face vectors in the pilot. | Synthetic four-user fixture: second ingest no-op, one new upload appears, unnamed people stay unlinked, cross-user photo/GPS access denied. |
-| Gramps integration | Synthetic import/export tree, real-Postgres control corpus and app driver behavior (EG-UNIFIED-DATA-PLANE-R026). | Keep production data unchanged during P0–P5; P6 is separate explicit authorization with replica, independent export and fallback. | P0–P5 digests, differential and restore artifacts pass before any production decision. |
-| Finance consumer | Finance-v1 Account/Activity semantics and provenance requirements (EG-FINANCE-PRIMITIVES-R012). | Import Ghostfolio activities one way through attached Postgres; maintain stable external IDs and source timestamps. | Reimport is idempotent, amounts remain exact, and retirement is a separate decision after Medulla accounting parity. |
-| Database deployment | Isolated CloudNativePG groups by major version/extension and a MariaDB group, per-app database and role, Medulla read/replication roles (EG-UNIFIED-DATA-PLANE-R023). | Logical replication enabled where supported; PITR to object storage, scheduled scratch restore and per-app rollback. An extension-heavy app keeps a compatible isolated group. | At least three apps attached including MariaDB; restore and app rollback pass without cross-app impact. |
-| Release/catalog maintainer | New connector package metadata and version pins (EG-UNIFIED-DATA-PLANE-R032). | Validate every required package catalog/registry entry and generated manifest using the existing release gate; preserve one authoritative package identity. | Missing site or version mismatch fails CI; no hand-maintained alternate fleet inventory. |
+| Agent utilities | Existing graph-source schema proposal pattern and legacy fan-out/Debezium behavior are migration inputs, not new runtime authorities (MEDULLA-DURABLE-KERNEL-R024). | Remove old ingest/mirror execution only after Medulla source registry, cursor replay, SQL-table mirror restore and catalog parity are live. | No duplicate source or mirror registry remains reachable; differential and restore reports identify old and new behavior. |
+| Agent connector Graft SDK | Connector identity, app API client and write-back idempotency key (MEDULLA-UNIFIED-DATA-PLANE-R012). | Carry tenant/actor/source ID and approval receipt to Medulla. Prefer an app API when the app owns validation, triggers or other business rules. | Replayed write returns the prior outcome. Missing audit reservation or approval produces no effect. |
+| Arbora | Authenticated request envelope, `schema_context` query and last committed source position (MEDULLA-UNIFIED-DATA-PLANE-R011). | Propagate tenant, actor, source grant, freshness mode, timeout and trace ID unchanged; display typed route/freshness errors. | Wrong tenant, stale copy, missing source and missing audit all fail closed; a valid context answer names owner, joins, class and impact. |
+| Immich API connector | Version-pinned OpenAPI schema and per-user authorized API reads (MEDULLA-UNIFIED-DATA-PLANE-R032). | MCP tools, incremental asset/album/person ingest and approved Person-link proposals; do not ingest face vectors in the pilot. | Synthetic four-user fixture: second ingest no-op, one new upload appears, unnamed people stay unlinked, cross-user photo/GPS access denied. |
+| Gramps integration | Synthetic import/export tree, real-Postgres control corpus and app driver behavior (MEDULLA-UNIFIED-DATA-PLANE-R026). | Keep production data unchanged during P0–P5; P6 is separate explicit authorization with replica, independent export and fallback. | P0–P5 digests, differential and restore artifacts pass before any production decision. |
+| Finance consumer | Finance-v1 Account/Activity semantics and provenance requirements (MEDULLA-FINANCE-PRIMITIVES-R012). | Import Ghostfolio activities one way through attached Postgres; maintain stable external IDs and source timestamps. | Reimport is idempotent, amounts remain exact, and retirement is a separate decision after Medulla accounting parity. |
+| Database deployment | Isolated CloudNativePG groups by major version/extension and a MariaDB group, per-app database and role, Medulla read/replication roles (MEDULLA-UNIFIED-DATA-PLANE-R023). | Logical replication enabled where supported; PITR to object storage, scheduled scratch restore and per-app rollback. An extension-heavy app keeps a compatible isolated group. | At least three apps attached including MariaDB; restore and app rollback pass without cross-app impact. |
+| Release/catalog maintainer | New connector package metadata and version pins (MEDULLA-UNIFIED-DATA-PLANE-R032). | Validate every required package catalog/registry entry and generated manifest using the existing release gate; preserve one authoritative package identity. | Missing site or version mismatch fails CI; no hand-maintained alternate fleet inventory. |
 
 ### Shared wire contract
 
@@ -103,25 +103,25 @@ An integration pull request names the requirement IDs it closes, Medulla source-
 ## Recovered requirement: authenticated Iceberg catalog
 
 Data flow: external engine token → `authorize_catalog_call` → tenant-scoped table list and load.
-Attach point: `crates/eg-lake/src/catalog.rs`, which documents a deny-all stub today. The first routing step is R039.3, locate and wire the listener.
+Attach point: `crates/medulla-lake/src/catalog.rs`, which documents a deny-all stub today. The first routing step is R039.3, locate and wire the listener.
 Reuses the verified request envelope, tenant model and existing Iceberg metadata writer.
 Decision: reuse the engine envelope. Rejected: a separate OAuth token store, which adds a second authority.
 Lakekeeper-style external catalog interchange is not written here; the engine remains the catalog authority.
 
 ## Per-modality promotion gate (R040)
 
-Data flow: served row write -> re-embed worker (`EG-FEDERATED-QUERY-R077.3`) -> `evaluate_promotion` -> `EmbeddingVersionStore::tag_batch` (`crates/eg-ann/src/version.rs:129`) -> verdict node.
+Data flow: served row write -> re-embed worker (`MEDULLA-FEDERATED-QUERY-R077.3`) -> `evaluate_promotion` -> `EmbeddingVersionStore::tag_batch` (`crates/medulla-ann/src/version.rs:129`) -> verdict node.
 
 Types: `ModalityCheck`, `PromotionVerdict`, `PromotionBlocked`. Attach point: before `tag_batch`. Production caller: the Wiring row creates the call site in the re-embed worker. Failure behavior: a block keeps the prior version active and tags nothing.
 
-Existing code: `crates/eg-ann/src/version.rs:32`, `version.rs:54`, `version.rs:129`, `crates/eg-ann/src/recall.rs:28`, `crates/eg-query/src/tables/embedding_binding.rs:526`, `crates/eg-modality/src/lib.rs`. Reachable today: no; `EmbeddingVersionStore` has no production caller. Search terms used: embedder_digest, model_digest, promot, projector, modality, recall_at, retrieval_check.
+Existing code: `crates/medulla-ann/src/version.rs:32`, `version.rs:54`, `version.rs:129`, `crates/medulla-ann/src/recall.rs:28`, `crates/medulla-query/src/tables/embedding_binding.rs:526`, `crates/medulla-modality/src/lib.rs`. Reachable today: no; `EmbeddingVersionStore` has no production caller. Search terms used: embedder_digest, model_digest, promot, projector, modality, recall_at, retrieval_check.
 
 Decision: gate on each modality separately, so an average cannot hide one regression. Rejected alternative: gate on mean recall, because it passes a candidate that breaks a single modality.
 
 Cross-repository: none.
 
 <!-- spec-definition-patch:owner-batch-20261012-unified-data-plane -->
-## Implementation plan — `EG-UNIFIED-DATA-PLANE-R026.4`
+## Implementation plan — `MEDULLA-UNIFIED-DATA-PLANE-R026.4`
 
 - Add the projection request/response to the existing approved R003/R005 mapping and query path. Pin mapping and graph revisions; preserve R026 P0–P5 phase evidence.
 - Enforce read-only behavior for projections at the query boundary, including callers with a separate graph mutation grant.
@@ -131,34 +131,34 @@ Cross-repository: none.
 - Submit an authorized graph mutation through `MutationBatch`. Confirm the projection read reflects its committed revision.
 - Also deny stale/unapproved mappings and unauthorized graph mutations.
 - Open dependency: the source names no target application, full relational schema, or captured statement corpus. The R026 pilot owner must supply and approve those artifacts before application compatibility is accepted.
-- Preserve EG-DURABLE-KERNEL-R035, EG-DURABLE-KERNEL-R043, EG-FEDERATED-QUERY-R080, EG-UNIFIED-DATA-PLANE-R026, EG-FEDERATED-QUERY-R080.1, EG-FEDERATED-QUERY-R080.2, EG-FEDERATED-QUERY-R080.3, EG-FEDERATED-QUERY-R080.4, EG-FEDERATED-QUERY-R080.5, EG-FEDERATED-QUERY-R080.6. Source SHA-256: `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`.
+- Preserve MEDULLA-DURABLE-KERNEL-R035, MEDULLA-DURABLE-KERNEL-R043, MEDULLA-FEDERATED-QUERY-R080, MEDULLA-UNIFIED-DATA-PLANE-R026, MEDULLA-FEDERATED-QUERY-R080.1, MEDULLA-FEDERATED-QUERY-R080.2, MEDULLA-FEDERATED-QUERY-R080.3, MEDULLA-FEDERATED-QUERY-R080.4, MEDULLA-FEDERATED-QUERY-R080.5, MEDULLA-FEDERATED-QUERY-R080.6. Source SHA-256: `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`.
 <!-- /spec-definition-patch -->
 
 ## Source categories: OLTP, metastore, search index, graph languages and the coverage matrix (R038.3 to R038.6, R022.4)
 
-These rows extend the existing virtual-graph rollups. They add no second planner. Entity rows stay at the source (`EG-UNIFIED-DATA-PLANE-R038`). Mappings are R2RML-style (`EG-UNIFIED-DATA-PLANE-R005`). Pushdown reuses the federation optimizer (`EG-FEDERATED-QUERY-R038`, `EG-FEDERATED-QUERY-R041`). Connection protocols form the second axis in `EG-FEDERATED-QUERY-R073.2`.
+These rows extend the existing virtual-graph rollups. They add no second planner. Entity rows stay at the source (`MEDULLA-UNIFIED-DATA-PLANE-R038`). Mappings are R2RML-style (`MEDULLA-UNIFIED-DATA-PLANE-R005`). Pushdown reuses the federation optimizer (`MEDULLA-FEDERATED-QUERY-R038`, `MEDULLA-FEDERATED-QUERY-R041`). Connection protocols form the second axis in `MEDULLA-FEDERATED-QUERY-R073.2`.
 
-Call path: served query -> planner -> `foreign_scan` (`crates/eg-plan/src/federation_opt/run.rs:26`) -> source session -> pushed fragment -> local residual.
+Call path: served query -> planner -> `foreign_scan` (`crates/medulla-plan/src/federation_opt/run.rs:26`) -> source session -> pushed fragment -> local residual.
 
 ### Source-category coverage matrix (R022.4)
 
 | Category | Standard protocol or format | Pushdown | Mapping form | Hot-path proof | Residency |
 |---|---|---|---|---|---|
-| Relational SQL | SQL through ODBC or JDBC drivers | filter, projection, join, aggregate, limit, time range | R2RML | `EG-UNIFIED-DATA-PLANE-R006` differential test | virtual |
-| PostgreSQL wire | PostgreSQL frontend/backend protocol 3.0 | filter, projection, join, aggregate, limit, time range | R2RML | `EG-UNIFIED-DATA-PLANE-R022.2` matrix runner | virtual |
-| OLTP row store | SQL with snapshot isolation | filter, projection, join, aggregate, limit, time range | R2RML plus `SnapshotSemantics` | `EG-UNIFIED-DATA-PLANE-R038.3.6` | virtual |
-| OLAP and columnar | SQL; Arrow Flight SQL | filter, projection, join, aggregate, limit, time range | R2RML | `EG-UNIFIED-DATA-PLANE-R020.2.2` | virtual |
-| Time series | SQL with time-bucket aggregates | filter, projection, aggregate, limit, time range | R2RML with a time column | `EG-UNIFIED-DATA-PLANE-R022.2` matrix runner | virtual |
-| Search index | HTTP JSON search query; vector nearest-neighbour query | filter, projection, limit, relevance top-k | document-id mapping plus score channel | `EG-UNIFIED-DATA-PLANE-R038.5.6` | virtual |
-| Document store | JSON documents addressed by JSONPath | filter, projection, aggregate, limit | RML with JSONPath | `EG-UNIFIED-DATA-PLANE-R022.2` matrix runner | virtual |
-| Web metasearch | MCP tool call | category, engine, limit, time range | `cv:SearchResult` with a cache | `EG-UNIFIED-DATA-PLANE-R038.7.6` | virtual, 900 s time-to-live |
-| Key-value store | key lookup and batched key lookup | key filter, limit | key-template mapping | `EG-FEDERATED-QUERY-R052` | virtual |
-| Data lake tables | Apache Iceberg REST catalog; Parquet, ORC, Avro | partition pruning, projection, limit, snapshot time range | R2RML | `EG-FEDERATED-QUERY-R051`; `EG-UNIFIED-DATA-PLANE-R038.4.6` | virtual |
-| Hadoop-family catalog | Hive metastore Thrift protocol | filter by partition, projection | R2RML over the table schema | `EG-UNIFIED-DATA-PLANE-R038.4.6` | virtual |
-| Spark-compatible engine | Spark Connect gRPC protocol; SQL | filter, projection, join, aggregate, limit, time range | R2RML | `EG-FEDERATED-QUERY-R053` | virtual |
-| Arrow Flight SQL | Arrow Flight SQL | filter, projection, join, aggregate, limit, time range | R2RML | `EG-UNIFIED-DATA-PLANE-R020.2.2` | virtual |
-| Property-graph source | openCypher; Gremlin | filter, projection, pattern join, aggregate, limit | label and type mapping | `EG-FEDERATED-QUERY-R053`; `EG-UNIFIED-DATA-PLANE-R038.6.6` | virtual |
-| Object storage | HTTP object API with range reads | prefix filter, byte-range projection | file-format mapping | `EG-UNIFIED-DATA-PLANE-R038.4.6` | virtual |
+| Relational SQL | SQL through ODBC or JDBC drivers | filter, projection, join, aggregate, limit, time range | R2RML | `MEDULLA-UNIFIED-DATA-PLANE-R006` differential test | virtual |
+| PostgreSQL wire | PostgreSQL frontend/backend protocol 3.0 | filter, projection, join, aggregate, limit, time range | R2RML | `MEDULLA-UNIFIED-DATA-PLANE-R022.2` matrix runner | virtual |
+| OLTP row store | SQL with snapshot isolation | filter, projection, join, aggregate, limit, time range | R2RML plus `SnapshotSemantics` | `MEDULLA-UNIFIED-DATA-PLANE-R038.3.6` | virtual |
+| OLAP and columnar | SQL; Arrow Flight SQL | filter, projection, join, aggregate, limit, time range | R2RML | `MEDULLA-UNIFIED-DATA-PLANE-R020.2.2` | virtual |
+| Time series | SQL with time-bucket aggregates | filter, projection, aggregate, limit, time range | R2RML with a time column | `MEDULLA-UNIFIED-DATA-PLANE-R022.2` matrix runner | virtual |
+| Search index | HTTP JSON search query; vector nearest-neighbour query | filter, projection, limit, relevance top-k | document-id mapping plus score channel | `MEDULLA-UNIFIED-DATA-PLANE-R038.5.6` | virtual |
+| Document store | JSON documents addressed by JSONPath | filter, projection, aggregate, limit | RML with JSONPath | `MEDULLA-UNIFIED-DATA-PLANE-R022.2` matrix runner | virtual |
+| Web metasearch | MCP tool call | category, engine, limit, time range | `cv:SearchResult` with a cache | `MEDULLA-UNIFIED-DATA-PLANE-R038.7.6` | virtual, 900 s time-to-live |
+| Key-value store | key lookup and batched key lookup | key filter, limit | key-template mapping | `MEDULLA-FEDERATED-QUERY-R052` | virtual |
+| Data lake tables | Apache Iceberg REST catalog; Parquet, ORC, Avro | partition pruning, projection, limit, snapshot time range | R2RML | `MEDULLA-FEDERATED-QUERY-R051`; `MEDULLA-UNIFIED-DATA-PLANE-R038.4.6` | virtual |
+| Hadoop-family catalog | Hive metastore Thrift protocol | filter by partition, projection | R2RML over the table schema | `MEDULLA-UNIFIED-DATA-PLANE-R038.4.6` | virtual |
+| Spark-compatible engine | Spark Connect gRPC protocol; SQL | filter, projection, join, aggregate, limit, time range | R2RML | `MEDULLA-FEDERATED-QUERY-R053` | virtual |
+| Arrow Flight SQL | Arrow Flight SQL | filter, projection, join, aggregate, limit, time range | R2RML | `MEDULLA-UNIFIED-DATA-PLANE-R020.2.2` | virtual |
+| Property-graph source | openCypher; Gremlin | filter, projection, pattern join, aggregate, limit | label and type mapping | `MEDULLA-FEDERATED-QUERY-R053`; `MEDULLA-UNIFIED-DATA-PLANE-R038.6.6` | virtual |
+| Object storage | HTTP object API with range reads | prefix filter, byte-range projection | file-format mapping | `MEDULLA-UNIFIED-DATA-PLANE-R038.4.6` | virtual |
 
 Budgets: one snapshot per source per query and a 5000 ms replica lag bound. The statement timeout is 30 s, the path depth limit is 8, and catalog pages hold 1,000 tables. These are starting defaults. A measurement on this platform replaces them.
 
@@ -166,21 +166,21 @@ Budgets: one snapshot per source per query and a 5000 ms replica lag bound. The 
 
 A web metasearch connector answers a pattern over web results at query time. The connector tools take query text, categories, engines, a time range and a language. The engine maps each result to `cv:SearchResult` with URL, title, snippet, engine, rank and retrieval time.
 
-Call path: served SPARQL or UQL -> planner -> `foreign_scan` (`run.rs:26`) -> `FragmentCacheScope` lookup (`cache.rs:27`) -> MCP operation of `EG-FEDERATED-QUERY-R073` -> typed rows.
+Call path: served SPARQL or UQL -> planner -> `foreign_scan` (`run.rs:26`) -> `FragmentCacheScope` lookup (`cache.rs:27`) -> MCP operation of `MEDULLA-FEDERATED-QUERY-R073` -> typed rows.
 
-Selection: a harness that asks Arbora to search the web receives the search tools through `EG-DECISION-ENGINE-R176` and `ARBORA-FLEET-R037`. Online refresh of embeddings over these results belongs to the adaptive-embeddings rows. They reference `EG-UNIFIED-DATA-PLANE-R038.7`.
+Selection: a harness that asks Arbora to search the web receives the search tools through `MEDULLA-DECISION-ENGINE-R176` and `ARBORA-FLEET-R037`. Online refresh of embeddings over these results belongs to the adaptive-embeddings rows. They reference `MEDULLA-UNIFIED-DATA-PLANE-R038.7`.
 
 Budget: a 900 s default time-to-live and one connector query per cache miss. These are starting defaults. A measurement on this platform replaces them.
 
 ## Web page ingest (R022.4.1, R038.7.7, R651.7)
 
-Search results stay virtual. A web metasearch pattern returns a `WebCandidateSet` with query provenance (`EG-UNIFIED-DATA-PLANE-R038.7.7`). The engine stores no result row. The fetch selection of `EG-DECISION-ENGINE-R802` chooses the pages to fetch.
+Search results stay virtual. A web metasearch pattern returns a `WebCandidateSet` with query provenance (`MEDULLA-UNIFIED-DATA-PLANE-R038.7.7`). The engine stores no result row. The fetch selection of `MEDULLA-DECISION-ENGINE-R802` chooses the pages to fetch.
 
-A fetched page is the only web content that the engine stores. It enters as one Document through `SourceIngest` (`EG-UNIFIED-DATA-PLANE-R651.7`). The source connector is `webarchiver`; `archivebox` is the secondary backend. Both produce the same Document shape.
+A fetched page is the only web content that the engine stores. It enters as one Document through `SourceIngest` (`MEDULLA-UNIFIED-DATA-PLANE-R651.7`). The source connector is `webarchiver`; `archivebox` is the secondary backend. Both produce the same Document shape.
 
 Call path: arbora `research.web` (`ARBORA-OPS-R067`) -> Graft SDK fetch through `webarchiver` or `archivebox` -> served `SourceIngest` (one Document) -> served `EnrichDocument` -> `src/server/dispatch/graph_pipeline/web_ingest.rs` -> one ChangeEnvelope through `ApplyChangeEnvelope`.
 
-`EnrichDocument` chunks with `eg_document::processing` (`EG-REPO-INGEST-R652`). It embeds through the configured `/v1/embeddings` wire endpoint (`EPISTEMIC_GRAPH_EMBEDDING_URL`, `_MODEL`, `_DIMS`, optional `_API_KEY`), or through the hash embedder, which it records as `embedder = hash`. The vectors use the `AddEmbedding` path, so `SemanticSearch` and hybrid retrieval find them. Extraction is `EG-INGEST-WORKER-R701` (`R651.7.7`). Citations are `EG-FEDERATED-QUERY-R653.7`. Refresh is `EG-DECISION-ENGINE-R174.9.7`.
+`EnrichDocument` chunks with `medulla_document::processing` (`MEDULLA-REPO-INGEST-R652`). It embeds through the configured `/v1/embeddings` wire endpoint (`MEDULLA_EMBEDDING_URL`, `_MODEL`, `_DIMS`, optional `_API_KEY`), or through the hash embedder, which it records as `embedder = hash`. The vectors use the `AddEmbedding` path, so `SemanticSearch` and hybrid retrieval find them. Extraction is `MEDULLA-INGEST-WORKER-R701` (`R651.7.7`). Citations are `MEDULLA-FEDERATED-QUERY-R653.7`. Refresh is `MEDULLA-DECISION-ENGINE-R174.9.7`.
 
 Budget: 50 ms p99 enrichment overhead per 100 KiB page and 64 MiB peak memory. These are starting defaults. A measurement on this platform replaces them.
 
@@ -188,7 +188,7 @@ Budget: 50 ms p99 enrichment overhead per 100 KiB page and 64 MiB peak memory. T
 ## Profiling, quality, column lineage and usage (R761 to R764)
 
 R761 and R762 are two new `AnalyticsJob` kinds. Both push aggregates to attached sources through
-R006 where the dialect allows it. R762 compiles graph rules to SHACL through `crates/eg-shacl`.
+R006 where the dialect allows it. R762 compiles graph rules to SHACL through `crates/medulla-shacl`.
 Three consecutive failures of one rule open one incident through R760. R763 extends the dataset
 lineage of R702 to columns by parsing SQL text with the shared planner parser. R764 counts asset
 use from the query audit and fuses a capped usage prior into catalog search.

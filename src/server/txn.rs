@@ -1,4 +1,4 @@
-//! Server-side staged OCC transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid — multi-operation ACID).
+//! Server-side staged OCC transactions (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid — multi-operation ACID).
 //!
 //! Design: **optimistic, snapshot-isolation, server-staged**. A transaction is
 //! opened with `BeginTxn`, then `TxnAddNode`/`TxnRemoveNode`/`TxnAddEdge`/
@@ -17,7 +17,7 @@
 //! the cheap coarse guard: if it is unchanged since begin, no write landed and the
 //! per-node re-check is skipped entirely.
 //!
-//! Isolation levels (CONCEPT:EG-KG.txn.serializable-zero-cost — M6b). `BeginTxn` carries an
+//! Isolation levels (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — M6b). `BeginTxn` carries an
 //! `isolation: Option<String>` hint:
 //!   * `None` / `"snapshot"` — the default. Validation is exactly the per-NODE
 //!     fingerprint read-set above (catches write-write on touched nodes). This is
@@ -33,7 +33,7 @@
 //!
 //! Any other isolation value is REJECTED at `BeginTxn`.
 //!
-//! PITR hook (CONCEPT:EG-KG.txn.serializable-zero-cost): point-in-time recovery would replay the
+//! PITR hook (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost): point-in-time recovery would replay the
 //! append-only `ledger` table up to a target version/timestamp; the natural slot is
 //! the commit path in `handlers/txn.rs` right after `core.mark_dirty()` (each
 //! committed txn maps to a version bump that a PITR cursor can target). Not
@@ -179,7 +179,7 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Auto-rollback transactions idle past `ttl_secs` (CONCEPT:EG-KG.txn.multi-op-occ-acid safety rail).
+/// Auto-rollback transactions idle past `ttl_secs` (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid safety rail).
 /// Called by the background maintenance tick in `main.rs`. Returns the number of
 /// expired transactions reclaimed. Holds only the `open_txns` DashMap per-entry
 /// locks briefly; never the topology lock — an abandoned txn that never committed
@@ -234,7 +234,7 @@ fn hash_bytes(bytes: &[u8]) -> u64 {
     h.finish()
 }
 
-/// Transaction isolation level (CONCEPT:EG-KG.txn.serializable-zero-cost). `Snapshot` is today's behavior
+/// Transaction isolation level (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost). `Snapshot` is today's behavior
 /// (per-node OCC read-set only); `Serializable` additionally re-evaluates a captured
 /// predicate read-set at commit to reject phantom/range anomalies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -282,7 +282,7 @@ pub(crate) fn parse_isolation(
 }
 
 /// A predicate/range read the txn relied on, captured at begin and re-evaluated at
-/// commit (CONCEPT:EG-KG.txn.serializable-zero-cost serializable). Currently the one supported predicate is
+/// commit (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost serializable). Currently the one supported predicate is
 /// a label scan — the minimal staged-read primitive the txn subsystem can express
 /// without a protocol change.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -308,7 +308,7 @@ impl PredicateRead {
     /// each matching `(node_id, property-blob)` pair. A phantom inserted/removed
     /// changes the id membership; a matching node's property change alters its blob —
     /// either flips the fingerprint, which is exactly the serializable anomaly set.
-    /// `pub(crate)` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005) so a caller with a real in-txn read op — the SQL
+    /// `pub(crate)` (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-005) so a caller with a real in-txn read op — the SQL
     /// wire's own buffered-transaction reads, which have no live `GraphTxnState`
     /// to stage into until `COMMIT` — can fingerprint a predicate AT THE MOMENT
     /// the read actually happens (the correct "captured at begin" baseline) and
@@ -338,7 +338,7 @@ impl PredicateRead {
     }
 }
 
-/// One open server-staged transaction (CONCEPT:EG-KG.txn.multi-op-occ-acid). Holds the target graph
+/// One open server-staged transaction (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid). Holds the target graph
 /// name, the OCC begin-version, the staged durable-mutation write-set, and the
 /// per-node read-set fingerprints for conflict detection. Stored behind a `Mutex`
 /// in `ServerState::open_txns` keyed by a server-issued `txn_id`.
@@ -356,7 +356,7 @@ pub struct GraphTxnState {
     pub(crate) write_set: Vec<Method>,
     /// Per-node fingerprints captured when first referenced — the OCC read-set.
     pub(crate) read_set: HashMap<String, NodeFingerprint>,
-    /// Isolation level (CONCEPT:EG-KG.txn.serializable-zero-cost). `Snapshot` validates only `read_set`;
+    /// Isolation level (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost). `Snapshot` validates only `read_set`;
     /// `Serializable` additionally re-checks `predicate_reads`.
     pub(crate) isolation: IsolationLevel,
     /// Predicate/range reads captured at begin and re-evaluated at commit under
@@ -369,7 +369,7 @@ pub struct GraphTxnState {
     /// Monotonic ms timestamp of the last staged/begun activity, for TTL idle
     /// expiry. Updated on every stage so an actively-used txn is never swept.
     pub(crate) last_active_ms: u64,
-    /// Multi-graph staged write-set (CONCEPT:EG-KG.txn.routes-cross-shard-txn — Lane N). A `Txn*` op naming a
+    /// Multi-graph staged write-set (CONCEPT:MEDULLA-KG.txn.routes-cross-shard-txn — Lane N). A `Txn*` op naming a
     /// graph OTHER than the default `graph` accumulates here, keyed by graph name, in
     /// stage order. EMPTY for an ordinary single-graph txn (the fast path pays
     /// nothing). At commit, if these touch graphs in a DIFFERENT Raft group than the
@@ -385,7 +385,7 @@ pub struct GraphTxnState {
     /// KG-2.225). Each records a durable graph-side `__blob__` link to an already-
     /// stored content-addressed blob; lands in the SAME cross-modal commit txn.
     pub(crate) blob_refs: Vec<(String, String)>,
-    /// Staged TIME-SERIES measurement batches for the DEFAULT graph (CONCEPT:EG-KG.backend.cross-modal-atomic-commit —
+    /// Staged TIME-SERIES measurement batches for the DEFAULT graph (CONCEPT:MEDULLA-KG.backend.cross-modal-atomic-commit —
     /// extended cross-modal staging). EMPTY for a txn with no measurements. When
     /// non-empty, the commit lands each batch into the graph's SERIES tables inside the
     /// SAME redb `WriteTransaction` as the graph/vector/blob writes, so a node and the
@@ -394,19 +394,19 @@ pub struct GraphTxnState {
     /// `TsScan` (read-your-own-writes on the tsdb modality).
     pub(crate) measurements: Vec<StagedMeasurement>,
     /// Staged OWL AXIOM writes, already LOWERED to graph-native `AddNode`/`AddEdge`
-    /// methods at stage time (CONCEPT:EG-KG.txn.extended-cross-modal). Kept separate from `write_set` for
+    /// methods at stage time (CONCEPT:MEDULLA-KG.txn.extended-cross-modal). Kept separate from `write_set` for
     /// provenance, but applied through the SAME cross-modal wtx (`apply_method_rows`
     /// durably + `apply_staged` in-memory) so the committed OWL axioms are visible to the
     /// reasoner consistently with the txn's other modalities. EMPTY for a non-axiom txn.
     pub(crate) axioms: Vec<Method>,
     /// Staged SPARQL CONSTRUCT results, already LOWERED to graph-native `AddNode`/
-    /// `AddEdge` methods at stage time (CONCEPT:EG-KG.txn.construct-evaluated — the CONSTRUCT is evaluated
+    /// `AddEdge` methods at stage time (CONCEPT:MEDULLA-KG.txn.construct-evaluated — the CONSTRUCT is evaluated
     /// against the committed snapshot when staged). Applied through the SAME cross-modal
     /// wtx as `axioms`. EMPTY for a non-construct txn.
     pub(crate) constructs: Vec<Method>,
-    /// Staged PLANNER WRITEBACK methods (CONCEPT:EG-KG.query.plan-dag, D7 — the planner-writeback
+    /// Staged PLANNER WRITEBACK methods (CONCEPT:MEDULLA-KG.query.plan-dag, D7 — the planner-writeback
     /// ACID seam), already LOWERED to graph-native `AddNode`/`AddEdge` methods at stage
-    /// time from a `eg_plan::Plan`'s (or `PlanDag`'s) executed `RowSet` result — e.g.
+    /// time from a `medulla_plan::Plan`'s (or `PlanDag`'s) executed `RowSet` result — e.g.
     /// materializing a `Reason`/`Traverse`-inferred edge set. Kept separate from
     /// `write_set` for provenance, but applied through the SAME cross-modal wtx
     /// (`apply_method_rows` durably + `apply_staged` in-memory) as `axioms`/`constructs`,
@@ -415,7 +415,7 @@ pub struct GraphTxnState {
     pub(crate) plan_writeback: Vec<Method>,
 }
 
-/// One staged time-series measurement batch (CONCEPT:EG-KG.backend.cross-modal-atomic-commit). Carries the decoded points
+/// One staged time-series measurement batch (CONCEPT:MEDULLA-KG.backend.cross-modal-atomic-commit). Carries the decoded points
 /// plus the schema fields the durable SERIES tables need on FIRST write of a series
 /// (`n_fields`/`bucket_ns`/`field_names`); for an already-existing series the stored meta
 /// is authoritative and these are ignored. Decoded once at stage time so the commit path
@@ -500,7 +500,7 @@ impl GraphTxnState {
     }
 
     /// Register an ADDITIONAL predicate/range read this txn relied on,
-    /// fingerprinted NOW against `core` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005) — i.e. `core` MUST be
+    /// fingerprinted NOW against `core` (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-005) — i.e. `core` MUST be
     /// the snapshot as of the moment the read actually happened, not a later
     /// one (a fingerprint captured at commit time, instants before
     /// `validate()` re-checks it, protects nothing). Unlike the `BeginTxn` RPC
@@ -536,7 +536,7 @@ impl GraphTxnState {
     }
 
     /// Stage one durable mutation against a NAMED graph that may differ from the
-    /// txn's default (CONCEPT:EG-KG.txn.routes-cross-shard-txn — multi-graph). When `graph` equals the
+    /// txn's default (CONCEPT:MEDULLA-KG.txn.routes-cross-shard-txn — multi-graph). When `graph` equals the
     /// default, this routes to [`Self::stage`] (the single-graph read-set/OCC path,
     /// unchanged). Otherwise the op accumulates in `extra_writes` for that graph; the
     /// op is NOT applied (the cross-shard coordinator applies the multi-graph slices
@@ -560,7 +560,7 @@ impl GraphTxnState {
     }
 
     /// Every graph this txn touches: the default plus any extra-graph targets
-    /// (CONCEPT:EG-KG.txn.routes-cross-shard-txn). Used at commit to detect a cross-shard span.
+    /// (CONCEPT:MEDULLA-KG.txn.routes-cross-shard-txn). Used at commit to detect a cross-shard span.
     pub(crate) fn touched_graphs(&self) -> Vec<String> {
         let mut out = vec![self.graph.clone()];
         out.extend(self.extra_writes.keys().cloned());
@@ -568,7 +568,7 @@ impl GraphTxnState {
     }
 
     /// True when this txn staged ops against a graph other than its default
-    /// (CONCEPT:EG-KG.txn.routes-cross-shard-txn) — i.e. it is a multi-graph txn whose span the commit path
+    /// (CONCEPT:MEDULLA-KG.txn.routes-cross-shard-txn) — i.e. it is a multi-graph txn whose span the commit path
     /// must evaluate against the router.
     pub(crate) fn is_multi_graph(&self) -> bool {
         !self.extra_writes.is_empty()
@@ -627,7 +627,7 @@ impl GraphTxnState {
     /// Returns `true` when the transaction may commit.
     pub(crate) fn validate(&self, core: &GraphCore) -> bool {
         // Coarse guard: no write landed at all since begin → nothing to re-check
-        // (CONCEPT:EG-KG.txn.serializable-zero-cost — serializable pays nothing when the graph is untouched).
+        // (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — serializable pays nothing when the graph is untouched).
         if core.version() == self.begin_version {
             return true;
         }
@@ -653,7 +653,7 @@ impl GraphTxnState {
     }
 }
 
-/// Server-issued opaque transaction-id source (CONCEPT:EG-KG.txn.multi-op-occ-acid).
+/// Server-issued opaque transaction-id source (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid).
 /// IDs must now remain unique across process restarts because a prepared/terminal
 /// coordinator receipt outlives `open_txns`; a per-process counter would collide
 /// with durable parent/child idempotency keys after every restart.

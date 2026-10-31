@@ -14,18 +14,18 @@ from pydantic import ValidationError
 from test_connector_pack_client import _catalog
 from test_connector_pack_planted import IMPORTER, _bind, _context
 
-from epistemic_graph import (
+from medulla import (
     ConnectorPackArchiveBuilder,
     ConnectorPackClient,
     ConnectorPackEntryContent,
 )
-from epistemic_graph.client import (
-    EpistemicGraphClient,
+from medulla.client import (
+    MedullaClient,
     _canonical_method_body,
     _decode_send_result,
 )
-from epistemic_graph.connector_pack import connector_pack_import_key
-from epistemic_graph.generated.connector_pack import (
+from medulla.connector_pack import connector_pack_import_key
+from medulla.generated.connector_pack import (
     PackAnnotations,
     PackEntryKind,
     PackModelFacts,
@@ -33,7 +33,7 @@ from epistemic_graph.generated.connector_pack import (
 )
 
 
-@pytest.mark.spec("EG-TYPED-PACKS-R048.5")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R048.5")
 def test_model_profile_round_trip() -> None:
     model: dict[str, Any] = {
         "provider": "test-provider",
@@ -71,7 +71,7 @@ def test_model_profile_round_trip() -> None:
 
     async def exercise() -> None:
         connector = "model-harness-facts"
-        client = await EpistemicGraphClient.connect(
+        client = await MedullaClient.connect(
             socket_path=os.environ["GRAPH_SERVICE_SOCKET"],
             verified_context=request_context(),
         )

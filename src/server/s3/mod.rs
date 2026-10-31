@@ -1,4 +1,4 @@
-//! S3-compatible object-storage REST surface (CONCEPT:EG-KG.ontology.object-put-get-head) — an Amazon-S3 /
+//! S3-compatible object-storage REST surface (CONCEPT:MEDULLA-KG.ontology.object-put-get-head) — an Amazon-S3 /
 //! MinIO-shaped HTTP API so any S3 SDK, `aws s3` CLI, or `mc` client talks to the
 //! engine's content-addressed BLOB store DIRECTLY.
 //!
@@ -6,9 +6,9 @@
 //!
 //! An ADAPTER, not a re-implemented object store. Object BYTES land in the engine's
 //! content-addressed [`ChunkStore`](crate::server::blob::store::ChunkStore) BLOB
-//! substrate (CONCEPT:EG-KG.storage.blob-namespace) — so identical objects dedup by sha256 — while the
+//! substrate (CONCEPT:MEDULLA-KG.storage.blob-namespace) — so identical objects dedup by sha256 — while the
 //! bucket / object index (the listing metadata) lives in the durable KV surface
-//! (CONCEPT:EG-KG.storage.namespaced-kv-surface), keyed for prefix-scan. Both are the engine's own durable
+//! (CONCEPT:MEDULLA-KG.storage.namespaced-kv-surface), keyed for prefix-scan. Both are the engine's own durable
 //! stores; nothing new is invented here.
 //!
 //! It is a HAND-ROLLED HTTP/1.1 listener over `tokio::net` — the SAME
@@ -18,7 +18,7 @@
 //! request headers (for the auth guard). XML responses are hand-built strings in
 //! the S3 shape.
 //!
-//! ## API subset (CONCEPT:EG-KG.ontology.object-put-get-head)
+//! ## API subset (CONCEPT:MEDULLA-KG.ontology.object-put-get-head)
 //!
 //! LANDED: `PutObject` / `GetObject` / `HeadObject` / `DeleteObject`,
 //! `ListObjectsV2` (+ v1 fallback, `prefix`), `CreateBucket` / `DeleteBucket` /
@@ -26,9 +26,9 @@
 //! the canonical request, signed headers, payload digest,
 //! credential scope, and timestamp freshness with the secret access key.
 //!
-//! ## Multipart upload + ranged reads (CONCEPT:EG-KG.txn.pubsub-transactions)
+//! ## Multipart upload + ranged reads (CONCEPT:MEDULLA-KG.txn.pubsub-transactions)
 //!
-//! LANDED (EG-307): the multipart-upload lifecycle — `CreateMultipartUpload`
+//! LANDED (MEDULLA-307): the multipart-upload lifecycle — `CreateMultipartUpload`
 //! (`POST /b/k?uploads` → an `UploadId`), `UploadPart`
 //! (`PUT /b/k?partNumber=N&uploadId=…`), `CompleteMultipartUpload`
 //! (`POST /b/k?uploadId=…`, parts concatenated in ascending part-number order into
@@ -67,12 +67,12 @@ use calendar::{iso8601, valid_amz_date};
 /// Env var: when set (and built `--features s3-api`) the S3 REST listener binds
 /// this address (documented loopback default `127.0.0.1:9000`, the MinIO default).
 /// Unset ⇒ no listener.
-pub const S3_ADDR_ENV: &str = "EPISTEMIC_GRAPH_S3_ADDR";
+pub const S3_ADDR_ENV: &str = "MEDULLA_S3_ADDR";
 /// Env var: the access-key id. When set (with the secret), the SigV4 guard is
 /// armed and anonymous access is refused.
-pub const S3_ACCESS_KEY_ENV: &str = "EPISTEMIC_GRAPH_S3_ACCESS_KEY";
+pub const S3_ACCESS_KEY_ENV: &str = "MEDULLA_S3_ACCESS_KEY";
 /// Env var: the secret access key (armed together with the access key).
-pub const S3_SECRET_KEY_ENV: &str = "EPISTEMIC_GRAPH_S3_SECRET_KEY";
+pub const S3_SECRET_KEY_ENV: &str = "MEDULLA_S3_SECRET_KEY";
 /// Physical authority identity for the S3 metadata/index KV file.  Object
 /// bytes have their own CAS authority; the index must also remain distinct
 /// from the main KV and Redis adapter files even though all three use the
@@ -167,12 +167,12 @@ fn validate_object_meta(meta: &ObjectMeta) -> Result<(), String> {
 }
 
 fn decode_object_meta(bytes: &[u8]) -> Result<ObjectMeta, String> {
-    let meta: ObjectMeta = eg_types::msgpack::decode_bounded(
+    let meta: ObjectMeta = medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_S3_META_BYTES,
             MAX_S3_META_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| "stored S3 metadata is invalid or exceeds resource limits".to_string())?;
@@ -180,9 +180,9 @@ fn decode_object_meta(bytes: &[u8]) -> Result<ObjectMeta, String> {
     Ok(meta)
 }
 
-// ── the store (CONCEPT:EG-KG.ontology.object-put-get-head) — objects over the BLOB CAS + KV index ────────────
+// ── the store (CONCEPT:MEDULLA-KG.ontology.object-put-get-head) — objects over the BLOB CAS + KV index ────────────
 
-/// One uploaded part of an in-progress multipart upload (CONCEPT:EG-KG.txn.pubsub-transactions). The bytes
+/// One uploaded part of an in-progress multipart upload (CONCEPT:MEDULLA-KG.txn.pubsub-transactions). The bytes
 /// live in the CAS, referenced by `digest`.
 #[derive(Clone, Debug)]
 struct PartInfo {
@@ -191,7 +191,7 @@ struct PartInfo {
     etag: String,
 }
 
-/// An in-progress multipart upload (CONCEPT:EG-KG.txn.pubsub-transactions): the target bucket/key, its
+/// An in-progress multipart upload (CONCEPT:MEDULLA-KG.txn.pubsub-transactions): the target bucket/key, its
 /// content-type, and the parts received so far keyed by part number (so completion
 /// concatenates them in ascending order regardless of arrival order).
 #[derive(Clone, Debug)]
@@ -205,11 +205,11 @@ struct MultipartUpload {
 
 /// The S3 backing store: a content-addressed [`ChunkStore`] for object bytes + a
 /// durable KV index for buckets and object metadata. In-progress multipart uploads
-/// are held in an in-memory registry until completed or aborted (CONCEPT:EG-KG.txn.pubsub-transactions).
+/// are held in an in-memory registry until completed or aborted (CONCEPT:MEDULLA-KG.txn.pubsub-transactions).
 pub struct S3Store {
     kv: Arc<KvStore>,
     blob: Arc<dyn ChunkStore>,
-    /// `uploadId` → the in-progress multipart upload state (CONCEPT:EG-KG.txn.pubsub-transactions).
+    /// `uploadId` → the in-progress multipart upload state (CONCEPT:MEDULLA-KG.txn.pubsub-transactions).
     uploads: Mutex<HashMap<String, MultipartUpload>>,
 }
 
@@ -239,7 +239,7 @@ impl S3Store {
                 static EPHEMERAL_SEQ: AtomicU64 = AtomicU64::new(0);
                 let seq = EPHEMERAL_SEQ.fetch_add(1, Ordering::Relaxed);
                 let tmp = std::env::temp_dir().join(format!(
-                    "eg-s3-{}-{}-{}",
+                    "medulla-s3-{}-{}-{}",
                     std::process::id(),
                     now_ms(),
                     seq
@@ -323,12 +323,12 @@ impl S3Store {
             content_type: content_type.to_string(),
         };
         let bytes = rmp_serde::to_vec_named(&meta).map_err(|e| e.to_string())?;
-        eg_types::msgpack::validate_single_value(
+        medulla_types::msgpack::validate_single_value(
             &bytes,
-            eg_types::msgpack::MsgpackLimits::new(
+            medulla_types::msgpack::MsgpackLimits::new(
                 MAX_S3_META_BYTES,
                 MAX_S3_META_ITEMS,
-                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+                medulla_types::msgpack::DEFAULT_MAX_DEPTH,
             ),
         )
         .map_err(|_| "S3 metadata exceeds resource limits".to_string())?;
@@ -392,7 +392,7 @@ impl S3Store {
         Ok(out)
     }
 
-    // ── multipart upload (CONCEPT:EG-KG.txn.pubsub-transactions) ─────────────────────────────────────────
+    // ── multipart upload (CONCEPT:MEDULLA-KG.txn.pubsub-transactions) ─────────────────────────────────────────
 
     /// Begin a multipart upload, returning a fresh, process-unique `UploadId`. The
     /// upload accumulates parts in memory until completed/aborted.
@@ -572,7 +572,7 @@ impl S3Store {
     }
 }
 
-// ── SigV4 auth guard (CONCEPT:EG-KG.ontology.object-put-get-head) ─────────────────────────────────────────────
+// ── SigV4 auth guard (CONCEPT:MEDULLA-KG.ontology.object-put-get-head) ─────────────────────────────────────────────
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -885,7 +885,7 @@ fn split_bucket_key(path: &str) -> (String, String) {
 }
 
 /// Route + execute one S3 request → an [`S3Response`]. Pure (sync) so it is fully
-/// unit-testable without a socket (CONCEPT:EG-KG.ontology.object-put-get-head).
+/// unit-testable without a socket (CONCEPT:MEDULLA-KG.ontology.object-put-get-head).
 fn handle(store: &S3Store, auth: &S3Auth, req: &S3Request) -> S3Response {
     // A18: SigV4 IS this surface's own carrier proof — mint the engine-owned
     // authority only after it succeeds, through the ONE shared helper every
@@ -916,7 +916,7 @@ fn handle_authorized(store: &S3Store, req: &S3Request) -> S3Response {
     route::target(req).serve(store, req)
 }
 
-// Route the multipart sub-resource verbs for a known `uploadId` (CONCEPT:EG-KG.txn.pubsub-transactions):
+// Route the multipart sub-resource verbs for a known `uploadId` (CONCEPT:MEDULLA-KG.txn.pubsub-transactions):
 // `PUT …&partNumber=N` (UploadPart), `POST` (CompleteMultipartUpload),
 
 fn internal(msg: &str) -> S3Response {
@@ -938,7 +938,7 @@ fn object_response(meta: ObjectMeta, bytes: Vec<u8>, head_only: bool) -> S3Respo
 }
 
 /// Parse an HTTP `Range` header value against a body of `total` bytes, returning the
-/// inclusive `(start, end)` byte offsets (CONCEPT:EG-KG.txn.pubsub-transactions). Supports `bytes=start-end`,
+/// inclusive `(start, end)` byte offsets (CONCEPT:MEDULLA-KG.txn.pubsub-transactions). Supports `bytes=start-end`,
 /// `bytes=start-` (to end), and `bytes=-suffix` (last N bytes). Returns `None` when
 /// the range is malformed or unsatisfiable (→ a `416` reply).
 fn parse_range(range: &str, total: u64) -> Option<(u64, u64)> {
@@ -973,7 +973,7 @@ fn parse_range(range: &str, total: u64) -> Option<(u64, u64)> {
 }
 
 /// Build a `206 Partial Content` reply carrying the requested byte slice + the
-/// `Content-Range` / `Accept-Ranges` headers (CONCEPT:EG-KG.txn.pubsub-transactions). An unsatisfiable
+/// `Content-Range` / `Accept-Ranges` headers (CONCEPT:MEDULLA-KG.txn.pubsub-transactions). An unsatisfiable
 /// range yields `416 Range Not Satisfiable`.
 fn range_response(meta: ObjectMeta, bytes: Vec<u8>, range: &str) -> S3Response {
     let total = bytes.len() as u64;
@@ -1009,7 +1009,7 @@ fn range_response(meta: ObjectMeta, bytes: Vec<u8>, range: &str) -> S3Response {
     }
 }
 
-/// `<InitiateMultipartUploadResult>` — the CreateMultipartUpload reply (EG-307).
+/// `<InitiateMultipartUploadResult>` — the CreateMultipartUpload reply (MEDULLA-307).
 fn initiate_multipart_xml(bucket: &str, key: &str, upload_id: &str) -> String {
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?><InitiateMultipartUploadResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Bucket>{}</Bucket><Key>{}</Key><UploadId>{}</UploadId></InitiateMultipartUploadResult>",
@@ -1019,7 +1019,7 @@ fn initiate_multipart_xml(bucket: &str, key: &str, upload_id: &str) -> String {
     )
 }
 
-/// `<CompleteMultipartUploadResult>` — the CompleteMultipartUpload reply (EG-307).
+/// `<CompleteMultipartUploadResult>` — the CompleteMultipartUpload reply (MEDULLA-307).
 fn complete_multipart_xml(bucket: &str, key: &str, etag: &str) -> String {
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?><CompleteMultipartUploadResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Location>/{}/{}</Location><Bucket>{}</Bucket><Key>{}</Key><ETag>{}</ETag></CompleteMultipartUploadResult>",
@@ -1031,7 +1031,7 @@ fn complete_multipart_xml(bucket: &str, key: &str, etag: &str) -> String {
     )
 }
 
-/// `<ListPartsResult>` — the ListParts reply (EG-307).
+/// `<ListPartsResult>` — the ListParts reply (MEDULLA-307).
 fn list_parts_xml(bucket: &str, key: &str, upload_id: &str, parts: &[(u32, PartInfo)]) -> String {
     let mut b = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ListPartsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Bucket>{}</Bucket><Key>{}</Key><UploadId>{}</UploadId>",
@@ -1053,7 +1053,7 @@ fn list_parts_xml(bucket: &str, key: &str, upload_id: &str, parts: &[(u32, PartI
 
 fn list_buckets_xml(buckets: &[String]) -> String {
     let mut b = String::from(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ListAllMyBucketsResult><Owner><ID>epistemic-graph</ID><DisplayName>epistemic-graph</DisplayName></Owner><Buckets>",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ListAllMyBucketsResult><Owner><ID>medulla</ID><DisplayName>medulla</DisplayName></Owner><Buckets>",
     );
     for name in buckets {
         b.push_str(&format!(
@@ -1113,8 +1113,8 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<S3Request> {
 }
 
 /// Serve the S3 REST surface on `addr` until the process exits. Spawned by
-/// `main.rs` only when built `--features s3-api` AND `EPISTEMIC_GRAPH_S3_ADDR` is
-/// set (CONCEPT:EG-KG.ontology.object-put-get-head). One task per connection, one response per request,
+/// `main.rs` only when built `--features s3-api` AND `MEDULLA_S3_ADDR` is
+/// set (CONCEPT:MEDULLA-KG.ontology.object-put-get-head). One task per connection, one response per request,
 /// connection: close — the SAME idiom as the obs / SPARQL listeners.
 pub async fn serve_with_blob_store(
     addr: &str,
@@ -1206,7 +1206,7 @@ async fn serve_with_store_inner(
 
 #[cfg(test)]
 mod tests {
-    //! CONCEPT:EG-KG.ontology.object-put-get-head — object PUT/GET/HEAD/List/Delete round-trip over the CAS+KV
+    //! CONCEPT:MEDULLA-KG.ontology.object-put-get-head — object PUT/GET/HEAD/List/Delete round-trip over the CAS+KV
     //! store, bucket lifecycle, the SigV4 auth accept/reject, and helper
     //! coverage (path split, query parse, XML shape).
     use super::*;
@@ -1331,7 +1331,7 @@ mod tests {
     #[test]
     fn durable_index_reopens_bucket_list_and_head_without_blob_scope() {
         let dir = std::env::temp_dir().join(format!(
-            "eg-s3-index-durable-{}-{}",
+            "medulla-s3-index-durable-{}-{}",
             std::process::id(),
             now_ms()
         ));
@@ -1367,7 +1367,7 @@ mod tests {
     #[test]
     fn injected_blob_store_is_visible_to_s3_and_survives_reopen() {
         let dir = std::env::temp_dir().join(format!(
-            "eg-s3-selected-blob-{}-{}",
+            "medulla-s3-selected-blob-{}-{}",
             std::process::id(),
             now_ms()
         ));
@@ -1601,7 +1601,7 @@ mod tests {
         assert!(store.object_meta("bucket", "object").is_err());
     }
 
-    // ── multipart upload + ranged reads (CONCEPT:EG-KG.txn.pubsub-transactions) ─────────────────────────
+    // ── multipart upload + ranged reads (CONCEPT:MEDULLA-KG.txn.pubsub-transactions) ─────────────────────────
 
     /// Pull the `<UploadId>` out of an InitiateMultipartUpload XML reply.
     fn upload_id_of(xml: &str) -> String {

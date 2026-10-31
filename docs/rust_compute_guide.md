@@ -4,7 +4,7 @@
 
 ## Overview
 
-`epistemic-graph` is a Unix Sockets-based Rust crate that provides the **sole high-performance compute backend** for `agent-utilities`. It replaces all previous graph computation libraries (including `epistemic-graph`) with a single, purpose-built engine.
+`medulla` is a Unix Sockets-based Rust crate that provides the **sole high-performance compute backend** for `agent-utilities`. It replaces all previous graph computation libraries (including `medulla`) with a single, purpose-built engine.
 
 ## Architecture
 
@@ -12,7 +12,7 @@
 ┌────────────────────────────────────────────────────────────┐
 │ Python (agent-utilities)                                    │
 │                                                            │
-│  GraphComputeEngine ──────▶ EpistemicGraph (Unix Sockets)          │
+│  GraphComputeEngine ──────▶ Medulla (Unix Sockets)          │
 │  graph_primitives.py        │                              │
 │                             ▼                              │
 │  ┌──────────────────────────────────────────────────────┐  │
@@ -38,7 +38,7 @@
 ## Modules
 
 ### `lib.rs` — Unix Sockets Surface
-- Single `#[pyclass]`: `EpistemicGraph`
+- Single `#[pyclass]`: `Medulla`
 - Every `#[pymethod]` returns `PyResult<T>` — no panics on user-facing paths
 - Delegates all logic to `graph`, `algorithms`, `reasoning`, and `finance`
 
@@ -104,7 +104,7 @@ Replaces `scikit-learn` on the hot path (parity-validated). Served via
   Names: `ridge`, `lasso`, `elasticnet`, `decisiontree`, `randomforest`,
   `gradientboosting`, `adaboost`, `svr` (RBF/linear via SMO). `rayon`-parallel
   forests; no external ML crates.
-- **Training kernels** (`training.rs`, CONCEPT:EG-KG.compute.rust-native-training-loss): the pure-Rust loss /
+- **Training kernels** (`training.rs`, CONCEPT:MEDULLA-KG.compute.rust-native-training-loss): the pure-Rust loss /
   optimizer performance path for the in-house training substrate — `softmax`,
   `log_softmax`, `cross_entropy` (+ analytic grad), `dpo_loss` (Bradley-Terry,
   + chosen/rejected grads), `grpo_surrogate` (PPO/GRPO clipped, + grad with a
@@ -124,10 +124,10 @@ Replaces `scikit-learn` on the hot path (parity-validated). Served via
 ## Usage from Python
 
 ```python
-import epistemic_graph
+import medulla
 
 # Create a graph
-g = epistemic_graph.EpistemicGraph()
+g = medulla.Medulla()
 
 # Add nodes with typed properties
 g.add_node("agent:planner", '{"type": "Agent", "lifecycle_state": "active"}')
@@ -206,7 +206,7 @@ communication channels, and ACL-based isolation.
 | `isolation.rs` | ACL isolation (peer deny, manager access, team scoping) |
 | `channels.rs` | Ephemeral P2P and group channels with KG imprint on close |
 | `server.rs` | Tokio UDS/TCP server with HMAC auth |
-| `main.rs` | Binary entry point (`epistemic-graph-server`) |
+| `main.rs` | Binary entry point (`medulla-server`) |
 
 See [`docs/service_mode.md`](service_mode.md) for full reference.
 

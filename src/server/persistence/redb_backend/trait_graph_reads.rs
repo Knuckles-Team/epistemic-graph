@@ -80,7 +80,7 @@ macro_rules! persistence_graph_reads {
         .transpose()
     }
 
-    /// SYNC bounded-page durable-material fetch (CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged
+    /// SYNC bounded-page durable-material fetch (CONCEPT:MEDULLA-KG.sharding.paged-lazy-open, L38 "paged
     /// adjacency") — reuses [`Self::read_graph_dump_page_blocking`], a genuinely
     /// SOURCE-bounded scan (never collects the whole graph's rows into memory first,
     /// unlike the [`Self::read_graph_material_blocking`] override above / the
@@ -138,7 +138,7 @@ macro_rules! persistence_graph_reads {
             }))
     }
 
-    /// COMMIT-BEFORE-ACK (CONCEPT:EG-KG.backend.authoritative-dispatch). Enqueue the mutation with a completion
+    /// COMMIT-BEFORE-ACK (CONCEPT:MEDULLA-KG.backend.authoritative-dispatch). Enqueue the mutation with a completion
     /// oneshot and await its durable commit. Backpressure-NOT-drop: a full queue
     /// BLOCKS for capacity (`SyncSender::send`) instead of shedding the write. The enqueue
     /// + the blocking send both happen on the blocking pool so the Tokio worker is

@@ -6,7 +6,7 @@ use crate::protocol::Method;
 
 /// Vectors and node removals an envelope carries. Vectors live in the
 /// semantic store beside the snapshot, so they are published after the
-/// snapshot swap (EG-UNIFIED-DATA-PLANE-R651.7.3).
+/// snapshot swap (MEDULLA-UNIFIED-DATA-PLANE-R651.7.3).
 #[derive(Default)]
 struct StagedVectors<'a> {
     added: Vec<(&'a str, &'a [f32])>,
@@ -110,9 +110,9 @@ fn stage_cas(
     conditions_msgpack: &[u8],
     updates_msgpack: &[u8],
 ) -> Result<(), String> {
-    let conditions = eg_types::msgpack::decode_property_object(conditions_msgpack)
+    let conditions = medulla_types::msgpack::decode_property_object(conditions_msgpack)
         .map_err(|_| "invalid committed CAS conditions".to_string())?;
-    let updates = eg_types::msgpack::decode_property_object(updates_msgpack)
+    let updates = medulla_types::msgpack::decode_property_object(updates_msgpack)
         .map_err(|_| "invalid committed CAS updates".to_string())?;
     if !staged.compare_and_set_fields(node_id, &conditions, &updates) {
         return Err(format!(

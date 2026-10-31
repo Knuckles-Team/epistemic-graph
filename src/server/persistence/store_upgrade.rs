@@ -11,16 +11,16 @@
 //!   layout. A second run finds nothing to do.
 //! * [`migrate_on_open`] runs the same upgrades when the engine opens its data
 //!   directory, under the engine's own lock, with a crash-safe journal. It is
-//!   on unless `EPISTEMIC_GRAPH_STORE_AUTO_MIGRATE` turns it off.
+//!   on unless `MEDULLA_STORE_AUTO_MIGRATE` turns it off.
 //! * [`refuse_upgradable_stores`] is the server's startup check: with automatic
 //!   migration off, the engine refuses to start and names the command.
 //!
 //! Which upgrades exist is decided by the storage kernel's registry
-//! (`eg_storage::OFFLINE_STORE_UPGRADES`); nothing here names a specific one.
+//! (`medulla_storage::OFFLINE_STORE_UPGRADES`); nothing here names a specific one.
 
 use std::path::{Path, PathBuf};
 
-use eg_storage::{
+use medulla_storage::{
     classify_owner_store_format, offline_upgrades_for, InspectedStoreUpgrade, OfflineStoreUpgrade,
     OfflineUpgradeInspectionOptions, OwnerLayoutUpgradeReport, OwnerStoreFormat,
     PhysicalStoreIdentity, OFFLINE_UPGRADE_APPLY_COMMAND,
@@ -220,7 +220,7 @@ fn default_budget(store: &Path) -> Result<u64, String> {
     Ok(size
         .saturating_add(size / 4)
         .saturating_add(STAGING_HEADROOM_BYTES)
-        .min(eg_storage::direct_state::HARD_MAX_DIRECT_STATE_BYTES))
+        .min(medulla_storage::direct_state::HARD_MAX_DIRECT_STATE_BYTES))
 }
 
 /// What running the candidate upgrades of one store came to.

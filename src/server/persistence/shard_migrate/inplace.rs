@@ -44,7 +44,7 @@ fn copy_source_snapshot(src_paths: &[PathBuf], snapshot: &Path) -> Result<(), St
 }
 
 /// Migrate the store under `persist_dir` to `new_k` in place
-/// (CONCEPT:EG-KG.sharding.atomic-shard-swap). Preserve an immutable source
+/// (CONCEPT:MEDULLA-KG.sharding.atomic-shard-swap). Preserve an immutable source
 /// snapshot, build a ready destination from its working copy, then install it.
 pub fn migrate_in_place(persist_dir: &str, new_k: usize) -> Result<MigrationReport, String> {
     migrate_in_place_inner(persist_dir, new_k, None)
@@ -190,7 +190,7 @@ fn build_ready_migration(
             .file_name()
             .ok_or_else(|| format!("source shard has no filename: {}", source.display()))?;
         let copy = build_source.join(name);
-        eg_storage::rebind_copied_store(&copy, source).map_err(|error| {
+        medulla_storage::rebind_copied_store(&copy, source).map_err(|error| {
             format!(
                 "rebind migration build source {} failed: {error}",
                 copy.display()

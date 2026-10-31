@@ -363,7 +363,7 @@ RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX; each 
 |---|---|:---:|---|
 | `agent_id` | string | yes |  |
 | `role` | `AgentRole` | yes |  |
-| `roles` | array of string | yes | RBAC role names this agent holds (CONCEPT:EG-KG.compute.feature). |
+| `roles` | array of string | yes | RBAC role names this agent holds (CONCEPT:MEDULLA-KG.compute.feature). |
 | `signature` | string | yes |  |
 | `teams` | array of string | yes |  |
 

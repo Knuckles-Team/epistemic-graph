@@ -11,7 +11,7 @@
 //! blocking pool via `compute_off_lock` (the Arc<SeriesStore> is cloned in, the brief
 //! registry read-lock dropped first) — never under a tokio worker.
 //!
-//! Wire shapes (the protocol enum stays free of eg-tsdb types — it's at the bottom of
+//! Wire shapes (the protocol enum stays free of medulla-tsdb types — it's at the bottom of
 //! the DAG): points cross as MessagePack `Vec<(i64, Vec<f64>)>`; query results return
 //! via `ResultPayload::raw` (the client double-unpacks), matching `Sql`/`Cypher`.
 //!
@@ -19,7 +19,7 @@
 //!
 //! Unlike `graph_ops.rs`/`rdf.rs`/`query.rs`, no method here ever constructs a
 //! `GraphView`/`GraphCore` at all, so the per-node `_owner`/`_visibility`/
-//! `_grants` row-level primitive (`crates/eg-core/src/isolation.rs::can_see_row`)
+//! `_grants` row-level primitive (`crates/medulla-core/src/isolation.rs::can_see_row`)
 //! has nothing to filter. Every `Ts*` method instead derives its `SeriesKey`
 //! from [`scoped_key`], which namespaces it under the VERIFIED caller's own
 //! `CarrierAuthority` (`tenant_scope` + an owner-scoped `namespace`) — never
@@ -58,11 +58,11 @@ use crate::mutation_batch::{DurabilityDomain, MutationBatch, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 
-use eg_tsdb::point::Point;
-use eg_tsdb::query::{asof_join_backward, gap_fill_locf, time_bucket, Agg};
-use eg_tsdb::store::{ScopedAppendBatch, SeriesKey, SeriesStore};
-use eg_types::contract::Nonce;
-use eg_types::result_contract::storage as results;
+use medulla_tsdb::point::Point;
+use medulla_tsdb::query::{asof_join_backward, gap_fill_locf, time_bucket, Agg};
+use medulla_tsdb::store::{ScopedAppendBatch, SeriesKey, SeriesStore};
+use medulla_types::contract::Nonce;
+use medulla_types::result_contract::storage as results;
 
 // EH-524 — materialised derived series: `TsDefineSeries` and the maintenance a
 // `TsAppend` runs on the series derived from the appended one.
@@ -91,9 +91,9 @@ fn scoped_key(
 /// Decode and semantically bound the shared wire point blob. Transaction staging
 /// reuses this exact validator so the direct and ACID paths cannot drift.
 pub(crate) fn decode_wire_points(blob: &[u8]) -> Result<Vec<(i64, Vec<f64>)>, String> {
-    let raw: Vec<(i64, Vec<f64>)> = eg_types::msgpack::decode_bounded(
+    let raw: Vec<(i64, Vec<f64>)> = medulla_types::msgpack::decode_bounded(
         blob,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_POINTS_MSGPACK_BYTES,
             MAX_POINTS_MSGPACK_ITEMS,
             64,
@@ -308,7 +308,7 @@ impl BatchScope {
         let attempt_nonce = self
             .attempt_nonce
             .map(|parent| {
-                eg_types::contract::Digest256::framed(
+                medulla_types::contract::Digest256::framed(
                     b"eg/timeseries-follow-on-nonce/v1",
                     &[parent.as_bytes(), event.as_bytes()],
                 )
@@ -448,9 +448,9 @@ async fn handle_range(
 }
 
 fn decode_left_timestamps(blob: &[u8]) -> Result<Vec<i64>, &'static str> {
-    let values: Vec<i64> = eg_types::msgpack::decode_bounded(
+    let values: Vec<i64> = medulla_types::msgpack::decode_bounded(
         blob,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_POINTS_MSGPACK_BYTES,
             MAX_POINTS_MSGPACK_ITEMS,
             64,

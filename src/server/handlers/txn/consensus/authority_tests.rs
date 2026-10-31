@@ -68,7 +68,7 @@ async fn check_parent_only_phases(
             .unwrap()
     );
     assert!(
-        eg_transaction::read_private_payload(&redb.admin_mutations_read().unwrap(), parent_id)
+        medulla_transaction::read_private_payload(&redb.admin_mutations_read().unwrap(), parent_id)
             .unwrap()
             .is_none()
     );
@@ -111,7 +111,7 @@ async fn parent_only_phases_reject_foreign_tenant_with_same_principal() {
         "parent-tenant-test-key",
     );
     let directory = std::env::temp_dir().join(format!(
-        "eg-parent-tenant-{}",
+        "medulla-parent-tenant-{}",
         uuid::Uuid::new_v4().simple()
     ));
     std::fs::create_dir_all(&directory).unwrap();

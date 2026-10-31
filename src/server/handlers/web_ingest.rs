@@ -1,7 +1,7 @@
-//! Web page ingest: Document enrichment (EG-UNIFIED-DATA-PLANE-R651.7) and
-//! page selection (EG-DECISION-ENGINE-R802).
+//! Web page ingest: Document enrichment (MEDULLA-UNIFIED-DATA-PLANE-R651.7) and
+//! page selection (MEDULLA-DECISION-ENGINE-R802).
 //!
-//! Enrichment chunks one held Document with `eg_document::processing`,
+//! Enrichment chunks one held Document with `medulla_document::processing`,
 //! embeds the chunks, and lowers chunk nodes, `chunkOf` edges, vectors and one
 //! `DocumentEnrichment` record into ONE write-set that commits through the
 //! same ChangeEnvelope authority as `IndexRepository` -- no second graph
@@ -11,8 +11,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use eg_document::processing::{chunk_text, ChunkSpan, ChunkingConfig, CHUNKER_VERSION};
-use eg_types::source_ingestion::web_document::{
+use medulla_document::processing::{chunk_text, ChunkSpan, ChunkingConfig, CHUNKER_VERSION};
+use medulla_types::source_ingestion::web_document::{
     EnrichDocumentReceipt, EnrichDocumentRequest, FetchBackend,
 };
 use serde_json::{json, Map, Value};
@@ -55,7 +55,7 @@ pub(crate) fn held_document(
     request: &EnrichDocumentRequest,
     properties: &[u8],
 ) -> Result<HeldDocument, String> {
-    let value = eg_types::msgpack::decode_property_value(properties)
+    let value = medulla_types::msgpack::decode_property_value(properties)
         .map_err(|_| "DOCUMENT_PROPERTIES_INVALID: the Document properties do not decode")?;
     let candidates: Vec<&str> = match request.text_property.as_deref() {
         Some(name) => vec![name],
@@ -128,7 +128,7 @@ pub(crate) fn prior_enrichments(
     let mut current = None;
     let mut prior = Vec::new();
     for (id, bytes) in records {
-        let Ok(value) = eg_types::msgpack::decode_property_value(&bytes) else {
+        let Ok(value) = medulla_types::msgpack::decode_property_value(&bytes) else {
             continue;
         };
         if value["document_id"].as_str() != Some(document_id) {
@@ -324,7 +324,7 @@ pub(crate) fn chunks(
     chunk_text(&document.text, config)
 }
 
-// ── Page selection (EG-DECISION-ENGINE-R802) ────────────────────────────────
+// ── Page selection (MEDULLA-DECISION-ENGINE-R802) ────────────────────────────────
 
 /// Unix milliseconds of a stored `retrieved_at`: a number (seconds below
 /// 10^11, else milliseconds) or an RFC 3339 UTC timestamp.
@@ -365,14 +365,14 @@ pub(crate) fn retrieved_at_ms(value: &Value) -> Option<u64> {
 pub(crate) fn held_pages(
     documents: Vec<(String, Vec<u8>)>,
 ) -> (
-    BTreeMap<String, eg_numeric::decision::web_fetch_selection::HeldPage>,
+    BTreeMap<String, medulla_numeric::decision::web_fetch_selection::HeldPage>,
     BTreeSet<String>,
 ) {
-    use eg_numeric::decision::web_fetch_selection::{canonical_url, HeldPage};
+    use medulla_numeric::decision::web_fetch_selection::{canonical_url, HeldPage};
     let mut held = BTreeMap::new();
     let mut digests = BTreeSet::new();
     for (_, bytes) in documents {
-        let Ok(value) = eg_types::msgpack::decode_property_value(&bytes) else {
+        let Ok(value) = medulla_types::msgpack::decode_property_value(&bytes) else {
             continue;
         };
         let digest = value["content_digest"].as_str().map(str::to_string);

@@ -1,4 +1,4 @@
-# EG-BRANCH-MERGE — Agent Branching, Three-Way Merge, and Epistemic Conflict Resolution
+# MEDULLA-BRANCH-MERGE — Agent Branching, Three-Way Merge, and Epistemic Conflict Resolution
 
 Owner: Medulla (`EG`). Sole owner.
 
@@ -21,7 +21,7 @@ first-class epistemic records.
 ## Requirements
 
 Every requirement ID this spec owns lives in [requirements.md](requirements.md). The IDs are
-`EG-BRANCH-MERGE-R001`–`R007`. Architecture and live wiring live in [plan.md](plan.md). The
+`MEDULLA-BRANCH-MERGE-R001`–`R007`. Architecture and live wiring live in [plan.md](plan.md). The
 test contract lives in [test-spec.md](test-spec.md). Ordered work lives in
 [tasks.md](tasks.md). Machine-readable delivery state lives in [status.json](status.json).
 

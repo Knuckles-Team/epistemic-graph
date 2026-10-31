@@ -1,0 +1,490 @@
+//! Op-dispatch tiers behind `apply`, split out of `exec.rs` (KISS file budget)
+//! purely so they do not grow the parent file past its aggregate line/function
+//! caps. `Op` itself, and every arms behavior, is unchanged from when this was
+//! `apply`'s own single match; each tier is exactly the arms that theme always had.
+
+use super::*;
+
+// EH-196 — the `VALIDATE SHAPE` executor (SHACL focus-node validation of each row).
+#[cfg(feature = "owl")]
+mod shape;
+
+/// The one error every op-dispatch tier below (and [`super::apply`]'s own trailing arm)
+/// falls back to when the `Op` variant it was handed exists on the wire
+/// (`medulla-types/query`'s full contract) but this build did not compile in the medulla-plan
+/// feature that runs it. That fallback is structurally required, not merely a metric
+/// dodge.
+pub(super) const UNSUPPORTED_MODALITY_OP: &str =
+    "plan operator requires a modality feature not enabled in this build";
+
+/// Is `op` one of the 7 `epistemic` ops (`EvidenceFor`/`Contradicts`/`SupportedBy`/
+/// `BeliefAsOf`/`SourceReliability`/`ConfidenceOp`/`ExplainBelief`)? Used by
+/// [`crate::optimizer`]'s reorder-exclusion check, which — unlike [`apply`]'s own
+/// routing arm just below — is a plain boolean test, not an exhaustive match, so it can
+/// delegate here instead of listing the variants itself.
+#[cfg(feature = "epistemic")]
+pub(crate) fn is_epistemic_op(op: &Op) -> bool {
+    matches!(
+        op,
+        Op::ExplainBelief { .. }
+            | Op::ConfidenceOp {}
+            | Op::SourceReliability { .. }
+            | Op::BeliefAsOf { .. }
+            | Op::SupportedBy { .. }
+            | Op::Contradicts { .. }
+            | Op::EvidenceFor { .. }
+    )
+}
+
+/// Dispatch one physical [`Op`] to its executor (CONCEPT:MEDULLA-KG.query.exec-arm-dispatch).
+/// Grouped by theme into the tier functions below purely to keep each match's own arm
+/// count under the complexity cap — [`Op`] itself, and every arm's behavior, is
+/// unchanged; each tier is exactly the arms that theme always had.
+pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+    match op {
+        Op::Scan { .. }
+        | Op::ScanAll {}
+        | Op::Filter { .. }
+        | Op::Traverse { .. }
+        | Op::Expand { .. }
+        | Op::Propagate { .. }
+        | Op::Project { .. }
+        | Op::Rank { .. }
+        | Op::RankEmbed { .. }
+        | Op::RankNodeDistance { .. }
+        | Op::RankMentions {}
+        | Op::RankMmr { .. }
+        // TIME/FEDERATION source-narrowing ops that ship unconditionally: `AsOf`/`Window`/
+        // `WindowAgg` push their own modality-availability check down into the physical fn
+        // (Lane B, CONCEPT:MEDULLA-KG.query.driver-modality-fn) rather than a `#[cfg]` arm here;
+        // `Foreign`/`Limit` have no feature gate at all.
+        | Op::AsOf { .. }
+        | Op::Window { .. }
+        | Op::WindowAgg { .. }
+        | Op::Foreign { .. }
+        | Op::DecisionScan { .. }
+        | Op::Attribute { .. }
+        | Op::Limit { .. } => apply_core_ops(op, input, ctx),
+
+        // Each gate names only the variants its own feature compiles: an `owl` build
+        // without `text` has no `RankText`/`FuseRrf` variant to match.
+        #[cfg(feature = "text")]
+        Op::RankText { .. } | Op::FuseRrf { .. } => apply_text_and_owl(op, input, ctx),
+        #[cfg(feature = "owl")]
+        Op::Reason { .. } | Op::SparqlBgp { .. } | Op::ValidateShape { .. } => {
+            apply_text_and_owl(op, input, ctx)
+        }
+
+        // Each disjunct is gated on its OWN single feature, not a shared `any(...)`: the
+        // four `Op` variants are independently `#[cfg]`-gated in `medulla-types` (one feature
+        // each), so a build enabling only ONE of the four (e.g. `full`, which pulls in
+        // `wasm-udf`/`federation`/`stream` but deliberately NOT `probabilistic`) must not
+        // reference a variant that does not exist in that build's `Op` enum. A single
+        // `#[cfg(any(wasm-udf, federation, probabilistic, stream))]` guarding all four
+        // patterns together compiled only by coincidence, whenever every build happened to
+        // enable all four or none; it broke E0599 ("no variant named `Probabilistic`") the
+        // first time a build enabled exactly a subset (found verifying `cluster` compiles).
+        #[cfg(feature = "wasm-udf")]
+        Op::Udf { .. } => apply_single_feature_ops(op, input, ctx),
+        #[cfg(feature = "federation")]
+        Op::ForeignScan { .. } => apply_single_feature_ops(op, input, ctx),
+        #[cfg(feature = "probabilistic")]
+        Op::Probabilistic { .. } => apply_single_feature_ops(op, input, ctx),
+        #[cfg(feature = "stream")]
+        Op::Cep { .. } => apply_single_feature_ops(op, input, ctx),
+
+        #[cfg(any(feature = "geo", feature = "tensor"))]
+        Op::SpatialScan { .. }
+        | Op::Reproject { .. }
+        | Op::SpatialOp { .. }
+        | Op::TensorScan { .. }
+        | Op::TensorOp { .. } => apply_geo_and_tensor(op, input, ctx),
+
+        // SOURCE/FILTER/TRANSFORM (epistemic, CONCEPT:MEDULLA-KG.epistemic.epistemic-substrate, E2):
+        // evidence for/against a claim, belief-confidence re-scoring and time-pinning, source
+        // reliability, and justification-tree flattening. Gated behind `epistemic`; the
+        // variants only exist when medulla-types/epistemic is on (the tensor/geo/probabilistic
+        // gating precedent). Named explicitly (not routed through `is_epistemic_op` above,
+        // which a match guard can't use) because a guarded wildcard arm does not count
+        // toward exhaustiveness: under `--all-features` the trailing catch-all below is
+        // itself compiled out, so every variant here MUST be an unconditional pattern or
+        // the match stops being exhaustive.
+        #[cfg(feature = "epistemic")]
+        Op::EvidenceFor { .. }
+        | Op::Contradicts { .. }
+        | Op::SupportedBy { .. }
+        | Op::BeliefAsOf { .. }
+        | Op::SourceReliability { .. }
+        | Op::ConfidenceOp {}
+        | Op::ExplainBelief { .. } => apply_epistemic(op, input, ctx),
+
+        // SOURCE/FUSE (time-series, CONCEPT:MEDULLA-KG.query.multi-rate-sensor-stream /
+        // native-time-series): multi-rate sensor fusion (ASOF-aligned or clock-resampled) and
+        // native medulla-tsdb series scan. Gated behind `timeseries` (the medulla-plan→medulla-tsdb edge
+        // `Op::Window` already opens).
+        #[cfg(feature = "timeseries")]
+        Op::SensorFuse { .. }
+        | Op::SensorAlign { .. }
+        | Op::TsScan { .. }
+        | Op::Derive { .. }
+        | Op::Skill { .. }
+        | Op::Motif { .. }
+        | Op::Events { .. } => apply_timeseries(op, input, ctx),
+
+        // `medulla-types/query` (which gates this whole module) surfaces the FULL `Op` wire
+        // contract, so modality ops whose executor lives behind an medulla-plan feature the
+        // current build did not enable (`geo`/`owl`/`federation`/`wasm-udf`/`stream`/
+        // `epistemic`) still EXIST here. Their handler crates are absent, so decode them
+        // to a typed "not built in this configuration" error rather than a non-exhaustive
+        // match. Every one of those features is in the shipped `full` build, so this arm
+        // is compiled out there (no handler is ever shadowed / left unreachable).
+        #[cfg(not(all(
+            feature = "geo",
+            feature = "owl",
+            feature = "federation",
+            feature = "wasm-udf",
+            feature = "stream",
+            feature = "epistemic"
+        )))]
+        // Whether this arm is reachable depends on a feature resolution this crate
+        // cannot see: `Op`'s variants are gated in the crate that DEFINES it, while
+        // the handler arms above are gated on THIS crate's features. When cargo
+        // unifies those identically (e.g. a query-only build, where the unhandled
+        // variants do not exist either) every value is already matched and the arm
+        // is dead; when a dependent enables the Op variants without enabling the
+        // matching handler features here, it is the only thing standing between a
+        // caller and a non-exhaustive match. That second case is real — it is why
+        // the arm exists — so it must stay, and the lint has to be silenced for the
+        // first. Narrowing the `cfg` cannot express this: it would have to name the
+        // OTHER crate's resolved features.
+        #[allow(unreachable_patterns)]
+        _ => Err(UNSUPPORTED_MODALITY_OP.into()),
+    }
+}
+
+fn attribute_spec<'s>(
+    input: &'s medulla_types::wire::AttributionInput,
+    value: medulla_types::wire::AttributionValue,
+    method: &'s medulla_types::wire::AttributionMethod,
+) -> super::attribution::AttributeSpec<'s> {
+    super::attribution::AttributeSpec {
+        input,
+        value,
+        method,
+    }
+}
+
+/// A stage's SECONDARY channels ([`medulla_types::wire::OpKind::extra_channels`]): per channel,
+/// the `(row id, value)` pairs the stage wrote.
+pub(crate) type StageChannels = Vec<(&'static str, Vec<(String, f32)>)>;
+
+/// [`apply`], plus the secondary channels of the stages that write them: an
+/// `ATTRIBUTE`'s CI half-widths (EH-523) and a learned `SOURCE RELIABILITY`'s interval
+/// (EH-525). The traced UQL paths (`RETURN`, `PROFILE`) run every stage through here;
+/// every other stage is exactly `apply`.
+pub(crate) fn apply_with_channels(
+    op: &Op,
+    input: RowSet,
+    ctx: &PlanCtx,
+) -> Result<(RowSet, StageChannels), String> {
+    if let Op::Attribute {
+        input: players,
+        value,
+        method,
+    } = op
+    {
+        let attributed =
+            super::attribution::attribute(ctx, input, attribute_spec(players, *value, method))?;
+        let channels = vec![(
+            medulla_types::wire::ATTRIBUTION_EXTRA_CHANNELS[0],
+            attributed.half_widths,
+        )];
+        return Ok((attributed.rows, channels));
+    }
+    #[cfg(feature = "epistemic")]
+    if let Op::SourceReliability { source_id } = op {
+        return reliability_with_channels(ctx, input, source_id);
+    }
+    Ok((apply(op, input, ctx)?, Vec::new()))
+}
+
+/// `SOURCE RELIABILITY` with its learned interval on every row (none when not learned).
+#[cfg(feature = "epistemic")]
+fn reliability_with_channels(
+    ctx: &PlanCtx,
+    input: RowSet,
+    source_id: &str,
+) -> Result<(RowSet, StageChannels), String> {
+    let reliability = super::reliability::reliability_of(ctx, source_id)?;
+    let rows = super::reliability::reweighted(&input, &reliability);
+    let Some((lower, upper)) = reliability.interval else {
+        return Ok((rows, Vec::new()));
+    };
+    let [lo, hi] = [lower as f32, upper as f32];
+    let per_row = |value: f32| -> Vec<(String, f32)> {
+        rows.ids().into_iter().map(|id| (id, value)).collect()
+    };
+    let names = medulla_types::wire::RELIABILITY_EXTRA_CHANNELS;
+    let channels = vec![(names[0], per_row(lo)), (names[1], per_row(hi))];
+    Ok((rows, channels))
+}
+
+/// Graph scans share one physical tier; the dispatcher has already selected it.
+fn apply_graph_scan(op: &Op, ctx: &PlanCtx) -> RowSet {
+    match op {
+        Op::Scan { label } => scan_label(ctx.view, label),
+        Op::ScanAll {} => expand::scan_all(ctx.view),
+        _ => unreachable!("apply_core_ops routed a non-scan Op"),
+    }
+}
+
+/// Relational filtering and graph navigation share the same incoming rows.
+fn apply_graph_navigation(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+    match op {
+        Op::Filter { preds } => filter_op(ctx, preds, input),
+        Op::Traverse { rel, min, max } => traverse_op(ctx, rel, *min, *max, input),
+        Op::Expand {
+            rel,
+            dir,
+            min,
+            max,
+            edge_preds,
+        } => {
+            let filter = expand::EdgeFilter {
+                rel: rel.as_deref(),
+                preds: edge_preds,
+            };
+            expand::expand_op(ctx.view, &input, *dir, (*min, *max), &filter, &ctx.budget)
+        }
+        _ => unreachable!("apply_core_ops routed a non-navigation Op"),
+    }
+}
+
+/// SOURCE (`Scan`) and FILTER (`Filter`/`Traverse`), the RANK family, and TIME
+/// (`AsOf`/`Window`/`WindowAgg`) + FEDERATION marker (`Foreign`) + `Limit` — every
+/// always-on tier. The lexical `RankText` lives in [`apply_text_and_owl`].
+pub(super) fn apply_core_ops(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+    match op {
+        Op::Scan { .. } | Op::ScanAll {} => Ok(apply_graph_scan(op, ctx)),
+        Op::Filter { .. } | Op::Traverse { .. } | Op::Expand { .. } => {
+            apply_graph_navigation(op, input, ctx)
+        }
+        Op::Propagate { .. } => super::propagate::apply(op, &input, ctx),
+        // Channel selection is applied where the result is encoded; rows pass through.
+        Op::Project { .. } => Ok(input),
+        Op::DecisionScan { preds } => super::decisions::decision_scan(ctx, preds),
+        Op::Attribute {
+            input: players,
+            value,
+            method,
+        } => super::attribution::attribute(ctx, input, attribute_spec(players, *value, method))
+            .map(|attributed| attributed.rows),
+        Op::Rank { .. }
+        | Op::RankEmbed { .. }
+        | Op::RankNodeDistance { .. }
+        | Op::RankMentions {}
+        | Op::RankMmr { .. } => apply_ranking(op, input, ctx),
+        Op::AsOf { .. }
+        | Op::Window { .. }
+        | Op::WindowAgg { .. }
+        | Op::Foreign { .. }
+        | Op::Limit { .. } => apply_temporal_and_limit(op, input, ctx),
+        _ => unreachable!("apply routed a non core Op here"),
+    }
+}
+
+/// RANK family — vector, text-embed, node-distance, mention-count and MMR re-ranking.
+fn apply_ranking(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+    match op {
+        Op::Rank { query } => rank_op(ctx, query, input),
+        Op::RankEmbed { text } => rank_embed_op(ctx, text, input),
+        Op::RankNodeDistance { center } => Ok(rank_node_distance(ctx.view, input, center)),
+        Op::RankMentions {} => Ok(rank_mentions(ctx.view, input)),
+        Op::RankMmr { lambda, k } => Ok(rank_mmr(ctx.semantic, input, *lambda, *k)),
+        _ => unreachable!("apply_core_ops routed a non ranking Op here"),
+    }
+}
+
+/// RANK (lexical BM25) + FUSE (RRF) under `text`; OWL classification, BGP source and
+/// SHACL shape filter under `owl`. Two independent feature gates share one tier; every
+/// arm keeps its own `#[cfg]` exactly as it had at the top level.
+#[cfg(any(feature = "text", feature = "owl"))]
+pub(super) fn apply_text_and_owl(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+    match op {
+        #[cfg(feature = "text")]
+        Op::RankText { query } => Ok(rank_text(ctx, &input, query)),
+        #[cfg(feature = "text")]
+        Op::FuseRrf { branches, k } => fuse_rrf(ctx, &input, branches, *k),
+        #[cfg(feature = "owl")]
+        Op::Reason {
+            target_class,
+            ontology,
+        } => reason_op(ctx.view, ctx.decay, input, target_class, ontology),
+        #[cfg(feature = "owl")]
+        Op::SparqlBgp { query, var } => sparql_source(ctx.view, query, var),
+        #[cfg(feature = "owl")]
+        Op::ValidateShape {
+            shape,
+            shapes,
+            projection_base,
+            keep,
+        } => shape::validate_shape(ctx, input, shape, shapes, projection_base, *keep),
+        // `input` may go unused here when a build enables neither `text` nor `owl` (the
+        // routing arm in `apply` still exists under `any(text, owl)`); bind it explicitly
+        // so the parameter is never reported unused in that configuration.
+        #[allow(unreachable_patterns)]
+        _ => {
+            let _ = input;
+            Err(UNSUPPORTED_MODALITY_OP.into())
+        }
+    }
+}
+
+/// Four independently-gated single-arm ops (`wasm-udf`/`federation`/`probabilistic`/
+/// `stream`) sharing one tier since none is more than one arm on its own.
+#[cfg(any(
+    feature = "wasm-udf",
+    feature = "federation",
+    feature = "probabilistic",
+    feature = "stream"
+))]
+pub(super) fn apply_single_feature_ops(
+    op: &Op,
+    input: RowSet,
+    ctx: &PlanCtx,
+) -> Result<RowSet, String> {
+    match op {
+        #[cfg(feature = "wasm-udf")]
+        Op::Udf { id } => udf_transform(ctx, &input, id),
+        #[cfg(feature = "federation")]
+        Op::ForeignScan { source, join } => {
+            crate::federation_opt::foreign_scan(op, input, source, *join, ctx)
+        }
+        #[cfg(feature = "probabilistic")]
+        Op::Probabilistic { query } => Ok(probabilistic_op(ctx.view, input, query)),
+        #[cfg(feature = "stream")]
+        Op::Cep { pattern } => Ok(cep_op(ctx.view, input, pattern)),
+        // See `apply_text_and_owl`'s fallback for why `input` is bound explicitly here.
+        #[allow(unreachable_patterns)]
+        _ => {
+            let _ = input;
+            Err(UNSUPPORTED_MODALITY_OP.into())
+        }
+    }
+}
+
+/// TIME (`AsOf`/`Window`/`WindowAgg`), FEDERATION marker (`Foreign`) and `Limit` — the
+/// always-on temporal/row-budget tier.
+fn apply_temporal_and_limit(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+    match op {
+        // TIME — `AS OF [TX] @<ts>` is a real RowSet-narrowing temporal filter
+        // (CONCEPT:AU-KG.compute.kg-2): drop rows whose fact is not live at `ts` on the chosen
+        // timeline. Dep-free blob scan (no DataFusion), so it runs in the Pi tier.
+        Op::AsOf { ts, axis } => Ok(as_of_filter(ctx.view, input, *ts, *axis)),
+        // TIME (`WINDOW <dur>`, CONCEPT:MEDULLA-KG.query.streaming-execution) — a REAL windowed
+        // aggregate via medulla-tsdb's Pi-path `time_bucket`; [`window_op`] itself either runs the
+        // native aggregate (`timeseries`) or passes the rows through (no feature).
+        Op::Window { secs } => Ok(window_op(ctx, input, *secs)),
+        // TIME (`WINDOW <dur> <agg>`, CONCEPT:MEDULLA-KG.compute.trailing-aggregate-selector-lowers)
+        // — the selectable-aggregate sibling; [`window_agg_op`] resolves `agg` the same way.
+        Op::WindowAgg { secs, agg } => Ok(window_agg_op(ctx, input, *secs, agg)),
+        // FEDERATION (`FOREIGN "<name>"`, CONCEPT:MEDULLA-KG.query.sparql-completeness / MEDULLA-073) —
+        // the name MARKER the UQL clause lowers to; resolves through the ctx registry
+        // (`federation` build) or errors cleanly; foreign-source intent is never discarded.
+        #[cfg(feature = "federation")]
+        Op::Foreign { name } => crate::federation_opt::foreign_named(op, name, ctx),
+        #[cfg(not(feature = "federation"))]
+        Op::Foreign { .. } => Err("FOREIGN requires federation support in this build".to_string()),
+        Op::Limit { k } => Ok(input.limit(*k)),
+        _ => unreachable!("apply routed a non temporal/limit Op here"),
+    }
+}
+
+/// SOURCE/TRANSFORM (spatial, `geo`) — bbox scan, CRS reproject, constructive op; plus
+/// SOURCE/TRANSFORM (tensor, `tensor`) — layer scan and per-row tensor op. Two
+/// independent gates share one tier for the same reason as [`apply_text_and_owl`].
+#[cfg(any(feature = "geo", feature = "tensor"))]
+pub(super) fn apply_geo_and_tensor(
+    op: &Op,
+    input: RowSet,
+    ctx: &PlanCtx,
+) -> Result<RowSet, String> {
+    match op {
+        #[cfg(feature = "geo")]
+        Op::SpatialScan { layer, bbox } => Ok(spatial_scan(ctx, layer, *bbox)),
+        #[cfg(feature = "geo")]
+        Op::Reproject { to_epsg, from_epsg } => {
+            Ok(spatial_reproject(ctx.view, input, *to_epsg, *from_epsg))
+        }
+        #[cfg(feature = "geo")]
+        Op::SpatialOp { kind } => Ok(spatial_op(ctx.view, input, kind)),
+        #[cfg(feature = "tensor")]
+        Op::TensorScan { layer } => Ok(tensor_scan(ctx.view, layer)),
+        #[cfg(feature = "tensor")]
+        Op::TensorOp { kind } => tensor_op(ctx, input, kind),
+        // See `apply_text_and_owl`'s fallback for why `input` is bound explicitly here.
+        #[allow(unreachable_patterns)]
+        _ => {
+            let _ = input;
+            Err(UNSUPPORTED_MODALITY_OP.into())
+        }
+    }
+}
+
+/// SOURCE/FILTER/TRANSFORM (epistemic, CONCEPT:MEDULLA-KG.epistemic.epistemic-substrate, E2) —
+/// evidence for/against a claim or the claims a node supports, belief-confidence
+/// time-pinning and per-row re-scoring, source-reliability re-weighting, and
+/// justification-tree flattening. Every arm shares the single `epistemic` gate, so the
+/// tier is exhaustive over its own scope with no fallback needed.
+#[cfg(feature = "epistemic")]
+pub(super) fn apply_epistemic(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+    match op {
+        Op::EvidenceFor { claim_id } => Ok(evidence_for_op(ctx.view, input, claim_id)),
+        Op::Contradicts { node_id } => Ok(contradicts_op(ctx.view, input, node_id)),
+        Op::SupportedBy { node_id } => Ok(supported_by_op(ctx.view, input, node_id)),
+        Op::BeliefAsOf { ts } => Ok(belief_as_of_op(ctx, input, *ts)),
+        Op::SourceReliability { source_id } => {
+            super::reliability::source_reliability_op(ctx, input, source_id)
+        }
+        Op::ConfidenceOp {} => Ok(confidence_op(ctx, input)),
+        Op::ExplainBelief { node_id } => Ok(explain_belief_op(ctx, input, node_id)),
+        _ => unreachable!("apply routed a non epistemic Op here"),
+    }
+}
+
+/// FUSE (multimodal sensor fusion, CONCEPT:MEDULLA-KG.query.multi-rate-sensor-stream) — ASOF-
+/// aligned (`SensorFuse`) or declared-clock-resampled (`SensorAlign`) stream fusion; plus
+/// SOURCE (native time-series, CONCEPT:MEDULLA-KG.query.native-time-series) — `TsScan` off the
+/// ctx-attached `SeriesStore`; plus TRANSFORM `Derive` (EH-522) over the incoming series
+/// rows. Every arm shares the single `timeseries` gate. The three sources resolve their rows
+/// off the snapshot and replace `input` outright; only `Derive` reads it.
+#[cfg(feature = "timeseries")]
+pub(super) fn apply_timeseries(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+    match op {
+        Op::Derive { columns } => derive_op(input, columns),
+        Op::Skill { spec } => skill_op(input, spec),
+        Op::Motif { spec } => motif_op(input, spec, ctx.budget.max_series_work),
+        Op::Events { channels } => events_op(input, channels),
+        Op::SensorFuse {
+            streams,
+            tolerance_ns,
+        } => Ok(sensor_fuse_op(ctx.view, streams, *tolerance_ns)),
+        Op::SensorAlign {
+            streams,
+            clock,
+            tolerance_ns,
+        } => Ok(sensor_align_op(ctx.view, streams, clock, *tolerance_ns)),
+        Op::TsScan { series, from, to } => Ok(tsdb_scan_op(
+            &CommittedSeries {
+                store: ctx.tsdb,
+                tenant: ctx.tsdb_tenant,
+                graph: ctx.tsdb_graph,
+            },
+            ctx.staged_series,
+            series,
+            *from,
+            *to,
+        )),
+        _ => unreachable!("apply routed a non timeseries Op here"),
+    }
+}

@@ -19,7 +19,7 @@ target.
 
 | ID | Status | Source anchor | Required source text | Evidence / scope |
 |---|---|---|---|---|
-| `m1.memory-budget-zero` | `IMPLEMENTED` | `src/cost/mod.rs#EPISTEMIC_GRAPH_MEMORY_BUDGET` | `must be positive` | Startup configuration rejects zero, negative, and malformed values; there is no memory-budget disable value. |
+| `m1.memory-budget-zero` | `IMPLEMENTED` | `src/cost/mod.rs#MEDULLA_MEMORY_BUDGET` | `must be positive` | Startup configuration rejects zero, negative, and malformed values; there is no memory-budget disable value. |
 | `m1.nonraft-default-shards` | `IMPLEMENTED` | `src/server/persistence/redb_backend/shard_writer.rs#resolve_shard_count` | `(cpus / 2).clamp(1, 8)` | Non-Raft production auto-sizing remains capped at eight; the 64-shard layout ceiling is for explicit migration values and Raft group counts. |
 | `m1.raft-default-groups` | `IMPLEMENTED` | `src/raft/config.rs#default_raft_group_count` | `(cpus / 2).clamp(1, crate::redb_layout::MAX_SHARD_COUNT as u64)` | The active Raft default is effective-cgroup CPU derived and bounded by the 64-shard layout ceiling. |
 | `m1.raft-group-parser` | `UNIT-PROVEN` | `src/raft/config.rs#parse_groups_uses_default_when_absent_or_empty_or_zero` | `parse_groups(None, 4)` | Focused parser fixtures cover absent, empty, zero, malformed, and ceiling-clamped values. |

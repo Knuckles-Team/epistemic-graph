@@ -28,7 +28,7 @@ from scripts.normalize_wheel_sbom import normalize_wheel
 # This file's own module docstring says "no engine required" -- every test here
 # exercises pure-Python release-artifact scripts against in-memory zip fixtures,
 # nothing else. Without this marker, conftest.py's session-scoped autouse
-# `start_epistemic_graph_server` fixture doesn't know that and pays a full
+# `start_medulla_server` fixture doesn't know that and pays a full
 # `cargo build --features full` before a single test here runs, exactly like
 # `test_build_backend.py` and `test_release_full_wheel_contract.py` (the other
 # static release-artifact test files) already declare.

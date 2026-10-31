@@ -1,0 +1,155 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix swarm: <http://knuckles.team/kg/swarm#> .
+@prefix vg: <http://knuckles.team/kg/virtual-graph#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://knuckles.team/kg/service_operations> a owl:Ontology ;
+    rdfs:label "Service Operations Ontology" ;
+    rdfs:comment "IT service operations core aligned to the Open Group IT4IT data objects (Detect to Correct, Request to Fulfil, Service Model): incident, problem, change, configuration item, business service, assignment group, ticket hierarchy, technology standard and phase, plus the edges the cross-source competency questions walk (MEDULLA-TYPED-PACKS-R105.4, R105.5). It also aligns the self-contained swarm-topology and virtual-graph modules to the core classes." ;
+    dcterms:source "Open Group IT4IT Reference Architecture, data objects" ;
+    owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/infrastructure>, <http://knuckles.team/kg/sdlc_lifecycle>, <http://knuckles.team/kg/trm>, <http://knuckles.team/kg/orchestration> .
+
+# -- Ticket hierarchy (IT4IT D2C records and tracker issues) ---------------------------
+
+:Issue a owl:Class ;
+    rdfs:label "Issue" ;
+    rdfs:comment "A tracked unit of work or defect in an issue tracker (GitHub, GitLab, Plane, Jira). The shared ancestor of every tracker's issue class." ;
+    skos:altLabel "Backlog Item" ;
+    rdfs:subClassOf :WorkItem .
+
+:Ticket rdfs:subClassOf :WorkItem .
+
+:Incident rdfs:subClassOf :Ticket .
+
+:Problem a owl:Class ;
+    rdfs:label "Problem" ;
+    rdfs:comment "IT4IT Detect to Correct problem: the underlying cause of one or more incidents." ;
+    rdfs:subClassOf :Ticket .
+
+:Change rdfs:subClassOf :Ticket .
+
+:ChangeRequest a owl:Class ;
+    rdfs:label "Change Request" ;
+    rdfs:comment "IT4IT Detect to Correct change: a planned addition, modification or removal that can affect IT services, with the configuration items it touches." ;
+    skos:altLabel "RFC", "Change Record" ;
+    rdfs:subClassOf :Change .
+
+# -- Configuration items and services ---------------------------------------------------
+
+:AssetInstance rdfs:subClassOf bfo:0000004 .
+
+:Server rdfs:subClassOf :ConfigurationItem .
+
+:ConfigurationItem a owl:Class ;
+    rdfs:label "Configuration Item" ;
+    rdfs:comment "IT4IT Detect to Correct configuration item: any component that is managed to deliver an IT service." ;
+    skos:altLabel "CI" ;
+    rdfs:subClassOf :AssetInstance .
+
+:Application a owl:Class ;
+    rdfs:label "Application" ;
+    rdfs:comment "A software application managed as a configuration item." ;
+    rdfs:subClassOf :ConfigurationItem .
+
+:BusinessApplication a owl:Class ;
+    rdfs:label "Business Application" ;
+    rdfs:comment "An application that supports a business capability, owned and funded by a business unit." ;
+    rdfs:subClassOf :Application .
+
+:BusinessService a owl:Class ;
+    rdfs:label "Business Service" ;
+    rdfs:comment "IT4IT Service Model service as the business consumes it; depends on applications and is owned by an assignment group." ;
+    skos:altLabel "Service Offering" ;
+    rdfs:subClassOf :ConfigurationItem .
+
+:AssignmentGroup a owl:Class ;
+    rdfs:label "Assignment Group" ;
+    rdfs:comment "The group that owns services and configuration items and works tickets." ;
+    rdfs:subClassOf :Organization .
+
+# -- Technology standard and phase ------------------------------------------------------
+
+:TRMStandard a owl:Class ;
+    rdfs:label "Technology Reference Model Standard" ;
+    rdfs:comment "A technology standard as recorded in a technology reference model, with a lifecycle phase." ;
+    rdfs:subClassOf :TechnologyStandard .
+
+:TRMPhase a owl:Class ;
+    rdfs:label "Technology Phase" ;
+    rdfs:comment "The lifecycle phase of a technology standard (emerging, standard, contained, retired)." ;
+    rdfs:subClassOf :Concept .
+
+# -- Prompts and tasks ------------------------------------------------------------------
+
+:Prompt rdfs:subClassOf bfo:0000031 .
+
+:Task a owl:Class ;
+    rdfs:label "Task" ;
+    rdfs:comment "A unit of work a prompt, skill or agent is applied to. BFO:Process." ;
+    rdfs:subClassOf bfo:0000015 .
+
+# -- Edges ------------------------------------------------------------------------------
+
+:affects a owl:ObjectProperty ;
+    rdfs:label "affects" ;
+    rdfs:comment "Links an incident, problem or change to the configuration item it impacts." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :Incident :Problem :Change ) ] ;
+    rdfs:range :ConfigurationItem .
+
+:touches a owl:ObjectProperty ;
+    rdfs:label "touches" ;
+    rdfs:comment "Links a change request to a configuration item it modifies." ;
+    rdfs:domain :ChangeRequest ;
+    rdfs:range :ConfigurationItem .
+
+:usesTechnology a owl:ObjectProperty ;
+    rdfs:label "uses technology" ;
+    rdfs:comment "Links a configuration item to the technology standard it is built on." ;
+    rdfs:domain :ConfigurationItem ;
+    rdfs:range :TechnologyStandard .
+
+:hostedOn a owl:ObjectProperty ;
+    rdfs:label "hosted on" ;
+    rdfs:comment "Links an application or business service to the server that hosts it (synonym of runsOn at server level)." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :Application :BusinessService ) ] ;
+    rdfs:range :Server .
+
+:relatedTo a owl:ObjectProperty, owl:SymmetricProperty ;
+    rdfs:label "related to" ;
+    rdfs:comment "Cross-source association between a repository, a work item and an application, in either direction." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :Repository :WorkItem :Application ) ] ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( :Repository :WorkItem :Application ) ] .
+
+:systemPromptFor a owl:ObjectProperty ;
+    rdfs:label "system prompt for" ;
+    rdfs:comment "Links a prompt that can serve as the system prompt to the task it frames." ;
+    rdfs:domain :Prompt ;
+    rdfs:range :Task .
+
+:canHandle a owl:ObjectProperty ;
+    rdfs:label "can handle" ;
+    rdfs:comment "Links a skill, agent or prompt to the task or incident it can handle. Distinct from appliesTo, which links a PEFT adapter to its base language model and keeps that domain and range." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :Skill :Agent :Prompt ) ] ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( :Task :Incident ) ] .
+
+:hasPhase a owl:ObjectProperty ;
+    rdfs:label "has phase" ;
+    rdfs:comment "Links a technology standard to its lifecycle phase. Distinct from the infrastructure module's own hasPhase, which links a deployment manifest to its phases." ;
+    rdfs:domain :TechnologyStandard ;
+    rdfs:range :TRMPhase .
+
+:state a owl:DatatypeProperty ;
+    rdfs:label "state" ;
+    rdfs:comment "Lifecycle state of a work item (for example new, in progress, closed)." ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:string .
+
+# -- Alignment of self-contained modules to the core --------------------------------------
+
+swarm:TopologyTemplate rdfs:subClassOf :Template .
+vg:MetadataContract rdfs:subClassOf :Document .

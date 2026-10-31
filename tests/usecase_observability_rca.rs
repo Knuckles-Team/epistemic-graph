@@ -1,14 +1,14 @@
-//! HIGH-VALUE USE-CASE SUITE #4 — observability / root-cause analysis (CONCEPT:EG-KG.query.usecase-observability-rca).
+//! HIGH-VALUE USE-CASE SUITE #4 — observability / root-cause analysis (CONCEPT:MEDULLA-KG.query.usecase-observability-rca).
 //!
 //! An incident investigation fuses THREE modalities the way a real RCA does:
 //!   * a SERVICE-DEPENDENCY GRAPH (services + `DEPENDS_ON` edges) — traverse upstream from
 //!     the failing edge service to the candidate culprits;
 //!   * ERROR-LOG VECTORS — rank the candidate services by how closely their latest error
 //!     log matches the incident's error signature (vector similarity on logs/traces);
-//!   * NATIVE METRICS in a real `eg_tsdb::store::SeriesStore` — a temporal `WINDOW` over the
+//!   * NATIVE METRICS in a real `medulla_tsdb::store::SeriesStore` — a temporal `WINDOW` over the
 //!     incident interval flags the anomalous metric on the culprit.
 //!
-//! Everything runs through the REAL engine: `eg_plan::execute` over a `PlanCtx` carrying the
+//! Everything runs through the REAL engine: `medulla_plan::execute` over a `PlanCtx` carrying the
 //! live graph, the error-log `SemanticStore`, AND the native tsdb store bound via
 //! `with_tsdb`, so `Op::TsScan → Op::WindowAgg` reads genuine time-series points.
 //!
@@ -21,15 +21,15 @@
 //! Module-gated on `query` + `tsdb`; runs under `--features full`.
 #![cfg(all(feature = "query", feature = "tsdb"))]
 
-use eg_core::compute::semantic::SemanticStore;
-use eg_core::graph::{GraphCore, GraphView};
-use eg_plan::{execute, Op, Plan, PlanCtx};
-use eg_tsdb::point::Point;
-use eg_tsdb::store::{SeriesKey, SeriesStore};
+use medulla_core::compute::semantic::SemanticStore;
+use medulla_core::graph::{GraphCore, GraphView};
+use medulla_plan::{execute, Op, Plan, PlanCtx};
+use medulla_tsdb::point::Point;
+use medulla_tsdb::store::{SeriesKey, SeriesStore};
 use serde_json::json;
 
 /// Verified `(tenant, graph)` scope for the committed tsdb reads below. `Op::TsScan`'s
-/// executor (`eg_plan::exec::tsdb_scan_op`) reads the committed store ONLY through
+/// executor (`medulla_plan::exec::tsdb_scan_op`) reads the committed store ONLY through
 /// `SeriesStore::range_scoped`, which requires BOTH a tenant and a graph ("a graph
 /// string alone never grants access to a raw SeriesStore namespace") -- an unscoped
 /// `PlanCtx::with_tsdb` alone always yields zero committed rows. Points are written
@@ -84,7 +84,7 @@ fn build_topology() -> (GraphView, SemanticStore) {
 /// ANOMALOUS during the incident interval.
 fn build_metrics() -> SeriesStore {
     let dir = std::env::temp_dir().join(format!(
-        "eg_usecase4_{}_{}",
+        "medulla_usecase4_{}_{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -93,9 +93,9 @@ fn build_metrics() -> SeriesStore {
     ));
     let store = SeriesStore::open_in_dir(
         &dir,
-        epistemic_graph::store_authority::process_verifier(),
-        epistemic_graph::store_authority::process_authority().principal(),
-        &epistemic_graph::store_authority::process_authority().proof(),
+        medulla::store_authority::process_verifier(),
+        medulla::store_authority::process_authority().principal(),
+        &medulla::store_authority::process_authority().proof(),
     )
     .expect("open tsdb store");
     let series = "svc.database.latency_ms";
@@ -113,7 +113,7 @@ fn build_metrics() -> SeriesStore {
     // `n_fields == 1` requires exactly one field name (`append_batch_in_wtx` hard-errors
     // "time-series append dimensions are invalid" on a `field_names.len() != n_fields`
     // mismatch) -- every other call site in the tree (`redb_backend.rs`,
-    // `secondary_indexes.rs`, `crates/eg-tsdb/tests/tsdb.rs`, ...) supplies a matching
+    // `secondary_indexes.rs`, `crates/medulla-tsdb/tests/tsdb.rs`, ...) supplies a matching
     // single name; this fixture's `&[]` predates that width check.
     //
     // Written through the SAME verified `(TENANT, GRAPH)` scope `Op::TsScan`'s committed
@@ -130,7 +130,7 @@ fn build_metrics() -> SeriesStore {
     store
 }
 
-/// THE root-cause proof (CONCEPT:EG-KG.query.usecase-observability-rca): the fused dependency-traverse + error-log vector
+/// THE root-cause proof (CONCEPT:MEDULLA-KG.query.usecase-observability-rca): the fused dependency-traverse + error-log vector
 /// rank surfaces `database` as the culprit, and the native tsdb window over the incident
 /// interval flags the metric anomaly the baseline window does not.
 #[test]
@@ -219,7 +219,7 @@ fn fused_dependency_vector_tsdb_root_cause_eg437() {
 }
 
 /// The native `Op::TsScan` reads exactly the points in the requested interval — the tsdb
-/// SOURCE leg the RCA window composes over (CONCEPT:EG-KG.query.usecase-observability-rca).
+/// SOURCE leg the RCA window composes over (CONCEPT:MEDULLA-KG.query.usecase-observability-rca).
 #[test]
 fn tsscan_reads_native_series_points_eg437() {
     let store = build_metrics();

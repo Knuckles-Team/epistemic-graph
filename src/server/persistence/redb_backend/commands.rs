@@ -1,5 +1,5 @@
 use super::*;
-use eg_transaction::{OutboxClaimBudget, OutboxClaimOutcome};
+use medulla_transaction::{OutboxClaimBudget, OutboxClaimOutcome};
 use tokio::sync::oneshot;
 
 use crate::change_envelope::{ChangeEnvelope, ChangeEnvelopeCommit};
@@ -11,7 +11,7 @@ use crate::protocol::{GraphType, Method};
 use crate::redb_store::MatViewScanResult;
 use crate::redb_store::{XshardDecisionScan, XshardPrepareScan};
 
-/// Boxed payload of a [`Cmd::CrossModalCommit`] (CONCEPT:EG-KG.txn.reader-never-sees-node + EG-360). Holds ONE
+/// Boxed payload of a [`Cmd::CrossModalCommit`] (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node + MEDULLA-360). Holds ONE
 /// graph's full multi-modal write-set — graph methods (incl. lowered OWL-axiom /
 /// SPARQL-CONSTRUCT triples), vector upserts, blob-refs, and time-series measurement
 /// batches — all of which land in ONE `WriteTransaction`.
@@ -112,7 +112,7 @@ pub(crate) enum Cmd {
         done: oneshot::Sender<Result<(), String>>,
     },
     /// Drop EVERY durable row for one graph — nodes/edges/ledger/semantic AND the
-    /// `graph_meta` identity row — in one durable transaction (CONCEPT:EG-KG.backend.tenant-delete-recreate-same).
+    /// `graph_meta` identity row — in one durable transaction (CONCEPT:MEDULLA-KG.backend.tenant-delete-recreate-same).
     /// Issued when a tenant is DELETED so a recreate of the SAME name starts from a
     /// clean durable slate: without this the stale rows survive (same `graph_fname`
     /// key) and leak into the recreated tenant via the read-through / `load_all`.
@@ -122,14 +122,14 @@ pub(crate) enum Cmd {
         graph: String,
         done: oneshot::Sender<Result<(), String>>,
     },
-    /// Read ONE graph's durable rows back as an owned dump (CONCEPT:EG-KG.storage.100m-tenant — tenant
+    /// Read ONE graph's durable rows back as an owned dump (CONCEPT:MEDULLA-KG.storage.100m-tenant — tenant
     /// rehydration). Goes through the owner thread (exclusive file lock) and flushes
     /// pending writes first so the rehydrated dump reflects the latest durable state.
     ReadGraphDump {
         graph: String,
         reply: std::sync::mpsc::SyncSender<Result<Option<GraphDump>, String>>,
     },
-    /// Read ONE BOUNDED page of one graph's durable rows (CONCEPT:EG-KG.sharding.paged-lazy-open, L38
+    /// Read ONE BOUNDED page of one graph's durable rows (CONCEPT:MEDULLA-KG.sharding.paged-lazy-open, L38
     /// "paged adjacency") — the memory-bounded sibling of `ReadGraphDump` a paged
     /// lazy-open/page-in call uses so a 10M+-node graph never has its full node/edge
     /// set collected into one `Vec` at the SOURCE. Goes through the owner thread
@@ -141,7 +141,7 @@ pub(crate) enum Cmd {
         reply:
             std::sync::mpsc::SyncSender<Result<Option<crate::redb_store::GraphDumpPage>, String>>,
     },
-    /// Export ONE graph's rows VERBATIM for an online shard move (CONCEPT:EG-KG.backend.catalog-shard-resolve). Runs
+    /// Export ONE graph's rows VERBATIM for an online shard move (CONCEPT:MEDULLA-KG.backend.catalog-shard-resolve). Runs
     /// on the SOURCE shard's writer: flush pending first (so the snapshot is complete),
     /// then scan the raw value blobs (encryption + audit chain untouched).
     ExportGraphRaw {
@@ -149,7 +149,7 @@ pub(crate) enum Cmd {
         reply:
             std::sync::mpsc::SyncSender<Result<super::super::online_reshard::RawGraphRows, String>>,
     },
-    /// Import ONE graph's verbatim rows on an online shard move (CONCEPT:EG-KG.backend.catalog-shard-resolve). Runs on
+    /// Import ONE graph's verbatim rows on an online shard move (CONCEPT:MEDULLA-KG.backend.catalog-shard-resolve). Runs on
     /// the DESTINATION shard's writer and lands them in ONE commit — the
     /// commit-before-ack point of the move.
     ImportGraphRaw {
@@ -157,7 +157,7 @@ pub(crate) enum Cmd {
         rows: Box<super::super::online_reshard::RawGraphRows>,
         reply: std::sync::mpsc::SyncSender<Result<(), String>>,
     },
-    /// Import ONLY the DELTA of an online shard move (CONCEPT:EG-KG.backend.flush-pending-first, R1 delta-copy). Runs
+    /// Import ONLY the DELTA of an online shard move (CONCEPT:MEDULLA-KG.backend.flush-pending-first, R1 delta-copy). Runs
     /// on the DESTINATION shard's writer under the exclusive routing quiesce; lands the
     /// small set of rows that changed since the bulk pass (upserts + removals) in ONE
     /// commit — the short under-quiesce write that shrinks the pause.
@@ -166,7 +166,7 @@ pub(crate) enum Cmd {
         delta: Box<super::super::online_reshard::RawGraphDelta>,
         reply: std::sync::mpsc::SyncSender<Result<(), String>>,
     },
-    /// Verify ONE graph's tamper-evident hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security).
+    /// Verify ONE graph's tamper-evident hash-chained audit log (CONCEPT:MEDULLA-KG.sharding.row-level-security).
     /// Flushes pending first so the walk reflects the latest durable entries, then
     /// scans `(graph, 0..)` and reports OK or the first break.
     #[cfg(feature = "security")]
@@ -187,7 +187,7 @@ pub(crate) enum Cmd {
         seq: u64,
         reply: std::sync::mpsc::SyncSender<Result<(), String>>,
     },
-    /// Provenance anchoring (CONCEPT:EG-KG.sharding.row-level-security): durably append a Merkle root over an
+    /// Provenance anchoring (CONCEPT:MEDULLA-KG.sharding.row-level-security): durably append a Merkle root over an
     /// ALREADY-HASHED `:ToolCall`/`:RunTrace` window into the graph's tamper-evident
     /// audit chain, plus its member leaf-hash side row. `root`/`members` are
     /// computed by the CALLER off this thread (`provenance_leaf_hashes_blocking`,
@@ -203,7 +203,7 @@ pub(crate) enum Cmd {
         reply: std::sync::mpsc::SyncSender<Result<Option<u64>, String>>,
     },
     /// Produce + verify a Merkle inclusion proof for one node against a prior
-    /// provenance anchor (CONCEPT:EG-KG.sharding.row-level-security; `Method::AuditProveInclusion`). Routed
+    /// provenance anchor (CONCEPT:MEDULLA-KG.sharding.row-level-security; `Method::AuditProveInclusion`). Routed
     /// through the owner thread (exclusive file lock), which flushes pending first
     /// — mirrors `AuditVerify` so a proof always reflects the latest durable state.
     #[cfg(feature = "security")]
@@ -213,14 +213,14 @@ pub(crate) enum Cmd {
         anchor_seq: Option<u64>,
         reply: std::sync::mpsc::SyncSender<Result<crate::protocol::MerkleInclusionReport, String>>,
     },
-    /// **Cross-modal ACID commit (CONCEPT:EG-KG.txn.reader-never-sees-node).** Land a graph, vector, blob-ref,
+    /// **Cross-modal ACID commit (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node).** Land a graph, vector, blob-ref,
     /// and property write-set for ONE graph in ONE `WriteTransaction`, all-or-nothing,
     /// awaiting its durable fsync (commit-before-ack). On any error nothing lands: the
     /// dropped transaction discards every modality (no partial cross-modal commit).
     CrossModalCommit {
         /// The multi-modal write-set, BOXED so the (now five-field) cross-modal payload
         /// does not bloat every `Cmd` variant — keeping `Cmd` (and the
-        /// `SendError<Cmd>` the writer-channel sends return) small (CONCEPT:EG-KG.backend.cross-modal-atomic-commit).
+        /// `SendError<Cmd>` the writer-channel sends return) small (CONCEPT:MEDULLA-KG.backend.cross-modal-atomic-commit).
         payload: Box<CrossModalPayload>,
         done: oneshot::Sender<Result<(), String>>,
     },
@@ -286,7 +286,7 @@ pub(crate) enum Cmd {
     /// unpaid outbox lease. The writer flushes prior mutations first.
     ParkEnrichmentBudget {
         graph: String,
-        park: Box<eg_types::native_control::EnrichmentBudgetPark>,
+        park: Box<medulla_types::native_control::EnrichmentBudgetPark>,
         done: oneshot::Sender<Result<(), String>>,
     },
     /// Engine-native governed ingest commit. This is deliberately one writer
@@ -346,7 +346,7 @@ pub(crate) enum Cmd {
     Shutdown {
         reply: std::sync::mpsc::SyncSender<()>,
     },
-    // ── Raft log/meta (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — all on the writer thread because redb
+    // ── Raft log/meta (CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft) — all on the writer thread because redb
     // holds an EXCLUSIVE per-process file lock, so log + M2 graph data must go
     // through the ONE thread that owns the shard. ─────────────────────────────
     /// Append Raft log entries `(group_id, index) -> blob` and await durable commit.
@@ -396,7 +396,7 @@ pub(crate) enum Cmd {
         key: String,
         reply: std::sync::mpsc::SyncSender<Result<Option<Vec<u8>>, String>>,
     },
-    // ── Cross-shard 2PC durable records (CONCEPT:EG-KG.storage.lane-n-increment) ──────────────────
+    // ── Cross-shard 2PC durable records (CONCEPT:MEDULLA-KG.storage.lane-n-increment) ──────────────────
     /// Durably persist ONE participant group's PREPARE slice for a cross-shard txn
     /// (commit-before-vote: a group votes yes only after this is on disk).
     XshardPreparePut {
@@ -453,7 +453,7 @@ pub(crate) enum Cmd {
         txn_id: String,
         reply: std::sync::mpsc::SyncSender<Result<bool, String>>,
     },
-    /// Durably upsert a named materialized view's blob (CONCEPT:EG-KG.storage.feature).
+    /// Durably upsert a named materialized view's blob (CONCEPT:MEDULLA-KG.storage.feature).
     #[cfg(feature = "compute-dist")]
     MatViewPut {
         name: String,
@@ -465,7 +465,7 @@ pub(crate) enum Cmd {
     MatViewScan {
         reply: std::sync::mpsc::SyncSender<MatViewScanResult>,
     },
-    /// Durably upsert a PLAN-BACKED matview definition (CONCEPT:EG-KG.storage.plan-backed-matview).
+    /// Durably upsert a PLAN-BACKED matview definition (CONCEPT:MEDULLA-KG.storage.plan-backed-matview).
     #[cfg(feature = "matview")]
     PlanMatViewPut {
         name: String,
@@ -484,7 +484,7 @@ pub(crate) enum Cmd {
         reply: std::sync::mpsc::SyncSender<MatViewScanResult>,
     },
     /// Durably upsert an incremental matview's operator-state snapshot
-    /// (CONCEPT:EG-KG.storage.incremental-matview).
+    /// (CONCEPT:MEDULLA-KG.storage.incremental-matview).
     #[cfg(feature = "matview")]
     MatViewOperatorStatePut {
         name: String,

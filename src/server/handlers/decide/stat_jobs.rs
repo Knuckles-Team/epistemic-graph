@@ -13,23 +13,23 @@ use std::time::Instant;
 
 use tracing::Instrument;
 
-use eg_numeric::decision::admission::{admit, AdmissionRules, Admitted, Regime};
-use eg_numeric::decision::evaluate::{evaluate, EvalSpec};
-use eg_numeric::decision::fit::{fit, FitSpec};
-use eg_types::agent_component::AgentComponentKind;
-use eg_types::contract::BoundedVec;
-use eg_types::decision::digest::digest_text;
-use eg_types::decision::jobs::{
+use medulla_numeric::decision::admission::{admit, AdmissionRules, Admitted, Regime};
+use medulla_numeric::decision::evaluate::{evaluate, EvalSpec};
+use medulla_numeric::decision::fit::{fit, FitSpec};
+use medulla_types::agent_component::AgentComponentKind;
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::digest::digest_text;
+use medulla_types::decision::jobs::{
     DatasetSource, DecisionReceiptPage, DecisionReceiptTimelineEntry, DecisionReceiptTimelinePage,
     DecisionThresholdAssessment, LabelRegime,
 };
-use eg_types::decision::replay::{EvalMode, ReplaySpec};
-use eg_types::decision::statistical::body::{canonical_body_bytes, content_digest_of};
-use eg_types::decision::statistical::dataset::LabelledDataset;
-use eg_types::decision::statistical::features::FeatureSchemaBody;
-use eg_types::decision::statistical::head::DecisionHeadBody;
-use eg_types::decision::statistical::StatisticalErrorCode;
-use eg_types::decision::{
+use medulla_types::decision::replay::{EvalMode, ReplaySpec};
+use medulla_types::decision::statistical::body::{canonical_body_bytes, content_digest_of};
+use medulla_types::decision::statistical::dataset::LabelledDataset;
+use medulla_types::decision::statistical::features::FeatureSchemaBody;
+use medulla_types::decision::statistical::head::DecisionHeadBody;
+use medulla_types::decision::statistical::StatisticalErrorCode;
+use medulla_types::decision::{
     DecisionEvalOp, DecisionEvalReceipt, DecisionEvalRequest, DecisionFitOp, DecisionFitRequest,
     DecisionJobKind, DecisionJobOutput, DecisionJobRecord, DecisionJobState, EvalCandidate,
     StatisticalPolicy, DECISION_JOB_SCHEMA_VERSION,
@@ -140,7 +140,7 @@ fn checked_dataset(
 
 fn rules<'a>(
     regime: Regime,
-    window: eg_types::decision::RecordWindow,
+    window: medulla_types::decision::RecordWindow,
     policy: &ResolvedPolicy,
     approved: &'a [String],
 ) -> AdmissionRules<'a> {
@@ -307,7 +307,7 @@ pub(super) struct EvalInputs {
 
 impl EvalInputs {
     /// The dataset's items admitted under this job's window and policy.
-    pub(super) fn admitted(&self, window: eg_types::decision::RecordWindow) -> Admitted<'_> {
+    pub(super) fn admitted(&self, window: medulla_types::decision::RecordWindow) -> Admitted<'_> {
         let approved = self
             .policy
             .statistical
@@ -355,7 +355,7 @@ pub(super) fn threshold_assessment(
     if receipt.synthetic
         || !receipt.calibration.as_ref().is_some_and(|calibration| {
             !calibration.synthetic
-                && calibration.method == eg_types::decision::CalibrationMethod::Conformal
+                && calibration.method == medulla_types::decision::CalibrationMethod::Conformal
         })
     {
         return None;
@@ -556,7 +556,7 @@ async fn serve_fit(
     reader: LogReader,
     op: DecisionFitOp,
 ) -> Result<ResultPayload, String> {
-    use eg_types::result_contract::coordination::{DecisionFitStatus, DecisionFitSubmit};
+    use medulla_types::result_contract::coordination::{DecisionFitStatus, DecisionFitSubmit};
     let (store, now_ms) = store_and_now(state).await?;
     match op {
         DecisionFitOp::Submit { request } => {
@@ -586,7 +586,7 @@ async fn serve_eval(
     reader: LogReader,
     op: DecisionEvalOp,
 ) -> Result<ResultPayload, String> {
-    use eg_types::result_contract::coordination::{DecisionEvalStatus, DecisionEvalSubmit};
+    use medulla_types::result_contract::coordination::{DecisionEvalStatus, DecisionEvalSubmit};
     let (store, now_ms) = store_and_now(state).await?;
     match op {
         DecisionEvalOp::Submit { request } => {
@@ -616,9 +616,9 @@ async fn serve_eval(
 
 fn serve_eval_receipt(
     store: &AgentLibraryStore,
-    request: &eg_types::decision::DecisionReceiptGetRequest,
+    request: &medulla_types::decision::DecisionReceiptGetRequest,
 ) -> Result<ResultPayload, String> {
-    use eg_types::result_contract::coordination::DecisionEvalReceiptGet;
+    use medulla_types::result_contract::coordination::DecisionEvalReceiptGet;
 
     if !valid_receipt_digest(&request.receipt_digest) {
         return Err("INVALID_ARGUMENT: receipt_digest must be a sha256 digest".into());
@@ -629,7 +629,7 @@ fn serve_eval_receipt(
         .transpose()?;
     if receipt
         .as_ref()
-        .is_some_and(|stored: &eg_types::decision::DecisionEvalReceipt| {
+        .is_some_and(|stored: &medulla_types::decision::DecisionEvalReceipt| {
             stored.receipt_digest != request.receipt_digest
         })
     {
@@ -640,9 +640,9 @@ fn serve_eval_receipt(
 
 fn serve_eval_receipts(
     store: &AgentLibraryStore,
-    request: &eg_types::decision::DecisionReceiptListRequest,
+    request: &medulla_types::decision::DecisionReceiptListRequest,
 ) -> Result<ResultPayload, String> {
-    use eg_types::result_contract::coordination::DecisionEvalReceipts;
+    use medulla_types::result_contract::coordination::DecisionEvalReceipts;
 
     if !(1..=50).contains(&request.limit) {
         return Err("INVALID_ARGUMENT: receipt page limit must be 1..50".into());
@@ -665,7 +665,7 @@ fn serve_eval_receipts(
     let page_rows = rows.into_iter().take(usize::from(request.limit));
     let mut receipts = Vec::new();
     for (key, bytes) in page_rows {
-        let receipt: eg_types::decision::DecisionEvalReceipt =
+        let receipt: medulla_types::decision::DecisionEvalReceipt =
             decode_artifact(&bytes, "evaluation receipt")?;
         if receipt_key(&receipt.receipt_digest) != key {
             return Err("CORRUPT_DECISION_ARTIFACT: receipt digest disagrees with key".into());
@@ -675,7 +675,7 @@ fn serve_eval_receipts(
     let next_after = if has_more {
         receipts
             .last()
-            .map(|receipt: &eg_types::decision::DecisionEvalReceipt| receipt.receipt_digest.clone())
+            .map(|receipt: &medulla_types::decision::DecisionEvalReceipt| receipt.receipt_digest.clone())
     } else {
         None
     };
@@ -687,9 +687,9 @@ fn serve_eval_receipts(
 
 fn serve_eval_timeline(
     store: &AgentLibraryStore,
-    request: &eg_types::decision::DecisionReceiptTimelineRequest,
+    request: &medulla_types::decision::DecisionReceiptTimelineRequest,
 ) -> Result<ResultPayload, String> {
-    use eg_types::result_contract::coordination::DecisionEvalTimeline;
+    use medulla_types::result_contract::coordination::DecisionEvalTimeline;
 
     if !(1..=50).contains(&request.limit) {
         return Err("INVALID_ARGUMENT: timeline page limit must be 1..50".into());
@@ -743,7 +743,7 @@ fn timeline_entry(
     let bytes = store
         .decision_artifact(tenant_id, &receipt_key(digest))?
         .ok_or("CORRUPT_DECISION_ARTIFACT: timeline receipt absent")?;
-    let receipt: eg_types::decision::DecisionEvalReceipt =
+    let receipt: medulla_types::decision::DecisionEvalReceipt =
         decode_artifact(&bytes, "evaluation receipt")?;
     if receipt.receipt_digest != digest || receipt.synthetic || receipt.metrics.is_none() {
         return Err("CORRUPT_DECISION_ARTIFACT: invalid timeline receipt".into());
@@ -855,9 +855,9 @@ pub(super) async fn handle_eval(
 
 #[cfg(test)]
 mod threshold_tests {
-    use eg_types::contract::BoundedVec;
-    use eg_types::decision::jobs::{FullLabelMetrics, LabelExclusions};
-    use eg_types::decision::{
+    use medulla_types::contract::BoundedVec;
+    use medulla_types::decision::jobs::{FullLabelMetrics, LabelExclusions};
+    use medulla_types::decision::{
         CalibrationMethod, CalibrationStatement, DecisionEvalReceipt, QuantScaleTag,
         QuantisedValue, UnitRationalWire,
     };

@@ -1,4 +1,4 @@
-//! Provenance anchoring (CONCEPT:EG-KG.sharding.row-level-security): periodic Merkle-root anchor over each
+//! Provenance anchoring (CONCEPT:MEDULLA-KG.sharding.row-level-security): periodic Merkle-root anchor over each
 //! resident graph's `:ToolCall`/`:RunTrace` provenance-node window into the SAME
 //! tamper-evident audit chain the `security` feature already maintains
 //! (`crate::audit`, `crate::redb_store::{provenance_anchor_commit, prove_inclusion}`).
@@ -40,18 +40,18 @@ use crate::server::ServerState;
 pub const DEFAULT_MAX_WINDOW_NODES: usize = 50_000;
 
 /// The configured positive per-tick window cap, read from
-/// `EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_MAX_NODES`. Zero, absent, and
+/// `MEDULLA_PROVENANCE_ANCHOR_MAX_NODES`. Zero, absent, and
 /// non-parsable values resolve to [`DEFAULT_MAX_WINDOW_NODES`].
 pub fn max_window_nodes() -> usize {
     crate::server::state::positive_runtime_limit_from_env(
-        "EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_MAX_NODES",
+        "MEDULLA_PROVENANCE_ANCHOR_MAX_NODES",
         DEFAULT_MAX_WINDOW_NODES,
     )
 }
 
 /// Provenance-node label vocabulary this sweep anchors. Matches `GraphCore`'s own
 /// `type`/`node_type`/`label`/`labels` label semantics (`labels_of` in
-/// `eg-core::graph`) — a node carrying either value as a label is in scope.
+/// `medulla-core::graph`) — a node carrying either value as a label is in scope.
 const PROVENANCE_LABELS: [&str; 2] = ["ToolCall", "RunTrace"];
 
 /// Candidate node ids for one graph's provenance window: the union of its

@@ -9,7 +9,7 @@ use super::super::compose::{compose_validated_sources, ComposedSchema};
 use super::CompiledCache;
 use crate::graph::{GraphCore, GraphSchemaSource, GraphSchemaSources, SchemaSourceOrigin};
 use crate::test_rendezvous::{join_bounded, meet};
-use eg_types::contract::Digest256;
+use medulla_types::contract::Digest256;
 
 const ONTOLOGY_A: &str = "@prefix ex: <http://example/eh382/> . \
     @prefix owl: <http://www.w3.org/2002/07/owl#> . ex:A a owl:Class .";
@@ -65,7 +65,7 @@ fn key(byte: u8) -> Digest256 {
     Digest256::sha256(&[byte])
 }
 
-// spec: EG-UNIFIED-DATA-PLANE-R035
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R035
 #[test]
 fn a_hit_returns_the_identical_compiled_schema() {
     let cache = CompiledCache::new(4);
@@ -76,7 +76,7 @@ fn a_hit_returns_the_identical_compiled_schema() {
     assert_eq!(cache.compile_count(), 1);
 }
 
-// spec: EG-UNIFIED-DATA-PLANE-R035
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R035
 #[test]
 fn two_graphs_composing_the_same_schema_share_one_entry() {
     let cache = CompiledCache::new(4);
@@ -90,7 +90,7 @@ fn two_graphs_composing_the_same_schema_share_one_entry() {
     assert_eq!((cache.len(), cache.compile_count()), (1, 1));
 }
 
-// spec: EG-TYPED-PACKS-R057, EG-UNIFIED-DATA-PLANE-R035
+// spec: MEDULLA-TYPED-PACKS-R057, MEDULLA-UNIFIED-DATA-PLANE-R035
 #[test]
 fn attach_detach_and_replace_each_change_the_identity() {
     let cache = CompiledCache::new(4);

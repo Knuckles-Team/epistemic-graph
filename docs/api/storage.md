@@ -483,7 +483,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Blob
 
 ## `BlobRef`
 
-X6 (fix/eg-blob-cas-hardening-20260917): holder-scoped named reference (digest, owner scope), not a bare counter -- a retry or replay of the same reference is one holder row, never a second count (holders.rs's own module doc and handle_blob_ref_op's doc comment). Idempotent as of the 2.27.x blob CAS hardening. Durable via blob.redb.
+X6 (fix/medulla-blob-cas-hardening-20260917): holder-scoped named reference (digest, owner scope), not a bare counter -- a retry or replay of the same reference is one holder row, never a second count (holders.rs's own module doc and handle_blob_ref_op's doc comment). Idempotent as of the 2.27.x blob CAS hardening. Durable via blob.redb.
 
 | Property | Value |
 |---|---|

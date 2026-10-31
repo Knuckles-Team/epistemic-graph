@@ -10,15 +10,15 @@
 //! is still the attested one, but nothing can be re-derived. Summaries (the
 //! record minus its matrix) are kept for ever.
 
-use eg_types::decision::statistical::body::{canonical_body_bytes, content_digest_of};
-use eg_types::decision::statistical::log::{
+use medulla_types::decision::statistical::body::{canonical_body_bytes, content_digest_of};
+use medulla_types::decision::statistical::log::{
     DecisionLogCompacted, DecisionLogEntry, DecisionLogVerification, EntryInputs, InputsBlob,
     MAX_COMPACT_PER_CALL,
 };
-use eg_types::decision::statistical::{
+use medulla_types::decision::statistical::{
     FeatureMatrixRef, StatisticalDecisionRecord, StatisticalErrorCode,
 };
-use eg_types::decision::{DecisionPolicyRef, StatisticalPolicy};
+use medulla_types::decision::{DecisionPolicyRef, StatisticalPolicy};
 
 use super::stat_executor::ExecutionContext;
 use super::stat_log::{visible_entry, LogReader, MAX_LOG_ROWS};
@@ -93,7 +93,7 @@ fn store_inputs(
 ) -> Result<InputsBlob, String> {
     use sha2::{Digest, Sha256};
     let blob = retention.blob.as_ref().ok_or_else(unavailable)?;
-    let sha256 = eg_types::contract::Digest256::from_bytes(Sha256::digest(&body).into());
+    let sha256 = medulla_types::contract::Digest256::from_bytes(Sha256::digest(&body).into());
     let engine_body = crate::server::blob::engine_bodies::EngineBody { sha256, body };
     let stored = blob
         .store
@@ -114,7 +114,7 @@ fn load_inputs(
     pin: &InputsBlob,
 ) -> Result<Vec<u8>, String> {
     let blob = retention.blob.as_ref().ok_or_else(unavailable)?;
-    let sha256 = eg_types::contract::Digest256::parse(pin.sha256.trim_start_matches("sha256:"))?;
+    let sha256 = medulla_types::contract::Digest256::parse(pin.sha256.trim_start_matches("sha256:"))?;
     crate::server::blob::engine_bodies::read_engine_body(
         blob.store.as_ref(),
         tenant_id,
@@ -169,7 +169,7 @@ fn due(entry: &DecisionLogEntry, policy: &StatisticalPolicy, now_ms: u64) -> Opt
     // Library evidence remains reproducible indefinitely, regardless of policy.
     if matches!(
         entry.record.candidate_source,
-        eg_types::decision::CandidateSourceRecord::AgentLibrary { .. }
+        medulla_types::decision::CandidateSourceRecord::AgentLibrary { .. }
     ) {
         return None;
     }

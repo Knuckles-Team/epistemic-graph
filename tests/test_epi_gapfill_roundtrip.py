@@ -15,13 +15,13 @@ reach it.
    a new ``Method::CausalCounterfactual`` wires Pearl's point-counterfactual recipe,
    both reachable via :meth:`QueryClient.causal_estimate`/:meth:`causal_counterfactual`.
 4. Standalone paraconsistent conflict resolution (EPI-P3-7, feature ``epistemic-tms``)
-   — a new ``Method::ResolveConflict`` reaches ``eg_epistemic::tms``'s Dung
+   — a new ``Method::ResolveConflict`` reaches ``medulla_epistemic::tms``'s Dung
    grounded/preferred/stable argumentation semantics directly (previously reachable
    only COMPOSED inside ``epistemic_status``), via :meth:`QueryClient.resolve_conflict`.
 
 This is self-contained: it manages its OWN server process (dedicated socket +
 persist dir), independent of the session-wide ``full`` fixture in
-``conftest.py`` -- but it reuses that same module's ``EPISTEMIC_GRAPH_TEST_BINARY``
+``conftest.py`` -- but it reuses that same module's ``MEDULLA_TEST_BINARY``
 seam (``_prebuilt_test_binary()``) before ever paying for its own ``cargo build``,
 so setting that env var (as the session fixture's caller already does) skips the
 build here too. ``epistemic-causal``/
@@ -55,7 +55,7 @@ from conftest import (
     strict_server_env,
 )
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
 RUST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 AUTH_SECRET = "test-epi-gapfill-roundtrip-secret"
@@ -63,7 +63,7 @@ FEATURES = "full viz-static-export"
 
 
 def _build() -> str | None:
-    """Return the shared `EPISTEMIC_GRAPH_TEST_BINARY` (see conftest.py's
+    """Return the shared `MEDULLA_TEST_BINARY` (see conftest.py's
     `_prebuilt_test_binary()`) when one is configured, honoring the SAME
     seam the session-wide `full` fixture uses so this module never pays its
     own `cargo build` when a caller already has a matching binary. Falls back
@@ -97,7 +97,7 @@ def _launch(
     # run. Omitting `persist_dir` here means `env = {**os.environ, **strict_
     # server_env(...)}` silently inherits that ambient value instead of this
     # module's own, and the dedicated server then refuses to start ("persist dir
-    # ... is already locked by another epistemic-graph engine") because the
+    # ... is already locked by another medulla engine") because the
     # still-running session engine already holds that directory's lock -- the
     # exact ambient-global-state class this repo's AGENTS.md (GOC-70) calls out.
     os.makedirs(persist_dir, exist_ok=True)
@@ -143,7 +143,7 @@ def gapfill_client(tmp_path_factory):
     proc = _launch(
         binary, socket_path, str(runtime / "security"), str(runtime / "persist")
     )
-    bootstrap = SyncEpistemicGraphClient.connect(
+    bootstrap = SyncMedullaClient.connect(
         socket_path=socket_path,
         auth_secret=AUTH_SECRET,
         verified_context=bootstrap_context(),
@@ -156,7 +156,7 @@ def gapfill_client(tmp_path_factory):
         )
     finally:
         bootstrap.close()
-    client = SyncEpistemicGraphClient.connect(
+    client = SyncMedullaClient.connect(
         socket_path=socket_path,
         graph_name="gapfill",
         auth_secret=AUTH_SECRET,
@@ -207,7 +207,7 @@ def test_explain_belief_disclosure_level_round_trip(gapfill_client):
 def _job_state_name(state) -> str:
     """``JobState`` is externally-tagged: the bare string ``"Submitted"`` for that
     one unit variant, or ``{"VariantName": {...fields...}}`` for the rest — see
-    :class:`~epistemic_graph.client.JobsClient`'s docstring."""
+    :class:`~medulla.client.JobsClient`'s docstring."""
     if isinstance(state, str):
         return state
     assert isinstance(state, dict) and len(state) == 1, (
@@ -290,7 +290,7 @@ def test_cancel_request_round_trip(gapfill_client):
 
 # ── Gap 3: causal observe / counterfactual (EPI-P3-6) ────────────────────────
 
-# The SAME confounded-graph fixture eg_epistemic::causal's own unit tests use:
+# The SAME confounded-graph fixture medulla_epistemic::causal's own unit tests use:
 # Z (confounder) -> X, Z -> Y, X -> Y.
 _VARIABLES = [
     {"id": "z", "parents": [], "bias": 0.0, "noise_var": 1.0},
@@ -372,7 +372,7 @@ def test_causal_counterfactual_requires_a_fully_observed_unit(gapfill_client):
 # ── Gap 5: standalone Dung argumentation conflict resolution (EPI-P3-7) ─────
 
 
-# The SAME textbook mutual-conflict AF eg_epistemic::tms's own unit tests use:
+# The SAME textbook mutual-conflict AF medulla_epistemic::tms's own unit tests use:
 # "gap5:a" <-> "gap5:b" (symmetric ATTACKS, unresolved conflict), "gap5:c" unattacked.
 def _seed_conflict_graph(client):
     client.nodes.add("gap5:a", {"type": "Claim", "confidence": 0.5})

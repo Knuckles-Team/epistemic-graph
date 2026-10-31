@@ -40,9 +40,9 @@ pub(crate) async fn handle_connector_pack(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified: &VerifiedRequestContext,
-    op: eg_types::connector_pack::ConnectorPackOp,
+    op: medulla_types::connector_pack::ConnectorPackOp,
 ) -> Response {
-    use eg_types::connector_pack::ConnectorPackOp;
+    use medulla_types::connector_pack::ConnectorPackOp;
 
     match op {
         ConnectorPackOp::Status { request } => serve_status(state, req_id, verified, request).await,
@@ -98,7 +98,7 @@ async fn serve_status(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified: &VerifiedRequestContext,
-    request: eg_types::connector_pack::ConnectorPackStatusRequest,
+    request: medulla_types::connector_pack::ConnectorPackStatusRequest,
 ) -> Response {
     #[cfg(not(feature = "redb"))]
     {
@@ -126,7 +126,7 @@ async fn serve_status(
                 }
                 Response::ok(
                     req_id,
-                    ResultPayload::of_ref::<eg_types::result_contract::storage::ConnectorPackStatus>(
+                    ResultPayload::of_ref::<medulla_types::result_contract::storage::ConnectorPackStatus>(
                         &status,
                     ),
                 )
@@ -143,7 +143,7 @@ async fn serve_import(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified: &VerifiedRequestContext,
-    request: Box<eg_types::connector_pack::ConnectorPackImportRequest>,
+    request: Box<medulla_types::connector_pack::ConnectorPackImportRequest>,
 ) -> Response {
     #[cfg(not(all(feature = "redb", feature = "blob")))]
     {
@@ -188,7 +188,7 @@ async fn serve_import(
         match outcome.or_else(|error| rejection_for(pack_digest, error)) {
             Ok(result) => Response::ok(
                 req_id,
-                ResultPayload::of_ref::<eg_types::result_contract::storage::ConnectorPackImport>(
+                ResultPayload::of_ref::<medulla_types::result_contract::storage::ConnectorPackImport>(
                     &result,
                 ),
             ),
@@ -204,23 +204,23 @@ async fn serve_import(
 /// body -- stays an error response, because it says retry or look elsewhere.
 #[cfg(all(feature = "redb", feature = "blob"))]
 fn rejection_for(
-    pack_digest: eg_types::contract::Digest256,
+    pack_digest: medulla_types::contract::Digest256,
     error: String,
-) -> Result<eg_types::connector_pack::PackImportResult, String> {
+) -> Result<medulla_types::connector_pack::PackImportResult, String> {
     let (code, detail) = error.split_once(':').unwrap_or((error.as_str(), ""));
-    let Ok(code) = serde_json::from_value::<eg_types::connector_pack::PackViolationCode>(
+    let Ok(code) = serde_json::from_value::<medulla_types::connector_pack::PackViolationCode>(
         serde_json::Value::String(code.trim().to_string()),
     ) else {
         return Err(error);
     };
-    let violation = eg_types::connector_pack::PackViolation {
+    let violation = medulla_types::connector_pack::PackViolation {
         code,
         uri: None,
         detail: detail.trim().chars().take(1024).collect(),
     };
-    Ok(eg_types::connector_pack::PackImportResult::Rejected {
+    Ok(medulla_types::connector_pack::PackImportResult::Rejected {
         pack_digest: Some(pack_digest),
-        violations: eg_types::contract::BoundedVec::new(vec![violation])?,
+        violations: medulla_types::contract::BoundedVec::new(vec![violation])?,
         budget_exhausted: false,
     })
 }
@@ -273,8 +273,8 @@ async fn bind_import_context(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified: &VerifiedRequestContext,
-    mut request: Box<eg_types::connector_pack::ConnectorPackImportRequest>,
-) -> Result<Box<eg_types::connector_pack::ConnectorPackImportRequest>, String> {
+    mut request: Box<medulla_types::connector_pack::ConnectorPackImportRequest>,
+) -> Result<Box<medulla_types::connector_pack::ConnectorPackImportRequest>, String> {
     let store = agent_library_store(state).await?;
     request.context = crate::server::handlers::admin::agent::bind_agent_library_context(
         &store,
@@ -289,7 +289,7 @@ async fn bind_import_context(
 
 #[cfg(all(feature = "redb", feature = "blob"))]
 enum Preflight {
-    Unchanged(eg_types::connector_pack::PackImportResult),
+    Unchanged(medulla_types::connector_pack::PackImportResult),
     Ready {
         store: Arc<crate::server::persistence::agent_library::AgentLibraryStore>,
         blob: Arc<crate::server::blob::BlobCursors>,
@@ -301,7 +301,7 @@ enum Preflight {
 async fn preflight_import(
     state: &Arc<RwLock<ServerState>>,
     verified: &VerifiedRequestContext,
-    request: &eg_types::connector_pack::ConnectorPackImportRequest,
+    request: &medulla_types::connector_pack::ConnectorPackImportRequest,
 ) -> Result<Preflight, String> {
     validate_import_identity(verified, request)?;
     let store = agent_library_store(state).await?;
@@ -324,7 +324,7 @@ async fn preflight_import(
 #[cfg(all(feature = "redb", feature = "blob"))]
 fn validate_import_identity(
     verified: &VerifiedRequestContext,
-    request: &eg_types::connector_pack::ConnectorPackImportRequest,
+    request: &medulla_types::connector_pack::ConnectorPackImportRequest,
 ) -> Result<(), String> {
     if request.context.tenant_id != verified.tenant() {
         return Err(
@@ -346,19 +346,19 @@ fn validate_import_identity(
                 .to_string(),
         );
     }
-    eg_types::connector_pack::validate_connector(&request.index.connector)?;
-    let computed = eg_types::connector_pack::digest::pack_digest(&request.index)?;
+    medulla_types::connector_pack::validate_connector(&request.index.connector)?;
+    let computed = medulla_types::connector_pack::digest::pack_digest(&request.index)?;
     if computed != request.index.pack_digest {
         return Err("PACK_DIGEST_MISMATCH: connector pack digest is not canonical".to_string());
     }
-    if request.index.schema_version != eg_types::connector_pack::CONNECTOR_PACK_SCHEMA_VERSION {
+    if request.index.schema_version != medulla_types::connector_pack::CONNECTOR_PACK_SCHEMA_VERSION {
         return Err("MALFORMED_INDEX: unsupported connector pack schema version".to_string());
     }
-    if request.index.archive.length > eg_types::connector_pack::MAX_PACK_ARCHIVE_BYTES {
+    if request.index.archive.length > medulla_types::connector_pack::MAX_PACK_ARCHIVE_BYTES {
         return Err("PACK_TOO_LARGE: connector pack archive exceeds the served bound".to_string());
     }
-    let encoded = eg_storage::encode_bounded(&request.index, "connector pack index")?;
-    if encoded.len() > eg_types::connector_pack::MAX_PACK_INDEX_BYTES {
+    let encoded = medulla_storage::encode_bounded(&request.index, "connector pack index")?;
+    if encoded.len() > medulla_types::connector_pack::MAX_PACK_INDEX_BYTES {
         return Err("PACK_TOO_LARGE: connector pack index exceeds the served bound".to_string());
     }
     Ok(())
@@ -366,13 +366,13 @@ fn validate_import_identity(
 
 #[cfg(all(feature = "redb", feature = "blob"))]
 fn replay_or_unchanged(
-    request: &eg_types::connector_pack::ConnectorPackImportRequest,
-    status: &eg_types::connector_pack::ConnectorPackStatus,
-) -> Result<Option<eg_types::connector_pack::PackImportResult>, String> {
+    request: &medulla_types::connector_pack::ConnectorPackImportRequest,
+    status: &medulla_types::connector_pack::ConnectorPackStatus,
+) -> Result<Option<medulla_types::connector_pack::PackImportResult>, String> {
     let actual_head = status
         .head
         .as_ref()
-        .map(|head| eg_types::connector_pack::PackHeadRef {
+        .map(|head| medulla_types::connector_pack::PackHeadRef {
             binding_revision: head.binding_revision,
             pack_digest: head.pack_digest,
         });
@@ -389,14 +389,14 @@ fn replay_or_unchanged(
             if expected.binding_revision.checked_add(1) == Some(head.binding_revision)
                 && receipt.pack_digest == request.index.pack_digest
             {
-                return Ok(Some(eg_types::connector_pack::PackImportResult::Imported {
+                return Ok(Some(medulla_types::connector_pack::PackImportResult::Imported {
                     receipt: Box::new(receipt),
                 }));
             }
         }
         if actual_head == request.expected_head {
             return Ok(Some(
-                eg_types::connector_pack::PackImportResult::Unchanged {
+                medulla_types::connector_pack::PackImportResult::Unchanged {
                     pack_digest: request.index.pack_digest,
                     binding_revision: status.head.as_ref().unwrap().binding_revision,
                 },
@@ -412,7 +412,7 @@ fn replay_or_unchanged(
 #[cfg(all(feature = "redb", feature = "blob"))]
 async fn import_blob_store(
     state: &Arc<RwLock<ServerState>>,
-    _request: &eg_types::connector_pack::ConnectorPackImportRequest,
+    _request: &medulla_types::connector_pack::ConnectorPackImportRequest,
 ) -> Result<Arc<crate::server::blob::BlobCursors>, String> {
     state
         .read()
@@ -426,7 +426,7 @@ async fn import_blob_store(
 async fn read_import_archive(
     blob: &Arc<crate::server::blob::BlobCursors>,
     verified: &VerifiedRequestContext,
-    request: &eg_types::connector_pack::ConnectorPackImportRequest,
+    request: &medulla_types::connector_pack::ConnectorPackImportRequest,
 ) -> Result<Vec<u8>, String> {
     use sha2::{Digest, Sha256};
 
@@ -455,7 +455,7 @@ async fn read_import_archive(
             hasher.update(&bytes);
             archive.extend_from_slice(&bytes);
         }
-        let actual = eg_types::contract::Digest256::from_bytes(hasher.finalize().into());
+        let actual = medulla_types::contract::Digest256::from_bytes(hasher.finalize().into());
         if actual != expected_sha {
             return Err("ARCHIVE_DIGEST_MISMATCH: archive SHA-256 differs".to_string());
         }
@@ -474,15 +474,15 @@ async fn read_import_archive(
 fn honour_self_served_pin(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     verified: &VerifiedRequestContext,
-    request: &eg_types::connector_pack::ConnectorPackImportRequest,
+    request: &medulla_types::connector_pack::ConnectorPackImportRequest,
 ) -> Result<(), String> {
     let server_name = request.index.server.name.as_str();
-    if !eg_types::result_contract::cluster::is_valid_server_name(server_name) {
+    if !medulla_types::result_contract::cluster::is_valid_server_name(server_name) {
         return Ok(());
     }
     let scope = verified.tenant_local_catalog_partition_digest(server_name)?;
     match store.mcp_self_served_catalog_row(verified.tenant(), server_name, scope)? {
-        Some(row) => eg_types::connector_pack::check_self_served_import(&row, &request.index),
+        Some(row) => medulla_types::connector_pack::check_self_served_import(&row, &request.index),
         None => Ok(()),
     }
 }
@@ -491,7 +491,7 @@ fn honour_self_served_pin(
 fn authorize_importer(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     verified: &VerifiedRequestContext,
-    connector: &eg_types::contract::ResourceId,
+    connector: &medulla_types::contract::ResourceId,
 ) -> Result<(), String> {
     let principal = verified.principal_persistence_id();
     let configured = store
@@ -505,7 +505,7 @@ fn authorize_importer(
 
 #[cfg(feature = "redb")]
 fn bootstrap_importer(connector: &str) -> Option<String> {
-    let configured = std::env::var("EPISTEMIC_GRAPH_CONNECTOR_PACK_IMPORTERS").ok()?;
+    let configured = std::env::var("MEDULLA_CONNECTOR_PACK_IMPORTERS").ok()?;
     let mut fallback = None;
     for entry in configured.split(',') {
         let (name, principal) = entry.trim().split_once('=')?;

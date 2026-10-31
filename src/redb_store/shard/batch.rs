@@ -3,10 +3,10 @@
 //! The shard's own drain/maintenance batches and the one boundary where a
 //! caller-compiled batch is rebound onto the shard scope that commits it.
 
-use eg_storage::{GraphShardOwner, OwnedStoreHandle, GRAPH_SHARD_TENANT};
-use eg_types::mutation_batch::{authority_scope_for, DurabilityDomain, MutationScope};
-use eg_types::protocol::Method;
-use eg_types::{
+use medulla_storage::{GraphShardOwner, OwnedStoreHandle, GRAPH_SHARD_TENANT};
+use medulla_types::mutation_batch::{authority_scope_for, DurabilityDomain, MutationScope};
+use medulla_types::protocol::Method;
+use medulla_types::{
     MutationBatch, MutationEnvelope, MutationOperation, MutationOutboxIntent,
     MutationScopeIdentity, MutationSurface, VersionExpectation, MUTATION_BATCH_VERSION,
 };
@@ -20,7 +20,7 @@ use super::graph_scope_identity;
 /// a bounded `~h<sha256>` key), and an operation id composed from one inherits
 /// the same escapes. The canonical identifier alphabet that `IdempotencyKey`
 /// enforces deliberately excludes `~`
-/// (`eg_types::contract::identifiers::validate_canonical_id`), so embedding
+/// (`medulla_types::contract::identifiers::validate_canonical_id`), so embedding
 /// either part verbatim made the drain batch id unconstructible: `admit_drain`
 /// / `admit_maintenance` on a graph whose logical name carries punctuation
 /// failed closed with "idempotency key must use the canonical ASCII identifier
@@ -181,7 +181,7 @@ fn ensure_caller_batch_targets_graph(
 }
 
 fn is_run_event(intent: &MutationOutboxIntent) -> bool {
-    intent.topic == eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC
+    intent.topic == medulla_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC
 }
 
 /// `sha256(tenant || 0x00 || graph)` of a graph-scoped identity: the value a

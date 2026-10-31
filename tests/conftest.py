@@ -11,11 +11,11 @@ from pathlib import Path
 
 import pytest
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
 TEST_AGENT_ID = "service:test-suite"
 TEST_SIGNER_KEY = "test-operation-signer-key"  # sanitizer:ignore — test-only value
-TEST_AUDIENCE = "epistemic-graph-test"
+TEST_AUDIENCE = "medulla-test"
 TEST_TENANT = "tenant:test"
 TEST_POLICY_VERSION = "policy:test"
 
@@ -91,7 +91,7 @@ def strict_server_env(
 
     `main.rs` refuses to start without a durable-state directory (`error: the
     served engine requires an externally configured durable-state
-    directory`) — `start_epistemic_graph_server` below was written before
+    directory`) — `start_medulla_server` below was written before
     that gate existed and never grew a `--persist-dir`/`GRAPH_SERVICE_
     PERSIST_DIR` of its own, so the shared session-scoped engine silently
     failed to bind its socket and every test in the session hung on a
@@ -110,13 +110,13 @@ def strict_server_env(
         # dedicated end-to-end proof that the REAL default (this var unset)
         # refuses to start, and that this opt-out genuinely restores the
         # legacy behavior, lives in test_auth_enforcement.py.
-        "EPISTEMIC_GRAPH_REQUIRE_OIDC": "false",
-        "EPISTEMIC_GRAPH_AUDIENCE": TEST_AUDIENCE,
-        "EPISTEMIC_GRAPH_TENANT": TEST_TENANT,
-        "EPISTEMIC_GRAPH_POLICY_VERSION": TEST_POLICY_VERSION,
-        "EPISTEMIC_GRAPH_SECURITY_STATE_DIR": state_dir,
+        "MEDULLA_REQUIRE_OIDC": "false",
+        "MEDULLA_AUDIENCE": TEST_AUDIENCE,
+        "MEDULLA_TENANT": TEST_TENANT,
+        "MEDULLA_POLICY_VERSION": TEST_POLICY_VERSION,
+        "MEDULLA_SECURITY_STATE_DIR": state_dir,
         # NE-247: the SCOPED registry shape. See TEST_SIGNER_ALLOWED_ROLES above.
-        "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON": json.dumps(
+        "MEDULLA_SIGNER_KEYS_JSON": json.dumps(
             {
                 TEST_AGENT_ID: {
                     "key": TEST_SIGNER_KEY,
@@ -132,9 +132,9 @@ def strict_server_env(
 
 
 def find_server_binary() -> str | None:
-    """Locate an already-built `full`-featured `epistemic-graph-server`.
+    """Locate an already-built `full`-featured `medulla-server`.
 
-    A validated `EPISTEMIC_GRAPH_TEST_BINARY` (see `_prebuilt_test_binary`)
+    A validated `MEDULLA_TEST_BINARY` (see `_prebuilt_test_binary`)
     wins outright. Otherwise checks, in order: `$CARGO_TARGET_DIR` (this
     worktree's own isolated build, per the repo's `.cargo/config.toml` -- never
     a target dir shared with another worktree), the repo-relative
@@ -161,21 +161,21 @@ def find_server_binary() -> str | None:
     target_dir_env = os.environ.get("CARGO_TARGET_DIR")
     if target_dir_env:
         candidates.append(
-            os.path.join(target_dir_env, "release", "epistemic-graph-server")
+            os.path.join(target_dir_env, "release", "medulla-server")
         )
         candidates.append(
-            os.path.join(target_dir_env, "debug", "epistemic-graph-server")
+            os.path.join(target_dir_env, "debug", "medulla-server")
         )
     candidates += [
-        os.path.join(root, "target-isolated", "release", "epistemic-graph-server"),
-        os.path.join(root, "target-isolated", "debug", "epistemic-graph-server"),
-        os.path.join(root, "target", "release", "epistemic-graph-server"),
-        os.path.join(root, "target", "debug", "epistemic-graph-server"),
+        os.path.join(root, "target-isolated", "release", "medulla-server"),
+        os.path.join(root, "target-isolated", "debug", "medulla-server"),
+        os.path.join(root, "target", "release", "medulla-server"),
+        os.path.join(root, "target", "debug", "medulla-server"),
     ]
     for candidate in candidates:
         if os.path.isfile(candidate):
             return candidate
-    from epistemic_graph.server_binary import (
+    from medulla.server_binary import (
         ServerBinaryNotFoundError,
         resolve_server_binary,
     )
@@ -187,7 +187,7 @@ def find_server_binary() -> str | None:
 
 
 def _prebuilt_test_binary() -> str | None:
-    """Return a validated `EPISTEMIC_GRAPH_TEST_BINARY` path, or ``None``.
+    """Return a validated `MEDULLA_TEST_BINARY` path, or ``None``.
 
     BUG-045: the pytest pre-push gate previously ALWAYS paid for a `cargo build` +
     `cargo run` of the full-featured engine here, on top of the separate ~41-minute
@@ -195,16 +195,16 @@ def _prebuilt_test_binary() -> str | None:
     build `uv run --all-extras` triggers just to install this package (a build whose
     OUTPUT this fixture never even uses — it always built and ran its own copy). A
     caller that already has a matching binary (a prior `cargo build --features full`
-    in this same checkout, or a CI artifact) can point `EPISTEMIC_GRAPH_TEST_BINARY`
+    in this same checkout, or a CI artifact) can point `MEDULLA_TEST_BINARY`
     at it to skip the Cargo build+run entirely. Optional
-    `EPISTEMIC_GRAPH_TEST_BINARY_SHA256` verifies its integrity the same way the
+    `MEDULLA_TEST_BINARY_SHA256` verifies its integrity the same way the
     exact-artifact certification tests already do (`test_durable_crash.py`,
     `test_exact_release_campaigns.py`) — unset ⇒ no digest check, just an
     executable-file check. Unset/invalid/missing ⇒ ``None`` and the caller falls
     back to today's cargo build+run, unchanged.
     """
 
-    binary = str(os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY", "") or "").strip()
+    binary = str(os.environ.get("MEDULLA_TEST_BINARY", "") or "").strip()
     if not binary:
         return None
     path = os.path.abspath(binary)
@@ -213,7 +213,7 @@ def _prebuilt_test_binary() -> str | None:
     mode = os.stat(path).st_mode
     if not mode & stat.S_IXUSR:
         return None
-    digest = str(os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY_SHA256", "") or "").strip()
+    digest = str(os.environ.get("MEDULLA_TEST_BINARY_SHA256", "") or "").strip()
     if digest:
         hasher = hashlib.sha256()
         with open(path, "rb") as handle:
@@ -231,7 +231,7 @@ def _prebuilt_test_binary() -> str | None:
 #: only ever paid by a genuinely stuck server. It is generous because the suite
 #: runs a debug `full` binary under xdist on shared build hosts, where a fixed
 #: 5 s budget failed healthy servers at a load average of ~40.
-SERVER_TIMEOUT_ENV = "EPISTEMIC_GRAPH_TEST_SERVER_TIMEOUT"
+SERVER_TIMEOUT_ENV = "MEDULLA_TEST_SERVER_TIMEOUT"
 _DEFAULT_SERVER_TIMEOUT = 120.0
 _OUTPUT_TAIL_BYTES = 8192
 
@@ -351,7 +351,7 @@ def selection_needs_engine(items) -> bool:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def start_epistemic_graph_server(request, tmp_path_factory):
+def start_medulla_server(request, tmp_path_factory):
     # When no selected test needs the shared engine (see
     # `selection_needs_engine`: exact_artifact / no_engine only), never
     # start (or implicitly Cargo-build) the shared engine.
@@ -360,7 +360,7 @@ def start_epistemic_graph_server(request, tmp_path_factory):
         return
     rust_dir = os.path.join(os.path.dirname(__file__), "..")
     rust_dir = os.path.abspath(rust_dir)
-    runtime_dir = tmp_path_factory.mktemp("epistemic-graph-runtime")
+    runtime_dir = tmp_path_factory.mktemp("medulla-runtime")
     socket_path = str(runtime_dir / "engine.sock")
     log_path = runtime_dir / "engine.log"
     state_dir = str(runtime_dir / "security")
@@ -368,7 +368,7 @@ def start_epistemic_graph_server(request, tmp_path_factory):
     os.makedirs(persist_dir, exist_ok=True)
     # Real secret so the suite exercises the HMAC auth path end-to-end
     # (an empty secret makes the server refuse to start by design).
-    auth_secret = "test-epistemic-graph-secret"
+    auth_secret = "test-medulla-secret"
     # Both branches independently found the same defect: `main.rs` exits(2)
     # before opening the listener when no durable-state dir is configured, so the
     # shared session engine silently never started and every dependent test failed
@@ -386,19 +386,19 @@ def start_epistemic_graph_server(request, tmp_path_factory):
     # caller is affected. Respects a value a caller already exported instead of
     # clobbering it.
     server_env.setdefault(
-        "EPISTEMIC_GRAPH_ENCRYPTION_KEY",
+        "MEDULLA_ENCRYPTION_KEY",
         os.environ.get(
-            "EPISTEMIC_GRAPH_ENCRYPTION_KEY", "test-epistemic-graph-encryption-key"
+            "MEDULLA_ENCRYPTION_KEY", "test-medulla-encryption-key"
         ),
     )
 
     if os.path.exists(socket_path):
         os.remove(socket_path)
 
-    print("Starting epistemic-graph-server...")
+    print("Starting medulla-server...")
     prebuilt = _prebuilt_test_binary()
     if prebuilt is not None:
-        print(f"Using pre-built EPISTEMIC_GRAPH_TEST_BINARY: {prebuilt}")
+        print(f"Using pre-built MEDULLA_TEST_BINARY: {prebuilt}")
         command = [prebuilt, "--socket-path", socket_path]
     else:
         # Build with `full` (= compute + server): the suite exercises the finance,
@@ -414,7 +414,7 @@ def start_epistemic_graph_server(request, tmp_path_factory):
             "--features",
             "full",
             "--bin",
-            "epistemic-graph-server",
+            "medulla-server",
             "--",
             "--socket-path",
             socket_path,
@@ -437,7 +437,7 @@ def start_epistemic_graph_server(request, tmp_path_factory):
     os.environ["GRAPH_SERVICE_SOCKET"] = socket_path
     os.environ.update(server_env)
 
-    bootstrap = SyncEpistemicGraphClient.connect(
+    bootstrap = SyncMedullaClient.connect(
         socket_path=socket_path,
         auth_secret=auth_secret,
         verified_context=bootstrap_context(),
@@ -460,10 +460,10 @@ def start_epistemic_graph_server(request, tmp_path_factory):
 
 @pytest.fixture
 def clean_graph():
-    """Returns a clean EpistemicGraphClient instance for each test case."""
+    """Returns a clean MedullaClient instance for each test case."""
     socket_path = os.environ.get("GRAPH_SERVICE_SOCKET")
     assert socket_path is not None
-    client = SyncEpistemicGraphClient.connect(
+    client = SyncMedullaClient.connect(
         socket_path=socket_path,
         verified_context=request_context(),
     )

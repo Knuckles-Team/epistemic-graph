@@ -4,7 +4,7 @@ use super::reserve_support::work_item_kind_name;
 use super::types::{LaneDecision, LaneWorkItem};
 use crate::epistemic_operations::{DevelopmentLaneCleanupIntent, DevelopmentLaneIntent};
 use crate::protocol::DevelopmentLaneWorkItemKind;
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 
 // Private redb-transaction-scoped helper: every parameter is a distinct
 // required assertion against the borrowed row (table handle, identity,

@@ -36,7 +36,7 @@ from certify_exact_fault_restart import (
     _write_evidence,
 )
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
 SCHEMA_VERSION = 1
 MODALITY_GRAPH = "exact-multimodal"
@@ -449,7 +449,7 @@ def _validate_performance_report(
             report.get("status") == "pass",
             report.get("failures") == [],
             isinstance(artifact, dict),
-            artifact_component == "epistemic-graph-server",
+            artifact_component == "medulla-server",
             artifact_digest == binary_digest,
             artifact_verified is True,
             isinstance(modality_coverage, dict),
@@ -641,7 +641,7 @@ def _assert_empty(page: Any, failure: str) -> None:
         _fail(failure)
 
 
-def _native_query(client: SyncEpistemicGraphClient, modality: str) -> Any:
+def _native_query(client: SyncMedullaClient, modality: str) -> Any:
     if modality == "document":
         return client.modalities.search_documents("alpha", limit=1)
     if modality == "image":
@@ -659,7 +659,7 @@ def _native_query(client: SyncEpistemicGraphClient, modality: str) -> Any:
     _fail("unknown_native_modality_query")
 
 
-def _native_negative_query(client: SyncEpistemicGraphClient, modality: str) -> Any:
+def _native_negative_query(client: SyncMedullaClient, modality: str) -> Any:
     if modality == "document":
         return client.modalities.search_documents("absent", limit=1)
     if modality == "image":
@@ -700,7 +700,7 @@ def _stream_item(
 
 
 def _assert_paged_pair(
-    client: SyncEpistemicGraphClient,
+    client: SyncMedullaClient,
     modality: str,
     expected: dict[str, tuple[dict[str, Any], int, bytes]],
 ) -> None:
@@ -746,7 +746,7 @@ def _assert_paged_pair(
 
 
 def _assert_stats(
-    client: SyncEpistemicGraphClient,
+    client: SyncMedullaClient,
     modality: str,
     *,
     active: int,
@@ -776,7 +776,7 @@ def _assert_stats(
 
 
 def _invalid_authentication_denied(engine: ExactEngine) -> None:
-    client = SyncEpistemicGraphClient.connect(
+    client = SyncMedullaClient.connect(
         socket_path=str(engine.socket_path),
         auth_secret="synthetic-invalid-authority",
         graph_name=MODALITY_GRAPH,
@@ -795,7 +795,7 @@ def _invalid_authentication_denied(engine: ExactEngine) -> None:
 
 
 def _assert_events(
-    client: SyncEpistemicGraphClient, modality: str, expected_kinds: tuple[str, ...]
+    client: SyncMedullaClient, modality: str, expected_kinds: tuple[str, ...]
 ) -> None:
     events = client.modalities.events(modality, after_sequence=0, limit=10)
     if not isinstance(events, list) or len(events) != len(expected_kinds):
@@ -1007,7 +1007,7 @@ def _modality_fixtures(
 
 
 def _ingest_initial_modality(
-    client: SyncEpistemicGraphClient,
+    client: SyncMedullaClient,
     modality: str,
     fixtures: dict[str, Any],
     primary_source: bytes,
@@ -1076,7 +1076,7 @@ def _ingest_initial_modality(
 
 
 def _exercise_modality_rollback(
-    client: SyncEpistemicGraphClient,
+    client: SyncMedullaClient,
     modality: str,
     authority: dict[str, Any],
     fixtures: dict[str, Any],
@@ -1127,7 +1127,7 @@ def _exercise_modality_rollback(
 
 
 def _exercise_invalid_modality_inputs(
-    client: SyncEpistemicGraphClient,
+    client: SyncMedullaClient,
     modality: str,
     authority: dict[str, Any],
     fixtures: dict[str, Any],
@@ -1198,7 +1198,7 @@ def _exercise_invalid_modality_inputs(
 
 
 def _exercise_modality_queries_and_lifecycle(
-    client: SyncEpistemicGraphClient,
+    client: SyncMedullaClient,
     engine: ExactEngine,
     modality: str,
     fixtures: dict[str, Any],
@@ -1286,7 +1286,7 @@ def _exercise_modality_queries_and_lifecycle(
 
 
 def _exercise_modality(
-    client: SyncEpistemicGraphClient,
+    client: SyncMedullaClient,
     engine: ExactEngine,
     modality_authority: dict[str, Any],
     modality: str,
@@ -1347,7 +1347,7 @@ def _exercise_modality(
 
 
 def _assert_restarted_modalities(
-    client: SyncEpistemicGraphClient,
+    client: SyncMedullaClient,
     sources: dict[str, tuple[bytes, bytes]],
     bundles: dict[str, dict[int, dict[str, Any]]],
     occurrences: dict[str, dict[int, str]],
@@ -1454,7 +1454,7 @@ def _restore_migrated_store(
 
 
 def _delete_modalities(
-    client: SyncEpistemicGraphClient,
+    client: SyncMedullaClient,
     sources: dict[str, tuple[bytes, bytes]],
     bundles: dict[str, dict[int, dict[str, Any]]],
     occurrences: dict[str, dict[int, str]],
@@ -1523,7 +1523,7 @@ def _delete_modalities(
         _assert_events(client, modality, event_kinds + ("deleted", "deleted"))
 
 
-def _collect_modality_tombstones(client: SyncEpistemicGraphClient) -> None:
+def _collect_modality_tombstones(client: SyncMedullaClient) -> None:
     for modality in MODALITIES:
         _assert_stats(
             client,
@@ -1564,7 +1564,7 @@ def _collect_modality_tombstones(client: SyncEpistemicGraphClient) -> None:
         )
 
 
-def _assert_final_modalities_empty(client: SyncEpistemicGraphClient) -> None:
+def _assert_final_modalities_empty(client: SyncMedullaClient) -> None:
     for modality in MODALITIES:
         _assert_stats(
             client,
@@ -1617,7 +1617,7 @@ def _build_multimodal_evidence(
     ]
     evidence = {
         "binary": {"sha256": binary_digest, "sealed_copy_verified": True},
-        "certification": "epistemic-graph-exact-multimodal",
+        "certification": "medulla-exact-multimodal",
         "exact_behavior_dimensions": list(EXACT_BEHAVIOR_DIMENSIONS),
         "fault_matrix": fault_matrix,
         "matrix": matrix,
@@ -1647,7 +1647,7 @@ def _run(
     sources = _sources()
     all_valid_sources = _validate_modality_sources(sources)
 
-    with tempfile.TemporaryDirectory(prefix="eg-exact-multimodal-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="medulla-exact-multimodal-") as scratch:
         campaign_root = Path(scratch)
         root = campaign_root / "main"
         root.mkdir(mode=0o700)
@@ -1748,7 +1748,7 @@ def _run(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Certify four served modalities on one exact Epistemic Graph "
+        description="Certify four served modalities on one exact Medulla "
         "artifact."
     )
     parser.add_argument("--binary", required=True)

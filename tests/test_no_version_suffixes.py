@@ -39,7 +39,7 @@ ALLOWLIST: frozenset[str] = frozenset()
 ID_RE = re.compile(r"\b[A-Z][A-Za-z0-9]*V[0-9]+\b")
 TBL_RE = re.compile(r"\b[a-z_]+_v[0-9]+\b")
 
-ROOTS = ("crates", "src", "tests", "epistemic_graph", "docs", "scripts", "contract")
+ROOTS = ("crates", "src", "tests", "medulla", "docs", "scripts", "contract")
 EXTRA_FILES = (".config/pre-commit.yaml",)
 TEXT_SUFFIXES = {".rs", ".py", ".yaml", ".yml", ".md", ".toml"}
 
@@ -116,14 +116,14 @@ FALSE_POSITIVE_LINE_PATTERNS: list[tuple[re.Pattern, str]] = [
     ),
     # -- Spec-named decision-engine request and answer types. ----------------
     #
-    # EG-DECISION-ENGINE-R134 names `RecommendRequestV1`,
+    # MEDULLA-DECISION-ENGINE-R134 names `RecommendRequestV1`,
     # `RecommendAnswerV1` and `AnswerCandidateRankingV1` as the typed records
     # of the answer-ranking and recommendation questions.
     (
         re.compile(
             r"\b(?:AnswerCandidateRanking|RecommendRequest|RecommendAnswer)V1\b"
         ),
-        "spec-named decision-engine record type (EG-DECISION-ENGINE-R134), "
+        "spec-named decision-engine record type (MEDULLA-DECISION-ENGINE-R134), "
         "not a versioned component",
     ),
     # -- Registered-ontology audit test modules (CQ-CONN spec family). -------
@@ -206,7 +206,7 @@ class NoVersionSuffixesTest(unittest.TestCase):
         else Path(__file__).resolve().parents[1]
     )
 
-    @pytest.mark.spec("EG-CONTRACT-R020")
+    @pytest.mark.spec("MEDULLA-CONTRACT-R020")
     def test_no_stray_version_suffixed_names(self):
         violations = find_violations(self.ROOT)
         if violations:

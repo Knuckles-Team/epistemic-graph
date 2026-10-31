@@ -1,6 +1,6 @@
 use super::*;
-use eg_types::current_plan::sample_task_plan_publish_request;
-use eg_types::decision::task_plan::plan_explicit_tasks;
+use medulla_types::current_plan::sample_task_plan_publish_request;
+use medulla_types::decision::task_plan::plan_explicit_tasks;
 
 fn attached_request(revision: u64) -> PublishCurrentPlanRequest {
     let mut request = request(revision);
@@ -10,7 +10,7 @@ fn attached_request(revision: u64) -> PublishCurrentPlanRequest {
     request
 }
 
-// spec: EG-DURABLE-KERNEL-R028.5.2
+// spec: MEDULLA-DURABLE-KERNEL-R028.5.2
 #[test]
 fn current_plan_attachment_is_immutable_and_scaffold_updates_preserve_it() {
     for first_revision in [0, 1] {
@@ -58,7 +58,7 @@ fn current_plan_attachment_is_immutable_and_scaffold_updates_preserve_it() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.5.2
+// spec: MEDULLA-DURABLE-KERNEL-R028.5.2
 #[test]
 fn current_plan_attachment_refusals_preserve_rows() {
     let tmp = open("current-plan-attachment-refusals");
@@ -80,7 +80,7 @@ fn current_plan_attachment_refusals_preserve_rows() {
     let mut reordered = attached_request(1);
     let proposal = reordered.task_plan_proposal.as_mut().unwrap();
     proposal.tasks =
-        eg_types::contract::BoundedVec::new(proposal.tasks.iter().cloned().rev().collect())
+        medulla_types::contract::BoundedVec::new(proposal.tasks.iter().cloned().rev().collect())
             .unwrap();
     reordered.snapshot.task_plan = Some(plan_explicit_tasks(proposal).unwrap());
     assert_eq!(
@@ -136,7 +136,7 @@ fn current_plan_attachment_refusals_preserve_rows() {
     assert!(read(shard, "other", 2000).is_none());
 }
 
-// spec: EG-DURABLE-KERNEL-R028.5.2
+// spec: MEDULLA-DURABLE-KERNEL-R028.5.2
 #[test]
 fn terminal_or_superseded_lease_hides_but_does_not_erase_attachment() {
     for (field, value) in [

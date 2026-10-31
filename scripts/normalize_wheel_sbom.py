@@ -74,7 +74,7 @@ else:
 
 # Fixed, arbitrary namespace for the content-derived ``serialNumber`` UUIDv5
 # (RFC 4122 ยง4.3). Computed once as
-# ``uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/epistemic-graph/epistemic-graph#dist-info-sboms-serial-namespace")``
+# ``uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/medulla-engine/medulla#dist-info-sboms-serial-namespace")``
 # and hardcoded so it is stable across every future run, host, and Python
 # version -- the whole point is that this constant never changes.
 _SERIAL_NAMESPACE = uuid.UUID("6723ca6e-8164-5345-8b87-a0696dff7b0d")

@@ -1,13 +1,13 @@
-# EG-DATAPLAT-VOCAB — Data-platform vocabulary: design and implementation plan
+# MEDULLA-DATAPLAT-VOCAB — Data-platform vocabulary: design and implementation plan
 
 Governing spec: [spec.md](spec.md).
 
 ## Problem and evidence
 
-`specs/connector-competency` (EG-CQ-CONN-001, rows R012 clarity, R014 data-science, R016 documentdb, R029 kafka, R041 objectstore, R044 openbao, R058 sql, R065 vector) lists these eight connectors as "Vocabulary: MISSING".
+`specs/connector-competency` (MEDULLA-CQ-CONN-001, rows R012 clarity, R014 data-science, R016 documentdb, R029 kafka, R041 objectstore, R044 openbao, R058 sql, R065 vector) lists these eight connectors as "Vocabulary: MISSING".
 
-- `ls crates/eg-core/ontology/` holds no data-store vocabulary. `virtual_graph-v1.ttl` (EG-UNIFIED-DATA-PLANE-R037) defines only the attachment layer: `vg:SourceConnection`, `vg:EndpointRef`, `vg:MetadataContract` (with untyped `vg:discoveredEntity` / `discoveredField` strings), `vg:VirtualMapping`, `vg:PredicateFieldPair`. `native_source_connector-v1.ttl` has one class (`SourceDocument`) with three properties. `catalog-v1.ttl` has two prefixes and no store classes.
-- `vg:sourceKind` is a closed list (`api mcp a2a graphql sql iceberg warehouse sparql`, enforced in `virtual_graph-v1.shapes.ttl`). It has no `document`, so the MongoDB/DocumentDB adapter of EG-UNIFIED-DATA-PLANE-R019 cannot be recorded as a connection today.
+- `ls crates/medulla-core/ontology/` holds no data-store vocabulary. `virtual_graph-v1.ttl` (MEDULLA-UNIFIED-DATA-PLANE-R037) defines only the attachment layer: `vg:SourceConnection`, `vg:EndpointRef`, `vg:MetadataContract` (with untyped `vg:discoveredEntity` / `discoveredField` strings), `vg:VirtualMapping`, `vg:PredicateFieldPair`. `native_source_connector-v1.ttl` has one class (`SourceDocument`) with three properties. `catalog-v1.ttl` has two prefixes and no store classes.
+- `vg:sourceKind` is a closed list (`api mcp a2a graphql sql iceberg warehouse sparql`, enforced in `virtual_graph-v1.shapes.ttl`). It has no `document`, so the MongoDB/DocumentDB adapter of MEDULLA-UNIFIED-DATA-PLANE-R019 cannot be recorded as a connection today.
 - Each connector package already ships a package-local ontology in the shared `http://knuckles.team/kg#` namespace (`sql_mcp/ontology/database.ttl`, `documentdb.ttl`, `objectstore.ttl`, `vector.ttl`, `kafka.ttl`, `openbao.ttl`, `clarity.ttl`, `datascience.ttl`) and a `mappings/source.yaml`. Those describe what the package emits into the graph. They are not an engine core schema source, they use unprefixed local names, and they overlap each other (`:collectionName` in vector and documentdb, `:ownedBy`, `:metricName` in clarity and data-science).
 
 The gap is therefore a single engine-side typed vocabulary, `core:data-platform@1`, that (a) names a store as a source in one shared set of terms and (b) says how a store's contents map to domain concepts through `vg:VirtualMapping`.
@@ -26,9 +26,9 @@ question -> ontology class (dp:Table, dp:ConsumerGroup, dp:SecretPath ...)
 
 | Piece | Owner | Module |
 |---|---|---|
-| `core:data-platform@1` classes and properties | Medulla | `crates/eg-core/ontology/data_platform-v1.ttl` |
-| SHACL shapes (closed vocabularies, secret-metadata refusal) | Medulla | `crates/eg-core/ontology/data_platform-v1.shapes.ttl` |
-| `dp:StoreMapping` rows for each connector operation | Medulla | mapping fixtures under `crates/eg-core/ontology/fixtures/data_platform/` |
+| `core:data-platform@1` classes and properties | Medulla | `crates/medulla-core/ontology/data_platform-v1.ttl` |
+| SHACL shapes (closed vocabularies, secret-metadata refusal) | Medulla | `crates/medulla-core/ontology/data_platform-v1.shapes.ttl` |
+| `dp:StoreMapping` rows for each connector operation | Medulla | mapping fixtures under `crates/medulla-core/ontology/fixtures/data_platform/` |
 | Discovery, R2RML compile, pushdown, acceleration | Medulla | existing unified-data-plane rows, cited below, not re-specified |
 | Missing connector operations | each connector package | see Decisions (cross-repo rows) |
 
@@ -160,9 +160,9 @@ Rows stay in the source; only catalog metadata is held (R038).
 
 ## Wiring
 
-- `crates/eg-core/ontology/` is the directory the core schema sources load from; add `data_platform-v1.ttl` and `.shapes.ttl` beside `virtual_graph-v1.*`, registered as `core:data-platform@1` exactly as `core:virtual-graph@1` is (EG-UNIFIED-DATA-PLANE-R037).
-- R001.3's native SHACL acceptance fixture belongs to `eg-shacl` (`crates/eg-shacl/tests/data_platform_vocab.rs`) because that crate owns `validate_turtle`; it loads the canonical `eg-core` virtual-graph shape directly. The `eg-core` vocabulary test remains parser/catalog-only, so this proof does not add an upward development dependency cycle.
-- Mappings are `vg:VirtualMapping` instances (subclass `dp:StoreMapping`); approval gating is `crates/eg-plan/src/virtual_graph_mapping.rs` (R005.1: only `Approved` mappings serve reads). No new approval path.
+- `crates/medulla-core/ontology/` is the directory the core schema sources load from; add `data_platform-v1.ttl` and `.shapes.ttl` beside `virtual_graph-v1.*`, registered as `core:data-platform@1` exactly as `core:virtual-graph@1` is (MEDULLA-UNIFIED-DATA-PLANE-R037).
+- R001.3's native SHACL acceptance fixture belongs to `medulla-shacl` (`crates/medulla-shacl/tests/data_platform_vocab.rs`) because that crate owns `validate_turtle`; it loads the canonical `medulla-core` virtual-graph shape directly. The `medulla-core` vocabulary test remains parser/catalog-only, so this proof does not add an upward development dependency cycle.
+- Mappings are `vg:VirtualMapping` instances (subclass `dp:StoreMapping`); approval gating is `crates/medulla-plan/src/virtual_graph_mapping.rs` (R005.1: only `Approved` mappings serve reads). No new approval path.
 - Discovery output (`vg:MetadataContract`, R038.2) is the input the `dp:` classes type; no discovery code is added here.
 - Scopes: only the engine contract's existing read scopes; no new scope.
 

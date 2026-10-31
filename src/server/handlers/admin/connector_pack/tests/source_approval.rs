@@ -3,9 +3,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use eg_types::connector_pack::{PackAnnotations, PackEntryKind, PackSourceApproval};
-use eg_types::contract::Digest256;
-use eg_types::foreign_read::{
+use medulla_types::connector_pack::{PackAnnotations, PackEntryKind, PackSourceApproval};
+use medulla_types::contract::Digest256;
+use medulla_types::foreign_read::{
     ForeignReadAbortRequest, ForeignReadAbortResult, ForeignReadChunkRequest,
     ForeignReadChunkResult, ForeignReadCompleteRequest, ForeignReadCompleteResult,
     ForeignReadLimits, ForeignReadOpenRequest, ForeignReadOpenResult, ForeignReadRow,
@@ -61,7 +61,7 @@ async fn approve_source_requires_current_head_and_contract_digest() {
         ],
     );
     let first = imported(&served, &initial, None).await;
-    let connector_id = eg_types::contract::ResourceId::new(connector).unwrap();
+    let connector_id = medulla_types::contract::ResourceId::new(connector).unwrap();
     let store = served.state.write().await.ensure_agent_library().unwrap();
     let source = store
         .connector_pack_members(TENANT, &connector_id)
@@ -87,8 +87,8 @@ async fn approve_source_requires_current_head_and_contract_digest() {
                 &["*"],
                 wrong_key,
                 crate::protocol::Method::ConnectorPack {
-                    op: Box::new(eg_types::connector_pack::ConnectorPackOp::ApproveSource {
-                        request: eg_types::connector_pack::ConnectorPackSourceApprovalRequest {
+                    op: Box::new(medulla_types::connector_pack::ConnectorPackOp::ApproveSource {
+                        request: medulla_types::connector_pack::ConnectorPackSourceApprovalRequest {
                             context: wrong_context,
                             connector: connector_id.clone(),
                             contract_iri: contract_iri.clone(),
@@ -103,7 +103,7 @@ async fn approve_source_requires_current_head_and_contract_digest() {
     );
     assert!(wrong_tenant.contains("ACCESS_DENIED"), "{wrong_tenant}");
 
-    let approved: eg_types::connector_pack::ConnectorPackSourceApprovalResult = ok(
+    let approved: medulla_types::connector_pack::ConnectorPackSourceApprovalResult = ok(
         "approve source",
         approve_source(
             &served,
@@ -118,7 +118,7 @@ async fn approve_source_requires_current_head_and_contract_digest() {
     assert_eq!(approved.registration.approval, PackSourceApproval::Approved);
     assert_eq!(
         approved.schema_version,
-        eg_types::connector_pack::CONNECTOR_PACK_SCHEMA_VERSION
+        medulla_types::connector_pack::CONNECTOR_PACK_SCHEMA_VERSION
     );
     assert_eq!(approved.tenant_id, TENANT);
     assert_eq!(approved.connector, connector_id);
@@ -136,7 +136,7 @@ async fn approve_source_requires_current_head_and_contract_digest() {
         .expect_err("a receipt with a changed body digest must not bind");
     assert!(refusal.contains("SOURCE_CONTRACT_MISMATCH"), "{refusal}");
     drop(store);
-    let replay: eg_types::connector_pack::ConnectorPackSourceApprovalResult = ok(
+    let replay: medulla_types::connector_pack::ConnectorPackSourceApprovalResult = ok(
         "replay approved source",
         approve_source(
             &served,
@@ -267,7 +267,7 @@ async fn foreign_read_four_phase_uses_authenticated_dispatch() {
         ],
     );
     let first = imported(&served, &initial, None).await;
-    let connector_id = eg_types::contract::ResourceId::new(connector).unwrap();
+    let connector_id = medulla_types::contract::ResourceId::new(connector).unwrap();
     let store = served.state.write().await.ensure_agent_library().unwrap();
     let member = store
         .connector_pack_members(TENANT, &connector_id)
@@ -279,7 +279,7 @@ async fn foreign_read_four_phase_uses_authenticated_dispatch() {
     let contract_digest = member.body_sha256;
     drop(store);
 
-    let approved: eg_types::connector_pack::ConnectorPackSourceApprovalResult = ok(
+    let approved: medulla_types::connector_pack::ConnectorPackSourceApprovalResult = ok(
         "approve source for four-phase route",
         approve_source(
             &served,
@@ -300,7 +300,7 @@ async fn foreign_read_four_phase_uses_authenticated_dispatch() {
                 "r722-four-phase:register",
                 crate::protocol::Method::RegisterForeignSource {
                     name: source_name.clone(),
-                    source: eg_types::wire::ForeignSourceSpec::Mcp {
+                    source: medulla_types::wire::ForeignSourceSpec::Mcp {
                         server: connector.to_string(),
                         tool: "list_suppliers".to_string(),
                         capabilities: Default::default(),
@@ -318,8 +318,8 @@ async fn foreign_read_four_phase_uses_authenticated_dispatch() {
         chunk_bytes: 512,
         deadline_ms: 10_000,
     };
-    let plan = eg_plan::Plan::new(vec![eg_plan::Op::ForeignScan {
-        source: Box::new(eg_types::wire::ForeignSourceSpec::Named {
+    let plan = medulla_plan::Plan::new(vec![medulla_plan::Op::ForeignScan {
+        source: Box::new(medulla_types::wire::ForeignSourceSpec::Named {
             name: source_name.clone(),
         }),
         join: false,
@@ -461,9 +461,9 @@ async fn foreign_read_four_phase_uses_authenticated_dispatch() {
 
 struct BoundRows;
 
-impl eg_plan::federation::ForeignSource for BoundRows {
-    fn fetch(&self) -> Result<eg_plan::RowSet, String> {
-        Ok(eg_plan::RowSet::from_ids(["bound-row".to_string()]))
+impl medulla_plan::federation::ForeignSource for BoundRows {
+    fn fetch(&self) -> Result<medulla_plan::RowSet, String> {
+        Ok(medulla_plan::RowSet::from_ids(["bound-row".to_string()]))
     }
 }
 
@@ -480,7 +480,7 @@ async fn bind_for_requires_owner_catalog_and_rechecks_approval() {
         ],
     );
     let first = imported(&served, &initial, None).await;
-    let connector_id = eg_types::contract::ResourceId::new(connector).unwrap();
+    let connector_id = medulla_types::contract::ResourceId::new(connector).unwrap();
     let store = served.state.write().await.ensure_agent_library().unwrap();
     let member = store
         .connector_pack_members(TENANT, &connector_id)
@@ -491,7 +491,7 @@ async fn bind_for_requires_owner_catalog_and_rechecks_approval() {
     let registration = member.source_registrations[0].clone();
     let digest = member.body_sha256;
     drop(store);
-    let approved: eg_types::connector_pack::ConnectorPackSourceApprovalResult = ok(
+    let approved: medulla_types::connector_pack::ConnectorPackSourceApprovalResult = ok(
         "approve source for binding",
         approve_source(
             &served,
@@ -508,7 +508,7 @@ async fn bind_for_requires_owner_catalog_and_rechecks_approval() {
         &crate::server::auth::VerifiedRequestContext::verified_for_test(ADMIN),
     )
     .unwrap();
-    let spec = eg_types::wire::ForeignSourceSpec::Mcp {
+    let spec = medulla_types::wire::ForeignSourceSpec::Mcp {
         server: connector.to_string(),
         tool: "list_suppliers".to_string(),
         capabilities: Default::default(),
@@ -544,12 +544,12 @@ async fn bind_for_requires_owner_catalog_and_rechecks_approval() {
     // operation or a different transport, even when both values are registered
     // in the same owner's catalog.
     for wrong_spec in [
-        eg_types::wire::ForeignSourceSpec::Mcp {
+        medulla_types::wire::ForeignSourceSpec::Mcp {
             server: connector.to_string(),
             tool: "list_customers".to_string(),
             capabilities: Default::default(),
         },
-        eg_types::wire::ForeignSourceSpec::Api {
+        medulla_types::wire::ForeignSourceSpec::Api {
             operation: "list_suppliers".to_string(),
             capabilities: Default::default(),
         },
@@ -652,7 +652,7 @@ async fn bind_for_requires_owner_catalog_and_rechecks_approval() {
     );
 
     let mut changed_spec = descriptor.clone();
-    changed_spec.spec = eg_types::wire::ForeignSourceSpec::Api {
+    changed_spec.spec = medulla_types::wire::ForeignSourceSpec::Api {
         operation: "different_operation".to_string(),
         capabilities: Default::default(),
     };
@@ -734,7 +734,7 @@ async fn bind_for_requires_owner_catalog_and_rechecks_approval() {
 /// One admitted query consumes two individually approved source executions.
 #[tokio::test]
 async fn two_approved_sources_join_once_and_duplicate_refuses_atomically() {
-    use eg_types::contract::BoundedVec;
+    use medulla_types::contract::BoundedVec;
     let connector = "r722-two-sources";
     let served = Served::new();
     let _env = served.with_graph_persistence().await;
@@ -753,7 +753,7 @@ async fn two_approved_sources_join_once_and_duplicate_refuses_atomically() {
         ],
     );
     let imported_pack = imported(&served, &pack, None).await;
-    let connector_id = eg_types::contract::ResourceId::new(connector).unwrap();
+    let connector_id = medulla_types::contract::ResourceId::new(connector).unwrap();
     let store = served.state.write().await.ensure_agent_library().unwrap();
     let member = store
         .connector_pack_members(TENANT, &connector_id)
@@ -769,12 +769,12 @@ async fn two_approved_sources_join_once_and_duplicate_refuses_atomically() {
         .iter()
         .map(|item| item.source_id.clone())
         .collect();
-    let plan = eg_plan::Plan::new(
+    let plan = medulla_plan::Plan::new(
         names
             .iter()
             .enumerate()
-            .map(|(index, name)| eg_plan::Op::ForeignScan {
-                source: Box::new(eg_types::wire::ForeignSourceSpec::Named { name: name.clone() }),
+            .map(|(index, name)| medulla_plan::Op::ForeignScan {
+                source: Box::new(medulla_types::wire::ForeignSourceSpec::Named { name: name.clone() }),
                 join: index != 0,
             })
             .collect(),
@@ -782,7 +782,7 @@ async fn two_approved_sources_join_once_and_duplicate_refuses_atomically() {
     let digest = Digest256::sha256(&rmp_serde::to_vec_named(&plan).unwrap());
     let mut executions = Vec::new();
     for registration in &registrations {
-        let approved: eg_types::connector_pack::ConnectorPackSourceApprovalResult = ok(
+        let approved: medulla_types::connector_pack::ConnectorPackSourceApprovalResult = ok(
             "approve source",
             approve_source(
                 &served,
@@ -801,7 +801,7 @@ async fn two_approved_sources_join_once_and_duplicate_refuses_atomically() {
                     &format!("r722-two-sources:register:{}", registration.source_id),
                     crate::protocol::Method::RegisterForeignSource {
                         name: registration.source_id.clone(),
-                        source: eg_types::wire::ForeignSourceSpec::Mcp {
+                        source: medulla_types::wire::ForeignSourceSpec::Mcp {
                             server: connector.to_string(),
                             tool: registration.operation.clone(),
                             capabilities: Default::default(),

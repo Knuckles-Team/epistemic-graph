@@ -1,15 +1,15 @@
 //! `DecisionCommit`'s store half: the planted catalog-side inputs of
 //! DECIDE-LAYER-DESIGN §11.1 and the outcome link of §4.6 (EH-070).
 
-use eg_compute::assemble::{assemble, inputs, replay_check, Assembly, RecordIdentity};
-use eg_types::agent_component::{
+use medulla_compute::assemble::{assemble, inputs, replay_check, Assembly, RecordIdentity};
+use medulla_types::agent_component::{
     AgentComponentDraft, AgentComponentFacts, AgentComponentKind, AgentComponentPublishRequest,
     ComponentDependency, ModalityFacts, PromptMode, ToolEffect,
 };
-use eg_types::agent_graph::AgentGraphPublishRequest;
-use eg_types::agent_library::AgentLibraryPublishRequest;
-use eg_types::contract::BoundedVec;
-use eg_types::decision::{
+use medulla_types::agent_graph::AgentGraphPublishRequest;
+use medulla_types::agent_library::AgentLibraryPublishRequest;
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::{
     AssemblyRequest, AssemblyRequirements, DecisionOutcome, DecisionPolicy, DecisionPolicyRef,
     LibraryCandidateScope,
 };
@@ -165,8 +165,8 @@ pub(crate) fn commit_context(
     mutation_context(store, TENANT, key, nonce, 0, "decision:commit")
 }
 
-// spec: EG-DECISION-ENGINE-R019
-// spec: EG-DECISION-ENGINE-R051
+// spec: MEDULLA-DECISION-ENGINE-R019
+// spec: MEDULLA-DECISION-ENGINE-R051
 #[test]
 fn a_record_commits_once_serves_its_body_and_replays_idempotently() {
     let (_dir, store) = open_agent_store();
@@ -194,7 +194,7 @@ fn a_record_commits_once_serves_its_body_and_replays_idempotently() {
     assert_eq!(again.result.component, first.result.component);
 }
 
-// spec: EG-DECISION-ENGINE-R019
+// spec: MEDULLA-DECISION-ENGINE-R019
 #[test]
 fn a_catalog_that_moved_since_the_decision_is_a_stale_refusal() {
     let (_dir, store) = open_agent_store();
@@ -220,8 +220,8 @@ fn a_catalog_that_moved_since_the_decision_is_a_stale_refusal() {
     assert!(error.starts_with("STALE_CATALOG: "), "{error}");
 }
 
-// spec: EG-DECISION-ENGINE-R019
-// spec: EG-DECISION-ENGINE-R051
+// spec: MEDULLA-DECISION-ENGINE-R019
+// spec: MEDULLA-DECISION-ENGINE-R051
 #[test]
 fn a_fabricated_record_whose_facts_differ_from_the_published_revision_is_refused() {
     let (_dir, store) = open_agent_store();
@@ -240,7 +240,7 @@ fn a_fabricated_record_whose_facts_differ_from_the_published_revision_is_refused
     assert!(error.starts_with("CANDIDATE_FACTS_CHANGED: "), "{error}");
 }
 
-// spec: EG-DECISION-ENGINE-R051
+// spec: MEDULLA-DECISION-ENGINE-R051
 #[test]
 fn a_record_from_another_tenant_is_refused() {
     let (_dir, store) = open_agent_store();
@@ -260,7 +260,7 @@ fn a_record_from_another_tenant_is_refused() {
 /// EH-070: the published graph pins the committed record through
 /// `synthesis_evidence`, and following the pin from the graph resolves the
 /// record that chose its agent.
-// spec: EG-DECISION-ENGINE-R068
+// spec: MEDULLA-DECISION-ENGINE-R068
 #[test]
 fn a_published_graph_resolves_to_its_decision_record_through_synthesis_evidence() {
     let (_dir, store) = open_agent_store();
@@ -324,7 +324,7 @@ fn policy_draft(policy: &DecisionPolicy, content_digest: String) -> AgentCompone
     draft.classification = Vec::new();
     draft.content_digest = content_digest;
     draft.attributes = std::collections::BTreeMap::from([(
-        eg_types::decision::policy::DECISION_POLICY_ATTRIBUTE.to_string(),
+        medulla_types::decision::policy::DECISION_POLICY_ATTRIBUTE.to_string(),
         serde_json::to_string(policy).expect("encodes"),
     )]);
     draft
@@ -338,7 +338,7 @@ fn a_pinned_policy_component_decides_and_commits() {
     seed_library(&store);
     let mut policy = DecisionPolicy::engine_default();
     policy.node_budget = 5_000;
-    let digest = eg_types::decision::digest::policy_digest(&policy);
+    let digest = medulla_types::decision::digest::policy_digest(&policy);
     let published = publish(&store, 130, policy_draft(&policy, digest));
     let pin = ComponentDependency {
         component_id: published.component_id.clone(),

@@ -4,7 +4,7 @@ name: CI
 # Every test, gate, feature build and benchmark. A `v*` tag never re-runs
 # these: release.yml verifies that this workflow already concluded `success`
 # on the tagged commit and then only builds, checks and publishes (spec
-# EG-CONTRACT-R053.7).
+# MEDULLA-CONTRACT-R053.7).
 #
 # Pull requests run a slim blocking set bounded to about twenty minutes of
 # wall time: lint, spec status, security, one workspace Clippy, affected-crate
@@ -51,7 +51,7 @@ env:
   CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
-  # The ONE main build (CONCEPT:EG-371): `full` = all MAIN features that build without an
+  # The ONE main build (CONCEPT:MEDULLA-371): `full` = all MAIN features that build without an
   # external GPU/robotics toolchain, plus `ast-extended` for the complete code-parsing
   # grammar tier. `cluster` (raft HA) and `full-extras` (GPU/ROS2) are opt-in build layers,
   # NOT published wheels.
@@ -140,14 +140,14 @@ jobs:
           version="$(PYTHONPATH=scripts python -c 'from scanner_contract import load_contract; print(load_contract().cargo_deny_version)')"
           runtime_fingerprint="$({ rustc -vV; ldd --version; } | sha256sum | cut -d' ' -f1)"
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
-          printf 'key=eg-cargo-deny-v1-%s-%s-%s-runtime-%s\n' \
+          printf 'key=medulla-cargo-deny-v1-%s-%s-%s-runtime-%s\n' \
             "$RUNNER_OS" "$RUNNER_ARCH" "$version" "$runtime_fingerprint" >> "$GITHUB_OUTPUT"
       - name: Restore pinned cargo-deny
         id: cargo-deny-cache
         if: needs.changes.outputs.code != 'false'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/epistemic-graph-cargo-deny
+          path: ${{ runner.temp }}/medulla-cargo-deny
           key: ${{ steps.cargo-deny-cache-key.outputs.key }}
       - name: Install pinned cargo-deny
         if: needs.changes.outputs.code != 'false'
@@ -156,7 +156,7 @@ jobs:
         run: |
           set -euo pipefail
           version="$CARGO_DENY_VERSION"
-          root="$RUNNER_TEMP/epistemic-graph-cargo-deny"
+          root="$RUNNER_TEMP/medulla-cargo-deny"
           binary="$root/bin/cargo-deny"
           valid=false
           if [ -x "$binary" ]; then
@@ -177,7 +177,7 @@ jobs:
           CARGO_DENY_VERSION: ${{ steps.cargo-deny-cache-key.outputs.version }}
         run: |
           set -euo pipefail
-          root="$RUNNER_TEMP/epistemic-graph-cargo-deny"
+          root="$RUNNER_TEMP/medulla-cargo-deny"
           test "$("$root/bin/cargo-deny" --version)" = "cargo-deny $CARGO_DENY_VERSION"
           echo 'verified=true' >> "$GITHUB_OUTPUT"
       - name: Save pinned cargo-deny
@@ -189,7 +189,7 @@ jobs:
           steps.cargo-deny-verified.outputs.verified == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/epistemic-graph-cargo-deny
+          path: ${{ runner.temp }}/medulla-cargo-deny
           key: ${{ steps.cargo-deny-cache.outputs.cache-primary-key }}
       - name: Rust dependency advisory gate
         if: needs.changes.outputs.code != 'false'
@@ -208,21 +208,21 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates
     needs: changes
-    if: &eg-main-only needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
+    if: &medulla-main-only needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     # Pin the libc baseline while ubuntu-latest rolls to newer distributions.
     # Native artifacts must remain executable on supported older Linux hosts.
-    runs-on: &eg-native-validation-runner ubuntu-24.04
+    runs-on: &medulla-native-validation-runner ubuntu-24.04
     # Build and cleanup must choose the same backend if the daemon restarts.
     # Backend settings alone do not wrap any other Cargo command.
-    env: &eg-validation-compiler-cache-backend
+    env: &medulla-validation-compiler-cache-backend
       # Requests reset idle time; a long active compile does not. Keep this
       # finite, but above these jobs' maximum 60-minute execution window.
       SCCACHE_IDLE_TIMEOUT: '7200'
       SCCACHE_GHA_ENABLED: 'true'
-      SCCACHE_GHA_VERSION: 'eg-ci-ubuntu-24.04-v1'
+      SCCACHE_GHA_VERSION: 'medulla-ci-ubuntu-24.04-v1'
       SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
     steps:
-      - &eg-gates-checkout
+      - &medulla-gates-checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -236,7 +236,7 @@ jobs:
       # install Python through it instead. `activate-environment` runs
       # `uv venv` and prepends it to GITHUB_PATH so `python`/`python3` still
       # resolve for every later step exactly as they did under setup-python.
-      - &eg-gates-python
+      - &medulla-gates-python
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: '0.11.7'
@@ -249,57 +249,57 @@ jobs:
       # version .config/pre-commit.yaml pins: the strict-model generator test
       # runs `ruff check` + `ruff format --check` over the generated package.
       # Target the same interpreter with uv-managed and setup-python installs.
-      - &eg-gates-pydeps
+      - &medulla-gates-pydeps
         name: Install locked capability-test Python dependencies
         run: uv pip install --python "$(command -v python)" msgpack==1.2.3 pydantic==2.14.1 pydantic-core==2.50.1 annotated-types==0.8.0 typing-extensions==4.16.0 typing-inspection==0.4.4 ruff==0.17.1
 
       # Product tests and protocol contracts run on every push and pull request.
-      - &eg-gates-toolchain
+      - &medulla-gates-toolchain
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
-      - &eg-gates-cache
+      - &medulla-gates-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target-isolated"
-          shared-key: eg-ci-gates-ubuntu-24.04-v1
+          shared-key: medulla-ci-gates-ubuntu-24.04-v1
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Save completed compiler outputs even if the later test link times out.
       # Install before enabling the wrapper; leave other Cargo steps unchanged.
-      - &eg-validation-compiler-cache
+      - &medulla-validation-compiler-cache
         name: Install validation compiler cache
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         with:
           version: 'v0.16.0'
       - name: Test (lower crates, all features)
-        env: &eg-validation-compiler-cache-env
+        env: &medulla-validation-compiler-cache-env
           RUSTC_WRAPPER: sccache
-        run: python3 scripts/cargo_test_rescue.py cargo test -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test -p medulla-types -p medulla-core -p medulla-compute --all-features --no-fail-fast
       # The checked ledger is the canonical all-Method projection. The ordinary
       # feature-selected registry is intentionally smaller, so this named profile
       # is the only meaningful exact generated-artifact comparison. This step is
       - name: Test (canonical capability policy and generated ledger)
-        env: *eg-validation-compiler-cache-env
-        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-capabilities --features contract --no-fail-fast
+        env: *medulla-validation-compiler-cache-env
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p medulla-capabilities --features contract --no-fail-fast
       # The facade's sqlite `.db` round-trip test diffs against a real sqlite3 CLI and
       # FAILS without one. Provision the pinned, sha256-verified CLI rather than
       # relying on whatever sqlite3 the runner image happens to ship.
-      - &eg-gates-sqlite
+      - &medulla-gates-sqlite
         name: Provision pinned sqlite3 CLI (differential sqlite tests)
         run: |
           set -euo pipefail
-          sqlite3_bin="$(scripts/fetch_sqlite3.sh "$RUNNER_TEMP/eg-sqlite3")"
-          echo "EG_SQLITE3=$sqlite3_bin" >> "$GITHUB_ENV"
+          sqlite3_bin="$(scripts/fetch_sqlite3.sh "$RUNNER_TEMP/medulla-sqlite3")"
+          echo "MEDULLA_SQLITE3=$sqlite3_bin" >> "$GITHUB_ENV"
       - name: Test (SQLite format differential conformance)
-        env: *eg-validation-compiler-cache-env
-        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-sqlite-format --test differential --no-fail-fast
+        env: *medulla-validation-compiler-cache-env
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p medulla-sqlite-format --test differential --no-fail-fast
       # DE7 (durable-execution-native.md): replay-determinism crash-and-reopen
-      # proofs for eg-jobs/eg-statechart.
-      - name: Test (replay-determinism — eg-jobs/eg-statechart crash-replay proofs, DE7)
-        env: *eg-validation-compiler-cache-env
-        run: python3 scripts/cargo_test_rescue.py cargo test -p eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast
-      - &eg-locked-pytest
+      # proofs for medulla-jobs/medulla-statechart.
+      - name: Test (replay-determinism — medulla-jobs/medulla-statechart crash-replay proofs, DE7)
+        env: *medulla-validation-compiler-cache-env
+        run: python3 scripts/cargo_test_rescue.py cargo test -p medulla-jobs -p medulla-statechart --test replay_determinism --no-fail-fast
+      - &medulla-locked-pytest
         name: Install locked pytest for generated-client checks
         run: uv pip install --python "$(command -v python3)" pytest==9.1.1 iniconfig==2.3.1 packaging==26.3 pluggy==1.7.0 pygments==2.21.0
       - name: Epistemic Operations manifest ⇄ Rust DTO parity
@@ -307,13 +307,13 @@ jobs:
       - name: Engine contract parity (registry ⇄ Method enum ⇄ generated client)
         id: engine-contract-parity
         if: ${{ !cancelled() }}
-        run: cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check
+        run: cargo run -q --locked -p medulla-capabilities --features contract --bin gen_contract -- --check
       - name: Generated Python client contract
         run: python3 tests/test_generated_client_contract.py
 
       - name: Report lower-crate compiler cache reuse
         if: always()
-        run: &eg-validation-compiler-cache-stats |
+        run: &medulla-validation-compiler-cache-stats |
           echo 'Cache statistics cover the current daemon only; a restart resets its counters.'
           sccache --show-stats
 
@@ -323,25 +323,25 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: Canonical engine contract parity
     needs: changes
-    if: &eg-code-change needs.changes.outputs.code == 'true'
-    runs-on: *eg-native-validation-runner
-    env: *eg-validation-compiler-cache-backend
+    if: &medulla-code-change needs.changes.outputs.code == 'true'
+    runs-on: *medulla-native-validation-runner
+    env: *medulla-validation-compiler-cache-backend
     steps:
       # The exporter needs only Python's standard library, not client test deps.
-      - *eg-gates-checkout
-      - *eg-gates-toolchain
-      - *eg-gates-cache
-      - *eg-validation-compiler-cache
-      - *eg-gates-python
+      - *medulla-gates-checkout
+      - *medulla-gates-toolchain
+      - *medulla-gates-cache
+      - *medulla-validation-compiler-cache
+      - *medulla-gates-python
       - name: Engine contract parity (registry ⇄ Method enum ⇄ generated client)
         id: engine-contract-preflight
         if: ${{ !cancelled() }}
-        env: *eg-validation-compiler-cache-env
-        run: cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check
+        env: *medulla-validation-compiler-cache-env
+        run: cargo run -q --locked -p medulla-capabilities --features contract --bin gen_contract -- --check
       - name: Export fresh canonical contracts after parity failure
         id: engine-contract-export
         if: ${{ failure() && steps.engine-contract-preflight.outcome == 'failure' }}
-        env: *eg-validation-compiler-cache-env
+        env: *medulla-validation-compiler-cache-env
         run: python3 scripts/export_canonical_contract.py --export-dir target/canonical-engine-contract
       - name: Upload fresh canonical contract repair evidence
         if: ${{ !cancelled() && steps.engine-contract-export.outputs.fresh_export == 'true' }}
@@ -357,24 +357,24 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (plan fuzz and chaos)
     needs: changes
-    if: *eg-main-only
-    runs-on: *eg-native-validation-runner
-    env: *eg-validation-compiler-cache-backend
+    if: *medulla-main-only
+    runs-on: *medulla-native-validation-runner
+    env: *medulla-validation-compiler-cache-backend
     steps:
-      - *eg-gates-checkout
-      - &eg-native-validation-setup
+      - *medulla-gates-checkout
+      - &medulla-native-validation-setup
         uses: ./.github/actions/native-validation-setup
-      - *eg-gates-cache
-      - *eg-gates-sqlite
-      - *eg-validation-compiler-cache
+      - *medulla-gates-cache
+      - *medulla-gates-sqlite
+      - *medulla-validation-compiler-cache
       # Preserve the original correctness suite, features and assertions.
-      - name: Query-pipeline fuzz + chaos (eg-plan)
-        env: *eg-validation-compiler-cache-env
-        run: python3 scripts/cargo_test_rescue.py cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines --no-fail-fast
+      - name: Query-pipeline fuzz + chaos (medulla-plan)
+        env: *medulla-validation-compiler-cache-env
+        run: python3 scripts/cargo_test_rescue.py cargo test -p medulla-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines --no-fail-fast
 
       - name: Report plan-fuzz compiler cache reuse
         if: always()
-        run: *eg-validation-compiler-cache-stats
+        run: *medulla-validation-compiler-cache-stats
 
   # Independent acceptance; retain the original native-job cap. On a pull
   # request it runs only when packaging or the pyo3 crates changed.
@@ -382,18 +382,18 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (installed wheel)
     needs: changes
-    if: &eg-packaging-change needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.packaging == 'true')
-    runs-on: *eg-native-validation-runner
+    if: &medulla-packaging-change needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.packaging == 'true')
+    runs-on: *medulla-native-validation-runner
     steps:
-      - *eg-gates-checkout
-      - *eg-native-validation-setup
-      - *eg-gates-cache
+      - *medulla-gates-checkout
+      - *medulla-native-validation-setup
+      - *medulla-gates-cache
 
       # Preserve the locked test environment inherited before the job split.
-      - *eg-locked-pytest
+      - *medulla-locked-pytest
 
       - name: Initialize external wheel virtualenv path
-        run: echo "EG_GATES_WHEEL_VENV=${RUNNER_TEMP:?}/.gates-wheel-venv" >> "$GITHUB_ENV"
+        run: echo "MEDULLA_GATES_WHEEL_VENV=${RUNNER_TEMP:?}/.gates-wheel-venv" >> "$GITHUB_ENV"
 
       # numeric-parity + NE-249: the developer-only reference gate proves EVERY
       # kernel op matches its NumPy reference, AND that the kernel still imports
@@ -401,14 +401,14 @@ jobs:
       # isolated gates job; it must never enter the published wheel metadata or
       # release smoke path.
       #
-      # There is exactly ONE published package, `medulla` (CONCEPT:EG-346,
+      # There is exactly ONE published package, `medulla` (CONCEPT:MEDULLA-346,
       # see the injector under scripts/) — the numeric kernel ships INSIDE its
-      # wheel as a native `epistemic_graph.numeric` extension. There is NO
-      # separately published/installed `eg-numeric` package. This job used to
-      # `pip install --no-index --find-links target/wheels eg-numeric`, which
+      # wheel as a native `medulla.numeric` extension. There is NO
+      # separately published/installed `medulla-numeric` package. This job used to
+      # `pip install --no-index --find-links target/wheels medulla-numeric`, which
       # installed the intermediate build artifact as a standalone top-level
       # `numeric` package — even though the artifact is a `python -m build`-style
-      # dev target, not a release shape. Because `crates/eg-numeric`'s version is
+      # dev target, not a release shape. Because `crates/medulla-numeric`'s version is
       # permanently `0.1.0`, that install could report success while changing
       # nothing: pip found a stale same-version copy "already satisfied" and
       # silently skipped a fresh build. That is exactly what happened on
@@ -419,31 +419,31 @@ jobs:
       # So this gate now builds BOTH the numeric kernel wheel and a real
       # `medulla` server wheel, folds the former into the latter (the
       # exact same fold the real release path performs per-platform below —
-      # see "Fold primary/reproduction numeric kernel into the epistemic-graph
+      # see "Fold primary/reproduction numeric kernel into the medulla
       # wheel") — and installs THAT into a clean throwaway venv. The parity and
-      # boundary-contract tests then exercise `epistemic_graph.numeric` from the
-      # natively-injected wheel, never a standalone `eg-numeric` install.
+      # boundary-contract tests then exercise `medulla.numeric` from the
+      # natively-injected wheel, never a standalone `medulla-numeric` install.
       - name: Install maturin + parity deps
         run: pip install 'maturin>=1,<2' numpy pytest
       - name: Configure identity-neutral Rust source paths
         run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV"
       - name: Build gates numeric kernel wheel (feature python)
-        run: maturin build --release -m crates/eg-numeric/Cargo.toml --features python --out numdist-gates
+        run: maturin build --release -m crates/medulla-numeric/Cargo.toml --features python --out numdist-gates
       - name: Normalize build-local SBOM references (numeric kernel wheel)
         run: python scripts/normalize_wheel_sbom.py numdist-gates/*.whl
       - name: Normalize retained native build paths (numeric kernel wheel)
         run: python scripts/normalize_wheel_build_paths.py numdist-gates/*.whl
       - name: Audit numeric kernel wheel for retained build identity
         run: python scripts/check_wheel_privacy.py numdist-gates/*.whl
-      # The base wheel is the eg-pyengine PyO3 crate plus the pure-Python package
+      # The base wheel is the medulla-pyengine PyO3 crate plus the pure-Python package
       # (`[tool.maturin] manifest-path`), the SAME build the release folds the numeric
       # module into. It compiles only extension modules -- no server crate or bin
       # target -- so this is the release wheel configuration, not a slim stand-in
-      # (EG-CONTRACT-R053.8). A warm per-platform cache (saved from main pushes only)
+      # (MEDULLA-CONTRACT-R053.8). A warm per-platform cache (saved from main pushes only)
       # keeps it fast.
       - name: Build gates engine extension wheel (fold target)
         run: maturin build --release --out dist-gates
-      - name: Fold the numeric kernel into the gates medulla wheel (EG-346)
+      - name: Fold the numeric kernel into the gates medulla wheel (MEDULLA-346)
         run: |
           python scripts/inject_numeric_kernel.py "$(ls dist-gates/medulla-*.whl)" "$(ls numdist-gates/*.whl)"
           python scripts/inject_ontology.py "$(ls dist-gates/medulla-*.whl)"
@@ -464,17 +464,17 @@ jobs:
           test "$#" -eq 1
           test -f "$1"
           test ! -L "$1"
-          proof="${RUNNER_TEMP:?}/installed-eg-wheel.sha256"
+          proof="${RUNNER_TEMP:?}/installed-medulla-wheel.sha256"
           test ! -e "$proof"
           sha256sum "$1" > "$proof"
       - name: Install the folded medulla wheel into a clean throwaway venv
         run: |
-          python -m venv "$EG_GATES_WHEEL_VENV"
-          "$EG_GATES_WHEEL_VENV/bin/pip" install --upgrade pip
-          "$EG_GATES_WHEEL_VENV/bin/pip" install numpy pytest "$(ls dist-gates/medulla-*.whl)"
+          python -m venv "$MEDULLA_GATES_WHEEL_VENV"
+          "$MEDULLA_GATES_WHEEL_VENV/bin/pip" install --upgrade pip
+          "$MEDULLA_GATES_WHEEL_VENV/bin/pip" install numpy pytest "$(ls dist-gates/medulla-*.whl)"
       # Run from a scratch directory, NOT the repo root. `python -m pytest` puts
-      # CWD first on sys.path, so from the root `import epistemic_graph.numeric`
-      # resolves the SOURCE TREE's `epistemic_graph/numeric.abi3.so` — a
+      # CWD first on sys.path, so from the root `import medulla.numeric`
+      # resolves the SOURCE TREE's `medulla/numeric.abi3.so` — a
       # gitignored build artifact — instead of the wheel just installed into the
       # venv. That silently inverts the entire point of these two steps, which
       # exist to test the INSTALLED artifact.
@@ -489,8 +489,8 @@ jobs:
         run: |
           REPO="$PWD"
           cd "$(mktemp -d)"
-          PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" -m pytest \
-            "$REPO/crates/eg-numeric/tests/test_kernel_parity.py" --noconftest -q
+          PYTHONNOUSERSITE=1 "$MEDULLA_GATES_WHEEL_VENV/bin/python" -m pytest \
+            "$REPO/crates/medulla-numeric/tests/test_kernel_parity.py" --noconftest -q
       # NE-249: the boundary contract, which nothing ran until now. This file
       # holds the single most load-bearing property of the NumPy retirement --
       # `test_import_and_native_calls_succeed_with_numpy_import_blocked` spawns
@@ -504,28 +504,28 @@ jobs:
         run: |
           REPO="$PWD"
           cd "$(mktemp -d)"
-          PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" -m pytest \
-            "$REPO/crates/eg-numeric/tests/test_builtin_boundary.py" --noconftest -q
-      # BUG-PE-002: `import epistemic_graph.engine` must succeed from the INSTALLED
+          PYTHONNOUSERSITE=1 "$MEDULLA_GATES_WHEEL_VENV/bin/python" -m pytest \
+            "$REPO/crates/medulla-numeric/tests/test_builtin_boundary.py" --noconftest -q
+      # BUG-PE-002: `import medulla.engine` must succeed from the INSTALLED
       # wheel, exactly the same shadowing-avoidance discipline as the numeric smoke
       # check above (a bare `python -c` at the repo root would resolve the SOURCE
       # tree instead of the venv's installed wheel).
-      - name: engine kernel smoke test (import epistemic_graph.engine)
+      - name: engine kernel smoke test (import medulla.engine)
         run: |
           REPO="$PWD"
           cd "$(mktemp -d)"
-          PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" -c \
-            "import epistemic_graph.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
-      # EG-CONTRACT-R002.3: the Decide/pack-import client surface that the
-      # EG-CONTRACT-R002.1/.2 served tests exercise must itself resolve from this
+          PYTHONNOUSERSITE=1 "$MEDULLA_GATES_WHEEL_VENV/bin/python" -c \
+            "import medulla.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
+      # MEDULLA-CONTRACT-R002.3: the Decide/pack-import client surface that the
+      # MEDULLA-CONTRACT-R002.1/.2 served tests exercise must itself resolve from this
       # installed wheel, not the source tree -- same shadowing-avoidance
       # discipline as the numeric/engine smoke steps above (mktemp cwd, the
       # gates venv's interpreter).
-      - name: installed-wheel no-source-tree-import check (EG-CONTRACT-R002.3)
+      - name: installed-wheel no-source-tree-import check (MEDULLA-CONTRACT-R002.3)
         run: |
           REPO="$PWD"
           cd "$(mktemp -d)"
-          EG_INSTALLED_WHEEL_GATE=1 PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" -m pytest \
+          MEDULLA_INSTALLED_WHEEL_GATE=1 PYTHONNOUSERSITE=1 "$MEDULLA_GATES_WHEEL_VENV/bin/python" -m pytest \
             "$REPO/tests/test_installed_wheel_decision_client_boundary.py" --noconftest -q
       - name: Package validated wheel for installed acceptance
         run: |
@@ -534,7 +534,7 @@ jobs:
           test "$revision" = "${GITHUB_SHA:?}"
           test -z "$(git status --porcelain --untracked-files=no)"
           test ! -L dist-gates
-          proof="${RUNNER_TEMP:?}/installed-eg-wheel.sha256"
+          proof="${RUNNER_TEMP:?}/installed-medulla-wheel.sha256"
           test -f "$proof"
           test ! -L "$proof"
           sha256sum --check "$proof"
@@ -542,7 +542,7 @@ jobs:
           test "$#" -eq 1
           test -f "$1"
           test ! -L "$1"
-          bundle="${RUNNER_TEMP:?}/validated-eg-wheel"
+          bundle="${RUNNER_TEMP:?}/validated-medulla-wheel"
           test ! -e "$bundle"
           mkdir -p "$bundle"
           printf '%s\n' "$revision" > "$bundle/source.sha"
@@ -561,13 +561,13 @@ jobs:
       - name: Upload validated wheel for installed acceptance
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: validated-eg-wheel-${{ github.sha }}
+          name: validated-medulla-wheel-${{ github.sha }}
           path: |
-            ${{ runner.temp }}/validated-eg-wheel/medulla-*.whl
-            ${{ runner.temp }}/validated-eg-wheel/source.sha
-            ${{ runner.temp }}/validated-eg-wheel/source.tree
-            ${{ runner.temp }}/validated-eg-wheel/build-recipe.sha256
-            ${{ runner.temp }}/validated-eg-wheel/SHA256SUMS
+            ${{ runner.temp }}/validated-medulla-wheel/medulla-*.whl
+            ${{ runner.temp }}/validated-medulla-wheel/source.sha
+            ${{ runner.temp }}/validated-medulla-wheel/source.tree
+            ${{ runner.temp }}/validated-medulla-wheel/build-recipe.sha256
+            ${{ runner.temp }}/validated-medulla-wheel/SHA256SUMS
           if-no-files-found: error
           retention-days: 3
 
@@ -586,32 +586,32 @@ jobs:
     timeout-minutes: 60
     name: gates (facade full)
     needs: changes
-    if: *eg-main-only
-    runs-on: *eg-native-validation-runner
-    env: *eg-validation-compiler-cache-backend
+    if: *medulla-main-only
+    runs-on: *medulla-native-validation-runner
+    env: *medulla-validation-compiler-cache-backend
     steps:
-      - *eg-gates-checkout
+      - *medulla-gates-checkout
 
-      - *eg-native-validation-setup
+      - *medulla-native-validation-setup
       # A cold target took 41m13s before tests in run 38486393509.
       # Preserve trusted-main workspace outputs; Cargo still checks current inputs.
-      - &eg-gates-cache-workspace
+      - &medulla-gates-cache-workspace
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target-isolated"
-          shared-key: eg-ci-gates-ubuntu-24.04-v1
+          shared-key: medulla-ci-gates-ubuntu-24.04-v1
           cache-workspace-crates: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # sqlite3 CLI for the facade `.db` round-trip test (see `gates`).
-      - *eg-gates-sqlite
-      - *eg-validation-compiler-cache
+      - *medulla-gates-sqlite
+      - *medulla-validation-compiler-cache
       # A restored target cache must not supply a prior run's timing evidence.
       - name: Clear previous facade build timings
         run: rm -rf target-isolated/cargo-timings
       - name: Test (facade full)
-        env: *eg-validation-compiler-cache-env
-        run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --no-fail-fast --timings
+        env: *medulla-validation-compiler-cache-env
+        run: python3 scripts/cargo_test_rescue.py cargo test -p medulla-engine --features full --no-fail-fast --timings
       - name: Upload facade build timings
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -622,13 +622,13 @@ jobs:
           retention-days: 1
       - name: Report facade compiler cache reuse
         if: always()
-        run: *eg-validation-compiler-cache-stats
+        run: *medulla-validation-compiler-cache-stats
       # The blob RSS-bound tests read WHOLE-PROCESS RSS, so they are #[ignore]d out
       # of the parallel run above (a concurrent sibling's 256MB blob inflates the
       # shared RSS past the cap). Run them here in isolation — serial + ignored — so
       # the memory-regression coverage stays in CI without the parallel pollution.
       - name: Test (memory-regression — RSS bounds, isolated)
-        run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --no-fail-fast bounded_memory -- --ignored --test-threads=1
+        run: python3 scripts/cargo_test_rescue.py cargo test -p medulla-engine --features full --no-fail-fast bounded_memory -- --ignored --test-threads=1
 
   # Independent acceptance; on a pull request only when its crates changed.
   gates-whisper:
@@ -636,20 +636,20 @@ jobs:
     name: gates (Whisper real model)
     needs: changes
     if: needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.whisper == 'true')
-    runs-on: *eg-native-validation-runner
+    runs-on: *medulla-native-validation-runner
     steps:
-      - *eg-gates-checkout
-      - *eg-native-validation-setup
-      - *eg-gates-cache
+      - *medulla-gates-checkout
+      - *medulla-native-validation-setup
+      - *medulla-gates-cache
 
       # These real-model tests fail loudly when their fixture is absent. Fetch the
       # pinned, sha256-verified model and WAV, export both paths, then exercise the
       # provider rather than counting an unconfigured test as a pass.
-      - &eg-gates-whisper
+      - &medulla-gates-whisper
         name: Provision pinned Whisper real-model fixture
-        run: scripts/fetch_whisper_test_fixture.sh "$RUNNER_TEMP/eg-whisper-test" >> "$GITHUB_ENV"
+        run: scripts/fetch_whisper_test_fixture.sh "$RUNNER_TEMP/medulla-whisper-test" >> "$GITHUB_ENV"
       - name: Test (Whisper real-model transcription and cancellation)
-        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p medulla-asr-whisper --test real_transcription --no-fail-fast
 
   # Ontology composition tests. They live in the facade lib, whose full suite
   # (gates-facade) runs only on main, so a broken ontology could merge green.
@@ -660,20 +660,20 @@ jobs:
     name: gates (ontology composition)
     needs: changes
     if: needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.ontology == 'true')
-    runs-on: *eg-native-validation-runner
-    env: *eg-validation-compiler-cache-backend
+    runs-on: *medulla-native-validation-runner
+    env: *medulla-validation-compiler-cache-backend
     steps:
-      - *eg-gates-checkout
-      - *eg-native-validation-setup
-      - *eg-gates-cache-workspace
-      - *eg-validation-compiler-cache
+      - *medulla-gates-checkout
+      - *medulla-native-validation-setup
+      - *medulla-gates-cache-workspace
+      - *medulla-validation-compiler-cache
       - name: Test (ontology composition)
-        env: *eg-validation-compiler-cache-env
-        run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --lib --no-fail-fast server::graph_schema::compose
+        env: *medulla-validation-compiler-cache-env
+        run: python3 scripts/cargo_test_rescue.py cargo test -p medulla-engine --features full --lib --no-fail-fast server::graph_schema::compose
 
       - name: Report ontology compiler cache reuse
         if: always()
-        run: *eg-validation-compiler-cache-stats
+        run: *medulla-validation-compiler-cache-stats
 
   # Slim-server and raft-cluster variants run after merge (main pushes, the
   # nightly schedule, dispatch), not on pull requests: each is a separate cold
@@ -684,30 +684,30 @@ jobs:
   gates-variants:
     timeout-minutes: 360
     name: gates (slim server + raft cluster)
-    runs-on: *eg-native-validation-runner
+    runs-on: *medulla-native-validation-runner
     needs: changes
-    if: *eg-main-only
+    if: *medulla-main-only
     steps:
-      - *eg-gates-checkout
+      - *medulla-gates-checkout
 
       # Unconditionally hosted (never self-hosted), so this keeps
-      # actions/setup-python rather than the *eg-gates-python uv alias.
+      # actions/setup-python rather than the *medulla-gates-python uv alias.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: '.python-version'
 
-      - &eg-gates-uv
+      - &medulla-gates-uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: '0.11.7'
 
-      - *eg-gates-pydeps
+      - *medulla-gates-pydeps
 
-      - *eg-gates-toolchain
-      - *eg-gates-cache
+      - *medulla-gates-toolchain
+      - *medulla-gates-cache
 
       - name: Test (slim server — gated-out methods return the not-built error)
-        run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --no-default-features --features server --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test -p medulla-engine --no-default-features --features server --no-fail-fast
       # The Raft cluster layer is an opt-in build layer outside `full` (see
       # MATURIN_FEATURES above), so no step above compiles its code or runs its
       # tests: `cluster` (raft HA), `harness` (the in-process multi-node cluster
@@ -715,17 +715,17 @@ jobs:
       # these steps a red raft suite, or an integration test that only fails to
       # compile under this feature set, reaches a release unnoticed.
       - name: Test (raft cluster — consensus, placement, and multi-group unit tests)
-        run: "python3 scripts/cargo_test_rescue.py cargo test --locked -p epistemic-graph --features cluster,harness,calvin --lib --no-fail-fast -- raft::"
+        run: "python3 scripts/cargo_test_rescue.py cargo test --locked -p medulla-engine --features cluster,harness,calvin --lib --no-fail-fast -- raft::"
       - name: Test (raft cluster — ack-lost commit retry reconciliation)
-        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p epistemic-graph --features cluster,harness,calvin --test txn_reconcile_ack_lost_retry --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p medulla-engine --features cluster,harness,calvin --test txn_reconcile_ack_lost_retry --no-fail-fast
 
-  # ── EH-311: every workspace crate's own tests. `cargo test -p epistemic-graph`
+  # ── EH-311: every workspace crate's own tests. `cargo test -p medulla-engine`
   # runs only the facade's targets, so before this job 109 of the workspace's 178
-  # test targets (all of eg-query, eg-rdf, eg-shacl, eg-storage, eg-transaction,
-  # eg-plan's oracles, the quantum crates, ...) were run by no release step.
+  # test targets (all of medulla-query, medulla-rdf, medulla-shacl, medulla-storage, medulla-transaction,
+  # medulla-plan's oracles, the quantum crates, ...) were run by no release step.
   # Excluded here only where another step runs
-  # the same package with the same features: the facade, eg-types/eg-core/
-  # eg-compute (gates), eg-tts-piper (needs onnxruntime, its own job). The two
+  # the same package with the same features: the facade, medulla-types/medulla-core/
+  # medulla-compute (gates), medulla-tts-piper (needs onnxruntime, its own job). The two
   # pyo3 crates get every feature except `python` (pyo3 extension-module cannot
   # link a test binary).
   gates-crates:
@@ -738,19 +738,19 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 30 || 60 }}
     name: gates (workspace crates)
     needs: changes
-    if: *eg-code-change
-    runs-on: *eg-native-validation-runner
-    env: *eg-validation-compiler-cache-backend
-    steps: &eg-native-crate-steps
-      - *eg-gates-checkout
+    if: *medulla-code-change
+    runs-on: *medulla-native-validation-runner
+    env: *medulla-validation-compiler-cache-backend
+    steps: &medulla-native-crate-steps
+      - *medulla-gates-checkout
 
-      - *eg-gates-python
+      - *medulla-gates-python
 
-      - *eg-gates-pydeps
+      - *medulla-gates-pydeps
 
-      # `--all-features` enables eg-stream/cdc-kafka, which links system
+      # `--all-features` enables medulla-stream/cdc-kafka, which links system
       # Cyrus-SASL and librdkafka headers on Ubuntu runners.
-      - &eg-gates-sasl
+      - &medulla-gates-sasl
         name: Install librdkafka/Cyrus-SASL build headers
         run: |
           set -euo pipefail
@@ -759,19 +759,19 @@ jobs:
           if dpkg -s libsasl2-dev libcurl4-openssl-dev >/dev/null 2>&1; then exit 0; fi
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libsasl2-dev libcurl4-openssl-dev
-      - *eg-gates-toolchain
-      - *eg-gates-cache
-      - *eg-validation-compiler-cache
+      - *medulla-gates-toolchain
+      - *medulla-gates-cache
+      - *medulla-validation-compiler-cache
 
-      - *eg-gates-sqlite
-      - *eg-gates-whisper
+      - *medulla-gates-sqlite
+      - *medulla-gates-whisper
       # Crash-stage tests spawn children that briefly inherit sibling tests'
       # read-only redb locks. Isolate this crate's full suite, not just the
       # crash-test module: no sleeps, lock-error retries, or skipped assertions.
       - name: Test (storage crate, isolated crash-process lifecycle)
         if: github.job == 'gates-storage'
-        env: *eg-validation-compiler-cache-env
-        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-storage --all-features --no-fail-fast -- --test-threads=1
+        env: *medulla-validation-compiler-cache-env
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p medulla-storage --all-features --no-fail-fast -- --test-threads=1
 
       # Operator decision (2026-10-09): on a pull request this broad
       # workspace sweep narrows to only the crates the diff could plausibly
@@ -801,9 +801,9 @@ jobs:
             echo "PR_TEST_SCOPE_EOF"
           } >> "$GITHUB_OUTPUT"
       - name: Test (every other workspace crate, all features; push to main / release tag)
-        env: *eg-validation-compiler-cache-env
+        env: *medulla-validation-compiler-cache-env
         if: github.job == 'gates-crates' && github.event_name != 'pull_request'
-        run: python3 scripts/cargo_test_rescue.py cargo test --locked --workspace --exclude epistemic-graph --exclude eg-types --exclude eg-core --exclude eg-compute --exclude eg-storage --exclude eg-tts-piper --exclude eg-numeric --exclude eg-pyengine --all-features --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked --workspace --exclude medulla-engine --exclude medulla-types --exclude medulla-core --exclude medulla-compute --exclude medulla-storage --exclude medulla-tts-piper --exclude medulla-numeric --exclude medulla-pyengine --all-features --no-fail-fast
       - name: Test (every other workspace crate -- pull request fast subset)
         if: github.job == 'gates-crates' && github.event_name == 'pull_request'
         env:
@@ -814,11 +814,11 @@ jobs:
           # These crates have their own dedicated steps/jobs with different
           # feature flags; a changed-crate hit on one of them is already
           # covered there, so it is dropped from this generic --all-features
-          # sweep rather than double-run (or, for eg-numeric/eg-pyengine,
+          # sweep rather than double-run (or, for medulla-numeric/medulla-pyengine,
           # run with an incompatible feature set). The lower crates
-          # (eg-types/eg-core/eg-compute) stay in the subset: `gates`, which
+          # (medulla-types/medulla-core/medulla-compute) stay in the subset: `gates`, which
           # tests them on main, does not run on pull requests.
-          excluded="epistemic-graph eg-storage eg-tts-piper eg-numeric eg-pyengine"
+          excluded="medulla medulla-storage medulla-tts-piper medulla-numeric medulla-pyengine"
           if [ "$SCOPE" = "NONE" ]; then
             echo "pr-test-scope: no changed Rust file outside the specially-tested crates; skipping"
             exit 0
@@ -847,21 +847,21 @@ jobs:
 
       - name: Test (pyo3 crates, every feature except python)
         if: github.job == 'gates-pyo3'
-        env: *eg-validation-compiler-cache-env
-        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric -p eg-pyengine --features eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,eg-numeric/motif,eg-pyengine/security,eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast
+        env: *medulla-validation-compiler-cache-env
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p medulla-numeric -p medulla-pyengine --features medulla-numeric/analytics,medulla-numeric/contract,medulla-numeric/complex,medulla-numeric/decision,medulla-numeric/motif,medulla-pyengine/security,medulla-pyengine/ml-pipeline,medulla-pyengine/reasoning,medulla-pyengine/query,medulla-pyengine/cypher,medulla-pyengine/tsdb,medulla-pyengine/streaming,medulla-pyengine/wasm-udf,medulla-pyengine/rdf,medulla-pyengine/blob,medulla-pyengine/jobs,medulla-pyengine/statechart,medulla-pyengine/finance --no-fail-fast
 
       - name: Report native-crate compiler cache reuse
         if: always()
-        run: *eg-validation-compiler-cache-stats
+        run: *medulla-validation-compiler-cache-stats
 
   gates-storage:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 30 || 60 }}
     name: gates (storage crate)
     needs: changes
-    if: *eg-code-change
-    runs-on: *eg-native-validation-runner
-    env: *eg-validation-compiler-cache-backend
-    steps: *eg-native-crate-steps
+    if: *medulla-code-change
+    runs-on: *medulla-native-validation-runner
+    env: *medulla-validation-compiler-cache-backend
+    steps: *medulla-native-crate-steps
 
   # Keep pyo3 validation independent of storage and the workspace sweep.
   # Main warms the same profile; pull requests retain read-only caches.
@@ -869,13 +869,13 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (pyo3 crates)
     needs: changes
-    if: *eg-packaging-change
-    runs-on: *eg-native-validation-runner
-    env: *eg-validation-compiler-cache-backend
-    steps: *eg-native-crate-steps
+    if: *medulla-packaging-change
+    runs-on: *medulla-native-validation-runner
+    env: *medulla-validation-compiler-cache-backend
+    steps: *medulla-native-crate-steps
 
   # ── EH-468: the root Python suite (`tests/*.py`, 2,800+ cases) previously had
-  # NO release step at all. `gates` above only runs `crates/eg-numeric/tests/*`
+  # NO release step at all. `gates` above only runs `crates/medulla-numeric/tests/*`
   # (a developer-only NumPy-parity/boundary gate) and `scanner-quality` only runs
   # `tests/test_dupehound_census.py` (a scanner-adapter unit test run with
   # `--noconftest`, deliberately bypassing this suite's real fixtures) — so every
@@ -891,7 +891,7 @@ jobs:
   # Environment prerequisites that manual run needed and a bare checkout does
   # not otherwise provide — each satisfied HERE, not by skipping the tests that
   # need them:
-  #   * distribution metadata — `epistemic_graph/client_capabilities.py` calls
+  #   * distribution metadata — `medulla/client_capabilities.py` calls
   #     `importlib.metadata.version("medulla")`, which
   #     `PackageNotFoundError`s against an uninstalled source checkout. Rather
   #     than a real (and, for this `bindings = "bin"` project, ~minutes-long)
@@ -914,28 +914,28 @@ jobs:
   #     Fixed in the test itself (not skipped) in the same change that adds
   #     this job.
   #
-  # `tests/parity/` additionally needs the in-process `epistemic_graph.engine`
-  # pyo3 extension (`crates/eg-pyengine --features python,security`) built into the
+  # `tests/parity/` additionally needs the in-process `medulla.engine`
+  # pyo3 extension (`crates/medulla-pyengine --features python,security`) built into the
   # tree — see that test module's own docstring ("NOT expected to pass in this
   # session"). `scripts/build_pyengine_kernel.py` is the mounted/editable-path
   # build step for it (the exact companion `build_numeric_kernel.py` already
   # is for the numeric kernel), reusing the identical `maturin build --release
-  # -m crates/eg-pyengine/Cargo.toml --features python,security` invocation the `gates`
+  # -m crates/medulla-pyengine/Cargo.toml --features python,security` invocation the `gates`
   # job's "Build gates pyengine kernel wheel" step runs for the WHEEL path.
   # Prepare native inputs independently; the required python-suite job joins both.
   python-kernels:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Python native kernels
     needs: changes
-    if: *eg-code-change
-    runs-on: *eg-native-validation-runner
+    if: *medulla-code-change
+    runs-on: *medulla-native-validation-runner
     # Validation-only profile, also warmed on main. Published wheels use defaults.
     env:
       CARGO_PROFILE_RELEASE_OPT_LEVEL: "0"
       CARGO_PROFILE_RELEASE_LTO: "off"
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "256"
     steps:
-      - &eg-python-checkout
+      - &medulla-python-checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
@@ -943,8 +943,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: '.python-version'
-      - *eg-gates-toolchain
-      - *eg-gates-cache
+      - *medulla-gates-toolchain
+      - *medulla-gates-cache
       - name: Install maturin
         run: python -m pip install --disable-pip-version-check 'maturin>=1,<2'
       - name: Build the numeric kernel into the working tree (mounted/editable path)
@@ -968,25 +968,25 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: Python full server preparation
     needs: changes
-    if: *eg-code-change
-    runs-on: *eg-native-validation-runner
-    env: *eg-validation-compiler-cache-backend
+    if: *medulla-code-change
+    runs-on: *medulla-native-validation-runner
+    env: *medulla-validation-compiler-cache-backend
     steps:
-      - *eg-python-checkout
-      - *eg-gates-toolchain
+      - *medulla-python-checkout
+      - *medulla-gates-toolchain
       # A seeded main cache still missed 16 workspace compilations and exceeded
       # ten minutes in PR555 attempt 2. Retain workspace outputs on trusted main;
       # Cargo validates restored inputs, and the full-engine budget covers misses.
-      - *eg-gates-cache-workspace
+      - *medulla-gates-cache-workspace
       # Also cache individual compiler outputs without bypassing Cargo. Install
       # before setting the wrapper: a missing global wrapper broke CI previously.
-      - *eg-validation-compiler-cache
+      - *medulla-validation-compiler-cache
       - name: Build the full-featured engine binary once
-        env: *eg-validation-compiler-cache-env
-        run: cargo build --locked --features full --bin epistemic-graph-server
+        env: *medulla-validation-compiler-cache-env
+        run: cargo build --locked --features full --bin medulla-server
       - name: Report server compiler cache reuse
         if: always()
-        run: *eg-validation-compiler-cache-stats
+        run: *medulla-validation-compiler-cache-stats
       - name: Package exact-revision server binary
         run: bash scripts/python_suite_artifact.sh pack server
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -1004,7 +1004,7 @@ jobs:
     name: Python suite (tests/)
     needs: [changes, python-kernels, python-server]
     if: always() && needs.changes.outputs.code == 'true'
-    runs-on: *eg-native-validation-runner
+    runs-on: *medulla-native-validation-runner
     steps:
       - name: Require successful native preparation
         env:
@@ -1029,17 +1029,17 @@ jobs:
             esac
           done
           exit "$bad"
-      - *eg-python-checkout
+      - *medulla-python-checkout
 
       # Unconditionally hosted (never self-hosted), so this keeps
-      # actions/setup-python rather than the *eg-gates-python uv alias.
+      # actions/setup-python rather than the *medulla-gates-python uv alias.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: '.python-version'
 
-      - *eg-gates-uv
+      - *medulla-gates-uv
 
-      - *eg-gates-pydeps
+      - *medulla-gates-pydeps
 
       - name: Install native scorer tracing prerequisite
         run: |
@@ -1050,7 +1050,7 @@ jobs:
       - name: Install pytest, its plugins, PyYAML, and maturin (metadata only — see below)
         run: python -m pip install --disable-pip-version-check pytest pytest-xdist pytest-timeout pytest-asyncio pyyaml 'maturin>=1,<2'
 
-      - *eg-gates-toolchain
+      - *medulla-gates-toolchain
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: python-kernels-${{ github.sha }}
@@ -1067,32 +1067,32 @@ jobs:
       # The build script only WARNS when it cannot load what it built (it also
       # serves cross-builds). Here the interpreter that runs pytest must load it.
       - name: Prove the pytest interpreter imports the pyengine extension
-        run: python3 -c "import epistemic_graph.engine as e; assert e.__engine__ == 'eg-pyengine', e.__engine__; print(e.__file__)"
+        run: python3 -c "import medulla.engine as e; assert e.__engine__ == 'medulla-pyengine', e.__engine__; print(e.__file__)"
 
       - name: Generate installed-distribution metadata (maturin write-dist-info — no compile)
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/eg-dist-info"
-          maturin pep517 write-dist-info --metadata-directory "$RUNNER_TEMP/eg-dist-info" --interpreter "$(command -v python3)"
-          echo "EG_DIST_INFO_DIR=$RUNNER_TEMP/eg-dist-info" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/medulla-dist-info"
+          maturin pep517 write-dist-info --metadata-directory "$RUNNER_TEMP/medulla-dist-info" --interpreter "$(command -v python3)"
+          echo "MEDULLA_DIST_INFO_DIR=$RUNNER_TEMP/medulla-dist-info" >> "$GITHUB_ENV"
 
       - name: Test (root Python suite — pytest-xdist, per-test timeout, the pre-built engine binary)
         run: |
           W=$(( $(nproc) - 2 )); [ "$W" -gt 6 ] && W=6; [ "$W" -lt 1 ] && W=1
-          BT="/tmp/eg-pytest-$$"
+          BT="/tmp/medulla-pytest-$$"
           rm -rf "$BT"
           echo "pytest-xdist workers: $W (nproc $(nproc)); basetemp $BT"
-          EPISTEMIC_GRAPH_TEST_BINARY="$PWD/target-isolated/debug/epistemic-graph-server" \
-            PYTHONPATH="$EG_DIST_INFO_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+          MEDULLA_TEST_BINARY="$PWD/target-isolated/debug/medulla-server" \
+            PYTHONPATH="$MEDULLA_DIST_INFO_DIR${PYTHONPATH:+:$PYTHONPATH}" \
             python3 -m pytest tests/ -p no:cacheprovider -n "$W" --timeout=900 --basetemp="$BT" -q -rfEs
           rc=$?
           chmod -R u+w "$BT" 2>/dev/null
           rm -rf "$BT"
           exit $rc
 
-  # ── eg-tts-piper synthesis against a REAL onnxruntime.
+  # ── medulla-tts-piper synthesis against a REAL onnxruntime.
   #
-  # `--all-features` builds eg-tts-piper with `ort-load-dynamic`, so `ort` dlopens
+  # `--all-features` builds medulla-tts-piper with `ort-load-dynamic`, so `ort` dlopens
   # onnxruntime from ORT_DYLIB_PATH. These tests used to print SKIP and return when
   # it was unset; libtest hides stderr for passing tests, so 10 of 13 "passed" in
   # 0.00s without loading a model. They now FAIL without a runtime, so this job must
@@ -1114,10 +1114,10 @@ jobs:
   #     which clang packages the image happens to ship.
   tts-piper-inference:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
-    name: eg-tts-piper real-inference tests
+    name: medulla-tts-piper real-inference tests
     needs: changes
     if: needs.changes.outputs.code == 'true' && (github.event_name != 'pull_request' || needs.changes.outputs.tts == 'true')
-    runs-on: *eg-native-validation-runner
+    runs-on: *medulla-native-validation-runner
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1138,20 +1138,20 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target-isolated"
-          shared-key: eg-ci-gates-ubuntu-24.04-v1
+          shared-key: medulla-ci-gates-ubuntu-24.04-v1
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Test eg-tts-piper against the pinned onnxruntime (fails, never skips, without it)
+      - name: Test medulla-tts-piper against the pinned onnxruntime (fails, never skips, without it)
         run: |
           set -euo pipefail
           # A failed fetch or checksum fails this assignment, and `set -e` stops here.
-          ORT_DYLIB_PATH="$(scripts/fetch_onnxruntime.sh "$RUNNER_TEMP/eg-onnxruntime")"
+          ORT_DYLIB_PATH="$(scripts/fetch_onnxruntime.sh "$RUNNER_TEMP/medulla-onnxruntime")"
           export ORT_DYLIB_PATH
           test -f "$ORT_DYLIB_PATH"
           echo "ORT_DYLIB_PATH=$ORT_DYLIB_PATH"
-          python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-tts-piper --all-features --no-fail-fast
+          python3 scripts/cargo_test_rescue.py cargo test --locked -p medulla-tts-piper --all-features --no-fail-fast
 
   # ── Go and JavaScript clients (EH-372). Both sign the engine's own canonical
-  # method body through the embedded WebAssembly build of crates/eg-method-codec.
+  # method body through the embedded WebAssembly build of crates/medulla-method-codec.
   # The job rebuilds that module and requires both committed copies to match it
   # byte-for-byte, then replays every contract method-body vector (body digest and
   # envelope MAC) through each client's signer, plus the clients' own unit tests.
@@ -1167,8 +1167,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - *eg-gates-checkout
-      - *eg-gates-toolchain
+      - *medulla-gates-checkout
+      - *medulla-gates-toolchain
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target"
@@ -1180,13 +1180,13 @@ jobs:
         id: method-codec
         run: python3 scripts/build_method_codec_wasm.py --check --export-dir target/canonical-method-codec
       - name: Upload freshly built canonical method codec
-        if: ${{ !cancelled() && steps.method-codec.outputs.fresh_export == 'true' && hashFiles('target/canonical-method-codec/eg_method_codec.provenance.json') != '' }}
+        if: ${{ !cancelled() && steps.method-codec.outputs.fresh_export == 'true' && hashFiles('target/canonical-method-codec/medulla_method_codec.provenance.json') != '' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: canonical-method-codec-${{ github.sha }}
           path: |
-            target/canonical-method-codec/eg_method_codec.wasm
-            target/canonical-method-codec/eg_method_codec.provenance.json
+            target/canonical-method-codec/medulla_method_codec.wasm
+            target/canonical-method-codec/medulla_method_codec.provenance.json
           if-no-files-found: error
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -1218,20 +1218,20 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 30 || 60 }}
     name: Clippy ${{ matrix.profile.name }}
     needs: changes
-    if: *eg-code-change
-    runs-on: *eg-native-validation-runner
+    if: *medulla-code-change
+    runs-on: *medulla-native-validation-runner
     strategy:
       fail-fast: false
       matrix:
         profile:
           - { name: 'workspace-all-features', flags: '--workspace --all-features' }
-    steps: &eg-clippy-steps
+    steps: &medulla-clippy-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The `--all-features` profile enables eg-stream/cdc-kafka, which links
+      # The `--all-features` profile enables medulla-stream/cdc-kafka, which links
       # system Cyrus-SASL and librdkafka headers on Ubuntu runners.
-      - *eg-gates-sasl
+      - *medulla-gates-sasl
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
@@ -1239,7 +1239,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target-isolated"
-          shared-key: eg-ci-gates-ubuntu-24.04-v1
+          shared-key: medulla-ci-gates-ubuntu-24.04-v1
           save-if: ${{ github.ref == 'refs/heads/main' }}
           key: clippy-${{ matrix.profile.name }}
 
@@ -1251,15 +1251,15 @@ jobs:
     timeout-minutes: 60
     name: Clippy ${{ matrix.profile.name }}
     needs: changes
-    if: *eg-main-only
-    runs-on: *eg-native-validation-runner
+    if: *medulla-main-only
+    runs-on: *medulla-native-validation-runner
     strategy:
       fail-fast: false
       matrix:
         profile:
           - { name: 'published-full', flags: '--no-default-features --features full,ast-extended' }
           - { name: 'slim-server', flags: '--no-default-features --features server' }
-    steps: *eg-clippy-steps
+    steps: *medulla-clippy-steps
 
   # Nightly schedule only. The tracked-tree duplicate-function census is
   # advisory evidence (scripts/check_dupehound_census.py): it never blocks
@@ -1285,15 +1285,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/install_scanners.sh "$RUNNER_TEMP/eg-scanners"
-          echo "$RUNNER_TEMP/eg-scanners/dupehound/bin" >> "$GITHUB_PATH"
+          bash scripts/install_scanners.sh "$RUNNER_TEMP/medulla-scanners"
+          echo "$RUNNER_TEMP/medulla-scanners/dupehound/bin" >> "$GITHUB_PATH"
       - name: Dupehound tracked-tree census (advisory)
         run: |
           set -euo pipefail
           python3 scripts/check_dupehound_census.py \
-            --repository agent-packages/epistemic-graph \
+            --repository agent-packages/medulla \
             --commit HEAD \
-            --profile dupehound-full-tree-v1:epistemic-graph \
+            --profile dupehound-full-tree-v1:medulla \
             --raw-output "$RUNNER_TEMP/dupehound.raw.json" \
             --stderr-output "$RUNNER_TEMP/dupehound.stderr.txt" \
             --normalized-output "$RUNNER_TEMP/dupehound.scanner-evidence.json" \
@@ -1322,9 +1322,9 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - { name: 'crate-eg-types',   flags: '-p eg-types --all-features' }
-          - { name: 'crate-eg-core',    flags: '-p eg-core --all-features' }
-          - { name: 'crate-eg-compute', flags: '-p eg-compute --all-features' }
+          - { name: 'crate-medulla-types',   flags: '-p medulla-types --all-features' }
+          - { name: 'crate-medulla-core',    flags: '-p medulla-core --all-features' }
+          - { name: 'crate-medulla-compute', flags: '-p medulla-compute --all-features' }
           - { name: 'slim-lib',         flags: '--no-default-features --features graph,algorithms' }
           - { name: 'default',          flags: '' }
           - { name: 'minimal-server',   flags: '--no-default-features --features server' }
@@ -1332,11 +1332,11 @@ jobs:
           - { name: 'full',             flags: '--no-default-features --features full' }
           - { name: 'cluster',          flags: '--no-default-features --features cluster' }
           - { name: 'full-extras',      flags: '--no-default-features --features full-extras' }
-          # NE-216: a feature-unification gap between eg-types/geo (turned on
-          # unconditionally by eg-capabilities, a leaf crate with no eg-plan dep, for its
-          # own exhaustive Method-policy match) and eg-plan's OWN geo feature (which used
-          # to gate the eg-types/geo request too) meant this exact combo compiled the
-          # `Pred::Spatial*` wire variants into eg-plan without compiling the exhaustive
+          # NE-216: a feature-unification gap between medulla-types/geo (turned on
+          # unconditionally by medulla-capabilities, a leaf crate with no medulla-plan dep, for its
+          # own exhaustive Method-policy match) and medulla-plan's OWN geo feature (which used
+          # to gate the medulla-types/geo request too) meant this exact combo compiled the
+          # `Pred::Spatial*` wire variants into medulla-plan without compiling the exhaustive
           # `where_clause` match arm that has to cover them -- E0004. These three combos
           # pin the profile that broke plus its immediate neighbors (no server/security,
           # and the same profile with `geo` explicitly on) so a future regression of that
@@ -1350,8 +1350,8 @@ jobs:
           # that twin cannot rot unnoticed.
           - { name: 'server-redb-no-blob', flags: '--no-default-features --features "graph,algorithms,metrics,server,redb"' }
     steps:
-      - *eg-gates-checkout
-      - *eg-gates-toolchain
+      - *medulla-gates-checkout
+      - *medulla-gates-toolchain
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target-isolated"
@@ -1369,8 +1369,8 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - *eg-gates-checkout
-      - *eg-gates-toolchain
+      - *medulla-gates-checkout
+      - *medulla-gates-toolchain
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: benchmarks
@@ -1380,19 +1380,19 @@ jobs:
         with:
           python-version-file: '.python-version'
       # Run the benches (bounded iters — a short spot-check, not a wall-clock chase). The
-      # bench writes the measured recall to $EG_BENCH_RECALL_OUT and ASSERTS the floor, so
+      # bench writes the measured recall to $MEDULLA_BENCH_RECALL_OUT and ASSERTS the floor, so
       # a recall regression fails here directly.
       - name: Run hybrid-query benches (latency + recall@k)
-        run: cargo bench -p eg-plan --features "query,owl,text,timeseries" --bench hybrid_queries
+        run: cargo bench -p medulla-plan --features "query,owl,text,timeseries" --bench hybrid_queries
       # Gate on the committed thresholds (recall floor + generous per-bench p50 ceilings).
       - name: Perf/recall regression gate
         run: python3 scripts/bench_gate.py
 
-  # ── Warm compile cache for tag releases (EG-CONTRACT-R053.8). Builds the EXACT
-  # release wheel configuration (.github/actions/folded-wheel: the eg-pyengine
+  # ── Warm compile cache for tag releases (MEDULLA-CONTRACT-R053.8). Builds the EXACT
+  # release wheel configuration (.github/actions/folded-wheel: the medulla-pyengine
   # wheel plus the numeric module, extension modules only) for each published
   # platform on main pushes and SAVES the Swatinem/rust-cache entry under the
-  # stable key `eg-wheel-<target>`. Tag builds restore that default-branch cache
+  # stable key `medulla-wheel-<target>`. Tag builds restore that default-branch cache
   # and never save; pull requests neither restore nor save it.
   wheel-cache:
     timeout-minutes: 360
@@ -1403,10 +1403,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
     continue-on-error: true
     env:
-      EG_WHEEL_TARGET: ${{ matrix.target }}
-      EG_WHEEL_MATURIN_ARGS: ""
-      EG_WHEEL_JOBS_ARG: ${{ matrix.jobs && format('--jobs {0}', matrix.jobs) || '' }}
-      EG_WHEEL_MANYLINUX: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
+      MEDULLA_WHEEL_TARGET: ${{ matrix.target }}
+      MEDULLA_WHEEL_MATURIN_ARGS: ""
+      MEDULLA_WHEEL_JOBS_ARG: ${{ matrix.jobs && format('--jobs {0}', matrix.jobs) || '' }}
+      MEDULLA_WHEEL_MANYLINUX: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
     strategy:
       fail-fast: false
       matrix:
@@ -1426,17 +1426,17 @@ jobs:
         shell: bash
         run: |
           echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
-          python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "$EG_WHEEL_TARGET"
+          python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "$MEDULLA_WHEEL_TARGET"
       - name: Select the verified native Mach-O linker
         if: ${{ endsWith(matrix.target, '-apple-darwin') }}
         shell: bash
         env:
           RUSTUP_TOOLCHAIN: ${{ steps.rust-toolchain.outputs.channel }}
         run: |
-          case "$EG_WHEEL_TARGET" in
+          case "$MEDULLA_WHEEL_TARGET" in
             aarch64-apple-darwin) export MACOSX_DEPLOYMENT_TARGET=11.0 ;;
           esac
-          source scripts/configure_macos_linker.sh "$EG_WHEEL_TARGET"
+          source scripts/configure_macos_linker.sh "$MEDULLA_WHEEL_TARGET"
           python - <<'PYENV'
           import os
           with open(os.environ["GITHUB_ENV"], "a") as output:
@@ -1449,7 +1449,7 @@ jobs:
           pass: primary
           cache-save: 'true'
 
-  # ── Warm compile cache for the epistemic-graph-server wheel (EG-CONTRACT-R053.9).
+  # ── Warm compile cache for the medulla-server wheel (MEDULLA-CONTRACT-R053.9).
   # Builds the exact release server wheel natively for each Linux architecture on
   # main pushes and SAVES the Swatinem/rust-cache entry under `egs-<arch>`; release.yml
   # restores it and never saves.
@@ -1495,14 +1495,14 @@ jobs:
       group: engine-main-wheel
       cancel-in-progress: true
     env:
-      EG_WHEEL_TARGET: x86_64-unknown-linux-gnu
-      EG_WHEEL_MATURIN_ARGS: ""
-      EG_WHEEL_JOBS_ARG: "--jobs 2"
-      EG_WHEEL_MANYLINUX: "2_28"
+      MEDULLA_WHEEL_TARGET: x86_64-unknown-linux-gnu
+      MEDULLA_WHEEL_MATURIN_ARGS: ""
+      MEDULLA_WHEEL_JOBS_ARG: "--jobs 2"
+      MEDULLA_WHEEL_MANYLINUX: "2_28"
     steps:
-      - *eg-gates-checkout
+      - *medulla-gates-checkout
       # Unconditionally hosted (never self-hosted), so this keeps
-      # actions/setup-python rather than the *eg-gates-python uv alias.
+      # actions/setup-python rather than the *medulla-gates-python uv alias.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: '.python-version'
@@ -1514,7 +1514,7 @@ jobs:
         shell: bash
         run: |
           echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
-          python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "$EG_WHEEL_TARGET"
+          python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "$MEDULLA_WHEEL_TARGET"
 
       - name: Build primary wheel (linux-x86_64)
         uses: ./.github/actions/folded-wheel
@@ -1528,7 +1528,7 @@ jobs:
           cp dist-primary/medulla-*.whl dist/
           (cd dist && sha256sum medulla-*.whl > SHA256SUMS)
 
-      - name: Smoke test (no executables + import epistemic_graph.{numeric,engine})
+      - name: Smoke test (no executables + import medulla.{numeric,engine})
         shell: bash
         run: bash scripts/release_wheel_smoke.sh
 

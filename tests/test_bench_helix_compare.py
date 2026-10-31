@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from helix_compare import dataset as corpus
 from helix_compare import queries as query_set
-from helix_compare.eg_engine import cypher_ids, uql_ids
+from helix_compare.medulla_engine import cypher_ids, uql_ids
 from helix_compare.helix_engine import rows
 from helix_compare.measure import Timing, parse_cpus, percentile
 from helix_compare.oracle import (
@@ -53,7 +53,7 @@ def _workloads() -> dict[str, query_set.WorkloadSpec]:
     }
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R017")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R017")
 def test_the_pinned_corpus_and_query_set_reproduce() -> None:
     data = corpus.generate(corpus.DatasetSpec.from_json(SPEC["dataset"]))
     assert data.digest() == SPEC["dataset_sha256"]
@@ -110,7 +110,7 @@ def test_ranked_answers_are_scored_by_recall_and_refused_outside_the_prefilter()
     assert "expected 3" in check_ranked(candidates, 3, ranked[:2])
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R017")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R017")
 def test_a_ranked_gate_fails_on_mean_recall_below_the_floor() -> None:
     from helix_compare.runner import _gate_report
 
@@ -141,7 +141,7 @@ def test_result_shape_adapters() -> None:
     assert parse_cpus("0-2,5") == {0, 1, 2, 5}
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R017")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R017")
 def test_the_report_renders_gates_timings_and_footprint() -> None:
     summary = {
         "ops": 10,
@@ -174,7 +174,7 @@ def test_the_report_renders_gates_timings_and_footprint() -> None:
     assert "| txn_batch | e | 1 | 10 |" in markdown
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R017")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R017")
 def test_the_reference_report_records_configuration_hardware_revision_and_results() -> (
     None
 ):
@@ -202,7 +202,7 @@ def test_the_reference_report_records_configuration_hardware_revision_and_result
     # Measured results: both engines, a correctness-gate record for every
     # pinned workload, footprint and warm point-get timings.
     assert [engine["engine"] for engine in report["engines"]] == [
-        "epistemic-graph",
+        "medulla",
         "helixdb",
     ]
     for engine in report["engines"]:

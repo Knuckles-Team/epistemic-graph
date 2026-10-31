@@ -7,7 +7,7 @@ use crate::protocol::Method;
 ///
 /// It is [`principal_fingerprint`] applied to the engine's own name, so a
 /// readable principal string stays unrepresentable in a batch
-/// (`eg-types`'s `validate_principal` accepts only the opaque-digest form).
+/// (`medulla-types`'s `validate_principal` accepts only the opaque-digest form).
 /// The server-side compiler re-exports the server-independent definition so
 /// every batch context uses the same identity in every feature shape.
 pub(crate) use crate::mutation_apply::ENGINE_LEDGER_PRINCIPAL;
@@ -24,7 +24,7 @@ pub(crate) use crate::mutation_apply::ENGINE_LEDGER_PRINCIPAL;
 /// `None` for a batch that carries no outbox row or no header -- which no batch
 /// this module compiles ever is, so a caller-scope check must treat `None` as a
 /// refusal rather than a match.
-pub(crate) fn batch_actor(batch: &eg_types::MutationBatch) -> Option<&str> {
+pub(crate) fn batch_actor(batch: &medulla_types::MutationBatch) -> Option<&str> {
     batch
         .outbox
         .first()?
@@ -244,7 +244,7 @@ fn work_item_terminal_key(method: &Method) -> Result<Option<String>, String> {
             "resource-host:{}:{}",
             request.host_ref, request.revision
         )),
-        // graph-os EG-2 control-lease writes share the terminal identity rule.
+        // graph-os MEDULLA-2 control-lease writes share the terminal identity rule.
         _ => {
             return control_lease_idempotency_key(method).map(Some);
         }
@@ -264,7 +264,7 @@ fn control_lease_idempotency_key(method: &Method) -> Result<String, String> {
             Ok(format!("policy-record:{}", request.record_id))
         }
         // EH-348 work-market writes share the terminal identity rule too.
-        other => eg_types::work_market::market_write_scope(other)
+        other => medulla_types::work_market::market_write_scope(other)
             .map(|(_, key)| key.to_string())
             .ok_or_else(|| "WorkItem identity requires a WorkItem operation".to_string()),
     }
@@ -305,7 +305,7 @@ fn scoped_work_item_identity(
         return Err("terminal WorkItem mutation requires idempotency_key".to_string());
     }
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph.work-item-terminal.v1");
+    digest.update(b"medulla.work-item-terminal.v1");
     for field in [graph.as_bytes(), tenant.as_bytes(), terminal_key.as_bytes()] {
         digest.update((field.len() as u64).to_be_bytes());
         digest.update(field);
@@ -345,7 +345,7 @@ pub(crate) fn opaque_coordinator_key(namespace: &str, graph: &str, coordinator_i
 fn identity_payload_digest(
     identity: &WorkItemBatchIdentity,
     method: Method,
-) -> eg_types::contract::Digest256 {
+) -> medulla_types::contract::Digest256 {
     use crate::server::mutation_batch::compile::{compile_methods, CompileBatch};
     compile_methods(
         CompileBatch {
@@ -376,14 +376,14 @@ fn identity_payload_digest(
 mod current_plan_identity_tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R028.5.3
+    // spec: MEDULLA-DURABLE-KERNEL-R028.5.3
     #[test]
     fn publication_attachment_changes_content_not_retry_identity() {
         let plain = Method::PublishCurrentPlan {
-            request: eg_types::current_plan::sample_publish_request(),
+            request: medulla_types::current_plan::sample_publish_request(),
         };
         let attached = Method::PublishCurrentPlan {
-            request: eg_types::current_plan::sample_task_plan_publish_request(),
+            request: medulla_types::current_plan::sample_task_plan_publish_request(),
         };
         let identity = work_item_batch_identity("graph", "tenant", 1, &plain).unwrap();
         assert_eq!(
@@ -393,10 +393,10 @@ mod current_plan_identity_tests {
         let digest = |method| identity_payload_digest(&identity, method);
         assert_eq!(digest(attached.clone()), digest(attached.clone()));
         assert_ne!(digest(plain), digest(attached.clone()));
-        let mut changed = eg_types::current_plan::sample_task_plan_publish_request();
+        let mut changed = medulla_types::current_plan::sample_task_plan_publish_request();
         changed.task_plan_proposal.as_mut().unwrap().max_concurrency = 1;
         changed.snapshot.task_plan = Some(
-            eg_types::decision::task_plan::plan_explicit_tasks(
+            medulla_types::decision::task_plan::plan_explicit_tasks(
                 changed.task_plan_proposal.as_ref().unwrap(),
             )
             .unwrap(),
@@ -409,10 +409,10 @@ mod current_plan_identity_tests {
         assert_ne!(digest(attached), digest(changed));
     }
 
-    // spec: EG-DURABLE-KERNEL-R028.5
+    // spec: MEDULLA-DURABLE-KERNEL-R028.5
     #[test]
     fn publication_identity_separates_operation_revision_run_and_transport() {
-        let request = eg_types::current_plan::sample_publish_request();
+        let request = medulla_types::current_plan::sample_publish_request();
         let method = Method::PublishCurrentPlan {
             request: request.clone(),
         };
@@ -471,9 +471,9 @@ mod current_plan_identity_tests {
 #[cfg(test)]
 mod checkpoint_identity_tests {
     use super::*;
-    use eg_types::run_checkpoint::{CheckpointContent, PublishRunCheckpointRequest};
+    use medulla_types::run_checkpoint::{CheckpointContent, PublishRunCheckpointRequest};
 
-    // spec: EG-DURABLE-KERNEL-R028.1.1
+    // spec: MEDULLA-DURABLE-KERNEL-R028.1.1
     #[test]
     fn context_is_bound_to_checkpoint_retry_identity_and_body() {
         use sha2::Digest;

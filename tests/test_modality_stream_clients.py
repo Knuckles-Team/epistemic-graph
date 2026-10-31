@@ -7,14 +7,14 @@ from typing import Any
 import pytest
 from _untyped import untyped
 
-from epistemic_graph.client import (
-    EpistemicGraphClient,
+from medulla.client import (
+    MedullaClient,
     KnowledgeStreamClient,
     ServedModalityClient,
 )
 
 # Fake-client unit tests only -- never needs the shared native engine (see
-# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# conftest.py's session-scoped `start_medulla_server` fixture,
 # which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
@@ -55,7 +55,7 @@ def _bundle() -> dict[str, Any]:
     }
 
 
-class _FakeClient(EpistemicGraphClient):
+class _FakeClient(MedullaClient):
     def __init__(self) -> None:
         self.sent: list[tuple[str, dict[str, Any]]] = []
 

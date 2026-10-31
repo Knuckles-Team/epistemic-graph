@@ -1,5 +1,5 @@
 """``GraphOperationsClient.discover`` sends the one-round-trip Discover RPC
-(CONCEPT:EG-KG.retrieval.one-round-trip-discovery) — hybrid keyword + semantic discovery
+(CONCEPT:MEDULLA-KG.retrieval.one-round-trip-discovery) — hybrid keyword + semantic discovery
 that returns hydrated
 node text.
 
@@ -16,15 +16,15 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import EpistemicGraphClient, GraphOperationsClient
+from medulla.client import MedullaClient, GraphOperationsClient
 
 # Fake-client unit tests only -- never needs the shared native engine (see
-# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# conftest.py's session-scoped `start_medulla_server` fixture,
 # which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient(EpistemicGraphClient):
+class _FakeClient(MedullaClient):
     def __init__(self) -> None:
         self.sent: list[tuple[str, dict[str, Any] | None]] = []
 

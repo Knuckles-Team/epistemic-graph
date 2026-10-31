@@ -1,114 +1,114 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-REPO-INGEST",
+  "spec_id": "MEDULLA-REPO-INGEST",
   "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "EG-REPO-INGEST-R001",
-    "EG-REPO-INGEST-R002",
-    "EG-REPO-INGEST-R003",
-    "EG-REPO-INGEST-R003.1",
-    "EG-REPO-INGEST-R003.2",
-    "EG-REPO-INGEST-R003.3",
-    "EG-REPO-INGEST-R003.4",
-    "EG-REPO-INGEST-R003.5",
-    "EG-REPO-INGEST-R003.6",
-    "EG-REPO-INGEST-R003.7",
-    "EG-REPO-INGEST-R003.8",
-    "EG-REPO-INGEST-R003.9",
-    "EG-REPO-INGEST-R003.10",
-    "EG-REPO-INGEST-R003.11",
-    "EG-REPO-INGEST-R004",
-    "EG-REPO-INGEST-R005",
-    "EG-REPO-INGEST-R006",
-    "EG-REPO-INGEST-R007",
-    "EG-REPO-INGEST-R008",
-    "EG-REPO-INGEST-R009",
-    "EG-REPO-INGEST-R009.1",
-    "EG-REPO-INGEST-R009.2",
-    "EG-REPO-INGEST-R010",
-    "EG-REPO-INGEST-R011",
-    "EG-REPO-INGEST-R002.1",
-    "EG-REPO-INGEST-R006.1",
-    "EG-REPO-INGEST-R006.2",
-    "EG-REPO-INGEST-R006.3",
-    "EG-REPO-INGEST-R006.4",
-    "EG-REPO-INGEST-R002.100",
-    "EG-REPO-INGEST-R002.101",
-    "EG-REPO-INGEST-R002.102",
-    "EG-REPO-INGEST-R600",
-    "EG-REPO-INGEST-R600.1",
-    "EG-REPO-INGEST-R600.2",
-    "EG-REPO-INGEST-R600.3",
-    "EG-REPO-INGEST-R600.4",
-    "EG-REPO-INGEST-R600.5",
-    "EG-REPO-INGEST-R600.6",
-    "EG-REPO-INGEST-R601",
-    "EG-REPO-INGEST-R601.1",
-    "EG-REPO-INGEST-R601.2",
-    "EG-REPO-INGEST-R601.3",
-    "EG-REPO-INGEST-R601.4",
-    "EG-REPO-INGEST-R601.5",
-    "EG-REPO-INGEST-R601.6",
-    "EG-REPO-INGEST-R602",
-    "EG-REPO-INGEST-R602.1",
-    "EG-REPO-INGEST-R602.2",
-    "EG-REPO-INGEST-R602.3",
-    "EG-REPO-INGEST-R602.4",
-    "EG-REPO-INGEST-R602.5",
-    "EG-REPO-INGEST-R602.6",
-    "EG-REPO-INGEST-R603",
-    "EG-REPO-INGEST-R603.1",
-    "EG-REPO-INGEST-R603.2",
-    "EG-REPO-INGEST-R603.3",
-    "EG-REPO-INGEST-R603.4",
-    "EG-REPO-INGEST-R603.5",
-    "EG-REPO-INGEST-R603.6",
-    "EG-REPO-INGEST-R800",
-    "EG-REPO-INGEST-R800.1",
-    "EG-REPO-INGEST-R800.2",
-    "EG-REPO-INGEST-R800.3",
-    "EG-REPO-INGEST-R800.4",
-    "EG-REPO-INGEST-R800.5",
-    "EG-REPO-INGEST-R800.6",
-    "EG-REPO-INGEST-R650",
-    "EG-REPO-INGEST-R650.1",
-    "EG-REPO-INGEST-R650.2",
-    "EG-REPO-INGEST-R650.3",
-    "EG-REPO-INGEST-R650.4",
-    "EG-REPO-INGEST-R650.5",
-    "EG-REPO-INGEST-R650.6",
-    "EG-REPO-INGEST-R651",
-    "EG-REPO-INGEST-R651.1",
-    "EG-REPO-INGEST-R651.2",
-    "EG-REPO-INGEST-R651.3",
-    "EG-REPO-INGEST-R651.4",
-    "EG-REPO-INGEST-R651.5",
-    "EG-REPO-INGEST-R651.6",
-    "EG-REPO-INGEST-R652",
-    "EG-REPO-INGEST-R652.1",
-    "EG-REPO-INGEST-R652.2",
-    "EG-REPO-INGEST-R652.3",
-    "EG-REPO-INGEST-R652.4",
-    "EG-REPO-INGEST-R652.5",
-    "EG-REPO-INGEST-R652.6",
-    "EG-REPO-INGEST-R002.650",
-    "EG-REPO-INGEST-R002.651",
-    "EG-REPO-INGEST-R002.652",
-    "EG-REPO-INGEST-R002.653",
-    "EG-REPO-INGEST-R002.654",
-    "EG-REPO-INGEST-R002.655",
-    "EG-REPO-INGEST-R700",
-    "EG-REPO-INGEST-R700.1",
-    "EG-REPO-INGEST-R700.2",
-    "EG-REPO-INGEST-R700.3",
-    "EG-REPO-INGEST-R700.4",
-    "EG-REPO-INGEST-R700.5",
-    "EG-REPO-INGEST-R700.6"
+    "MEDULLA-REPO-INGEST-R001",
+    "MEDULLA-REPO-INGEST-R002",
+    "MEDULLA-REPO-INGEST-R003",
+    "MEDULLA-REPO-INGEST-R003.1",
+    "MEDULLA-REPO-INGEST-R003.2",
+    "MEDULLA-REPO-INGEST-R003.3",
+    "MEDULLA-REPO-INGEST-R003.4",
+    "MEDULLA-REPO-INGEST-R003.5",
+    "MEDULLA-REPO-INGEST-R003.6",
+    "MEDULLA-REPO-INGEST-R003.7",
+    "MEDULLA-REPO-INGEST-R003.8",
+    "MEDULLA-REPO-INGEST-R003.9",
+    "MEDULLA-REPO-INGEST-R003.10",
+    "MEDULLA-REPO-INGEST-R003.11",
+    "MEDULLA-REPO-INGEST-R004",
+    "MEDULLA-REPO-INGEST-R005",
+    "MEDULLA-REPO-INGEST-R006",
+    "MEDULLA-REPO-INGEST-R007",
+    "MEDULLA-REPO-INGEST-R008",
+    "MEDULLA-REPO-INGEST-R009",
+    "MEDULLA-REPO-INGEST-R009.1",
+    "MEDULLA-REPO-INGEST-R009.2",
+    "MEDULLA-REPO-INGEST-R010",
+    "MEDULLA-REPO-INGEST-R011",
+    "MEDULLA-REPO-INGEST-R002.1",
+    "MEDULLA-REPO-INGEST-R006.1",
+    "MEDULLA-REPO-INGEST-R006.2",
+    "MEDULLA-REPO-INGEST-R006.3",
+    "MEDULLA-REPO-INGEST-R006.4",
+    "MEDULLA-REPO-INGEST-R002.100",
+    "MEDULLA-REPO-INGEST-R002.101",
+    "MEDULLA-REPO-INGEST-R002.102",
+    "MEDULLA-REPO-INGEST-R600",
+    "MEDULLA-REPO-INGEST-R600.1",
+    "MEDULLA-REPO-INGEST-R600.2",
+    "MEDULLA-REPO-INGEST-R600.3",
+    "MEDULLA-REPO-INGEST-R600.4",
+    "MEDULLA-REPO-INGEST-R600.5",
+    "MEDULLA-REPO-INGEST-R600.6",
+    "MEDULLA-REPO-INGEST-R601",
+    "MEDULLA-REPO-INGEST-R601.1",
+    "MEDULLA-REPO-INGEST-R601.2",
+    "MEDULLA-REPO-INGEST-R601.3",
+    "MEDULLA-REPO-INGEST-R601.4",
+    "MEDULLA-REPO-INGEST-R601.5",
+    "MEDULLA-REPO-INGEST-R601.6",
+    "MEDULLA-REPO-INGEST-R602",
+    "MEDULLA-REPO-INGEST-R602.1",
+    "MEDULLA-REPO-INGEST-R602.2",
+    "MEDULLA-REPO-INGEST-R602.3",
+    "MEDULLA-REPO-INGEST-R602.4",
+    "MEDULLA-REPO-INGEST-R602.5",
+    "MEDULLA-REPO-INGEST-R602.6",
+    "MEDULLA-REPO-INGEST-R603",
+    "MEDULLA-REPO-INGEST-R603.1",
+    "MEDULLA-REPO-INGEST-R603.2",
+    "MEDULLA-REPO-INGEST-R603.3",
+    "MEDULLA-REPO-INGEST-R603.4",
+    "MEDULLA-REPO-INGEST-R603.5",
+    "MEDULLA-REPO-INGEST-R603.6",
+    "MEDULLA-REPO-INGEST-R800",
+    "MEDULLA-REPO-INGEST-R800.1",
+    "MEDULLA-REPO-INGEST-R800.2",
+    "MEDULLA-REPO-INGEST-R800.3",
+    "MEDULLA-REPO-INGEST-R800.4",
+    "MEDULLA-REPO-INGEST-R800.5",
+    "MEDULLA-REPO-INGEST-R800.6",
+    "MEDULLA-REPO-INGEST-R650",
+    "MEDULLA-REPO-INGEST-R650.1",
+    "MEDULLA-REPO-INGEST-R650.2",
+    "MEDULLA-REPO-INGEST-R650.3",
+    "MEDULLA-REPO-INGEST-R650.4",
+    "MEDULLA-REPO-INGEST-R650.5",
+    "MEDULLA-REPO-INGEST-R650.6",
+    "MEDULLA-REPO-INGEST-R651",
+    "MEDULLA-REPO-INGEST-R651.1",
+    "MEDULLA-REPO-INGEST-R651.2",
+    "MEDULLA-REPO-INGEST-R651.3",
+    "MEDULLA-REPO-INGEST-R651.4",
+    "MEDULLA-REPO-INGEST-R651.5",
+    "MEDULLA-REPO-INGEST-R651.6",
+    "MEDULLA-REPO-INGEST-R652",
+    "MEDULLA-REPO-INGEST-R652.1",
+    "MEDULLA-REPO-INGEST-R652.2",
+    "MEDULLA-REPO-INGEST-R652.3",
+    "MEDULLA-REPO-INGEST-R652.4",
+    "MEDULLA-REPO-INGEST-R652.5",
+    "MEDULLA-REPO-INGEST-R652.6",
+    "MEDULLA-REPO-INGEST-R002.650",
+    "MEDULLA-REPO-INGEST-R002.651",
+    "MEDULLA-REPO-INGEST-R002.652",
+    "MEDULLA-REPO-INGEST-R002.653",
+    "MEDULLA-REPO-INGEST-R002.654",
+    "MEDULLA-REPO-INGEST-R002.655",
+    "MEDULLA-REPO-INGEST-R700",
+    "MEDULLA-REPO-INGEST-R700.1",
+    "MEDULLA-REPO-INGEST-R700.2",
+    "MEDULLA-REPO-INGEST-R700.3",
+    "MEDULLA-REPO-INGEST-R700.4",
+    "MEDULLA-REPO-INGEST-R700.5",
+    "MEDULLA-REPO-INGEST-R700.6"
   ],
   "requirements": [
     {
-      "id": "EG-REPO-INGEST-R001",
+      "id": "MEDULLA-REPO-INGEST-R001",
       "title": "Reconcile mode re-admits stranded semantic intents",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -117,11 +117,11 @@
         "ac5638477288"
       ],
       "verified_by": [
-        "crates/eg-core/src/compute/semantic_index_service/reconciliation_regression.rs:230"
+        "crates/medulla-core/src/compute/semantic_index_service/reconciliation_regression.rs:230"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R002",
+      "id": "MEDULLA-REPO-INGEST-R002",
       "title": "SourceIngest is sole owner of migrated ingestion capabilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -130,20 +130,20 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-REPO-INGEST-R002.1",
-        "EG-REPO-INGEST-R002.100",
-        "EG-REPO-INGEST-R002.101",
-        "EG-REPO-INGEST-R002.102",
-        "EG-REPO-INGEST-R002.650",
-        "EG-REPO-INGEST-R002.651",
-        "EG-REPO-INGEST-R002.652",
-        "EG-REPO-INGEST-R002.653",
-        "EG-REPO-INGEST-R002.654",
-        "EG-REPO-INGEST-R002.655"
+        "MEDULLA-REPO-INGEST-R002.1",
+        "MEDULLA-REPO-INGEST-R002.100",
+        "MEDULLA-REPO-INGEST-R002.101",
+        "MEDULLA-REPO-INGEST-R002.102",
+        "MEDULLA-REPO-INGEST-R002.650",
+        "MEDULLA-REPO-INGEST-R002.651",
+        "MEDULLA-REPO-INGEST-R002.652",
+        "MEDULLA-REPO-INGEST-R002.653",
+        "MEDULLA-REPO-INGEST-R002.654",
+        "MEDULLA-REPO-INGEST-R002.655"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R003",
+      "id": "MEDULLA-REPO-INGEST-R003",
       "title": "Medulla is sole home for remaining migrated ingestion modules (rollup)",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -155,21 +155,21 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-REPO-INGEST-R003.1",
-        "EG-REPO-INGEST-R003.2",
-        "EG-REPO-INGEST-R003.3",
-        "EG-REPO-INGEST-R003.4",
-        "EG-REPO-INGEST-R003.5",
-        "EG-REPO-INGEST-R003.6",
-        "EG-REPO-INGEST-R003.7",
-        "EG-REPO-INGEST-R003.8",
-        "EG-REPO-INGEST-R003.9",
-        "EG-REPO-INGEST-R003.10",
-        "EG-REPO-INGEST-R003.11"
+        "MEDULLA-REPO-INGEST-R003.1",
+        "MEDULLA-REPO-INGEST-R003.2",
+        "MEDULLA-REPO-INGEST-R003.3",
+        "MEDULLA-REPO-INGEST-R003.4",
+        "MEDULLA-REPO-INGEST-R003.5",
+        "MEDULLA-REPO-INGEST-R003.6",
+        "MEDULLA-REPO-INGEST-R003.7",
+        "MEDULLA-REPO-INGEST-R003.8",
+        "MEDULLA-REPO-INGEST-R003.9",
+        "MEDULLA-REPO-INGEST-R003.10",
+        "MEDULLA-REPO-INGEST-R003.11"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R003.1",
+      "id": "MEDULLA-REPO-INGEST-R003.1",
       "title": "Medulla is sole home for migrated standardization processing (excluding drift detection)",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -181,7 +181,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R003.2",
+      "id": "MEDULLA-REPO-INGEST-R003.2",
       "title": "Medulla owns the migrated infrastructure processing implementation",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -192,7 +192,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R003.3",
+      "id": "MEDULLA-REPO-INGEST-R003.3",
       "title": "Medulla is sole home for migrated quantum processing",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -201,7 +201,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R003.4",
+      "id": "MEDULLA-REPO-INGEST-R003.4",
       "title": "Medulla is sole home for migrated security processing",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -210,7 +210,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R003.5",
+      "id": "MEDULLA-REPO-INGEST-R003.5",
       "title": "Medulla is sole home for migrated enterprise protocol handling",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -219,7 +219,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R003.6",
+      "id": "MEDULLA-REPO-INGEST-R003.6",
       "title": "Medulla is sole home for migrated ecosystem concept extraction",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -230,7 +230,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R003.7",
+      "id": "MEDULLA-REPO-INGEST-R003.7",
       "title": "Medulla is sole home for migrated trace-ontology observability",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -241,7 +241,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R003.8",
+      "id": "MEDULLA-REPO-INGEST-R003.8",
       "title": "Medulla is sole home for migrated self-ingestion observability",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -250,7 +250,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R003.9",
+      "id": "MEDULLA-REPO-INGEST-R003.9",
       "title": "Medulla is sole home for migrated audit-logging observability",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -259,7 +259,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R003.10",
+      "id": "MEDULLA-REPO-INGEST-R003.10",
       "title": "Medulla is sole home for migrated relational-authority governance",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -268,7 +268,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R003.11",
+      "id": "MEDULLA-REPO-INGEST-R003.11",
       "title": "Medulla is sole home for migrated placement-mining research",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -281,7 +281,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R004",
+      "id": "MEDULLA-REPO-INGEST-R004",
       "title": "Derived series maintained incrementally with lineage",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -289,13 +289,13 @@
         "2b8c0364ebb7"
       ],
       "verified_by": [
-        "crates/eg-tsdb/src/derive/maintain_tests.rs:45",
+        "crates/medulla-tsdb/src/derive/maintain_tests.rs:45",
         "src/server/handlers/timeseries/derived_tests.rs:159",
         "src/server/handlers/timeseries/derived_tests.rs:206"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R005",
+      "id": "MEDULLA-REPO-INGEST-R005",
       "title": "Replay-protection nonces commit in batches for throughput",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -309,7 +309,7 @@
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R006",
+      "id": "MEDULLA-REPO-INGEST-R006",
       "title": "Native ingestion commits fast; heavy enrichment deferred",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -318,14 +318,14 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-REPO-INGEST-R006.1",
-        "EG-REPO-INGEST-R006.2",
-        "EG-REPO-INGEST-R006.3",
-        "EG-REPO-INGEST-R006.4"
+        "MEDULLA-REPO-INGEST-R006.1",
+        "MEDULLA-REPO-INGEST-R006.2",
+        "MEDULLA-REPO-INGEST-R006.3",
+        "MEDULLA-REPO-INGEST-R006.4"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R007",
+      "id": "MEDULLA-REPO-INGEST-R007",
       "title": "Large ingestion batches refuse atomically with a stable code",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -337,7 +337,7 @@
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R008",
+      "id": "MEDULLA-REPO-INGEST-R008",
       "title": "Oversized batches return a stable retry code",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -347,7 +347,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R009",
+      "id": "MEDULLA-REPO-INGEST-R009",
       "title": "Repository hydration links into the specification bridge",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -356,12 +356,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-REPO-INGEST-R009.1",
-        "EG-REPO-INGEST-R009.2"
+        "MEDULLA-REPO-INGEST-R009.1",
+        "MEDULLA-REPO-INGEST-R009.2"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R009.1",
+      "id": "MEDULLA-REPO-INGEST-R009.1",
       "title": "Edge identity is the `(source, target, relation_type)` triple",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -369,11 +369,11 @@
         "1f5ba9350abb"
       ],
       "verified_by": [
-        "crates/eg-core/src/graph/core_edge_queries.rs:271"
+        "crates/medulla-core/src/graph/core_edge_queries.rs:271"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R009.2",
+      "id": "MEDULLA-REPO-INGEST-R009.2",
       "title": "Semantic-bridge projection of the nine relations onto typed triples",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -382,7 +382,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R010",
+      "id": "MEDULLA-REPO-INGEST-R010",
       "title": "Tree-sitter grammar coverage expands to 18 more languages",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -390,11 +390,11 @@
         "97239d459287"
       ],
       "verified_by": [
-        "crates/eg-compute/tests/grammar_expansion.rs:206"
+        "crates/medulla-compute/tests/grammar_expansion.rs:206"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R011",
+      "id": "MEDULLA-REPO-INGEST-R011",
       "title": "Ingestion community detection uses pure Leiden",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -402,60 +402,60 @@
         "b5fe3c140c21"
       ],
       "verified_by": [
-        "crates/eg-compute/src/algorithms/tests.rs:133"
+        "crates/medulla-compute/src/algorithms/tests.rs:133"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R002.1",
+      "id": "MEDULLA-REPO-INGEST-R002.1",
       "title": "Compile a skill document into a typed plan",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R006.1",
+      "id": "MEDULLA-REPO-INGEST-R006.1",
       "title": "Measure the daily paper target and admit bounded maintenance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R006.2",
+      "id": "MEDULLA-REPO-INGEST-R006.2",
       "title": "Apply importance resistance in the deferred re-embed worker",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R006.3",
+      "id": "MEDULLA-REPO-INGEST-R006.3",
       "title": "Serve revision-bound structured code maps",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R006.4",
+      "id": "MEDULLA-REPO-INGEST-R006.4",
       "title": "Bound incremental indexing and declare semantic-type support",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R002.100",
+      "id": "MEDULLA-REPO-INGEST-R002.100",
       "title": "Require independent readback before ingestion success",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R002.101",
+      "id": "MEDULLA-REPO-INGEST-R002.101",
       "title": "Bind graph-loaded workflow execution to durable hydration readback",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R002.102",
+      "id": "MEDULLA-REPO-INGEST-R002.102",
       "title": "Successive batches to one stream chain one content version",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -466,653 +466,653 @@
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R600",
+      "id": "MEDULLA-REPO-INGEST-R600",
       "title": "Code enrichment turns parsed repositories into typed code, test and feature facts (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-REPO-INGEST-R600.1",
-        "EG-REPO-INGEST-R600.2",
-        "EG-REPO-INGEST-R600.3",
-        "EG-REPO-INGEST-R600.4",
-        "EG-REPO-INGEST-R600.5",
-        "EG-REPO-INGEST-R600.6"
+        "MEDULLA-REPO-INGEST-R600.1",
+        "MEDULLA-REPO-INGEST-R600.2",
+        "MEDULLA-REPO-INGEST-R600.3",
+        "MEDULLA-REPO-INGEST-R600.4",
+        "MEDULLA-REPO-INGEST-R600.5",
+        "MEDULLA-REPO-INGEST-R600.6"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R600.1",
+      "id": "MEDULLA-REPO-INGEST-R600.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/code.rs:396",
-        "crates/eg-enrich/src/lib.rs:113"
+        "crates/medulla-enrich/src/code.rs:396",
+        "crates/medulla-enrich/src/lib.rs:113"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R600.2",
+      "id": "MEDULLA-REPO-INGEST-R600.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/code.rs:441"
+        "crates/medulla-enrich/src/code.rs:441"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R600.3",
+      "id": "MEDULLA-REPO-INGEST-R600.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R600.4",
+      "id": "MEDULLA-REPO-INGEST-R600.4",
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/code.rs:524"
+        "crates/medulla-enrich/src/code.rs:524"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R600.5",
+      "id": "MEDULLA-REPO-INGEST-R600.5",
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/code.rs:539"
+        "crates/medulla-enrich/src/code.rs:539"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R600.6",
+      "id": "MEDULLA-REPO-INGEST-R600.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R601",
+      "id": "MEDULLA-REPO-INGEST-R601",
       "title": "Commit history becomes a graph of commits, authors, files and change coupling (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-REPO-INGEST-R601.1",
-        "EG-REPO-INGEST-R601.2",
-        "EG-REPO-INGEST-R601.3",
-        "EG-REPO-INGEST-R601.4",
-        "EG-REPO-INGEST-R601.5",
-        "EG-REPO-INGEST-R601.6"
+        "MEDULLA-REPO-INGEST-R601.1",
+        "MEDULLA-REPO-INGEST-R601.2",
+        "MEDULLA-REPO-INGEST-R601.3",
+        "MEDULLA-REPO-INGEST-R601.4",
+        "MEDULLA-REPO-INGEST-R601.5",
+        "MEDULLA-REPO-INGEST-R601.6"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R601.1",
+      "id": "MEDULLA-REPO-INGEST-R601.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/history.rs:281"
+        "crates/medulla-enrich/src/history.rs:281"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R601.2",
+      "id": "MEDULLA-REPO-INGEST-R601.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/history.rs:318"
+        "crates/medulla-enrich/src/history.rs:318"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R601.3",
+      "id": "MEDULLA-REPO-INGEST-R601.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R601.4",
+      "id": "MEDULLA-REPO-INGEST-R601.4",
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/history.rs:345"
+        "crates/medulla-enrich/src/history.rs:345"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R601.5",
+      "id": "MEDULLA-REPO-INGEST-R601.5",
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/history.rs:372"
+        "crates/medulla-enrich/src/history.rs:372"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R601.6",
+      "id": "MEDULLA-REPO-INGEST-R601.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R602",
+      "id": "MEDULLA-REPO-INGEST-R602",
       "title": "Infrastructure definitions, HTTP routes and business capabilities link to the service that owns the code (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-REPO-INGEST-R602.1",
-        "EG-REPO-INGEST-R602.2",
-        "EG-REPO-INGEST-R602.3",
-        "EG-REPO-INGEST-R602.4",
-        "EG-REPO-INGEST-R602.5",
-        "EG-REPO-INGEST-R602.6"
+        "MEDULLA-REPO-INGEST-R602.1",
+        "MEDULLA-REPO-INGEST-R602.2",
+        "MEDULLA-REPO-INGEST-R602.3",
+        "MEDULLA-REPO-INGEST-R602.4",
+        "MEDULLA-REPO-INGEST-R602.5",
+        "MEDULLA-REPO-INGEST-R602.6"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R602.1",
+      "id": "MEDULLA-REPO-INGEST-R602.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/links.rs:244"
+        "crates/medulla-enrich/src/links.rs:244"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R602.2",
+      "id": "MEDULLA-REPO-INGEST-R602.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/links.rs:292"
+        "crates/medulla-enrich/src/links.rs:292"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R602.3",
+      "id": "MEDULLA-REPO-INGEST-R602.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R602.4",
+      "id": "MEDULLA-REPO-INGEST-R602.4",
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/links.rs:337"
+        "crates/medulla-enrich/src/links.rs:337"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R602.5",
+      "id": "MEDULLA-REPO-INGEST-R602.5",
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/links.rs:351"
+        "crates/medulla-enrich/src/links.rs:351"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R602.6",
+      "id": "MEDULLA-REPO-INGEST-R602.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R603",
+      "id": "MEDULLA-REPO-INGEST-R603",
       "title": "Structural fingerprints keep incremental re-indexing to real structural change (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-REPO-INGEST-R603.1",
-        "EG-REPO-INGEST-R603.2",
-        "EG-REPO-INGEST-R603.3",
-        "EG-REPO-INGEST-R603.4",
-        "EG-REPO-INGEST-R603.5",
-        "EG-REPO-INGEST-R603.6"
+        "MEDULLA-REPO-INGEST-R603.1",
+        "MEDULLA-REPO-INGEST-R603.2",
+        "MEDULLA-REPO-INGEST-R603.3",
+        "MEDULLA-REPO-INGEST-R603.4",
+        "MEDULLA-REPO-INGEST-R603.5",
+        "MEDULLA-REPO-INGEST-R603.6"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R603.1",
+      "id": "MEDULLA-REPO-INGEST-R603.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/fingerprint.rs:179"
+        "crates/medulla-enrich/src/fingerprint.rs:179"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R603.2",
+      "id": "MEDULLA-REPO-INGEST-R603.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/fingerprint.rs:210"
+        "crates/medulla-enrich/src/fingerprint.rs:210"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R603.3",
+      "id": "MEDULLA-REPO-INGEST-R603.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R603.4",
+      "id": "MEDULLA-REPO-INGEST-R603.4",
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/fingerprint.rs:245"
+        "crates/medulla-enrich/src/fingerprint.rs:245"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R603.5",
+      "id": "MEDULLA-REPO-INGEST-R603.5",
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "b8e2e528f865"
       ],
       "verified_by": [
-        "crates/eg-enrich/src/fingerprint.rs:259"
+        "crates/medulla-enrich/src/fingerprint.rs:259"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R603.6",
+      "id": "MEDULLA-REPO-INGEST-R603.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R800",
+      "id": "MEDULLA-REPO-INGEST-R800",
       "title": "Agent-session transcript sources and scheduled feed intake (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-REPO-INGEST-R800.1",
-        "EG-REPO-INGEST-R800.2",
-        "EG-REPO-INGEST-R800.3",
-        "EG-REPO-INGEST-R800.4",
-        "EG-REPO-INGEST-R800.5",
-        "EG-REPO-INGEST-R800.6"
+        "MEDULLA-REPO-INGEST-R800.1",
+        "MEDULLA-REPO-INGEST-R800.2",
+        "MEDULLA-REPO-INGEST-R800.3",
+        "MEDULLA-REPO-INGEST-R800.4",
+        "MEDULLA-REPO-INGEST-R800.5",
+        "MEDULLA-REPO-INGEST-R800.6"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R800.1",
+      "id": "MEDULLA-REPO-INGEST-R800.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "052265feef24"
       ],
       "verified_by": [
-        "crates/eg-document/src/transcript.rs:152",
-        "crates/eg-document/src/transcript.rs:227",
-        "crates/eg-document/src/transcript.rs:249"
+        "crates/medulla-document/src/transcript.rs:152",
+        "crates/medulla-document/src/transcript.rs:227",
+        "crates/medulla-document/src/transcript.rs:249"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R800.2",
+      "id": "MEDULLA-REPO-INGEST-R800.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "126caba49a2f"
       ],
       "verified_by": [
-        "crates/eg-document/src/runtime.rs:169",
-        "crates/eg-document/src/runtime.rs:183",
-        "crates/eg-document/src/runtime.rs:346",
-        "crates/eg-document/src/runtime.rs:369",
-        "crates/eg-document/src/runtime.rs:39"
+        "crates/medulla-document/src/runtime.rs:169",
+        "crates/medulla-document/src/runtime.rs:183",
+        "crates/medulla-document/src/runtime.rs:346",
+        "crates/medulla-document/src/runtime.rs:369",
+        "crates/medulla-document/src/runtime.rs:39"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R800.3",
+      "id": "MEDULLA-REPO-INGEST-R800.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R800.4",
+      "id": "MEDULLA-REPO-INGEST-R800.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R800.5",
+      "id": "MEDULLA-REPO-INGEST-R800.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R800.6",
+      "id": "MEDULLA-REPO-INGEST-R800.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R650",
+      "id": "MEDULLA-REPO-INGEST-R650",
       "title": "Baseline hydration, delta manifests and big-repository planning (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-REPO-INGEST-R650.1",
-        "EG-REPO-INGEST-R650.2",
-        "EG-REPO-INGEST-R650.3",
-        "EG-REPO-INGEST-R650.4",
-        "EG-REPO-INGEST-R650.5",
-        "EG-REPO-INGEST-R650.6"
+        "MEDULLA-REPO-INGEST-R650.1",
+        "MEDULLA-REPO-INGEST-R650.2",
+        "MEDULLA-REPO-INGEST-R650.3",
+        "MEDULLA-REPO-INGEST-R650.4",
+        "MEDULLA-REPO-INGEST-R650.5",
+        "MEDULLA-REPO-INGEST-R650.6"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R650.1",
+      "id": "MEDULLA-REPO-INGEST-R650.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-durable/src/hydration.rs:230",
-        "crates/eg-durable/src/hydration.rs:279"
+        "crates/medulla-durable/src/hydration.rs:230",
+        "crates/medulla-durable/src/hydration.rs:279"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R650.2",
+      "id": "MEDULLA-REPO-INGEST-R650.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R650.3",
+      "id": "MEDULLA-REPO-INGEST-R650.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R650.4",
+      "id": "MEDULLA-REPO-INGEST-R650.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R650.5",
+      "id": "MEDULLA-REPO-INGEST-R650.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R650.6",
+      "id": "MEDULLA-REPO-INGEST-R650.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R651",
+      "id": "MEDULLA-REPO-INGEST-R651",
       "title": "External graph, event and package ingestion adapters (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-REPO-INGEST-R651.1",
-        "EG-REPO-INGEST-R651.2",
-        "EG-REPO-INGEST-R651.3",
-        "EG-REPO-INGEST-R651.4",
-        "EG-REPO-INGEST-R651.5",
-        "EG-REPO-INGEST-R651.6"
+        "MEDULLA-REPO-INGEST-R651.1",
+        "MEDULLA-REPO-INGEST-R651.2",
+        "MEDULLA-REPO-INGEST-R651.3",
+        "MEDULLA-REPO-INGEST-R651.4",
+        "MEDULLA-REPO-INGEST-R651.5",
+        "MEDULLA-REPO-INGEST-R651.6"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R651.1",
+      "id": "MEDULLA-REPO-INGEST-R651.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R651.2",
+      "id": "MEDULLA-REPO-INGEST-R651.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R651.3",
+      "id": "MEDULLA-REPO-INGEST-R651.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R651.4",
+      "id": "MEDULLA-REPO-INGEST-R651.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R651.5",
+      "id": "MEDULLA-REPO-INGEST-R651.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R651.6",
+      "id": "MEDULLA-REPO-INGEST-R651.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R652",
+      "id": "MEDULLA-REPO-INGEST-R652",
       "title": "Document chunking, section trees and processed-document records (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-REPO-INGEST-R652.1",
-        "EG-REPO-INGEST-R652.2",
-        "EG-REPO-INGEST-R652.3",
-        "EG-REPO-INGEST-R652.4",
-        "EG-REPO-INGEST-R652.5",
-        "EG-REPO-INGEST-R652.6"
+        "MEDULLA-REPO-INGEST-R652.1",
+        "MEDULLA-REPO-INGEST-R652.2",
+        "MEDULLA-REPO-INGEST-R652.3",
+        "MEDULLA-REPO-INGEST-R652.4",
+        "MEDULLA-REPO-INGEST-R652.5",
+        "MEDULLA-REPO-INGEST-R652.6"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R652.1",
+      "id": "MEDULLA-REPO-INGEST-R652.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R652.2",
+      "id": "MEDULLA-REPO-INGEST-R652.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R652.3",
+      "id": "MEDULLA-REPO-INGEST-R652.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R652.4",
+      "id": "MEDULLA-REPO-INGEST-R652.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R652.5",
+      "id": "MEDULLA-REPO-INGEST-R652.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R652.6",
+      "id": "MEDULLA-REPO-INGEST-R652.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R002.650",
+      "id": "MEDULLA-REPO-INGEST-R002.650",
       "title": "Model: Hot-path contract for the migrated ingestion capabilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R002.651",
+      "id": "MEDULLA-REPO-INGEST-R002.651",
       "title": "Behavior: Hot-path contract for the migrated ingestion capabilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R002.652",
+      "id": "MEDULLA-REPO-INGEST-R002.652",
       "title": "Wiring: Hot-path contract for the migrated ingestion capabilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R002.653",
+      "id": "MEDULLA-REPO-INGEST-R002.653",
       "title": "Refusal: Hot-path contract for the migrated ingestion capabilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R002.654",
+      "id": "MEDULLA-REPO-INGEST-R002.654",
       "title": "Evidence: Hot-path contract for the migrated ingestion capabilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R002.655",
+      "id": "MEDULLA-REPO-INGEST-R002.655",
       "title": "Hot-path proof: Hot-path contract for the migrated ingestion capabilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R700",
+      "id": "MEDULLA-REPO-INGEST-R700",
       "title": "Periodic code-health sweep finds dead pathways (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-REPO-INGEST-R700.1",
-        "EG-REPO-INGEST-R700.2",
-        "EG-REPO-INGEST-R700.3",
-        "EG-REPO-INGEST-R700.4",
-        "EG-REPO-INGEST-R700.5",
-        "EG-REPO-INGEST-R700.6"
+        "MEDULLA-REPO-INGEST-R700.1",
+        "MEDULLA-REPO-INGEST-R700.2",
+        "MEDULLA-REPO-INGEST-R700.3",
+        "MEDULLA-REPO-INGEST-R700.4",
+        "MEDULLA-REPO-INGEST-R700.5",
+        "MEDULLA-REPO-INGEST-R700.6"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R700.1",
+      "id": "MEDULLA-REPO-INGEST-R700.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "735c7f056c07"
       ],
       "verified_by": [
-        "crates/eg-types/src/code_health.rs:185"
+        "crates/medulla-types/src/code_health.rs:185"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R700.2",
+      "id": "MEDULLA-REPO-INGEST-R700.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "735c7f056c07"
       ],
       "verified_by": [
-        "crates/eg-types/src/code_health.rs:232"
+        "crates/medulla-types/src/code_health.rs:232"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R700.3",
+      "id": "MEDULLA-REPO-INGEST-R700.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-REPO-INGEST-R700.4",
+      "id": "MEDULLA-REPO-INGEST-R700.4",
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "735c7f056c07"
       ],
       "verified_by": [
-        "crates/eg-types/src/code_health.rs:252"
+        "crates/medulla-types/src/code_health.rs:252"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R700.5",
+      "id": "MEDULLA-REPO-INGEST-R700.5",
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "735c7f056c07"
       ],
       "verified_by": [
-        "crates/eg-types/src/code_health.rs:260"
+        "crates/medulla-types/src/code_health.rs:260"
       ]
     },
     {
-      "id": "EG-REPO-INGEST-R700.6",
+      "id": "MEDULLA-REPO-INGEST-R700.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

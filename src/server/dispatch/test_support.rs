@@ -37,7 +37,7 @@ pub(super) fn verified_as(
         RequestContextClaims {
             principal: principal.to_string(),
             tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
+            audience: "medulla-test".to_string(),
             agent_id: agent.to_string(),
             roles: Vec::new(),
             scopes: scopes.iter().map(|scope| scope.to_string()).collect(),

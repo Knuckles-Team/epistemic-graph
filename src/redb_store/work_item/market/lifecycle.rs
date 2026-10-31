@@ -1,12 +1,12 @@
 //! `GapTransition`, `GapSettle` and `WorkOfferPut`: row-local writes of one
 //! Gap. Each loads the tenant's Gap, applies the pure rule from
-//! [`eg_types::work_market`], and writes the row only when the rule changed it
+//! [`medulla_types::work_market`], and writes the row only when the rule changed it
 //! ([`rewrite_gap`] is the one load/apply/store shape they share).
 
-use eg_types::result_contract::coordination::{GapSettle, GapTransition, WorkOfferPut};
-use eg_types::work_item_read::{WorkItemView, WORK_ITEM_OUTCOME_REF};
-use eg_types::work_market::lifecycle::SettledWorkItem;
-use eg_types::work_market::{
+use medulla_types::result_contract::coordination::{GapSettle, GapTransition, WorkOfferPut};
+use medulla_types::work_item_read::{WorkItemView, WORK_ITEM_OUTCOME_REF};
+use medulla_types::work_market::lifecycle::SettledWorkItem;
+use medulla_types::work_market::{
     gap_row_key, GapSettleOutcome, GapSettled, GapTransitionOutcome, GapTransitioned, GapView,
     WorkOfferPutOutcome, WorkOfferRecorded,
 };

@@ -237,7 +237,7 @@ impl NativeOperationDumpRows {
 }
 
 /// Commit one drained burst -- every buffered mutation plus any Raft log
-/// appends -- as ONE admitted scope group (CONCEPT:EG-KG.storage.one-fsync-covers-raft,
+/// appends -- as ONE admitted scope group (CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft,
 /// RF-RULING-008).
 ///
 /// One group is one physical write transaction and one fsync, so a graph
@@ -264,7 +264,7 @@ pub(crate) fn commit_ops(
     drain_id: &str,
     committed_at_ms: u64,
     crypto: DurableCrypto<'_>,
-    // O(1) audit-chain tail cache (CONCEPT:EG-KG.storage.embedded-store), owned by the caller across batches.
+    // O(1) audit-chain tail cache (CONCEPT:MEDULLA-KG.storage.embedded-store), owned by the caller across batches.
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
 ) -> Result<(), String> {
     if ops.is_empty() && raft_log_ops.is_empty() {

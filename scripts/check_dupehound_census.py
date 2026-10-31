@@ -43,8 +43,8 @@ import scanner_contract
 ROOT = Path(__file__).resolve().parent.parent
 
 REPOSITORY = "agent-packages/medulla"
-PROFILE_ID = "dupehound-full-tree-v1:epistemic-graph"
-EXPECTED_UNIVERSE_ID = "dupehound-source-universe-v1:epistemic-graph"
+PROFILE_ID = "dupehound-full-tree-v1:medulla"
+EXPECTED_UNIVERSE_ID = "dupehound-source-universe-v1:medulla"
 STAGE_POLICY_ID = "scanner-stage:release-full-census-advisory-v1"
 ALGORITHM_ID = "dupehound:function-clone:v1"
 THRESHOLD_POLICY_ID = "dupehound-threshold:0.85:min-tokens:40"
@@ -1343,7 +1343,7 @@ def _make_findings(
                 "threshold_or_policy_id": THRESHOLD_POLICY_ID,
                 "classification": "product_debt",
                 "actionability": "advisory",
-                "owner": "epistemic-graph-maintainers",
+                "owner": "medulla-maintainers",
                 "disposition": "advisory-clone-cluster",
                 "cluster_id": cluster["native_id"],
                 "language": cluster["language"],
@@ -1632,19 +1632,19 @@ def _source_identity(commit: str) -> tuple[bytes, bytes, bytes, list[dict[str, s
             "scope": "repo",
             "logical_path": "scripts/check_dupehound_census.py",
             "sha256": selected["adapter"],
-            "source_id": "eg-dupehound-census-adapter",
+            "source_id": "medulla-dupehound-census-adapter",
         },
         {
             "scope": "repo",
             "logical_path": "scripts/check_dupehound.py",
             "sha256": selected["wrapper"],
-            "source_id": "eg-dupehound-changed-wrapper",
+            "source_id": "medulla-dupehound-changed-wrapper",
         },
         {
             "scope": "repo",
             "logical_path": "scripts/scanner_contract.py",
             "sha256": selected["contract"],
-            "source_id": "eg-scanner-contract-loader",
+            "source_id": "medulla-scanner-contract-loader",
         },
     ]
     return adapter, wrapper, contract, config_items
@@ -1708,7 +1708,7 @@ def _load_context(args: argparse.Namespace) -> CandidateContext:
             "scope": "repo",
             "logical_path": "pyproject.toml",
             "sha256": digest_bytes(pyproject),
-            "source_id": "eg-scanner-contract",
+            "source_id": "medulla-scanner-contract",
         },
     )
     config = _candidate_contract(commit, pyproject)

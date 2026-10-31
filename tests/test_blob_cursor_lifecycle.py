@@ -10,7 +10,7 @@ Root cause (see ``compile_blob_batch_at``'s doc in
 ``src/server/handlers/blob.rs``): ``BlobBegin`` compiled its durable
 idempotency/mutation-batch key from ``(tenant/actor scope, wire request id,
 method bytes)``. The wire request id is only LOCALLY unique within one
-connection -- ``EpistemicGraphClient._next_id()`` restarts its counter from 1
+connection -- ``MedullaClient._next_id()`` restarts its counter from 1
 on every fresh connection -- and ``CarrierAuthority`` carries no
 per-connection component at all. So two INDEPENDENT connections from the
 same tenant/actor calling ``BlobBegin()`` with the same default
@@ -36,15 +36,15 @@ import pytest
 from conftest import request_context
 
 
-@pytest.mark.concept("CONCEPT:EG-KG.storage.blob-namespace")
+@pytest.mark.concept("CONCEPT:MEDULLA-KG.storage.blob-namespace")
 def test_blob_begin_on_a_fresh_connection_after_a_prior_upload_committed(
-    start_epistemic_graph_server,
+    start_medulla_server,
 ):
     """A second, INDEPENDENT connection's first BlobBegin must succeed after a
     prior, unrelated connection completed an upload and disconnected."""
     import os
 
-    from epistemic_graph.client import SyncEpistemicGraphClient
+    from medulla.client import SyncMedullaClient
 
     socket_path = os.environ["GRAPH_SERVICE_SOCKET"]
 
@@ -52,7 +52,7 @@ def test_blob_begin_on_a_fresh_connection_after_a_prior_upload_committed(
     # real disconnect (`.close()` tears down the socket, not just drops the
     # Python object) -- exactly the repro's "any client completes an upload
     # and disconnects" precondition.
-    conn1 = SyncEpistemicGraphClient.connect(
+    conn1 = SyncMedullaClient.connect(
         socket_path=socket_path,
         verified_context=request_context(),
     )
@@ -66,7 +66,7 @@ def test_blob_begin_on_a_fresh_connection_after_a_prior_upload_committed(
     # request-id counter restarts at 1, exactly like connection #1's did).
     # Its first RPC ever is BlobBegin() with the SAME default chunk_size --
     # the precise shape that collided before the fix.
-    conn2 = SyncEpistemicGraphClient.connect(
+    conn2 = SyncMedullaClient.connect(
         socket_path=socket_path,
         verified_context=request_context(),
     )
@@ -84,20 +84,20 @@ def test_blob_begin_on_a_fresh_connection_after_a_prior_upload_committed(
         conn2.close()
 
 
-@pytest.mark.concept("CONCEPT:EG-KG.storage.blob-namespace")
+@pytest.mark.concept("CONCEPT:MEDULLA-KG.storage.blob-namespace")
 def test_three_sequential_independent_connections_each_upload_successfully(
-    start_epistemic_graph_server,
+    start_medulla_server,
 ):
     """The fix must hold for MORE than one repetition, not just cursor #1 vs
     #2 -- every sequential connection's first BlobBegin succeeds."""
     import os
 
-    from epistemic_graph.client import SyncEpistemicGraphClient
+    from medulla.client import SyncMedullaClient
 
     socket_path = os.environ["GRAPH_SERVICE_SOCKET"]
     digests = []
     for i in range(3):
-        conn = SyncEpistemicGraphClient.connect(
+        conn = SyncMedullaClient.connect(
             socket_path=socket_path,
             verified_context=request_context(),
         )

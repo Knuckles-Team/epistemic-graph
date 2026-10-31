@@ -19,8 +19,8 @@
 
 use std::sync::Arc;
 
-use eg_query::{Column, ColumnType, TableSchema};
-use eg_types::decision::statistical::log::{DecisionLogEntry, StoredEvaluation, StoredResolution};
+use medulla_query::{Column, ColumnType, TableSchema};
+use medulla_types::decision::statistical::log::{DecisionLogEntry, StoredEvaluation, StoredResolution};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -250,14 +250,14 @@ impl ReadOnlyRelations for DecisionViews {
     }
 }
 
-impl eg_plan::exec::DecisionSource for DecisionViews {
+impl medulla_plan::exec::DecisionSource for DecisionViews {
     /// EH-525: `SOURCE RELIABILITY` reads the subject's learned reputation.
     fn learned_reliability(
         &self,
         subject: &str,
         prior_mean: f64,
         prior_strength: f64,
-    ) -> Result<Option<eg_plan::exec::LearnedReliability>, String> {
+    ) -> Result<Option<medulla_plan::exec::LearnedReliability>, String> {
         super::stat_reputation::learned_reliability(
             &self.store,
             &self.reader,

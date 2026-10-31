@@ -1,7 +1,7 @@
 use super::super::test_shard::run_request as request;
 use super::super::test_shard::{apply, open, with_nodes, with_write, GRAPH};
 use super::*;
-use eg_types::native_control::SubmitWorkItemRequest;
+use medulla_types::native_control::SubmitWorkItemRequest;
 
 type Row = serde_json::Map<String, serde_json::Value>;
 
@@ -22,7 +22,7 @@ fn read(
     tenant: &str,
     run: &str,
     actor: &str,
-) -> Result<Option<eg_types::work_item_read::RunWorkItemView>, String> {
+) -> Result<Option<medulla_types::work_item_read::RunWorkItemView>, String> {
     read_admission(shard, GRAPH, tenant, run, actor, DurableCrypto::none())
 }
 
@@ -36,10 +36,10 @@ fn change(shard: &Shard, id: &str, tag: &str, update: impl FnOnce(&mut Row)) {
     });
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.1
 #[test]
 fn run_admission_recovery_preserves_original_request() {
-    let path = crate::redb_store::temp_path("eg-run-recovery", "restart");
+    let path = crate::redb_store::temp_path("medulla-run-recovery", "restart");
     let shard = Shard::open(&path).unwrap();
     let id = admit(&shard);
     let first = read(&shard, "tenant", "run", "owner").unwrap().unwrap();
@@ -75,7 +75,7 @@ fn run_admission_recovery_preserves_original_request() {
     std::fs::remove_file(path).unwrap();
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.1
 #[test]
 fn run_admission_recovery_checks_complete_owner() {
     let temp = open("run-recovery-owner");
@@ -103,7 +103,7 @@ fn run_admission_recovery_checks_complete_owner() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.1
 #[test]
 fn run_admission_recovery_refuses_missing_evidence() {
     let temp = open("run-recovery-missing");
@@ -135,7 +135,7 @@ fn run_admission_recovery_refuses_missing_evidence() {
 }
 
 // Exercise the real native backend and handler, then the MessagePack wire codec.
-// spec: EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.1
 #[cfg(feature = "server")]
 #[tokio::test]
 async fn run_admission_unavailable_is_a_declared_wire_refusal() {
@@ -143,7 +143,7 @@ async fn run_admission_unavailable_is_a_declared_wire_refusal() {
     use crate::server::persistence::{redb_backend::RedbBackend, PersistenceBackend};
     use std::sync::Arc;
     for (tag, evidence) in [("legacy", None), ("malformed", Some(serde_json::json!({})))] {
-        let dir = crate::redb_store::temp_path("eg-run-wire-refusal", tag);
+        let dir = crate::redb_store::temp_path("medulla-run-wire-refusal", tag);
         std::fs::create_dir_all(&dir).unwrap();
         let shard = Shard::open(&dir.join("graph-0.redb")).unwrap();
         let id = admit(&shard);
@@ -188,7 +188,7 @@ async fn run_admission_unavailable_is_a_declared_wire_refusal() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.6
+// spec: MEDULLA-DURABLE-KERNEL-R028.6
 #[test]
 fn ordinary_completion_requires_original_run_owner() {
     let temp = open("completion-owner");
@@ -213,7 +213,7 @@ fn ordinary_completion_requires_original_run_owner() {
     assert!(validate_completion_owner(&changed, GRAPH, "tenant", "run", &id).is_err());
 }
 
-// spec: EG-DURABLE-KERNEL-R028.6
+// spec: MEDULLA-DURABLE-KERNEL-R028.6
 #[test]
 fn ordinary_completion_binding_corruption_is_not_legacy_unavailability() {
     let temp = open("completion-corrupt");
@@ -225,7 +225,7 @@ fn ordinary_completion_binding_corruption_is_not_legacy_unavailability() {
         .is_none());
     change(&temp.shard, &id, "corrupt", |row| {
         row.insert(
-            eg_types::run_completion::RUN_COMPLETION_BATCH.into(),
+            medulla_types::run_completion::RUN_COMPLETION_BATCH.into(),
             "missing".into(),
         );
     });
@@ -237,16 +237,16 @@ fn ordinary_completion_binding_corruption_is_not_legacy_unavailability() {
         .is_none());
 }
 
-// spec: EG-DURABLE-KERNEL-R028.6
+// spec: MEDULLA-DURABLE-KERNEL-R028.6
 #[test]
 fn ordinary_completion_projection_requires_exact_committed_payload() {
-    use eg_types::run_completion::*;
+    use medulla_types::run_completion::*;
     use sha2::{Digest, Sha256};
     let temp = open("completion-project");
     let id = admit(&temp.shard);
     let handle = temp.shard.graph(GRAPH).unwrap();
     let snapshot = temp.shard.read(&handle).unwrap();
-    let mut receipt = eg_transaction::read_batches(&snapshot).unwrap().remove(0);
+    let mut receipt = medulla_transaction::read_batches(&snapshot).unwrap().remove(0);
     let payload = RunCompletionPayload {
         completion: RunCompletionInput {
             schema_version: 1,
@@ -260,7 +260,7 @@ fn ordinary_completion_projection_requires_exact_committed_payload() {
         result_ref: None,
         error_ref: Some("error".into()),
     };
-    let intent = eg_types::MutationOutboxIntent {
+    let intent = medulla_types::MutationOutboxIntent {
         topic: RUN_COMPLETION_TOPIC.into(),
         key: receipt.batch.batch_id.clone(),
         payload: rmp_serde::to_vec_named(&payload).unwrap(),
@@ -268,7 +268,7 @@ fn ordinary_completion_projection_requires_exact_committed_payload() {
     };
     let digest = hex::encode(Sha256::digest(&intent.payload));
     receipt.batch.outbox = vec![intent.clone()];
-    let event = eg_types::MutationOutboxRecord {
+    let event = medulla_types::MutationOutboxRecord {
         schema_version: 1,
         batch_id: receipt.batch.batch_id.clone(),
         ordinal: 0,
@@ -282,7 +282,7 @@ fn ordinary_completion_projection_requires_exact_committed_payload() {
                    run: &str,
                    status: &str,
                    digest: &str,
-                   event: &eg_types::MutationOutboxRecord| {
+                   event: &medulla_types::MutationOutboxRecord| {
         project_completion(
             snapshot.scope(),
             tenant,
@@ -313,15 +313,15 @@ fn ordinary_completion_projection_requires_exact_committed_payload() {
     assert!(project("tenant", "run", "failed", &digest, &corrupt).is_err());
 }
 
-// spec: EG-DURABLE-KERNEL-R028.6
+// spec: MEDULLA-DURABLE-KERNEL-R028.6
 // Row-authority regression; this does not qualify ledger/outbox integration.
 #[test]
 fn ordinary_completion_native_fence_and_terminal_noop_preserve_binding() {
-    use eg_types::epistemic_operations::{
+    use medulla_types::epistemic_operations::{
         ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion, ClaimWorkItemResult,
     };
-    use eg_types::run_completion::*;
-    let path = crate::redb_store::temp_path("eg-completion", "native-fence");
+    use medulla_types::run_completion::*;
+    let path = crate::redb_store::temp_path("medulla-completion", "native-fence");
     let shard = Shard::open(&path).unwrap();
     let id = admit(&shard);
     let claim = Method::ClaimWorkItem {
@@ -434,15 +434,15 @@ fn ordinary_completion_native_fence_and_terminal_noop_preserve_binding() {
     std::fs::remove_file(path).unwrap();
 }
 
-// spec: EG-DURABLE-KERNEL-R028.6, EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.6, MEDULLA-DURABLE-KERNEL-R028.4.1
 // Exercise the production compiler and atomic ledger, not the row-only helper.
 #[cfg(feature = "server")]
 #[test]
 fn ordinary_completion_native_ledger_outbox_restart_atomicity() {
     use crate::mutation_batch::{MutationBatch, MutationSurface};
     use crate::server::mutation_batch::{compile_methods, principal_fingerprint, CompileBatch};
-    use eg_types::epistemic_operations::{ClaimWorkItemRequest, ClaimWorkItemResult};
-    use eg_types::run_completion::*;
+    use medulla_types::epistemic_operations::{ClaimWorkItemRequest, ClaimWorkItemResult};
+    use medulla_types::run_completion::*;
     let compile = |shard: &Shard, tag: &str, method: Method, now| {
         compile_methods(
             CompileBatch {
@@ -488,10 +488,10 @@ fn ordinary_completion_native_ledger_outbox_restart_atomicity() {
     let events = |shard: &Shard| {
         let handle = shard.graph(GRAPH).unwrap();
         let snapshot = shard.read(&handle).unwrap();
-        eg_transaction::read_batches(&snapshot)
+        medulla_transaction::read_batches(&snapshot)
             .unwrap()
             .iter()
-            .flat_map(|b| eg_transaction::read_outbox(&snapshot, &b.batch.batch_id).unwrap())
+            .flat_map(|b| medulla_transaction::read_outbox(&snapshot, &b.batch.batch_id).unwrap())
             .filter(|e| e.intent.topic == RUN_COMPLETION_TOPIC)
             .collect::<Vec<_>>()
     };
@@ -553,7 +553,7 @@ fn ordinary_completion_native_ledger_outbox_restart_atomicity() {
             },
         ),
     ] {
-        let path = crate::redb_store::temp_path("eg-completion-ledger", tag);
+        let path = crate::redb_store::temp_path("medulla-completion-ledger", tag);
         let shard = Shard::open(&path).unwrap();
         let mut original = request();
         original
@@ -712,7 +712,7 @@ fn completion_method(
     fencing_token: u64,
     outcome: &str,
     result_ref: Option<String>,
-    usage: Option<eg_types::run_completion::RunUsage>,
+    usage: Option<medulla_types::run_completion::RunUsage>,
 ) -> Method {
     Method::CommitWorkItemResult {
         tenant: "tenant".into(),
@@ -727,7 +727,7 @@ fn completion_method(
         retryable: false,
         now_ms: 3000,
         outcome_extension: None,
-        run_completion: Some(Box::new(eg_types::run_completion::RunCompletionInput {
+        run_completion: Some(Box::new(medulla_types::run_completion::RunCompletionInput {
             schema_version: 1,
             run_id: "run".into(),
             usage,
@@ -740,15 +740,15 @@ fn session_summary(
     tenant: &str,
     actor: &str,
     context: &str,
-) -> Result<eg_types::run_usage::SessionUsage, String> {
+) -> Result<medulla_types::run_usage::SessionUsage, String> {
     super::super::read_session_usage(shard, GRAPH, tenant, context, actor, DurableCrypto::none())
 }
 
 fn assert_session_measurements(
     shard: &Shard,
     owner: &str,
-    usage: &eg_types::run_completion::RunUsage,
-) -> eg_types::run_usage::SessionUsage {
+    usage: &medulla_types::run_completion::RunUsage,
+) -> medulla_types::run_usage::SessionUsage {
     let result = session_summary(shard, "tenant", owner, "context").unwrap();
     let expected: std::collections::BTreeMap<String, u64> =
         serde_json::from_value(serde_json::to_value(usage).unwrap()).unwrap();
@@ -770,7 +770,7 @@ fn assert_session_measurements(
     result
 }
 
-// spec: EG-DECISION-ENGINE-R801.8
+// spec: MEDULLA-DECISION-ENGINE-R801.8
 #[test]
 fn session_inventory_uses_original_context_and_marks_missing_admission_partial() {
     let temp = open("session-inventory");
@@ -805,11 +805,11 @@ fn session_inventory_uses_original_context_and_marks_missing_admission_partial()
     );
     change(&temp.shard, &id, "corrupt-completion", |row| {
         row.insert(
-            eg_types::run_completion::RUN_COMPLETION_BATCH.into(),
+            medulla_types::run_completion::RUN_COMPLETION_BATCH.into(),
             "absent".into(),
         );
         row.insert(
-            eg_types::run_completion::RUN_COMPLETION_DIGEST.into(),
+            medulla_types::run_completion::RUN_COMPLETION_DIGEST.into(),
             "forged".into(),
         );
     });
@@ -826,7 +826,7 @@ fn session_inventory_uses_original_context_and_marks_missing_admission_partial()
 fn session_inventory_bound_counts_unrelated_rows() {
     let temp = open("session-bound");
     with_nodes(&temp.shard, "inventory", |nodes| {
-        for n in 0..=eg_types::run_usage::MAX_SESSION_USAGE_RUNS {
+        for n in 0..=medulla_types::run_usage::MAX_SESSION_USAGE_RUNS {
             let id = format!("unrelated:{n:05}");
             let mut row = serde_json::json!({"node_type":"Other","tenant":"tenant"})
                 .as_object()

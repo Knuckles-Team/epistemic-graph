@@ -32,8 +32,8 @@ pub(super) fn opaque_worker_capability(value: &str) -> String {
 }
 
 pub(super) fn result_quality(
-    job: &eg_jobs::AnalyticsJob,
-) -> (f64, Option<eg_jobs::CalibrationInput>) {
+    job: &medulla_jobs::AnalyticsJob,
+) -> (f64, Option<medulla_jobs::CalibrationInput>) {
     let Some(output) = &job.output else {
         return (0.0, None);
     };
@@ -66,7 +66,7 @@ pub(super) fn result_quality(
     });
     (
         confidence,
-        Some(eg_jobs::CalibrationInput {
+        Some(medulla_jobs::CalibrationInput {
             interval,
             level: 0.95,
             evidence_count: scores.len(),

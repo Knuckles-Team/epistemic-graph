@@ -69,7 +69,7 @@ class MethodPolicyRow:
 # `MutationOutbox`.
 # 425 -> 426: RF-ADR-009's served `SourceIngest` raw-record authority.
 # 426 -> 427: governed connector `WriteBack` authority.
-# 430 -> 436: graph-os EG-2..EG-5 typed control-plane methods -- `GetWorkItem`,
+# 430 -> 436: graph-os MEDULLA-2..MEDULLA-5 typed control-plane methods -- `GetWorkItem`,
 # `ListWorkItems`, `GetWorkItemOutcome`, `IssueControlLease`,
 # `TransitionControlLease` and `GetControlLease`.
 # 436 -> 437: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
@@ -79,7 +79,7 @@ class MethodPolicyRow:
 # events, the class volatility policy and foreign-source watermark freshness.
 # 438 -> 439: EH-346/EH-347 `PolicyEvolution`.
 # 439 -> 440: EH-346 engine-internal `PolicyEvolutionStore`.
-# 440 -> 447: `ListControlLeases` (graph-os EG-5) and the EH-348 work market --
+# 440 -> 447: `ListControlLeases` (graph-os MEDULLA-5) and the EH-348 work market --
 # `GapUpsert`, `GapTransition`, `GapSettle`, `WorkOfferPut`, `GapGet`, `GapList`.
 # 447 -> 449: EH-351/EH-352 `EdgeIndex` and `EdgeSearch` (query).
 # 449 -> 451: EH-404's `RbacElevation` and EH-406's `ThrottleCapacityCell`.
@@ -90,7 +90,7 @@ class MethodPolicyRow:
 # 455 -> 456: `CheckAccess`, a principal's current access (EH-416).
 # 456 -> 455: EH-524 added `TsDefineSeries`; EH-530 retired
 # `FinanceRollingZscore` and `FinanceEwma`, now served as UQL `DERIVE` /
-# SQL `eg_zscore` / `eg_ewma`.
+# SQL `medulla_zscore` / `medulla_ewma`.
 # 455 -> 456: EH-558's `RetireSealedRecord`, the owning op of a sealed record.
 # 456 -> 457: EH-572's owner-scoped `QueryForeignColumns` read.
 EXPECTED_DOMAIN_MODULES = (
@@ -128,7 +128,7 @@ _QUOTED = r'"(?:\\.|[^"\\])*"'
 # stability. Those two are the CONTRACT's facts, not the POLICY's; the parser still
 # reads them, because a row shape it cannot read is a scanner that reports nothing
 # while claiming to have checked every row. A row authors no result: that is the
-# `eg_types::result_contract` marker the handler encodes through.
+# `medulla_types::result_contract` marker the handler encodes through.
 _POLICY_ROW = re.compile(
     rf"^\s*\(\s*(?P<name>{_QUOTED})\s*,\s*"
     r"spec\(\s*"
@@ -360,7 +360,7 @@ def parse_method_policy_table(
     """Return policies in canonical domain and declaration order."""
 
     sources = _split_sources(source)
-    lib = _source(sources, "crates/eg-capabilities/src/lib.rs")
+    lib = _source(sources, "crates/medulla-capabilities/src/lib.rs")
     if "mod domains;" not in lib or "method_policy_entries" not in lib:
         raise MethodPolicyInventoryError("capability library is not registry-backed")
     if "ALL_METHODS" in lib or "mod dispatch;" in lib:
@@ -368,7 +368,7 @@ def parse_method_policy_table(
             "capability library retains flat policy authority"
         )
     registry = _registry_modules(
-        _source(sources, "crates/eg-capabilities/src/domains/mod.rs")
+        _source(sources, "crates/medulla-capabilities/src/domains/mod.rs")
     )
     domain_sources = _domain_sources(sources)
     rows = tuple(
@@ -382,7 +382,7 @@ def parse_method_policy_table(
 def load_capability_sources(root: Path) -> str:
     """Read and validate the complete production capability registry."""
 
-    source_root = root / "crates/eg-capabilities/src"
+    source_root = root / "crates/medulla-capabilities/src"
     domain_root = source_root / "domains"
     paths = [source_root / "lib.rs", domain_root / "mod.rs"]
     paths.extend(domain_root / f"{module}.rs" for module in EXPECTED_DOMAIN_MODULES)

@@ -4,7 +4,7 @@ use crate::mutation_batch::MutationSurface;
 use crate::protocol::{Method, ResultPayload};
 use crate::server::mutation::LifecycleAttempt;
 use crate::server::persistence::PersistenceBackend;
-use eg_types::contract::Nonce;
+use medulla_types::contract::Nonce;
 
 use super::super::compile::{compile_methods, CompileBatch};
 use super::super::digest::{lifecycle_batch_id, principal_fingerprint};
@@ -161,7 +161,7 @@ pub(crate) async fn lifecycle_was_committed(
     let Some(record) = persistence.read_mutation_batch(&fname, &batch_id).await? else {
         return Ok(false);
     };
-    if record.status != eg_types::mutation_batch::MutationBatchStatus::Committed {
+    if record.status != medulla_types::mutation_batch::MutationBatchStatus::Committed {
         return Ok(false);
     }
     // A reused attempt nonce is refused before any identity question is asked:

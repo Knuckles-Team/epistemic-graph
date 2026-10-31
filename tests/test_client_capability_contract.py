@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from epistemic_graph.client import ConsensusClient, WorkItemClient
-from epistemic_graph.client_capabilities import (
+from medulla.client import ConsensusClient, WorkItemClient
+from medulla.client_capabilities import (
     CLIENT_CAPABILITY_SCHEMA_VERSION,
     CONSENSUS_GET_IDENTITY_CAPABILITY,
     SQL_SOURCE_PREPARATION_CAPABILITY,
@@ -102,7 +102,7 @@ def test_same_version_client_without_get_identity_fails_closed(
 
 
 def test_missing_native_sql_codec_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    import epistemic_graph.client_capabilities as capabilities
+    import medulla.client_capabilities as capabilities
 
     def missing_codec() -> None:
         raise ClientCapabilityError("missing native codec")

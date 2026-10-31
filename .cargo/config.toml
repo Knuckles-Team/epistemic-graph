@@ -1,10 +1,10 @@
-# CONCEPT:EG-015/EG-016 — AVX2 build flag for the semantic store's SIMD kernels.
+# CONCEPT:MEDULLA-015/MEDULLA-016 — AVX2 build flag for the semantic store's SIMD kernels.
 #
-# EG-014's 8-lane chunked `dot_product`/`l2_norm` are written to vectorize, but the
+# MEDULLA-014's 8-lane chunked `dot_product`/`l2_norm` are written to vectorize, but the
 # default `x86-64` baseline only guarantees SSE2 (128-bit / 4-wide f32). Raising the
 # target to `x86-64-v3` enables AVX2 + FMA (256-bit / 8-wide f32), so the kernel emits
 # one packed multiply-add per 8 lanes — the win the 8-lane accumulator was designed
-# for, and the lever EG-014 left on the table on the brute-force/ANN-build path.
+# for, and the lever MEDULLA-014 left on the table on the brute-force/ANN-build path.
 #
 # This flag is OPT-IN, NOT a repo-wide default, on purpose:
 #   * `target-cpu=x86-64-v3` bakes AVX2 instructions into the binary. On a host that
@@ -65,7 +65,7 @@ multiplexing = false
 [net]
 retry = 10
 
-# GOC-33 (`eg-asr-whisper`, OWNER-VOICE-ASR): CPU-portability build contract for the
+# GOC-33 (`medulla-asr-whisper`, OWNER-VOICE-ASR): CPU-portability build contract for the
 # vendored whisper.cpp/ggml C++ library `whisper-rs-sys` compiles from source via
 # `cmake`. `whisper-rs-sys`'s build.rs forwards ANY `GGML_*`/`WHISPER_*`/`CMAKE_*`
 # env var straight through as a cmake `-D` define (verified against its source,
@@ -78,7 +78,7 @@ retry = 10
 #
 # `GGML_CPU_ALL_VARIANTS=ON` (ggml's genuine runtime CPU dispatch — the C-side
 # equivalent of `is_x86_feature_detected!`) was evaluated and empirically tested
-# (`cargo check -p eg-asr-whisper`, GOC-33) but REJECTED for this change: ggml's
+# (`cargo check -p medulla-asr-whisper`, GOC-33) but REJECTED for this change: ggml's
 # CMake hard-requires it to be paired with `GGML_BACKEND_DL=ON` ("GGML_CPU_ALL_
 # VARIANTS requires GGML_BACKEND_DL", ggml/src/CMakeLists.txt), which turns the
 # CPU backend into a runtime-`dlopen`ed `.so` selected from a search path at
@@ -110,7 +110,7 @@ GGML_AVX512 = "OFF"
 # level (same tier as AVX2), so `GGML_NATIVE=OFF` alone was NOT sufficient —
 # the first attempt SIGILLed on `shlx` (a BMI2 instruction) inside
 # `ggml_graph_plan` even with every AVX* flag off. Caught by actually running
-# the real-fixture test in `crates/eg-asr-whisper/tests/real_transcription.rs`
+# the real-fixture test in `crates/medulla-asr-whisper/tests/real_transcription.rs`
 # under gdb — see the GOC-33 report for the exact backtrace/fix.
 GGML_BMI2 = "OFF"
 

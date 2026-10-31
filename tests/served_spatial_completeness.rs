@@ -1,4 +1,4 @@
-//! L37 (CONCEPT:EG-KG.storage.incremental-spatial) — a served `Op::SpatialScan` pushes down
+//! L37 (CONCEPT:MEDULLA-KG.storage.incremental-spatial) — a served `Op::SpatialScan` pushes down
 //! into the MAINTAINED persistent `GraphSpatialIndex` (via `ServedSpatialIndex`) when a
 //! `ServerIndexFactory` is installed, instead of rebuilding a throwaway packed Hilbert
 //! R-tree per query. Mirrors `served_query_completeness.rs`'s
@@ -17,10 +17,10 @@ use std::sync::Arc;
 
 use serde_json::json;
 
-use eg_plan::{Op, Plan};
-use epistemic_graph::protocol::{GraphType, Method};
-use epistemic_graph::registry::{GraphMaterial, GraphMaterializer, GraphRegistry};
-use epistemic_graph::server::dispatch;
+use medulla_plan::{Op, Plan};
+use medulla::protocol::{GraphType, Method};
+use medulla::registry::{GraphMaterial, GraphMaterializer, GraphRegistry};
+use medulla::server::dispatch;
 
 const SECRET: &str = "served-spatial-completeness-secret";
 
@@ -29,12 +29,12 @@ fn state() -> test_support::SharedState {
 }
 
 /// L37 — a served `SpatialScan` pushes down into the MAINTAINED persistent
-/// `GraphSpatialIndex`, NOT eg-plan's ephemeral per-query fallback.
+/// `GraphSpatialIndex`, NOT medulla-plan's ephemeral per-query fallback.
 ///
 /// Proven DIFFERENTIALLY: the persistent index derives a node's bbox from a FIXED
 /// canonical geometry key (`GraphSpatialIndex`'s `SPATIAL_GEOMETRY_KEY = "geometry"`,
 /// see `server::secondary_indexes`), while the snapshot-derived fallback
-/// (`geometry_from_value` in `eg-plan`) accepts EITHER `geometry` OR the `geom` alias.
+/// (`geometry_from_value` in `medulla-plan`) accepts EITHER `geometry` OR the `geom` alias.
 /// So a node whose geometry lives under the NON-canonical `geom` key matches the
 /// fallback but is INVISIBLE to the persistent index. A served `SpatialScan` returning
 /// hits ONLY for the canonical-keyed node — never the `geom`-keyed one — is possible
@@ -47,7 +47,7 @@ async fn served_spatial_scan_pushes_down_into_persistent_index_not_snapshot_fall
     // Install the SAME server-layer secondary-index factory `main.rs` wires at startup —
     // no text/tsdb config needed here, only the always-on `geo` registration.
     state.write().await.registry.set_secondary_index_factory(
-        epistemic_graph::server::secondary_indexes::ServerIndexFactory::new().into_arc(),
+        medulla::server::secondary_indexes::ServerIndexFactory::new().into_arc(),
     );
 
     // `canonical` carries its geometry under the persistent index's own `geometry` key
@@ -127,14 +127,14 @@ async fn recovered_nodes_are_backfilled_before_spatial_index_is_available() {
         .expect("commons graph")
         .core
         .clone();
-    let served = epistemic_graph::server::secondary_indexes::ServedSpatialIndex::new(core);
+    let served = medulla::server::secondary_indexes::ServedSpatialIndex::new(core);
     assert!(
         !served.available(),
         "no registered index before recovery wiring"
     );
 
     state.write().await.registry.set_secondary_index_factory(
-        epistemic_graph::server::secondary_indexes::ServerIndexFactory::new().into_arc(),
+        medulla::server::secondary_indexes::ServerIndexFactory::new().into_arc(),
     );
     assert!(
         served.available(),
@@ -190,7 +190,7 @@ fn paged_lazy_open_advertises_spatial_only_after_final_page_backfill() {
         },
     }));
     registry.set_secondary_index_factory(
-        epistemic_graph::server::secondary_indexes::ServerIndexFactory::new().into_arc(),
+        medulla::server::secondary_indexes::ServerIndexFactory::new().into_arc(),
     );
 
     let outcome = registry.open_lazy_paged(name, 1);
@@ -200,7 +200,7 @@ fn paged_lazy_open_advertises_spatial_only_after_final_page_backfill() {
         .expect("resident after page one")
         .core
         .clone();
-    let served = epistemic_graph::server::secondary_indexes::ServedSpatialIndex::new(core.clone());
+    let served = medulla::server::secondary_indexes::ServedSpatialIndex::new(core.clone());
     let partial = registry.materialization_manifest(name).unwrap();
     assert!(!partial.valid);
     assert!(core
@@ -208,7 +208,7 @@ fn paged_lazy_open_advertises_spatial_only_after_final_page_backfill() {
         .server_manifests()
         .iter()
         .all(|(_, manifest)| {
-            manifest.validity == epistemic_graph::index::IndexValidity::Building
+            manifest.validity == medulla::index::IndexValidity::Building
                 && !manifest.completeness.complete
         }));
     assert!(
@@ -231,7 +231,7 @@ fn paged_lazy_open_advertises_spatial_only_after_final_page_backfill() {
         .server_manifests()
         .iter()
         .all(|(_, manifest)| {
-            manifest.validity == epistemic_graph::index::IndexValidity::Valid
+            manifest.validity == medulla::index::IndexValidity::Valid
                 && manifest.completeness.complete
                 && manifest.covers_source(
                     core.version(),
@@ -239,7 +239,7 @@ fn paged_lazy_open_advertises_spatial_only_after_final_page_backfill() {
                     core.edge_count() as u64,
                 )
         }));
-    let mut hits = eg_plan::SpatialSource::query_bbox(&served, "City", [0.0, 0.0, 10.0, 10.0]);
+    let mut hits = medulla_plan::SpatialSource::query_bbox(&served, "City", [0.0, 0.0, 10.0, 10.0]);
     hits.sort();
     assert_eq!(hits, vec!["a".to_string(), "b".to_string()]);
 }

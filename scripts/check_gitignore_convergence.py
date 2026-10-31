@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Assert this repo's .gitignore carries the fleet-shared REQUIRED set.
 
-Ported identically (CX-HYG-01) across agent-utilities, epistemic-graph, and
+Ported identically (CX-HYG-01) across agent-utilities, medulla, and
 agent-webui -- ``REQUIRED`` below is the SAME literal set in all three copies
 on purpose: every rule in it exists because ONE of these three repos got
 burned by exactly the thing it excludes, and the other two are not
@@ -63,7 +63,7 @@ GITIGNORE_PATH = REPO_ROOT / ".gitignore"
 # ("REQUIRED must stay shared" is the point, not a suggestion):
 #   dist/, dist-*/, sdist/    -- Python/JS build output; dist-*/ is the FAMILY
 #                                 match (agent-utilities' dist-primary/ +
-#                                 dist-reproduction/, epistemic-graph's
+#                                 dist-reproduction/, medulla's
 #                                 dist-gates/, BUG-CX-017 family -- `dist/`
 #                                 alone does not cover a purpose-suffixed dir)
 #   build/, target/, target-*/ -- Rust/generic build output; target-*/ is the

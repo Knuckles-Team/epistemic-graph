@@ -203,7 +203,7 @@ def test_modality_guard_reads_runtime_children_and_rejects_a_noop(
     module = _load_gate(
         "check_p2_modality_architecture.py", "e1_p2_modality_module_tree"
     )
-    runtime = tmp_path / "crates" / "eg-video" / "src"
+    runtime = tmp_path / "crates" / "medulla-video" / "src"
     (runtime / "runtime").mkdir(parents=True)
     (runtime / "runtime.rs").write_text(
         "mod probe;\npub struct NativeVideoRuntime;\n", encoding="utf-8"
@@ -217,11 +217,11 @@ def test_modality_guard_reads_runtime_children_and_rejects_a_noop(
     )
     monkeypatch.setattr(module, "ROOT", tmp_path)
 
-    source = module.compiler_source("crates/eg-video/src/runtime.rs")
+    source = module.compiler_source("crates/medulla-video/src/runtime.rs")
     module.require_native_runtime_contract("video", source)
 
     probe.write_text("pub(super) struct NoopRuntime;\n", encoding="utf-8")
-    source = module.compiler_source("crates/eg-video/src/runtime.rs")
+    source = module.compiler_source("crates/medulla-video/src/runtime.rs")
     with pytest.raises(SystemExit, match="video runtime still contains a no-op"):
         module.require_native_runtime_contract("video", source)
 
@@ -237,7 +237,7 @@ def test_modality_guard_rejects_tck_exemptions_and_noop_features() -> None:
 
 def test_knowledge_stream_wire_rejects_the_retired_projection() -> None:
     module = _load_gate("check_p2_modality_architecture.py", "e1_p2_wire_projection")
-    wire = module.compiler_source("crates/eg-types/src/knowledge_stream.rs")
+    wire = module.compiler_source("crates/medulla-types/src/knowledge_stream.rs")
     module.require_no_compatibility_projection(wire)
     with pytest.raises(SystemExit, match="compatibility projection"):
         module.require_no_compatibility_projection(
@@ -352,7 +352,7 @@ def test_persisted_blob_guard_rejects_split_refcount_commit() -> None:
     )
 
     # RF-RULING-004 moved the CAS/refcount tables into the storage kernel's
-    # shared blob handle (`eg-storage`'s `owner/blob_shared.rs`), which the
+    # shared blob handle (`medulla-storage`'s `owner/blob_shared.rs`), which the
     # gate now reads directly from disk regardless of this `blob_store`
     # argument -- so mutating `CAS_REFCOUNT` here (a token the carrier no
     # longer references locally) is a no-op against the gate. Mutate a token
@@ -367,7 +367,7 @@ def test_persisted_blob_guard_rejects_split_refcount_commit() -> None:
 
 
 def test_ingest_stream_client_bound_matches_the_server_constant() -> None:
-    """`epistemic_graph/client.py`'s ingest_stream item ceiling must equal the
+    """`medulla/client.py`'s ingest_stream item ceiling must equal the
     server's `MAX_INGEST_STREAM_ITEMS`. Regression coverage for the item limit
     moving 61 -> 49 (the wire-derived worst case the Raft result envelope
     admits, see `src/raft/modality.rs`) while the client's validation,
@@ -377,7 +377,7 @@ def test_ingest_stream_client_bound_matches_the_server_constant() -> None:
     module = _load_gate(
         "check_p2_modality_architecture.py", "e1_p2_ingest_stream_bound"
     )
-    python_client = module.read("epistemic_graph/client.py")
+    python_client = module.read("medulla/client.py")
     module.require_ingest_stream_item_bound(python_client)
 
 
@@ -385,7 +385,7 @@ def test_ingest_stream_client_bound_rejects_drift_from_the_server() -> None:
     module = _load_gate(
         "check_p2_modality_architecture.py", "e1_p2_ingest_stream_bound_drift"
     )
-    python_client = module.read("epistemic_graph/client.py")
+    python_client = module.read("medulla/client.py")
     drifted = _replace_once(
         python_client, "not 2 <= len(items) <= 49", "not 2 <= len(items) <= 61"
     )

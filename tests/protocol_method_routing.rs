@@ -25,10 +25,10 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use epistemic_graph::acl::AgentRole;
-use epistemic_graph::protocol::{ChannelType, GraphType, Method, Request, Response, ResultPayload};
+use medulla::acl::AgentRole;
+use medulla::protocol::{ChannelType, GraphType, Method, Request, Response, ResultPayload};
 
-const SECRET: &str = "cx-eg-06-dispatch-inner-secret";
+const SECRET: &str = "cx-medulla-06-dispatch-inner-secret";
 
 fn state() -> test_support::SharedState {
     test_support::durable_state(SECRET, common::current_isolation())
@@ -491,7 +491,7 @@ async fn t16_parse_file_without_ast_feature_reports_disabled() {
 
 // ── Txn family (BeginTxn / TxnAddNode / ... / Commit / Rollback) ────────
 // OBSERVED, and NOT what this test originally assumed: `Commit` fails in
-// this test harness because `EPISTEMIC_GRAPH_ENCRYPTION_KEY` is not
+// this test harness because `MEDULLA_ENCRYPTION_KEY` is not
 // configured (this fixture mirrors every other characterization/integration
 // fixture in this repo, none of which set it) -- `BeginTxn`/`TxnAddNode`
 // both succeed first, so the failure pins specifically to the durability
@@ -648,7 +648,7 @@ async fn edge_snapshot(
     )
 }
 
-// spec: EG-DURABLE-KERNEL-R080.2
+// spec: MEDULLA-DURABLE-KERNEL-R080.2
 #[tokio::test]
 async fn t20_served_supersession_closes_prior_links_successor_and_refuses_replay() {
     let state = state();

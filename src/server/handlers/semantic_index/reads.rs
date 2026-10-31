@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use eg_types::result_contract::ingestion as ingestion_results;
-use eg_types::semantic_index::{
+use medulla_types::result_contract::ingestion as ingestion_results;
+use medulla_types::semantic_index::{
     SemanticBindingPage, SemanticIndexCommand, SemanticIndexOp, SemanticIndexOperation,
     SemanticIndexOutcome, SemanticIndexRequest, SemanticIndexResponse, SemanticIndexResult,
 };
@@ -100,7 +100,7 @@ async fn sql_source_manifest(
 
 async fn list_bindings(
     ctx: &SemanticIndexContext<'_>,
-    filter: eg_types::semantic_index::SemanticIndexFilter,
+    filter: medulla_types::semantic_index::SemanticIndexFilter,
     cursor: Option<String>,
 ) -> Response {
     let service = Arc::clone(&ctx.service);

@@ -12,7 +12,7 @@ use crate::lock_recovery::LockRecovery;
 #[cfg(feature = "traces")]
 use super::ObsState;
 
-pub(super) const MAX_SNAPSHOT_BYTES: usize = eg_types::msgpack::MAX_PROPERTY_BYTES;
+pub(super) const MAX_SNAPSHOT_BYTES: usize = medulla_types::msgpack::MAX_PROPERTY_BYTES;
 pub(super) const SNAPSHOT_WRITE_ERROR: &str = "observability snapshot write failed";
 pub(super) const SNAPSHOT_READ_ERROR: &str = "observability snapshot read failed";
 pub(super) const OBS_PERSISTENCE_DIRECTORY_ERROR: &str =
@@ -501,30 +501,30 @@ pub(super) fn read_snapshot_from_directory(
 /// (a fresh persist dir, or a restart before the first sweep tick ever ran --
 /// spans since the last tick are RAM-only by design, see `persist_traces`'s doc
 /// comment). Bytes recovered from durable storage go through the SAME bounded
-/// structural preflight (`eg_types::msgpack::validate_single_value`) every other
-/// durable snapshot reader in this engine uses before deserializing -- `eg-tsdb`'s
-/// `traces` feature deliberately carries no dependency on `eg-types` (its own
+/// structural preflight (`medulla_types::msgpack::validate_single_value`) every other
+/// durable snapshot reader in this engine uses before deserializing -- `medulla-tsdb`'s
+/// `traces` feature deliberately carries no dependency on `medulla-types` (its own
 /// "Pi contract" doc comment), so `SpanStore::recover` itself does only the
 /// structural `rmp_serde` decode; this caller supplies the bound.
 #[cfg(feature = "traces")]
 pub(super) fn load_traces_snapshot(
     obs_base: &Path,
-) -> Result<Option<eg_tsdb::traces::SpanStore>, String> {
+) -> Result<Option<medulla_tsdb::traces::SpanStore>, String> {
     let path = traces_snapshot_path(obs_base);
     let bytes = match read_snapshot_blocking(&path)? {
         Some(bytes) => bytes,
         None => return Ok(None),
     };
-    eg_types::msgpack::validate_single_value(
+    medulla_types::msgpack::validate_single_value(
         &bytes,
-        eg_types::msgpack::MsgpackLimits::new(
-            eg_types::msgpack::MAX_PROPERTY_BYTES,
-            eg_types::msgpack::MAX_PROPERTY_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        medulla_types::msgpack::MsgpackLimits::new(
+            medulla_types::msgpack::MAX_PROPERTY_BYTES,
+            medulla_types::msgpack::MAX_PROPERTY_ITEMS,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| "trace snapshot is invalid or exceeds its bounds".to_string())?;
-    eg_tsdb::traces::SpanStore::recover(&bytes)
+    medulla_tsdb::traces::SpanStore::recover(&bytes)
         .map(Some)
         .map_err(|_| "trace snapshot is corrupt".to_string())
 }
@@ -535,7 +535,7 @@ impl ObsState {
     /// `{persist_dir}/obs/traces.msgpack` (tmp-file + atomic rename). Intended to
     /// be called from a periodic sweep task (mirroring
     /// `server::persistence::provenance_anchor`'s cadence, armed by
-    /// `EPISTEMIC_GRAPH_OBS_TRACES_PERSIST_SECS`), NOT from the per-request ingest
+    /// `MEDULLA_OBS_TRACES_PERSIST_SECS`), NOT from the per-request ingest
     /// path -- that would reintroduce BUG-017's write-amplification defect class.
     /// A no-op (`Ok(())`) when this instance has no configured durable persist dir
     /// (ephemeral/test instances), mirroring `provenance_anchor::sweep`'s

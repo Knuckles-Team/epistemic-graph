@@ -1,5 +1,5 @@
 //! Server-layer secondary indexes wired into the per-graph [`IndexManager`] seam
-//! (CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl).
+//! (CONCEPT:MEDULLA-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl).
 //!
 //! ## Why this module exists — the D3 remainder
 //!
@@ -7,9 +7,9 @@
 //! write-maintenance seam and wired the ONE index that lives ON `GraphCore` — the
 //! vector `SemanticStore` — so a committed write batch maintains it incrementally
 //! (`apply_delta`) instead of drop-and-rebuild. The remaining heavy indexes —
-//! **text** (`eg-text` Tantivy `TextIndex`), **temporal** (`eg-tsdb` `SeriesStore`),
-//! and **derived-OWL** (`eg-rdf` reasoner) — do NOT live on `GraphCore`: they sit in
-//! the server layer, ABOVE `eg-core` in the crate DAG, so `eg-core`'s
+//! **text** (`medulla-text` Tantivy `TextIndex`), **temporal** (`medulla-tsdb` `SeriesStore`),
+//! and **derived-OWL** (`medulla-rdf` reasoner) — do NOT live on `GraphCore`: they sit in
+//! the server layer, ABOVE `medulla-core` in the crate DAG, so `medulla-core`'s
 //! `GraphCore::maintain_indexes` cannot reach them.
 //!
 //! This module is the **server-dispatch registration hook**: each store is wrapped as
@@ -46,7 +46,7 @@ use crate::lock_recovery::LockRecovery;
 /// coalescer captures the FULL property blob for an added node, and the CAS `updates`
 /// map for an updated node — both MessagePack maps.
 fn decode_props(blob: &[u8]) -> Option<serde_json::Map<String, serde_json::Value>> {
-    eg_types::msgpack::decode_property_object(blob).ok()
+    medulla_types::msgpack::decode_property_object(blob).ok()
 }
 
 fn source_counts(core: &GraphCore) -> (u64, u64, u64) {
@@ -75,7 +75,7 @@ fn read_current_index<I: SecondaryIndex, T>(
         .flatten()
 }
 
-// ── text (CONCEPT:EG-KG.storage.incremental-text) ────────────────────────────────────
+// ── text (CONCEPT:MEDULLA-KG.storage.incremental-text) ────────────────────────────────────
 
 /// The conventional node fields a text index derives its document body from, in
 /// precedence order (first present wins). Mirrors what a `:Doc` node carries.
@@ -102,17 +102,17 @@ fn extract_text(props: &serde_json::Map<String, serde_json::Value>) -> Option<St
     None
 }
 
-/// Server-layer eg-text Tantivy BM25 index over one graph's node text, driven
-/// incrementally by the committed write batch (CONCEPT:EG-KG.storage.incremental-text).
+/// Server-layer medulla-text Tantivy BM25 index over one graph's node text, driven
+/// incrementally by the committed write batch (CONCEPT:MEDULLA-KG.storage.incremental-text).
 #[cfg(feature = "text")]
 pub struct GraphTextIndex {
-    index: std::sync::Mutex<eg_text::TextIndex>,
+    index: std::sync::Mutex<medulla_text::TextIndex>,
     manifest: std::sync::Mutex<IndexManifest>,
 }
 
 #[cfg(feature = "text")]
 impl GraphTextIndex {
-    pub fn new(index: eg_text::TextIndex) -> Self {
+    pub fn new(index: medulla_text::TextIndex) -> Self {
         Self {
             index: std::sync::Mutex::new(index),
             manifest: std::sync::Mutex::new(IndexManifest::default()),
@@ -121,7 +121,7 @@ impl GraphTextIndex {
 
     /// BM25 top-`k` search over the graph's node text — the read surface a hybrid
     /// planner (lexical `Rank`) consumes. Reflects the last committed batch.
-    pub fn search(&self, query: &str, k: usize) -> Vec<eg_text::TextHit> {
+    pub fn search(&self, query: &str, k: usize) -> Vec<medulla_text::TextHit> {
         self.index.lock_recovering("text index").search(query, k)
     }
 
@@ -132,7 +132,7 @@ impl GraphTextIndex {
         query: &str,
         candidates: &[&str],
         k: usize,
-    ) -> Vec<eg_text::TextHit> {
+    ) -> Vec<medulla_text::TextHit> {
         self.index
             .lock_recovering("text index")
             .search_within(query, candidates, k)
@@ -225,17 +225,17 @@ impl SecondaryIndex for GraphTextIndex {
     }
 }
 
-/// Planner pushdown adapter (CONCEPT:EG-KG.query.served-text-index-binding, EG-P1-4): lets a served
+/// Planner pushdown adapter (CONCEPT:MEDULLA-KG.query.served-text-index-binding, MEDULLA-P1-4): lets a served
 /// `RankText`/`FuseRrf` leg search the MAINTAINED per-graph [`GraphTextIndex`] directly
-/// instead of `eg-plan`'s prior behavior of building a throwaway BM25 index from the
+/// instead of `medulla-plan`'s prior behavior of building a throwaway BM25 index from the
 /// queried snapshot on EVERY request. Cheap to construct per request — it only holds an
-/// `Arc<GraphCore>` clone — and each [`eg_plan::TextSource::search_within`] call re-resolves the
+/// `Arc<GraphCore>` clone — and each [`medulla_plan::TextSource::search_within`] call re-resolves the
 /// registered index through the generic [`crate::index::IndexManager`] (a downcast via
 /// [`crate::index::SecondaryIndex::as_any`]) and searches it fresh under a brief internal
-/// lock, so it always reflects the LAST COMMITTED batch with no per-query rebuild. `eg-core`
+/// lock, so it always reflects the LAST COMMITTED batch with no per-query rebuild. `medulla-core`
 /// cannot expose this directly (the concrete `GraphTextIndex` type lives ABOVE it in the
 /// crate DAG — see this module's top docs), so the adapter lives here, at the server layer,
-/// where both `eg-core`'s generic registry AND the concrete text index are in scope.
+/// where both `medulla-core`'s generic registry AND the concrete text index are in scope.
 #[cfg(feature = "text")]
 pub struct ServedTextIndex {
     core: std::sync::Arc<GraphCore>,
@@ -264,14 +264,14 @@ impl ServedTextIndex {
 }
 
 #[cfg(feature = "text")]
-impl eg_plan::TextSource for ServedTextIndex {
-    fn search_within(&self, query: &str, candidates: &[&str], k: usize) -> Vec<eg_text::TextHit> {
+impl medulla_plan::TextSource for ServedTextIndex {
+    fn search_within(&self, query: &str, candidates: &[&str], k: usize) -> Vec<medulla_text::TextHit> {
         self.read_current(|text| text.search_within(query, candidates, k))
             .unwrap_or_default()
     }
 }
 
-// ── temporal (CONCEPT:EG-KG.storage.incremental-temporal) ────────────────────────────
+// ── temporal (CONCEPT:MEDULLA-KG.storage.incremental-temporal) ────────────────────────────
 
 /// 1-hour buckets (ns) for a node's temporal series — a storage-layout constant only;
 /// range reads are bucket-agnostic.
@@ -291,26 +291,26 @@ fn temporal_series_id(graph: &str, node_id: &str) -> String {
 #[cfg(feature = "tsdb")]
 fn extract_measurements(
     props: &serde_json::Map<String, serde_json::Value>,
-) -> Option<Vec<eg_tsdb::point::Point>> {
+) -> Option<Vec<medulla_tsdb::point::Point>> {
     let arr = props.get("measurements")?.as_array()?;
     let mut pts = Vec::with_capacity(arr.len());
     for m in arr {
         let ts = m.get("ts").and_then(|v| v.as_i64())?;
         let value = m.get("value").and_then(|v| v.as_f64())?;
-        pts.push(eg_tsdb::point::Point::single(ts, value));
+        pts.push(medulla_tsdb::point::Point::single(ts, value));
     }
     // Deterministic order (append handles out-of-order, but keep rebuild == incremental).
     pts.sort_by_key(|p| p.ts);
     Some(pts)
 }
 
-/// Server-layer eg-tsdb temporal index over one graph's node measurement series,
-/// driven incrementally by the committed write batch (CONCEPT:EG-KG.storage.incremental-temporal).
+/// Server-layer medulla-tsdb temporal index over one graph's node measurement series,
+/// driven incrementally by the committed write batch (CONCEPT:MEDULLA-KG.storage.incremental-temporal).
 /// A node's series is idempotently REPLACED on add/update (delete-then-append) and
 /// dropped on removal, so the store never diverges from a full rebuild.
 #[cfg(feature = "tsdb")]
 pub struct GraphTemporalIndex {
-    store: std::sync::Arc<eg_tsdb::store::SeriesStore>,
+    store: std::sync::Arc<medulla_tsdb::store::SeriesStore>,
     graph: String,
     manifest: std::sync::Mutex<IndexManifest>,
 }
@@ -318,7 +318,7 @@ pub struct GraphTemporalIndex {
 #[cfg(feature = "tsdb")]
 impl GraphTemporalIndex {
     pub fn new(
-        store: std::sync::Arc<eg_tsdb::store::SeriesStore>,
+        store: std::sync::Arc<medulla_tsdb::store::SeriesStore>,
         graph: impl Into<String>,
     ) -> Self {
         Self {
@@ -330,14 +330,14 @@ impl GraphTemporalIndex {
 
     /// Whether `node_id`'s durable series is not exactly `points` (an unreadable
     /// series counts as different, so the rebuild rewrites it).
-    fn stored_differs(&self, node_id: &str, points: &[eg_tsdb::point::Point]) -> bool {
+    fn stored_differs(&self, node_id: &str, points: &[medulla_tsdb::point::Point]) -> bool {
         let sid = temporal_series_id(&self.graph, node_id);
         !matches!(self.store.scan_all(&sid), Ok(stored) if stored == points)
     }
 
     /// Idempotent replace of a node's series: drop the old one, then append the new
     /// points (empty ⇒ just the drop). Keeps incremental == rebuild.
-    fn replace(&self, node_id: &str, points: &[eg_tsdb::point::Point]) {
+    fn replace(&self, node_id: &str, points: &[medulla_tsdb::point::Point]) {
         let sid = temporal_series_id(&self.graph, node_id);
         if let Err(e) = self.store.delete_series(&sid) {
             tracing::warn!("GraphTemporalIndex delete_series({sid}) failed: {e}");
@@ -427,11 +427,11 @@ impl SecondaryIndex for GraphTemporalIndex {
     }
 }
 
-// ── derived-OWL (CONCEPT:EG-KG.storage.incremental-derived-owl) ───────────────────────
+// ── derived-OWL (CONCEPT:MEDULLA-KG.storage.incremental-derived-owl) ───────────────────────
 
-/// Server-layer derived-OWL index (CONCEPT:EG-KG.storage.incremental-derived-owl).
+/// Server-layer derived-OWL index (CONCEPT:MEDULLA-KG.storage.incremental-derived-owl).
 ///
-/// The eg-rdf OWL reasoner ([`eg_rdf::owl::Reasoner`], CONCEPT:EG-KG.ontology.incremental-materialization)
+/// The medulla-rdf OWL reasoner ([`medulla_rdf::owl::Reasoner`], CONCEPT:MEDULLA-KG.ontology.incremental-materialization)
 /// is ALREADY a differential materializer: `Reasoner::add_axioms(delta)` resumes from
 /// the prior `S`/`R` closure and derives ONLY the new entailments, and it is invoked
 /// ON-DEMAND at query time — not rebuilt on each topology write. So the correct wiring
@@ -494,10 +494,10 @@ impl SecondaryIndex for DerivedOwlIndex {
     }
 }
 
-// ── spatial (CONCEPT:EG-KG.storage.incremental-spatial, L37) ─────────────────────────
+// ── spatial (CONCEPT:MEDULLA-KG.storage.incremental-spatial, L37) ─────────────────────────
 
 /// The canonical spatial-geometry property key a maintained index derives its bboxes
-/// from. Deliberately narrower than eg-plan's ephemeral fallback (`geometry_from_value`,
+/// from. Deliberately narrower than medulla-plan's ephemeral fallback (`geometry_from_value`,
 /// which also accepts the `geom` alias) — the SAME "fixed key list vs the fallback's
 /// wider one" asymmetry [`GraphTextIndex`]'s `TEXT_KEYS` has relative to the
 /// snapshot-derived text fallback, and for the identical reason: it makes the served
@@ -507,7 +507,7 @@ impl SecondaryIndex for DerivedOwlIndex {
 #[cfg(feature = "geo")]
 const SPATIAL_GEOMETRY_KEY: &str = "geometry";
 
-/// Decode `props`'s `type` (the spatial LAYER, matching eg-plan's `spatial_scan`
+/// Decode `props`'s `type` (the spatial LAYER, matching medulla-plan's `spatial_scan`
 /// convention) and its `geometry` WKT into a `(layer, bbox)` pair — `None` when either is
 /// absent/unparsable/has no bbox (e.g. an empty `GeometryCollection`).
 #[cfg(feature = "geo")]
@@ -516,33 +516,33 @@ fn extract_layer(props: &serde_json::Map<String, serde_json::Value>) -> Option<S
 }
 
 #[cfg(feature = "geo")]
-fn extract_bbox(props: &serde_json::Map<String, serde_json::Value>) -> Option<eg_geo::Bbox> {
+fn extract_bbox(props: &serde_json::Map<String, serde_json::Value>) -> Option<medulla_geo::Bbox> {
     let wkt = props.get(SPATIAL_GEOMETRY_KEY)?.as_str()?;
-    eg_geo::parse_wkt(wkt).ok()?.bbox()
+    medulla_geo::parse_wkt(wkt).ok()?.bbox()
 }
 
 /// One layer's cached packed Hilbert R-tree over `items` — invalidated (removed) by
 /// [`SpatialState`] whenever a write touches ANY member of that layer, rebuilt lazily on
 /// the NEXT query. `ids[i]` is the original item id backing the tree's positional index
-/// `i` (mirrors `eg_geo::RTree::build`'s own `(usize, Bbox)` id convention).
+/// `i` (mirrors `medulla_geo::RTree::build`'s own `(usize, Bbox)` id convention).
 #[cfg(feature = "geo")]
 struct LayerTree {
     ids: Vec<String>,
-    tree: eg_geo::RTree,
+    tree: medulla_geo::RTree,
 }
 
 /// The maintained item set + per-layer cached trees backing [`GraphSpatialIndex`]
-/// (CONCEPT:EG-KG.storage.incremental-spatial). `items` (`id -> (layer, bbox)`) is the SINGLE
+/// (CONCEPT:MEDULLA-KG.storage.incremental-spatial). `items` (`id -> (layer, bbox)`) is the SINGLE
 /// source of truth, updated incrementally off the committed batch; `built` caches each
 /// layer's packed Hilbert R-tree, invalidated (removed) whenever a write touches that
 /// layer's item set and rebuilt lazily on the layer's NEXT query — so `query` amortizes
 /// the (immutable, batch-built) R-tree's construction cost across every read between two
-/// writes, instead of eg-plan's `spatial_scan` v1 fallback, which rebuilds it on EVERY
+/// writes, instead of medulla-plan's `spatial_scan` v1 fallback, which rebuilds it on EVERY
 /// scan.
 #[cfg(feature = "geo")]
 #[derive(Default)]
 struct SpatialState {
-    items: std::collections::HashMap<String, (String, eg_geo::Bbox)>,
+    items: std::collections::HashMap<String, (String, medulla_geo::Bbox)>,
     built: std::collections::HashMap<String, LayerTree>,
     /// `true` only after a full source-graph backfill completed. A freshly
     /// registered index starts incomplete so recovery/paged lazy-open can never
@@ -559,7 +559,7 @@ impl SpatialState {
     /// Record/replace `id`'s `(layer, bbox)`. Invalidates the cached tree for the OLD
     /// layer too (if `id` moved layers — an unusual but handled case), so neither the
     /// old nor the new layer's next query sees a stale tree.
-    fn upsert(&mut self, id: &str, layer: String, bbox: eg_geo::Bbox) {
+    fn upsert(&mut self, id: &str, layer: String, bbox: medulla_geo::Bbox) {
         if let Some((old_layer, _)) = self.items.get(id) {
             if *old_layer != layer {
                 self.built.remove(old_layer);
@@ -582,14 +582,14 @@ impl SpatialState {
     fn query(&mut self, layer: &str, bbox: [f64; 4]) -> Vec<String> {
         if !self.built.contains_key(layer) {
             let mut ids: Vec<String> = Vec::new();
-            let mut boxes: Vec<(usize, eg_geo::Bbox)> = Vec::new();
+            let mut boxes: Vec<(usize, medulla_geo::Bbox)> = Vec::new();
             for (id, (l, b)) in self.items.iter() {
                 if l == layer {
                     boxes.push((ids.len(), *b));
                     ids.push(id.clone());
                 }
             }
-            let tree = eg_geo::RTree::build(&boxes);
+            let tree = medulla_geo::RTree::build(&boxes);
             self.built
                 .insert(layer.to_string(), LayerTree { ids, tree });
         }
@@ -598,7 +598,7 @@ impl SpatialState {
             .get(layer)
             .expect("just built or already cached above");
         lt.tree
-            .query_bbox(&eg_geo::Bbox::from_array(bbox))
+            .query_bbox(&medulla_geo::Bbox::from_array(bbox))
             .into_iter()
             .map(|i| lt.ids[i].clone())
             .collect()
@@ -606,11 +606,11 @@ impl SpatialState {
 }
 
 /// Server-layer maintained spatial index over one graph's geometry-bearing nodes
-/// (CONCEPT:EG-KG.storage.incremental-spatial, L37) — the persistent counterpart to
-/// eg-plan's `spatial_scan` v1 ephemeral per-query R-tree build. Keyed by `layer` (the
+/// (CONCEPT:MEDULLA-KG.storage.incremental-spatial, L37) — the persistent counterpart to
+/// medulla-plan's `spatial_scan` v1 ephemeral per-query R-tree build. Keyed by `layer` (the
 /// node's `type` property, exactly as `Op::SpatialScan`); each layer's item set is
 /// maintained incrementally off the committed write batch, and its packed Hilbert
-/// R-tree (immutable once built — `eg_geo::RTree` has no incremental insert/remove) is
+/// R-tree (immutable once built — `medulla_geo::RTree` has no incremental insert/remove) is
 /// rebuilt lazily on the layer's next query after a write invalidated it, not on every
 /// query — see [`SpatialState`]'s docs.
 #[cfg(feature = "geo")]
@@ -761,12 +761,12 @@ impl SecondaryIndex for GraphSpatialIndex {
     }
 }
 
-/// Planner pushdown adapter (CONCEPT:EG-KG.storage.incremental-spatial, L37): lets a served
+/// Planner pushdown adapter (CONCEPT:MEDULLA-KG.storage.incremental-spatial, L37): lets a served
 /// `Op::SpatialScan` search the MAINTAINED per-graph [`GraphSpatialIndex`] directly
-/// instead of eg-plan's `spatial_scan`'s prior behavior of building a throwaway packed
+/// instead of medulla-plan's `spatial_scan`'s prior behavior of building a throwaway packed
 /// Hilbert R-tree from the queried snapshot on EVERY request. Cheap to construct per
 /// request — it only holds an `Arc<GraphCore>` clone — and each
-/// [`eg_plan::SpatialSource::query_bbox`] call re-resolves the registered index through
+/// [`medulla_plan::SpatialSource::query_bbox`] call re-resolves the registered index through
 /// the generic [`crate::index::IndexManager`] (a downcast via
 /// [`crate::index::SecondaryIndex::as_any`]) and queries it fresh under a brief internal
 /// lock, so it always reflects the LAST COMMITTED batch with no per-query rebuild.
@@ -792,7 +792,7 @@ impl ServedSpatialIndex {
 }
 
 #[cfg(feature = "geo")]
-impl eg_plan::SpatialSource for ServedSpatialIndex {
+impl medulla_plan::SpatialSource for ServedSpatialIndex {
     fn query_bbox(&self, layer: &str, bbox: [f64; 4]) -> Vec<String> {
         read_current_index(
             &self.core,
@@ -844,7 +844,7 @@ fn sanitize_text_dir_name(name: &str) -> String {
 // ── the factory (registered per-graph by the registry) ───────────────────────────
 
 /// Builds the enabled server-layer secondary indexes for each graph and hands them to
-/// the [`crate::registry::GraphRegistry`] (CONCEPT:EG-KG.storage.incremental-text /
+/// the [`crate::registry::GraphRegistry`] (CONCEPT:MEDULLA-KG.storage.incremental-text /
 /// .incremental-temporal / .incremental-derived-owl). Installed once at startup via
 /// `registry.set_secondary_index_factory(...)`; the registry then registers the
 /// per-graph indexes onto every existing graph and every future `create_graph`.
@@ -853,7 +853,7 @@ pub struct ServerIndexFactory {
     /// The shared `SeriesStore` the `Ts*` handlers use — graph-node series live beside
     /// explicit measurements. `None` ⇒ no temporal index wired.
     #[cfg(feature = "tsdb")]
-    series: Option<std::sync::Arc<eg_tsdb::store::SeriesStore>>,
+    series: Option<std::sync::Arc<medulla_tsdb::store::SeriesStore>>,
     /// When set, roots each graph's Tantivy index at `<dir>/<sanitized-graph>`; `None`
     /// ⇒ in-memory per-graph indexes.
     #[cfg(feature = "text")]
@@ -869,7 +869,7 @@ impl ServerIndexFactory {
 
     /// Attach the shared time-series store (temporal index).
     #[cfg(feature = "tsdb")]
-    pub fn with_series(mut self, series: std::sync::Arc<eg_tsdb::store::SeriesStore>) -> Self {
+    pub fn with_series(mut self, series: std::sync::Arc<medulla_tsdb::store::SeriesStore>) -> Self {
         self.series = Some(series);
         self
     }
@@ -905,7 +905,7 @@ impl ServerIndexFactory {
                     );
                     return None;
                 }
-                match eg_text::TextIndex::open(&dir) {
+                match medulla_text::TextIndex::open(&dir) {
                     Ok(ix) => ix,
                     Err(e) => {
                         tracing::warn!(
@@ -916,7 +916,7 @@ impl ServerIndexFactory {
                     }
                 }
             }
-            None => match eg_text::TextIndex::in_memory() {
+            None => match medulla_text::TextIndex::in_memory() {
                 Ok(ix) => ix,
                 Err(e) => {
                     tracing::warn!("in-memory text index for {name} failed ({e}); skipping");
@@ -974,7 +974,7 @@ mod batch_update_tests {
             rmp_serde::to_vec_named(&serde_json::json!({"text": "legacy phrase"})).unwrap(),
         );
         core.register_index(Box::new(GraphTextIndex::new(
-            eg_text::TextIndex::in_memory().unwrap(),
+            medulla_text::TextIndex::in_memory().unwrap(),
         )));
         core.indexes().rebuild_server_indexes(&core);
         assert_eq!(text_hits(&core, "legacy"), vec!["doc"]);

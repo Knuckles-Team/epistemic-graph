@@ -5,7 +5,7 @@ use super::tests::{
     try_publish,
 };
 use super::*;
-use eg_types::agent_graph::AgentGraphNodeKind;
+use medulla_types::agent_graph::AgentGraphNodeKind;
 
 #[test]
 fn a_graph_instantiating_a_template_resolves_it_and_refuses_a_ghost() {
@@ -140,7 +140,7 @@ fn composing_a_retired_child_is_refused_while_it_stays_resolvable() {
         1,
     );
     store
-        .retire_graph(eg_types::agent_graph::AgentGraphRetireRequest {
+        .retire_graph(medulla_types::agent_graph::AgentGraphRetireRequest {
             context: context(&store, "tenant-a", "key-retire", 2, 1, "agent-graph:retire"),
             graph_id: "graph:child".to_string(),
         })

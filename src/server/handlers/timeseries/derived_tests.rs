@@ -4,10 +4,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use eg_tsdb::derive::maintain::latest_versions;
-use eg_tsdb::derive::Program;
-use eg_tsdb::point::Point;
-use eg_types::series_expr::DerivedSeriesReceipt;
+use medulla_tsdb::derive::maintain::latest_versions;
+use medulla_tsdb::derive::Program;
+use medulla_tsdb::point::Point;
+use medulla_types::series_expr::DerivedSeriesReceipt;
 use tokio::sync::RwLock;
 
 use crate::protocol::{Method, Response, ResultPayload};
@@ -33,7 +33,7 @@ impl Drop for Fixture {
 impl Fixture {
     async fn new() -> Self {
         let path = std::env::temp_dir().join(format!(
-            "eg-derived-{}-{}.redb",
+            "medulla-derived-{}-{}.redb",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -114,7 +114,7 @@ impl Fixture {
             .list_series()
             .unwrap()
             .iter()
-            .filter_map(|encoded| eg_tsdb::store::SeriesKey::decode(encoded))
+            .filter_map(|encoded| medulla_tsdb::store::SeriesKey::decode(encoded))
             .map(|key| key.tenant)
             .collect();
         tenants.sort_unstable();
@@ -141,7 +141,7 @@ fn walk(from: i64, to: i64) -> Vec<(i64, f64)> {
 
 /// `DERIVE zscore(ewma(v0, 4), 8)` on the fly over `points`: `(ts, value bits)`.
 fn on_the_fly(points: &[(i64, f64)]) -> Vec<(i64, u64)> {
-    let expr = eg_plan::uql::parse_series_expr(EXPR).unwrap();
+    let expr = medulla_plan::uql::parse_series_expr(EXPR).unwrap();
     let mut program = Program::compile(&expr).unwrap();
     points
         .iter()
@@ -156,7 +156,7 @@ fn latest(points: &[Point]) -> Vec<(i64, u64)> {
         .collect()
 }
 
-// spec: EG-REPO-INGEST-R004
+// spec: MEDULLA-REPO-INGEST-R004
 #[tokio::test(flavor = "multi_thread")]
 async fn a_materialised_series_equals_derive_and_follows_appends() {
     let _env = crate::crypto::acquire_test_env_read_lock().await;
@@ -203,7 +203,7 @@ async fn a_source_correction_appends_revisions_never_edits() {
     assert_eq!(latest(&after), on_the_fly(&source));
 }
 
-// spec: EG-REPO-INGEST-R004
+// spec: MEDULLA-REPO-INGEST-R004
 #[tokio::test(flavor = "multi_thread")]
 async fn bad_definitions_are_refused_and_other_tenants_see_nothing() {
     let _env = crate::crypto::acquire_test_env_read_lock().await;

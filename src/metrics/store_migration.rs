@@ -1,4 +1,4 @@
-//! Automatic store migration metrics (EG-DURABLE-KERNEL-R070.1).
+//! Automatic store migration metrics (MEDULLA-DURABLE-KERNEL-R070.1).
 //!
 //! The engine migrates before it serves, so these samples are on the registry
 //! when the exposition endpoint starts. Labels come from closed sets: the step
@@ -13,7 +13,7 @@ mod imp {
 
     lazy_static! {
         static ref STEPS_TOTAL: IntCounterVec = counter_vec(
-            "epistemic_graph_store_migration_steps_total",
+            "medulla_store_migration_steps_total",
             "Automatic store migration steps at open, by step and outcome",
             &["step", "outcome"],
         );

@@ -432,7 +432,7 @@
       "type": "object"
     },
     "FetchBackend": {
-      "description": "The closed set of web fetch backends (EG-UNIFIED-DATA-PLANE-R651.7.1).",
+      "description": "The closed set of web fetch backends (MEDULLA-UNIFIED-DATA-PLANE-R651.7.1).",
       "enum": [
         "webarchiver",
         "archivebox"
@@ -527,7 +527,7 @@
           "type": "integer"
         },
         "calls_scope_resolved": {
-          "description": "Of `calls_resolved`, those bound by receiver/class scope (CONCEPT:EG-KG.compute.type-scope-resolved-call).",
+          "description": "Of `calls_resolved`, those bound by receiver/class scope (CONCEPT:MEDULLA-KG.compute.type-scope-resolved-call).",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -583,7 +583,7 @@
           "type": "integer"
         },
         "nodes": {
-          "description": "Every SYMBOL node across all files — ONE row per declaration site, never\ndeduplicated. The doc used to claim \"deduplicated by node id\" and\n`collect_result_nodes` never did it; the DOC was the wrong half. Under the\nold content-addressed id, deduplicating would have been a data-loss bug:\nbyte-identical declarations shared an id but not their facts (`file_path`,\n`line`, byte range), so collapsing them would have thrown away every\noccurrence but the first. Ids are now per-occurrence\n(CONCEPT:EG-KG.compute.symbol-occurrence-id), so uniqueness holds by\nconstruction and there is nothing left to dedupe — provided the batch\ncarries each file path once, which is the caller's contract (a path\nrepeated in `files` is parsed twice and would repeat its ids). The\ninternal `call_sites` resolution-input property is stripped before return.",
+          "description": "Every SYMBOL node across all files — ONE row per declaration site, never\ndeduplicated. The doc used to claim \"deduplicated by node id\" and\n`collect_result_nodes` never did it; the DOC was the wrong half. Under the\nold content-addressed id, deduplicating would have been a data-loss bug:\nbyte-identical declarations shared an id but not their facts (`file_path`,\n`line`, byte range), so collapsing them would have thrown away every\noccurrence but the first. Ids are now per-occurrence\n(CONCEPT:MEDULLA-KG.compute.symbol-occurrence-id), so uniqueness holds by\nconstruction and there is nothing left to dedupe — provided the batch\ncarries each file path once, which is the caller's contract (a path\nrepeated in `files` is parsed twice and would repeat its ids). The\ninternal `call_sites` resolution-input property is stripped before return.",
           "items": {
             "$ref": "#/$defs/ExtractedNode"
           },
@@ -596,7 +596,7 @@
           "type": "integer"
         },
         "similar_edges": {
-          "description": "Model-free `similar_to` edges emitted (CONCEPT:EG-KG.compute.model-free-similar-code).",
+          "description": "Model-free `similar_to` edges emitted (CONCEPT:MEDULLA-KG.compute.model-free-similar-code).",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -768,7 +768,7 @@
           "type": "integer"
         },
         "lease_until_ms": {
-          "description": "EXCLUSIVE upper bound, mirroring `eg_transaction::outbox::rows::\nOutboxDelivery::lease_until_ms` (the durable row this lease is\nissued over): valid while `now_ms < lease_until_ms`, expired once\n`now_ms >= lease_until_ms`. `now_ms == lease_until_ms` is already\nexpired, not still valid.",
+          "description": "EXCLUSIVE upper bound, mirroring `medulla_transaction::outbox::rows::\nOutboxDelivery::lease_until_ms` (the durable row this lease is\nissued over): valid while `now_ms < lease_until_ms`, expired once\n`now_ms >= lease_until_ms`. `now_ms == lease_until_ms` is already\nexpired, not still valid.",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -2884,7 +2884,7 @@
       "type": "object"
     },
     "SemanticMutationReceipt": {
-      "description": "Durable receipt returned by the semantic-index owner for a committed mutation.\nThe runtime type lives above `eg-types`; this wire mirror keeps the contract at\nthe bottom of the crate DAG while retaining the exact serialized fields.",
+      "description": "Durable receipt returned by the semantic-index owner for a committed mutation.\nThe runtime type lives above `medulla-types`; this wire mirror keeps the contract at\nthe bottom of the crate DAG while retaining the exact serialized fields.",
       "properties": {
         "batch_id": {
           "type": "string"
@@ -4577,7 +4577,7 @@
       "type": "object"
     },
     "VizFormat": {
-      "description": "Static export raster/vector format — mirrors `eg_viz_core::StaticExportFormat`\nfield-for-field, INCLUDING its `rename_all = \"snake_case\"` wire casing (so a\ncaller sends `\"png\"`/`\"svg\"`/`\"pdf\"`, not `\"Png\"`/`\"Svg\"`/`\"Pdf\"`). This crate\nstays dependency-free (no `eg-viz-core` dep), so the variant is not reused\ndirectly; the handler converts one-to-one.",
+      "description": "Static export raster/vector format — mirrors `medulla_viz_core::StaticExportFormat`\nfield-for-field, INCLUDING its `rename_all = \"snake_case\"` wire casing (so a\ncaller sends `\"png\"`/`\"svg\"`/`\"pdf\"`, not `\"Png\"`/`\"Svg\"`/`\"Pdf\"`). This crate\nstays dependency-free (no `medulla-viz-core` dep), so the variant is not reused\ndirectly; the handler converts one-to-one.",
       "enum": [
         "png",
         "svg",

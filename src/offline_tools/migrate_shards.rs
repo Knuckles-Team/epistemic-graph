@@ -1,31 +1,31 @@
-//! `epistemic-graph-server migrate-shards` — OFFLINE K-shard migration CLI (CONCEPT:EG-KG.sharding.atomic-shard-swap, M3).
+//! `medulla-server migrate-shards` — OFFLINE K-shard migration CLI (CONCEPT:MEDULLA-KG.sharding.atomic-shard-swap, M3).
 //!
 //! Rewrites an existing durable redb store into the canonical `graph-<n>.redb`
-//! layout, routing every graph with the SAME EG-026 `FNV-1a(name) % K`. It is the
+//! layout, routing every graph with the SAME MEDULLA-026 `FNV-1a(name) % K`. It is the
 //! sole one-time reader for the retired unindexed `graph.redb` layout. Run with the
 //! engine STOPPED (redb holds an exclusive per-file lock).
 //!
 //! ```text
 //! # In-place (default): swap shard files, leave a recoverable backup.
-//! epistemic-graph-server migrate-shards --persist-dir /var/lib/epistemic-graph --shards 4
+//! medulla-server migrate-shards --persist-dir /var/lib/medulla --shards 4
 //!
 //! # Retired K=1 filename -> current K=1 filename.
-//! epistemic-graph-server migrate-shards --persist-dir /var/lib/epistemic-graph --shards 1
+//! medulla-server migrate-shards --persist-dir /var/lib/medulla --shards 1
 //!
 //! # Out-of-place: write the new K into a fresh dir, swap manually after verifying.
-//! epistemic-graph-server migrate-shards --persist-dir /var/lib/eg --shards 4 --dest-dir /var/lib/eg-k4
+//! medulla-server migrate-shards --persist-dir /var/lib/eg --shards 4 --dest-dir /var/lib/medulla-k4
 //! ```
 
 use std::path::Path;
 
 use clap::Parser;
 
-use epistemic_graph::server::persistence::shard_migrate;
+use medulla::server::persistence::shard_migrate;
 
 #[derive(Parser, Debug)]
-#[command(name = "epistemic-graph-server migrate-shards")]
+#[command(name = "medulla-server migrate-shards")]
 #[command(
-    about = "Offline K-shard migration for the epistemic-graph durable store (CONCEPT:EG-KG.sharding.atomic-shard-swap)"
+    about = "Offline K-shard migration for the medulla durable store (CONCEPT:MEDULLA-KG.sharding.atomic-shard-swap)"
 )]
 struct Args {
     /// Persist dir holding the existing redb shard files (the source).

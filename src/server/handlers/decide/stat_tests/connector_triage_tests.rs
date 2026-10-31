@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R041: connector event triage through `Decide`.
+//! MEDULLA-DECISION-ENGINE-R041: connector event triage through `Decide`.
 //! Classifying an inbound connector event is routed through the same
 //! evaluate-only decision ladder every other question kind uses: this test
 //! submits synthetic connector events through `ConnectorEventTriage`,
@@ -21,8 +21,8 @@ fn connector_event_request(schema: &ComponentDependency) -> DecideRequest {
     asked
 }
 
-// spec: EG-DECISION-ENGINE-R041.1
-// spec: EG-DECISION-ENGINE-R041
+// spec: MEDULLA-DECISION-ENGINE-R041.1
+// spec: MEDULLA-DECISION-ENGINE-R041
 #[tokio::test]
 async fn connector_event_triage_is_evaluate_only_and_logs_a_sampled_fraction() {
     let h = Harness::new().await;

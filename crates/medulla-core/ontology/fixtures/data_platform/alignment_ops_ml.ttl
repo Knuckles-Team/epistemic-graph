@@ -1,0 +1,43 @@
+# Kafka, openbao, clarity and data-science alignment (MEDULLA-DATAPLAT-VOCAB-R008.3).
+#
+# Each package-local term aligns to its data-platform term so the two cannot
+# drift silently: classes `rdfs:subClassOf` (the package term is the emitted
+# shape, the dp: term is the engine-side vocabulary), properties
+# `owl:equivalentProperty`. Package terms live in the shared
+# `http://knuckles.team/kg#` namespace.
+
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix : <http://knuckles.team/kg#> .
+
+# --- kafka (kafka-mcp, kafka.ttl) ---
+
+:Topic rdfs:subClassOf dp:Topic .
+:Partition rdfs:subClassOf dp:Partition .
+:ConsumerGroup rdfs:subClassOf dp:ConsumerGroup .
+:partitionOf owl:equivalentProperty dp:partitionOf .
+:subscribesTo owl:equivalentProperty dp:subscribesTo .
+:groupState owl:equivalentProperty dp:groupState .
+
+# --- openbao (openbao-mcp, openbao.ttl) ---
+
+:VaultServer rdfs:subClassOf dp:DataStore .
+:SecretMount rdfs:subClassOf dp:SecretEngine .
+:Policy rdfs:subClassOf dp:AccessPolicy .
+
+# --- clarity (clarity-api, clarity.ttl) ---
+
+:ClarityProject rdfs:subClassOf dp:AnalyticsSite .
+:BehaviorInsight rdfs:subClassOf dp:BehaviorMetric .
+:metricName owl:equivalentProperty dp:metricName .
+:dimensionName owl:equivalentProperty dp:dimensionName .
+:numOfDays owl:equivalentProperty dp:windowDays .
+
+# --- data-science (data-science-mcp, datascience.ttl) ---
+
+:TrainingRun rdfs:subClassOf dp:TrainingRun .
+:ModelArtifact rdfs:subClassOf dp:Model .
+:trainedOn owl:equivalentProperty dp:trainedOn .
+:producedModel owl:equivalentProperty dp:producedModel .
+:metricValue owl:equivalentProperty dp:metricValue .

@@ -1,5 +1,5 @@
 //! One RAII timer for the `commit_ops` durable-write phases (EH-290,
-//! CONCEPT:EG-KG.storage.commit-ops-phase-timing).
+//! CONCEPT:MEDULLA-KG.storage.commit-ops-phase-timing).
 //!
 //! The raft append/commit path measured `commit_ops` at a 1.31s median commit
 //! against a 6.5ms median queue-wait -- the write itself is slow, not
@@ -16,7 +16,7 @@
 //! any DEBUG trace) sees the same decomposition per sample -- percentiles, not
 //! only the histogram's mean. The storage kernel's own phases
 //! (`redb_begin_write`, `write_authority_validation`, `redb_commit`) emit the
-//! same span shape from `eg-storage`, which has no metrics registry.
+//! same span shape from `medulla-storage`, which has no metrics registry.
 
 use std::time::Instant;
 

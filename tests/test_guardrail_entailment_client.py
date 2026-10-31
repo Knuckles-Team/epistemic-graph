@@ -11,8 +11,8 @@ import pytest
 from _client_fixtures import PayloadTransport
 from pydantic import ValidationError
 
-from epistemic_graph.generated import storage
-from epistemic_graph.generated._runtime import ContractViolation, OpaqueResult
+from medulla.generated import storage
+from medulla.generated._runtime import ContractViolation, OpaqueResult
 
 pytestmark = pytest.mark.no_engine
 

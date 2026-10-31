@@ -5,7 +5,7 @@
 //! bug_016_traces_survive_an_obsstate_restart_only_after_persist_traces` and
 //! `bug_210_segment_manifests_survive_an_obsstate_restart`) already prove restart
 //! continuity for a SINGLE stream/trace, and
-//! `crates/eg-tsdb/src/traces.rs::tests::
+//! `crates/medulla-tsdb/src/traces.rs::tests::
 //! bug_016_recover_rejects_corrupt_bytes_without_panicking` already proves bounded
 //! (fail-closed, non-panicking) recovery from corrupt durable bytes. This integration
 //! test extends that proof to TWO tenant streams and TWO durable traces on the same
@@ -29,7 +29,7 @@
 
 use std::collections::BTreeMap;
 
-use epistemic_graph::server::obs::{LogRecord, ObsState};
+use medulla::server::obs::{LogRecord, ObsState};
 
 fn record(stream: &str, ts: i64, body: &str) -> LogRecord {
     LogRecord {
@@ -49,8 +49,8 @@ fn span(
     service: &str,
     operation: &str,
     start_time: i64,
-) -> eg_tsdb::traces::Span {
-    eg_tsdb::traces::Span {
+) -> medulla_tsdb::traces::Span {
+    medulla_tsdb::traces::Span {
         trace_id: trace_id.to_string(),
         span_id: span_id.to_string(),
         parent_span_id: parent_span_id.to_string(),

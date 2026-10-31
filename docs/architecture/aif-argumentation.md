@@ -7,7 +7,7 @@
 
 ## Why AIF, and why not a new engine
 
-`epistemic-graph`'s `eg-epistemic` crate already does argumentation natively:
+`medulla`'s `medulla-epistemic` crate already does argumentation natively:
 Claim/Evidence/`BeliefState` confidence propagation, plus a paraconsistent,
 justification-based TMS with genuine Dung abstract-argumentation semantics
 (grounded/preferred/stable extensions) reachable standalone via
@@ -32,7 +32,7 @@ So the mapping is direct:
 | CA-node (premises → conclusion) | An `ATTACKS` edge from each premise to the conclusion |
 | PA-node (premises → preferred conclusion) | A preference that discounts one side of a *mutual* CA-node conflict |
 | Scheme (RA/CA/PA fulfils) | A named `:AIFScheme` individual (`:aifFulfills`) |
-| Grounded/preferred/stable acceptability | `eg-epistemic`'s `Method::ResolveConflict` — unchanged, reused as-is |
+| Grounded/preferred/stable acceptability | `medulla-epistemic`'s `Method::ResolveConflict` — unchanged, reused as-is |
 
 `agent_utilities/knowledge_graph/argumentation/aif.py` builds the AIF
 argument-map objects and the `to_dung()` projection; it never recomputes
@@ -107,7 +107,7 @@ edges.
 
 **Evaluate** (`graph_argument(action="evaluate")`): the `DungProjection`'s
 arguments go through `engine_tools._dispatch()` (the same dispatcher
-`graph_epistemic` uses) into the **engine** (`eg-epistemic`, Rust,
+`graph_epistemic` uses) into the **engine** (`medulla-epistemic`, Rust,
 unchanged) — `Method::ResolveConflict` (grounded/preferred/stable), which
 also reads the derived SUPPORTS/ATTACKS belief/attack topology from the KG
 — producing surviving/defeated/undecided results plus extension sets.
@@ -134,7 +134,7 @@ best-effort, tag-filtered node+edge scan (mirrors the established
 
 - No second argumentation solver. `to_dung()` is a pure, structural
   projection (arguments + attacks + preferences); acceptability is always
-  computed by `eg-epistemic`'s `Method::ResolveConflict`.
+  computed by `medulla-epistemic`'s `Method::ResolveConflict`.
 - No parallel claim store. Every I-node is written and read through the
   SAME `:Belief`/`ChangeEnvelope` path every other claim in the KG uses.
 - PA-node preference filtering only ever resolves a *mutual* (symmetric)

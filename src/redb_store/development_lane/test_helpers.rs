@@ -102,7 +102,7 @@ pub(super) const TEST_NOW: u64 = 100;
 
 pub(super) fn test_path(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
-        "eg-development-lane-{label}-{}-{}.redb",
+        "medulla-development-lane-{label}-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

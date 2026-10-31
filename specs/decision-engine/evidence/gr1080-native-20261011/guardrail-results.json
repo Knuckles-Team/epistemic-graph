@@ -42,7 +42,7 @@
       "test",
       "--locked",
       "-p",
-      "epistemic-graph",
+      "medulla",
       "--lib",
       "--no-default-features",
       "--features",
@@ -64,7 +64,7 @@
     "<test>",
     "--nocapture"
   ],
-  "cache_provenance": "Independent copy of the 29d7b11 acceptance cache, originally seeded from the existing eg-storage-lock target-isolated cache at checkout 7c572aab45554e7d524e223773058efbdba21bed. Earlier checkout and caches preserved.",
+  "cache_provenance": "Independent copy of the 29d7b11 acceptance cache, originally seeded from the existing medulla-storage-lock target-isolated cache at checkout 7c572aab45554e7d524e223773058efbdba21bed. Earlier checkout and caches preserved.",
   "text_logs": "Preserved locally; publication pending separate approval.",
   "generated_client": {
     "status": "passed",
@@ -73,7 +73,7 @@
     "source_tree": "aeed5bbf1cdd0ae7aebd56e7521a75ec4de303bd",
     "run_id": 38148086774,
     "job_id": 114499779006,
-    "url": "https://github.com/Knuckles-Team/epistemic-graph/actions/runs/38148086774/job/114499779006",
+    "url": "https://github.com/Knuckles-Team/medulla/actions/runs/38148086774/job/114499779006",
     "suite_counts": {
       "collected": 3749,
       "passed": 3702,

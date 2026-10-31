@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R803: wires the contrastive harness composition
+//! MEDULLA-DECISION-ENGINE-R803: wires the contrastive harness composition
 //! decision into the `HarnessContrast` `Decide` question kind.
 //!
 //! The caller declares each candidate component version as an option
@@ -8,27 +8,27 @@
 //! identical probe conditions and the evidence graph as typed request
 //! params. The handler reads the held versions, the probe runs and the
 //! stored contrasts out of the RLS-filtered graph snapshot, runs the pure
-//! kernel (`eg_types::decision::harness_contrast::decide_contrast`) and
+//! kernel (`medulla_types::decision::harness_contrast::decide_contrast`) and
 //! seals the decision as an `Explored` or `Abstained` outcome over an
 //! inline matrix that carries exactly the pinned per-candidate deltas.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use eg_numeric::decision::features::FeatureMatrix;
-use eg_numeric::decision::ladder::LadderResult;
-use eg_types::decision::harness_contrast::{
+use medulla_numeric::decision::features::FeatureMatrix;
+use medulla_numeric::decision::ladder::LadderResult;
+use medulla_types::decision::harness_contrast::{
     decide_contrast, matrix_values, ContrastCandidate, ContrastEvidence, HarnessContrastRefusal,
     CONTRAST_FEATURE_NAMES, MAX_CONTRAST_CANDIDATES, MIN_CONTRAST_CANDIDATES,
 };
-use eg_types::decision::statistical::declared::DeclaredOption;
-use eg_types::decision::statistical::{
+use medulla_types::decision::statistical::declared::DeclaredOption;
+use medulla_types::decision::statistical::{
     CandidateSource, DecideRequest, QuestionKind, StatisticalOutcome, TypedValue,
 };
-use eg_types::decision::{AbstainReason, UnitRationalWire};
-use eg_types::orchestration::improvement::{
+use medulla_types::decision::{AbstainReason, UnitRationalWire};
+use medulla_types::orchestration::improvement::{
     decode_harness_contrast_write, decode_harness_probe_run_write, HarnessContrast, HarnessProbeRun,
 };
-use eg_types::orchestration::is_harness_component_write;
+use medulla_types::orchestration::is_harness_component_write;
 
 use super::stat_executor::Executed;
 use super::stat_support::{filtered_view, invalid_parameter};
@@ -106,7 +106,7 @@ pub(super) async fn contrast_evidence_view(
     state: &std::sync::Arc<tokio::sync::RwLock<crate::server::state::ServerState>>,
     agent_id: &str,
     request: &DecideRequest,
-) -> Result<eg_core::graph::GraphView, String> {
+) -> Result<medulla_core::graph::GraphView, String> {
     let graph = typed_param(request, PARAM_GRAPH, "text")?;
     filtered_view(state, agent_id, graph).await
 }
@@ -115,21 +115,21 @@ pub(super) async fn contrast_evidence_view(
 /// seal in place of the ordinary scored ladder.
 pub(super) fn contrast_executed(
     request: &DecideRequest,
-    graph_view: Option<&eg_core::graph::GraphView>,
+    graph_view: Option<&medulla_core::graph::GraphView>,
 ) -> Option<Result<Executed, String>> {
     (request.question.kind == QuestionKind::HarnessContrast).then(|| compute(request, graph_view))
 }
 
 /// The stored probe run behind one trace id, when the view holds a
 /// well-formed record there.
-fn probe_run(view: &eg_core::graph::GraphView, trace_id: &str) -> Option<HarnessProbeRun> {
+fn probe_run(view: &medulla_core::graph::GraphView, trace_id: &str) -> Option<HarnessProbeRun> {
     view.node_row_object(&format!("harness-probe-run:{trace_id}"))
         .and_then(|props| decode_harness_probe_run_write(&props).ok())
 }
 
 /// The stored contrast behind one node id, when the view holds a
 /// well-formed record there.
-fn stored_contrast(view: &eg_core::graph::GraphView, node_id: &str) -> Option<HarnessContrast> {
+fn stored_contrast(view: &medulla_core::graph::GraphView, node_id: &str) -> Option<HarnessContrast> {
     view.node_row_object(node_id)
         .and_then(|props| decode_harness_contrast_write(&props).ok())
 }
@@ -169,7 +169,7 @@ fn refusal_text(
 /// Read the evidence out of the view and run the kernel.
 fn compute(
     request: &DecideRequest,
-    graph_view: Option<&eg_core::graph::GraphView>,
+    graph_view: Option<&medulla_core::graph::GraphView>,
 ) -> Result<Executed, String> {
     let view = graph_view.ok_or_else(|| {
         invalid_parameter("a harness_contrast question reads its evidence from a named graph")
@@ -257,7 +257,7 @@ fn compute(
                 .map_err(|detail| invalid_parameter(format!("propensity: {detail}")))?,
         },
         None => StatisticalOutcome::Abstained {
-            reasons: eg_types::contract::BoundedVec::new(vec![
+            reasons: medulla_types::contract::BoundedVec::new(vec![
                 AbstainReason::InsufficientConfidence,
             ])
             .expect("one reason is inside the bound"),

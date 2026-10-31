@@ -6,7 +6,7 @@ use super::{
 };
 use crate::epistemic_operations::DevelopmentLaneHoldState;
 use crate::redb_store::shard::{Shard, ShardWrite};
-use eg_storage::{
+use medulla_storage::{
     GraphShardOwner, OwnerRowScope, OwnerRowScopeStart, PhysicalWriteCapability, ScopedOwnerTable,
     ScopedOwnerTableMut,
 };

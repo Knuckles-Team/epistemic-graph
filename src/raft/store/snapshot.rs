@@ -1,6 +1,6 @@
 use super::*;
 
-impl EgStore {
+impl MedullaStore {
     /// Dump THIS group's graphs for a snapshot (CONCEPT:AU-KG.ingest.staged). When the store runs
     /// under a [`super::super::multi::MultiRaft`] its ctx carries the router, so the dump is
     /// SCOPED to graphs whose tenant range resolves to this group — a large tenant in
@@ -210,7 +210,7 @@ impl EgStore {
     }
 }
 
-impl RaftSnapshotBuilder<TypeConfig> for Arc<EgStore> {
+impl RaftSnapshotBuilder<TypeConfig> for Arc<MedullaStore> {
     async fn build_snapshot(&mut self) -> Result<SnapshotOf<TypeConfig>, io::Error> {
         let _snapshot_gate = self.apply_snapshot_gate.lock().await;
         let (last_applied_log, last_membership) = {

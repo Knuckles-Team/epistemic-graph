@@ -4,10 +4,10 @@ use crate::server::persistence::writer_reply::await_writer_reply;
 #[cfg(feature = "raft")]
 use tokio::sync::oneshot;
 
-// ── Durable Raft log API (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — inherent methods ────────────────
+// ── Durable Raft log API (CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft) — inherent methods ────────────────
 // The Raft log lives in the SAME authoritative shard file, written by the SAME
 // off-reactor group-commit thread, keyed by `(group_id, index)` so one table
-// serves every group (CONCEPT:EG-KG.sharding.raft-resharding). Sharing the writer is what lets a log
+// serves every group (CONCEPT:MEDULLA-KG.sharding.raft-resharding). Sharing the writer is what lets a log
 // append and its graph mutation coalesce into ONE fsync. The raft/xshard methods are
 // individually `raft`-gated; the plan-backed matview persistence methods below are
 // `matview`-gated (single-node native), so the impl block opens under EITHER — the
@@ -53,7 +53,7 @@ impl RedbBackend {
         };
         // ADR-2 / W1.2: route to the group's OWN shard (`group_id % K`) so its log
         // append coalesces into the SAME shard writer's fsync as that group's graph
-        // mutations (EG-KG.storage.one-fsync-covers-raft), and N groups append to N
+        // mutations (MEDULLA-KG.storage.one-fsync-covers-raft), and N groups append to N
         // shards in parallel. K == 1 stores keep every group on shard 0 (unchanged).
         let tx = self.shard_for_group(group_id).tx.clone();
         tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
@@ -174,7 +174,7 @@ impl RedbBackend {
         await_writer_reply(&rx, "raft_meta_get")?
     }
 
-    // ── Cross-shard 2PC durable records (CONCEPT:EG-KG.storage.lane-n-increment) ─────────────────────
+    // ── Cross-shard 2PC durable records (CONCEPT:MEDULLA-KG.storage.lane-n-increment) ─────────────────────
     // The 2PC coordinator persists each participant's PREPARE slice + the final
     // DECISION here so an in-doubt txn is resolvable after a crash. Each write awaits
     // an Immediate-durability commit (commit-before-vote / commit-before-apply): a

@@ -1,9 +1,9 @@
-// CONCEPT:EG-OS.observability.otlp-span-export — OpenTelemetry OTLP span export + tracing init.
+// CONCEPT:MEDULLA-OS.observability.otlp-span-export — OpenTelemetry OTLP span export + tracing init.
 //
 // This is the ONE place the binary installs the global `tracing` subscriber. It
 // layers an OTLP batch span exporter ON TOP of the engine's existing tracing
 // setup:
-//   * with `EPISTEMIC_GRAPH_OTLP_ENDPOINT` unset, install the fmt-only subscriber;
+//   * with `MEDULLA_OTLP_ENDPOINT` unset, install the fmt-only subscriber;
 //   * built WITH `otel` AND the endpoint set  ⇒  the SAME fmt layer PLUS a
 //     `tracing-opentelemetry` layer that BATCH-exports the spans the engine
 //     ALREADY emits to the OTLP endpoint. No new spans are created — it is a pure
@@ -16,7 +16,7 @@
 /// Install the global tracing subscriber (see module docs). Called once from
 /// `main::run`, replacing the previous inline `tracing_subscriber::fmt().init()`.
 pub fn init_tracing() -> Result<(), String> {
-    let endpoint = std::env::var("EPISTEMIC_GRAPH_OTLP_ENDPOINT")
+    let endpoint = std::env::var("MEDULLA_OTLP_ENDPOINT")
         .ok()
         .filter(|value| !value.trim().is_empty());
     if let Some(endpoint) = endpoint {
@@ -26,7 +26,7 @@ pub fn init_tracing() -> Result<(), String> {
                 format!("configured OTLP exporter could not initialize: {error}")
             })?;
             tracing::info!(
-                "OTel (CONCEPT:EG-OS.observability.otlp-span-export): exporting tracing spans to configured endpoint"
+                "OTel (CONCEPT:MEDULLA-OS.observability.otlp-span-export): exporting tracing spans to configured endpoint"
             );
             return Ok(());
         }
@@ -34,7 +34,7 @@ pub fn init_tracing() -> Result<(), String> {
         {
             let _ = endpoint;
             return Err(
-                "EPISTEMIC_GRAPH_OTLP_ENDPOINT requires a build with the otel feature".to_string(),
+                "MEDULLA_OTLP_ENDPOINT requires a build with the otel feature".to_string(),
             );
         }
     }
@@ -42,7 +42,7 @@ pub fn init_tracing() -> Result<(), String> {
 }
 
 /// The engine's original fmt subscriber (INFO, no target) — the exact behavior
-/// prior to EG-091. Used whenever OTLP export is off (feature absent, endpoint
+/// prior to MEDULLA-091. Used whenever OTLP export is off (feature absent, endpoint
 /// unset, or exporter init failed).
 fn init_fmt_only() -> Result<(), String> {
     tracing_subscriber::fmt()
@@ -53,7 +53,7 @@ fn init_fmt_only() -> Result<(), String> {
 }
 
 /// Build the OTLP batch exporter and install a Registry carrying BOTH the fmt
-/// layer and the `tracing-opentelemetry` export layer (CONCEPT:EG-OS.observability.otlp-span-export).
+/// layer and the `tracing-opentelemetry` export layer (CONCEPT:MEDULLA-OS.observability.otlp-span-export).
 #[cfg(feature = "otel")]
 fn init_with_otel(endpoint: &str) -> Result<(), Box<dyn std::error::Error>> {
     use opentelemetry::trace::TracerProvider as _;
@@ -68,7 +68,7 @@ fn init_with_otel(endpoint: &str) -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let resource = opentelemetry_sdk::Resource::builder()
-        .with_service_name("epistemic-graph")
+        .with_service_name("medulla")
         .build();
 
     // Batch span processor: spans buffer and flush on a background task off the
@@ -78,7 +78,7 @@ fn init_with_otel(endpoint: &str) -> Result<(), Box<dyn std::error::Error>> {
         .with_resource(resource)
         .build();
 
-    let tracer = provider.tracer("epistemic-graph");
+    let tracer = provider.tracer("medulla");
     // The global provider owns the pipeline for the process lifetime so batched
     // spans continue to flush.
     opentelemetry::global::set_tracer_provider(provider);

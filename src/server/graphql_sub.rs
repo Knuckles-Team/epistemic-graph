@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use eg_graphql::LiveQuery;
+use medulla_graphql::LiveQuery;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OwnedSemaphorePermit, RwLock, Semaphore};
@@ -41,7 +41,7 @@ use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::ServerState;
 
 /// Environment/CLI address used by `main.rs` to opt into this listener.
-pub const GRAPHQL_ADDR_ENV: &str = "EPISTEMIC_GRAPH_GRAPHQL_ADDR";
+pub const GRAPHQL_ADDR_ENV: &str = "MEDULLA_GRAPHQL_ADDR";
 /// Request header whose value participates in the `eg2.` signature.
 pub const GRAPHQL_REQUEST_ID_HEADER: &str = "x-epistemic-request-id";
 
@@ -199,7 +199,7 @@ async fn handle_conn(
     // successfully parsed LiveQuery below is provably read-only, so apply the ledger's
     // canonical action using read semantics. Exact/domain wildcard scopes, kg:read,
     // kg:write, and kg:admin follow the same VerifiedRequestContext rules as native reads.
-    let method_policy = eg_capabilities::policy(&request.method);
+    let method_policy = medulla_capabilities::policy(&request.method);
     if !verified.allows_method(method_policy.authz_action, false) {
         crate::metrics::access_denied();
         return write_simple(&mut stream, "403 Forbidden", "access denied").await;
@@ -449,8 +449,8 @@ fn render(live: &LiveQuery, view: &GraphView) -> Result<String, String> {
     Ok(json)
 }
 
-fn subscription_policy() -> eg_graphql::GraphQlPolicy {
-    let mut policy = eg_graphql::GraphQlPolicy::locked_down();
+fn subscription_policy() -> medulla_graphql::GraphQlPolicy {
+    let mut policy = medulla_graphql::GraphQlPolicy::locked_down();
     // The resolver's implicit list bound is intentionally large. Price an omitted
     // `first`/`limit` at that ceiling so live queries must declare bounded fan-out.
     policy.list_page_factor = 50_000;
@@ -701,7 +701,7 @@ async fn write_bounded(stream: &mut TcpStream, bytes: &[u8]) -> Result<(), Strin
 
 async fn write_simple(stream: &mut TcpStream, status: &str, body: &str) -> Result<(), String> {
     let authenticate = if status.starts_with("401") {
-        "www-authenticate: Bearer realm=\"epistemic-graph\"\r\n"
+        "www-authenticate: Bearer realm=\"medulla\"\r\n"
     } else {
         ""
     };
@@ -762,7 +762,7 @@ mod tests {
 
     fn isolation() -> IsolationLayer {
         let mut isolation = IsolationLayer::new();
-        // RBAC (CONCEPT:EG-KG.compute.feature) is the mandatory current access
+        // RBAC (CONCEPT:MEDULLA-KG.compute.feature) is the mandatory current access
         // decision under `feature = "security"` (`isolation.rs::check_access`) —
         // there is no pre-RBAC "Commons is public" fall-through any more for a
         // non-`System` identity (see `server::mod::tests::multi_tenant_state`'s
@@ -832,7 +832,7 @@ mod tests {
         let context = RequestContextClaims {
             principal: "actor-a".into(),
             tenant: "tenant-shared".into(),
-            audience: "epistemic-graph-test".into(),
+            audience: "medulla-test".into(),
             agent_id: "actor-a".into(),
             roles: vec!["test".into()],
             scopes: vec!["query:graphql".into()],
@@ -962,7 +962,7 @@ mod tests {
             query: "subscription { Person { name } }".into(),
             variables: None,
         };
-        let policy = eg_capabilities::policy(&method);
+        let policy = medulla_capabilities::policy(&method);
         assert_eq!(policy.authz_action, "query:graphql");
         assert!(context.allows_method(policy.authz_action, false));
     }
