@@ -323,11 +323,11 @@ def test_a_fallback_the_full_build_may_compile_is_still_a_catch_all(attribute):
 
 
 def test_real_tree_feature_gated_dispatcher_is_measured_as_the_full_build():
-    """`eg-plan exec::dispatch::apply`: cccc cyclomatic 11 including a
+    """`medulla-plan exec::dispatch::apply`: cccc cyclomatic 11 including a
     `#[cfg(not(all(..)))] _` fallback the full build does not compile. With an
     extra unconditional arm planted, it fails again."""
     module = _module()
-    path = ROOT / "crates" / "eg-plan" / "src" / "exec" / "dispatch.rs"
+    path = ROOT / "crates" / "medulla-plan" / "src" / "exec" / "dispatch.rs"
     line = _function_line(path, "apply")
     source = path.read_text(encoding="utf-8")
     shape = module.dispatch_shape(source, line)

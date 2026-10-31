@@ -1,6 +1,6 @@
 # Graph Learning — KAN link prediction (`graph_learn` / `/api/graphlearn`)
 
-`CONCEPT:EG-KG.graphlearn.link-predictor`
+`CONCEPT:MEDULLA-KG.graphlearn.link-predictor`
 
 Track G / **EpiGNN**: a learnable link-predictor over the resident graph whose
 learned edge-function is *itself* a queryable KG node. The headline is
@@ -21,19 +21,19 @@ seam — the engine never runs heavy training, only consumes its result.
 A **Kolmogorov-Arnold Network** replaces an MLP's fixed node nonlinearity + linear
 edge weight with a *learnable univariate function on each edge*.
 
-- **`KanEdgeFn`** (`CONCEPT:EG-KG.graphlearn.kan-edge-function`) — a learnable
+- **`KanEdgeFn`** (`CONCEPT:MEDULLA-KG.graphlearn.kan-edge-function`) — a learnable
   `f(x) = Σ_k c_k · B_k(tanh x)` over an orthogonal-polynomial basis. `tanh` squashes
   the input into the basis's `[-1, 1]` orthogonality domain so arbitrary-scale
   features are admissible. Forward + **analytic** gradients (w.r.t. the coefficients
   for training; w.r.t. the input for message passing) — no autodiff engine, because a
   1-D closed-form function needs none. The **coefficients are the interpretable
   artifact**.
-- **Basis** (`CONCEPT:EG-KG.graphlearn.chebyshev-basis`) — Chebyshev (first kind) by
+- **Basis** (`CONCEPT:MEDULLA-KG.graphlearn.chebyshev-basis`) — Chebyshev (first kind) by
   default, Jacobi optional. Both are closed-form three-term recurrences with **zero
   special functions**, deliberately NOT B-spline/RBF — preserving a dependency-light,
   no-BLAS/no-libm implementation. (`ChebyKAN`/`JacobiKAN`/`TaylorKAN` validate
   the polynomial basis as a competitive spline substitute.)
-- **Link predictor** (`CONCEPT:EG-KG.graphlearn.link-predictor`) — per candidate pair
+- **Link predictor** (`CONCEPT:MEDULLA-KG.graphlearn.link-predictor`) — per candidate pair
   `(u, v)` a small structural feature vector is built from what is already resident:
 
   | feature | source |
@@ -53,7 +53,7 @@ edge weight with a *learnable univariate function on each edge*.
   **batch, one round-trip**: observed edges are positives, sampled non-edges are
   negatives, K epochs of forward + analytic backward + **Adam** (reusing
   `datascience::training::adam_step`) run inside one engine call.
-- **1-hop neighbour aggregation** (`CONCEPT:EG-KG.graphlearn.neighbor-aggregation`) —
+- **1-hop neighbour aggregation** (`CONCEPT:MEDULLA-KG.graphlearn.neighbor-aggregation`) —
   message-passing lite: `x'_v = α·x_v + (1−α)·mean(x_u : u ∈ N(v))` refines node
   features before scoring, optionally edge-weighted by a learned `KanEdgeFn`.
 
@@ -83,7 +83,7 @@ res = await client.graphlearn.fit(
 `node_label`; edges among them — following `direction`, optionally filtered to
 `relation` — are the positives). With `writeback=True` each learned per-feature curve
 becomes a typed **`:EdgeFunction`** node
-(`CONCEPT:EG-KG.graphlearn.edge-function-writeback`).
+(`CONCEPT:MEDULLA-KG.graphlearn.edge-function-writeback`).
 
 ### Predict
 
@@ -99,7 +99,7 @@ pred = await client.graphlearn.predict(
 
 `GraphLearnPredict` scores explicit `candidate_pairs` or the top-`k` highest-probability
 **missing** links. With `writeback=True` each becomes a typed **`:PredictedEdge`** node
-linked to its endpoints (`CONCEPT:EG-KG.graphlearn.predicted-edge-writeback`).
+linked to its endpoints (`CONCEPT:MEDULLA-KG.graphlearn.predicted-edge-writeback`).
 
 Both write-back paths are graph **mutations**: they require write authorization and
 commit their materialized rows to authoritative redb before acknowledgement.

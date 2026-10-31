@@ -10,11 +10,11 @@ use std::collections::BTreeMap;
 use openraft::async_runtime::watch::WatchReceiver;
 
 use super::{
-    desired_leader, failure_domain_safe, EgRaft, GroupId, MultiRaft, NodeId, RebalanceReport,
+    desired_leader, failure_domain_safe, MedullaRaft, GroupId, MultiRaft, NodeId, RebalanceReport,
     LEADER_TRANSFER_MIN_MARGIN, MAX_AUTOMATIC_TRANSFERS_PER_PASS,
 };
 
-// ── R1: leader balancing across groups (CONCEPT:EG-KG.sharding.multi-raft → KG-2.273) ────
+// ── R1: leader balancing across groups (CONCEPT:MEDULLA-KG.sharding.multi-raft → KG-2.273) ────
 //
 // With N groups over M nodes, leaders cluster on the bootstrap node (it
 // single-member-initializes every group). [`rebalance_leaders`] spreads leadership by
@@ -62,7 +62,7 @@ impl MultiRaft {
 /// One local group's committed leadership view and its round-robin target.
 struct GroupLeadership {
     gid: GroupId,
-    raft: EgRaft,
+    raft: MedullaRaft,
     voters: Vec<NodeId>,
     current_leader: Option<NodeId>,
     local_is_leader: bool,
@@ -72,7 +72,7 @@ struct GroupLeadership {
 
 impl GroupLeadership {
     /// Observe one group; `None` for an empty voter set (no target exists).
-    fn observe(gid: GroupId, raft: &EgRaft) -> Option<Self> {
+    fn observe(gid: GroupId, raft: &MedullaRaft) -> Option<Self> {
         let metrics = raft.metrics();
         let watched = metrics.borrow_watched();
         let mut voters: Vec<NodeId> = watched.membership_config.voter_ids().collect();

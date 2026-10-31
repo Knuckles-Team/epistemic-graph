@@ -25,7 +25,7 @@ pub(super) async fn commit_cross_modal(
     }
 }
 
-/// Durable GraphQL cross-modal commit (CONCEPT:EG-KG.query.facade-reconcile-hook).
+/// Durable GraphQL cross-modal commit (CONCEPT:MEDULLA-KG.query.facade-reconcile-hook).
 ///
 /// GraphQL stages its owner-bound transaction in the process registry, but the
 /// commit authority is the same durable parent/child protocol used by native
@@ -60,7 +60,7 @@ pub(crate) struct GraphQlCrossModalCommit<'a> {
     pub(crate) request_id: u64,
     pub(crate) graph_name: &'a str,
     pub(crate) core: &'a crate::graph::GraphCore,
-    pub(crate) registry: &'a eg_graphql::CrossModalTxnRegistry,
+    pub(crate) registry: &'a medulla_graphql::CrossModalTxnRegistry,
     pub(crate) txn_id: &'a str,
     pub(crate) authority: &'a CarrierAuthority,
 }
@@ -186,9 +186,9 @@ pub(super) fn mirror_blob_refs_into_ram(
     }
 }
 
-/// The reusable core of the cross-modal commit (CONCEPT:EG-KG.txn.reader-never-sees-node + EG-360/361/362),
+/// The reusable core of the cross-modal commit (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node + MEDULLA-360/361/362),
 /// factored out of [`commit_cross_modal`] so BOTH the RPC `Method::Commit` handler AND
-/// the pgwire cross-modal txn seam (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) drive the IDENTICAL commit — no
+/// the pgwire cross-modal txn seam (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set) drive the IDENTICAL commit — no
 /// logic duplicated across the RPC + wire surfaces. Returns `Ok(true)` on commit,
 /// `Ok(false)` on an OCC conflict (true rollback), `Err(msg)` on an ACL denial or a
 /// durable-commit failure.
@@ -397,12 +397,12 @@ async fn commit_cross_modal_durable(
         .result_msgpack
         .as_deref()
         .ok_or_else(|| "committed cross-modal batch has no durable result".to_string())?;
-    let stored: ResultPayload = eg_types::msgpack::decode_bounded(
+    let stored: ResultPayload = medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             1024 * 1024,
             1_024,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| {
@@ -438,7 +438,7 @@ pub(super) async fn project_committed_measurements(
     for (series, n_fields, bucket_ns, field_names, points) in measurements {
         let points = points
             .iter()
-            .map(|(ts, values)| eg_tsdb::point::Point {
+            .map(|(ts, values)| medulla_tsdb::point::Point {
                 ts: *ts,
                 values: values.clone(),
             })
@@ -465,7 +465,7 @@ fn build_graphql_txn(
     core: &crate::graph::GraphCore,
     graph_name: &str,
     authority: &CarrierAuthority,
-    staged: eg_graphql::CrossModalTxn,
+    staged: medulla_graphql::CrossModalTxn,
 ) -> GraphTxnState {
     let mut txn = GraphTxnState::new(
         core,
@@ -481,11 +481,11 @@ fn build_graphql_txn(
     );
     for write in staged.graph_writes() {
         match write {
-            eg_graphql::GraphWrite::Node { id, blob } => txn.write_set.push(Method::AddNode {
+            medulla_graphql::GraphWrite::Node { id, blob } => txn.write_set.push(Method::AddNode {
                 node_id: id.clone(),
                 properties_msgpack: blob.clone(),
             }),
-            eg_graphql::GraphWrite::Edge { from, to, blob } => {
+            medulla_graphql::GraphWrite::Edge { from, to, blob } => {
                 txn.write_set.push(Method::AddEdge {
                     source_id: from.clone(),
                     target_id: to.clone(),
@@ -527,7 +527,7 @@ fn build_cross_modal_plan(
         .map(|measurement| {
             let batch = measurement.to_batch();
             #[cfg(feature = "tsdb")]
-            if eg_tsdb::store::SeriesKey::decode(&batch.0).is_none() {
+            if medulla_tsdb::store::SeriesKey::decode(&batch.0).is_none() {
                 return Err("staged time-series key is not canonically scoped".to_string());
             }
             Ok(batch)

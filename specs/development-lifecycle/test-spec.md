@@ -1,51 +1,51 @@
-# EG-SDLC — Test specification
+# MEDULLA-SDLC — Test specification
 
 Governing spec: [spec.md](spec.md).
 
 | Requirement | Name | Proving test |
 |---|---|---|
-| `EG-SDLC-R001` | Lifecycle record vocabulary and derived edges (rollup) | See each child. |
-| `EG-SDLC-R001.1` | Model | `crates/eg-core/tests/lifecycle_vocab.rs::edge_set_is_closed_and_shaped` |
-| `EG-SDLC-R001.2` | Behavior | `crates/eg-core/tests/lifecycle_derive.rs::rules_emit_expected_edges` |
-| `EG-SDLC-R001.3` | Wiring | `tests/test_sdlc_derive_served.py::test_accept_writes_derived_edges` |
-| `EG-SDLC-R001.4` | Refusal | `crates/eg-core/tests/lifecycle_derive.rs::manual_edge_write_is_refused` |
-| `EG-SDLC-R001.5` | Evidence | `crates/eg-core/tests/lifecycle_derive.rs::rebuild_equals_incremental` |
-| `EG-SDLC-R001.6` | Hot-path proof | `cargo bench --bench lifecycle_derive` |
-| `EG-SDLC-R002` | Release and deployment records (rollup) | See each child. |
-| `EG-SDLC-R002.1` | Model | `crates/eg-types/tests/lifecycle_records.rs::records_round_trip` |
-| `EG-SDLC-R002.2` | Behavior | `crates/eg-types/tests/lifecycle_records.rs::unknown_digest_stays_unattributed` |
-| `EG-SDLC-R002.3` | Wiring | `tests/test_sdlc_release_served.py::test_release_then_deployment_links` |
-| `EG-SDLC-R002.4` | Refusal | `tests/test_sdlc_release_served.py::test_release_refusals` |
-| `EG-SDLC-R002.5` | Evidence | `tests/test_sdlc_release_served.py::test_release_is_sealed` |
-| `EG-SDLC-R002.6` | Hot-path proof | `tests/test_sdlc_release_served.py::test_deployment_record_latency` |
-| `EG-SDLC-R003` | Defect records and intake (rollup) | See each child. |
-| `EG-SDLC-R003.1` | Model | `crates/eg-types/tests/lifecycle_records.rs::defect_round_trips` |
-| `EG-SDLC-R003.2` | Behavior | `crates/eg-core/tests/defect_intake.rs::same_signature_reuses_open_defect` |
-| `EG-SDLC-R003.3` | Wiring | `tests/test_sdlc_defect_served.py::test_failed_gate_opens_defect` |
-| `EG-SDLC-R003.4` | Refusal | `tests/test_sdlc_defect_served.py::test_illegal_transitions_refuse` |
-| `EG-SDLC-R003.5` | Evidence | `tests/test_sdlc_defect_served.py::test_symptom_evidence_reads_back` |
-| `EG-SDLC-R003.6` | Hot-path proof | `cargo bench --bench defect_intake` |
-| `EG-SDLC-R004` | Defect triage decision (rollup) | See each child. |
-| `EG-SDLC-R004.1` | Model | `crates/eg-types/src/decision/defect_triage.rs::tests::decision_round_trips` |
-| `EG-SDLC-R004.2` | Behavior | `crates/eg-types/src/decision/defect_triage.rs::tests::culprit_outranks_blame` |
-| `EG-SDLC-R004.3` | Wiring | `tests/decide/test_defect_triage_served.py::test_triage_records_decision` |
-| `EG-SDLC-R004.4` | Refusal | `tests/decide/test_defect_triage_served.py::test_triage_refusals` |
-| `EG-SDLC-R004.5` | Evidence | `tests/decide/test_defect_triage_served.py::test_triage_replays` |
-| `EG-SDLC-R004.6` | Hot-path proof | `cargo bench -p eg-numeric --bench defect_triage` |
-| `EG-SDLC-R005` | Requirement state derived from the graph (rollup) | See each child. |
-| `EG-SDLC-R005.1` | Model | `crates/eg-types/tests/lifecycle_records.rs::status_answer_round_trips` |
-| `EG-SDLC-R005.2` | Behavior | `crates/eg-core/tests/spec_status_derive.rs::rules_match_the_standard` |
-| `EG-SDLC-R005.3` | Wiring | `tests/test_sdlc_spec_status_served.py::test_served_status_reads_graph` |
-| `EG-SDLC-R005.4` | Refusal | `tests/test_sdlc_spec_status_served.py::test_status_refusals` |
-| `EG-SDLC-R005.5` | Evidence | `tests/test_sdlc_spec_status_served.py::test_matches_shared_generator` |
-| `EG-SDLC-R005.6` | Hot-path proof | `tests/test_sdlc_spec_status_served.py::test_status_latency` |
-| `EG-SDLC-R006` | Lifecycle competency queries (rollup) | See each child. |
-| `EG-SDLC-R006.1` | Model | `crates/eg-types/tests/lifecycle_records.rs::trace_request_bounds` |
-| `EG-SDLC-R006.2` | Behavior | `crates/eg-core/tests/lifecycle_trace.rs::trace_respects_depth_and_budget` |
-| `EG-SDLC-R006.3` | Wiring | `tests/test_sdlc_trace_served.py::test_competency_questions_answer` |
-| `EG-SDLC-R006.4` | Refusal | `tests/test_sdlc_trace_served.py::test_trace_refusals` |
-| `EG-SDLC-R006.5` | Evidence | `tests/test_sdlc_trace_served.py::test_edges_name_rules` |
-| `EG-SDLC-R006.6` | Hot-path proof | `cargo bench --bench lifecycle_trace` |
+| `MEDULLA-SDLC-R001` | Lifecycle record vocabulary and derived edges (rollup) | See each child. |
+| `MEDULLA-SDLC-R001.1` | Model | `crates/medulla-core/tests/lifecycle_vocab.rs::edge_set_is_closed_and_shaped` |
+| `MEDULLA-SDLC-R001.2` | Behavior | `crates/medulla-core/tests/lifecycle_derive.rs::rules_emit_expected_edges` |
+| `MEDULLA-SDLC-R001.3` | Wiring | `tests/test_sdlc_derive_served.py::test_accept_writes_derived_edges` |
+| `MEDULLA-SDLC-R001.4` | Refusal | `crates/medulla-core/tests/lifecycle_derive.rs::manual_edge_write_is_refused` |
+| `MEDULLA-SDLC-R001.5` | Evidence | `crates/medulla-core/tests/lifecycle_derive.rs::rebuild_equals_incremental` |
+| `MEDULLA-SDLC-R001.6` | Hot-path proof | `cargo bench --bench lifecycle_derive` |
+| `MEDULLA-SDLC-R002` | Release and deployment records (rollup) | See each child. |
+| `MEDULLA-SDLC-R002.1` | Model | `crates/medulla-types/tests/lifecycle_records.rs::records_round_trip` |
+| `MEDULLA-SDLC-R002.2` | Behavior | `crates/medulla-types/tests/lifecycle_records.rs::unknown_digest_stays_unattributed` |
+| `MEDULLA-SDLC-R002.3` | Wiring | `tests/test_sdlc_release_served.py::test_release_then_deployment_links` |
+| `MEDULLA-SDLC-R002.4` | Refusal | `tests/test_sdlc_release_served.py::test_release_refusals` |
+| `MEDULLA-SDLC-R002.5` | Evidence | `tests/test_sdlc_release_served.py::test_release_is_sealed` |
+| `MEDULLA-SDLC-R002.6` | Hot-path proof | `tests/test_sdlc_release_served.py::test_deployment_record_latency` |
+| `MEDULLA-SDLC-R003` | Defect records and intake (rollup) | See each child. |
+| `MEDULLA-SDLC-R003.1` | Model | `crates/medulla-types/tests/lifecycle_records.rs::defect_round_trips` |
+| `MEDULLA-SDLC-R003.2` | Behavior | `crates/medulla-core/tests/defect_intake.rs::same_signature_reuses_open_defect` |
+| `MEDULLA-SDLC-R003.3` | Wiring | `tests/test_sdlc_defect_served.py::test_failed_gate_opens_defect` |
+| `MEDULLA-SDLC-R003.4` | Refusal | `tests/test_sdlc_defect_served.py::test_illegal_transitions_refuse` |
+| `MEDULLA-SDLC-R003.5` | Evidence | `tests/test_sdlc_defect_served.py::test_symptom_evidence_reads_back` |
+| `MEDULLA-SDLC-R003.6` | Hot-path proof | `cargo bench --bench defect_intake` |
+| `MEDULLA-SDLC-R004` | Defect triage decision (rollup) | See each child. |
+| `MEDULLA-SDLC-R004.1` | Model | `crates/medulla-types/src/decision/defect_triage.rs::tests::decision_round_trips` |
+| `MEDULLA-SDLC-R004.2` | Behavior | `crates/medulla-types/src/decision/defect_triage.rs::tests::culprit_outranks_blame` |
+| `MEDULLA-SDLC-R004.3` | Wiring | `tests/decide/test_defect_triage_served.py::test_triage_records_decision` |
+| `MEDULLA-SDLC-R004.4` | Refusal | `tests/decide/test_defect_triage_served.py::test_triage_refusals` |
+| `MEDULLA-SDLC-R004.5` | Evidence | `tests/decide/test_defect_triage_served.py::test_triage_replays` |
+| `MEDULLA-SDLC-R004.6` | Hot-path proof | `cargo bench -p medulla-numeric --bench defect_triage` |
+| `MEDULLA-SDLC-R005` | Requirement state derived from the graph (rollup) | See each child. |
+| `MEDULLA-SDLC-R005.1` | Model | `crates/medulla-types/tests/lifecycle_records.rs::status_answer_round_trips` |
+| `MEDULLA-SDLC-R005.2` | Behavior | `crates/medulla-core/tests/spec_status_derive.rs::rules_match_the_standard` |
+| `MEDULLA-SDLC-R005.3` | Wiring | `tests/test_sdlc_spec_status_served.py::test_served_status_reads_graph` |
+| `MEDULLA-SDLC-R005.4` | Refusal | `tests/test_sdlc_spec_status_served.py::test_status_refusals` |
+| `MEDULLA-SDLC-R005.5` | Evidence | `tests/test_sdlc_spec_status_served.py::test_matches_shared_generator` |
+| `MEDULLA-SDLC-R005.6` | Hot-path proof | `tests/test_sdlc_spec_status_served.py::test_status_latency` |
+| `MEDULLA-SDLC-R006` | Lifecycle competency queries (rollup) | See each child. |
+| `MEDULLA-SDLC-R006.1` | Model | `crates/medulla-types/tests/lifecycle_records.rs::trace_request_bounds` |
+| `MEDULLA-SDLC-R006.2` | Behavior | `crates/medulla-core/tests/lifecycle_trace.rs::trace_respects_depth_and_budget` |
+| `MEDULLA-SDLC-R006.3` | Wiring | `tests/test_sdlc_trace_served.py::test_competency_questions_answer` |
+| `MEDULLA-SDLC-R006.4` | Refusal | `tests/test_sdlc_trace_served.py::test_trace_refusals` |
+| `MEDULLA-SDLC-R006.5` | Evidence | `tests/test_sdlc_trace_served.py::test_edges_name_rules` |
+| `MEDULLA-SDLC-R006.6` | Hot-path proof | `cargo bench --bench lifecycle_trace` |
 
 ## Negative and boundary cases
 

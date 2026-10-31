@@ -142,7 +142,7 @@ async fn start_multi(
 /// EH-287 proof, not assertion: drives the SAME direct-construction primitive
 /// (`start_multi` / `MultiRaft::start`) that `multi_node_group_join_then_leader_rebalance`
 /// uses, then checks trace capture actually turned on for it. `MultiRaft::start`
-/// itself logs at `epistemic_graph::raft::multi` during startup (e.g. "Raft
+/// itself logs at `medulla::raft::multi` during startup (e.g. "Raft
 /// multi-group RPC listener started"), so that target's presence in the GLOBAL
 /// dump is direct evidence `start_multi` reached `trace_capture::init()` on this
 /// path -- not the `node::start`/`cluster_cfg_with_groups` one.
@@ -165,7 +165,7 @@ async fn direct_multi_raft_construction_reaches_trace_capture() {
 
     let dump = super::harness::trace_capture::render_dump();
     assert!(
-        dump.contains("epistemic_graph::raft::multi"),
+        dump.contains("medulla::raft::multi"),
         "trace capture must be initialized by the direct MultiRaft::start path \
          (start_multi), the same primitive multi_node_group_join_then_leader_rebalance \
          uses: {dump}"
@@ -218,7 +218,7 @@ async fn three_node_cluster_replicates_and_survives_leader_failover() {
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let tmp = std::env::temp_dir().join(format!("eg-raft-test-{}", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("medulla-raft-test-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     let dirs: Vec<String> = (1..=3)
         .map(|i| {
@@ -354,7 +354,7 @@ async fn three_node_cluster_replicates_and_survives_leader_failover() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
-/// ADR-1 / W1.1 (CONCEPT:EG-KG.sharding.cluster-topology, `reports/wave1/ADR-scale-trio.md` §ADR-1) —
+/// ADR-1 / W1.1 (CONCEPT:MEDULLA-KG.sharding.cluster-topology, `reports/wave1/ADR-scale-trio.md` §ADR-1) —
 /// the dynamic client-topology-discovery counterpart to
 /// [`three_node_cluster_replicates_and_survives_leader_failover`] above, proven
 /// through the REAL served `dispatch()` entrypoint (like
@@ -365,7 +365,7 @@ async fn three_node_cluster_replicates_and_survives_leader_failover() {
 /// just the leader, unlike `PlacementRoute`), returns the correct topology --
 /// one group, all three self-reported members, correct roles, and each
 /// member's `client_endpoint` matching its configured
-/// `EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR`; (b) the `cluster:topology-read`
+/// `MEDULLA_ADVERTISED_CLIENT_ADDR`; (b) the `cluster:topology-read`
 /// grant genuinely works -- an envelope asserting ONLY that scope (no
 /// `admin:*`, no `*`) succeeds, while an unrelated scope is denied, proving
 /// this is NOT gated `admin:cluster-read`; (c) `PlacementRoute.endpoints`
@@ -400,7 +400,7 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
         let context = RequestContextClaims {
             principal: TEST_AGENT.to_string(),
             tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
+            audience: "medulla-test".to_string(),
             agent_id: TEST_AGENT.to_string(),
             roles: Vec::new(),
             scopes,
@@ -439,7 +439,7 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
         request
     }
 
-    let root = std::env::temp_dir().join(format!("eg-wire-cluster-members-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("medulla-wire-cluster-members-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let dirs: Vec<String> = (1..=3)
         .map(|i| {
@@ -721,7 +721,7 @@ where
 // default (unconfigured) deploy stays single-group, byte-for-byte.
 // ─────────────────────────────────────────────────────────────────────────
 
-/// `cfg.groups > 1` (DIST-P2-2, `EPISTEMIC_GRAPH_RAFT_GROUPS`) makes PRODUCTION
+/// `cfg.groups > 1` (DIST-P2-2, `MEDULLA_RAFT_GROUPS`) makes PRODUCTION
 /// `node::start` stand up every group `0..groups` on this node and configure the
 /// tenant-range ring across all of them — the same [`super::multi::MultiRaft`]
 /// machinery the placement/xshard test harnesses already exercise, now reachable from
@@ -820,7 +820,7 @@ async fn default_startup_stays_single_group_unchanged() {
     assert!(started.multi.group(super::DEFAULT_GROUP).await.is_some());
     assert!(
         started.multi.group(1).await.is_none(),
-        "no extra group should exist without EPISTEMIC_GRAPH_RAFT_GROUPS"
+        "no extra group should exist without MEDULLA_RAFT_GROUPS"
     );
     let route = started.multi.route_graph("any-tenant:ws1").await;
     assert_eq!(
@@ -901,7 +901,7 @@ mod placement_admin_wire_rpc {
         let context = RequestContextClaims {
             principal: TEST_AGENT.to_string(),
             tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
+            audience: "medulla-test".to_string(),
             agent_id: TEST_AGENT.to_string(),
             roles: Vec::new(),
             scopes: vec!["*".to_string()],
@@ -1013,8 +1013,8 @@ mod placement_admin_wire_rpc {
     /// three concurrent two-group Raft nodes plus that call depth overflows Tokio's
     /// 2 MiB default test-worker stack; `#[tokio::test]`'s default runtime does not
     /// apply the engine's own `thread_stack_size`, so this test builds its own.
-    // spec: EG-DURABLE-KERNEL-R054
-    // spec: EG-DURABLE-KERNEL-R012
+    // spec: MEDULLA-DURABLE-KERNEL-R054
+    // spec: MEDULLA-DURABLE-KERNEL-R012
     #[test]
     fn placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster() {
         let driver = crate::server::spawn_engine_driver(|| {
@@ -1052,7 +1052,7 @@ mod placement_admin_wire_rpc {
         );
 
         let tmp =
-            std::env::temp_dir().join(format!("eg-placement-wire-test-{}", std::process::id()));
+            std::env::temp_dir().join(format!("medulla-placement-wire-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let dirs: Vec<String> = (1..=3)
             .map(|i| {
@@ -1249,7 +1249,7 @@ mod placement_admin_wire_rpc {
         // A-W1.2-2: the route response is the ADR-1 wire superset (extra
         // `endpoints` key); the canonical deny_unknown_fields DTO rejects it,
         // so the wire type is the ONLY correct reader for a route response.
-        let route: eg_types::result_contract::cluster::PlacementRouteWire = match route_resp.result
+        let route: medulla_types::result_contract::cluster::PlacementRouteWire = match route_resp.result
         {
             Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
             other => panic!("expected a typed PlacementRouteWire, got {other:?}"),
@@ -1312,7 +1312,7 @@ mod placement_admin_wire_rpc {
 // KG-2.204: durable redb Raft log — replay after restart + fault injection
 // ─────────────────────────────────────────────────────────────────────────
 
-use super::store::EgStore;
+use super::store::MedullaStore;
 use super::AppCtx;
 // openraft 0.10 v2 split-storage traits (CONCEPT:AU-KG.backend.authority-has-already-acked): the combined `RaftStorage`
 // is gone — log ops live on `RaftLogStorage` + its super-trait `RaftLogReader`, and
@@ -1325,7 +1325,7 @@ use openraft::type_config::alias::EntryOf;
 
 /// A fresh temp dir for one test, removed first.
 fn fresh_dir(tag: &str) -> String {
-    super::harness::cluster::fixture::fresh_dir("eg-raft", tag)
+    super::harness::cluster::fixture::fresh_dir("medulla-raft", tag)
 }
 
 /// Build the unscoped application context used by direct Raft-store tests.
@@ -1398,7 +1398,7 @@ async fn durable_log_replays_from_redb_after_restart() {
 
     // ── Append 12 entries through the real RaftStorage::append_to_log path ──
     {
-        let mut store = EgStore::open(super::DEFAULT_GROUP, backend.clone(), ctx.clone()).unwrap();
+        let mut store = MedullaStore::open(super::DEFAULT_GROUP, backend.clone(), ctx.clone()).unwrap();
         let entries: Vec<_> = (1..=12)
             .map(|i| make_log_entry(i, 1, &format!("n{i}")))
             .collect();
@@ -1407,13 +1407,13 @@ async fn durable_log_replays_from_redb_after_restart() {
             .await
             .expect("append");
         // Drop the store (simulate process exit). The redb backend stays open here,
-        // but the EgStore's in-RAM log state (if any) is gone — the next open must
+        // but the MedullaStore's in-RAM log state (if any) is gone — the next open must
         // recover the tail PURELY from redb.
         drop(store);
     }
 
     // ── Re-open the store over the SAME redb; no leader, no network ─────────
-    let mut store2 = EgStore::open(super::DEFAULT_GROUP, backend.clone(), ctx.clone()).unwrap();
+    let mut store2 = MedullaStore::open(super::DEFAULT_GROUP, backend.clone(), ctx.clone()).unwrap();
     let log_state = store2.get_log_state().await.expect("get_log_state");
     assert_eq!(
         log_state.last_log_id.map(|l| l.index),
@@ -1455,7 +1455,7 @@ async fn fault_injection_no_committed_log_entry_lost_on_restart() {
     };
 
     {
-        let mut store = EgStore::open(super::DEFAULT_GROUP, backend.clone(), ctx.clone()).unwrap();
+        let mut store = MedullaStore::open(super::DEFAULT_GROUP, backend.clone(), ctx.clone()).unwrap();
         // Append 8 entries; each append_to_log awaits the durable group-commit fsync
         // (commit-before-ack), so all 8 are provably on disk when this returns Ok.
         for i in 1..=8u64 {
@@ -1481,7 +1481,7 @@ async fn fault_injection_no_committed_log_entry_lost_on_restart() {
     // must still be present — no lost committed entry.
     let backend2: Arc<dyn PersistenceBackend> =
         Arc::new(RedbBackend::open(dir.clone(), 4096).expect("reopen redb"));
-    let mut store2 = EgStore::open(super::DEFAULT_GROUP, backend2.clone(), ctx).unwrap();
+    let mut store2 = MedullaStore::open(super::DEFAULT_GROUP, backend2.clone(), ctx).unwrap();
     let entries = store2
         .try_get_log_entries(1..=8)
         .await
@@ -1519,8 +1519,8 @@ async fn multi_group_logs_isolate_on_shared_redb() {
         router: None,
     };
 
-    let mut g7 = EgStore::open(7, backend.clone(), ctx.clone()).unwrap();
-    let mut g9 = EgStore::open(9, backend.clone(), ctx.clone()).unwrap();
+    let mut g7 = MedullaStore::open(7, backend.clone(), ctx.clone()).unwrap();
+    let mut g9 = MedullaStore::open(9, backend.clone(), ctx.clone()).unwrap();
 
     // Group 7 gets indices 1..=5; group 9 gets indices 1..=3 — same index range,
     // DIFFERENT groups, ONE redb DB.
@@ -1845,9 +1845,9 @@ async fn group_snapshot_is_scoped_to_its_tenant_range() {
         state: state.clone(),
         router: Some(router.clone()),
     };
-    let g0 = EgStore::open(0, backend.clone(), ctx.clone()).unwrap();
-    let g3 = EgStore::open(3, backend.clone(), ctx.clone()).unwrap();
-    let g5 = EgStore::open(5, backend.clone(), ctx.clone()).unwrap();
+    let g0 = MedullaStore::open(0, backend.clone(), ctx.clone()).unwrap();
+    let g3 = MedullaStore::open(3, backend.clone(), ctx.clone()).unwrap();
+    let g5 = MedullaStore::open(5, backend.clone(), ctx.clone()).unwrap();
 
     // Group 3's snapshot carries ONLY resident graphA; group 5's ONLY catalog-only
     // graphB — proving eviction cannot remove durable authority from a snapshot. No
@@ -1870,7 +1870,7 @@ async fn group_snapshot_is_scoped_to_its_tenant_range() {
         state: state.clone(),
         router: None,
     };
-    let g_global = EgStore::open(0, backend.clone(), ctx_global).unwrap();
+    let g_global = MedullaStore::open(0, backend.clone(), ctx_global).unwrap();
     assert_eq!(
         g_global.scoped_snapshot_graph_names().await,
         vec![
@@ -1885,7 +1885,7 @@ async fn group_snapshot_is_scoped_to_its_tenant_range() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// M2 remaining (CONCEPT:EG-KG.storage.kg-kg-2 / KG-2.270 / KG-2.271)
+// M2 remaining (CONCEPT:MEDULLA-KG.storage.kg-kg-2 / KG-2.270 / KG-2.271)
 //   R3 multi-node membership join · R1 leader balancing · R2 heartbeat coalescing
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -2084,7 +2084,7 @@ async fn coalesced_batch_round_trips_on_one_connection() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// spec: EG-DURABLE-KERNEL-R015
+// spec: MEDULLA-DURABLE-KERNEL-R015
 /// EH-288: heartbeat flushing is INDEPENDENT PER PEER, not one shared flush pass —
 /// one slow peer's round trip must not stall the others' scheduled flush. With two
 /// heartbeats offered within the same coalescing window, the fast peer's heartbeat
@@ -2233,7 +2233,7 @@ fn system_agent(agent_id: &str) -> crate::acl::AgentIdentity {
 
 /// Start `n` durable `MultiRaft` nodes under `root` on `ports`: node 1 single-member
 /// bootstraps `gid`, the others join it EMPTY and non-bootstrapping, ready to receive
-/// replication (the state a real node 2 reaches with `EPISTEMIC_GRAPH_RAFT_NODE_ID`/
+/// replication (the state a real node 2 reaches with `MEDULLA_RAFT_NODE_ID`/
 /// `_PEERS` set but `is_bootstrap` false; see `cluster_deployment.md` section 2b/5).
 async fn start_group_cluster(
     root: &std::path::Path,
@@ -2279,7 +2279,7 @@ async fn start_group_cluster(
 async fn add_group_member_right_after_create_group_succeeds() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
 
-    let root = std::env::temp_dir().join(format!("eg-mnimmediate-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("medulla-mnimmediate-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let ports = free_ports(2);
     let addr = |i: usize| format!("127.0.0.1:{}", ports[i - 1]);
@@ -2306,7 +2306,7 @@ async fn multi_node_group_join_then_leader_rebalance() {
     use super::multi::desired_leader;
     use super::xread::{ReadPageRequest, RouteToken};
 
-    let root = std::env::temp_dir().join(format!("eg-mnjoin-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("medulla-mnjoin-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let ports = free_ports(3);
     let addr = |i: usize| format!("127.0.0.1:{}", ports[i - 1]);
@@ -2491,7 +2491,7 @@ async fn multi_node_group_join_then_leader_rebalance() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// CONCEPT:EG-KG.storage.kg-kg-2 — `cluster_deployment.md` §5 item 2: a learner can be
+/// CONCEPT:MEDULLA-KG.storage.kg-kg-2 — `cluster_deployment.md` §5 item 2: a learner can be
 /// attached to a LIVE Raft group WITHOUT changing the voter set (the gap the M2 soak
 /// found — `MultiRaft::add_group_learner`/`change_group_voters`, split out of the
 /// pre-existing bundled `add_group_member`, had no external caller). Proves the split
@@ -2507,7 +2507,7 @@ async fn multi_add_group_learner_attaches_non_voting_learner_then_promotes() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     use super::multi::MultiRaft;
 
-    let root = std::env::temp_dir().join(format!("eg-mnlearner-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("medulla-mnlearner-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let ports = free_ports(2);
     let addr = |i: usize| format!("127.0.0.1:{}", ports[i - 1]);
@@ -2601,11 +2601,11 @@ async fn multi_add_group_learner_attaches_non_voting_learner_then_promotes() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// CONCEPT:EG-KG.storage.kg-kg-2 — the SAME gap, exercised through the REAL served
+/// CONCEPT:MEDULLA-KG.storage.kg-kg-2 — the SAME gap, exercised through the REAL served
 /// dispatch path (`Method::RaftAddLearner`/`Method::RaftChangeMembership`,
 /// `src/server/handlers/raft_admin.rs`), not just the in-process `MultiRaft` API the
 /// test above drives directly. This is the external-caller seam
-/// `epistemic_graph.client`'s `raft_admin` namespace drives. Proves, in order: (a)
+/// `medulla.client`'s `raft_admin` namespace drives. Proves, in order: (a)
 /// a request against the LEADER actually attaches node 2 as a learner (real
 /// execution, not a stub); (b) EH-534: a `RaftChangeMembership` request against that
 /// now genuinely-attached FOLLOWER follows the leader -- forwarded over the peer
@@ -2637,7 +2637,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
                 agent_id: TEST_AGENT,
                 nonce: "raft-admin",
                 idempotency: "raft-admin-request",
-                security_state: "eg-raft-admin-wire-auth",
+                security_state: "medulla-raft-admin-wire-auth",
             },
         )
     }
@@ -2652,7 +2652,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
         assert!(matches!(response.result, Some(ResultPayload::Bool(true))));
     }
 
-    let root = std::env::temp_dir().join(format!("eg-wire-raft-admin-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("medulla-wire-raft-admin-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let ports = free_ports(2);
     let addr = |i: usize| format!("127.0.0.1:{}", ports[i - 1]);
@@ -2791,7 +2791,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     let _ = std::fs::remove_dir_all(&root);
 }
 
-// spec: EG-DURABLE-KERNEL-R025
+// spec: MEDULLA-DURABLE-KERNEL-R025
 /// EH-534, leader-agnostic cluster test: a member-add administrative request follows
 /// the CURRENT leader to completion after a LEGAL leadership change — no
 /// forward-to-leader response is ever surfaced, and the tests never assume a fixed
@@ -2809,7 +2809,7 @@ async fn member_add_follows_the_current_leader_after_a_leader_change() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     use super::multi::MultiRaft;
 
-    let root = std::env::temp_dir().join(format!("eg-memadd-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("medulla-memadd-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let ports = free_ports(5);
     let addr = |i: usize| format!("127.0.0.1:{}", ports[i - 1]);
@@ -2909,7 +2909,7 @@ async fn member_add_follows_the_current_leader_after_a_leader_change() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-// ── Distributed graph compute (CONCEPT:EG-KG.storage.feature) ─────────────────────────────
+// ── Distributed graph compute (CONCEPT:MEDULLA-KG.storage.feature) ─────────────────────────────
 //
 // These prove the cross-shard Pregel engine produces the SAME result as the
 // single-graph algorithm run over the UNION graph: a graph split across two shard
@@ -2924,7 +2924,7 @@ mod dist_compute {
     use crate::protocol::{DistAlgo, GraphType};
     use crate::raft::pregel;
     use crate::server::access::GraphReadAuthority;
-    use eg_types::result_contract::cluster::DistResult;
+    use medulla_types::result_contract::cluster::DistResult;
 
     fn props(n: &str) -> Vec<u8> {
         rmp_serde::to_vec_named(&serde_json::json!({"type": "N", "id": n})).unwrap()
@@ -2951,7 +2951,7 @@ mod dist_compute {
         std::sync::Arc<crate::graph::GraphCore>,
     ) {
         let dir = std::env::temp_dir().join(format!(
-            "eg-pregel-{}-{}",
+            "medulla-pregel-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
@@ -3190,7 +3190,7 @@ mod dist_compute {
     }
 }
 
-// ── Materialized view durability (CONCEPT:EG-KG.storage.feature) ──────────────────────────
+// ── Materialized view durability (CONCEPT:MEDULLA-KG.storage.feature) ──────────────────────────
 //
 // A materialized view round-trips through the redb durable tier: the handler computes
 // + persists it, and a fresh scan (the boot reload path) recovers the SAME view. Tests
@@ -3201,7 +3201,7 @@ mod matview {
     use super::*;
     use crate::protocol::DistAlgo;
     use crate::raft::pregel::MatView;
-    use eg_types::result_contract::cluster::DistResult;
+    use medulla_types::result_contract::cluster::DistResult;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn matview_persists_and_reloads_from_redb() {
@@ -3210,7 +3210,7 @@ mod matview {
         // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!(
-            "eg-matview-{}-{}",
+            "medulla-matview-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
@@ -3581,7 +3581,7 @@ async fn run_group_write_workload(
     graphs_per_group_count: usize,
     writes_per_graph: u64,
 ) -> Vec<Vec<GroupLogLoad>> {
-    let root = std::env::temp_dir().join(format!("eg-w12-scale-{tag}-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("medulla-w12-scale-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let nodes = start_sharded_cluster(&root, n_groups).await;
     map_group_leaders(&nodes, n_groups, Duration::from_secs(20)).await;
@@ -3808,7 +3808,7 @@ async fn per_group_leader_failover_is_independent() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     use super::multi::desired_leader;
 
-    let root = std::env::temp_dir().join(format!("eg-w12-failover-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("medulla-w12-failover-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let n_groups = 3u64;
     let mut nodes = start_sharded_cluster(&root, n_groups).await;

@@ -3,14 +3,14 @@
 //! `dispatch_graph_op` calls this handler only after graph ACL, lazy-materialization,
 //! and authoritative placement checks have succeeded.  Each family then reuses its
 //! existing RLS-aware execution path and is projected through exactly one of the
-//! seven `eg_plan::result_stream` adapters.  The wire returns one bounded Arrow
+//! seven `medulla_plan::result_stream` adapters.  The wire returns one bounded Arrow
 //! batch per request; the cursor binds authority, placement, query, complete source
 //! snapshot, schema, and batch size, so a changed result or policy fails closed.
 
 use std::sync::Arc;
 
-use eg_modality::{OpaqueRef, ProtocolError};
-use eg_plan::{
+use medulla_modality::{OpaqueRef, ProtocolError};
+use medulla_plan::{
     cross_modal_result_stream, graph_result_stream, job_result_stream, rdf_result_stream,
     sql_result_stream, time_series_result_stream, vector_result_stream, KnowledgeBatch,
     KnowledgeBatchRow, KnowledgeStreamContext, ResultStreamCursor, ServedResultFamily,
@@ -27,10 +27,10 @@ use crate::knowledge_stream::{
     KnowledgeStreamRequest, KNOWLEDGE_STREAM_SCHEMA_VERSION,
 };
 use crate::protocol::{Method, Response, ResultPayload};
-use eg_types::acl::RequestContextClaims;
+use medulla_types::acl::RequestContextClaims;
 
 #[cfg(feature = "security")]
-use eg_core::rbac_persist::RbacPolicyStore;
+use medulla_core::rbac_persist::RbacPolicyStore;
 
 use super::super::access::{CarrierAuthority, GraphReadAuthority};
 use super::super::state::ServerState;
@@ -539,7 +539,7 @@ pub(crate) async fn try_handle(
         Ok(batch) => match authority.validate_after() {
             Ok(()) => Response::ok(
                 req_id,
-                ResultPayload::of_ref::<eg_types::result_contract::query::KnowledgeStream>(&batch),
+                ResultPayload::of_ref::<medulla_types::result_contract::query::KnowledgeStream>(&batch),
             ),
             Err(error) => {
                 crate::metrics::access_denied();

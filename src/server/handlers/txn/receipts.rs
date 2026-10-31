@@ -253,7 +253,7 @@ pub(super) async fn cleanup_cross_shard_decision(
         let decision = redb
             .xshard_decision_get(parent_id)?
             .ok_or_else(|| "retained cross-shard transaction is still undecided".to_string())?;
-        let parent = eg_transaction::read_ledger(&redb.admin_mutations_read()?, parent_id)?
+        let parent = medulla_transaction::read_ledger(&redb.admin_mutations_read()?, parent_id)?
             .ok_or_else(|| "retained cross-shard decision has no parent receipt".to_string())?;
         if parent.status != crate::mutation_batch::MutationBatchStatus::Committed {
             return Err("cross-shard decision cannot be collected before its parent".to_string());
@@ -467,7 +467,7 @@ fn txn_receipt_retry_payload(
     prepared: bool,
 ) -> Result<Vec<u8>, String> {
     if prepared {
-        eg_transaction::read_private_payload(&redb.admin_mutations_read()?, &saga.batch.batch_id)?
+        medulla_transaction::read_private_payload(&redb.admin_mutations_read()?, &saga.batch.batch_id)?
             .ok_or_else(|| "prepared transaction has no encrypted recovery plan".to_string())
     } else {
         Ok(Vec::new())
@@ -486,7 +486,7 @@ fn resume_txn_staging(
         validate_txn_commit_result(result)?;
     }
     let txn = if replayed.is_none() {
-        let encrypted = eg_transaction::read_private_payload(
+        let encrypted = medulla_transaction::read_private_payload(
             &redb.admin_mutations_read()?,
             &saga.batch.batch_id,
         )?

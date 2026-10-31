@@ -1,19 +1,19 @@
-# Reserved read-admission lane (`CONCEPT:EG-KG.coordination.reserved-read-lane`)
+# Reserved read-admission lane (`CONCEPT:MEDULLA-KG.coordination.reserved-read-lane`)
 
 > A reserved admission lane that **only** reads/queries may use, so an interactive
 > MCP read or query is **never** shed to `BUSY` behind an ingestion **write**
 > firehose. The engine stays responsive while it ingests 24/7.
 
-This page is the deep reference for `CONCEPT:EG-KG.coordination.reserved-read-lane`. For where it sits in the
+This page is the deep reference for `CONCEPT:MEDULLA-KG.coordination.reserved-read-lane`. For where it sits in the
 broader scaling story see the **[Engine Scaling Program](scaling_program.md)**
 (the responsiveness layer); for the MVCC read path it relies on see
-[`engine.md`](engine.md) and `CONCEPT:EG-KG.storage.snapshot-read-off-writer`.
+[`engine.md`](engine.md) and `CONCEPT:MEDULLA-KG.storage.snapshot-read-off-writer`.
 
 ---
 
 ## WHAT
 
-EG-KG.coordination.reserved-read-lane adds a small, dedicated **read-admission semaphore**
+MEDULLA-KG.coordination.reserved-read-lane adds a small, dedicated **read-admission semaphore**
 (`ServerState::read_admission`) alongside the existing global backpressure pool
 (`max_in_flight`) and the per-graph fairness cap (`per_graph_inflight`). When a
 read loses the normal admission path under write saturation, it **falls back to
@@ -26,9 +26,9 @@ also fills the small reserved lane is shed (so memory stays bounded).
 
 !!! note "This is an admission-layer fix, not a locking fix"
     Reads already serve from MVCC snapshots and so never contended for a write
-    lock (see [HOW](#how) below). EG-KG.coordination.reserved-read-lane fixes the one place the engine *did*
+    lock (see [HOW](#how) below). MEDULLA-KG.coordination.reserved-read-lane fixes the one place the engine *did*
     couple reads to writes: the **global admission semaphore**, which shed reads
-    to `BUSY` indiscriminately once writes saturated it. EG-KG.coordination.reserved-read-lane gives reads their
+    to `BUSY` indiscriminately once writes saturated it. MEDULLA-KG.coordination.reserved-read-lane gives reads their
     own lane through that gate.
 
 ---
@@ -38,12 +38,12 @@ also fills the small reserved lane is shed (so memory stays bounded).
 The engine's `__commons__` graph is a 24/7 ingestion firehose. Under saturation
 two admission resources fill up:
 
-1. The **global** `max_in_flight` pool (`EPISTEMIC_GRAPH_MAX_INFLIGHT`, default
+1. The **global** `max_in_flight` pool (`MEDULLA_MAX_INFLIGHT`, default
    `effective-cpus*64` clamped `64..8192`) — shared by reads *and* writes.
 2. The **per-graph fairness permit** (`per_graph_inflight`, default
    `max_in_flight/4`) for `__commons__` itself.
 
-Before EG-KG.coordination.reserved-read-lane a read that lost both was shed `BUSY` exactly like a write — so a
+Before MEDULLA-KG.coordination.reserved-read-lane a read that lost both was shed `BUSY` exactly like a write — so a
 heavy ingestion stream can starve interactive MCP reads/queries even though a
 read is cheap and never blocks a write. The engine must **stay responsive while
 ingesting**, so an interactive read must outrank background ingestion at the
@@ -51,13 +51,13 @@ admission gate.
 
 ### The "database is locked" red herring
 
-The live symptom that motivated EG-KG.coordination.reserved-read-lane was a `database is locked` error under K=4
+The live symptom that motivated MEDULLA-KG.coordination.reserved-read-lane was a `database is locked` error under K=4
 ingestion. The root cause was traced and is **not the engine**:
 
 - redb is **MVCC** and never emits that string — its errors are
   `Database already open` / `transaction in progress`.
 - Engine reads already serve from `begin_read()` / in-memory snapshots
-  (`CONCEPT:EG-KG.storage.snapshot-read-off-writer`), so they never contend for the write lock.
+  (`CONCEPT:MEDULLA-KG.storage.snapshot-read-off-writer`), so they never contend for the write lock.
 - The literal `sqlite3.OperationalError: database is locked` came from the
   agent-utilities **FanOut outbox** (`KG-2.74`, a sibling SQLite component).
 
@@ -78,7 +78,7 @@ through a **pure, unit-testable** `admit_request`:
 ```rust
 fn admit_request(
     sem: &Arc<Semaphore>,        // global max_in_flight pool
-    read_sem: &Arc<Semaphore>,   // reserved read lane (EG-KG.coordination.reserved-read-lane)
+    read_sem: &Arc<Semaphore>,   // reserved read lane (MEDULLA-KG.coordination.reserved-read-lane)
     pg_map: &DashMap<String, Arc<Semaphore>>,  // per-graph fairness permits
     pg_limit: usize,
     graph: &str,
@@ -135,17 +135,17 @@ Key invariants, straight from the code:
 - The three permit slots are **mutually exclusive**: a normal admission holds
   `global` + `per_graph`; a reserved-read admission holds only `read`.
 
-### Reads never touch a write lock (the EG-KG.storage.snapshot-read-off-writer tie-in)
+### Reads never touch a write lock (the MEDULLA-KG.storage.snapshot-read-off-writer tie-in)
 
 The reserved lane is safe to grant aggressively because a read **never contends
 for a write lock**:
 
 - Cypher / SQL / GraphQL / SPARQL read off an in-memory `GraphCore`
   `analysis_snapshot_versioned()` taken under the topology *read* lock (heavy
-  compute runs off the lock entirely, `CONCEPT:EG-KG.txn.per-graph-write-isolation`).
+  compute runs off the lock entirely, `CONCEPT:MEDULLA-KG.txn.per-graph-write-isolation`).
 - The redb read-through (`read_node`, hit only on a RAM miss) serves the evicted
   node directly off a `Database::begin_read()` MVCC snapshot on the target shard,
-  concurrently with the single writer (`CONCEPT:EG-KG.storage.snapshot-read-off-writer`) — it never routes
+  concurrently with the single writer (`CONCEPT:MEDULLA-KG.storage.snapshot-read-off-writer`) — it never routes
   through the writer thread and never forces a group-commit.
 
 So the engine's redb tier never returns "database is locked", and a read admitted
@@ -158,7 +158,7 @@ on the write firehose.
 
 | Knob | Default | Meaning |
 |------|---------|---------|
-| `EPISTEMIC_GRAPH_READ_RESERVED` | auto-sized (see below) | Size of the reserved read-admission lane (in-flight read slots). A positive explicit value may lower the default but is clamped to the cgroup-aware global admission bound; invalid/absent values use the auto-size. |
+| `MEDULLA_READ_RESERVED` | auto-sized (see below) | Size of the reserved read-admission lane (in-flight read slots). A positive explicit value may lower the default but is clamped to the cgroup-aware global admission bound; invalid/absent values use the auto-size. |
 
 The auto-size is `Capacity::read_reserved()`
 ([`src/autosize.rs`](https://github.com/Knuckles-Team/medulla/blob/main/src/autosize.rs)):
@@ -178,10 +178,10 @@ The value is read once at startup in [`src/main.rs`](https://github.com/Knuckles
 A read admitted via the reserved lane increments the Prometheus counter:
 
 ```text
-epistemic_graph_read_reserved_admitted_total
+medulla_read_reserved_admitted_total
 ```
 
-> *"Read/query requests admitted via the RESERVED read lane (CONCEPT:EG-KG.coordination.reserved-read-lane)
+> *"Read/query requests admitted via the RESERVED read lane (CONCEPT:MEDULLA-KG.coordination.reserved-read-lane)
 > after the global pool / per-graph cap was saturated by writes — each is an
 > interactive read that will otherwise have been shed BUSY behind ingestion."*
 
@@ -210,14 +210,14 @@ asserted without standing up a server.
 
 ## Operating notes — end-to-end resource priority
 
-EG-KG.coordination.reserved-read-lane is the **engine half** of an end-to-end "interactive reads outrank
+MEDULLA-KG.coordination.reserved-read-lane is the **engine half** of an end-to-end "interactive reads outrank
 background ingestion" guarantee. It composes with the agent-utilities
 **resource-priority edict** (AU-ORCH.scheduling.resource-priority-edict/1.99) on the orchestration side:
 
 - **agent-utilities** keeps interactive orchestration from being starved by
   background ingestion at the *task scheduling / lane* level (background
   ingestion lanes are capped so they cannot crowd out interactive work).
-- **EG-KG.coordination.reserved-read-lane** enforces the same priority one layer down, at the *engine
+- **MEDULLA-KG.coordination.reserved-read-lane** enforces the same priority one layer down, at the *engine
   admission gate*: even when ingestion has saturated the engine's global pool and
   the `__commons__` per-graph cap, an interactive read still gets a lane.
 
@@ -226,7 +226,7 @@ ecosystem ingests continuously. Tuning guidance:
 
 - **Default is usually right.** The auto-size tracks `max_inflight`, so a bigger
   box gets a bigger reserved lane automatically.
-- **Raise `EPISTEMIC_GRAPH_READ_RESERVED`** only if the operator observes reads shedding
+- **Raise `MEDULLA_READ_RESERVED`** only if the operator observes reads shedding
   `BUSY` (the reserved lane filling) under a genuinely read-heavy *and*
   write-heavy mix — e.g. multiple concurrent interactive agents querying while
   ingestion runs. Keep it well below `max_inflight` so the reserved reads can't

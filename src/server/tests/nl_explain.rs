@@ -1,4 +1,4 @@
-//! `NlQueryExplain` through the FULL served dispatch chain (EG-FEDERATED-QUERY-R058.2.2.1):
+//! `NlQueryExplain` through the FULL served dispatch chain (MEDULLA-FEDERATED-QUERY-R058.2.2.1):
 //! it answers the planner's exact UQL with the SAME rows `NlQuery` answers, and refuses
 //! exactly as `NlQuery` refuses.
 
@@ -9,7 +9,7 @@ use super::*;
 /// process-wide planner first, every NL test sees the same echo behaviour.
 struct EchoPlanner;
 
-impl eg_plan::NlPlanner for EchoPlanner {
+impl medulla_plan::NlPlanner for EchoPlanner {
     fn plan(&self, nl: &str, _schema_hint: &str) -> Result<String, String> {
         Ok(nl.to_string())
     }
@@ -40,7 +40,7 @@ async fn send(state: &Arc<RwLock<ServerState>>, id: u64, method: Method) -> Resp
     dispatch_on_heap(state, request(id, "__commons__", None, method)).await
 }
 
-fn explain_body(resp: &Response) -> eg_types::nl_query::NlQueryExplainResult {
+fn explain_body(resp: &Response) -> medulla_types::nl_query::NlQueryExplainResult {
     match &resp.result {
         Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(bytes).unwrap(),
         other => panic!(
@@ -50,7 +50,7 @@ fn explain_body(resp: &Response) -> eg_types::nl_query::NlQueryExplainResult {
     }
 }
 
-fn plan_body(resp: &Response) -> eg_types::nl_query::NlQueryPlanResult {
+fn plan_body(resp: &Response) -> medulla_types::nl_query::NlQueryPlanResult {
     match &resp.result {
         Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(bytes).unwrap(),
         other => panic!("expected Raw plan result, got {other:?} / {:?}", resp.error),
@@ -65,7 +65,7 @@ async fn echo_planned_fixture() -> Arc<RwLock<ServerState>> {
     state
 }
 
-// spec: EG-FEDERATED-QUERY-R058.2.2.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.2.2.1
 #[tokio::test]
 async fn nl_query_explain_returns_planner_uql_and_nl_query_rows() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -92,12 +92,12 @@ async fn nl_query_explain_returns_planner_uql_and_nl_query_rows() {
     assert_eq!(unified_ids(&plain).len(), 3);
 }
 
-// spec: EG-FEDERATED-QUERY-R058.2.2.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.2.2.1
 #[tokio::test]
 async fn nl_query_explain_refuses_exactly_like_nl_query() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let state = echo_planned_fixture().await;
-    let over_budget = "x".repeat(eg_plan::nl::NlQueryBudget::default().max_uql_len + 1);
+    let over_budget = "x".repeat(medulla_plan::nl::NlQueryBudget::default().max_uql_len + 1);
     for (id, text, code) in [
         (950, "MATCH ((( not uql", "INVALID_ARGUMENT"),
         (952, over_budget.as_str(), "UQL_BUDGET_EXCEEDED"),
@@ -119,7 +119,7 @@ async fn nl_query_explain_refuses_exactly_like_nl_query() {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R058.2.2.2
+// spec: MEDULLA-FEDERATED-QUERY-R058.2.2.2
 #[tokio::test]
 async fn nl_query_plan_returns_pins_without_executing_rows() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -132,8 +132,8 @@ async fn nl_query_plan_returns_pins_without_executing_rows() {
     assert_ne!(body.plan_digest.to_hex(), "0".repeat(64));
     assert_ne!(body.query_digest.to_hex(), "0".repeat(64));
     let params = std::collections::BTreeMap::new();
-    let statement = eg_plan::uql::parse_statement(&body.uql, &params).expect("parse planned UQL");
-    let binding = eg_plan::uql::serve::binding_plan(&statement);
+    let statement = medulla_plan::uql::parse_statement(&body.uql, &params).expect("parse planned UQL");
+    let binding = medulla_plan::uql::serve::binding_plan(&statement);
     assert_eq!(
         body.plan_digest,
         crate::server::foreign_read::canonical_plan_digest(&binding).expect("plan digest")
@@ -145,7 +145,7 @@ async fn nl_query_plan_returns_pins_without_executing_rows() {
     );
 }
 
-// spec: EG-FEDERATED-QUERY-R058.3.2
+// spec: MEDULLA-FEDERATED-QUERY-R058.3.2
 #[tokio::test]
 async fn nl_mutating_candidates_refuse_without_changing_graph_data() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -206,7 +206,7 @@ async fn nl_mutating_candidates_refuse_without_changing_graph_data() {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[tokio::test]
 async fn nl_query_grounds_names_on_the_graph_schema_before_running() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -235,7 +235,7 @@ async fn nl_query_grounds_names_on_the_graph_schema_before_running() {
     assert_eq!(explained.error_detail, plain.error_detail);
 }
 
-// spec: EG-FEDERATED-QUERY-R058.4.7.1
+// spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[cfg(feature = "federation")]
 #[tokio::test]
 async fn nl_query_grounds_foreign_names_from_the_verified_owner_registry() {
@@ -255,10 +255,10 @@ async fn nl_query_grounds_foreign_names_from_the_verified_owner_registry() {
         "worker1",
         Method::RegisterForeignSource {
             name: "known".into(),
-            source: eg_types::wire::ForeignSourceSpec::HttpJson {
+            source: medulla_types::wire::ForeignSourceSpec::HttpJson {
                 url: "http://example.invalid/worker1-secret".into(),
                 json_path: "data".into(),
-                field_map: eg_types::wire::HttpFieldMap {
+                field_map: medulla_types::wire::HttpFieldMap {
                     id: "id".into(),
                     score: None,
                     columns: Default::default(),

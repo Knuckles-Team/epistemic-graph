@@ -21,7 +21,7 @@
 //! So a Raft node IS an M2 authoritative node — its graph data and auxiliary
 //! authority live in the canonical authoritative shard, committed-before-applied.
 //!
-//! ## Durable redb Raft log (CONCEPT:EG-KG.storage.one-fsync-covers-raft)
+//! ## Durable redb Raft log (CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft)
 //!
 //! The Raft LOG, the vote, the applied state, and the graph data are ALL durable in
 //! the SAME authoritative shard Database (the M2 store), keyed by `(group_id, index)` /
@@ -30,7 +30,7 @@
 //! node recovers its log tail LOCALLY from redb — it no longer needs the leader to
 //! refill an un-snapshotted tail. (The old separate `raft.redb` sidecar is gone.)
 //!
-//! ## Multi-Raft scaffold (CONCEPT:EG-KG.sharding.raft-resharding)
+//! ## Multi-Raft scaffold (CONCEPT:MEDULLA-KG.sharding.raft-resharding)
 //!
 //! [`multi::MultiRaft`] holds N openraft groups keyed by [`GroupId`], each its own
 //! state machine + `GraphCore`, sharing ONE TCP listener per node (RPC frames are
@@ -78,17 +78,17 @@ pub mod cross_shard_txn;
 /// observed before a voter is removed, every acknowledgement is revision/fence
 /// bound, and restart recovery fails closed.
 pub mod drain;
-/// X4 — the distributed cross-shard DAG EXCHANGE operator (CONCEPT:EG-KG.query.dag-distributed-exchange),
-/// the cluster-tier extension of E5's `eg_plan::dag::PlanDag`: ships a branch subtree to
+/// X4 — the distributed cross-shard DAG EXCHANGE operator (CONCEPT:MEDULLA-KG.query.dag-distributed-exchange),
+/// the cluster-tier extension of E5's `medulla_plan::dag::PlanDag`: ships a branch subtree to
 /// its owning Raft group over a length-prefixed-MessagePack transport, runs it there via
-/// the unmodified `eg_plan::execute_dag`, and merges the partials back through
-/// `eg_plan::execute_dag_with`'s unmodified multi-branch join. Additionally gated on
-/// `query` (needs `eg_plan`'s `PlanCtx`/`dag_exec`, which a plain `raft`-without-`query`
+/// the unmodified `medulla_plan::execute_dag`, and merges the partials back through
+/// `medulla_plan::execute_dag_with`'s unmodified multi-branch join. Additionally gated on
+/// `query` (needs `medulla_plan`'s `PlanCtx`/`dag_exec`, which a plain `raft`-without-`query`
 /// build does not link) — `cluster` implies both.
 #[cfg(feature = "query")]
 pub mod exchange;
 /// Typed flake-budget / retry-policy model for running cluster tests reliably
-/// under representative load (EG-DURABLE-KERNEL-R014.1): bounds how many
+/// under representative load (MEDULLA-DURABLE-KERNEL-R014.1): bounds how many
 /// transient failures a run under load may absorb and at what backoff,
 /// refusing a malformed budget rather than silently retrying forever or not
 /// at all. The load-test harness and representative-load generator that
@@ -99,19 +99,19 @@ pub mod membership_shrink;
 pub mod multi;
 pub mod network;
 pub mod node;
-/// The placement catalog (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1) — the ONE durable,
+/// The placement catalog (CONCEPT:MEDULLA-KG.sharding.placement-catalog, DIST-P2-1) — the ONE durable,
 /// Raft-replicated virtual-partition → group authority [`multi::MultiRaft::route_graph`]
 /// consults before returning the engine's explicit unplaced policy.
 pub mod placement;
 /// Distributed graph compute — the Pregel/GAS cross-shard superstep engine
-/// (CONCEPT:EG-KG.storage.feature). Behind `compute-dist` (which implies `raft`): runs PageRank /
+/// (CONCEPT:MEDULLA-KG.storage.feature). Behind `compute-dist` (which implies `raft`): runs PageRank /
 /// connected-components / BFS across graphs spanning multiple Raft groups, plus the
 /// incremental/streaming variant and materialized views.
 #[cfg(feature = "compute-dist")]
 pub mod pregel;
 pub mod reshard;
 pub mod store;
-/// Cross-shard READ fan-out + merge (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-2):
+/// Cross-shard READ fan-out + merge (CONCEPT:MEDULLA-KG.sharding.placement-catalog, DIST-P2-2):
 /// bounded, epoch-fenced pages routed to each group's leader over the authenticated
 /// shared peer channel.  It reports independent per-group ReadIndex/version barriers
 /// and never misrepresents them as a global snapshot.
@@ -138,27 +138,27 @@ pub mod harness;
 #[cfg(test)]
 mod tests;
 
-// The cross-shard 2PC atomicity + recovery gauntlet (CONCEPT:EG-KG.storage.lane-n-increment) — the nemesis
+// The cross-shard 2PC atomicity + recovery gauntlet (CONCEPT:MEDULLA-KG.storage.lane-n-increment) — the nemesis
 // harness proving NO PARTIAL COMMIT under participant-kill + partition. Gated behind
 // the `harness` feature so the default `raft` test set is unchanged; run it with
 // `cargo test --features "raft harness"`.
 #[cfg(all(test, feature = "harness"))]
 mod xshard_harness;
 
-// The online-resharding + tenant-hibernation gauntlet (CONCEPT:EG-KG.storage.100m-tenant) — proves a
+// The online-resharding + tenant-hibernation gauntlet (CONCEPT:MEDULLA-KG.storage.100m-tenant) — proves a
 // graph reshareded A→B keeps all data + serves correctly, and a hibernated graph
 // rehydrates intact. Gated behind `harness` so a normal `raft` build links nothing.
 #[cfg(all(test, feature = "harness"))]
 mod reshard_harness;
 
-// The placement-catalog gauntlet (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1) — proves
+// The placement-catalog gauntlet (CONCEPT:MEDULLA-KG.sharding.placement-catalog, DIST-P2-1) — proves
 // assign→route, a stale-epoch redirect, persistence-across-restart, an online move
 // (snapshot→catch-up→fenced cutover) preserving data, and a tenant split spanning two
 // groups. Gated behind `harness` so a normal `raft` build links nothing.
 #[cfg(all(test, feature = "harness"))]
 mod placement_harness;
 
-// The cross-shard READ gauntlet (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-2) — proves a
+// The cross-shard READ gauntlet (CONCEPT:MEDULLA-KG.sharding.placement-catalog, DIST-P2-2) — proves a
 // read spanning two groups gathers + union-merges both, each leg routes via the
 // PlacementCatalog, a single-group read is not flagged cross-shard, and an unreachable
 // leg errors loudly. Gated behind `harness` so a normal `raft` build links nothing.
@@ -166,8 +166,8 @@ mod placement_harness;
 mod xread_harness;
 
 /// In-process cross-shard 2PC **modality-spanning** coordinator-kill harness
-/// (CONCEPT:EG-KG.txn.crossshard-2pc-modality-harness) — the `--features cluster`
-/// proof that closes EG-396: a cross-shard txn spanning the property-graph + RDF
+/// (CONCEPT:MEDULLA-KG.txn.crossshard-2pc-modality-harness) — the `--features cluster`
+/// proof that closes MEDULLA-396: a cross-shard txn spanning the property-graph + RDF
 /// modalities across two Raft groups stays all-or-nothing when the coordinator is
 /// killed mid-2PC (recovery resolves to a SINGLE decision). Gated on `compute-dist`
 /// (which `cluster` implies) so the pub proof entry is reachable from an external
@@ -179,17 +179,17 @@ pub mod xshard_modality_harness;
 /// Raft node id — a small integer assigned per cluster member.
 pub type NodeId = u64;
 
-/// A Raft GROUP id (CONCEPT:EG-KG.sharding.raft-resharding). One consensus group per keyspace; today one
+/// A Raft GROUP id (CONCEPT:MEDULLA-KG.sharding.raft-resharding). One consensus group per keyspace; today one
 /// graph maps to one group via the [`multi::GroupRouter`]. It is the composite-key
 /// prefix the durable redb log + meta rows are keyed by, so ONE authoritative shard serves
 /// every group's log (the spike's FD-ceiling fix — no file per group).
 ///
-/// Defined by `eg_storage::direct_state`, not here: the direct-state whole-generation
+/// Defined by `medulla_storage::direct_state`, not here: the direct-state whole-generation
 /// module inside the storage kernel is the other consumer of both, and the kernel may
 /// not depend on this binary. Re-exported so every `crate::raft::GroupId` /
 /// `crate::raft::DEFAULT_GROUP` path in this tree keeps naming the SAME type and
 /// constant rather than a second, silently-divergent pair.
-pub use eg_storage::direct_state::{GroupId, DEFAULT_GROUP};
+pub use medulla_storage::direct_state::{GroupId, DEFAULT_GROUP};
 const RAFT_RESPONSE_SCHEMA_VERSION: u16 = 2;
 #[cfg(feature = "modality-serving")]
 mod modality;
@@ -238,7 +238,7 @@ pub struct RaftMutationContext {
     /// Authenticated transport nonce carried into the mutation envelope on the
     /// state-machine apply path. Internal control-plane entries leave this
     /// absent; replicated caller mutations must preserve it end to end.
-    pub attempt_nonce: Option<eg_types::contract::Nonce>,
+    pub attempt_nonce: Option<medulla_types::contract::Nonce>,
     /// Opaque tenant scope derived from the verified carrier. Raw tenant names are
     /// never copied into consensus or MutationBatch authority.
     pub tenant_scope: String,
@@ -268,7 +268,7 @@ impl RaftMutationContext {
     pub(crate) fn from_verified_request(
         batch_id: String,
         request_id: u64,
-        attempt_nonce: Option<eg_types::contract::Nonce>,
+        attempt_nonce: Option<medulla_types::contract::Nonce>,
         tenant_scope: &str,
         principal_fingerprint: String,
         identity_bootstrap: bool,
@@ -332,7 +332,7 @@ impl RaftMutationContext {
     fn internal_principal_fingerprint() -> String {
         crate::server::mutation_batch::opaque_coordinator_key(
             "principal:sha256",
-            "epistemic-graph-raft-control-plane",
+            "medulla-raft-control-plane",
             "authority",
         )
     }
@@ -929,8 +929,8 @@ openraft::declare_raft_types!(
 ///
 /// openraft 0.10's `Raft<C, SM = ()>` carries the state-machine type as a second
 /// generic; `Raft::new` returns it carrying the concrete SM. Our state machine is
-/// `Arc<EgStore>`, so the alias names it (CONCEPT:AU-KG.backend.authority-has-already-acked).
-pub type EgRaft = openraft::Raft<TypeConfig, Arc<store::EgStore>>;
+/// `Arc<MedullaStore>`, so the alias names it (CONCEPT:AU-KG.backend.authority-has-already-acked).
+pub type MedullaRaft = openraft::Raft<TypeConfig, Arc<store::MedullaStore>>;
 
 /// Cloneable handle the dispatch path uses to route writes through consensus.
 ///
@@ -938,7 +938,7 @@ pub type EgRaft = openraft::Raft<TypeConfig, Arc<store::EgStore>>;
 /// path, unchanged); `Some` ⇒ the cluster path routes writes through Raft.
 #[derive(Clone)]
 pub struct RaftHandle {
-    pub raft: EgRaft,
+    pub raft: MedullaRaft,
     pub node_id: NodeId,
 }
 

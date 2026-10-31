@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 # Pure/static tests -- never need the shared native engine (see conftest.py's
-# session-scoped `start_epistemic_graph_server` fixture, which this marker
+# session-scoped `start_medulla_server` fixture, which this marker
 # exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
@@ -66,7 +66,7 @@ def test_conditional_derive_is_inert_and_the_child_module_is_still_read(
     """Known-good: `cfg_attr(<pred>, derive(...))` must not stop the walk.
 
     The audited derive expands to impls only, so it cannot move a `mod`
-    declaration. Rejecting it made every `crates/eg-types` module tree
+    declaration. Rejecting it made every `crates/medulla-types` module tree
     unreadable (195 occurrences of the audited derives on the integration
     head), which is what kept the gates below pinned to single facade files.
     Unknown proc-macro derives remain rejected because they can emit items.
@@ -180,7 +180,7 @@ def test_deny_unknown_fields_is_read_from_the_whole_attribute_block(
 
     The previous check required `#[serde(deny_unknown_fields)]` to sit
     immediately above `pub struct X {`, so appending the schemars `cfg_attr`
-    reported every wire DTO in `crates/eg-types/src/epistemic_operations.rs` as
+    reported every wire DTO in `crates/medulla-types/src/epistemic_operations.rs` as
     open to unknown fields when nothing about its serde behaviour had changed.
     """
 
@@ -210,7 +210,7 @@ def test_epistemic_operations_gate_rejects_an_omitted_child(
     """Every compiler-declared DTO child must remain in the reviewed inventory."""
 
     gate = _script("check_epistemic_operations_protocol")
-    omitted = "crates/eg-types/src/epistemic_operations/resource_status.rs"
+    omitted = "crates/medulla-types/src/epistemic_operations/resource_status.rs"
     monkeypatch.setattr(
         gate,
         "EXPECTED_RUST_SOURCES",

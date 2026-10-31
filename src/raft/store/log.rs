@@ -16,7 +16,7 @@ fn inclusive_bounds<RB: RangeBounds<u64>>(range: &RB) -> (u64, u64) {
     (lo, hi)
 }
 
-impl RaftLogReader<TypeConfig> for Arc<EgStore> {
+impl RaftLogReader<TypeConfig> for Arc<MedullaStore> {
     async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + Debug + OptionalSend>(
         &mut self,
         range: RB,
@@ -52,7 +52,7 @@ impl RaftLogReader<TypeConfig> for Arc<EgStore> {
         Ok(*self.vote.read().await)
     }
 }
-impl RaftLogStorage<TypeConfig> for Arc<EgStore> {
+impl RaftLogStorage<TypeConfig> for Arc<MedullaStore> {
     type LogReader = Self;
 
     async fn get_log_state(&mut self) -> Result<LogState<TypeConfig>, io::Error> {
@@ -60,7 +60,7 @@ impl RaftLogStorage<TypeConfig> for Arc<EgStore> {
         // so a restart knows its log tail WITHOUT the leader.
         let last_entry = self
             .writer_read(|redb, group_id| match redb.raft_log_bounds(group_id)?.1 {
-                Some(last) => EgStore::read_one_entry(redb, group_id, last),
+                Some(last) => MedullaStore::read_one_entry(redb, group_id, last),
                 None => Ok(None),
             })
             .await
@@ -120,7 +120,7 @@ impl RaftLogStorage<TypeConfig> for Arc<EgStore> {
             batch.push((entry.log_id().index, blob));
         }
         // Durable append: rides the SAME group-commit transaction as any concurrent
-        // M2 graph mutation (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — one fsync
+        // M2 graph mutation (CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft) — one fsync
         // covers both. EH-288: only the ENQUEUE is awaited here (the shard writer's
         // FIFO makes the entries readable to every later command); the `IOFlushed`
         // callback fires from the store's flush notifier once the fsync resolves, so

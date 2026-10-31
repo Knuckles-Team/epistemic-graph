@@ -1,4 +1,4 @@
-//! Automatic migration at open (EG-DURABLE-KERNEL-R070.1), against genuine
+//! Automatic migration at open (MEDULLA-DURABLE-KERNEL-R070.1), against genuine
 //! predecessor files in disposable directories: it migrates under the held
 //! lock and keeps the rows, it is idempotent, an interrupted run resumes, the
 //! switch off keeps the old refusal, and too old or too new formats are
@@ -15,7 +15,7 @@ use super::*;
 use crate::redb_store::shard::SHARD_PHYSICAL_STORE;
 use crate::redb_store::NODES;
 use crate::server::persistence::agent_library::AGENT_LIBRARY_FILE;
-use eg_storage::{
+use medulla_storage::{
     create_predecessor_owner_file, LayoutPredecessor, OwnerLayout, AGENT_LIBRARY_REVISIONS,
     BLOB_BEFORE_HOLDERS,
 };
@@ -25,7 +25,7 @@ use eg_storage::{
 const SHARD_FROM_A_NEWER_BUILD: LayoutPredecessor = LayoutPredecessor {
     layout: OwnerLayout::GraphShard,
     label: "graph shard with a table no build of this lineage declares",
-    owner_tables: &["eg_future_table"],
+    owner_tables: &["medulla_future_table"],
     data_lost: "not applicable: no build of this lineage wrote this file",
     file_name: "graph-0.redb",
 };
@@ -48,7 +48,7 @@ fn assert_rows_kept(shard: &Path, library: &Path) {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R070.1
+// spec: MEDULLA-DURABLE-KERNEL-R070.1
 #[test]
 fn open_migrates_a_previous_patch_store_under_the_held_lock_and_keeps_rows() {
     let dir = data_dir();
@@ -88,7 +88,7 @@ fn open_migrates_a_previous_patch_store_under_the_held_lock_and_keeps_rows() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R070.1
+// spec: MEDULLA-DURABLE-KERNEL-R070.1
 #[test]
 fn open_is_idempotent_and_writes_nothing_on_a_current_store() {
     let dir = data_dir();
@@ -104,7 +104,7 @@ fn open_is_idempotent_and_writes_nothing_on_a_current_store() {
     assert_eq!(read_journal_states(dir.path()), None);
 }
 
-// spec: EG-DURABLE-KERNEL-R070.1
+// spec: MEDULLA-DURABLE-KERNEL-R070.1
 #[test]
 fn open_creates_nothing_in_a_fresh_data_directory() {
     // An empty directory is how a new store is recognised, so the migration
@@ -126,7 +126,7 @@ fn open_creates_nothing_in_a_fresh_data_directory() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R070.1
+// spec: MEDULLA-DURABLE-KERNEL-R070.1
 #[test]
 fn an_interrupted_migration_resumes_at_the_next_open() {
     let dir = data_dir();
@@ -167,7 +167,7 @@ fn an_interrupted_migration_resumes_at_the_next_open() {
     assert_eq!(inspect(dir.path()).exit_code, EXIT_NOTHING_TO_DO);
 }
 
-// spec: EG-DURABLE-KERNEL-R070.1
+// spec: MEDULLA-DURABLE-KERNEL-R070.1
 #[test]
 fn the_switch_is_on_by_default_and_off_keeps_the_named_refusal() {
     assert_eq!(parse_switch(None), Ok(true));
@@ -194,7 +194,7 @@ fn the_switch_is_on_by_default_and_off_keeps_the_named_refusal() {
     assert_eq!(before, (digest(&shard), digest(&library)));
 }
 
-// spec: EG-DURABLE-KERNEL-R070.1
+// spec: MEDULLA-DURABLE-KERNEL-R070.1
 #[test]
 fn a_too_new_shard_is_refused_by_name_and_stops_startup_untouched() {
     let dir = data_dir();
@@ -220,7 +220,7 @@ fn a_too_new_shard_is_refused_by_name_and_stops_startup_untouched() {
     assert_eq!(read_journal_states(dir.path()), None);
 }
 
-// spec: EG-DURABLE-KERNEL-R070.1
+// spec: MEDULLA-DURABLE-KERNEL-R070.1
 #[test]
 fn a_too_old_lazy_store_is_refused_by_name_and_left_to_its_own_open() {
     let dir = data_dir();
@@ -247,7 +247,7 @@ fn a_too_old_lazy_store_is_refused_by_name_and_left_to_its_own_open() {
 }
 
 #[cfg(feature = "metrics")]
-// spec: EG-DURABLE-KERNEL-R070.1
+// spec: MEDULLA-DURABLE-KERNEL-R070.1
 #[test]
 fn every_step_is_counted_on_the_metrics_registry() {
     let dir = data_dir();
@@ -257,10 +257,10 @@ fn every_step_is_counted_on_the_metrics_registry() {
 
     let rendered = crate::metrics::render();
     for needle in [
-        "epistemic_graph_store_migration_steps_total{outcome=\"written\",step=\"journal\"}",
-        "epistemic_graph_store_migration_steps_total{outcome=\"upgraded\",step=\"store\"}",
-        "epistemic_graph_store_migration_steps_total{outcome=\"cleared\",step=\"journal\"}",
-        "epistemic_graph_store_migration_steps_total{outcome=\"migrated\",step=\"run\"}",
+        "medulla_store_migration_steps_total{outcome=\"written\",step=\"journal\"}",
+        "medulla_store_migration_steps_total{outcome=\"upgraded\",step=\"store\"}",
+        "medulla_store_migration_steps_total{outcome=\"cleared\",step=\"journal\"}",
+        "medulla_store_migration_steps_total{outcome=\"migrated\",step=\"run\"}",
     ] {
         assert!(
             rendered.contains(needle),

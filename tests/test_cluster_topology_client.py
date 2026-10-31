@@ -16,16 +16,16 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import (
+from medulla.client import (
     ClusterTopologyClient,
-    EpistemicGraphClient,
+    MedullaClient,
     RequestContextClaims,
 )
 
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient(EpistemicGraphClient):
+class _FakeClient(MedullaClient):
     def __init__(self, answer: dict[str, Any]) -> None:
         self._answer = answer
         self._auth_secret = "-".join(("topology", "test", "secret"))

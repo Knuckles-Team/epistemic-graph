@@ -1,11 +1,11 @@
 //! Evaluate-only explicit DAG planning. EG derives a plan; the host admits it.
 
-use eg_types::contract::BoundedVec;
-use eg_types::decision::statistical::{
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::statistical::{
     CandidateSource, DecideRequest, QuestionKind, QuestionSafety, StatisticalOutcome, TypedValue,
 };
-use eg_types::decision::task_plan::{plan_explicit_tasks, task_bindings, TaskPlan, TaskPlanTask};
-use eg_types::decision::{PremiseClass, PremiseProvenance, PremiseRef};
+use medulla_types::decision::task_plan::{plan_explicit_tasks, task_bindings, TaskPlan, TaskPlanTask};
+use medulla_types::decision::{PremiseClass, PremiseProvenance, PremiseRef};
 
 use super::stat_support::invalid_parameter;
 
@@ -77,7 +77,7 @@ pub(super) fn outcome(_plan: &TaskPlan) -> StatisticalOutcome {
 }
 
 /// A tool step's call and each binding are caller claims; neither grants
-/// authority to invoke the tool (EG-DECISION-ENGINE-R134.111.11).
+/// authority to invoke the tool (MEDULLA-DECISION-ENGINE-R134.111.11).
 fn call_premises(task: &TaskPlanTask) -> Vec<PremiseRef> {
     let Some(call) = &task.call else {
         return Vec::new();
@@ -122,7 +122,7 @@ pub(super) fn premises(plan: &TaskPlan) -> Vec<PremiseRef> {
             fact: format!(
                 "task_plan_claim:dependencies={};prompt_digest={}",
                 task.depends_on.as_slice().join(","),
-                eg_types::decision::digest::digest_text("eg/task-plan-prompt/v1", &task.prompt)
+                medulla_types::decision::digest::digest_text("eg/task-plan-prompt/v1", &task.prompt)
             ),
             class: PremiseClass::Claim,
             provenance: PremiseProvenance::Request {

@@ -1,13 +1,13 @@
-//! EG-DECISION-ENGINE-R129.3/.4 through the served `AgentComponent` publish:
+//! MEDULLA-DECISION-ENGINE-R129.3/.4 through the served `AgentComponent` publish:
 //! a guardrail rule that contradicts a stored invariant is never promoted,
 //! and the full agreement an explicit publish carries cannot override it.
 
 use super::{context, persistence_id, Served, ADMIN, TENANT};
 use crate::protocol::{Method, Response};
-use eg_types::agent_component::{
+use medulla_types::agent_component::{
     AgentComponentKind, AgentComponentOp, AgentComponentPublishRequest,
 };
-use eg_types::decision::guardrail::{GuardrailRule, GUARDRAIL_FORBIDS_RULE_ATTRIBUTE};
+use medulla_types::decision::guardrail::{GuardrailRule, GUARDRAIL_FORBIDS_RULE_ATTRIBUTE};
 
 async fn publish(
     served: &Served,
@@ -44,8 +44,8 @@ async fn publish(
     served.call(key, Method::AgentComponent { op }).await
 }
 
-// spec: EG-DECISION-ENGINE-R129.3
-// spec: EG-DECISION-ENGINE-R129.4
+// spec: MEDULLA-DECISION-ENGINE-R129.3
+// spec: MEDULLA-DECISION-ENGINE-R129.4
 #[tokio::test]
 async fn served_publish_refuses_a_rule_that_contradicts_a_stored_invariant() {
     let served = Served::new();

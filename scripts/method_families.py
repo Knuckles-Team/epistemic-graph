@@ -1,7 +1,7 @@
 """Resolve `Method` write families for the static architecture gates.
 
 Classifiers select the named families declared once next to the enum
-(`crates/eg-types/src/protocol/method/families.rs`: one
+(`crates/medulla-types/src/protocol/method/families.rs`: one
 `MethodWriteFamily::X` result arm per family inside `Method::write_family`).
 A gate that inventories a classifier's variants textually must see the variants
 a family reference contributes. They are read from code only: comments and
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from rust_lexer import _balanced_span_from, _rust_code_mask
 
-FAMILIES_PATH = "crates/eg-types/src/protocol/method/families.rs"
+FAMILIES_PATH = "crates/medulla-types/src/protocol/method/families.rs"
 _FAMILY_REFERENCE = re.compile(r"\bMethodWriteFamily\s*::\s*([A-Z][A-Za-z0-9_]*)")
 _ARM_RESULT = re.compile(
     r"=>\s*(?:\{\s*)?MethodWriteFamily\s*::\s*([A-Z][A-Za-z0-9_]*)\s*\}?\s*,?"

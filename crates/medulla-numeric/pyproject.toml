@@ -1,0 +1,22 @@
+# Surface-A wheel build for the medulla-numeric kernel. Builds the pyo3 extension
+# `medulla.numeric` (feature `python`). This is a SEPARATE maturin target
+# from the main medulla wheel (which is `bindings="bin"` — the server
+# binary, no pyo3). In the shipped product the CI wheel build folds this module
+# into the `medulla` package; here it builds standalone for parity tests.
+#
+#   maturin build --release -m crates/medulla-numeric/Cargo.toml --features python
+#
+[build-system]
+requires = ["maturin>=1.15.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "medulla-numeric"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "medulla numeric kernel — Surface A (pyo3) Python extension medulla.numeric"
+
+[tool.maturin]
+# The #[pymodule] is `numeric`; ship it inside the `medulla` package.
+module-name = "medulla.numeric"
+features = ["python"]

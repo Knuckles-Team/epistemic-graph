@@ -29,7 +29,7 @@ fn seed(shard: &Shard) {
     );
 }
 
-fn seed_admission(shard: &Shard, admitted: eg_types::native_control::SubmitWorkItemRequest) {
+fn seed_admission(shard: &Shard, admitted: medulla_types::native_control::SubmitWorkItemRequest) {
     seed_claim(shard, |row| {
         let metadata = serde_json::to_value(&admitted.metadata).unwrap();
         row.insert("kind".into(), "orchestrator_task".into());
@@ -87,7 +87,7 @@ fn count(shard: &Shard) -> usize {
         .unwrap()
         .count()
 }
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn checkpoint_cas_is_atomic_private_and_owner_bound() {
     let tmp = open("checkpoint-roundtrip");
@@ -148,7 +148,7 @@ fn checkpoint_cas_is_atomic_private_and_owner_bound() {
         2
     );
 }
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn completed_history_survives_claim_expiry_but_resume_requires_live_fence() {
     let tmp = open("checkpoint-retention");
@@ -176,7 +176,7 @@ fn completed_history_survives_claim_expiry_but_resume_requires_live_fence() {
     assert_eq!(count(shard), 1);
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn aborted_transaction_retains_neither_snapshot_nor_pointer() {
     let tmp = open("checkpoint-rollback");
@@ -202,7 +202,7 @@ fn aborted_transaction_retains_neither_snapshot_nor_pointer() {
     assert_eq!(count(shard), 1);
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn mutable_metadata_cannot_rebind_checkpoint_context() {
     let tmp = open("checkpoint-context-rebinding");
@@ -243,7 +243,7 @@ fn mutable_metadata_cannot_rebind_checkpoint_context() {
     assert_eq!(count(shard), 1);
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn checkpoint_rejects_missing_admission_and_non_work_item_owner_rows() {
     for remove_admission in [false, true] {
@@ -268,7 +268,7 @@ fn checkpoint_rejects_missing_admission_and_non_work_item_owner_rows() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn checkpoint_read_never_crosses_native_graph_tenant_or_run() {
     let tmp = open("checkpoint-scope");
@@ -304,11 +304,11 @@ fn checkpoint_read_never_crosses_native_graph_tenant_or_run() {
     assert_eq!(count(shard), 1);
 }
 
-fn typed_admission(metadata: serde_json::Value) -> eg_types::native_control::SubmitWorkItemRequest {
+fn typed_admission(metadata: serde_json::Value) -> medulla_types::native_control::SubmitWorkItemRequest {
     let mut request = admission(metadata);
     request.conversation = Some(Box::new(
-        eg_types::native_control::ConversationTurnAdmission {
-            schema_version: eg_types::native_control::NativeControlSchemaVersion::V1,
+        medulla_types::native_control::ConversationTurnAdmission {
+            schema_version: medulla_types::native_control::NativeControlSchemaVersion::V1,
             context_id: "context".into(),
             expected_revision: 0,
             predecessor_run_id: None,
@@ -317,7 +317,7 @@ fn typed_admission(metadata: serde_json::Value) -> eg_types::native_control::Sub
     request
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn checkpoint_typed_admission_is_owner_bound_with_optional_matching_legacy_context() {
     for metadata in [
@@ -337,7 +337,7 @@ fn checkpoint_typed_admission_is_owner_bound_with_optional_matching_legacy_conte
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[test]
 fn conflicting_original_context_bindings_refuse_without_mutation() {
     for value in [

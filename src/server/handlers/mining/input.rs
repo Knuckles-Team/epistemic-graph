@@ -3,10 +3,10 @@ use super::*;
 // ─────────────────────────── Row builders (shared) ───────────────────────────
 
 /// Resolve the cluster feature rows: explicit `features` win; then a fused
-/// upstream `plan` (CONCEPT:EG-KG.mining.fused-plan-source); then the `source`
+/// upstream `plan` (CONCEPT:MEDULLA-KG.mining.fused-plan-source); then the `source`
 /// node-label embedding scan (the cross-modal hook). Returns the rows AND a
 /// parallel `ids` vec (node ids for the embedding/plan path, empty for explicit).
-/// `Err` only ever originates from the plan leg (CONCEPT:EG-KG.mining.tsdb-typed-absent).
+/// `Err` only ever originates from the plan leg (CONCEPT:MEDULLA-KG.mining.tsdb-typed-absent).
 pub(super) fn build_vectors(
     core: &Arc<GraphCore>,
     features: &[Vec<f64>],
@@ -35,7 +35,7 @@ pub(super) fn build_vectors(
 /// Resolve the anomaly rows: explicit `features` win, then a 1-D `values` series
 /// (each scalar → a one-element row — the tsdb RCA path), then a fused upstream
 /// `plan`, then node embeddings. `Err` only ever originates from the plan leg
-/// (CONCEPT:EG-KG.mining.tsdb-typed-absent).
+/// (CONCEPT:MEDULLA-KG.mining.tsdb-typed-absent).
 pub(super) fn build_anomaly_rows(
     core: &Arc<GraphCore>,
     features: &[Vec<f64>],
@@ -65,11 +65,11 @@ pub(super) fn build_anomaly_rows(
     }
 }
 
-/// WAL-replay counterpart of [`build_vectors`] (CONCEPT:EG-KG.mining.frequent-itemset-mining, L34). `replay`
+/// WAL-replay counterpart of [`build_vectors`] (CONCEPT:MEDULLA-KG.mining.frequent-itemset-mining, L34). `replay`
 /// (crash recovery) runs off a bare `&GraphCore` — no live `Arc` in hand, unlike the served
 /// `Mine*` handlers `try_handle` dispatches with one — so it cannot construct a
 /// `ServedTextIndex` for a plan-sourced `RankText`/`FuseRrf` leg; that pushdown is a served-
-/// path optimization (L34 mirrors EG-P1-4's `run_unified` served call sites), not a crash-
+/// path optimization (L34 mirrors MEDULLA-P1-4's `run_unified` served call sites), not a crash-
 /// recovery requirement, and re-deriving `wal.rs`'s `apply`/`replay` call chain to carry an
 /// `Arc<GraphCore>` instead would be an unrelated, much larger refactor. This keeps the
 /// pre-L34 snapshot-derived text-index behavior for replay's plan leg (a documented, narrow
@@ -138,7 +138,7 @@ pub(super) fn gather_embeddings(
     (rows, ids)
 }
 
-/// Bundles what a plan-sourced mining leg (CONCEPT:EG-KG.mining.fused-plan-source) needs to
+/// Bundles what a plan-sourced mining leg (CONCEPT:MEDULLA-KG.mining.fused-plan-source) needs to
 /// resolve and bind the server's live tsdb store for an `Op::TsScan` leg, mirroring
 /// `query::run_unified`'s own `TsdbLegBind` — the difference is WHERE the scope gets
 /// resolved: a served `UnifiedQuery` resolves it once per request at the top of its own
@@ -148,27 +148,27 @@ pub(super) fn gather_embeddings(
 /// single source of truth). `read_authority`/`tsdb_store` are `None` when no live server
 /// wiring is available (the `#[cfg(test)]` `dispatch_for_test` harness); a `TsScan`-bearing
 /// plan is then a typed error rather than the old silent-empty degrade
-/// (CONCEPT:EG-KG.mining.tsdb-typed-absent) — a plan that never touches tsdb is unaffected.
+/// (CONCEPT:MEDULLA-KG.mining.tsdb-typed-absent) — a plan that never touches tsdb is unaffected.
 #[cfg(all(feature = "query", feature = "tsdb"))]
 #[derive(Clone, Copy)]
 pub(crate) struct MiningTsdbBind<'a> {
     pub graph_name: &'a str,
     pub read_authority: Option<&'a crate::server::access::GraphReadAuthority>,
-    pub tsdb_store: Option<&'a Arc<eg_tsdb::store::SeriesStore>>,
+    pub tsdb_store: Option<&'a Arc<medulla_tsdb::store::SeriesStore>>,
 }
 
 /// Run an upstream cross-modal RETRIEVAL `plan` (`Op::Scan|Filter|Traverse|Rank|…`)
 /// over a fresh graph+semantic snapshot and resolve each resulting row's id to its
 /// stored embedding — the SAME lookup [`gather_embeddings`] uses for a bare
 /// `VectorSource` label scan, generalized to an ARBITRARY upstream plan
-/// (CONCEPT:EG-KG.mining.fused-plan-source). This is the fused `retrieve → mine →
+/// (CONCEPT:MEDULLA-KG.mining.fused-plan-source). This is the fused `retrieve → mine →
 /// writeback` mechanism: the retrieval legs (vector rank / graph traverse / SQL
 /// filter / OWL reason / …) run FIRST, compute-near-data, over the SAME snapshot
 /// the mining op then reads embeddings from — ONE round-trip, no client
 /// marshalling between "retrieve the candidate set" and "mine it". A plan
 /// execution error degrades to an empty row set (never panics/propagates) —
 /// consistent with every other mining source's "no match ⇒ empty" contract —
-/// EXCEPT for a plan-sourced `Op::TsScan` leg (CONCEPT:EG-KG.mining.tsdb-typed-absent):
+/// EXCEPT for a plan-sourced `Op::TsScan` leg (CONCEPT:MEDULLA-KG.mining.tsdb-typed-absent):
 /// that ONE case now returns a typed `Err` when the server genuinely has no live
 /// tsdb store (or no verified carrier authority) bound, rather than silently
 /// degrading to empty — a `TsScan`-bearing mining plan is otherwise
@@ -180,17 +180,17 @@ pub(super) fn gather_plan_rows(
     #[cfg(feature = "tsdb")] tsdb: MiningTsdbBind<'_>,
 ) -> Result<(Vec<Vec<f64>>, Vec<String>), String> {
     let snap = core.analysis_snapshot();
-    // CONCEPT:EG-KG.query.served-vector-index-binding / served-text-index-binding — push the
+    // CONCEPT:MEDULLA-KG.query.served-vector-index-binding / served-text-index-binding — push the
     // vector leg into the LIVE persistent `SemanticStore` via a guard, reused for the embedding
     // lookups below too, instead of a `.clone()` that (on the default HNSW backend) would have
     // forced a full rebuild on its first search. L34: `gather_plan_rows` now takes an
-    // `Arc<GraphCore>` (mirroring EG-P1-4's served `run_unified` call sites), so a `RankText`/
+    // `Arc<GraphCore>` (mirroring MEDULLA-P1-4's served `run_unified` call sites), so a `RankText`/
     // `FuseRrf` leg in a mining-sourced plan ALSO pushes down into the graph's MAINTAINED
     // persistent `GraphTextIndex` via `ServedTextIndex`, instead of falling back to a
     // snapshot-derived index rebuilt from `snap` on every mining request; the spatial
     // (L37) and SHACL-shape legs push down the same way.
     let indexes = crate::server::handlers::query::CoreIndexes::open(core);
-    // CONCEPT:EG-KG.mining.tsdb-typed-absent — resolve the SAME verified tenant/namespace scope
+    // CONCEPT:MEDULLA-KG.mining.tsdb-typed-absent — resolve the SAME verified tenant/namespace scope
     // the served `UnifiedQuery` path resolves (`query::served_tsdb_scope`, single source of
     // truth), THEN require the live store to actually be bound before falling through to the
     // old silent-empty degrade. `None` (the plan has no `TsScan` leg) is unaffected.
@@ -213,7 +213,7 @@ pub(super) fn gather_plan_rows(
         plan.clone(),
         &snap,
         &store,
-        // CONCEPT:EG-KG.query.closure-backed-source — no `ServerState` here, so no
+        // CONCEPT:MEDULLA-KG.query.closure-backed-source — no `ServerState` here, so no
         // registered foreign sources: a NAMED foreign leg in a mining-sourced plan is
         // the clean "no registry attached" typed error, never silently-local rows.
         indexes.served(
@@ -248,10 +248,10 @@ pub(super) fn gather_plan_rows(
             ids.push(row_id);
             continue;
         }
-        // CONCEPT:EG-KG.mining.tsdb-typed-absent — a time-series SOURCE row (an `Op::TsScan`
+        // CONCEPT:MEDULLA-KG.mining.tsdb-typed-absent — a time-series SOURCE row (an `Op::TsScan`
         // point): the id is the series row id `series@ts` (EH-521) — not a graph node, so it never resolves to
         // an embedding — and `score` IS the value. Mirrors EXACTLY how `window_aggregate`
-        // (CONCEPT:EG-KG.compute.tsscan-series-window-60s, `crates/eg-plan/src/exec.rs`)
+        // (CONCEPT:MEDULLA-KG.compute.tsscan-series-window-60s, `crates/medulla-plan/src/exec.rs`)
         // already disambiguates a TsScan-produced row from a graph-node row. Without this
         // fallback a TsScan-sourced mining plan would still yield zero feature rows even
         // after binding the live tsdb store above: the row would round-trip through
@@ -260,7 +260,7 @@ pub(super) fn gather_plan_rows(
         // `window_aggregate`'s own fix note describes. A row id that merely LOOKS numeric
         // but isn't a real timestamp is indistinguishable from a genuine one at this layer,
         // exactly as `window_aggregate` accepts the same ambiguity.
-        if let (Some(_), Some(value)) = (eg_plan::rowset::parse_series_row_id(&row_id), score) {
+        if let (Some(_), Some(value)) = (medulla_plan::rowset::parse_series_row_id(&row_id), score) {
             feats.push(vec![value as f64]);
             ids.push(row_id);
         }

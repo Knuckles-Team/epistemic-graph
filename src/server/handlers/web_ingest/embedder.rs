@@ -1,16 +1,16 @@
-//! The server-side chunk embedder (EG-UNIFIED-DATA-PLANE-R651.7).
+//! The server-side chunk embedder (MEDULLA-UNIFIED-DATA-PLANE-R651.7).
 //!
 //! Configured from the environment:
-//! - `EPISTEMIC_GRAPH_EMBEDDING_URL`: an OpenAI-compatible base URL
+//! - `MEDULLA_EMBEDDING_URL`: an OpenAI-compatible base URL
 //!   (`http://host:8000`, `http://host:8000/v1`) or the full
 //!   `/v1/embeddings` endpoint;
-//! - `EPISTEMIC_GRAPH_EMBEDDING_MODEL`: the model name sent in each request;
-//! - `EPISTEMIC_GRAPH_EMBEDDING_DIMS`: the vector width (default 384); a
+//! - `MEDULLA_EMBEDDING_MODEL`: the model name sent in each request;
+//! - `MEDULLA_EMBEDDING_DIMS`: the vector width (default 384); a
 //!   response of another width is refused;
-//! - `EPISTEMIC_GRAPH_EMBEDDING_API_KEY`: an optional bearer token, never
+//! - `MEDULLA_EMBEDDING_API_KEY`: an optional bearer token, never
 //!   logged or echoed.
 //!
-//! With no URL the deterministic `eg_plan::HashEmbedder` fills in at the same
+//! With no URL the deterministic `medulla_plan::HashEmbedder` fills in at the same
 //! width and the provenance says `embedder = hash`. The same embedder backs
 //! the UQL `RANK BY ~ "text"` seam, so stored chunk vectors and query vectors
 //! share one space.
@@ -70,13 +70,13 @@ fn non_empty(name: &str) -> Option<String> {
 impl EmbedderConfig {
     pub(crate) fn from_env() -> Self {
         Self {
-            endpoint: non_empty("EPISTEMIC_GRAPH_EMBEDDING_URL").map(|url| endpoint(&url)),
-            model: non_empty("EPISTEMIC_GRAPH_EMBEDDING_MODEL"),
-            dims: non_empty("EPISTEMIC_GRAPH_EMBEDDING_DIMS")
+            endpoint: non_empty("MEDULLA_EMBEDDING_URL").map(|url| endpoint(&url)),
+            model: non_empty("MEDULLA_EMBEDDING_MODEL"),
+            dims: non_empty("MEDULLA_EMBEDDING_DIMS")
                 .and_then(|dims| dims.parse::<usize>().ok())
                 .filter(|dims| (1..=16_384).contains(dims))
                 .unwrap_or(DEFAULT_DIMS),
-            api_key: non_empty("EPISTEMIC_GRAPH_EMBEDDING_API_KEY"),
+            api_key: non_empty("MEDULLA_EMBEDDING_API_KEY"),
         }
     }
 
@@ -98,8 +98,8 @@ impl EmbedderConfig {
                 .collect::<Result<Vec<_>, _>>()
                 .map(|batches| batches.into_iter().flatten().collect()),
             None => {
-                use eg_plan::TextEmbedder;
-                let hash = eg_plan::HashEmbedder::new(self.dims);
+                use medulla_plan::TextEmbedder;
+                let hash = medulla_plan::HashEmbedder::new(self.dims);
                 texts.iter().map(|text| hash.embed(text)).collect()
             }
         }
@@ -148,7 +148,7 @@ impl EmbedderConfig {
     }
 }
 
-impl eg_plan::TextEmbedder for EmbedderConfig {
+impl medulla_plan::TextEmbedder for EmbedderConfig {
     fn embed(&self, text: &str) -> Result<Vec<f32>, String> {
         let mut vectors = EmbedderConfig::embed(self, &[text])?;
         vectors
@@ -209,7 +209,7 @@ pub(crate) fn parse_response(
 mod tests {
     use super::*;
 
-    // spec: EG-UNIFIED-DATA-PLANE-R651.7.2
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R651.7.2
     #[test]
     fn endpoint_forms_and_response_order() {
         assert_eq!(endpoint("http://h:8000"), "http://h:8000/v1/embeddings");

@@ -1,18 +1,18 @@
-//! The agent-facing quantum control-plane surface (Q8, CONCEPT:EG-KG.compute.quantum-agent-api,
+//! The agent-facing quantum control-plane surface (Q8, CONCEPT:MEDULLA-KG.compute.quantum-agent-api,
 //! feature `quantum`): `Method::Quantum { op }` — `quantum_rank`/`optimize_with_qaoa`/
-//! `quantum_expectation` over a registered `eg_quantum_core::backend::QuantumBackend`
-//! (today: `eg-quantum-sim`'s `sv-cpu`/`stabilizer`, chosen by the SAME R0-R5 planner
-//! `eg-quantum-core` ships — this handler builds circuits and calls the planner, it
+//! `quantum_expectation` over a registered `medulla_quantum_core::backend::QuantumBackend`
+//! (today: `medulla-quantum-sim`'s `sv-cpu`/`stabilizer`, chosen by the SAME R0-R5 planner
+//! `medulla-quantum-core` ships — this handler builds circuits and calls the planner, it
 //! does not reimplement backend selection).
 //!
-//! This module is the thing that makes `plans/au-eg-program/program/quantum-native.md`'s
+//! This module is the thing that makes `plans/au-medulla-program/program/quantum-native.md`'s
 //! 2026-08-07 status block stop being true: "no job-plane, no wire protocol Method, and
 //! no KG concept mapping" — the wire protocol Method half of that gap closes here.
 //!
 //! NOT graph-row-scoped: a quantum run reads no persisted graph state and writes nothing
 //! durable in the engine (every result returns to the caller as a
-//! [`eg_quantum_core::result::Proposal`], never committed here — see
-//! `eg-capabilities`' policy doc for `Method::Quantum` for the full reasoning), so this
+//! [`medulla_quantum_core::result::Proposal`], never committed here — see
+//! `medulla-capabilities`' policy doc for `Method::Quantum` for the full reasoning), so this
 //! module self-routes `dispatch.rs`'s top-level match, ahead of the per-graph
 //! `dispatch_graph_op` chain — exactly like `handlers::jobs`/`handlers::statechart`. It
 //! therefore takes no `state`/`GraphCore` at all. The verified request gate runs before
@@ -25,7 +25,7 @@
 //! experience: a caller supplies `(id, weight)` pairs or a Max-Cut instance in plain
 //! classical terms, and this module builds the circuit. [`QuantumOp::Expectation`] is
 //! the explicit opt-in: the caller authors and submits a real `QuantumProgram` (the
-//! same IR `eg-quantum-core`'s `qasm` module round-trips). No op requires a caller to
+//! same IR `medulla-quantum-core`'s `qasm` module round-trips). No op requires a caller to
 //! reason about circuits unless they choose `Expectation`.
 //!
 //! ## The exactness rule, preserved end to end
@@ -37,7 +37,7 @@
 //! v0's `expectation_value` is always a sample-mean estimate over measured shot
 //! counts (never a closed-form amplitude computation) — exactly the "sampled/noisy"
 //! case Q0's exactness gate exists to catch, independent of the raw backend run's
-//! own `is_exact()`. See `quantum.rs`'s crate-level doc in `eg-types` for the full
+//! own `is_exact()`. See `quantum.rs`'s crate-level doc in `medulla-types` for the full
 //! rationale, including the future (unimplemented) analytic-expectation path that
 //! WOULD be a genuine `exact: true` candidate. Nothing in this module ever calls
 //! `QuantumResult::into_hard_constraint` — that call belongs solely to Q7's future
@@ -46,17 +46,17 @@
 //! ## R5 escape hatch, audited
 //!
 //! Every op accepts an optional `backend_id`. It is threaded straight through to
-//! `eg_quantum_core::planner::PlannerOptions::backend_id_override` — ALWAYS honoured
+//! `medulla_quantum_core::planner::PlannerOptions::backend_id_override` — ALWAYS honoured
 //! when the named backend is registered (today: `sv-cpu`/`stabilizer` only; naming
 //! anything else fails cleanly with `PlannerError::UnknownOverrideBackend`, since no
 //! hardware/cloud provider is registered in this build — that is Q10's job). The full
 //! `PlannerDecision.audit` trail (every rule considered, including what R0-R4 would
 //! have picked and any override conflict) is ALWAYS returned in the response's
-//! `"planner"` object — `eg-quantum-core`'s own planner doc calls this exact field
+//! `"planner"` object — `medulla-quantum-core`'s own planner doc calls this exact field
 //! "what Q9 observability persists" — so the agent-utilities caller can persist it
 //! into the SAME `:ToolCall`/`RunTrace` provenance model as everything else (a
 //! `:QuantumJob` node, per that repo's `observability/trace_ontology.py`), never a new
-//! provenance system. See `eg-capabilities`' `Method::Quantum` policy doc for why this
+//! provenance system. See `medulla-capabilities`' `Method::Quantum` policy doc for why this
 //! lives in response-payload provenance rather than the engine's own graph
 //! tamper-evident audit chain.
 //!
@@ -74,22 +74,22 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use eg_quantum_core::backend::{BackendDescriptor, BackendId, QuantumBackend, RunOptions};
-use eg_quantum_core::estimate::{estimate, EstimateOptions};
-use eg_quantum_core::ir::{
+use medulla_quantum_core::backend::{BackendDescriptor, BackendId, QuantumBackend, RunOptions};
+use medulla_quantum_core::estimate::{estimate, EstimateOptions};
+use medulla_quantum_core::ir::{
     ClassicalBitRef, ClassicalRegister, ControlQubit, ControlState, GateInstruction, GateKind,
     Instruction, ParamValue, ProgramMetadata, QuantumProgram, IR_VERSION,
 };
-use eg_quantum_core::planner::{select_backend, PlannerDecision, PlannerOptions, PlannerRule};
-use eg_quantum_core::result::{Outcome, QuantumResult};
-use eg_quantum_sim::stabilizer::StabilizerSimulator;
-use eg_quantum_sim::statevector::StateVectorSimulator;
-use eg_types::quantum::{
+use medulla_quantum_core::planner::{select_backend, PlannerDecision, PlannerOptions, PlannerRule};
+use medulla_quantum_core::result::{Outcome, QuantumResult};
+use medulla_quantum_sim::stabilizer::StabilizerSimulator;
+use medulla_quantum_sim::statevector::StateVectorSimulator;
+use medulla_types::quantum::{
     QuantumExpectationResult, QuantumOp, QuantumOperationKind, QuantumPlannerAuditEntry,
     QuantumPlannerReport, QuantumQaoaEdge, QuantumQaoaResult, QuantumRankCandidate,
     QuantumRankResult, QuantumRankedCandidate, QuantumRunMetadata,
 };
-use eg_types::result_contract::ingestion as results;
+use medulla_types::result_contract::ingestion as results;
 
 use crate::protocol::{Response, ResultPayload};
 
@@ -163,7 +163,7 @@ fn descriptor_of(backend: &dyn QuantumBackend) -> BackendDescriptor {
     }
 }
 
-/// Run `program` through the SAME planner (`eg_quantum_core::planner::select_backend`)
+/// Run `program` through the SAME planner (`medulla_quantum_core::planner::select_backend`)
 /// every other quantum caller in this workspace goes through — this function never
 /// makes its own routing decision, only executes the planner's.
 fn run_program(
@@ -583,7 +583,7 @@ fn handle_qaoa(
 // ── Expectation ──────────────────────────────────────────────────────────
 
 /// Bit position of `(register, index)` within `ClassicalMemory::bitstring`'s
-/// concatenated encoding (`eg-quantum-sim`'s own doc: registers in declaration
+/// concatenated encoding (`medulla-quantum-sim`'s own doc: registers in declaration
 /// order, MSB-first within each register) — every declared register contributes
 /// its `n_bits` to the running offset regardless of whether this program's
 /// instructions ever measure into it.

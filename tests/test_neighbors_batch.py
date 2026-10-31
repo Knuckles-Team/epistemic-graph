@@ -17,16 +17,16 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import EpistemicGraphClient, NodeClient
+from medulla.client import MedullaClient, NodeClient
 
 # Fake-client unit tests only — never needs the shared native engine (mirrors
 # test_union_reads.py's neighbors_union sibling tests, which the conftest.py
-# session-scoped `start_epistemic_graph_server` fixture would otherwise force
+# session-scoped `start_medulla_server` fixture would otherwise force
 # a `cargo build --features full` + real server bootstrap for).
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient(EpistemicGraphClient):
+class _FakeClient(MedullaClient):
     def __init__(self, ret: Any = None) -> None:
         self.sent: list[tuple[str, dict[str, Any] | None]] = []
         self._ret = ret

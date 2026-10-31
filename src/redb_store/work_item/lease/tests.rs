@@ -28,7 +28,7 @@ fn request(fenced: bool) -> CasWorkItemMetadataRequest {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.3
+// spec: MEDULLA-DURABLE-KERNEL-R028.3
 #[test]
 fn fenced_metadata_cas_uses_mutation_time_and_preserves_refused_rows() {
     for (now_ms, expiry, fenced, applied) in [

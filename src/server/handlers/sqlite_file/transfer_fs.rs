@@ -1,6 +1,6 @@
 //! Descriptor-owned filesystem lifecycle for SQLite file transfer.
 
-use eg_sqlite_format::Reader;
+use medulla_sqlite_format::Reader;
 #[cfg(target_os = "linux")]
 use rustix::fs::{self, AtFlags, FileType, FlockOperation, Mode, OFlags};
 use std::io::Read;
@@ -8,7 +8,7 @@ use std::io::Read;
 use std::os::fd::AsRawFd;
 use std::path::{Component, Path, PathBuf};
 
-const TRANSFER_ROOT_ENV: &str = "EPISTEMIC_GRAPH_SQLITE_TRANSFER_ROOT";
+const TRANSFER_ROOT_ENV: &str = "MEDULLA_SQLITE_TRANSFER_ROOT";
 
 struct PinnedRoot {
     file: std::fs::File,
@@ -303,7 +303,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         let pid = std::process::id();
-        let root = std::env::temp_dir().join(format!("eg_sqlite_fs_{pid}_{nonce}"));
+        let root = std::env::temp_dir().join(format!("medulla_sqlite_fs_{pid}_{nonce}"));
         create_dir(&root, 0o700);
         root
     }

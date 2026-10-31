@@ -85,10 +85,10 @@ ENVIRONMENT_ROOTS: tuple[tuple[str, str], ...] = (
 # of (source, replacement) pairs and every prefix-map emitter below draws from
 # it unconditionally, regardless of which native macro flag was selected --
 # that literal survives untouched into the compiled
-# `epistemic-graph-server` / kernel-tool binaries and the `numeric` cdylib --
+# `medulla-server` / kernel-tool binaries and the `numeric` cdylib --
 # confirmed against a real release wheel's `linux-x86_64` leg, where every one
 # of the five compiled/linked members (the four `.data/scripts/*` binaries and
-# `epistemic_graph/numeric.abi3.so`) trips `check_wheel_privacy.py`'s
+# `medulla/numeric.abi3.so`) trips `check_wheel_privacy.py`'s
 # `privileged-home-prefix` pattern category. That category exists specifically
 # to catch `/root` and `/github/home` by broad PATTERN match (not exact-prefix
 # match) precisely because no per-run environment variable can describe them

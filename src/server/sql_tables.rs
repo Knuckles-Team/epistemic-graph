@@ -29,7 +29,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
-use eg_query::TableStore;
+use medulla_query::TableStore;
 use sha2::{Digest, Sha256};
 
 use crate::server::access::CarrierAuthority;
@@ -49,7 +49,7 @@ pub(crate) struct SqlOwnerMutation<'a> {
     pub(crate) kind: &'static str,
     pub(crate) scope: &'a str,
     pub(crate) request_id: u64,
-    pub(crate) attempt_nonce: Option<eg_types::contract::Nonce>,
+    pub(crate) attempt_nonce: Option<medulla_types::contract::Nonce>,
     pub(crate) created_at_ms: u64,
 }
 
@@ -94,7 +94,7 @@ fn registry() -> &'static Mutex<HashMap<String, TableStore>> {
 
 fn owner_filename(authority: &CarrierAuthority) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph/sql-catalog-owner\0");
+    digest.update(b"medulla/sql-catalog-owner\0");
     // Catalog ownership follows the verified effective actor, not the transport's
     // credential principal.  That gives the same tenant+actor one catalog through
     // Method::Sql, pgwire, MySQL, MSSQL, SQLite, and OBDA while delegated actors and
@@ -111,7 +111,7 @@ fn owner_filename(authority: &CarrierAuthority) -> String {
 /// tenant whose scope string happens to equal some agent_id's bytes.
 fn tenant_filename(tenant_scope: &str, suffix: &str) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph/sql-catalog-tenant\0");
+    digest.update(b"medulla/sql-catalog-tenant\0");
     digest.update(tenant_scope.as_bytes());
     format!("{}.{suffix}.redb", hex::encode(digest.finalize()))
 }
@@ -139,7 +139,7 @@ fn tenant_acl_path(tenant_scope: &str, persist_dir: &Path) -> PathBuf {
 
 fn registry_key(path: &Path) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph/sql-catalog-registry\0");
+    digest.update(b"medulla/sql-catalog-registry\0");
     digest.update(path.as_os_str().to_string_lossy().as_bytes());
     hex::encode(digest.finalize())
 }
@@ -295,13 +295,13 @@ pub(crate) fn tenant_acl_path_for_test(tenant_scope: &str, persist_dir: &Path) -
 }
 
 fn context_cache_registry(
-) -> &'static Mutex<HashMap<String, std::sync::Arc<eg_query::SqlContextCache>>> {
-    static CACHES: OnceLock<Mutex<HashMap<String, std::sync::Arc<eg_query::SqlContextCache>>>> =
+) -> &'static Mutex<HashMap<String, std::sync::Arc<medulla_query::SqlContextCache>>> {
+    static CACHES: OnceLock<Mutex<HashMap<String, std::sync::Arc<medulla_query::SqlContextCache>>>> =
         OnceLock::new();
     CACHES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Resolve the ONE served-path whole-`SessionContext` cache (CONCEPT:EG-KG.query.served-context-cache) for
+/// Resolve the ONE served-path whole-`SessionContext` cache (CONCEPT:MEDULLA-KG.query.served-context-cache) for
 /// `authority`'s tenant-scoped SQL catalog — keyed by the SAME tenant-hash registry
 /// key [`tenant_table_store`] uses, so repeated served SQL reads from the SAME
 /// tenant reuse the SAME `SqlContextCache` instance (the entire point:
@@ -310,7 +310,7 @@ fn context_cache_registry(
 pub(crate) fn sql_context_cache(
     authority: &CarrierAuthority,
     persist_dir: Option<&Path>,
-) -> Result<std::sync::Arc<eg_query::SqlContextCache>, String> {
+) -> Result<std::sync::Arc<medulla_query::SqlContextCache>, String> {
     let persist_dir = persist_dir.ok_or_else(|| {
         "owner-scoped SQL catalog requires the configured persistence directory".to_string()
     })?;
@@ -321,7 +321,7 @@ pub(crate) fn sql_context_cache(
     if let Some(cache) = caches.get(&key) {
         return Ok(cache.clone());
     }
-    let cache = std::sync::Arc::new(eg_query::SqlContextCache::new());
+    let cache = std::sync::Arc::new(medulla_query::SqlContextCache::new());
     caches.insert(key, cache.clone());
     Ok(cache)
 }
@@ -330,7 +330,7 @@ pub(crate) fn sql_context_cache(
 pub(crate) fn test_persist_dir() -> PathBuf {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     std::env::temp_dir().join(format!(
-        "epistemic-graph-sql-test-{}-{}",
+        "medulla-sql-test-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ))
@@ -358,11 +358,11 @@ mod tests {
         let first_store = user_table_store(&first, Some(&base)).unwrap();
         let peer_store = user_table_store(&peer, Some(&base)).unwrap();
         let other_store = user_table_store(&other_tenant, Some(&base)).unwrap();
-        let schema = eg_query::TableSchema::new(
+        let schema = medulla_query::TableSchema::new(
             "private_rows",
-            vec![eg_query::Column::new(
+            vec![medulla_query::Column::new(
                 "value",
-                eg_query::ColumnType::Text,
+                medulla_query::ColumnType::Text,
                 false,
                 false,
             )],

@@ -2,7 +2,7 @@
 no lane edits this file after Wave 0 lands.
 
 Reuses the shared out-of-process server: `tests/conftest.py`'s autouse,
-session-scoped `start_epistemic_graph_server` fixture already starts one and
+session-scoped `start_medulla_server` fixture already starts one and
 exports `GRAPH_SERVICE_SOCKET`/`GRAPH_SERVICE_AUTH_SECRET` for the whole
 session -- that parent `conftest.py` is loaded automatically for every test
 under `tests/`, including this subdirectory, so this file does NOT spin up a
@@ -18,8 +18,8 @@ import uuid
 
 import pytest
 
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.embedded import EmbeddedTransport
+from medulla.client import MedullaClient
+from medulla.embedded import EmbeddedTransport
 
 # BUG-CX-002 fix: `tests/parity/__init__.py` now makes this directory a
 # real package (`parity`), imported under a dotted module name distinct
@@ -54,7 +54,7 @@ def _context(agent_id: str) -> dict[str, object]:
     return {
         "principal": agent_id,
         "tenant": "tenant:test",
-        "audience": "epistemic-graph-test",
+        "audience": "medulla-test",
         "agent_id": agent_id,
         "roles": ["test"],
         "scopes": ["*"],
@@ -91,7 +91,7 @@ def embedded_persist_dir() -> str:
     """The explicit in-memory choice for `EmbeddedTransport` -- never the
     ambient `GRAPH_SERVICE_PERSIST_DIR` the shared session server also uses
     (plan §1.9: an explicit, test-owned choice, not a silently-shared ambient
-    one). `crates/eg-pyengine` has no durable storage wiring yet and refuses a
+    one). `crates/medulla-pyengine` has no durable storage wiring yet and refuses a
     real directory (BUG-PE-003); these tests compare what the two transports
     return, not what survives a restart."""
     return ":memory:"
@@ -110,7 +110,7 @@ def pair_factory(embedded_persist_dir):
     process, so a second same-process `Engine(persist_dir=...)` open of one
     `persist_dir` is denied outright (confirmed by the Rust lane's
     throwaway `fs4` probe) -- two principals could never even get far enough
-    to compare what they see. `crates/eg-pyengine` (commit `b48ee56c`) closed
+    to compare what they see. `crates/medulla-pyengine` (commit `b48ee56c`) closed
     the actual gap instead: `get_node_properties`/`has_node` now accept a
     per-call `agent_id` override (`authority::EmbeddedAuthority`), so ONE
     engine can answer for many principals. This factory now opens exactly
@@ -123,12 +123,12 @@ def pair_factory(embedded_persist_dir):
     single principal is implicitly favored -- every real read goes through
     an explicit per-call override on the bound wrapper.
     """
-    socket_clients: list[EpistemicGraphClient] = []
+    socket_clients: list[MedullaClient] = []
     shared_embedded: dict[str, EmbeddedTransport] = {}
 
     async def _make(agent_id: str, graph_name: str) -> TransportPair:
         socket_path = os.environ["GRAPH_SERVICE_SOCKET"]
-        socket_client = await EpistemicGraphClient.connect(
+        socket_client = await MedullaClient.connect(
             socket_path=socket_path,
             graph_name=graph_name,
             verified_context=_context(agent_id),

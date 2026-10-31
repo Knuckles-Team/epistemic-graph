@@ -11,8 +11,8 @@ Cargo build or certify a different artifact.
 
 Typical invocation (after one bounded build in this checkout)::
 
-    cargo build --features full --bin epistemic-graph-server
-    EPISTEMIC_GRAPH_TEST_BINARY=target-isolated/debug/epistemic-graph-server \
+    cargo build --features full --bin medulla-server
+    MEDULLA_TEST_BINARY=target-isolated/debug/medulla-server \
       python3 tests/run_lake_parity.py
 
 ``uv`` is preferred for environment creation and installation when present;
@@ -33,8 +33,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENTS = REPO_ROOT / "tests" / "lake-parity-requirements.txt"
 PARITY_TEST = REPO_ROOT / "tests" / "test_lake_iceberg_delta_parity.py"
-DEFAULT_VENV = Path("/tmp/epistemic-graph-lake-parity")
-REQUIRED_ARTIFACTS = ("EPISTEMIC_GRAPH_TEST_BINARY",)
+DEFAULT_VENV = Path("/tmp/medulla-lake-parity")
+REQUIRED_ARTIFACTS = ("MEDULLA_TEST_BINARY",)
 
 
 def _venv_python(venv: Path) -> Path:
@@ -126,9 +126,9 @@ def main() -> int:
         "--venv",
         type=Path,
         default=Path(
-            os.environ.get("EPISTEMIC_GRAPH_LAKE_PARITY_VENV", str(DEFAULT_VENV))
+            os.environ.get("MEDULLA_LAKE_PARITY_VENV", str(DEFAULT_VENV))
         ),
-        help="fresh virtualenv path (default: /tmp/epistemic-graph-lake-parity)",
+        help="fresh virtualenv path (default: /tmp/medulla-lake-parity)",
     )
     options = parser.parse_args()
 
@@ -139,7 +139,7 @@ def main() -> int:
 
     environment = os.environ.copy()
     environment.update(artifacts)
-    environment["EPISTEMIC_GRAPH_LAKE_PARITY_STRICT"] = "1"
+    environment["MEDULLA_LAKE_PARITY_STRICT"] = "1"
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     existing_pythonpath = environment.get("PYTHONPATH")
     environment["PYTHONPATH"] = (

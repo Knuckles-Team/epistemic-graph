@@ -10,7 +10,7 @@ use crate::redb_store::NODES;
 use crate::server::persistence::agent_library::{
     AgentLibraryStore, AGENT_LIBRARY_FILE, AGENT_LIBRARY_PHYSICAL_STORE,
 };
-use eg_storage::{
+use medulla_storage::{
     create_predecessor_owner_file, AgentLibraryOwner, GraphShardOwner, LayoutPredecessor,
     OwnerLayout, StorageKernel, AGENT_LIBRARY_BEFORE_MCP_CATALOG, AGENT_LIBRARY_REVISIONS,
     BLOB_BEFORE_HOLDERS, GRAPH_SHARD_BEFORE_AUDIT_REQUESTS, GRAPH_SHARD_BEFORE_ENRICHMENT,
@@ -168,7 +168,7 @@ fn inspect_finds_nothing_to_do_on_current_stores_and_writes_nothing() {
     );
     let before = (file_digest(&library), file_digest(&shard));
     // The setup's graceful closes leave clean-shutdown markers beside each
-    // store (EG-DURABLE-KERNEL-R006.3); inspect must add or remove nothing.
+    // store (MEDULLA-DURABLE-KERNEL-R006.3); inspect must add or remove nothing.
     let entries_before = entry_names(dir.path());
 
     let report = inspect(dir.path());
@@ -308,7 +308,7 @@ fn apply_upgrades_a_sql_catalog_and_keeps_its_rows() {
     create_predecessor_owner_file(
         &catalog,
         identity(discover::SQL_PHYSICAL_STORE),
-        &eg_storage::SQL_BEFORE_SOURCE_CHECKPOINTS,
+        &medulla_storage::SQL_BEFORE_SOURCE_CHECKPOINTS,
     )
     .unwrap();
     put(&catalog, SQL_ROWS, ("tenant-a:table", 7), b"kept sql row");
@@ -333,7 +333,7 @@ fn apply_upgrades_a_sql_catalog_and_keeps_its_rows() {
     // this command expects of a SQL catalog is the one that store declares.
     let authority = crate::store_authority::process_authority();
     drop(
-        eg_query::TableStore::open_scoped(
+        medulla_query::TableStore::open_scoped(
             &catalog,
             "tenant-a",
             crate::store_authority::process_verifier(),
@@ -436,7 +436,7 @@ fn apply_stops_at_the_first_failure_and_touches_no_later_store() {
     );
 }
 
-// spec: EG-TYPED-PACKS-R011
+// spec: MEDULLA-TYPED-PACKS-R011
 #[test]
 fn the_server_refuses_an_upgradable_store_and_names_the_command() {
     let dir = data_dir();
@@ -451,7 +451,7 @@ fn the_server_refuses_an_upgradable_store_and_names_the_command() {
     );
     assert!(
         refusal.ends_with(&format!(
-            "Run: epistemic-graph-server store-upgrade apply {directory} --confirm"
+            "Run: medulla-server store-upgrade apply {directory} --confirm"
         )),
         "{refusal}"
     );

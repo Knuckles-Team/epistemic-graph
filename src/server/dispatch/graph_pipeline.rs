@@ -100,7 +100,7 @@ pub(super) async fn dispatch_served_modality(
     req_id: u64,
     caller: Option<&str>,
     verified_context: &VerifiedRequestContext,
-    op: eg_types::ServedModalityOp,
+    op: medulla_types::ServedModalityOp,
     authority: handlers::modality::ModalityAuthority,
 ) -> Response {
     dispatch_graph_op_inner(
@@ -156,8 +156,8 @@ mod modality_replay_receipt_tests {
     }
 
     fn single_wire() -> Vec<u8> {
-        let outcome = eg_modality::ApplyOutcome {
-            disposition: eg_modality::ApplyDisposition::Applied,
+        let outcome = medulla_modality::ApplyOutcome {
+            disposition: medulla_modality::ApplyDisposition::Applied,
             observation_version: 11,
             event_sequence: 17,
         };
@@ -166,13 +166,13 @@ mod modality_replay_receipt_tests {
 
     fn stream_wire() -> Vec<u8> {
         let outcomes = vec![
-            eg_modality::ApplyOutcome {
-                disposition: eg_modality::ApplyDisposition::Applied,
+            medulla_modality::ApplyOutcome {
+                disposition: medulla_modality::ApplyDisposition::Applied,
                 observation_version: 11,
                 event_sequence: 17,
             },
-            eg_modality::ApplyOutcome {
-                disposition: eg_modality::ApplyDisposition::IdempotentReplay,
+            medulla_modality::ApplyOutcome {
+                disposition: medulla_modality::ApplyDisposition::IdempotentReplay,
                 observation_version: 12,
                 event_sequence: 18,
             },
@@ -183,7 +183,7 @@ mod modality_replay_receipt_tests {
     #[test]
     fn replay_decoder_accepts_single_receipt() {
         let payload = crate::raft::decode_sanitized_modality_result(
-            eg_types::ServedModalityKind::Document,
+            medulla_types::ServedModalityKind::Document,
             crate::raft::SanitizedModalityMutation::Ingest,
             &single_wire(),
         )
@@ -191,7 +191,7 @@ mod modality_replay_receipt_tests {
         let ResultPayload::Raw(bytes) = payload else {
             panic!("typed replay receipt must remain a compact byte payload");
         };
-        let outcome: eg_modality::ApplyOutcome = rmp_serde::from_slice(&bytes).unwrap();
+        let outcome: medulla_modality::ApplyOutcome = rmp_serde::from_slice(&bytes).unwrap();
         assert_eq!(outcome.observation_version, 11);
         assert_eq!(outcome.event_sequence, 17);
     }
@@ -199,7 +199,7 @@ mod modality_replay_receipt_tests {
     #[test]
     fn replay_decoder_accepts_bounded_stream_receipt() {
         let payload = crate::raft::decode_sanitized_modality_result(
-            eg_types::ServedModalityKind::Document,
+            medulla_types::ServedModalityKind::Document,
             crate::raft::SanitizedModalityMutation::IngestStream,
             &stream_wire(),
         )
@@ -207,11 +207,11 @@ mod modality_replay_receipt_tests {
         let ResultPayload::Raw(bytes) = payload else {
             panic!("typed replay receipt must remain a compact byte payload");
         };
-        let outcomes: Vec<eg_modality::ApplyOutcome> = rmp_serde::from_slice(&bytes).unwrap();
+        let outcomes: Vec<medulla_modality::ApplyOutcome> = rmp_serde::from_slice(&bytes).unwrap();
         assert_eq!(outcomes.len(), 2);
         assert_eq!(
             outcomes[1].disposition,
-            eg_modality::ApplyDisposition::IdempotentReplay
+            medulla_modality::ApplyDisposition::IdempotentReplay
         );
     }
 
@@ -219,7 +219,7 @@ mod modality_replay_receipt_tests {
     fn replay_decoder_rejects_wrong_shape_and_oversized_receipts() {
         let wrong_payload = rmp_serde::to_vec_named(&ResultPayload::Bool(true)).unwrap();
         assert!(crate::raft::decode_sanitized_modality_result(
-            eg_types::ServedModalityKind::Document,
+            medulla_types::ServedModalityKind::Document,
             crate::raft::SanitizedModalityMutation::Ingest,
             &wrong_payload,
         )
@@ -228,21 +228,21 @@ mod modality_replay_receipt_tests {
         // A stream operation requires the typed stream result; a single outcome
         // must not be silently reinterpreted as a one-item stream.
         assert!(crate::raft::decode_sanitized_modality_result(
-            eg_types::ServedModalityKind::Document,
+            medulla_types::ServedModalityKind::Document,
             crate::raft::SanitizedModalityMutation::IngestStream,
             &single_wire(),
         )
         .is_err());
 
-        let outcome = eg_modality::ApplyOutcome {
-            disposition: eg_modality::ApplyDisposition::Applied,
+        let outcome = medulla_modality::ApplyOutcome {
+            disposition: medulla_modality::ApplyDisposition::Applied,
             observation_version: 1,
             event_sequence: 1,
         };
         let oversized = vec![outcome; 65];
         let oversized_wire = encode_modality_replay_wire(&oversized);
         assert!(crate::raft::decode_sanitized_modality_result(
-            eg_types::ServedModalityKind::Document,
+            medulla_types::ServedModalityKind::Document,
             crate::raft::SanitizedModalityMutation::IngestStream,
             &oversized_wire,
         )
@@ -250,11 +250,11 @@ mod modality_replay_receipt_tests {
     }
 }
 
-// ── Agent-memory / scene / trajectory dispatch round-trip (CONCEPT:EG-KG.memory.eg-batch-decay-caller) ────
+// ── Agent-memory / scene / trajectory dispatch round-trip (CONCEPT:MEDULLA-KG.memory.medulla-batch-decay-caller) ────
 //
-// Drive the EG-318 Methods through the SAME `dispatch` entrypoint a wire request
+// Drive the MEDULLA-318 Methods through the SAME `dispatch` entrypoint a wire request
 // hits (auth → routing → access-classify → handler → GraphCore), proving each wire
-// op reaches its eg-core primitive and returns the expected payload — the served
+// op reaches its medulla-core primitive and returns the expected payload — the served
 // surface, not the library unit. Runs on a bare `--features server` build (the
 // state builder gates every optional field behind its own feature).
 #[cfg(all(test, feature = "ast"))]
@@ -585,7 +585,7 @@ mod eg318_dispatch_tests {
         rmp_serde::to_vec_named(&v).unwrap()
     }
 
-    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-220 — CreateSummaryNode over the wire → SummaryChildren
+    /// CONCEPT:MEDULLA-KG.memory.medulla-batch-decay-caller/MEDULLA-220 — CreateSummaryNode over the wire → SummaryChildren
     /// reads back the linked children.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_create_summary_then_read_children() {
@@ -640,7 +640,7 @@ mod eg318_dispatch_tests {
         }
     }
 
-    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-221 — Consolidate over the wire returns the deterministic
+    /// CONCEPT:MEDULLA-KG.memory.medulla-batch-decay-caller/MEDULLA-221 — Consolidate over the wire returns the deterministic
     /// semantic node id.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_consolidate_returns_semantic_id() {
@@ -679,7 +679,7 @@ mod eg318_dispatch_tests {
         }
     }
 
-    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-222 — Maintain (decay + evict) over the wire returns the
+    /// CONCEPT:MEDULLA-KG.memory.medulla-batch-decay-caller/MEDULLA-222 — Maintain (decay + evict) over the wire returns the
     /// `(decayed, pruned_ids)` tuple.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_maintain_decays_and_evicts() {
@@ -722,7 +722,7 @@ mod eg318_dispatch_tests {
         assert_eq!(pruned, vec!["low"]);
     }
 
-    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-087 — AddSceneObject over the wire → WorldTransform reads
+    /// CONCEPT:MEDULLA-KG.memory.medulla-batch-decay-caller/MEDULLA-087 — AddSceneObject over the wire → WorldTransform reads
     /// back the composed world pose.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_scene_object_then_world_transform() {
@@ -757,7 +757,7 @@ mod eg318_dispatch_tests {
         }
     }
 
-    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-099 — StartTrajectory + AppendStep over the wire →
+    /// CONCEPT:MEDULLA-KG.memory.medulla-batch-decay-caller/MEDULLA-099 — StartTrajectory + AppendStep over the wire →
     /// DiscountedReturn computes `Σ gamma^t · reward`.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_trajectory_append_then_discounted_return() {
@@ -832,7 +832,7 @@ mod eg318_dispatch_tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let (state, path) = ts_test_state("eg-ts-policy").await;
+        let (state, path) = ts_test_state("medulla-ts-policy").await;
         {
             let mut s = state.write().await;
             // RBAC (`feature = "security"`) is the mandatory current access decision
@@ -907,9 +907,9 @@ mod eg318_dispatch_tests {
     }
 
     /// End-to-end reachability proof for `TsListSeries`/`TsEvict`/`TsDeleteSeries`
-    /// (CONCEPT:EG-KG.storage.series-retention-reachability): before this test's
+    /// (CONCEPT:MEDULLA-KG.storage.series-retention-reachability): before this test's
     /// production code existed, `SeriesStore::evict_before`/`delete_series`/
-    /// `list_series` were reachable ONLY from `eg-tsdb`'s own crate-internal unit
+    /// `list_series` were reachable ONLY from `medulla-tsdb`'s own crate-internal unit
     /// tests — no `Method` variant, no RPC route, no caller anywhere in `src/`. This
     /// drives all three through the SAME `dispatch()` entrypoint a wire request
     /// hits, against a REAL `SeriesStore`/redb file, proving: (1) `TsListSeries`
@@ -928,7 +928,7 @@ mod eg318_dispatch_tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let (state, path) = ts_test_state("eg-ts-retention").await;
+        let (state, path) = ts_test_state("medulla-ts-retention").await;
         {
             let mut s = state.write().await;
             register_ts_tenants(&mut s);
@@ -1103,7 +1103,7 @@ mod eg318_dispatch_tests {
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
 
-        let (state, path) = ts_test_state("eg-ts-retention-acl").await;
+        let (state, path) = ts_test_state("medulla-ts-retention-acl").await;
         {
             let mut s = state.write().await;
             s.isolation.add_role(Role::new("reader-acme-private"));
@@ -1197,7 +1197,7 @@ mod eg318_dispatch_tests {
     }
 }
 
-// ── Admin-scope enforcement dispatch round-trip (CONCEPT:EG-KG.compute.feature, EG-P0-6) ──────
+// ── Admin-scope enforcement dispatch round-trip (CONCEPT:MEDULLA-KG.compute.feature, MEDULLA-P0-6) ──────
 //
 // Drives `Method::RegisterIdentity` and `Method::RbacAdmin` through the SAME
 // `dispatch` entrypoint a wire request hits, proving the admin-scope gate added at
@@ -1390,7 +1390,7 @@ mod admin_scope_tests {
 
     /// Once ANY identity exists, a plain `Agent`-role caller with NO admin
     /// capability is REJECTED trying to register another identity — the core
-    /// EG-P0-6 guarantee (an admin method without the capability is rejected).
+    /// MEDULLA-P0-6 guarantee (an admin method without the capability is rejected).
     #[tokio::test(flavor = "multi_thread")]
     async fn admin_method_rejected_without_capability() {
         let state = state_min();
@@ -1479,7 +1479,7 @@ mod admin_scope_tests {
         );
     }
 
-    // ── `Method::GetIdentity` (CONCEPT:EG-KG.compute.feature) ─────────────────────────
+    // ── `Method::GetIdentity` (CONCEPT:MEDULLA-KG.compute.feature) ─────────────────────────
     //
     // The identity read-back closing the `RegisterIdentity` blind-upsert gap. Driven
     // through the SAME `dispatch` entrypoint as the tests above, so it inherits the
@@ -1560,7 +1560,7 @@ mod admin_scope_tests {
     }
 
     /// `GetIdentity` is gated `security:admin`, the same scope `RegisterIdentity`
-    /// already requires (CONCEPT:EG-P0-6) — a caller with no admin capability is
+    /// already requires (CONCEPT:MEDULLA-P0-6) — a caller with no admin capability is
     /// rejected exactly like an unprivileged `RegisterIdentity` caller is.
     #[tokio::test(flavor = "multi_thread")]
     async fn get_identity_rejected_without_admin_capability() {
@@ -1613,7 +1613,7 @@ mod admin_scope_tests {
     }
 }
 
-// ── Blob substrate dispatch round-trip (CONCEPT:EG-KG.storage.blob-namespace) ─────────────────────
+// ── Blob substrate dispatch round-trip (CONCEPT:MEDULLA-KG.storage.blob-namespace) ─────────────────────
 //
 // Drives the Blob* methods through the SAME `dispatch` entrypoint a wire request
 // hits (auth → routing → handler → CAS), proving streamed round-trip integrity +
@@ -1651,7 +1651,7 @@ mod blob_dispatch_tests {
         {
             state.persistence = Some(std::sync::Arc::new(
                 crate::server::persistence::redb_backend::RedbBackend::open(
-                    crate::server::unique_temp_dir("eg-blob-dispatch-graph")
+                    crate::server::unique_temp_dir("medulla-blob-dispatch-graph")
                         .to_string_lossy()
                         .into_owned(),
                     256,
@@ -1816,12 +1816,12 @@ mod blob_dispatch_tests {
         // real `dispatch()` entrypoint (auth → routing → handler), which resolves
         // process-global env-configured state on the request path; a concurrent
         // `crypto::tests::EnvGuard`-protected test transiently mutating the shared
-        // `EPISTEMIC_GRAPH_ENCRYPTION_KEY`/`_TXN_RECOVERY_KEY` env vars elsewhere in
+        // `MEDULLA_ENCRYPTION_KEY`/`_TXN_RECOVERY_KEY` env vars elsewhere in
         // the crate can otherwise land mid-flight of this test's dispatch calls. See
         // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
         #[cfg(feature = "security")]
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-blob-dispatch-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-blob-dispatch-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         // Baseline BEFORE any of this test's own allocation, so the bounded-memory
         // assertion below measures the DELTA this test's own streamed upload adds to
@@ -2010,7 +2010,7 @@ mod blob_dispatch_tests {
 // ever satisfy that gate -- exactly BUG-030's finding.
 //
 // The fix (this change) narrows `PlacementRoute`'s `authz_action` to
-// `cluster:placement-read` (`crates/eg-capabilities/src/lib.rs`), which an
+// `cluster:placement-read` (`crates/medulla-capabilities/src/lib.rs`), which an
 // ordinary `kg:read`/`kg:write` scope satisfies without ever reaching
 // `is_admin_authz_action`/`require_admin_capability` at all -- so this module
 // does NOT use `feature = "security"` or any `IsolationLayer` RBAC grant; the
@@ -2085,7 +2085,7 @@ mod placement_route_carrier_tests {
         let context = RequestContextClaims {
             principal: agent_id.to_string(),
             tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
+            audience: "medulla-test".to_string(),
             agent_id: agent_id.to_string(),
             roles: Vec::new(),
             scopes,
@@ -2140,7 +2140,7 @@ mod placement_route_carrier_tests {
     /// `require_admin_capability` applies at all.
     #[test]
     fn placement_route_authz_action_is_no_longer_admin_gated() {
-        let policy = eg_capabilities::policy(&Method::PlacementRoute {
+        let policy = medulla_capabilities::policy(&Method::PlacementRoute {
             request: crate::epistemic_operations::PlacementRouteRequest {
                 schema_version: crate::epistemic_operations::PlacementRouteRequestSchemaVersion::V1,
                 tenant_ref: "probe".to_string(),

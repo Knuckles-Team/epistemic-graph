@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 # Pure/static test -- never needs the shared native engine (see
-# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# conftest.py's session-scoped `start_medulla_server` fixture,
 # which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
@@ -88,8 +88,8 @@ def test_serial_exact_wrapper_requires_multimodal_summary() -> None:
     assert '"modalities": 4' in source
     assert '"dimensions_per_modality": 12' in source
     assert '"fault_cases": 16' in source
-    assert "EPISTEMIC_GRAPH_PERFORMANCE_EVIDENCE" in source
-    assert "EPISTEMIC_GRAPH_PERFORMANCE_EVIDENCE_SHA256" in source
+    assert "MEDULLA_PERFORMANCE_EVIDENCE" in source
+    assert "MEDULLA_PERFORMANCE_EVIDENCE_SHA256" in source
 
 
 def test_multimodal_run_delegates_each_campaign_phase() -> None:

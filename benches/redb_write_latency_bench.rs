@@ -18,10 +18,10 @@
 //! that grows with the graph is invisible on a fresh store.
 //!
 //! Deterministic: fixed payloads, fixed node ids, no RNG. Configuration (env):
-//!   * `EG_WRITE_LATENCY_DIR`   -- store directory (default: the OS temp dir;
+//!   * `MEDULLA_WRITE_LATENCY_DIR`   -- store directory (default: the OS temp dir;
 //!     point it at the disk under test, never at tmpfs)
-//!   * `EG_WRITE_LATENCY_N`     -- measured writes per scenario (default 400)
-//!   * `EG_WRITE_LATENCY_SIZES` -- comma-separated graph sizes (default
+//!   * `MEDULLA_WRITE_LATENCY_N`     -- measured writes per scenario (default 400)
+//!   * `MEDULLA_WRITE_LATENCY_SIZES` -- comma-separated graph sizes (default
 //!     `0,10000,50000`)
 //!
 //! Run: cargo bench --features full --bench redb_write_latency_bench
@@ -30,9 +30,9 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use epistemic_graph::protocol::Method;
-use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-use epistemic_graph::server::persistence::PersistenceBackend;
+use medulla::protocol::Method;
+use medulla::server::persistence::redb_backend::RedbBackend;
+use medulla::server::persistence::PersistenceBackend;
 use redb::{Database, Durability, TableDefinition};
 use tracing::field::{Field, Visit};
 use tracing::span::{Attributes, Id};
@@ -295,7 +295,7 @@ fn env_usize(name: &str, default: usize) -> usize {
 }
 
 fn sizes() -> Vec<usize> {
-    std::env::var("EG_WRITE_LATENCY_SIZES")
+    std::env::var("MEDULLA_WRITE_LATENCY_SIZES")
         .unwrap_or_else(|_| "0,10000,50000".to_string())
         .split(',')
         .filter_map(|size| size.trim().parse().ok())
@@ -306,11 +306,11 @@ fn main() {
     let phases = PhaseSamples::default();
     tracing::subscriber::set_global_default(tracing_subscriber::registry().with(phases.clone()))
         .expect("install phase collector");
-    let n = env_usize("EG_WRITE_LATENCY_N", 400);
-    let root = std::env::var("EG_WRITE_LATENCY_DIR")
+    let n = env_usize("MEDULLA_WRITE_LATENCY_N", 400);
+    let root = std::env::var("MEDULLA_WRITE_LATENCY_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir());
-    let dir = root.join(format!("eg-write-latency-{}", std::process::id()));
+    let dir = root.join(format!("medulla-write-latency-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("bench dir");
     println!("EH-290 write latency bench: dir={} n={n}", dir.display());

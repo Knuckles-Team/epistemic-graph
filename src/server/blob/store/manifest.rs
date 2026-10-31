@@ -2,8 +2,8 @@
 //! the one row write every manifest commit goes through.
 
 use super::{CAS_BLOBS, CAS_RETENTION};
-use eg_storage::BlobOwner;
-use eg_transaction::AdmittedOwnerWrite;
+use medulla_storage::BlobOwner;
+use medulla_transaction::AdmittedOwnerWrite;
 use redb::ReadableTable;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -65,16 +65,16 @@ pub(super) fn chunk_digest(bytes: &[u8]) -> Result<String, String> {
     Ok(hex_digest(bytes))
 }
 
-fn blob_msgpack_limits() -> eg_types::msgpack::MsgpackLimits {
-    eg_types::msgpack::MsgpackLimits::new(
+fn blob_msgpack_limits() -> medulla_types::msgpack::MsgpackLimits {
+    medulla_types::msgpack::MsgpackLimits::new(
         MAX_BLOB_MANIFEST_BYTES,
         MAX_BLOB_MANIFEST_ITEMS,
-        eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        medulla_types::msgpack::DEFAULT_MAX_DEPTH,
     )
 }
 
 pub(super) fn decode_blob_value<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
-    eg_types::msgpack::decode_bounded(bytes, blob_msgpack_limits())
+    medulla_types::msgpack::decode_bounded(bytes, blob_msgpack_limits())
         .map_err(|_| "blob metadata is invalid or exceeds resource limits".to_string())
 }
 
@@ -82,7 +82,7 @@ pub(super) fn decode_blob_value<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, 
 /// decode it, so no row is written that its own decoder would refuse.
 pub(super) fn encode_blob_value<T: Serialize>(value: &T, what: &str) -> Result<Vec<u8>, String> {
     let bytes = rmp_serde::to_vec_named(value).map_err(|error| error.to_string())?;
-    eg_types::msgpack::validate_single_value(&bytes, blob_msgpack_limits())
+    medulla_types::msgpack::validate_single_value(&bytes, blob_msgpack_limits())
         .map_err(|_| format!("{what} exceeds resource limits"))?;
     Ok(bytes)
 }
@@ -181,7 +181,7 @@ impl BlobManifest {
 
     /// Per-chunk `(offset, len)` boundaries, in file order — the running prefix sum
     /// of [`chunk_lengths`](Self::chunk_lengths). For random-access/seek over a blob
-    /// (CONCEPT:EG-KG.storage.backward-manifest-read variable boundaries).
+    /// (CONCEPT:MEDULLA-KG.storage.backward-manifest-read variable boundaries).
     pub fn chunk_offsets(&self) -> Vec<(u64, u32)> {
         let mut out = Vec::with_capacity(self.chunks.len());
         let mut off = 0u64;

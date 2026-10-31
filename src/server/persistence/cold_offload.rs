@@ -1,4 +1,4 @@
-//! Cold-tenant whole-graph offload (CONCEPT:EG-KG.sharding.eg-r6, M3).
+//! Cold-tenant whole-graph offload (CONCEPT:MEDULLA-KG.sharding.medulla-r6, M3).
 //!
 //! ## What it solves
 //!
@@ -42,7 +42,7 @@ struct TrackerKey {
 }
 
 /// Per-incarnation last-access tracker + offload bookkeeping
-/// (CONCEPT:EG-KG.sharding.eg-r6). The engine calls
+/// (CONCEPT:MEDULLA-KG.sharding.medulla-r6). The engine calls
 /// [`touch_with_incarnation`](ColdTenantTracker::touch_with_incarnation) on every
 /// read/write of a graph; the periodic [`offload_cold_tenants`] sweep reads it
 /// to pick idle graphs. Cheap relaxed atomics + two mutex-guarded maps stay off
@@ -181,7 +181,7 @@ impl ColdTenantTracker {
     }
 
     /// Pick the COLDEST (least-recently-touched) graph among `candidates`
-    /// (CONCEPT:EG-KG.sharding.lazy-graph-catalog — bounded hot-context cache admission control, DIST-P2-3).
+    /// (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog — bounded hot-context cache admission control, DIST-P2-3).
     /// A candidate this tracker has no access record for sorts FIRST (treated as
     /// infinitely cold — e.g. a graph that was just lazily opened and has not yet
     /// been `touch`ed on the dispatch path), ahead of one that has been genuinely
@@ -201,7 +201,7 @@ impl ColdTenantTracker {
     }
 }
 
-/// Offload one resident graph's whole in-RAM state, durability-gated (CONCEPT:EG-KG.sharding.eg-r6).
+/// Offload one resident graph's whole in-RAM state, durability-gated (CONCEPT:MEDULLA-KG.sharding.medulla-r6).
 /// Returns the freed node count, or `None` when it was NOT safe to drop (durability could
 /// not be confirmed — the graph stays resident, no loss). Reuses [`GraphCore::hibernate`]
 /// (KG-2.224) so reads serve via the KG-2.191 read-through afterward.
@@ -242,7 +242,7 @@ pub fn offload_graph_core(
 }
 
 /// Sweep the registry and offload every graph idle longer than `idle_window`
-/// (CONCEPT:EG-KG.sharding.eg-r6). Returns the number of graphs offloaded. The shared `__commons__`
+/// (CONCEPT:MEDULLA-KG.sharding.medulla-r6). Returns the number of graphs offloaded. The shared `__commons__`
 /// graph is never offloaded (every agent needs it hot). No-op when `idle_window` is huge
 /// / nothing is cold. Pure-Rust; reuses the hibernate + read-through path, so it never
 /// loses data.
@@ -342,7 +342,7 @@ async fn offload_one_cold_tenant(
     }
 }
 
-// ── Bounded hot-context cache: admission control + lazy open (CONCEPT:EG-KG.sharding.lazy-graph-catalog,
+// ── Bounded hot-context cache: admission control + lazy open (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog,
 // DIST-P2-3) ─────────────────────────────────────────────────────────────────────────
 //
 // The registry's catalog (`GraphRegistry::register_catalog_only`/`open_lazy`) lets
@@ -359,13 +359,13 @@ pub const DEFAULT_PRODUCTION_LAZY_OPEN_PAGE_SIZE: usize = 4096;
 /// The configured finite cap on resident hot-context graphs.
 pub fn max_resident_graphs() -> usize {
     crate::server::state::positive_runtime_limit_from_env(
-        "EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS",
+        "MEDULLA_MAX_RESIDENT_GRAPHS",
         DEFAULT_PRODUCTION_MAX_RESIDENT_GRAPHS,
     )
 }
 
 /// Admit a new/lazily-opened graph into the bounded hot-context cache
-/// (CONCEPT:EG-KG.sharding.lazy-graph-catalog): while the resident set is AT `cap`, evict the
+/// (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog): while the resident set is AT `cap`, evict the
 /// COLDEST resident graph (`__commons__` and `incoming` itself excluded) —
 /// durability-gated via `offload_graph_core` (the same no-loss hibernate path the
 /// R6 idle sweep and the byte-budget enforcer use) — REMOVING it from the resident
@@ -411,7 +411,7 @@ pub fn admit_capacity(
 }
 
 /// The configured positive page size for a paged lazy-open.
-/// [`eg_core::registry::GraphRegistry::open_lazy_paged`]: the graph becomes resident
+/// [`medulla_core::registry::GraphRegistry::open_lazy_paged`]: the graph becomes resident
 /// after one bounded page (nodes+edges combined, per page), instead of after a full
 /// rehydrate. Operations receive explicit partial-materialization state until all
 /// pages and maintained indexes are valid — the concrete fix for the honest limitation
@@ -421,13 +421,13 @@ pub fn admit_capacity(
 /// no incomplete whole-graph result is served in the interim.
 pub fn lazy_open_page_size() -> usize {
     crate::server::state::positive_runtime_limit_from_env(
-        "EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE",
+        "MEDULLA_LAZY_OPEN_PAGE_SIZE",
         DEFAULT_PRODUCTION_LAZY_OPEN_PAGE_SIZE,
     )
 }
 
 /// Lazily materialize a catalog-known graph's resident `GraphCore` on first access
-/// (CONCEPT:EG-KG.sharding.lazy-graph-catalog). A no-op if the graph is ALREADY resident (the common
+/// (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog). A no-op if the graph is ALREADY resident (the common
 /// case on the hot path — checked by the caller BEFORE taking the write lock this
 /// function needs, so an already-resident graph never pays for one) or genuinely
 /// unknown (neither cataloged nor resident — the caller's subsequent registry
@@ -436,7 +436,7 @@ pub fn lazy_open_page_size() -> usize {
 /// resident set never exceeds `cap`. Returns `true` when the graph is resident
 /// afterward.
 ///
-/// `page_size` (CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged adjacency") — resolved by the
+/// `page_size` (CONCEPT:MEDULLA-KG.sharding.paged-lazy-open, L38 "paged adjacency") — resolved by the
 /// caller via [`lazy_open_page_size`], same convention as `cap`/[`max_resident_graphs`]
 /// (an explicit parameter, not read from the environment HERE, so tests can exercise a
 /// specific page size deterministically without mutating global process env state).
@@ -496,8 +496,8 @@ pub async fn lazy_open(
     true
 }
 
-/// Background continuation of a paged [`lazy_open`] (CONCEPT:EG-KG.sharding.paged-lazy-open, L38): keeps
-/// calling [`eg_core::registry::GraphRegistry::page_in`] until the cursor is exhausted
+/// Background continuation of a paged [`lazy_open`] (CONCEPT:MEDULLA-KG.sharding.paged-lazy-open, L38): keeps
+/// calling [`medulla_core::registry::GraphRegistry::page_in`] until the cursor is exhausted
 /// (the graph's ENTIRE durable material has landed — the "no full rehydrate on first
 /// touch, load on demand" property, just spread across bounded off-request-path
 /// steps instead of one inline blocking fetch). Stops early, as a benign no-op, if the
@@ -715,7 +715,7 @@ mod unsafe_eviction_tests {
 #[cfg(all(test, feature = "redb"))]
 mod admission_tests {
     //! Bounded hot-context cache + admission-control proofs over a REAL redb
-    //! backend (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3) — the durable tier a lazily-opened
+    //! backend (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog, DIST-P2-3) — the durable tier a lazily-opened
     //! graph rehydrates from, and the tier that makes eviction loss-free.
     use super::*;
     #[cfg(feature = "security")]
@@ -897,7 +897,7 @@ mod admission_tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-lazy-n-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-lazy-n-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let state = redb_state(&dir_s).await;
@@ -967,7 +967,7 @@ mod admission_tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-lazy-reopen-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-lazy-reopen-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let state = redb_state(&dir_s).await;
@@ -1006,7 +1006,7 @@ mod admission_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-KG.sharding.paged-lazy-open (L38 "paged adjacency") — the literal "no full rehydrate"
+    /// CONCEPT:MEDULLA-KG.sharding.paged-lazy-open (L38 "paged adjacency") — the literal "no full rehydrate"
     /// proof: `open_lazy_paged` with a small `page_size` over a REAL redb-backed
     /// `RedbBackend::read_graph_material_page_blocking` materializes ONLY that page's
     /// worth of nodes immediately, not the whole graph, and repeated deterministic
@@ -1018,7 +1018,7 @@ mod admission_tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-lazy-paged-manual-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-lazy-paged-manual-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let state = redb_state(&dir_s).await;
@@ -1087,7 +1087,7 @@ mod admission_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-KG.sharding.paged-lazy-open (L38) — `lazy_open`'s wiring: with `page_size > 0` it
+    /// CONCEPT:MEDULLA-KG.sharding.paged-lazy-open (L38) — `lazy_open`'s wiring: with `page_size > 0` it
     /// returns resident/queryable immediately (without inline-blocking on a full
     /// rehydrate), and the spawned [`page_in_remaining`] background task eventually
     /// lands the rest of a graph bigger than one page.
@@ -1098,7 +1098,7 @@ mod admission_tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-lazy-paged-bg-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-lazy-paged-bg-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let state = redb_state(&dir_s).await;
@@ -1172,11 +1172,11 @@ mod admission_tests {
     async fn lazy_startup_hydrates_nothing_until_accessed() {
         // Held for the whole test: it opens `redb_state` (write side), shuts it down,
         // then opens a SECOND `RedbBackend` on the same dir (reload side) — both must
-        // resolve the same `EPISTEMIC_GRAPH_ENCRYPTION_KEY` cipher. See
+        // resolve the same `MEDULLA_ENCRYPTION_KEY` cipher. See
         // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
         #[cfg(feature = "security")]
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-lazy-boot-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-lazy-boot-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
@@ -1194,7 +1194,7 @@ mod admission_tests {
         // ── reload side: fresh backend + fresh empty state, CATALOG-ONLY load ──
         let backend2: Arc<dyn PersistenceBackend> =
             Arc::new(RedbBackend::open(dir_s.clone(), 64).expect("reopen"));
-        // RBAC (CONCEPT:EG-KG.compute.feature) is mandatory for every non-System
+        // RBAC (CONCEPT:MEDULLA-KG.compute.feature) is mandatory for every non-System
         // identity, so the reload fixture uses the same registered System agent
         // as the write-side state.
         let mut state2 = ServerState::new_for_test(SECRET, ServerState::test_isolation(TEST_AGENT));
@@ -1265,7 +1265,7 @@ mod admission_tests {
     async fn restart_rehydrates_commons_before_point_and_cypher_rls_reads() {
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!(
-            "eg-ne105-restart-{}-{}",
+            "medulla-ne105-restart-{}-{}",
             std::process::id(),
             NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
@@ -1520,7 +1520,7 @@ mod admission_tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-lazy-quota-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-lazy-quota-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let state = redb_state(&dir_s).await;
@@ -1580,7 +1580,7 @@ mod admission_tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn cold_sweep_evicts_idle_graphs_but_never_commons() {
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-cold-sweep-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-cold-sweep-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let state = redb_state(&dir_s).await;

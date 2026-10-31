@@ -6,7 +6,7 @@ pub(crate) fn resolve_conflict_wire(
     semantics: &str,
     view: &crate::graph::GraphView,
 ) -> Result<crate::protocol::ResolveConflictResult, String> {
-    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
+    let bg = medulla_epistemic::BeliefGraph::from_graph_view(view);
     let bg = restrict_belief_graph_to_component(&bg, node_ids);
 
     let (extension_sets, surviving, defeated, undecided): ConflictClassification = match semantics {
@@ -50,17 +50,17 @@ pub(crate) fn resolve_conflict_wire(
 /// it), or `undecided` (neither).
 #[cfg(feature = "epistemic-tms")]
 pub(crate) fn resolve_conflict_grounded(
-    bg: &eg_epistemic::BeliefGraph,
+    bg: &medulla_epistemic::BeliefGraph,
     node_ids: &[String],
 ) -> ConflictClassification {
-    let grounded = eg_epistemic::grounded_extension(bg);
+    let grounded = medulla_epistemic::grounded_extension(bg);
     let mut surviving = Vec::new();
     let mut defeated = Vec::new();
     let mut undecided = Vec::new();
     for id in node_ids {
         if grounded.contains(id) {
             surviving.push(id.clone());
-        } else if eg_epistemic::augmented_attackers(bg, id)
+        } else if medulla_epistemic::augmented_attackers(bg, id)
             .iter()
             .any(|a| grounded.contains(a))
         {
@@ -77,14 +77,14 @@ pub(crate) fn resolve_conflict_grounded(
 /// `undecided` (in some but not all, or there are no extensions at all).
 #[cfg(feature = "epistemic-tms")]
 pub(crate) fn resolve_conflict_preferred_or_stable(
-    bg: &eg_epistemic::BeliefGraph,
+    bg: &medulla_epistemic::BeliefGraph,
     node_ids: &[String],
     preferred: bool,
 ) -> ConflictClassification {
     let extensions = if preferred {
-        eg_epistemic::preferred_extensions(bg)
+        medulla_epistemic::preferred_extensions(bg)
     } else {
-        eg_epistemic::stable_extensions(bg)
+        medulla_epistemic::stable_extensions(bg)
     };
     let mut surviving = Vec::new();
     let mut defeated = Vec::new();
@@ -109,7 +109,7 @@ pub(crate) fn resolve_conflict_preferred_or_stable(
 /// argument with no attack/support path to `seeds` cannot influence (or be
 /// influenced by) any of them under grounded/preferred/stable semantics -- so this
 /// changes nothing about `seeds`' own computed status. It DOES change the argument
-/// COUNT `eg_epistemic::tms` sees: unrestricted, `BeliefGraph::from_graph_view`
+/// COUNT `medulla_epistemic::tms` sees: unrestricted, `BeliefGraph::from_graph_view`
 /// carries every node in the whole graph as a trivially-unattacked "argument"
 /// (`from_graph_view` seeds `priors` from every node, whether or not it
 /// participates in any epistemic edge), so a caller-scoped 3-argument query over a
@@ -121,9 +121,9 @@ pub(crate) fn resolve_conflict_preferred_or_stable(
 /// whole graph.
 #[cfg(feature = "epistemic-tms")]
 pub(crate) fn restrict_belief_graph_to_component(
-    bg: &eg_epistemic::BeliefGraph,
+    bg: &medulla_epistemic::BeliefGraph,
     seeds: &[String],
-) -> eg_epistemic::BeliefGraph {
+) -> medulla_epistemic::BeliefGraph {
     let mut adjacency: std::collections::HashMap<&str, Vec<&str>> =
         std::collections::HashMap::new();
     for (target, edges) in &bg.in_edges {
@@ -172,7 +172,7 @@ pub(crate) fn restrict_belief_graph_to_component(
             )
         })
         .collect();
-    eg_epistemic::BeliefGraph {
+    medulla_epistemic::BeliefGraph {
         priors,
         in_edges,
         ..Default::default()
@@ -180,16 +180,16 @@ pub(crate) fn restrict_belief_graph_to_component(
 }
 
 /// `Method::WhatChanged` (EPI-P3-5, L53) — between two transaction times, which beliefs
-/// changed and why, over the WHOLE graph (`eg_epistemic::what_changed`).
+/// changed and why, over the WHOLE graph (`medulla_epistemic::what_changed`).
 #[cfg(feature = "epistemic-tms")]
 pub(crate) fn what_changed_wire(
     view: &crate::graph::GraphView,
     tx_from: u64,
     tx_to: u64,
 ) -> crate::protocol::WhatChangedResult {
-    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
-    let policy = eg_epistemic::AuthorityPolicy::default();
-    let changed = eg_epistemic::what_changed(&bg, tx_from, tx_to, &policy);
+    let bg = medulla_epistemic::BeliefGraph::from_graph_view(view);
+    let policy = medulla_epistemic::AuthorityPolicy::default();
+    let changed = medulla_epistemic::what_changed(&bg, tx_from, tx_to, &policy);
     crate::protocol::WhatChangedResult {
         changed: changed
             .iter()
@@ -208,13 +208,13 @@ pub(crate) fn what_changed_wire(
 }
 
 /// SURPASS gap-closure ("unify the two evidence resolvers"): map an
-/// `eg_alignment::ResolvedArtifact` onto its wire twin.
+/// `medulla_alignment::ResolvedArtifact` onto its wire twin.
 #[cfg(all(feature = "evidence-graph", feature = "alignment"))]
 pub(crate) fn resolved_artifact_wire(
-    r: eg_alignment::ResolvedArtifact,
+    r: medulla_alignment::ResolvedArtifact,
 ) -> crate::protocol::ResolvedArtifactWire {
     match r {
-        eg_alignment::ResolvedArtifact::Text {
+        medulla_alignment::ResolvedArtifact::Text {
             subject_ref,
             excerpt,
         } => crate::protocol::ResolvedArtifactWire {
@@ -225,7 +225,7 @@ pub(crate) fn resolved_artifact_wire(
             note: None,
             reason: None,
         },
-        eg_alignment::ResolvedArtifact::Blob {
+        medulla_alignment::ResolvedArtifact::Blob {
             subject_ref,
             blob_ref,
             note,
@@ -237,7 +237,7 @@ pub(crate) fn resolved_artifact_wire(
             note: Some(note),
             reason: None,
         },
-        eg_alignment::ResolvedArtifact::Unresolved {
+        medulla_alignment::ResolvedArtifact::Unresolved {
             subject_ref,
             reason,
         } => crate::protocol::ResolvedArtifactWire {
@@ -251,37 +251,37 @@ pub(crate) fn resolved_artifact_wire(
     }
 }
 
-/// Stable, machine-readable string form of `eg_alignment::UnresolvedReason` for
+/// Stable, machine-readable string form of `medulla_alignment::UnresolvedReason` for
 /// `ResolvedArtifactWire.reason` — the resolver reason-code catalog GOC-05's
 /// acceptance gates require ("Attach exact resolver outputs and every
 /// unresolved reason code").
 #[cfg(all(feature = "evidence-graph", feature = "alignment"))]
-pub(crate) fn unresolved_reason_wire(reason: eg_alignment::UnresolvedReason) -> &'static str {
+pub(crate) fn unresolved_reason_wire(reason: medulla_alignment::UnresolvedReason) -> &'static str {
     match reason {
-        eg_alignment::UnresolvedReason::MissingRendition => "missing_rendition",
-        eg_alignment::UnresolvedReason::CodecUnavailable => "codec_unavailable",
-        eg_alignment::UnresolvedReason::PolicyDenied => "policy_denied",
-        eg_alignment::UnresolvedReason::CorruptBytes => "corrupt_bytes",
-        eg_alignment::UnresolvedReason::OutOfRange => "out_of_range",
+        medulla_alignment::UnresolvedReason::MissingRendition => "missing_rendition",
+        medulla_alignment::UnresolvedReason::CodecUnavailable => "codec_unavailable",
+        medulla_alignment::UnresolvedReason::PolicyDenied => "policy_denied",
+        medulla_alignment::UnresolvedReason::CorruptBytes => "corrupt_bytes",
+        medulla_alignment::UnresolvedReason::OutOfRange => "out_of_range",
     }
 }
 
-/// X-1 (CONCEPT:EG-X1) — wire-project an `eg_epistemic::EvidenceCitation`. `kind`
+/// X-1 (CONCEPT:MEDULLA-X1) — wire-project an `medulla_epistemic::EvidenceCitation`. `kind`
 /// renders the `EdgeKind` via `Debug` (the SAME flat-string convention
 /// `JustificationNodeWire::rule` uses for `JustRule`); `locus` reuses the
 /// `evidence_locus_wire` mapper already defined above for `ExplainProvenance`.
 /// SURPASS gap-closure ("unify the two evidence resolvers"): when `resolver` is
 /// `Some` (the `alignment` feature is compiled in AND a blob store is configured —
 /// see `explain_evidence_wire`), the citation's `locus` is ALSO resolved through it
-/// (`eg_alignment::EvidenceResolver::resolve`), attaching the REAL excerpt/blob
+/// (`medulla_alignment::EvidenceResolver::resolve`), attaching the REAL excerpt/blob
 /// digest as `resolved` instead of leaving the caller with locus metadata alone.
 #[cfg(all(feature = "evidence-graph", feature = "alignment"))]
 pub(crate) fn evidence_citation_wire(
-    c: &eg_epistemic::EvidenceCitation,
+    c: &medulla_epistemic::EvidenceCitation,
     resolver: Option<&crate::server::blob::cas_resolver::CasEvidenceResolver<'_>>,
 ) -> crate::protocol::EvidenceCitationWire {
     let resolved = resolver
-        .and_then(|resolver| eg_alignment::EvidenceResolver::resolve(resolver, &c.locus))
+        .and_then(|resolver| medulla_alignment::EvidenceResolver::resolve(resolver, &c.locus))
         .map(resolved_artifact_wire);
     crate::protocol::EvidenceCitationWire {
         evidence_id: c.evidence_id.clone(),
@@ -297,7 +297,7 @@ pub(crate) fn evidence_citation_wire(
 /// resolution.
 #[cfg(all(feature = "evidence-graph", not(feature = "alignment")))]
 pub(crate) fn evidence_citation_wire(
-    c: &eg_epistemic::EvidenceCitation,
+    c: &medulla_epistemic::EvidenceCitation,
 ) -> crate::protocol::EvidenceCitationWire {
     crate::protocol::EvidenceCitationWire {
         evidence_id: c.evidence_id.clone(),
@@ -307,8 +307,8 @@ pub(crate) fn evidence_citation_wire(
     }
 }
 
-/// `Method::ExplainEvidence` (CONCEPT:EG-X1) — build a `BeliefGraph` off `view` and
-/// resolve `node_id`'s cited multimodal evidence (`eg_epistemic::evidence_citations`).
+/// `Method::ExplainEvidence` (CONCEPT:MEDULLA-X1) — build a `BeliefGraph` off `view` and
+/// resolve `node_id`'s cited multimodal evidence (`medulla_epistemic::evidence_citations`).
 /// SURPASS gap-closure ("unify the two evidence resolvers"): `blob_store`, when
 /// `Some`, backs a `CasEvidenceResolver` over the SAME `view` snapshot so every
 /// citation ALSO carries its resolved content — see `evidence_citation_wire`.
@@ -318,10 +318,10 @@ pub(crate) fn explain_evidence_wire(
     view: &crate::graph::GraphView,
     blob_store: Option<std::sync::Arc<dyn crate::server::blob::ChunkStore>>,
 ) -> crate::protocol::ExplainEvidenceResult {
-    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
-    let citations = eg_epistemic::evidence_citations(&bg, node_id);
+    let bg = medulla_epistemic::BeliefGraph::from_graph_view(view);
+    let citations = medulla_epistemic::evidence_citations(&bg, node_id);
 
-    // CONCEPT:EG-OS.observability.slow-query-descriptor — OTEL epistemic span attributes (WS-1b),
+    // CONCEPT:MEDULLA-OS.observability.slow-query-descriptor — OTEL epistemic span attributes (WS-1b),
     // same idiom as the other epistemic handlers above. `ExplainEvidence` runs no belief
     // propagation (no posterior confidence is computed here), so `epistemic.status` is a
     // fixed descriptor rather than a believed/contested verdict; `contradiction_count`/
@@ -330,19 +330,19 @@ pub(crate) fn explain_evidence_wire(
     let ins = bg.in_edges.get(node_id).map(Vec::as_slice).unwrap_or(&[]);
     let supporting = ins
         .iter()
-        .filter(|(_, k)| *k == eg_epistemic::EdgeKind::Supports)
+        .filter(|(_, k)| *k == medulla_epistemic::EdgeKind::Supports)
         .count();
     let contradicting = ins
         .iter()
         .filter(|(_, k)| {
             matches!(
                 k,
-                eg_epistemic::EdgeKind::Contradicts | eg_epistemic::EdgeKind::Attacks
+                medulla_epistemic::EdgeKind::Contradicts | medulla_epistemic::EdgeKind::Attacks
             )
         })
         .count();
     let policy_labels =
-        eg_epistemic::classify_policy_labels(supporting, contradicting, 0).join(",");
+        medulla_epistemic::classify_policy_labels(supporting, contradicting, 0).join(",");
     let _span = tracing::debug_span!(
         "epistemic.explain_evidence",
         epistemic.status = "cited",
@@ -371,25 +371,25 @@ pub(crate) fn explain_evidence_wire(
     node_id: &str,
     view: &crate::graph::GraphView,
 ) -> crate::protocol::ExplainEvidenceResult {
-    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
-    let citations = eg_epistemic::evidence_citations(&bg, node_id);
+    let bg = medulla_epistemic::BeliefGraph::from_graph_view(view);
+    let citations = medulla_epistemic::evidence_citations(&bg, node_id);
 
     let ins = bg.in_edges.get(node_id).map(Vec::as_slice).unwrap_or(&[]);
     let supporting = ins
         .iter()
-        .filter(|(_, k)| *k == eg_epistemic::EdgeKind::Supports)
+        .filter(|(_, k)| *k == medulla_epistemic::EdgeKind::Supports)
         .count();
     let contradicting = ins
         .iter()
         .filter(|(_, k)| {
             matches!(
                 k,
-                eg_epistemic::EdgeKind::Contradicts | eg_epistemic::EdgeKind::Attacks
+                medulla_epistemic::EdgeKind::Contradicts | medulla_epistemic::EdgeKind::Attacks
             )
         })
         .count();
     let policy_labels =
-        eg_epistemic::classify_policy_labels(supporting, contradicting, 0).join(",");
+        medulla_epistemic::classify_policy_labels(supporting, contradicting, 0).join(",");
     let _span = tracing::debug_span!(
         "epistemic.explain_evidence",
         epistemic.status = "cited",
@@ -403,7 +403,7 @@ pub(crate) fn explain_evidence_wire(
     }
 }
 
-/// `Method::CausalEstimate` (EPI-P3-3/P3-6) — build an `eg_epistemic::CausalGraph`
+/// `Method::CausalEstimate` (EPI-P3-3/P3-6) — build an `medulla_epistemic::CausalGraph`
 /// from the request-carried `variables` (rejecting an out-of-topological-order
 /// parent as an explicit error, never a panic — mirrors
 /// `CausalGraph::add_variable`'s own contract), then run whichever of the crate's
@@ -418,7 +418,7 @@ pub(crate) fn causal_estimate_wire(
     do_values: &std::collections::BTreeMap<String, f64>,
     mode: crate::protocol::CausalQueryModeWire,
 ) -> Result<crate::protocol::CausalEstimateResult, String> {
-    let mut g = eg_epistemic::CausalGraph::new();
+    let mut g = medulla_epistemic::CausalGraph::new();
     for v in variables {
         let parents: Vec<(&str, f64)> = v.parents.iter().map(|(p, w)| (p.as_str(), *w)).collect();
         g.add_variable(v.id.clone(), parents, v.bias, v.noise_var)?;
@@ -450,7 +450,7 @@ pub(crate) fn causal_estimate_wire(
     Ok(crate::protocol::CausalEstimateResult { estimates: ordered })
 }
 
-/// `Method::CausalCounterfactual` (EPI-P3-6) — build an `eg_epistemic::CausalGraph`
+/// `Method::CausalCounterfactual` (EPI-P3-6) — build an `medulla_epistemic::CausalGraph`
 /// exactly as `causal_estimate_wire` does, then run Pearl's point-counterfactual
 /// recipe (`CausalGraph::counterfactual`) over the request's fully-observed
 /// `actual` unit and `do_values` intervention. Results (one point value per
@@ -461,7 +461,7 @@ pub(crate) fn causal_counterfactual_wire(
     actual: &std::collections::BTreeMap<String, f64>,
     do_values: &std::collections::BTreeMap<String, f64>,
 ) -> Result<crate::protocol::CausalCounterfactualResult, String> {
-    let mut g = eg_epistemic::CausalGraph::new();
+    let mut g = medulla_epistemic::CausalGraph::new();
     for v in variables {
         let parents: Vec<(&str, f64)> = v.parents.iter().map(|(p, w)| (p.as_str(), *w)).collect();
         g.add_variable(v.id.clone(), parents, v.bias, v.noise_var)?;
@@ -485,32 +485,32 @@ pub(crate) fn causal_counterfactual_wire(
 }
 
 /// `Method::RankByProvenance` (EPI-P3-3) — map the request-carried
-/// `RetrievalCandidateWire`s onto `eg_epistemic::RetrievalCandidate` and run
-/// `eg_epistemic::rank` under the request's `RankWeightsWire`.
+/// `RetrievalCandidateWire`s onto `medulla_epistemic::RetrievalCandidate` and run
+/// `medulla_epistemic::rank` under the request's `RankWeightsWire`.
 #[cfg(feature = "epistemic-causal")]
 pub(crate) fn rank_by_provenance_wire(
     candidates: &[crate::protocol::RetrievalCandidateWire],
     weights: crate::protocol::RankWeightsWire,
 ) -> crate::protocol::RankByProvenanceResult {
-    let candidates: Vec<eg_epistemic::RetrievalCandidate> = candidates
+    let candidates: Vec<medulla_epistemic::RetrievalCandidate> = candidates
         .iter()
-        .map(|c| eg_epistemic::RetrievalCandidate {
+        .map(|c| medulla_epistemic::RetrievalCandidate {
             id: c.id.clone(),
             similarity: c.similarity,
             source_reliability: c.source_reliability,
             freshness: c.freshness,
-            calibration: c.calibration.map(|cal| eg_epistemic::Calibration {
+            calibration: c.calibration.map(|cal| medulla_epistemic::Calibration {
                 interval: cal.interval,
                 level: cal.level,
                 evidence_count: cal.evidence_count,
             }),
         })
         .collect();
-    let weights = eg_epistemic::RankWeights {
+    let weights = medulla_epistemic::RankWeights {
         similarity: weights.similarity,
         evidence_quality: weights.evidence_quality,
     };
-    let ranked = eg_epistemic::rank(&candidates, weights);
+    let ranked = medulla_epistemic::rank(&candidates, weights);
     crate::protocol::RankByProvenanceResult {
         ranked: ranked
             .into_iter()

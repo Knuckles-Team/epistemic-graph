@@ -2,14 +2,14 @@
 //!
 //! Bridges the existing in-memory CDC ring ([`crate::server::cdc`], feature
 //! `streaming`) onto Kafka per `DEC-CA-03`: every ordered [`crate::wire::CdcEvent`]
-//! also lands on `eg.cdc.<graph>`, single explicit partition, DEC-CA-03's
+//! also lands on `medulla.cdc.<graph>`, single explicit partition, DEC-CA-03's
 //! JSON envelope shape. Everything here is glue: the trait + envelope +
-//! `rdkafka` producer live in the leaf crate `eg_stream::sink` (must not
-//! depend on `eg-core`/`eg-types`); this module is the one place that knows
-//! both `crate::wire::CdcEvent` AND `eg_stream::sink::SinkEvent`, so it does
+//! `rdkafka` producer live in the leaf crate `medulla_stream::sink` (must not
+//! depend on `medulla-core`/`medulla-types`); this module is the one place that knows
+//! both `crate::wire::CdcEvent` AND `medulla_stream::sink::SinkEvent`, so it does
 //! the translation and installs the bridge onto the live [`crate::server::cdc::CdcHub`].
 //!
-//! Migration/rollback: `EPISTEMIC_GRAPH_CDC_KAFKA_BROKERS` unset ⇒
+//! Migration/rollback: `MEDULLA_CDC_KAFKA_BROKERS` unset ⇒
 //! [`install_from_env`] is a no-op and `CdcHub` behaves byte-identically to
 //! a build without this feature at all (ring-only). A broker string that
 //! fails to construct a producer (bad host, SASL mode not linked, ...) is
@@ -17,24 +17,24 @@
 
 use std::sync::Arc;
 
-use eg_stream::sink::{CdcSink, KafkaCdcSink, KafkaConfig, SinkEvent, SinkOp};
+use medulla_stream::sink::{CdcSink, KafkaCdcSink, KafkaConfig, SinkEvent, SinkOp};
 
 use crate::server::cdc::{CdcHub, ExternalCdcSink};
 use crate::wire::{CdcEvent, CdcKind};
 
 /// Env var carrying the Kafka bootstrap-servers string. Unset ⇒ sink
 /// disabled (see module doc).
-pub const ENV_BROKERS: &str = "EPISTEMIC_GRAPH_CDC_KAFKA_BROKERS";
-/// Topic = `{prefix}{graph}`. Default matches `DEC-CA-03`'s `eg.cdc.<graph>`.
-pub const ENV_TOPIC_PREFIX: &str = "EPISTEMIC_GRAPH_CDC_KAFKA_TOPIC_PREFIX";
-const DEFAULT_TOPIC_PREFIX: &str = "eg.cdc.";
+pub const ENV_BROKERS: &str = "MEDULLA_CDC_KAFKA_BROKERS";
+/// Topic = `{prefix}{graph}`. Default matches `DEC-CA-03`'s `medulla.cdc.<graph>`.
+pub const ENV_TOPIC_PREFIX: &str = "MEDULLA_CDC_KAFKA_TOPIC_PREFIX";
+const DEFAULT_TOPIC_PREFIX: &str = "medulla.cdc.";
 /// `DEC-CA-03`: "producer config must support SASL/SCRAM even before CA-51
 /// wires the broker for it" — the broker itself stays PLAINTEXT/no-auth
 /// today, so these are normally unset.
-pub const ENV_SECURITY_PROTOCOL: &str = "EPISTEMIC_GRAPH_CDC_KAFKA_SECURITY_PROTOCOL";
-pub const ENV_SASL_MECHANISM: &str = "EPISTEMIC_GRAPH_CDC_KAFKA_SASL_MECHANISM";
-pub const ENV_SASL_USERNAME: &str = "EPISTEMIC_GRAPH_CDC_KAFKA_SASL_USERNAME";
-pub const ENV_SASL_PASSWORD: &str = "EPISTEMIC_GRAPH_CDC_KAFKA_SASL_PASSWORD";
+pub const ENV_SECURITY_PROTOCOL: &str = "MEDULLA_CDC_KAFKA_SECURITY_PROTOCOL";
+pub const ENV_SASL_MECHANISM: &str = "MEDULLA_CDC_KAFKA_SASL_MECHANISM";
+pub const ENV_SASL_USERNAME: &str = "MEDULLA_CDC_KAFKA_SASL_USERNAME";
+pub const ENV_SASL_PASSWORD: &str = "MEDULLA_CDC_KAFKA_SASL_PASSWORD";
 
 /// Install the Kafka sink on `hub` from process environment, if configured.
 /// Called once at startup (`main.rs`, `state.rs`) right after `CdcHub::new()`.
@@ -71,7 +71,7 @@ pub fn install_from_env(hub: &Arc<CdcHub>) {
     }
 }
 
-/// Adapts an `eg_stream::sink::CdcSink` onto `cdc::ExternalCdcSink`,
+/// Adapts an `medulla_stream::sink::CdcSink` onto `cdc::ExternalCdcSink`,
 /// translating `CdcEvent` → `SinkEvent` (msgpack-decode before/after,
 /// collapse `CdcKind` onto `SinkOp`) on every call and recording the W05
 /// lag/failure metrics. This is the one place in the whole lane that knows
@@ -115,11 +115,11 @@ fn decode(blob: &[u8], had: bool) -> Option<serde_json::Value> {
     if !had {
         return None;
     }
-    eg_types::msgpack::decode_property_value(blob).ok()
+    medulla_types::msgpack::decode_property_value(blob).ok()
 }
 
-/// `eg_types::wire::CdcEvent` → `eg_stream::sink::SinkEvent`. See the
-/// `eg_stream::sink` module doc for the four DEC-CA-03 fields
+/// `medulla_types::wire::CdcEvent` → `medulla_stream::sink::SinkEvent`. See the
+/// `medulla_stream::sink` module doc for the four DEC-CA-03 fields
 /// (`lsn`/`tenant`/`marking`/`actor`) this cannot populate and why.
 fn translate(event: &CdcEvent) -> SinkEvent {
     let is_edge = matches!(event.kind, CdcKind::AddEdge | CdcKind::RemoveEdge);

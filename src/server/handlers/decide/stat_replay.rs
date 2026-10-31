@@ -9,15 +9,15 @@
 //! identical, and the recomputed keyed seed must match the record's
 //! commitment; only then is the seed revealed in the logged copy.
 
-use eg_numeric::decision::features::FeatureMatrix;
-use eg_types::decision::digest::statistical_record_digest;
-use eg_types::decision::harness_contrast::{replay_record, CONTRAST_FEATURE_NAMES};
-use eg_types::decision::statistical::keyed::{seed_commitment, seed_text};
-use eg_types::decision::statistical::{
+use medulla_numeric::decision::features::FeatureMatrix;
+use medulla_types::decision::digest::statistical_record_digest;
+use medulla_types::decision::harness_contrast::{replay_record, CONTRAST_FEATURE_NAMES};
+use medulla_types::decision::statistical::keyed::{seed_commitment, seed_text};
+use medulla_types::decision::statistical::{
     FeatureMatrixRef, QuestionKind, StatisticalDecisionRecord, StatisticalErrorCode,
     StatisticalOutcome,
 };
-use eg_types::decision::DecisionErrorCode;
+use medulla_types::decision::DecisionErrorCode;
 
 use super::stat_belief::points;
 use super::stat_classes::current_rules;
@@ -83,7 +83,7 @@ fn same_answer(record: &StatisticalDecisionRecord, replayed: &Executed, derived:
 fn require_supported_replay(record: &StatisticalDecisionRecord) -> Result<(), String> {
     require_supported_question_kind(record.question.kind)?;
     if record.task_plan.is_some()
-        || record.question.kind == eg_types::decision::QuestionKind::TaskPlan
+        || record.question.kind == medulla_types::decision::QuestionKind::TaskPlan
     {
         return Err(refusal(
             StatisticalErrorCode::ParameterInvalid,
@@ -107,7 +107,7 @@ fn require_supported_replay(record: &StatisticalDecisionRecord) -> Result<(), St
     Ok(())
 }
 
-/// The verify-replay of a `HarnessContrast` record (EG-DECISION-ENGINE-R803.5):
+/// The verify-replay of a `HarnessContrast` record (MEDULLA-DECISION-ENGINE-R803.5):
 /// the generic ladder re-run cannot reproduce the contrast outcome, so the
 /// stored inputs are re-derived by the decision's own deterministic core —
 /// its pins still resolve, its stored matrix carries exactly the recorded

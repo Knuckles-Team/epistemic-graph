@@ -1,0 +1,95 @@
+# Virtual-mapping fixture: container-manager workload and image to
+# kg:deployedAs and kg:usesImage (MEDULLA-SUPPLY-VOCAB-R006.3).
+#
+# Recorded over the container-manager MCP operations `list_pods`
+# (workloads) and `list_images` (images). The K8sService record's workload
+# reference projects onto kg:deployedAs (resolved by entity resolution
+# between the service and its workload, plan.md entity-resolution table:
+# namespace+name); the Deployment's image field projects onto kg:usesImage.
+# The container-manager access-contract .ttl rows are added cross-repo by
+# MEDULLA-SUPPLY-VOCAB-R006.1 (agent-packages); this fixture records the mapping
+# against the discovered operations.
+
+@prefix vg:    <http://knuckles.team/kg/virtual-graph#> .
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:    <http://knuckles.team/test/vm-container-manager#> .
+
+ex:containerManagerConnection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:endpointRef [ vg:url "https://container-manager.invalid/api" ] .
+
+ex:cmWorkloadsAccess a vg:MetadataContract ;
+    vg:contractSource ex:containerManagerConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:b8662d408cf6008042f2bd57bea1d03aeb5bc7688b8edbd01f99814e3b1e6c91" ;
+    vg:discoveredEntity "Pod" ;
+    vg:discoveredEntity "Deployment" ;
+    vg:discoveredEntity "K8sService" ;
+    vg:discoveredField "name" ;
+    vg:discoveredField "namespace" ;
+    vg:discoveredField "image" ;
+    # The K8sService record's resolved workload reference (entity resolution,
+    # namespace+name blocking key).
+    vg:discoveredField "workload" ;
+    vg:discoveredOperation "list_pods" .
+
+ex:cmImagesAccess a vg:MetadataContract ;
+    vg:contractSource ex:containerManagerConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:0c4e9bd921763abc21fca729096e91d7bf80150bc028e945ed44e5bdfe3706ae" ;
+    vg:discoveredEntity "Image" ;
+    vg:discoveredField "name" ;
+    vg:discoveredField "digest" ;
+    vg:discoveredOperation "list_images" .
+
+# The Deployment is the workload the service is deployed as.
+ex:deploymentMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:cmWorkloadsAccess ;
+    vg:mapsOntologyClass infra:Workload ;
+    vg:mapsEntity "Deployment" ;
+    vg:keyField "name" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "name" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:usesImage ;
+        vg:field "image" ] ;
+    vg:approved true .
+
+# The Pod is the scheduled replica group; it carries no image projection of
+# its own (usesImage's domain is Container or Workload).
+ex:podMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:cmWorkloadsAccess ;
+    vg:mapsOntologyClass infra:Pod ;
+    vg:mapsEntity "Pod" ;
+    vg:keyField "name" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "name" ] ;
+    vg:approved true .
+
+# The K8sService record names the workload it fronts: the deployedAs edge.
+ex:k8sServiceMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:cmWorkloadsAccess ;
+    vg:mapsOntologyClass infra:Service ;
+    vg:mapsEntity "K8sService" ;
+    vg:keyField "name" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "name" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:deployedAs ;
+        vg:field "workload" ] ;
+    vg:approved true .
+
+ex:imageMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:cmImagesAccess ;
+    vg:mapsOntologyClass infra:ContainerImage ;
+    vg:mapsEntity "Image" ;
+    vg:keyField "name" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "name" ] ;
+    vg:approved true .

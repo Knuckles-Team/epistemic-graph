@@ -20,8 +20,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use eg_core::graph::GraphCore;
-use eg_stream::telemetry::{
+use medulla_core::graph::GraphCore;
+use medulla_stream::telemetry::{
     Aggregation, Declarations, DeclaredEntity, DeclaredHealth, DeclaredState, EntityClass,
     EntityRef,
 };
@@ -150,7 +150,7 @@ fn scheduled_by(core: &GraphCore, source: &str, target: &str) -> bool {
 }
 
 fn edge_relation(properties: &[u8]) -> Option<String> {
-    let edge = eg_types::msgpack::decode_property_value(properties).ok()?;
+    let edge = medulla_types::msgpack::decode_property_value(properties).ok()?;
     edge.get("relationship")
         .and_then(Value::as_str)
         .map(str::to_string)
@@ -162,7 +162,7 @@ fn is_scheduled_by(relation: String) -> bool {
 
 impl ReadDeclarations {
     fn push(&mut self, class: EntityClass, node_id: String, properties: &[u8]) {
-        let Ok(node) = eg_types::msgpack::decode_property_value(properties) else {
+        let Ok(node) = medulla_types::msgpack::decode_property_value(properties) else {
             self.invalid += 1;
             return;
         };

@@ -5,7 +5,7 @@
 use super::*;
 use crate::server::auth::VerifiedRequestContext;
 use crate::server::sql_tables::test_persist_dir;
-use eg_types::identity::*;
+use medulla_types::identity::*;
 
 const TENANT: &str = "tenant-identity-view";
 
@@ -30,10 +30,10 @@ fn store() -> IdentityStore {
         scopes: [IDENTITY_AUTHENTICATE_SCOPE.to_string()].into(),
     });
     stamp.password_hash = Some("$argon2id$v=19$m=1024,t=1,p=1$c2FsdA$aGFzaA".to_string());
-    let op = eg_types::test_support::identity::bootstrap_local_op();
+    let op = medulla_types::test_support::identity::bootstrap_local_op();
     let ctx = ApplyContext {
         now_ms: 1_800_000_000_000,
-        classifier: &eg_capabilities::scopes::ScopeRegistry,
+        classifier: &medulla_capabilities::scopes::ScopeRegistry,
     };
     store.apply(&op, &stamp, &ctx).unwrap();
     store
@@ -58,7 +58,7 @@ fn query_as(
     let projection =
         super::super::authorized_read_store_for_query(authority, dir, sql, None, &no_graph())?;
     let view = crate::graph::GraphView::default();
-    let typed = eg_query::exec_sql_typed_with_tables(&view, projection.store(), sql)?;
+    let typed = medulla_query::exec_sql_typed_with_tables(&view, projection.store(), sql)?;
     Ok(typed
         .rows
         .iter()
@@ -97,7 +97,7 @@ fn store_with_ann() -> IdentityStore {
         delegated: false,
         scopes: [IDENTITY_ADMIN_SCOPE.to_string()].into(),
     });
-    let create = eg_types::test_support::identity::create_administrator_op("ann", "principal:ann");
+    let create = medulla_types::test_support::identity::create_administrator_op("ann", "principal:ann");
     apply(&mut store, &create, &admin);
     store
 }
@@ -105,7 +105,7 @@ fn store_with_ann() -> IdentityStore {
 fn apply(store: &mut IdentityStore, op: &IdentityOp, stamp: &IdentityStamp) {
     let ctx = ApplyContext {
         now_ms: 1_800_000_000_000,
-        classifier: &eg_capabilities::scopes::ScopeRegistry,
+        classifier: &medulla_capabilities::scopes::ScopeRegistry,
     };
     store.apply(op, stamp, &ctx).unwrap();
 }

@@ -13,7 +13,7 @@ use super::super::agent_revision::{
 use super::*;
 
 fn prepare_component_entry(
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+    txn: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
     request: &AgentComponentPublishRequest,
     next_revision: u64,
     replay_context: &AgentLibraryMutationContext,
@@ -44,7 +44,7 @@ impl AgentLibraryStore {
         request.component.validate()?;
         require_context_tenant::<ComponentLayer>(&request.context, &request.component.tenant_id)?;
         super::super::decision_jobs::require_head_receipt(self, &request)?;
-        if request.component.kind == eg_types::agent_component::AgentComponentKind::GuardrailRule {
+        if request.component.kind == medulla_types::agent_component::AgentComponentKind::GuardrailRule {
             self.require_rule_promotable(&request.component)?;
         }
         let (expected_revision, owner) =
@@ -91,10 +91,10 @@ impl AgentLibraryStore {
     /// Resolve every pinned L1 component reference in the admitting write.
     pub(crate) fn resolve_component_pins_in_write(
         &self,
-        write: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+        write: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
         tenant_id: &str,
         subject: &str,
-        pins: &[&eg_types::agent_component::ComponentDependency],
+        pins: &[&medulla_types::agent_component::ComponentDependency],
     ) -> Result<(), String> {
         super::pins::resolve_component_pins_in_write(write, tenant_id, subject, pins)
     }

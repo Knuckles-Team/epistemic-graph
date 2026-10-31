@@ -5,12 +5,12 @@ pub(super) use super::super::agent_fixtures::{
 };
 use super::super::agent_revision::{decode_status_result, validate_status_record};
 use super::*;
-use eg_types::agent_component::ComponentDependency;
-use eg_types::agent_graph::{
+use medulla_types::agent_component::ComponentDependency;
+use medulla_types::agent_graph::{
     AgentGraphDraft, AgentGraphEdge, AgentGraphNode, AgentGraphNodeKind, AgentGraphShape,
 };
-use eg_types::agent_library::AgentLibraryLifecycle;
-use eg_types::mutation_batch::MutationBatchStatus;
+use medulla_types::agent_library::AgentLibraryLifecycle;
+use medulla_types::mutation_batch::MutationBatchStatus;
 
 pub(super) fn digest(byte: char) -> String {
     format!("sha256:{}", byte.to_string().repeat(64))
@@ -51,7 +51,7 @@ pub(super) fn component(
         store,
         tenant_id,
         reference,
-        eg_types::agent_component::AgentComponentKind::Schema,
+        medulla_types::agent_component::AgentComponentKind::Schema,
         seed_index(reference),
     )
 }
@@ -342,7 +342,7 @@ fn graph_status_rejects_an_unwrapped_result() {
     )
     .unwrap();
     let raw_result =
-        eg_storage::encode_bounded(&published.result, "unwrapped agent graph status result")
+        medulla_storage::encode_bounded(&published.result, "unwrapped agent graph status result")
             .unwrap();
     let error = decode_status_result::<GraphLayer>(&raw_result).unwrap_err();
     assert!(!error.is_empty(), "an unwrapped result must fail closed");
@@ -367,7 +367,7 @@ fn graph_status_rejects_redirected_identity_state_version_and_kind() {
         .unwrap();
     let owner_a = store.scope_handle("tenant-a").unwrap();
     let record = ledger_record(&store, "tenant-a", "status-bindings");
-    let refused = |record: &eg_types::MutationBatchRecord,
+    let refused = |record: &medulla_types::MutationBatchRecord,
                    graph_id: &str,
                    kind: AgentGraphMutationKind,
                    committed: &AgentGraphCommittedResult| {
@@ -662,7 +662,7 @@ fn a_graph_pinning_a_retired_agent_is_refused_while_old_pins_still_resolve() {
     try_publish(&store, "key-1", 1, 0, draft(&store, "tenant-a", "graph-a"))
         .expect("the first graph publishes while its agents are live");
     store
-        .retire(eg_types::agent_library::AgentLibraryRetireRequest {
+        .retire(medulla_types::agent_library::AgentLibraryRetireRequest {
             context: context(
                 &store,
                 "tenant-a",
@@ -697,7 +697,7 @@ fn a_graph_pinning_synthesis_evidence_that_does_not_exist_is_refused() {
     let mut graph = draft(&store, "tenant-a", "graph-a");
     graph.synthesis_evidence = Some(ComponentDependency {
         component_id: "evidence:never-published".into(),
-        kind: eg_types::agent_component::AgentComponentKind::Schema,
+        kind: medulla_types::agent_component::AgentComponentKind::Schema,
         definition_digest: digest('7'),
     });
     let error = try_publish(&store, "key-1", 1, 0, graph)
@@ -718,13 +718,13 @@ fn a_graph_pinning_a_component_under_the_wrong_kind_is_refused() {
         &store,
         "tenant-a",
         "model-profile:mislabelled",
-        eg_types::agent_component::AgentComponentKind::ModelProfile,
+        medulla_types::agent_component::AgentComponentKind::ModelProfile,
         50,
     );
     let mut graph = draft(&store, "tenant-a", "graph-a");
     graph.synthesis_evidence = Some(ComponentDependency {
         component_id: model.component_id,
-        kind: eg_types::agent_component::AgentComponentKind::Schema,
+        kind: medulla_types::agent_component::AgentComponentKind::Schema,
         definition_digest: model.definition_digest,
     });
     let error = try_publish(&store, "key-1", 1, 0, graph)

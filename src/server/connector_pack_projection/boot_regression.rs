@@ -1,5 +1,5 @@
 //! G9 regression: booting against an existing store must not be silently
-//! blocked for minutes (EG-DURABLE-KERNEL-R006.4, EG-DURABLE-KERNEL-R006.5).
+//! blocked for minutes (MEDULLA-DURABLE-KERNEL-R006.4, MEDULLA-DURABLE-KERNEL-R006.5).
 //!
 //! Pre-G9 the pre-listener boot sequence queued the matview reload and the
 //! time-series startup reconciliation behind the connector-pack-projection
@@ -32,13 +32,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use eg_types::connector_pack::{
+use medulla_types::connector_pack::{
     ConnectorPackImportRequest, ConnectorPackIndex, ConnectorPackOp, McpCatalogSnapshotBinding,
     PackAnnotations, PackArchiveRef, PackEntry, PackEntryKind, PackHeadRef, PackImportResult,
     PackProducer, PackSection, CONNECTOR_PACK_SCHEMA_VERSION,
 };
-use eg_types::contract::{BoundedVec, Digest256, ResourceId};
-use eg_types::mutation_outbox::{
+use medulla_types::contract::{BoundedVec, Digest256, ResourceId};
+use medulla_types::mutation_outbox::{
     MutationOutboxOp, MutationOutboxStatusView, NativeOutboxScope, NativeOutboxStore, OutboxTarget,
 };
 use serde::de::DeserializeOwned;
@@ -116,12 +116,12 @@ fn ok<T: DeserializeOwned>(label: &str, response: Response) -> T {
 }
 
 /// A request-body context shell; the engine re-binds every field of it.
-fn context(key: &str) -> eg_types::agent_library::AgentLibraryMutationContext {
-    eg_types::agent_library::AgentLibraryMutationContext {
+fn context(key: &str) -> medulla_types::agent_library::AgentLibraryMutationContext {
+    medulla_types::agent_library::AgentLibraryMutationContext {
         request_id: 1,
         principal: "bound-by-engine".to_string(),
         caller_principal: "bound-by-engine".to_string(),
-        attempt_nonce: eg_types::contract::Nonce::from_bytes([0; 32]),
+        attempt_nonce: medulla_types::contract::Nonce::from_bytes([0; 32]),
         tenant_id: TENANT.to_string(),
         actor_scope: "bound-by-engine".to_string(),
         purpose_id: "bound-by-engine".to_string(),
@@ -217,7 +217,7 @@ fn build_pack(connector: &str, row: usize, ontology: &[u8]) -> (ConnectorPackInd
         },
         pack_digest: Digest256::from_bytes([0; 32]),
     };
-    index.pack_digest = eg_types::connector_pack::digest::pack_digest(&index).unwrap();
+    index.pack_digest = medulla_types::connector_pack::digest::pack_digest(&index).unwrap();
     (index, archive)
 }
 
@@ -269,7 +269,7 @@ async fn bind(state: &Arc<RwLock<ServerState>>) {
             &key,
             Method::ConnectorPack {
                 op: Box::new(ConnectorPackOp::Bind {
-                    request: eg_types::connector_pack::ConnectorPackBindRequest {
+                    request: medulla_types::connector_pack::ConnectorPackBindRequest {
                         context: context(&key),
                         connector: ResourceId::new(CONNECTOR).unwrap(),
                         importer: format!(
@@ -372,11 +372,11 @@ fn scoped_series_key(graph: &str, series: &str, principal: &str) -> String {
         &owner_scope,
         graph,
     );
-    eg_tsdb::store::SeriesKey::new(tenant_scope, graph_scope, series).encode()
+    medulla_tsdb::store::SeriesKey::new(tenant_scope, graph_scope, series).encode()
 }
 
-// spec: EG-DURABLE-KERNEL-R006.4
-// spec: EG-DURABLE-KERNEL-R006.5
+// spec: MEDULLA-DURABLE-KERNEL-R006.4
+// spec: MEDULLA-DURABLE-KERNEL-R006.5
 #[tokio::test(flavor = "multi_thread")]
 async fn boot_listener_binds_before_the_projection_drain_completes() {
     // Held for the whole test: this opens durable stores, so the ambient
@@ -392,7 +392,7 @@ async fn boot_listener_binds_before_the_projection_drain_completes() {
     );
     let redb = backend.as_redb().expect("redb backend");
     let series_store = Arc::new(
-        eg_tsdb::store::SeriesStore::open_in_dir(
+        medulla_tsdb::store::SeriesStore::open_in_dir(
             std::path::Path::new(&persist),
             crate::store_authority::process_verifier(),
             crate::store_authority::process_authority().principal(),
@@ -434,7 +434,7 @@ async fn boot_listener_binds_before_the_projection_drain_completes() {
     let view = crate::server::matview::PlanMatView {
         name: MV_NAME.to_string(),
         graph: GRAPH.to_string(),
-        plan: eg_types::wire::Plan::new(Vec::new()),
+        plan: medulla_types::wire::Plan::new(Vec::new()),
     };
     redb.plan_matview_put(MV_NAME, crate::server::matview::encode_def(&view).unwrap())
         .await
@@ -444,7 +444,7 @@ async fn boot_listener_binds_before_the_projection_drain_completes() {
 
     // The seeding dispatches ensured the Agent Library store: drop the cached
     // handle so the worker's first sweep exercises the open-OUTSIDE-the-write-
-    // lock path (EG-DURABLE-KERNEL-R006.4).
+    // lock path (MEDULLA-DURABLE-KERNEL-R006.4).
     let mut guard = state.write().await;
     guard.agent_library = None;
     *guard.agent_library_open.lock() = None;
@@ -534,7 +534,7 @@ async fn boot_listener_binds_before_the_projection_drain_completes() {
             .dynamic
             .get(&format!("pack:{CONNECTOR}"))
             .expect("the final head's schema source must be committed");
-        let triples = eg_rdf::mapping::parse_turtle(source.ontology_ttl.as_deref().unwrap())
+        let triples = medulla_rdf::mapping::parse_turtle(source.ontology_ttl.as_deref().unwrap())
             .expect("the projected ontology must parse");
         assert_eq!(
             triples.len(),
@@ -546,9 +546,9 @@ async fn boot_listener_binds_before_the_projection_drain_completes() {
     // (d) The reconciliation and the matview reload complete in the
     // background within the budget.
     let storage_key = scoped_series_key(GRAPH, SERIES, ADMIN);
-    let expected: Vec<eg_tsdb::point::Point> = points
+    let expected: Vec<medulla_tsdb::point::Point> = points
         .iter()
-        .map(|(ts, values)| eg_tsdb::point::Point {
+        .map(|(ts, values)| medulla_tsdb::point::Point {
             ts: *ts,
             values: values.clone(),
         })
@@ -575,7 +575,7 @@ async fn boot_listener_binds_before_the_projection_drain_completes() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
-    // (e) The durable-cursor fast path (EG-DURABLE-KERNEL-R006.5): a second
+    // (e) The durable-cursor fast path (MEDULLA-DURABLE-KERNEL-R006.5): a second
     // reconciliation (the NEXT boot) is a true no-op — zero replay, no
     // duplicates — so the full replay is a once-per-store cost, not a
     // per-boot one.

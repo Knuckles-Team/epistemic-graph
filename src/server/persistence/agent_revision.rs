@@ -44,14 +44,14 @@ use std::collections::BTreeMap;
 
 use redb::ReadableTable;
 
-use eg_storage::{RecordedOperation, ScopedRead};
-use eg_transaction::{AdmittedOwnerWrite, ReplayResolution};
-use eg_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
-use eg_types::mutation::{MutationReceipt, MutationResult};
-use eg_types::mutation_batch::{
+use medulla_storage::{RecordedOperation, ScopedRead};
+use medulla_transaction::{AdmittedOwnerWrite, ReplayResolution};
+use medulla_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
+use medulla_types::mutation::{MutationReceipt, MutationResult};
+use medulla_types::mutation_batch::{
     DurabilityDomain, MutationBatch, MutationOperation, MutationOutboxIntent, MutationSurface,
 };
-use eg_types::protocol::Method;
+use medulla_types::protocol::Method;
 
 use super::agent_library::{
     native_lifecycle_batch, next_revision, require_expected_revision, AgentLibraryStore,
@@ -72,7 +72,7 @@ pub(super) use write::{
     write_revision, write_revision_with_rows, RevisionWrite, StagedBatch,
 };
 
-type Owner = eg_storage::AgentLibraryOwner;
+type Owner = medulla_storage::AgentLibraryOwner;
 type HeadsTable = redb::TableDefinition<'static, (&'static str, &'static str), u64>;
 type RevisionsTable =
     redb::TableDefinition<'static, (&'static str, &'static str, u64), &'static [u8]>;
@@ -323,7 +323,7 @@ pub(super) fn revision_outbox_headers<L: RevisionLayer>(
 }
 
 pub(super) fn build_revision_batch<L: RevisionLayer>(
-    owner: &eg_storage::OwnedStoreHandle<Owner>,
+    owner: &medulla_storage::OwnedStoreHandle<Owner>,
     context: &AgentLibraryMutationContext,
     kind: L::Kind,
     entry: &L::Entry,
@@ -397,14 +397,14 @@ pub(super) fn revision_history<L: RevisionLayer>(
     tenant_id: &str,
     record_id: &str,
 ) -> Result<Vec<L::Entry>, String> {
-    eg_types::agent_library::validate_key(tenant_id, record_id)?;
+    medulla_types::agent_library::validate_key(tenant_id, record_id)?;
     let read = store.read()?;
     Ok(read_revision_history::<L>(&read, tables, tenant_id, record_id)?.1)
 }
 
 /// One retained revision read inside the admitting write, or `None`.
 pub(super) fn revision_at_in_write<L: RevisionLayer>(
-    write: &eg_transaction::AdmittedMutation<'_, Owner>,
+    write: &medulla_transaction::AdmittedMutation<'_, Owner>,
     tables: RevisionTables,
     tenant_id: &str,
     record_id: &str,
@@ -463,7 +463,7 @@ pub(super) fn domain_result<L: RevisionLayer>(
 pub(super) fn encode_domain_result<L: RevisionLayer>(
     result: &L::Committed,
 ) -> Result<Vec<u8>, String> {
-    eg_storage::encode_bounded(
+    medulla_storage::encode_bounded(
         &domain_result::<L>(result)?,
         &format!("{} domain result", L::NOUN),
     )

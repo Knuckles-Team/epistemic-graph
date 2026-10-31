@@ -11,7 +11,7 @@ schema drove which number.
 Sources (never hand-typed):
 
 * ``docs/capabilities.generated.md`` — the machine-checked, compiler-enforced
-  method ledger (CONCEPT:EG-P0-1). It is authoritative for per-method
+  method ledger (CONCEPT:MEDULLA-P0-1). It is authoritative for per-method
   mutates/durability/authz facts, but it has NO status column (every listed
   method already exists in the exhaustive `MethodPolicy` match by
   construction) -- so it contributes only the total method count, as a
@@ -26,7 +26,7 @@ Sources (never hand-typed):
   Entries with ``status: reserved`` count as RESERVED.
 * Every ``CONCEPT:<ID>`` marker in tracked ``*.rs``/``*.py`` source -- swept
   and bucketed by pillar prefix (the part before the first ``.``, e.g.
-  ``EG-KG``, ``AU-KG``) for the "concepts by pillar" table, since this repo
+  ``MEDULLA-KG``, ``AU-KG``) for the "concepts by pillar" table, since this repo
   (unlike agent-utilities) has no generated `concepts.yaml` registry.
 
 Dependency-free by design, matching this repo's other advisory-gate scripts
@@ -61,10 +61,10 @@ STATUS_CELL_RE = re.compile(r"\|\s*(✅|🔶|🗺)")
 # Structural pillar -> owning doc subtree -> primary enforcing CI/pre-commit
 # gate. Not named humans -- see docs/status.md's "Domain ownership" section.
 PILLAR_LABEL = {
-    "EG-AHE": "harness-facing engine concepts",
-    "EG-KG": "knowledge-graph engine core",
-    "EG-ORCH": "routing / orchestration",
-    "EG-OS": "deployment",
+    "MEDULLA-AHE": "harness-facing engine concepts",
+    "MEDULLA-KG": "knowledge-graph engine core",
+    "MEDULLA-ORCH": "routing / orchestration",
+    "MEDULLA-OS": "deployment",
     "AU-KG": "agent-utilities KG concepts exercised against this engine",
     "AU-ECO": "agent-utilities ecosystem concepts exercised against this engine",
     "AU-AHE": "agent-utilities harness concepts exercised against this engine",
@@ -72,10 +72,10 @@ PILLAR_LABEL = {
     "AU-OS": "agent-utilities OS concepts exercised against this engine",
 }
 PILLAR_SUBTREE = {
-    "EG-AHE": "docs/architecture/",
-    "EG-KG": "docs/interfaces/ + docs/architecture/engine.md",
-    "EG-ORCH": "docs/architecture/",
-    "EG-OS": "docs/deploy/ + docs/deployment.md",
+    "MEDULLA-AHE": "docs/architecture/",
+    "MEDULLA-KG": "docs/interfaces/ + docs/architecture/engine.md",
+    "MEDULLA-ORCH": "docs/architecture/",
+    "MEDULLA-OS": "docs/deploy/ + docs/deployment.md",
     "AU-KG": "agent-utilities: docs/pillars/2_epistemic_knowledge_graph/",
     "AU-ECO": "agent-utilities: docs/pillars/4_ecosystem_peripherals.md",
     "AU-AHE": "agent-utilities: docs/pillars/3_agentic_harness_engineering.md",
@@ -83,10 +83,10 @@ PILLAR_SUBTREE = {
     "AU-OS": "agent-utilities: docs/pillars/5_agent_os_infrastructure.md",
 }
 PILLAR_GATE = {
-    "EG-AHE": "`scripts/build_status_page.py` (generated-ledger regen check)",
-    "EG-KG": "`scripts/build_status_page.py` (generated-ledger regen check)",
-    "EG-ORCH": "`scripts/build_status_page.py` (generated-ledger regen check)",
-    "EG-OS": "`scripts/build_status_page.py` (generated-ledger regen check)",
+    "MEDULLA-AHE": "`scripts/build_status_page.py` (generated-ledger regen check)",
+    "MEDULLA-KG": "`scripts/build_status_page.py` (generated-ledger regen check)",
+    "MEDULLA-ORCH": "`scripts/build_status_page.py` (generated-ledger regen check)",
+    "MEDULLA-OS": "`scripts/build_status_page.py` (generated-ledger regen check)",
     "AU-KG": "agent-utilities' `scripts/check_concepts.py`",
     "AU-ECO": "agent-utilities' `scripts/check_concepts.py`",
     "AU-AHE": "agent-utilities' `scripts/check_concepts.py`",
@@ -225,7 +225,7 @@ def render() -> str:
     raw_concept_counts = _concept_pillar_counts()
     # Restrict the table to the canonical 9-pillar taxonomy this page's
     # "Domain ownership" section documents (AU-AHE/ECO/KG/ORCH/OS,
-    # EG-AHE/KG/ORCH/OS); a real, older generation of `CONCEPT:` markers
+    # MEDULLA-AHE/KG/ORCH/OS); a real, older generation of `CONCEPT:` markers
     # predates that taxonomy (e.g. `KG-2.55`, `ORCH-1.45`, `OS-5.14`,
     # `AHE-3.x`) and still exists in source. Report their combined count
     # honestly rather than expanding the table with prefixes this page does

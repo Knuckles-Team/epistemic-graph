@@ -15,14 +15,14 @@ use sha2::Sha256;
 use crate::crypto::ValueCipher;
 use crate::graph::GraphCore;
 use crate::protocol::ResultPayload;
-use eg_modality::{
+use medulla_modality::{
     tck_report, ApplyDisposition, ApplyOutcome, ArtifactBundle, Classification,
     ConformanceTestable, GovernedModality, ModalityKind, MutationDelta, NativePredicate,
     OccurrenceId, OpaqueRef, SegmentKind, ServedDelete, ServedIngest, ServedModalityRuntime,
     ServedNativeQuery, ServedPolicyScope, ServedQuery, ServedRecord,
 };
-use eg_types::acl::RequestContextClaims;
-use eg_types::{
+use medulla_types::acl::RequestContextClaims;
+use medulla_types::{
     ServedModalityIngestItem, ServedModalityKind, ServedModalityOp, ServedNativePredicate,
     ServedSegmentKind,
 };
@@ -179,21 +179,21 @@ fn env_limit(name: &str, default: usize, hard_max: usize) -> usize {
 
 fn validate_request_sizes(bundle: &[u8], source: &[u8]) -> Result<(), String> {
     let bundle_limit = env_limit(
-        "EPISTEMIC_GRAPH_MODALITY_MAX_BUNDLE_BYTES",
+        "MEDULLA_MODALITY_MAX_BUNDLE_BYTES",
         DEFAULT_MAX_BUNDLE_BYTES,
         HARD_MAX_BUNDLE_BYTES,
     );
     let source_limit = env_limit(
-        "EPISTEMIC_GRAPH_MODALITY_MAX_SOURCE_BYTES",
+        "MEDULLA_MODALITY_MAX_SOURCE_BYTES",
         DEFAULT_MAX_SOURCE_BYTES,
         HARD_MAX_SOURCE_BYTES,
     );
     if bundle.is_empty() || bundle.len() > bundle_limit {
         return Err("governed modality bundle exceeds the configured resource limit".to_string());
     }
-    eg_types::msgpack::validate_single_value(
+    medulla_types::msgpack::validate_single_value(
         bundle,
-        eg_types::msgpack::MsgpackLimits::new(bundle_limit, 250_000, 64),
+        medulla_types::msgpack::MsgpackLimits::new(bundle_limit, 250_000, 64),
     )
     .map_err(|_| "invalid or over-complex governed modality bundle".to_string())?;
     if source.is_empty() || source.len() > source_limit {
@@ -302,7 +302,7 @@ where
 }
 
 /// One durable row/event/idempotency-entry/manifest write from a single
-/// occurrence mutation (BUG-017 frozen format, `eg_modality::delta_store`) —
+/// occurrence mutation (BUG-017 frozen format, `medulla_modality::delta_store`) —
 /// bounded by that ONE occurrence, never by partition corpus. This is a
 /// SHADOW write: called alongside (not instead of) `store_runtime`/
 /// `store_runtime_excluding_sources` above, which remain the sole read
@@ -734,12 +734,12 @@ pub(crate) fn handle(
 mod tests {
     use super::migration::migrate_partition_to_rows;
     use super::*;
-    use eg_audio::{runtime::NativeAudioRuntime, AudioData};
-    use eg_document::{runtime::NativeDocumentRuntime, DocumentData};
-    use eg_document::{DocumentDecoder, NativeTextDecoder};
-    use eg_image::{runtime::NativeImageRuntime, ImageData};
-    use eg_modality::EvidenceAddress;
-    use eg_video::{runtime::NativeVideoRuntime, VideoData};
+    use medulla_audio::{runtime::NativeAudioRuntime, AudioData};
+    use medulla_document::{runtime::NativeDocumentRuntime, DocumentData};
+    use medulla_document::{DocumentDecoder, NativeTextDecoder};
+    use medulla_image::{runtime::NativeImageRuntime, ImageData};
+    use medulla_modality::EvidenceAddress;
+    use medulla_video::{runtime::NativeVideoRuntime, VideoData};
 
     fn wav_fixture() -> Vec<u8> {
         let samples: [i16; 8] = [0, 8_000, 16_000, 8_000, 0, -8_000, -16_000, -8_000];
@@ -859,7 +859,7 @@ mod tests {
         let lexeme = |term: &str| {
             Some(format!(
                 "eg:lexeme:{}",
-                eg_document::content_hash(term.as_bytes())
+                medulla_document::content_hash(term.as_bytes())
             ))
         };
         let document = NativeTextDecoder
@@ -872,7 +872,7 @@ mod tests {
         // correctly enforces the RFC 1950 checksum, so `decode_png` correctly
         // returned `None` on it; not a codec bug). Regenerated 2026-08-11 with a
         // real zlib encoder; same 70-byte length as the old literal. Mirrors
-        // `eg_image::runtime::PROBE_PNG`.
+        // `medulla_image::runtime::PROBE_PNG`.
         let png = vec![
             0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
             0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
@@ -901,7 +901,7 @@ mod tests {
     // (which computes AFTER from JSON field extraction, by its own
     // documented design) does not itself meet.
 
-    use eg_modality::{
+    use medulla_modality::{
         Artifact, ArtifactId, Derivation, DerivationId, EvidenceLocus, EvidenceLocusId, Feature,
         FeatureId, FeatureKind, Occurrence, PolicyEnvelope, PrivacyAttestation, Rendition,
         RenditionId, ResourceId, Segment, SegmentId, ARTIFACT_PROTOCOL_VERSION,
@@ -931,7 +931,7 @@ mod tests {
     /// segments, features, and evidence loci non-empty, per
     /// `ArtifactBundle::validate_certified`), scoped to `authority`'s own
     /// tenant/policy/purpose so `ServedPolicyScope::authorizes_occurrence`
-    /// accepts it. Mirrors `crates/eg-modality/tests/served_runtime.rs`'s
+    /// accepts it. Mirrors `crates/medulla-modality/tests/served_runtime.rs`'s
     /// `scale_ingest` fixture shape (a different crate, so not directly
     /// reusable), scaled by `index` so every occurrence is distinct.
     fn document_ingest(authority: &ModalityAuthority, index: u64) -> ServedIngest<DocumentData> {
@@ -1099,7 +1099,7 @@ mod tests {
     /// predates this change), then run `migrate_partition_to_rows` and assert
     /// it succeeds (it internally asserts row-reconstructed state is
     /// byte-for-byte identical to the snapshot-recovered original via
-    /// `eg_modality::verify_round_trip`, reading every row back from the
+    /// `medulla_modality::verify_round_trip`, reading every row back from the
     /// same real `GraphCore` the rows were written to).
     #[test]
     fn bug_017_migration_round_trips_real_existing_data() {
@@ -1158,7 +1158,7 @@ mod tests {
     /// the wire).
     #[test]
     fn bug_017_lifecycle_transition_now_produces_a_shadow_row() {
-        use eg_modality::LifecycleState;
+        use medulla_modality::LifecycleState;
 
         let core = GraphCore::new();
         let authority = test_authority();

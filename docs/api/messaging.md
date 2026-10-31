@@ -497,13 +497,13 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Decl
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `dl_exchange` | string \| null | no | EG-276: exchange to republish dead-lettered messages to (`None` ⇒ drop). |
-| `dl_routing_key` | string \| null | no | EG-276: routing key for dead-lettered messages (`None` ⇒ reuse original). |
-| `max_delivery_count` | integer \| null | no | EG-276: max delivery attempts before a message is dead-lettered. |
-| `max_priority` | integer \| null | no | EG-278: max priority band the queue honors (advisory ceiling). |
-| `message_ttl_ms` | integer \| null | no | EG-277: default per-message TTL in ms applied when a publish omits one. |
+| `dl_exchange` | string \| null | no | MEDULLA-276: exchange to republish dead-lettered messages to (`None` ⇒ drop). |
+| `dl_routing_key` | string \| null | no | MEDULLA-276: routing key for dead-lettered messages (`None` ⇒ reuse original). |
+| `max_delivery_count` | integer \| null | no | MEDULLA-276: max delivery attempts before a message is dead-lettered. |
+| `max_priority` | integer \| null | no | MEDULLA-278: max priority band the queue honors (advisory ceiling). |
+| `message_ttl_ms` | integer \| null | no | MEDULLA-277: default per-message TTL in ms applied when a publish omits one. |
 | `queue` | string | yes |  |
-| `queue_expiry_ms` | integer \| null | no | EG-277: queue-expiry hint in ms (unused-queue teardown; advisory). |
+| `queue_expiry_ms` | integer \| null | no | MEDULLA-277: queue-expiry hint in ms (unused-queue teardown; advisory). |
 
 **Result**
 
@@ -958,13 +958,13 @@ PublishIdempotent is the one exception (producer-id/seq dedup makes replays idem
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `delay_ms` | integer \| null | no | EG-279: hold the message non-claimable for this multiple ms from `now_ms`. |
+| `delay_ms` | integer \| null | no | MEDULLA-279: hold the message non-claimable for this multiple ms from `now_ms`. |
 | `exchange` | string | yes |  |
 | `now_ms` | integer \| null | no | Caller clock (ms since epoch) used to resolve `delay_ms`/`ttl_ms` to absolute etas — explicit so WAL replay is deterministic. |
 | `payload` | array of integer (uint8) | yes |  |
-| `priority` | integer (int64) | no | EG-278: priority band; higher is delivered first (default 0). |
+| `priority` | integer (int64) | no | MEDULLA-278: priority band; higher is delivered first (default 0). |
 | `routing_key` | string | yes |  |
-| `ttl_ms` | integer \| null | no | EG-277: per-message TTL in ms from `now_ms` (falls back to queue TTL). |
+| `ttl_ms` | integer \| null | no | MEDULLA-277: per-message TTL in ms from `now_ms` (falls back to queue TTL). |
 
 **Result**
 

@@ -29,7 +29,7 @@ async fn reconcile_existing_graph_create(
         ),
         Err(e) => Response::err(
             req_id,
-            eg_types::contract::classify_refusal(
+            medulla_types::contract::classify_refusal(
                 "INTERNAL",
                 "durable graph-create reconciliation failed: ",
                 &e,
@@ -67,7 +67,7 @@ async fn read_committed_graph_version(
 pub(in crate::server::dispatch) struct GraphLifecycleRequest {
     req_id: u64,
     req_agent_id: Option<String>,
-    attempt_nonce: Option<eg_types::contract::Nonce>,
+    attempt_nonce: Option<medulla_types::contract::Nonce>,
     idempotency_key: String,
     /// Verified carrier tenant scope (EH-375): part of the durable lifecycle batch id,
     /// so two tenants sharing an agent id + idempotency key never replay each other.
@@ -106,8 +106,8 @@ pub(in crate::server::dispatch) async fn create_graph(
     if let Err(reserved) = crate::registry::validate_graph_name(&graph_name) {
         return Response::err(req_id, reserved);
     }
-    match ResultPayload::of::<eg_types::result_contract::cluster::CreateGraph>(
-        eg_types::result_contract::cluster::GraphCreated {
+    match ResultPayload::of::<medulla_types::result_contract::cluster::CreateGraph>(
+        medulla_types::result_contract::cluster::GraphCreated {
             created: graph_name.clone(),
         },
     ) {
@@ -215,7 +215,7 @@ async fn create_declared_graph(
     {
         return Response::err(
             req_id,
-            eg_types::contract::classify_refusal(
+            medulla_types::contract::classify_refusal(
                 "INTERNAL",
                 "durable graph registration failed: ",
                 &e,
@@ -230,7 +230,7 @@ async fn create_declared_graph(
     };
 
     let mut s = timed_write(state).await;
-    // Bounded hot-context cache admission (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3): a
+    // Bounded hot-context cache admission (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog, DIST-P2-3): a
     // new graph is about to be resident, so make room for it FIRST — evict
     // the coldest resident graph if the finite cap is already reached.
     #[cfg(feature = "redb")]
@@ -311,7 +311,7 @@ async fn reconcile_missing_graph_delete(
         ),
         Err(e) => Response::err(
             req_id,
-            eg_types::contract::classify_refusal(
+            medulla_types::contract::classify_refusal(
                 "INTERNAL",
                 "durable graph-delete reconciliation failed: ",
                 &e,
@@ -327,8 +327,8 @@ pub(super) async fn delete_graph(
     graph_name: &str,
 ) -> Response {
     let req_id = request.req_id;
-    match ResultPayload::of::<eg_types::result_contract::cluster::DeleteGraph>(
-        eg_types::result_contract::cluster::GraphDeleted {
+    match ResultPayload::of::<medulla_types::result_contract::cluster::DeleteGraph>(
+        medulla_types::result_contract::cluster::GraphDeleted {
             deleted: graph_name.to_string(),
         },
     ) {
@@ -435,7 +435,7 @@ async fn delete_declared_graph(
     {
         return Response::err(
             req_id,
-            eg_types::contract::classify_refusal("INTERNAL", "durable graph purge failed: ", &e),
+            medulla_types::contract::classify_refusal("INTERNAL", "durable graph purge failed: ", &e),
         );
     }
 
@@ -486,7 +486,7 @@ async fn teardown_deleted_graph_in_memory(
     match s.registry.delete_graph(graph_name) {
         Ok(()) => {
             crate::metrics::drop_graph(graph_name);
-            // In-memory teardown (CONCEPT:EG-KG.backend.many-repeated-create-delete) — distinct from the durable
+            // In-memory teardown (CONCEPT:MEDULLA-KG.backend.many-repeated-create-delete) — distinct from the durable
             // purge below. The registry entry (the live GraphCore) is gone, but
             // per-graph state keyed by NAME elsewhere in ServerState would
             // survive and shadow a same-name recreate. Drop it so the recreate
@@ -506,7 +506,7 @@ async fn teardown_deleted_graph_in_memory(
             // tenant-churn correctness fix like the line above.
             s.routed_write_coalescer.remove(graph_name);
             s.per_graph_inflight.remove(graph_name);
-            // Cold-tenant tracker (CONCEPT:EG-KG.backend.r6-feature, R6): forget this graph's access
+            // Cold-tenant tracker (CONCEPT:MEDULLA-KG.backend.r6-feature, R6): forget this graph's access
             // timestamp + offload mark so they don't leak across a same-name recreate.
             #[cfg(feature = "redb")]
             s.cold_tracker.forget(graph_name);
@@ -561,7 +561,7 @@ pub(super) async fn dispatch_get_identity(
             drop(s);
             Response::ok(
                 req_id,
-                ResultPayload::of::<eg_types::result_contract::security::GetIdentity>(identity),
+                ResultPayload::of::<medulla_types::result_contract::security::GetIdentity>(identity),
             )
         }
         Err(error) => Response::err(req_id, error),
@@ -574,9 +574,9 @@ pub(super) async fn dispatch_get_identity(
 #[cfg(feature = "security")]
 fn rbac_admin_ack<M>(req_id: u64, outcome: Result<(), String>, acknowledgement: &str) -> Response
 where
-    M: eg_types::result_contract::MethodResult<
+    M: medulla_types::result_contract::MethodResult<
         Body = String,
-        Encoding = eg_types::result_contract::encoding::Text,
+        Encoding = medulla_types::result_contract::encoding::Text,
     >,
 {
     match outcome {
@@ -613,7 +613,7 @@ fn rbac_admin_response(
     audit: crate::isolation::AuditActor<'_>,
 ) -> Response {
     use crate::acl::RbacAdminOp;
-    use eg_types::result_contract::security as results;
+    use medulla_types::result_contract::security as results;
     match op {
         RbacAdminOp::List => {
             let policy = s.isolation.rbac();

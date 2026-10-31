@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{timed, Observation, ProbeError};
-use eg_modality::{
+use medulla_modality::{
     encode_staged, ApplyDisposition, Artifact, ArtifactBundle, ArtifactId, Classification,
     Derivation, DerivationId, EvidenceAddress, EvidenceLocus, EvidenceLocusId, Feature, FeatureId,
     FeatureKind, GovernedModality, ModalityContract, ModalityKind, NativeIndexKey, NativePredicate,
@@ -321,7 +321,7 @@ fn probe_modality_cdc_suffix(scale: usize) -> Result<Observation, ProbeError> {
 /// Extracted from [`probe_modality_kernel`].
 fn probe_modality_snapshot_recovery(scale: usize) -> Result<Observation, ProbeError> {
     let (runtime, commands) = populated_modality_runtime(scale)?;
-    let (recovered, latency) = timed(|| -> Result<_, eg_modality::ServedError> {
+    let (recovered, latency) = timed(|| -> Result<_, medulla_modality::ServedError> {
         let snapshot = runtime.snapshot()?;
         let recovered = ServedModalityRuntime::recover(&snapshot)?;
         Ok((snapshot, recovered))

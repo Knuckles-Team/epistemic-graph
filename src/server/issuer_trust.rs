@@ -1,4 +1,4 @@
-//! Multi-issuer OIDC trust list (EG-IDENTITY-R001, `.1` slice).
+//! Multi-issuer OIDC trust list (MEDULLA-IDENTITY-R001, `.1` slice).
 //!
 //! The primary OIDC verifier ([`super::oidc`], [`super::auth`]) today
 //! validates against one configured issuer/audience pair. This module adds
@@ -11,7 +11,7 @@
 //! request-verification path (replacing the single `expected_audience`
 //! check) is the `.2` entry-point slice.
 
-use eg_types::identity::UserKind;
+use medulla_types::identity::UserKind;
 
 /// One trusted issuer's verification parameters and principal-kind limits.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,12 +104,12 @@ mod tests {
             issuer: "https://keycloak.example/realms/engine".to_string(),
             jwks_source: "https://keycloak.example/realms/engine/protocol/openid-connect/certs"
                 .to_string(),
-            audience: "epistemic-graph".to_string(),
+            audience: "medulla".to_string(),
             allowed_kinds: vec![UserKind::Service],
         }
     }
 
-    // spec: EG-IDENTITY-R001
+    // spec: MEDULLA-IDENTITY-R001
     #[test]
     fn unknown_issuer_is_refused_before_dispatch() {
         let list = IssuerTrustList::new(vec![keycloak_service_only()]).unwrap();
@@ -117,7 +117,7 @@ mod tests {
         assert_eq!(outcome, Err(IssuerTrustRefusal::UnknownIssuer));
     }
 
-    // spec: EG-IDENTITY-R001
+    // spec: MEDULLA-IDENTITY-R001
     #[test]
     fn disallowed_principal_kind_is_refused() {
         let list = IssuerTrustList::new(vec![keycloak_service_only()]).unwrap();
@@ -125,7 +125,7 @@ mod tests {
         assert_eq!(outcome, Err(IssuerTrustRefusal::DisallowedKind));
     }
 
-    // spec: EG-IDENTITY-R001
+    // spec: MEDULLA-IDENTITY-R001
     #[test]
     fn ambiguous_duplicate_issuer_is_refused_at_construction() {
         let dup = keycloak_service_only();
@@ -139,6 +139,6 @@ mod tests {
         let entry = list
             .resolve("https://keycloak.example/realms/engine", UserKind::Service)
             .unwrap();
-        assert_eq!(entry.audience, "epistemic-graph");
+        assert_eq!(entry.audience, "medulla");
     }
 }

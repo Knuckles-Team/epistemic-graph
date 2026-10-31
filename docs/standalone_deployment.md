@@ -2,7 +2,7 @@
 
 Medulla is a **self-contained durable database**. The operator do **not** need
 `agent-utilities`, a KG hub, or any other service to run it — the shipped
-`epistemic-graph-server` binary *is* the whole product. This page is the copy-paste
+`medulla-server` binary *is* the whole product. This page is the copy-paste
 recipe to stand up a running database two ways:
 
 1. **[Pure binary](#pure-binary)** — `pip install` the wheel, run one command.
@@ -35,7 +35,7 @@ build with the `cluster` Cargo feature — see [deployment.md](deployment.md).)
 
 ### 1. Install
 
-The wheel ships the prebuilt `epistemic-graph-server` binary (maturin
+The wheel ships the prebuilt `medulla-server` binary (maturin
 `bindings = "bin"`) — installing it just downloads and unpacks the per-platform
 binary; nothing compiles.
 
@@ -47,7 +47,7 @@ pip install medulla
 uv pip install --prerelease=allow medulla
 
 # confirm the binary is on PATH
-epistemic-graph-server --help
+medulla-server --help
 ```
 
 The wheel's Rust binary is already built with Cargo `full`, and the bare Python
@@ -67,42 +67,42 @@ Two rules the binary enforces, worth knowing up front:
   requires `security`, a non-empty `GRAPH_SERVICE_AUTH_SECRET`, audience, tenant,
   policy revision, durable replay store, and trusted signer registry.
 - **Every auxiliary listener is opt-in and loopback-only.** The Postgres wire
-  listener starts only when `EPISTEMIC_GRAPH_PGWIRE_ADDR` is set and rejects a
+  listener starts only when `MEDULLA_PGWIRE_ADDR` is set and rejects a
   non-loopback address. Routable native TCP requires TLS.
 
 ```bash
 # Load secret and deployment-specific values from runtime configuration.
 : "${GRAPH_SERVICE_AUTH_SECRET:?required}"
-: "${EPISTEMIC_GRAPH_SIGNER_KEYS_JSON:?required}"
+: "${MEDULLA_SIGNER_KEYS_JSON:?required}"
 : "${GRAPH_SERVICE_PERSIST_DIR:?required}"
-export EPISTEMIC_GRAPH_AUDIENCE=epistemic-graph
-export EPISTEMIC_GRAPH_TENANT=tenant:default
-export EPISTEMIC_GRAPH_POLICY_VERSION=policy:initial
+export MEDULLA_AUDIENCE=medulla
+export MEDULLA_TENANT=tenant:default
+export MEDULLA_POLICY_VERSION=policy:initial
 
 # turn on the Postgres wire listener
-export EPISTEMIC_GRAPH_PGWIRE_ADDR=127.0.0.1:5433
+export MEDULLA_PGWIRE_ADDR=127.0.0.1:5433
 
-epistemic-graph-server \
+medulla-server \
   --metrics-addr 127.0.0.1:9101
 ```
 
 That is a running database. It also opens a MessagePack RPC transport — a local
 **Unix Domain Socket** in the platform runtime directory, and a TCP listener if
 the operator adds `--tcp-addr`. Neither is
-needed to use the Postgres wire; they are for the native `epistemic_graph` client.
+needed to use the Postgres wire; they are for the native `medulla` client.
 
 Minimal env-only variant (everything via environment, no flags):
 
 ```bash
 export GRAPH_SERVICE_AUTH_SECRET="$(openssl rand -hex 32)"
-: "${EPISTEMIC_GRAPH_SIGNER_KEYS_JSON:?required}"
+: "${MEDULLA_SIGNER_KEYS_JSON:?required}"
 : "${GRAPH_SERVICE_PERSIST_DIR:?required}"
-export EPISTEMIC_GRAPH_AUDIENCE=epistemic-graph
-export EPISTEMIC_GRAPH_TENANT=tenant:default
-export EPISTEMIC_GRAPH_POLICY_VERSION=policy:initial
+export MEDULLA_AUDIENCE=medulla
+export MEDULLA_TENANT=tenant:default
+export MEDULLA_POLICY_VERSION=policy:initial
 export GRAPH_SERVICE_METRICS_ADDR=127.0.0.1:9101
-export EPISTEMIC_GRAPH_PGWIRE_ADDR=127.0.0.1:5433
-epistemic-graph-server
+export MEDULLA_PGWIRE_ADDR=127.0.0.1:5433
+medulla-server
 ```
 
 ### 3. Connect
@@ -122,15 +122,15 @@ psql "host=127.0.0.1 port=5433 user=agent dbname=__commons__"
 | `--tcp-addr` | `GRAPH_SERVICE_TCP_ADDR` | unset (no TCP) | Native TCP RPC listener; a routable address requires TLS |
 | `--tcp-tls-cert` / `--tcp-tls-key` | `GRAPH_SERVICE_TLS_CERT` / `GRAPH_SERVICE_TLS_KEY` | — | PEM identity required together for routable native TCP |
 | `--auth-secret` | `GRAPH_SERVICE_AUTH_SECRET` | — (**required**) | Non-empty HMAC-SHA256 secret for `eg2.` |
-| — | `EPISTEMIC_GRAPH_REQUIRE_OIDC` | unset ⇒ **required** (secure by default since 2026-07-22) | OIDC identity binding is mandatory unless explicitly opted out with `false`/`0`/`no`/`off`; see [deployment.md § Migrating to OIDC-required](deployment.md#migrating-to-oidc-required) |
-| — | `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` / `EPISTEMIC_GRAPH_OIDC_JWT_AUDIENCE` / `EPISTEMIC_GRAPH_OIDC_JWKS_URL` | — (required unless opted out) | Keycloak realm issuer / audience / JWKS URL |
+| — | `MEDULLA_REQUIRE_OIDC` | unset ⇒ **required** (secure by default since 2026-07-22) | OIDC identity binding is mandatory unless explicitly opted out with `false`/`0`/`no`/`off`; see [deployment.md § Migrating to OIDC-required](deployment.md#migrating-to-oidc-required) |
+| — | `MEDULLA_OIDC_JWT_ISSUER` / `MEDULLA_OIDC_JWT_AUDIENCE` / `MEDULLA_OIDC_JWKS_URL` | — (required unless opted out) | Keycloak realm issuer / audience / JWKS URL |
 | `--persist-dir` | `GRAPH_SERVICE_PERSIST_DIR` | — (**required for served mode**) | Durable redb-authoritative store and replay-ledger dir |
 | `--metrics-addr` | `GRAPH_SERVICE_METRICS_ADDR` | unset (no metrics) | Prometheus `/metrics` listener |
-| — | `EPISTEMIC_GRAPH_AUDIENCE` / `EPISTEMIC_GRAPH_TENANT` / `EPISTEMIC_GRAPH_POLICY_VERSION` | — (**required**) | Exact request policy values |
-| — | `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` | — (**required**) | Runtime secret map of trusted operation signer ids to HMAC keys |
-| — | `EPISTEMIC_GRAPH_PGWIRE_ADDR` | unset (no listener) | **Turn on the Postgres wire**; e.g. `127.0.0.1:5433` |
-| — | `EPISTEMIC_GRAPH_PGWIRE_AUTH` | `scram` | Mandatory pgwire SCRAM auth; any other value or missing key material fails startup |
-| — | `EPISTEMIC_GRAPH_PGWIRE_GRAPH` | `__commons__` | Default graph a fresh pgwire connection binds |
+| — | `MEDULLA_AUDIENCE` / `MEDULLA_TENANT` / `MEDULLA_POLICY_VERSION` | — (**required**) | Exact request policy values |
+| — | `MEDULLA_SIGNER_KEYS_JSON` | — (**required**) | Runtime secret map of trusted operation signer ids to HMAC keys |
+| — | `MEDULLA_PGWIRE_ADDR` | unset (no listener) | **Turn on the Postgres wire**; e.g. `127.0.0.1:5433` |
+| — | `MEDULLA_PGWIRE_AUTH` | `scram` | Mandatory pgwire SCRAM auth; any other value or missing key material fails startup |
+| — | `MEDULLA_PGWIRE_GRAPH` | `__commons__` | Default graph a fresh pgwire connection binds |
 
 Served mode rejects a missing persist directory; the authoritative redb store and
 durable replay protection cannot be disabled.
@@ -149,12 +149,12 @@ gateway for a loopback-only auxiliary protocol.
 ```bash
 # 1. load secrets, policy, and TLS material from deployment configuration
 export GRAPH_SERVICE_AUTH_SECRET="$(openssl rand -hex 32)"
-: "${EPISTEMIC_GRAPH_SIGNER_KEYS_JSON:?required}"
+: "${MEDULLA_SIGNER_KEYS_JSON:?required}"
 : "${TLS_CERT_FILE:?required}"
 : "${TLS_KEY_FILE:?required}"
-export EPISTEMIC_GRAPH_AUDIENCE=epistemic-graph
-export EPISTEMIC_GRAPH_TENANT=tenant:default
-export EPISTEMIC_GRAPH_POLICY_VERSION=policy:initial
+export MEDULLA_AUDIENCE=medulla
+export MEDULLA_TENANT=tenant:default
+export MEDULLA_POLICY_VERSION=policy:initial
 
 # 2. up (builds the main image from docker/Dockerfile the first time)
 docker compose -f docker/compose.standalone.yml up -d
@@ -166,36 +166,36 @@ loopback namespace; a co-located authenticated TLS gateway can publish them.
 
 | Port | Purpose |
 |------|---------|
-| `9100` | TLS MessagePack RPC — native `epistemic_graph` client |
+| `9100` | TLS MessagePack RPC — native `medulla` client |
 
-The durable store is the named volume `eg-standalone-data`; it survives
+The durable store is the named volume `medulla-standalone-data`; it survives
 `docker compose down` and is removed only by `down -v`.
 
 To pull a prebuilt multi-arch image instead of building locally:
 
 ```bash
-export EG_IMAGE=<registry>/medulla:<tag>
+export MEDULLA_IMAGE=<registry>/medulla:<tag>
 export GRAPH_SERVICE_AUTH_SECRET="$(openssl rand -hex 32)"
-: "${EPISTEMIC_GRAPH_SIGNER_KEYS_JSON:?required}"
+: "${MEDULLA_SIGNER_KEYS_JSON:?required}"
 : "${TLS_CERT_FILE:?required}"
 : "${TLS_KEY_FILE:?required}"
-export EPISTEMIC_GRAPH_AUDIENCE=epistemic-graph
-export EPISTEMIC_GRAPH_TENANT=tenant:default
-export EPISTEMIC_GRAPH_POLICY_VERSION=policy:initial
-docker compose -f docker/compose.standalone.yml up -d   # `build:` is ignored when EG_IMAGE is set to a pullable ref
+export MEDULLA_AUDIENCE=medulla
+export MEDULLA_TENANT=tenant:default
+export MEDULLA_POLICY_VERSION=policy:initial
+docker compose -f docker/compose.standalone.yml up -d   # `build:` is ignored when MEDULLA_IMAGE is set to a pullable ref
 ```
 
 Or the same thing as a bare `docker run` (no compose):
 
 ```bash
 : "${CONTAINER_DATA_DIR:?set to the image data directory}"
-docker volume create eg-data
+docker volume create medulla-data
 docker run -d --name medulla \
   -e GRAPH_SERVICE_AUTH_SECRET \
-  -e EPISTEMIC_GRAPH_AUDIENCE=epistemic-graph \
-  -e EPISTEMIC_GRAPH_TENANT=tenant:default \
-  -e EPISTEMIC_GRAPH_POLICY_VERSION=policy:initial \
-  -e EPISTEMIC_GRAPH_SIGNER_KEYS_JSON \
+  -e MEDULLA_AUDIENCE=medulla \
+  -e MEDULLA_TENANT=tenant:default \
+  -e MEDULLA_POLICY_VERSION=policy:initial \
+  -e MEDULLA_SIGNER_KEYS_JSON \
   -e GRAPH_SERVICE_PERSIST_DIR="${CONTAINER_DATA_DIR}" \
   -e GRAPH_SERVICE_TCP_ADDR=0.0.0.0:9100 \
   -e GRAPH_SERVICE_TLS_CERT=/run/secrets/server.crt \
@@ -203,7 +203,7 @@ docker run -d --name medulla \
   -p 9100:9100 \
   --mount type=bind,src="${TLS_CERT_FILE}",dst=/run/secrets/server.crt,readonly \
   --mount type=bind,src="${TLS_KEY_FILE}",dst=/run/secrets/server.key,readonly \
-  -v eg-data:"${CONTAINER_DATA_DIR}" \
+  -v medulla-data:"${CONTAINER_DATA_DIR}" \
   <registry>/medulla:<tag>
 ```
 

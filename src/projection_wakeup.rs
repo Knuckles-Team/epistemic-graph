@@ -33,10 +33,10 @@ pub(crate) fn projection_payload_for_operations(
             .iter()
             .map(|operation| operation.method.clone())
             .collect::<Vec<_>>();
-        let wakeup = eg_epistemic::ReasoningProjectionWakeup::bounded(
+        let wakeup = medulla_epistemic::ReasoningProjectionWakeup::bounded(
             operations.len(),
             hex::encode(Sha256::digest(encoded_operations)),
-            eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods),
+            medulla_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods),
         )?;
         rmp_serde::to_vec_named(&wakeup).map_err(|error| error.to_string())
     }
@@ -59,7 +59,7 @@ mod tests {
         let payload = projection_payload_for_operations(&operations).unwrap();
         #[cfg(feature = "epistemic-tms")]
         {
-            let notice: eg_epistemic::ReasoningProjectionWakeup =
+            let notice: medulla_epistemic::ReasoningProjectionWakeup =
                 rmp_serde::from_slice(&payload).unwrap();
             assert_eq!(notice.operation_count, 0);
             assert_eq!(notice.operations_sha256, expected_digest);

@@ -1,12 +1,12 @@
-//! Native DDS/RTPS transport seam for the ROS2 wire (CONCEPT:EG-KG.ingest.dds-transport).
+//! Native DDS/RTPS transport seam for the ROS2 wire (CONCEPT:MEDULLA-KG.ingest.dds-transport).
 //!
-//! The EG-325 [`super::ros2_bridge`] joins a ROS2 graph WITHOUT a DDS stack — it tunnels
+//! The MEDULLA-325 [`super::ros2_bridge`] joins a ROS2 graph WITHOUT a DDS stack — it tunnels
 //! ROS2 topics through a `rosbridge_server` over WebSocket JSON. This module adds the
 //! SECOND leg: a NATIVE DDS/RTPS wire, so the engine's CDC↔ROS2 topic path can speak DDS
 //! directly to a ROS2 graph. Both legs sit behind ONE interface — the [`DdsTransport`]
 //! trait — so the CDC↔ROS2 path targets EITHER the WebSocket bridge OR native DDS by
 //! choosing an impl, with the SAME `std_msgs/String`-shaped payload on the wire either way
-//! (the pure EG-325 mapping [`super::ros2_bridge::cdc_to_publish`] /
+//! (the pure MEDULLA-325 mapping [`super::ros2_bridge::cdc_to_publish`] /
 //! [`super::ros2_bridge::publish_to_method`] is reused verbatim).
 //!
 //! ## Honest scope of the native leg
@@ -18,7 +18,7 @@
 //! exercised by a real loopback pub/sub test below. It publishes/subscribes CDR-encoded
 //! `std_msgs/String` messages over RTPS, which is a real DDS wire.
 //!
-//! ## rmw name/type mangling for live-`ros2` interop (CONCEPT:EG-KG.ingest.rmw-topic-prefix)
+//! ## rmw name/type mangling for live-`ros2` interop (CONCEPT:MEDULLA-KG.ingest.rmw-topic-prefix)
 //!
 //! On top of the raw RTPS wire, the native leg now applies the **rmw** name/type mangling
 //! convention (ROS 2 Humble+, `rmw_cyclonedds`/`rmw_fastrtps`) so a topic published here is
@@ -63,13 +63,13 @@ use super::ros2_bridge::{cdc_to_publish, publish_to_method, RosbridgeOp};
 use crate::protocol::Method;
 use crate::wire::CdcEvent;
 
-/// The ROS2 transport seam (CONCEPT:EG-KG.ingest.dds-transport): publish/subscribe/advertise ROS2 topics over
-/// a concrete transport (native DDS/RTPS, or the EG-325 rosbridge WebSocket). Messages are
+/// The ROS2 transport seam (CONCEPT:MEDULLA-KG.ingest.dds-transport): publish/subscribe/advertise ROS2 topics over
+/// a concrete transport (native DDS/RTPS, or the MEDULLA-325 rosbridge WebSocket). Messages are
 /// the `std_msgs/String`-shaped JSON `{"data": "<json-string>"}` the rosbridge protocol and
 /// the CDC mapping already use, so ONE shaping serves both legs.
 ///
 /// The engine's CDC→ROS2 path calls [`DdsTransport::publish_cdc`] (default-implemented on
-/// top of [`publish`](DdsTransport::publish) via the EG-325 `cdc_to_publish` shaping); the
+/// top of [`publish`](DdsTransport::publish) via the MEDULLA-325 `cdc_to_publish` shaping); the
 /// ROS2→engine path maps an inbound message with [`inbound_to_method`].
 #[async_trait::async_trait]
 pub trait DdsTransport: Send + Sync {
@@ -88,8 +88,8 @@ pub trait DdsTransport: Send + Sync {
     /// `std_msgs/String`-shaped message the caller maps with [`inbound_to_method`].
     async fn poll_inbound(&self) -> Result<Option<(String, Value)>, String>;
 
-    /// Publish an engine CDC change on `topic` (CONCEPT:EG-KG.ingest.dds-transport). The default reuses the
-    /// EG-325 [`cdc_to_publish`] shaping, so the DDS leg and the rosbridge leg put the
+    /// Publish an engine CDC change on `topic` (CONCEPT:MEDULLA-KG.ingest.dds-transport). The default reuses the
+    /// MEDULLA-325 [`cdc_to_publish`] shaping, so the DDS leg and the rosbridge leg put the
     /// IDENTICAL `std_msgs/String` payload on the wire — the ONE seam, two transports.
     async fn publish_cdc(&self, event: &CdcEvent, topic: &str) -> Result<(), String> {
         if let RosbridgeOp::Publish { topic: t, msg } = cdc_to_publish(event, topic) {
@@ -100,14 +100,14 @@ pub trait DdsTransport: Send + Sync {
     }
 }
 
-/// Map an inbound DDS/ROS2 message to an engine [`Method`] (CONCEPT:EG-KG.ingest.dds-transport). This is the
-/// SAME EG-325 [`publish_to_method`] mapping, so inbound DDS and inbound rosbridge converge
+/// Map an inbound DDS/ROS2 message to an engine [`Method`] (CONCEPT:MEDULLA-KG.ingest.dds-transport). This is the
+/// SAME MEDULLA-325 [`publish_to_method`] mapping, so inbound DDS and inbound rosbridge converge
 /// on one ingest path (an `AddNode` applied via `crate::mutation_apply::apply`).
 pub fn inbound_to_method(msg: &Value) -> Option<Method> {
     publish_to_method(msg)
 }
 
-// ── rmw name/type mangling for live-ros2 interop (CONCEPT:EG-KG.ingest.rmw-topic-prefix) ─────────────
+// ── rmw name/type mangling for live-ros2 interop (CONCEPT:MEDULLA-KG.ingest.rmw-topic-prefix) ─────────────
 //
 // ROS 2 does NOT put a bare topic/type name on the DDS wire — the `rmw` layer
 // (`rmw_cyclonedds`/`rmw_fastrtps`, Humble+) MANGLES both so DDS discovery (SPDP/SEDP)
@@ -116,17 +116,17 @@ pub fn inbound_to_method(msg: &Value) -> Option<Method> {
 // (no DDS deps) encode that convention and are unit-tested against the spec below.
 
 /// The `rmw` DDS-topic prefix for an ordinary ROS **topic** (as opposed to a service
-/// request `rq`/reply `rr`) — CONCEPT:EG-KG.ingest.rmw-topic-prefix. rmw prepends `rt` to the fully-qualified ROS
+/// request `rq`/reply `rr`) — CONCEPT:MEDULLA-KG.ingest.rmw-topic-prefix. rmw prepends `rt` to the fully-qualified ROS
 /// topic name, so the ROS topic `/chatter` becomes the DDS topic `rt/chatter`.
 pub const RMW_ROS_TOPIC_PREFIX: &str = "rt";
 
 /// The CDR **representation identifier** for ROS 2's little-endian XCDR1
-/// payloads (CONCEPT:EG-KG.ingest.rmw-topic-prefix). The identifier is the
+/// payloads (CONCEPT:MEDULLA-KG.ingest.rmw-topic-prefix). The identifier is the
 /// first two bytes of every CDR-LE sample; the final two encapsulation bytes
 /// are serializer metadata and are not a fixed header across payloads.
 pub const CDR_LE_REPRESENTATION_ID: [u8; 2] = [0x00, 0x01];
 
-/// The four-byte CDR encapsulation observed for the EG-349 `std_msgs/String`
+/// The four-byte CDR encapsulation observed for the MEDULLA-349 `std_msgs/String`
 /// golden sample (`data = "eg349"`). Dust DDS stores the trailing alignment
 /// padding length in the fourth byte, so this value is intentionally not a
 /// universal header: a payload with a different length may end in `0`, `1`,
@@ -156,7 +156,7 @@ fn next_isolated_dds_identity(prefix: &str) -> (u32, String) {
 }
 
 /// Mangle a ROS 2 topic name to the DDS topic name a live `ros2` daemon uses
-/// (CONCEPT:EG-KG.ingest.rmw-topic-prefix). rmw first fully-qualifies the ROS name (a leading `/`), then prepends
+/// (CONCEPT:MEDULLA-KG.ingest.rmw-topic-prefix). rmw first fully-qualifies the ROS name (a leading `/`), then prepends
 /// the [`RMW_ROS_TOPIC_PREFIX`], so `/chatter` → `rt/chatter` and a bare `chatter` (or
 /// `/chatter`) both map to `rt/chatter`. Matches `rmw_cyclonedds`/`rmw_fastrtps`.
 pub fn mangle_topic_name(ros_topic: &str) -> String {
@@ -170,7 +170,7 @@ pub fn mangle_topic_name(ros_topic: &str) -> String {
 }
 
 /// Mangle a ROS 2 message type to the DDS type name a live `ros2` daemon advertises in
-/// discovery (CONCEPT:EG-KG.ingest.rmw-topic-prefix): `<pkg>::<namespace>::dds_::<Msg>_`. Accepts either the
+/// discovery (CONCEPT:MEDULLA-KG.ingest.rmw-topic-prefix): `<pkg>::<namespace>::dds_::<Msg>_`. Accepts either the
 /// rosbridge 2-part form `std_msgs/String` (the `<namespace>` defaults to `msg`) or the
 /// 3-part `std_msgs/msg/String`. So `std_msgs/String` and `std_msgs/msg/String` both map to
 /// `std_msgs::msg::dds_::String_` (matching `rmw_cyclonedds`/`rmw_fastrtps`).
@@ -187,7 +187,7 @@ pub fn mangle_type_name(ros_type: &str) -> String {
     format!("{pkg}::{namespace}::dds_::{msg}_")
 }
 
-// ── Native DDS/RTPS transport via pure-Rust Dust DDS (CONCEPT:EG-KG.ingest.dds-transport) ────────
+// ── Native DDS/RTPS transport via pure-Rust Dust DDS (CONCEPT:MEDULLA-KG.ingest.dds-transport) ────────
 #[cfg(feature = "ros2-dds")]
 mod native {
     use super::*;
@@ -232,7 +232,7 @@ mod native {
     type Writer = DataWriter<Ros2String>;
     type Reader = DataReader<Ros2String>;
 
-    /// Native DDS/RTPS [`DdsTransport`] (CONCEPT:EG-KG.ingest.dds-transport) over pure-Rust Dust DDS. Owns one
+    /// Native DDS/RTPS [`DdsTransport`] (CONCEPT:MEDULLA-KG.ingest.dds-transport) over pure-Rust Dust DDS. Owns one
     /// DDS `DomainParticipant` + a publisher/subscriber pair, and per-topic
     /// writer/reader maps. Topic creation is serialized and reuses the local
     /// topic description, so subscribe-then-advertise cannot create two DDS
@@ -342,16 +342,16 @@ mod native {
             result
         }
 
-        /// Read the DDS domain id from `EPISTEMIC_GRAPH_ROS_DDS_DOMAIN` (default `0`).
+        /// Read the DDS domain id from `MEDULLA_ROS_DDS_DOMAIN` (default `0`).
         pub fn domain_from_env() -> u16 {
-            std::env::var("EPISTEMIC_GRAPH_ROS_DDS_DOMAIN")
+            std::env::var("MEDULLA_ROS_DDS_DOMAIN")
                 .ok()
                 .and_then(|v| v.trim().parse::<u16>().ok())
                 .unwrap_or(0)
         }
 
         /// Create the underlying DDS [`Topic`] using the **rmw-mangled** name+type
-        /// (CONCEPT:EG-KG.ingest.rmw-topic-prefix) so a live `ros2` daemon discovers/subscribes it zero-config:
+        /// (CONCEPT:MEDULLA-KG.ingest.rmw-topic-prefix) so a live `ros2` daemon discovers/subscribes it zero-config:
         /// the ROS name `name` is put on the wire as [`mangle_topic_name`] (`rt/…`) and the
         /// ROS type `type_name` as [`mangle_type_name`] (`<pkg>::<ns>::dds_::<Msg>_`). The
         /// caller-facing writer/reader map still keys on the un-mangled ROS `name`.
@@ -483,7 +483,7 @@ mod native {
             infrastructure::type_support::TypeSupport, xtypes::serializer::Cdr1LeSerializer,
         };
 
-        /// EG-349: prove the native leg serializes a `std_msgs/String`-shaped sample with
+        /// MEDULLA-349: prove the native leg serializes a `std_msgs/String`-shaped sample with
         /// the exact CDR-LE golden vector emitted by the pinned Dust DDS serializer.
         /// The fourth encapsulation byte is the trailing alignment-padding count;
         /// for `eg349` the string occupies two padding bytes, hence `00 01 00 02`.
@@ -499,12 +499,12 @@ mod native {
             assert_eq!(
                 &payload[..4],
                 &CDR_LE_ENCAPSULATION_HEADER,
-                "EG-349: on-wire CDR encapsulation must match the XCDR1 golden vector",
+                "MEDULLA-349: on-wire CDR encapsulation must match the XCDR1 golden vector",
             );
             assert_eq!(
                 &payload[..2],
                 &CDR_LE_REPRESENTATION_ID,
-                "EG-349: representation id must be CDR little-endian",
+                "MEDULLA-349: representation id must be CDR little-endian",
             );
             assert_eq!(
                 payload,
@@ -514,7 +514,7 @@ mod native {
                     b'e', b'g', b'3', b'4', b'9', 0, // std_msgs/String data
                     0, 0, // complete the 4-byte XCDR1 alignment
                 ],
-                "EG-349: serialized std_msgs/String bytes must remain interoperable",
+                "MEDULLA-349: serialized std_msgs/String bytes must remain interoperable",
             );
         }
     }
@@ -523,7 +523,7 @@ mod native {
 #[cfg(feature = "ros2-dds")]
 pub use native::NativeDdsTransport;
 
-// ── S5: CycloneDDS-C-backed `rmw` transport (CONCEPT:EG-KG.ingest.rmw-cyclonedds-leg) ──
+// ── S5: CycloneDDS-C-backed `rmw` transport (CONCEPT:MEDULLA-KG.ingest.rmw-cyclonedds-leg) ──
 //
 // The SECOND native leg of the `DdsTransport` seam: where [`native::NativeDdsTransport`]
 // (feature `ros2-dds`) is pure-Rust Dust DDS (wire-COMPATIBLE with rmw's mangled
@@ -546,7 +546,7 @@ mod cyclone {
     use super::super::ros2_bridge::ROS_STRING_TYPE;
 
     /// The rmw-mangled `std_msgs/String` type name this leg advertises with
-    /// (CONCEPT:EG-KG.ingest.rmw-topic-prefix) — MUST match [`mangle_type_name`] applied to
+    /// (CONCEPT:MEDULLA-KG.ingest.rmw-topic-prefix) — MUST match [`mangle_type_name`] applied to
     /// [`ROS_STRING_TYPE`]; asserted by [`cyclone_tests::eg347_cyclone_type_name_matches_mangling`].
     const CYCLONE_ROS_STRING_TYPE_NAME: &str = "std_msgs::msg::dds_::String_";
 
@@ -601,7 +601,7 @@ mod cyclone {
     type Writer = DataWriter<CycloneRos2String>;
     type Reader = DataReader<CycloneRos2String>;
 
-    /// CycloneDDS-C-backed [`DdsTransport`] (CONCEPT:EG-KG.ingest.rmw-cyclonedds-leg). Owns one DDS
+    /// CycloneDDS-C-backed [`DdsTransport`] (CONCEPT:MEDULLA-KG.ingest.rmw-cyclonedds-leg). Owns one DDS
     /// `DomainParticipant` + a publisher/subscriber pair, a per-ROS-topic cache of the
     /// underlying DDS `Topic` entity id, and a per-topic writer/reader map. Links the REAL
     /// CycloneDDS C stack (vendored + cmake-built — see the `cyclonedds` dependency doc in
@@ -688,11 +688,11 @@ mod cyclone {
             }
         }
 
-        /// Read the DDS domain id from `EPISTEMIC_GRAPH_ROS_DDS_DOMAIN` (default `0`) — the
+        /// Read the DDS domain id from `MEDULLA_ROS_DDS_DOMAIN` (default `0`) — the
         /// SAME env var [`native::NativeDdsTransport::domain_from_env`] reads, so switching
         /// legs needs no config change.
         pub fn domain_from_env() -> u32 {
-            std::env::var("EPISTEMIC_GRAPH_ROS_DDS_DOMAIN")
+            std::env::var("MEDULLA_ROS_DDS_DOMAIN")
                 .ok()
                 .and_then(|v| v.trim().parse::<u32>().ok())
                 .unwrap_or(0)
@@ -795,7 +795,7 @@ mod cyclone {
     mod cyclone_tests {
         use super::*;
 
-        /// EG-347 (S5): the type name this leg advertises with MUST equal
+        /// MEDULLA-347 (S5): the type name this leg advertises with MUST equal
         /// [`mangle_type_name`] applied to the shared [`ROS_STRING_TYPE`] constant — kept
         /// as a `&'static str` on [`CycloneRos2String`] (the `DdsType` trait requires a
         /// compile-time constant) rather than computed, so this test guards against drift
@@ -809,10 +809,10 @@ mod cyclone {
             assert_eq!(CycloneRos2String::type_name(), CYCLONE_ROS_STRING_TYPE_NAME,);
         }
 
-        /// EG-347 (S5): a REAL RTPS loopback over the CycloneDDS-C `rmw` stack — publish a
+        /// MEDULLA-347 (S5): a REAL RTPS loopback over the CycloneDDS-C `rmw` stack — publish a
         /// `std_msgs/String`-shaped message on a topic, subscribe to the same topic, and
         /// prove the round-trip over an actual CycloneDDS-C wire (with real DDS discovery),
-        /// then map the inbound message back to an engine `AddNode` via the shared EG-325
+        /// then map the inbound message back to an engine `AddNode` via the shared MEDULLA-325
         /// [`inbound_to_method`] path — mirroring
         /// [`native::tests::eg347_native_dds_loopback_pub_sub_roundtrip`] so both legs are
         /// exercised identically.
@@ -849,7 +849,7 @@ mod cyclone {
                 }
                 assert!(
                     std::time::Instant::now() < deadline,
-                    "EG-347: timed out waiting for the CycloneDDS/RTPS loopback sample"
+                    "MEDULLA-347: timed out waiting for the CycloneDDS/RTPS loopback sample"
                 );
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
@@ -866,7 +866,7 @@ mod tests {
     use super::*;
     use crate::server::ros2_bridge::ROS_STRING_TYPE;
 
-    /// EG-349: the rmw topic-name mangling matches the `rmw_cyclonedds`/`rmw_fastrtps`
+    /// MEDULLA-349: the rmw topic-name mangling matches the `rmw_cyclonedds`/`rmw_fastrtps`
     /// convention (ROS 2 Humble+): a ROS topic gets the `rt` prefix on the DDS wire, and a
     /// bare (un-qualified) name is fully-qualified first. This is what a live `ros2` daemon
     /// looks for in SPDP/SEDP discovery.
@@ -877,13 +877,13 @@ mod tests {
         assert_eq!(mangle_topic_name("chatter"), "rt/chatter");
         // Nested namespaces are preserved after the prefix.
         assert_eq!(
-            mangle_topic_name("/epistemic_graph/eg349_test"),
-            "rt/epistemic_graph/eg349_test"
+            mangle_topic_name("/medulla/eg349_test"),
+            "rt/medulla/eg349_test"
         );
         assert_eq!(RMW_ROS_TOPIC_PREFIX, "rt");
     }
 
-    /// EG-349: the rmw type-name mangling matches the `<pkg>::<ns>::dds_::<Msg>_`
+    /// MEDULLA-349: the rmw type-name mangling matches the `<pkg>::<ns>::dds_::<Msg>_`
     /// convention — the exact type descriptor a live `ros2` daemon advertises for
     /// `std_msgs/String`. Both the rosbridge 2-part and the ROS 3-part spellings converge.
     #[test]
@@ -896,7 +896,7 @@ mod tests {
             mangle_type_name("std_msgs/msg/String"),
             "std_msgs::msg::dds_::String_"
         );
-        // The default the DDS leg advertises with (EG-325 `ROS_STRING_TYPE`) mangles right.
+        // The default the DDS leg advertises with (MEDULLA-325 `ROS_STRING_TYPE`) mangles right.
         assert_eq!(
             mangle_type_name(ROS_STRING_TYPE),
             "std_msgs::msg::dds_::String_"
@@ -908,10 +908,10 @@ mod tests {
         );
     }
 
-    /// EG-347/EG-349: a REAL DDS/RTPS loopback — publish a `std_msgs/String`-shaped message
+    /// MEDULLA-347/MEDULLA-349: a REAL DDS/RTPS loopback — publish a `std_msgs/String`-shaped message
     /// on a topic through the native Dust DDS transport, subscribe to the same topic, and
     /// prove the round-trip (over an actual RTPS wire, with DDS discovery), then map the
-    /// inbound message back to an engine `AddNode` via the shared EG-325
+    /// inbound message back to an engine `AddNode` via the shared MEDULLA-325
     /// [`inbound_to_method`] path. The DDS wire now carries the **rmw-mangled** names
     /// (asserted here) so the same publish is discoverable by a live `ros2` daemon.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -945,7 +945,7 @@ mod tests {
         loop {
             if let Some((got_topic, got)) = transport.poll_inbound().await.expect("poll") {
                 assert_eq!(got_topic, topic);
-                // Inbound DDS message maps to an engine Method via the shared EG-325 path.
+                // Inbound DDS message maps to an engine Method via the shared MEDULLA-325 path.
                 let method = inbound_to_method(&got).expect("maps to a method");
                 match method {
                     Method::AddNode { node_id, .. } => assert_eq!(node_id, "robot_1"),
@@ -955,7 +955,7 @@ mod tests {
             }
             assert!(
                 std::time::Instant::now() < deadline,
-                "EG-347: timed out waiting for the DDS/RTPS loopback sample"
+                "MEDULLA-347: timed out waiting for the DDS/RTPS loopback sample"
             );
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
@@ -970,7 +970,7 @@ mod tests {
         transport.close()
     }
 
-    /// EG-129: lifecycle fixtures use bounded, unique identities and release
+    /// MEDULLA-129: lifecycle fixtures use bounded, unique identities and release
     /// participants on both concurrent and repeated paths. The subscribe-first
     /// ordering exercises the single-topic creation guard that prevents the
     /// process-global collision seen in the original loopback fixture.

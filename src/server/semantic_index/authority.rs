@@ -78,7 +78,7 @@ impl SemanticIndexServerAdapter {
         request: &SemanticIndexRequest,
         authority: &CarrierAuthority,
         now_ms: u64,
-    ) -> Result<eg_core::compute::semantic_ann_codes::SemanticMutationReceipt, String> {
+    ) -> Result<medulla_core::compute::semantic_ann_codes::SemanticMutationReceipt, String> {
         self.authorize(request, authority, now_ms)?;
         let SemanticIndexCommand::CreateBinding { draft } = &request.command else {
             return Err(

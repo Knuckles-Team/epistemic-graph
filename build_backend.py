@@ -1,7 +1,7 @@
-"""PEP 517 composition backend for the complete epistemic-graph artifact.
+"""PEP 517 composition backend for the complete medulla artifact.
 
-Maturin builds the wheel from the ``eg-pyengine`` PyO3 crate (the
-``epistemic_graph.engine`` module plus the pure-Python package, selected by
+Maturin builds the wheel from the ``medulla-pyengine`` PyO3 crate (the
+``medulla.engine`` module plus the pure-Python package, selected by
 ``[tool.maturin] manifest-path``); the numeric PyO3 module is built from its own
 crate. Every PEP 517 and editable build folds the numeric module into that wheel
 using the same injector as the release pipeline. No server crate or bin target is
@@ -43,9 +43,9 @@ from scripts.strip_wheel_executables import strip_executables
 
 ROOT = Path(__file__).resolve().parent
 PROJECT_NAME = "medulla"
-NUMERIC_MANIFEST = ROOT / "crates" / "eg-numeric" / "Cargo.toml"
+NUMERIC_MANIFEST = ROOT / "crates" / "medulla-numeric" / "Cargo.toml"
 _CACHE_SCHEMA = 3
-_CACHE_ENV = "EPISTEMIC_GRAPH_NATIVE_ARTIFACT_CACHE"
+_CACHE_ENV = "MEDULLA_NATIVE_ARTIFACT_CACHE"
 _BUILD_ENV = (
     "AR",
     "CC",
@@ -141,7 +141,7 @@ def _cache_root() -> Path:
         cache = Path(configured).expanduser().resolve()
     else:
         cache_home = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-        cache = cache_home / "epistemic-graph" / "native-artifacts" / "v1"
+        cache = cache_home / "medulla" / "native-artifacts" / "v1"
     try:
         cache.relative_to(ROOT.resolve())
     except ValueError:
@@ -342,7 +342,7 @@ def _maturin_staging_lock():
     """
 
     target = _cargo_target_dir()
-    lock_path = target.parent / f".{target.name}.epistemic-graph-maturin.lock"
+    lock_path = target.parent / f".{target.name}.medulla-maturin.lock"
     with _exclusive_file_lock(lock_path):
         yield
 
@@ -394,7 +394,7 @@ def _record_entry_valid(
 def _resolved_editable_source(payload: bytes) -> Path | None:
     """Return one absolute, existing source pointer as its real path.
 
-    Hermetic uv workspaces expose the canonical epistemic-graph checkout through a
+    Hermetic uv workspaces expose the canonical medulla checkout through a
     directory symlink.  Maturin may preserve either the requested symlink path or
     its resolved path in the editable ``.pth`` file, so lexical comparison rejects
     a wheel built from the very same checkout.  Resolve both identities while
@@ -445,7 +445,7 @@ def _validate_editable_wheel(wheel: Path) -> None:
 def _validate_editable_source(archive: zipfile.ZipFile, names: list[str]) -> None:
     """Bind the wheel's single source pointer to this resolved checkout."""
 
-    pth = "epistemic_graph.pth"
+    pth = "medulla.pth"
     if pth not in names:
         raise RuntimeError("cached editable wheel does not point at source")
     embedded_source = _resolved_editable_source(archive.read(pth))
@@ -459,8 +459,8 @@ def _native_module_members(names: list[str], module: str) -> list[str]:
     return [
         name
         for name in names
-        if Path(name).parent.as_posix() == "epistemic_graph"
-        and name.startswith(f"epistemic_graph/{module}.")
+        if Path(name).parent.as_posix() == "medulla"
+        and name.startswith(f"medulla/{module}.")
         and name.endswith((".so", ".pyd"))
     ]
 

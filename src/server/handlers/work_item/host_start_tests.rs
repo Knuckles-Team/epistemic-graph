@@ -4,11 +4,11 @@ use super::*;
 use crate::server::auth::{dispatch_test_on_heap, scoped_test_request_on, ScopedTestCaller};
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::state::ServerState;
-use eg_types::control_lease::ControlLeaseIssued;
-use eg_types::host_start::{HostStartBinding, HostStartInterfaces, IssueHostStartGrantRequest};
+use medulla_types::control_lease::ControlLeaseIssued;
+use medulla_types::host_start::{HostStartBinding, HostStartInterfaces, IssueHostStartGrantRequest};
 use tokio::sync::RwLock;
 
-// spec: EG-DURABLE-KERNEL-R030.1.3
+// spec: MEDULLA-DURABLE-KERNEL-R030.1.3
 const SECRET: &str = "host-start-contract-test-secret";
 const ISSUER: &str = "host-start-test-issuer";
 const TENANT: &str = "tenant-shared";
@@ -225,7 +225,7 @@ async fn signed_wrong_tenant_and_forged_provenance_refuse_without_mutation() {
     );
     assert_eq!(
         issued.outcome,
-        eg_types::control_lease::ControlLeaseIssueOutcome::Issued
+        medulla_types::control_lease::ControlLeaseIssueOutcome::Issued
     );
     assert_eq!(
         issued

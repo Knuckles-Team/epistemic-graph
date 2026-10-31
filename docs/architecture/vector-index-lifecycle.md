@@ -108,7 +108,7 @@ by Python. There are exactly two engine-native vector paths, in preference order
    available" error is the trigger to use it.
 
 The returned `{id, score}` rows are hydrated to full node dicts in **one batched
-property fetch** (`nodes.properties_batch`, CONCEPT:EG-KG.compute.graph-compute-engine). Corpus / target-path
+property fetch** (`nodes.properties_batch`, CONCEPT:MEDULLA-KG.compute.graph-compute-engine). Corpus / target-path
 restriction is an id-set intersection / substring match over the **bounded ranked
 candidate pool the engine returned** — never a full-graph scan.
 
@@ -156,7 +156,7 @@ just not optimal).
 
 | File | Component |
 |------|-----------|
-| `knowledge_graph/backends/contrib/ladybug_backend.py` | `build_vector_indices()`, `drop_vector_indices()` (Ladybug/Kuzu is a demoted `contrib` mirror; the authority is `epistemic_graph_backend.py`, with `postgresql_backend.py` as an optional mirror) |
+| `knowledge_graph/backends/contrib/ladybug_backend.py` | `build_vector_indices()`, `drop_vector_indices()` (Ladybug/Kuzu is a demoted `contrib` mirror; the authority is `medulla_backend.py`, with `postgresql_backend.py` as an optional mirror) |
 | `knowledge_graph/retrieval/hybrid_retriever.py` | `_engine_vector_search()` (ONE engine unified plan / native ANN), `_batch_node_properties()` |
 | `knowledge_graph/core/graph_compute.py` | `query_unified()` (→ `client.query.unified`), `semantic_search()` |
 | `knowledge_graph/core/engine_tasks.py` | `submit_task()` (pre-drop), `_maybe_build_vector_indexes()` (post-build) |

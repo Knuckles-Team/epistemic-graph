@@ -24,12 +24,12 @@ pub(crate) struct OwnerReceiptInput<'a> {
 }
 
 pub(in crate::server::persistence) fn owner_receipt(
-    operation: &eg_types::authority::OperationReplayIdentity,
-    nonce: &eg_types::authority::NonceReplayKey,
+    operation: &medulla_types::authority::OperationReplayIdentity,
+    nonce: &medulla_types::authority::NonceReplayKey,
     batch: &MutationBatch,
     input: OwnerReceiptInput<'_>,
 ) -> Result<MutationReceipt, String> {
-    use eg_types::contract::{MutationDisposition, OpaqueId, UtcUnixNanos};
+    use medulla_types::contract::{MutationDisposition, OpaqueId, UtcUnixNanos};
 
     let OwnerReceiptInput {
         slug,
@@ -82,15 +82,15 @@ pub(in crate::server::persistence) fn owner_receipt(
 /// fold binds intent order as well as every topic, key, payload and header, so
 /// omitting one per-component event changes the receipt effect digest.
 pub(in crate::server::persistence) fn owner_batch_receipt(
-    operation: &eg_types::authority::OperationReplayIdentity,
-    nonce: &eg_types::authority::NonceReplayKey,
+    operation: &medulla_types::authority::OperationReplayIdentity,
+    nonce: &medulla_types::authority::NonceReplayKey,
     batch: &MutationBatch,
     slug: &str,
     mutation_result: MutationResult,
     committed_version: u64,
     committed_at_ms: u64,
 ) -> Result<MutationReceipt, String> {
-    use eg_types::contract::{MutationDisposition, OpaqueId, UtcUnixNanos};
+    use medulla_types::contract::{MutationDisposition, OpaqueId, UtcUnixNanos};
 
     let operation_digest = operation.digest()?;
     let nonce_digest = nonce.digest()?;
@@ -100,7 +100,7 @@ pub(in crate::server::persistence) fn owner_batch_receipt(
         .map(|envelope| envelope.authority.context_digest)
         .unwrap_or(operation_digest);
     let effect_digest = batch.outbox.iter().enumerate().try_fold(
-        eg_types::contract::Digest256::framed(b"eg/agent-library-effects/v1", &[])?,
+        medulla_types::contract::Digest256::framed(b"eg/agent-library-effects/v1", &[])?,
         |prior, (ordinal, intent)| {
             let intent_digest = agent_library_effect_digest(
                 &intent.topic,
@@ -108,7 +108,7 @@ pub(in crate::server::persistence) fn owner_batch_receipt(
                 &intent.payload,
                 &intent.headers,
             )?;
-            eg_types::contract::Digest256::framed(
+            medulla_types::contract::Digest256::framed(
                 b"eg/agent-library-effect-item/v1",
                 &[
                     prior.as_bytes(),
@@ -152,11 +152,11 @@ pub(super) fn agent_library_effect_digest(
     key: &str,
     payload: &[u8],
     headers: &BTreeMap<String, String>,
-) -> Result<eg_types::contract::Digest256, String> {
+) -> Result<medulla_types::contract::Digest256, String> {
     let mut header_digest =
-        eg_types::contract::Digest256::framed(b"eg/agent-library-effect-headers/v1", &[])?;
+        medulla_types::contract::Digest256::framed(b"eg/agent-library-effect-headers/v1", &[])?;
     for (header, value) in headers {
-        header_digest = eg_types::contract::Digest256::framed(
+        header_digest = medulla_types::contract::Digest256::framed(
             b"eg/agent-library-effect-header/v1",
             &[
                 header_digest.as_bytes(),
@@ -165,7 +165,7 @@ pub(super) fn agent_library_effect_digest(
             ],
         )?;
     }
-    eg_types::contract::Digest256::framed(
+    medulla_types::contract::Digest256::framed(
         b"eg/agent-library-effect/v1",
         &[
             topic.as_bytes(),

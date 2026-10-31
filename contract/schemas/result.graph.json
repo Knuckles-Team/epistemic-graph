@@ -120,7 +120,7 @@
       "type": "object"
     },
     "DecayStats": {
-      "description": "Result of an Ebbinghaus forgetting-curve decay sweep (CONCEPT:EG-KG.compute.typed-graph-model).\n\n`*_decayed` count items whose belief `confidence` was reduced this sweep;\n`*_pruned` count items removed because their decayed confidence fell below\nthe sweep `floor`.",
+      "description": "Result of an Ebbinghaus forgetting-curve decay sweep (CONCEPT:MEDULLA-KG.compute.typed-graph-model).\n\n`*_decayed` count items whose belief `confidence` was reduced this sweep;\n`*_pruned` count items removed because their decayed confidence fell below\nthe sweep `floor`.",
       "properties": {
         "edges_decayed": {
           "format": "uint",
@@ -452,7 +452,7 @@
       ]
     },
     "LoadReport": {
-      "description": "Summary of an RDF triple load (`eg_rdf::mapping::load_triples`).",
+      "description": "Summary of an RDF triple load (`medulla_rdf::mapping::load_triples`).",
       "properties": {
         "multivalue": {
           "description": "Multi-valued literal extras encountered (second+ literal per `(s,p)`).",
@@ -1106,7 +1106,7 @@
       "type": "string"
     },
     "ScenePose": {
-      "description": "A scene object's composed world transform (`Method::WorldTransform`) -- the wire\nprojection of `eg_core::scene::Pose`, the same `{translation, rotation, scale}` object a\nscene node stores under its `pose` property.",
+      "description": "A scene object's composed world transform (`Method::WorldTransform`) -- the wire\nprojection of `medulla_core::scene::Pose`, the same `{translation, rotation, scale}` object a\nscene node stores under its `pose` property.",
       "properties": {
         "rotation": {
           "$ref": "#/$defs/SceneQuat"

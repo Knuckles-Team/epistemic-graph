@@ -7,14 +7,14 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
 
-use eg_types::control_lease::{
+use medulla_types::control_lease::{
     ControlLeaseTarget, IssueControlLeaseRequest, TransitionControlLeaseRequest,
 };
-use eg_types::graph_schema::approval::{
+use medulla_types::graph_schema::approval::{
     approved_candidate_digest, SCHEMA_APPROVAL_ACTION, SCHEMA_APPROVAL_LEASE_KIND,
 };
-use eg_types::graph_schema::repair::{FieldContract, JsonType, RecordContract};
-use eg_types::graph_schema::{
+use medulla_types::graph_schema::repair::{FieldContract, JsonType, RecordContract};
+use medulla_types::graph_schema::{
     GraphSchemaCommitted, GraphSchemaSourcesView, SchemaSourceOriginView,
 };
 

@@ -1,0 +1,56 @@
+[package]
+name = "medulla-tensor"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Pure-Rust dense N-D array / tensor modality for the medulla-engine engine (CONCEPT:MEDULLA-085) — a dtype/shape/row-major-buffer Tensor with slice / reduce / elementwise / reshape ops and a compact little-endian byte-blob codec for content-addressed storage in the blob CAS. NO BLAS/C deps (the Pi contract)."
+license = "MIT"
+
+[lib]
+name = "medulla_tensor"
+
+# Pure-Rust, Pi-lean by design — a leaf crate like medulla-ann / medulla-geo. The ONLY
+# dependency is serde (so a `Tensor` persists as a typed value in the redb per-graph
+# store, per CONCEPT:MEDULLA-085). NO BLAS/LAPACK/C deps and NO ndarray: the N-D array
+# model, the slice/reduce/elementwise/reshape ops, and the compact byte-blob codec are
+# all hand-written, so the crate stays truly minimal and folds cleanly into the
+# `tensor` serving tiers (node/full), kept OUT of `pi`.
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+# CONCEPT:MEDULLA-KG.query.multi-rate-sensor-stream — the fusion module's time-alignment half (multi-rate
+# resample onto a common grid + MEDULLA-067 tumbling windows) lives in medulla-tsdb. Pulled with
+# default-features (NO redb/Arrow/DataFusion), so it stays pure-Rust/Pi-lean; medulla-tensor
+# supplies the tensor-frame half. medulla-tsdb does NOT depend on medulla-tensor, so there is no cycle.
+medulla-tsdb = { path = "../medulla-tsdb", default-features = false }
+# GPU-accelerated tensor ops (CONCEPT:MEDULLA-327). OPTIONAL, only under `gpu-cuda`.
+# `dynamic-loading` → builds with NO CUDA toolkit; a default/pi build links none of it.
+cudarc = { version = "0.17", optional = true, default-features = false, features = ["driver", "nvrtc", "dynamic-loading", "cuda-12060"] }
+# ModalityContract PILOT retrofit (CONCEPT:E4). Optional, only under `contract`
+# (default OFF) — a default/pi/node/full build links none of it and `Tensor` carries
+# no new required trait. See `src/contract.rs`.
+medulla-modality = { path = "../medulla-modality", optional = true }
+
+[features]
+default = []
+# Tensor-op GPU DISPATCH SEAM (CONCEPT:MEDULLA-326): compiles the `TensorBackend` trait +
+# backend selection; the pure-Rust CPU backend is always the compiled-in fallback. No
+# accelerator dep on its own.
+gpu = []
+# REAL CUDA tensor-op backend (CONCEPT:MEDULLA-327): pulls `cudarc` (dynamic-loading) and runs
+# the elementwise kernel on a GPU when present, else CPU fallback at runtime. Implies `gpu`.
+gpu-cuda = ["gpu", "dep:cudarc"]
+# ModalityContract PILOT retrofit (CONCEPT:E4): `impl ModalityContract for Tensor` +
+# the `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded
+# into any tier aggregate (pi/node/full) — it is a capability-discovery/testing seam,
+# not a serving feature. `cargo test -p medulla-tensor --features contract` runs the suite.
+contract = ["dep:medulla-modality"]
+
+[dev-dependencies]
+# The serde round-trip test proves a `Tensor` survives the typed-property codec (the
+# non-blob persistence form). The compact byte-blob round-trip needs no dep at all.
+serde_json = "1.0"
+
+# Test-only opt-in cfg (not a feature, so `--all-features` never turns it on). See the
+# crate's device/CPU-feature parity tests for when to pass `--cfg medulla_gpu_device_tests`.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(medulla_gpu_device_tests)"] }

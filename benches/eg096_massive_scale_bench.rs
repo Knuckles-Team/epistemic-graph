@@ -1,9 +1,9 @@
-//! Massive-scale engine micro-benchmark harness (CONCEPT:EG-KG.compute.massive-scale-benchmark).
+//! Massive-scale engine micro-benchmark harness (CONCEPT:MEDULLA-KG.compute.massive-scale-benchmark).
 //!
 //! The standing "how fast is the core?" harness for the three hot substrates the
 //! whole engine is built on. It is DEV-only (criterion), never linked into the
-//! server binary, and runs entirely IN-PROCESS against the pure `eg-core`
-//! `GraphCore` + the pure `eg-ann` IVF-PQ index — NO socket, NO Tokio, NO durable
+//! server binary, and runs entirely IN-PROCESS against the pure `medulla-core`
+//! `GraphCore` + the pure `medulla-ann` IVF-PQ index — NO socket, NO Tokio, NO durable
 //! tier — so it isolates the compute cost from any transport/fsync noise. It is
 //! deliberately feature-light (default features only), so a plain
 //! `cargo bench --no-run` compiles it while the redb/server benches skip.
@@ -22,14 +22,14 @@
 //!
 //! Run:  cargo bench --bench eg096_massive_scale_bench
 //!
-//! CONCEPT:EG-KG.compute.massive-scale-benchmark — massive-scale benchmark harness.
+//! CONCEPT:MEDULLA-KG.compute.massive-scale-benchmark — massive-scale benchmark harness.
 
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use eg_ann::{FlatIndex, HnswIndex, IvfPq, IvfPqParams, Metric, SearchParams};
-use epistemic_graph::broker::{route, topic_matches, Binding, ExchangeKind};
-use epistemic_graph::graph::GraphCore;
+use medulla_ann::{FlatIndex, HnswIndex, IvfPq, IvfPqParams, Metric, SearchParams};
+use medulla::broker::{route, topic_matches, Binding, ExchangeKind};
+use medulla::graph::GraphCore;
 
 // ── Deterministic, dependency-free PRNG ──────────────────────────────────
 // splitmix64: keeps the harness reproducible across runs and avoids pulling a

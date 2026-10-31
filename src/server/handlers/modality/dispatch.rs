@@ -1,8 +1,8 @@
-use eg_audio::AudioData;
-use eg_document::DocumentData;
-use eg_image::ImageData;
-use eg_types::{ServedModalityIngestItem, ServedModalityKind, ServedModalityOp};
-use eg_video::VideoData;
+use medulla_audio::AudioData;
+use medulla_document::DocumentData;
+use medulla_image::ImageData;
+use medulla_types::{ServedModalityIngestItem, ServedModalityKind, ServedModalityOp};
+use medulla_video::VideoData;
 
 use super::{
     capabilities, collect_tombstones, delete, events, ingest, ingest_stream, lifecycle,

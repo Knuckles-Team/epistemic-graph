@@ -169,9 +169,9 @@ pub(crate) fn resource_decode_result_payload(
         crate::protocol::ResultPayload::Raw(bytes) => bytes,
         _ => return Err("resource query result encoding failed".into()),
     };
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         &bytes,
-        eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
+        medulla_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
     )
     .map_err(|_| "resource query result encoding failed".into())
 }
@@ -260,7 +260,7 @@ pub(crate) fn current_work_item_query_matches(
 }
 
 pub(crate) fn read_resource_reservation_current_work_item_query(
-    nodes: &eg_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
+    nodes: &medulla_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
     graph: &str,
     request: &ResourceReservationStatusRequest,
     crypto: DurableCrypto<'_>,
@@ -333,7 +333,7 @@ pub(crate) fn resource_reservation_query_host(
 }
 
 pub(crate) fn resource_reservation_query_current_work_item(
-    nodes: &eg_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
+    nodes: &medulla_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
     graph: &str,
     record: &ResourceReservationRecord,
     crypto: DurableCrypto<'_>,
@@ -350,7 +350,7 @@ pub(crate) fn resource_reservation_query_current_work_item(
 
 pub(crate) fn build_resource_reservation_query_result(
     read: &ScopedRead<'_, GraphShardOwner>,
-    nodes: &eg_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
+    nodes: &medulla_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
     graph: &str,
     request: &ResourceReservationStatusRequest,
     stored: &DurableResourceReservation,
@@ -381,7 +381,7 @@ pub(crate) fn build_resource_reservation_query_result(
 
 pub(crate) fn read_resource_reservation_by_id(
     read: &ScopedRead<'_, GraphShardOwner>,
-    nodes: &eg_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
+    nodes: &medulla_storage::ScopedOwnerTable<(&str, &str), &[u8]>,
     graph: &str,
     request: &ResourceReservationStatusRequest,
     crypto: DurableCrypto<'_>,

@@ -40,10 +40,10 @@ Names with spaces, punctuation, non-ASCII letters or keyword spellings are back-
 
 ## Grammar (EBNF)
 
-Generated from the grammar table (`crates/eg-plan/src/uql/grammar.rs`) — the one source of
+Generated from the grammar table (`crates/medulla-plan/src/uql/grammar.rs`) — the one source of
 truth the parser's dispatch table, the parse-error "expected" lists and the NL planner's
 system prompt are all generated from or checked against. A test fails when this block drifts;
-regenerate it in place with `cargo run -q -p eg-plan --example uql_grammar -- write-docs`.
+regenerate it in place with `cargo run -q -p medulla-plan --example uql_grammar -- write-docs`.
 
 <!-- BEGIN GENERATED: uql-grammar -->
 ```text
@@ -282,7 +282,7 @@ rrank zscore` (window `w`), `ewma` (span), `ewma_halflife`, `abs sign neg clip(x
 `v0..vk`, `score` and earlier aliases, and writes its alias as a value channel; each column
 keeps its own warm-up (no value until its window fills). `rstd`/`zscore` use the population
 deviation, `ewma` is the recursive form seeded with the first value. The kernels are
-`eg_numeric::series` — the same ones the SQL `eg_<func>(…) OVER (PARTITION BY … ORDER BY …)`
+`medulla_numeric::series` — the same ones the SQL `eg_<func>(…) OVER (PARTITION BY … ORDER BY …)`
 window functions and a materialised derived series (`TsDefineSeries`) run.
 
 ```uql
@@ -472,7 +472,7 @@ epistemic stages act as sources on an empty RowSet); that is why they are listed
 source-capable above. It is an executor property, not something to lean on: two narrowers do
 not commute when the first empties the set (`WHERE level > 9 |> AS OF @100` re-seeds;
 `AS OF @100 |> WHERE level > 9` stays empty), and the cost optimizer never reorders across that
-boundary (EG-405, `EG-KG.query.empty-set-commutativity`; the witnesses
+boundary (MEDULLA-405, `MEDULLA-KG.query.empty-set-commutativity`; the witnesses
 `plan_proptest::empty_intermediate_reseeds_source_breaks_commute` and
 `filter_and_asof_commute_in_nonempty_regime` are the spec). Start pipelines with an explicit
 source.
@@ -516,7 +516,7 @@ typed decide or assembly request, never to a plan `Op`, and UQL refuses its clau
 parameters (`@name` is refused with the fix), a `{ … }` candidate query that is ordinary UQL
 (braces inside its strings do not close it; its own diagnostic points into the DecideText
 source), the same structured errors, and a grammar table
-(`crates/eg-plan/src/decide_text/grammar.rs`) this block is generated from:
+(`crates/medulla-plan/src/decide_text/grammar.rs`) this block is generated from:
 
 <!-- BEGIN GENERATED: decide-text-grammar -->
 ```text
@@ -543,5 +543,5 @@ param           = "$" name ;
 
 - [Engine architecture](architecture/engine.md) — the plan executor, bi-temporal model, tiers.
 - [Concepts](concepts.md) — `AU-KG.compute.vector` (fused executor), `AU-KG.query.top-nodes-by-degree` (UQL).
-- The grammar lives in `crates/eg-plan/src/uql/grammar.rs`; the printer in
-  `crates/eg-types/src/wire_query_uql.rs`; the op algebra in `crates/eg-types/src/wire_query_core.rs`.
+- The grammar lives in `crates/medulla-plan/src/uql/grammar.rs`; the printer in
+  `crates/medulla-types/src/wire_query_uql.rs`; the op algebra in `crates/medulla-types/src/wire_query_core.rs`.

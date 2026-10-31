@@ -1,49 +1,49 @@
 use super::*;
 
 pub(crate) struct ResourceReservationTables<'borrow, 'table, 'crypto> {
-    pub(crate) nodes: &'borrow mut eg_storage::ScopedOwnerTableMut<
+    pub(crate) nodes: &'borrow mut medulla_storage::ScopedOwnerTableMut<
         'table,
         (&'static str, &'static str),
         &'static [u8],
     >,
-    pub(crate) reservations: &'borrow mut eg_storage::ScopedOwnerTableMut<
+    pub(crate) reservations: &'borrow mut medulla_storage::ScopedOwnerTableMut<
         'table,
         (&'static str, &'static str),
         &'static [u8],
     >,
-    pub(crate) tenant_index: &'borrow mut eg_storage::ScopedOwnerTableMut<
+    pub(crate) tenant_index: &'borrow mut medulla_storage::ScopedOwnerTableMut<
         'table,
         (&'static str, &'static str, &'static str),
         &'static str,
     >,
-    pub(crate) attempts: &'borrow mut eg_storage::ScopedOwnerTableMut<
+    pub(crate) attempts: &'borrow mut medulla_storage::ScopedOwnerTableMut<
         'table,
         (&'static str, &'static str, u64),
         &'static str,
     >,
-    pub(crate) hosts: &'borrow mut eg_storage::ScopedOwnerTableMut<
+    pub(crate) hosts: &'borrow mut medulla_storage::ScopedOwnerTableMut<
         'table,
         (&'static str, &'static str),
         &'static [u8],
     >,
-    pub(crate) exclusivity: &'borrow mut eg_storage::ScopedOwnerTableMut<
+    pub(crate) exclusivity: &'borrow mut medulla_storage::ScopedOwnerTableMut<
         'table,
         (&'static str, &'static str),
         &'static str,
     >,
-    pub(crate) fairness: &'borrow mut eg_storage::ScopedOwnerTableMut<
+    pub(crate) fairness: &'borrow mut medulla_storage::ScopedOwnerTableMut<
         'table,
         (&'static str, &'static str),
         &'static [u8],
     >,
     pub(crate) concurrency:
-        &'borrow mut eg_storage::ScopedOwnerTableMut<'table, (&'static str, &'static str), u64>,
-    pub(crate) anti_affinity: &'borrow mut eg_storage::ScopedOwnerTableMut<
+        &'borrow mut medulla_storage::ScopedOwnerTableMut<'table, (&'static str, &'static str), u64>,
+    pub(crate) anti_affinity: &'borrow mut medulla_storage::ScopedOwnerTableMut<
         'table,
         (&'static str, &'static str, &'static str),
         u64,
     >,
-    pub(crate) disk_policies: &'borrow mut eg_storage::ScopedOwnerTableMut<
+    pub(crate) disk_policies: &'borrow mut medulla_storage::ScopedOwnerTableMut<
         'table,
         (&'static str, &'static str),
         &'static [u8],
@@ -73,7 +73,7 @@ fn apply_resource_reservation_operation(
     method: &Method,
     tables: &mut ResourceReservationTables<'_, '_, '_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
-    // CX-EG-05 (CCN 186 -> decomposed): the two match arms below are each a
+    // CX-MEDULLA-05 (CCN 186 -> decomposed): the two match arms below are each a
     // literal, behaviour-preserving relocation of the original arm body into
     // its own named function (see immediately after this function).
     match method {
@@ -86,7 +86,7 @@ fn apply_resource_reservation_operation(
         )?
         .map(
             crate::protocol::ResultPayload::of::<
-                eg_types::result_contract::coordination::UpdateResourceHost,
+                medulla_types::result_contract::coordination::UpdateResourceHost,
             >,
         )
         .transpose(),
@@ -109,13 +109,13 @@ fn resource_reservation_payload(
 ) -> Result<crate::protocol::ResultPayload, String> {
     match method {
         Method::ReserveWorkItemResources { .. } => crate::protocol::ResultPayload::of::<
-            eg_types::result_contract::coordination::ReserveWorkItemResources,
+            medulla_types::result_contract::coordination::ReserveWorkItemResources,
         >(result),
         Method::ReleaseWorkItemResources { .. } => crate::protocol::ResultPayload::of::<
-            eg_types::result_contract::coordination::ReleaseWorkItemResources,
+            medulla_types::result_contract::coordination::ReleaseWorkItemResources,
         >(result),
         Method::ReclaimWorkItemResources { .. } => crate::protocol::ResultPayload::of::<
-            eg_types::result_contract::coordination::ReclaimWorkItemResources,
+            medulla_types::result_contract::coordination::ReclaimWorkItemResources,
         >(result),
         _ => Err("resource reservation result for a non-reservation method".to_string()),
     }
@@ -307,8 +307,8 @@ pub(crate) fn build_resource_host_from_update(
 pub(crate) fn apply_update_resource_host_rows(
     request: &ResourceHostUpdateRequest,
     graph: &str,
-    hosts: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
-    disk_policies: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    hosts: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    disk_policies: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<ResourceHostUpdateResult>, String> {
     let target_kind = validate_resource_host_update_request(request)?;
@@ -410,7 +410,7 @@ pub(crate) fn apply_resource_reservation_lifecycle_rows(
 /// (`resource_load_and_validate_work_item`) back to back, so the orchestrator has a
 /// single call/match site for "validate the request and load both the existing
 /// reservation (if any) and the WorkItem row." No behaviour is added; this is pure
-/// call-site consolidation (see CX-EG-05's finding that a `?` after a call counts as
+/// call-site consolidation (see CX-MEDULLA-05's finding that a `?` after a call counts as
 /// a branch under this repo's complexity gate the same as an `if`, so flattening N
 /// sequential fallible calls into fewer named steps is what brings the caller's own
 /// CCN down, not simplifying any individual step).
@@ -587,7 +587,7 @@ pub(crate) fn resource_existing_reservation_precheck(
     stored: &DurableResourceReservation,
     mode: ResourceLifecycleMode,
     graph: &str,
-    hosts: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    hosts: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<ResourceReservationResult>, String> {
     if stored.record.tenant_ref != request.tenant_ref {

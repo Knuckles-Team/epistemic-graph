@@ -19,9 +19,9 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use eg_types::contract::BoundedVec;
-use eg_types::ingestion_wire::{IndexFileVersion, IndexRepositoryScope, IndexTombstone};
-use epistemic_graph::protocol::{GraphType, Method, Response, ResultPayload};
+use medulla_types::contract::BoundedVec;
+use medulla_types::ingestion_wire::{IndexFileVersion, IndexRepositoryScope, IndexTombstone};
+use medulla::protocol::{GraphType, Method, Response, ResultPayload};
 use sha2::{Digest, Sha256};
 
 const SECRET: &str = "repository-index-durable-secret";
@@ -34,10 +34,10 @@ fn digest(content: &[u8]) -> String {
     format!("sha256:{}", hex::encode(Sha256::digest(content)))
 }
 
-use eg_types::test_support::repository_index::live_ref as live;
+use medulla_types::test_support::repository_index::live_ref as live;
 
 fn member(ref_name: &str, path: &str, content: &[u8]) -> IndexFileVersion {
-    eg_types::test_support::repository_index::file_version(ref_name, path, digest(content))
+    medulla_types::test_support::repository_index::file_version(ref_name, path, digest(content))
 }
 
 fn scope(versions: Vec<IndexFileVersion>, tombstones: Vec<IndexTombstone>) -> IndexRepositoryScope {
@@ -188,11 +188,11 @@ fn scoped_index_pins_source_content_in_blob_cas() {
 
 #[cfg(feature = "blob")]
 async fn index_with_durable_source_refs() {
-    use epistemic_graph::server::blob::store::{ChunkStore, RedbChunkStore};
-    use epistemic_graph::server::blob::BlobCursors;
+    use medulla::server::blob::store::{ChunkStore, RedbChunkStore};
+    use medulla::server::blob::BlobCursors;
     use std::sync::Arc;
 
-    let (_dir, dir_s, _backend, state) = durable_graph("eg-repoindex-cas").await;
+    let (_dir, dir_s, _backend, state) = durable_graph("medulla-repoindex-cas").await;
     let store = Arc::new(RedbChunkStore::open(&dir_s).unwrap());
     state.write().await.blob = Some(Arc::new(BlobCursors::new(store.clone())));
     let result = index(
@@ -246,7 +246,7 @@ async fn durable_graph(
 }
 
 async fn commit_replay_tombstone_restart() {
-    let (dir, dir_s, backend, state) = durable_graph("eg-repoindex").await;
+    let (dir, dir_s, backend, state) = durable_graph("medulla-repoindex").await;
 
     // ── Commit: three unique blobs for five memberships over two branches ──
     let blobs: [(&str, &[u8]); 3] = [
@@ -337,7 +337,7 @@ async fn commit_replay_tombstone_restart() {
 /// repository path with a `home` segment must commit durably (EH-280).
 async fn code_with_decorators_and_home_paths() {
     const VIEWS: &[u8] = b"from dataclasses import dataclass\n\n\n@dataclass\nclass Settings:\n    name: str = \"x\"\n\n\n@dataclass(frozen=True)\nclass Page:\n    title: str = \"t\"\n";
-    let (dir, _, backend, state) = durable_graph("eg-repoindex-code").await;
+    let (dir, _, backend, state) = durable_graph("medulla-repoindex-code").await;
     let code = IndexRepositoryScope {
         repository_id: "local-git:team/web".to_string(),
         refs: BoundedVec::new(vec![live("main", 'c')]).unwrap(),
@@ -364,7 +364,7 @@ async fn code_with_decorators_and_home_paths() {
 /// repository).
 async fn one_path_diverged_across_refs() {
     const FEATURE_APP: &[u8] = b"def run():\n    return 2\n";
-    let (dir, _, backend, state) = durable_graph("eg-repoindex-diverged").await;
+    let (dir, _, backend, state) = durable_graph("medulla-repoindex-diverged").await;
     let diverged = scope(
         vec![
             member("main", "pkg/app.py", APP),
@@ -396,7 +396,7 @@ async fn one_path_diverged_across_refs() {
 /// it parses to no symbols but still projects its `:Blob` and `:FileVersion`,
 /// and the batch commits durably.
 async fn empty_source_file() {
-    let (dir, _, backend, state) = durable_graph("eg-repoindex-empty").await;
+    let (dir, _, backend, state) = durable_graph("medulla-repoindex-empty").await;
     let with_empty = scope(
         vec![
             member("main", "pkg/__init__.py", b""),

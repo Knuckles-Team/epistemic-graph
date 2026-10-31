@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""G-37 exact-binary performance certification for epistemic-graph.
+"""G-37 exact-binary performance certification for medulla.
 
 The harness is deliberately a release gate, not a development benchmark.  It
 requires an explicit executable and SHA-256 digest, stages those verified bytes
@@ -1358,22 +1358,22 @@ def _spawn_engine(
         "GRAPH_SERVICE_AUTH_SECRET": authority.auth_secret,
         # Explicit, deliberate opt-out of the MANDATORY-OIDC posture (secure by
         # default since 2026-07-22 -- see `auth.rs`'s `require_oidc()`); without
-        # it the engine refuses to start ("EPISTEMIC_GRAPH_REQUIRE_OIDC requires
+        # it the engine refuses to start ("MEDULLA_REQUIRE_OIDC requires
         # OIDC identity binding ... but no usable OIDC verifier is configured")
         # in this sealed certification sandbox, which has no Keycloak/OIDC
         # provider. Mirrors `certify_exact_fault_restart.py`'s `Engine.start`
         # and `tests/conftest.py`'s `strict_server_env` (same rationale).
-        "EPISTEMIC_GRAPH_REQUIRE_OIDC": "false",
-        "EPISTEMIC_GRAPH_AUDIENCE": authority.context["audience"],
-        "EPISTEMIC_GRAPH_TENANT": authority.context["tenant"],
-        "EPISTEMIC_GRAPH_POLICY_VERSION": authority.context["policy_version"],
-        "EPISTEMIC_GRAPH_SECURITY_STATE_DIR": str(security_dir),
+        "MEDULLA_REQUIRE_OIDC": "false",
+        "MEDULLA_AUDIENCE": authority.context["audience"],
+        "MEDULLA_TENANT": authority.context["tenant"],
+        "MEDULLA_POLICY_VERSION": authority.context["policy_version"],
+        "MEDULLA_SECURITY_STATE_DIR": str(security_dir),
         # NE-247: the SCOPED signer-registry shape. Under NE-065 the flat
         # `{signer_id: key}` form grants no roles and no `AgentRole::System`,
         # which denies this harness's own `bootstrap_system_identity` below.
         # This sandbox registers no other identity, so `allowed_roles` stays
         # empty -- only the System bootstrap is authorised.
-        "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON": json.dumps(
+        "MEDULLA_SIGNER_KEYS_JSON": json.dumps(
             {
                 authority.signer_id: {
                     "key": authority.signer_key,
@@ -1383,10 +1383,10 @@ def _spawn_engine(
             },
             separators=(",", ":"),
         ),
-        "EPISTEMIC_GRAPH_REDB_SHARDS": "1",
-        "EPISTEMIC_GRAPH_MAX_INFLIGHT": "256",
-        "EPISTEMIC_GRAPH_MAX_INFLIGHT_PER_GRAPH": "64",
-        "EPISTEMIC_GRAPH_READ_RESERVED": "32",
+        "MEDULLA_REDB_SHARDS": "1",
+        "MEDULLA_MAX_INFLIGHT": "256",
+        "MEDULLA_MAX_INFLIGHT_PER_GRAPH": "64",
+        "MEDULLA_READ_RESERVED": "32",
     }
     try:
         if _sha256_file(binary) != expected_digest:
@@ -1437,7 +1437,7 @@ async def _bootstrap_and_connect(
     deadline_seconds: float,
     started_ns: int,
 ) -> tuple[Any, float, dict[str, Any]]:
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import MedullaClient
 
     deadline = time.monotonic() + deadline_seconds
     bootstrap = None
@@ -1448,7 +1448,7 @@ async def _bootstrap_and_connect(
             await asyncio.sleep(0.02)
             continue
         try:
-            bootstrap = await EpistemicGraphClient.connect(
+            bootstrap = await MedullaClient.connect(
                 socket_path=str(engine.socket_path),
                 auth_secret=authority.auth_secret,
                 graph_name="__commons__",
@@ -1472,7 +1472,7 @@ async def _bootstrap_and_connect(
     finally:
         await bootstrap.close()
 
-    client = await EpistemicGraphClient.connect(
+    client = await MedullaClient.connect(
         socket_path=str(engine.socket_path),
         auth_secret=authority.auth_secret,
         graph_name=graph_ref,
@@ -3274,8 +3274,8 @@ async def _run_measurement_steps(
     )
     state.client = client
     state.bootstrap_verified = True
-    from epistemic_graph import __version__ as package_version
-    from epistemic_graph import client as client_module
+    from medulla import __version__ as package_version
+    from medulla import client as client_module
 
     client_file = Path(client_module.__file__ or "")
     if not client_file.is_file():
@@ -3414,13 +3414,13 @@ def _evaluate_run(
         "started_at_utc": started_at.isoformat(),
         "completed_at_utc": datetime.now(UTC).isoformat(),
         "exact_artifact": {
-            "component": "epistemic-graph-server",
+            "component": "medulla-server",
             "sha256": args.engine_sha256,
             "size_bytes": state.binary_size,
             "staged_copy_verified": state.staged_copy_verified,
         },
         "client_artifact": {
-            "component": "epistemic-graph-python-client",
+            "component": "medulla-python-client",
             "version": state.client_version,
             "source_sha256": state.client_digest,
         },

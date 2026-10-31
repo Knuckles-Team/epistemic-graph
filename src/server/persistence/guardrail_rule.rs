@@ -1,4 +1,4 @@
-//! The tenant's published `GuardrailRule` set (EG-DECISION-ENGINE-R127.2.1).
+//! The tenant's published `GuardrailRule` set (MEDULLA-DECISION-ENGINE-R127.2.1).
 //!
 //! A guardrail rule is an Agent Library component of kind
 //! [`AgentComponentKind::GuardrailRule`], published through the ordinary
@@ -7,19 +7,19 @@
 //! validator refuses at publish when missing or malformed. This module is the
 //! read half: one snapshot of the tenant's current, published rule heads,
 //! decoded back into [`GuardrailRule`]s for guardrail entailment
-//! (EG-DECISION-ENGINE-R127) to reason over. It adds no served query.
+//! (MEDULLA-DECISION-ENGINE-R127) to reason over. It adds no served query.
 //!
-//! It is also the promotion gate (EG-DECISION-ENGINE-R129.3/.4): a published
+//! It is also the promotion gate (MEDULLA-DECISION-ENGINE-R129.3/.4): a published
 //! rule component that names a forbidden rule (`forbids_rule_id`) is a stored
 //! invariant, and publishing a rule that contradicts one is refused with
 //! `RULE_CONTRADICTS_INVARIANT` before anything is written.
 
-use eg_types::agent_component::AgentComponentKind;
-use eg_types::agent_library::AgentLibraryLifecycle;
+use medulla_types::agent_component::AgentComponentKind;
+use medulla_types::agent_library::AgentLibraryLifecycle;
 use std::collections::BTreeMap;
 
-use eg_types::agent_component::AgentComponentDraft;
-use eg_types::decision::guardrail::{
+use medulla_types::agent_component::AgentComponentDraft;
+use medulla_types::decision::guardrail::{
     promote_on_consensus, GuardrailRule, RuleInvariant, RulePromotionVerdict,
 };
 
@@ -98,8 +98,8 @@ impl AgentLibraryStore {
         tenant_id: &str,
     ) -> Result<Vec<PublishedRuleComponent>, String> {
         let read = self.read()?;
-        let heads = read.open_owner_table(eg_storage::AGENT_COMPONENT_HEADS)?;
-        let revisions = read.open_owner_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
+        let heads = read.open_owner_table(medulla_storage::AGENT_COMPONENT_HEADS)?;
+        let revisions = read.open_owner_table(medulla_storage::AGENT_COMPONENT_REVISIONS)?;
         let range = heads
             .range((tenant_id, "")..)
             .map_err(|error| error.to_string())?;

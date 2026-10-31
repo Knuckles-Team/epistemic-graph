@@ -14,13 +14,13 @@
 //! Every read is bounded: more than [`MAX_SIGNALS`] signals in one window is a
 //! typed refusal, never a silent truncation.
 
-use eg_stream::telemetry::TelemetrySignal;
+use medulla_stream::telemetry::TelemetrySignal;
 
 use crate::server::obs::{LogQuery, LogRecord, ObsState};
 
 /// The attribute/label that marks a span or metric sample with its tenant.
 /// An underscore, not a dot, so the same name is a legal Prometheus label.
-pub(super) const TENANT_ATTRIBUTE: &str = "eg_tenant";
+pub(super) const TENANT_ATTRIBUTE: &str = "medulla_tenant";
 
 /// The most signals one derivation reads.
 pub(super) const MAX_SIGNALS: usize = 200_000;
@@ -141,9 +141,9 @@ fn push_logs(
 
 #[cfg(feature = "traces")]
 fn push_spans(obs: &ObsState, tenant: &str, window: &Window, signals: &mut Vec<TelemetrySignal>) {
-    use eg_tsdb::traces::{SpanNode, TraceQuery};
+    use medulla_tsdb::traces::{SpanNode, TraceQuery};
 
-    fn flatten<'a>(node: &'a SpanNode, out: &mut Vec<&'a eg_tsdb::traces::Span>) {
+    fn flatten<'a>(node: &'a SpanNode, out: &mut Vec<&'a medulla_tsdb::traces::Span>) {
         out.push(&node.span);
         for child in &node.children {
             flatten(child, out);
@@ -180,13 +180,13 @@ fn push_spans(
 }
 
 #[cfg(feature = "traces")]
-fn span_in_scope(span: &eg_tsdb::traces::Span, tenant: &str, window: &Window) -> bool {
+fn span_in_scope(span: &medulla_tsdb::traces::Span, tenant: &str, window: &Window) -> bool {
     span.attributes.get(TENANT_ATTRIBUTE).map(String::as_str) == Some(tenant)
         && window.contains_ns(span.start_time)
 }
 
 #[cfg(feature = "traces")]
-pub(super) fn span_signal(span: &eg_tsdb::traces::Span) -> TelemetrySignal {
+pub(super) fn span_signal(span: &medulla_tsdb::traces::Span) -> TelemetrySignal {
     TelemetrySignal::span(
         span.trace_id.clone(),
         (span.start_time, span.duration),

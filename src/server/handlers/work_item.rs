@@ -28,7 +28,7 @@ pub(crate) struct HandleContext<'a> {
 }
 
 /// Handle exactly the six result-producing WorkItem lifecycle transitions, the
-/// two native control-lease writes (graph-os EG-2) and the four work-market
+/// two native control-lease writes (graph-os MEDULLA-2) and the four work-market
 /// writes (EH-348), which share the same durable WorkItem MutationBatch kernel. Dispatch has already bound a lease
 /// write's tenant to the verified carrier (`route_control_lease_writes`).
 ///
@@ -196,7 +196,7 @@ fn publication_authority<'a>(
 /// Authorization precedes the ledger lookup even for an expired historical retry.
 async fn prepare_current_plan(
     ctx: &HandleContext<'_>,
-    request: eg_types::current_plan::PublishCurrentPlanRequest,
+    request: medulla_types::current_plan::PublishCurrentPlanRequest,
 ) -> Result<Method, String> {
     #[cfg(feature = "redb")]
     {
@@ -219,12 +219,12 @@ async fn prepare_current_plan(
 /// Owner authorization precedes the native retry ledger, including old receipts.
 async fn prepare_checkpoint(
     ctx: &HandleContext<'_>,
-    request: eg_types::run_checkpoint::PublishRunCheckpointRequest,
+    request: medulla_types::run_checkpoint::PublishRunCheckpointRequest,
 ) -> Result<Method, String> {
     #[cfg(feature = "redb")]
     {
         let (backend, graph, actor) = publication_authority(ctx, "checkpoint")?;
-        let read = eg_types::run_checkpoint::GetRunCheckpointRequest {
+        let read = medulla_types::run_checkpoint::GetRunCheckpointRequest {
             tenant: request.tenant.clone(),
             work_item_id: request.work_item_id.clone(),
             run_id: request.run_id.clone(),

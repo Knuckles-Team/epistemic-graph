@@ -2072,5 +2072,5 @@
       "retryable": false
     }
   ],
-  "generator": "eg-capabilities/gen_contract"
+  "generator": "medulla-capabilities/gen_contract"
 }

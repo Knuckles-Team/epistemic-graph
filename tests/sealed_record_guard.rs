@@ -1,6 +1,6 @@
 //! EH-558 — a sealed record row is create-only on the SERVED write path.
 //!
-//! A sealed record class (`eg_types::sealed_record`) is stored as an ordinary graph
+//! A sealed record class (`medulla_types::sealed_record`) is stored as an ordinary graph
 //! node. Every request here goes through the real `dispatch` surface into the durable
 //! generic row applier, which refuses any generic write that would change or remove a
 //! stored sealed row. Creation, identical rewrites and create-if-absent retries still
@@ -15,8 +15,8 @@ mod test_support;
 
 use serde_json::json;
 
-use epistemic_graph::protocol::{Method, Response, ResultPayload};
-use epistemic_graph::server::dispatch;
+use medulla::protocol::{Method, Response, ResultPayload};
+use medulla::server::dispatch;
 
 const SECRET: &str = "sealed-record-guard-secret";
 
@@ -184,7 +184,7 @@ async fn ordinary_nodes_and_maintenance_are_unaffected() {
 
 fn retire(digest: &str, key: &str) -> Method {
     Method::RetireSealedRecord {
-        request: eg_types::sealed_record::RetireSealedRecordRequest {
+        request: medulla_types::sealed_record::RetireSealedRecordRequest {
             tenant: "integration-test-tenant".to_string(),
             node_id: "snap".to_string(),
             digest: digest.to_string(),
@@ -207,7 +207,7 @@ fn outcome(response: &Response) -> serde_json::Value {
 /// The owning op: only the record's seal retires it, the row becomes an audited
 /// tombstone stamped with the ENGINE's view of the actor, a retry is idempotent,
 /// and no generic write can revive the id or forge a tombstone elsewhere.
-// spec: EG-DURABLE-KERNEL-R057
+// spec: MEDULLA-DURABLE-KERNEL-R057
 #[tokio::test]
 async fn retirement_is_the_owning_op_and_leaves_an_audited_tombstone() {
     let mut served = served_with_snapshot().await;
@@ -256,7 +256,7 @@ async fn retirement_is_the_owning_op_and_leaves_an_audited_tombstone() {
 /// a second sweep has nothing left to do.
 #[tokio::test]
 async fn retention_policy_expires_records_through_the_owning_op() {
-    use epistemic_graph::server::sealed_retention::{
+    use medulla::server::sealed_retention::{
         expire_sealed_records, parse_policy, RETENTION_ACTOR,
     };
 

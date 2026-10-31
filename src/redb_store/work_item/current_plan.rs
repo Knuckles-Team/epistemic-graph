@@ -1,6 +1,6 @@
 //! Private current plans share the admitted WorkItem transaction and read snapshot.
 use super::*;
-use eg_types::current_plan::{
+use medulla_types::current_plan::{
     CurrentPlanPublished, CurrentPlanSnapshot, PublishCurrentPlanRequest,
 };
 use serde::{Deserialize, Serialize};

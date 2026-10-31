@@ -1,15 +1,15 @@
 //! The Agent Library's mutation outbox, as its consumers and operators see it.
 //!
 //! Every Agent Library write publishes on its tenant's native ledger scope:
-//! component revisions on `eg.agent-component.revision.v1`, pack imports on
-//! `eg.connector-pack.import.v1`. The pack projection worker is the first
+//! component revisions on `medulla.agent-component.revision.v1`, pack imports on
+//! `medulla.connector-pack.import.v1`. The pack projection worker is the first
 //! consumer of that outbox (PB1); `Method::MutationOutbox` is how an operator
 //! reads and rewinds it (X10). Both go through the owner-generic
 //! [`crate::server::outbox_operator`] functions over this store's kernel and
 //! the tenant's scope handle.
 
-use eg_transaction::{OutboxClaimBudget, OutboxClaimOutcome};
-use eg_types::mutation_batch::MutationOutboxLease;
+use medulla_transaction::{OutboxClaimBudget, OutboxClaimOutcome};
+use medulla_types::mutation_batch::MutationOutboxLease;
 
 use crate::server::outbox_operator::{
     operate, read_view, OutboxView, OutboxViewAnswer, OutboxWrite, OutboxWriteReply,

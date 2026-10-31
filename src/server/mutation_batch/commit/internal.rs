@@ -7,7 +7,7 @@ use crate::graph::GraphCore;
 use crate::mutation_batch::{MutationStateDescriptor, MutationSurface};
 use crate::protocol::{Method, ResultPayload};
 use crate::server::persistence::PersistenceBackend;
-use eg_types::contract::Nonce;
+use medulla_types::contract::Nonce;
 
 use super::super::compile::{authoritative_graph_version, compile_methods, CompileBatch};
 
@@ -190,7 +190,7 @@ pub(super) async fn commit_internal_graph_methods_with_nonce_mode(
 
 async fn replay_internal_graph(
     input: InternalGraphCommit<'_>,
-    record: eg_types::MutationBatchRecord,
+    record: medulla_types::MutationBatchRecord,
 ) -> Result<crate::mutation_batch::MutationBatchCommit, String> {
     let InternalGraphCommit {
         persistence,
@@ -260,7 +260,7 @@ async fn replay_internal_graph(
 }
 
 fn validate_internal_replay_tenant(
-    record: &eg_types::MutationBatchRecord,
+    record: &medulla_types::MutationBatchRecord,
     tenant: &str,
 ) -> Result<(), String> {
     if record.committing_tenant()? != tenant {
@@ -584,8 +584,8 @@ pub(super) fn apply_projectable_method(core: &GraphCore, method: &Method) -> Res
             // Match the staged-transaction contract: malformed maps or a failed
             // predicate are a no-op CAS, not a partial child-batch failure.
             if let (Ok(conditions), Ok(updates)) = (
-                eg_types::msgpack::decode_property_object(conditions_msgpack),
-                eg_types::msgpack::decode_property_object(updates_msgpack),
+                medulla_types::msgpack::decode_property_object(conditions_msgpack),
+                medulla_types::msgpack::decode_property_object(updates_msgpack),
             ) {
                 let _ = core.compare_and_set_fields(node_id, &conditions, &updates);
             }
@@ -608,7 +608,7 @@ mod lane_tests {
 
     /// A Commit holds its coordinator lane and then its graph lane. A parent id
     /// that shares the graph's stripe must not wait on that graph lane.
-    // spec: EG-DURABLE-KERNEL-R065.1
+    // spec: MEDULLA-DURABLE-KERNEL-R065.1
     #[tokio::test]
     async fn coordinator_lane_never_waits_on_a_colliding_graph_lane() {
         let graph = "__commons__";

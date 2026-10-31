@@ -21,28 +21,28 @@ mod imp {
 
     lazy_static! {
         static ref DECISIONS: IntCounterVec = counter_vec(
-            "epistemic_graph_decisions_total",
+            "medulla_decisions_total",
             "Statistical decisions answered, by outcome and evidence class",
             &["outcome", "evidence", "reason"],
         );
         static ref REFUSALS: IntCounterVec = counter_vec(
-            "epistemic_graph_decision_refusals_total",
+            "medulla_decision_refusals_total",
             "Decide-layer calls refused, by method and refusal code",
             &["method", "code"],
         );
         static ref EXPLORATION: IntCounterVec = counter_vec(
-            "epistemic_graph_decision_exploration_total",
+            "medulla_decision_exploration_total",
             "Decisions drawn by the exploration budget versus the greedy branch",
             &["branch"],
         );
         static ref EVALUATIONS: IntCounterVec = counter_vec(
-            "epistemic_graph_decision_evaluations_total",
+            "medulla_decision_evaluations_total",
             "Decision-head evaluations, by promotion verdict",
             &["verdict"],
         );
         static ref THRESHOLD_ASSESSMENTS: IntCounterVec = {
             let metric = counter_vec(
-                "epistemic_graph_decision_threshold_assessments_total",
+                "medulla_decision_threshold_assessments_total",
                 "Persisted, independently labelled decision evaluations assessed against their pinned policy",
                 &["signal", "result"],
             );
@@ -56,7 +56,7 @@ mod imp {
         static ref LATENCY: HistogramVec = {
             let metric = HistogramVec::new(
                 HistogramOpts::new(
-                    "epistemic_graph_decision_duration_seconds",
+                    "medulla_decision_duration_seconds",
                     "Decide-layer latency, by method",
                 )
                 .buckets(prometheus::exponential_buckets(0.0005, 2.5, 14).expect("valid buckets")),
@@ -139,7 +139,7 @@ mod tests {
                 let result_label = format!("result=\"{result}\"");
                 assert!(
                     text.lines().any(|line| {
-                        line.starts_with("epistemic_graph_decision_threshold_assessments_total{")
+                        line.starts_with("medulla_decision_threshold_assessments_total{")
                             && line.contains(&signal_label)
                             && line.contains(&result_label)
                     }),
