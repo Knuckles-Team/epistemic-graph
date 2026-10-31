@@ -196,6 +196,13 @@ repos:
     pass_filenames: false
     require_serial: true
     stages: [manual]
+  - id: quality-gates
+    name: Combined quality gate (cccc, KISS, Dupehound, jscpd, privacy; one verdict)
+    entry: python3 scripts/check_quality_gates.py
+    language: system
+    pass_filenames: false
+    require_serial: true
+    stages: [manual]
   - id: jscpd-census
     name: jscpd — tracked-tree census (advisory; no baseline)
     entry: python3 scripts/check_duplication.py census
