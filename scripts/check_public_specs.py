@@ -44,7 +44,12 @@ FORBIDDEN = (
     # The product and connector names are public vocabulary. A host or path
     # reference is a repository dependency and must remain out of public specs.
     re.compile(
-        r"\bgitlab(?:[-.][a-z0-9-]+)*\.[a-z0-9-]+\b|\bgitlab[/:\\]\S",
+        # A connector's own file and directory names (``cases/gitlab.json``,
+        # ``recordings/gitlab/``) are not hosts: a file extension or a parent
+        # path segment marks them as repository paths.
+        r"\bgitlab(?:[-.][a-z0-9-]+)*\."
+        r"(?!(?:json|jsonl|ya?ml|toml|md|ttl|py|rs|txt|csv)\b)[a-z0-9-]+\b"
+        r"|(?<![/\w])gitlab[/:\\]\S",
         re.IGNORECASE,
     ),
     re.compile(r"\bhomelab\b", re.IGNORECASE),
