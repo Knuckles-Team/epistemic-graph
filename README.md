@@ -109,21 +109,20 @@ The server executable, module and packaging-path identifiers remain unchanged.
   <img src="docs/assets/engine-architecture.svg" alt="Medulla architecture. Authenticated interfaces feed one planner. It composes graph, semantic, analytical, temporal, and multimodal engines over one durable store." width="920">
 </p>
 
-People use the **Agent Web UI**, **Agent Terminal UI**, **Geniusbot**, or the
+People use the **Overstory** (browser), **Tuig** (terminal), **Axil** (desktop), or the
 messaging services hosted by **Arbora**. The terminal UI reaches Arbora through
 its REST API.
 External applications and agents connect through Arbora using MCP, REST, or
-A2A. Arbora governs the runtime boundary. **Agent Utilities** coordinates
-agents and workflows. Medulla stores and reasons over their durable
-knowledge. Source systems enter through **Agent Connector SDK**, which commits
-typed source data to the graph.
+A2A. Arbora governs the runtime boundary. **Meristem** is the in-run harness. It applies the decisions it receives and holds no store. Medulla stores and reasons over their durable
+knowledge. Source systems enter through **Scion SDK**, which holds connector contracts and transports.
+External stores stay connector sources, read as virtual graphs.
 
 | This repository owns | Ecosystem projects own |
 |---|---|
 | Durable graph and multimodal state, query planning, reasoning, and engine authorization | [Arbora](https://knuckles-team.github.io/arbora/) owns MCP/REST/A2A entrypoints, runtime policy, and frontend hosting |
-| Generated engine contracts and capability truth | [Agent Utilities](https://knuckles-team.github.io/meristem/) owns agents, workflows, skills, evaluation, and the agent control plane |
-| Source-ingestion admission, schema validation, evidence, and provenance commits | [Agent Connector SDK](https://knuckles-team.github.io/scion-sdk/) owns connector execution and source-system adapters |
-| Database and compute execution | [Agent Web UI](https://knuckles-team.github.io/overstory/), [Agent Terminal UI](https://github.com/Knuckles-Team/tuig), and [Geniusbot](https://github.com/Knuckles-Team/axil) provide user-facing clients |
+| Rust serde types as the contract source of truth; hand-written clients tested on round-trip vectors | [Meristem](https://knuckles-team.github.io/meristem/) owns the in-run harness: run loop, context, and fan-out |
+| Source-ingestion admission, schema validation, evidence, and provenance commits | [Scion SDK](https://knuckles-team.github.io/scion-sdk/) owns connector execution and source-system adapters |
+| Database and compute execution | [Overstory](https://knuckles-team.github.io/overstory/), [Tuig](https://github.com/Knuckles-Team/tuig), and [Axil](https://github.com/Knuckles-Team/axil) provide user-facing clients |
 
 ## Quick start
 
