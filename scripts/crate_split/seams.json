@@ -1,0 +1,3515 @@
+{
+ "counts": {
+  "extract-helper": 142,
+  "extract-type": 102,
+  "pending-delete": 2,
+  "seam:AdminApi": 22,
+  "seam:DecideApi": 9,
+  "seam:GraphApi": 5,
+  "seam:IngestApi": 10,
+  "seam:QueryApi": 12,
+  "seam:TxnApi": 13,
+  "seam:WireApi": 3,
+  "seam:dispatch": 23,
+  "seam:state-handle": 34,
+  "test-move": 60
+ },
+ "refs": [
+  {
+   "file": "src/channels.rs",
+   "line": 37,
+   "item": "crate::server::authoritative_now_secs",
+   "category": "extract-helper",
+   "detail": "crate::server::authoritative_now_secs",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/channels.rs",
+   "line": 196,
+   "item": "crate::server::authoritative_now_secs",
+   "category": "extract-helper",
+   "detail": "crate::server::authoritative_now_secs",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/channels.rs",
+   "line": 229,
+   "item": "crate::server::authoritative_now_secs",
+   "category": "extract-helper",
+   "detail": "crate::server::authoritative_now_secs",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/mutation_apply.rs",
+   "line": 157,
+   "item": "crate::server::handlers::mining::replay",
+   "category": "seam:dispatch",
+   "detail": "crate::server::handlers::mining::replay",
+   "dst": "src/server/handlers/mining/replay.rs"
+  },
+  {
+   "file": "src/mutation_apply.rs",
+   "line": 163,
+   "item": "crate::server::handlers::graphlearn::replay",
+   "category": "seam:dispatch",
+   "detail": "crate::server::handlers::graphlearn::replay",
+   "dst": "src/server/handlers/graphlearn.rs"
+  },
+  {
+   "file": "src/persist.rs",
+   "line": 12,
+   "item": "crate::server::ServerState",
+   "category": "seam:state-handle",
+   "detail": "crate::server::ServerState",
+   "dst": "src/server/state.rs"
+  },
+  {
+   "file": "src/raft/harness/resource_acceptance_test.rs",
+   "line": 40,
+   "item": "crate::server::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch.rs",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/raft/harness/resource_acceptance_test.rs",
+   "line": 2553,
+   "item": "crate::server::handlers::delegation::provenance_refs",
+   "category": "extract-helper",
+   "detail": "crate::server::handlers::delegation::provenance_refs",
+   "dst": "src/server/handlers/delegation/validation.rs"
+  },
+  {
+   "file": "src/raft/modality.rs",
+   "line": 7,
+   "item": "crate::server::handlers::modality::MAX_INGEST_STREAM_ITEMS",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::modality::MAX_INGEST_STREAM_ITEMS",
+   "dst": "src/server/handlers/modality.rs"
+  },
+  {
+   "file": "src/raft/placement_harness.rs",
+   "line": 689,
+   "item": "crate::server::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch.rs",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/raft/store/native.rs",
+   "line": 31,
+   "item": "crate::server::apply_replicated_node_info",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_node_info",
+   "dst": "src/server/handlers/topology.rs"
+  },
+  {
+   "file": "src/raft/store/native.rs",
+   "line": 83,
+   "item": "crate::server::apply_replicated_transaction_decision",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_transaction_decision",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
+  },
+  {
+   "file": "src/raft/store/native.rs",
+   "line": 97,
+   "item": "crate::server::apply_replicated_transaction_finalize",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_transaction_finalize",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
+  },
+  {
+   "file": "src/raft/store/native.rs",
+   "line": 110,
+   "item": "crate::server::apply_replicated_job_publication_commit",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_job_publication_commit",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
+  },
+  {
+   "file": "src/raft/store/native.rs",
+   "line": 125,
+   "item": "crate::server::apply_replicated_job_publication_finalize",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_job_publication_finalize",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
+  },
+  {
+   "file": "src/raft/store/native.rs",
+   "line": 149,
+   "item": "crate::server::apply_replicated_transaction_participant",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_transaction_participant",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
+  },
+  {
+   "file": "src/raft/store/native.rs",
+   "line": 156,
+   "item": "crate::server::ReplicatedParticipantRef",
+   "category": "extract-type",
+   "detail": "crate::server::ReplicatedParticipantRef",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
+  },
+  {
+   "file": "src/raft/store/native.rs",
+   "line": 366,
+   "item": "crate::server::apply_replicated_transaction_prepare",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_transaction_prepare",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
+  },
+  {
+   "file": "src/raft/store/native.rs",
+   "line": 377,
+   "item": "crate::server::apply_replicated_native",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_native",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
+  },
+  {
+   "file": "src/raft/xshard_harness.rs",
+   "line": 553,
+   "item": "crate::server::handlers::txn::try_handle",
+   "category": "extract-helper",
+   "detail": "crate::server::handlers::txn::try_handle",
+   "dst": "src/server/handlers/txn/dispatch.rs"
+  },
+  {
+   "file": "src/redb_store.rs",
+   "line": 899,
+   "item": "crate::test_support::temp_dir",
+   "category": "test-move",
+   "detail": "medulla-store -> medulla-server-api",
+   "dst": "src/test_support.rs"
+  },
+  {
+   "file": "src/redb_store.rs",
+   "line": 1915,
+   "item": "crate::mutation_apply::ENGINE_LEDGER_PRINCIPAL",
+   "category": "test-move",
+   "detail": "medulla-store -> medulla-server-api",
+   "dst": "src/mutation_apply.rs"
+  },
+  {
+   "file": "src/redb_store.rs",
+   "line": 2745,
+   "item": "crate::test_support::terminal_method",
+   "category": "test-move",
+   "detail": "medulla-store -> medulla-server-api",
+   "dst": "src/test_support.rs"
+  },
+  {
+   "file": "src/redb_store/crossmodal.rs",
+   "line": 177,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/redb_store/crossmodal.rs",
+   "line": 212,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/redb_store/crossmodal.rs",
+   "line": 258,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/redb_store/crossmodal.rs",
+   "line": 340,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/redb_store/crossmodal.rs",
+   "line": 392,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/redb_store/shard.rs",
+   "line": 713,
+   "item": "crate::server::persistence::online_reshard::export_graph_raw",
+   "category": "extract-helper",
+   "detail": "crate::server::persistence::online_reshard::export_graph_raw",
+   "dst": "src/server/persistence/online_reshard.rs"
+  },
+  {
+   "file": "src/redb_store/shard.rs",
+   "line": 910,
+   "item": "crate::server::persistence::shard_migrate::GraphShardPayloadTransfer::without_report",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::shard_migrate::GraphShardPayloadTransfer",
+   "dst": "src/server/persistence/shard_migrate/payload.rs"
+  },
+  {
+   "file": "src/redb_store/shard.rs",
+   "line": 2044,
+   "item": "crate::server::persistence::online_reshard::export_graph_raw",
+   "category": "test-move",
+   "detail": "medulla-store -> medulla-persistence",
+   "dst": "src/server/persistence/online_reshard.rs"
+  },
+  {
+   "file": "src/redb_store/shard.rs",
+   "line": 2076,
+   "item": "crate::server::persistence::online_reshard::import_graph_raw",
+   "category": "test-move",
+   "detail": "medulla-store -> medulla-persistence",
+   "dst": "src/server/persistence/online_reshard.rs"
+  },
+  {
+   "file": "src/redb_store/shard.rs",
+   "line": 2122,
+   "item": "crate::server::persistence::online_reshard::import_graph_raw",
+   "category": "test-move",
+   "detail": "medulla-store -> medulla-persistence",
+   "dst": "src/server/persistence/online_reshard.rs"
+  },
+  {
+   "file": "src/redb_store/store_mutation.rs",
+   "line": 104,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/redb_store/store_mutation.rs",
+   "line": 280,
+   "item": "crate::raft::EnrichmentTopUpTransition",
+   "category": "extract-type",
+   "detail": "crate::raft::EnrichmentTopUpTransition",
+   "dst": "src/raft/command/enrichment_top_up.rs"
+  },
+  {
+   "file": "src/redb_store/store_mutation.rs",
+   "line": 290,
+   "item": "crate::raft::EnrichmentTopUpTransition",
+   "category": "extract-type",
+   "detail": "crate::raft::EnrichmentTopUpTransition",
+   "dst": "src/raft/command/enrichment_top_up.rs"
+  },
+  {
+   "file": "src/server/amqp_wire/mod.rs",
+   "line": 88,
+   "item": "crate::server::validate_direct_wire_security",
+   "category": "extract-helper",
+   "detail": "crate::server::validate_direct_wire_security",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/amqp_wire/mod.rs",
+   "line": 799,
+   "item": "crate::server::pseudonymous_broker_actor",
+   "category": "extract-helper",
+   "detail": "crate::server::pseudonymous_broker_actor",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/amqp_wire/mod.rs",
+   "line": 865,
+   "item": "crate::server::pseudonymous_broker_actor",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-server",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/auth.rs",
+   "line": 632,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/auth.rs",
+   "line": 704,
+   "item": "crate::server::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch.rs",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/authority_context.rs",
+   "line": 108,
+   "item": "crate::raft::RaftMutationContext",
+   "category": "extract-type",
+   "detail": "crate::raft::RaftMutationContext",
+   "dst": "src/raft/mod.rs"
+  },
+  {
+   "file": "src/server/blob/mod.rs",
+   "line": 69,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/blob/s3.rs",
+   "line": 167,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/blob/store.rs",
+   "line": 468,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/blob/store.rs",
+   "line": 492,
+   "item": "crate::server::unique_temp_dir",
+   "category": "extract-helper",
+   "detail": "crate::server::unique_temp_dir",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/blob/store.rs",
+   "line": 572,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/blob/store/native/manifests.rs",
+   "line": 15,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/blob/store/native/manifests.rs",
+   "line": 52,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/bolt_wire/mod.rs",
+   "line": 63,
+   "item": "crate::server::validate_direct_wire_security",
+   "category": "extract-helper",
+   "detail": "crate::server::validate_direct_wire_security",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/bolt_wire/mod.rs",
+   "line": 980,
+   "item": "crate::server::unique_temp_dir",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-server",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/boot_maintenance.rs",
+   "line": 52,
+   "item": "crate::server::reload_matviews",
+   "category": "seam:TxnApi",
+   "detail": "crate::server::reload_matviews",
+   "dst": "src/server/handlers/dist_compute.rs"
+  },
+  {
+   "file": "src/server/boot_maintenance.rs",
+   "line": 109,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/broker_wire.rs",
+   "line": 11,
+   "item": "crate::server::dispatch::dispatch_authenticated_broker_actor",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::dispatch_authenticated_broker_actor",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/broker_wire.rs",
+   "line": 64,
+   "item": "crate::server::pseudonymous_broker_actor",
+   "category": "extract-helper",
+   "detail": "crate::server::pseudonymous_broker_actor",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/broker_wire.rs",
+   "line": 73,
+   "item": "crate::server::unique_temp_dir",
+   "category": "extract-helper",
+   "detail": "crate::server::unique_temp_dir",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/connector_pack_projection.rs",
+   "line": 126,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/connector_pack_projection.rs",
+   "line": 191,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/connector_pack_projection.rs",
+   "line": 194,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/connector_pack_projection.rs",
+   "line": 209,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/connector_pack_projection.rs",
+   "line": 256,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/connector_pack_projection.rs",
+   "line": 259,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/connector_pack_projection.rs",
+   "line": 275,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/connector_pack_projection/boot_regression.rs",
+   "line": 409,
+   "item": "crate::server::handlers::blob::cursors_for_test",
+   "category": "seam:IngestApi",
+   "detail": "crate::server::handlers::blob::cursors_for_test",
+   "dst": "src/server/handlers/blob.rs"
+  },
+  {
+   "file": "src/server/connector_pack_projection/boot_regression.rs",
+   "line": 422,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/server/dispatch/router/service_control.rs",
+   "line": 163,
+   "item": "crate::server::contract_wave::PENDING_METHODS",
+   "category": "test-move",
+   "detail": "medulla-server -> delete",
+   "dst": "src/server/contract_wave.rs"
+  },
+  {
+   "file": "src/server/dispatch/router/service_control.rs",
+   "line": 150,
+   "item": "crate::server::contract_wave::PENDING_METHODS",
+   "category": "pending-delete",
+   "detail": "src/server/contract_wave.rs",
+   "dst": "src/server/contract_wave.rs"
+  },
+  {
+   "file": "src/server/federation/mod.rs",
+   "line": 355,
+   "item": "crate::server::dispatch::dispatch_authenticated_local_query",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/federation/opensearch.rs",
+   "line": 166,
+   "item": "crate::server::outbound_http_config",
+   "category": "extract-helper",
+   "detail": "crate::server::outbound_http_config",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/graph_schema.rs",
+   "line": 100,
+   "item": "crate::server::dispatch::ensure_internal_global_graph",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::ensure_internal_global_graph",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/graph_schema.rs",
+   "line": 164,
+   "item": "crate::server::handlers::graph_ops::commit_gateway",
+   "category": "seam:GraphApi",
+   "detail": "crate::server::handlers::graph_ops::commit_gateway",
+   "dst": "src/server/handlers/graph_ops/gateway.rs"
+  },
+  {
+   "file": "src/server/graph_schema.rs",
+   "line": 206,
+   "item": "crate::server::handlers::graph_ops::commit_gateway",
+   "category": "seam:GraphApi",
+   "detail": "crate::server::handlers::graph_ops::commit_gateway",
+   "dst": "src/server/handlers/graph_ops/gateway.rs"
+  },
+  {
+   "file": "src/server/graph_schema.rs",
+   "line": 264,
+   "item": "crate::server::handlers::graph_ops::commit_gateway",
+   "category": "seam:GraphApi",
+   "detail": "crate::server::handlers::graph_ops::commit_gateway",
+   "dst": "src/server/handlers/graph_ops/gateway.rs"
+  },
+  {
+   "file": "src/server/graph_schema/approved.rs",
+   "line": 34,
+   "item": "crate::server::handlers::graph_ops::commit_gateway",
+   "category": "seam:GraphApi",
+   "detail": "crate::server::handlers::graph_ops::commit_gateway",
+   "dst": "src/server/handlers/graph_ops/gateway.rs"
+  },
+  {
+   "file": "src/server/graph_schema/approved.rs",
+   "line": 72,
+   "item": "crate::server::handlers::graph_ops::commit_gateway",
+   "category": "seam:GraphApi",
+   "detail": "crate::server::handlers::graph_ops::commit_gateway",
+   "dst": "src/server/handlers/graph_ops/gateway.rs"
+  },
+  {
+   "file": "src/server/graph_schema/attach_pack.rs",
+   "line": 54,
+   "item": "crate::server::blob::engine_bodies::read_engine_body",
+   "category": "seam:IngestApi",
+   "detail": "crate::server::blob::engine_bodies::read_engine_body",
+   "dst": "src/server/blob/engine_bodies.rs"
+  },
+  {
+   "file": "src/server/handlers/admin.rs",
+   "line": 514,
+   "item": "crate::server::dispatch::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/handlers/admin.rs",
+   "line": 545,
+   "item": "crate::server::dispatch::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/handlers/admin.rs",
+   "line": 588,
+   "item": "crate::server::dispatch::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/handlers/admin.rs",
+   "line": 632,
+   "item": "crate::server::dispatch::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/handlers/admin.rs",
+   "line": 787,
+   "item": "crate::server::dispatch::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/handlers/admin.rs",
+   "line": 825,
+   "item": "crate::server::dispatch::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/handlers/admin.rs",
+   "line": 854,
+   "item": "crate::server::dispatch::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/handlers/admin.rs",
+   "line": 884,
+   "item": "crate::server::dispatch::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/agent.rs",
+   "line": 55,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/agent.rs",
+   "line": 597,
+   "item": "crate::server::handlers::decide::topology_shape::refusal",
+   "category": "seam:DecideApi",
+   "detail": "crate::server::handlers::decide::topology_shape::refusal",
+   "dst": "src/server/handlers/decide/topology_shape.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/backup.rs",
+   "line": 167,
+   "item": "crate::server::dispatch::authoritative_now_secs",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_secs",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/component_content.rs",
+   "line": 89,
+   "item": "crate::server::blob::engine_bodies::read_engine_body",
+   "category": "seam:IngestApi",
+   "detail": "crate::server::blob::engine_bodies::read_engine_body",
+   "dst": "src/server/blob/engine_bodies.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack.rs",
+   "line": 295,
+   "item": "crate::server::blob::BlobCursors",
+   "category": "extract-type",
+   "detail": "crate::server::blob::BlobCursors",
+   "dst": "src/server/blob/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack.rs",
+   "line": 416,
+   "item": "crate::server::blob::BlobCursors",
+   "category": "extract-type",
+   "detail": "crate::server::blob::BlobCursors",
+   "dst": "src/server/blob/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack.rs",
+   "line": 427,
+   "item": "crate::server::blob::BlobCursors",
+   "category": "extract-type",
+   "detail": "crate::server::blob::BlobCursors",
+   "dst": "src/server/blob/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/admin.rs",
+   "line": 206,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/approval.rs",
+   "line": 53,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/catalog_authority.rs",
+   "line": 278,
+   "item": "crate::server::dispatch::ensure_graph_resident",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::ensure_graph_resident",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/catalog_authority.rs",
+   "line": 321,
+   "item": "crate::server::dispatch::verified_served_registration",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::verified_served_registration",
+   "dst": "src/server/dispatch/consensus/registry.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/import.rs",
+   "line": 14,
+   "item": "crate::server::blob::engine_bodies::EngineBody",
+   "category": "extract-type",
+   "detail": "crate::server::blob::engine_bodies::EngineBody",
+   "dst": "src/server/blob/engine_bodies.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/import.rs",
+   "line": 15,
+   "item": "crate::server::blob::BlobCursors",
+   "category": "extract-type",
+   "detail": "crate::server::blob::BlobCursors",
+   "dst": "src/server/blob/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/import.rs",
+   "line": 65,
+   "item": "crate::server::blob::ChunkStore",
+   "category": "seam:state-handle",
+   "detail": "crate::server::blob::ChunkStore",
+   "dst": "src/server/blob/store.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/import/planning.rs",
+   "line": 46,
+   "item": "crate::server::blob::engine_bodies::StoredEngineBody",
+   "category": "extract-type",
+   "detail": "crate::server::blob::engine_bodies::StoredEngineBody",
+   "dst": "src/server/blob/engine_bodies.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/import/planning.rs",
+   "line": 91,
+   "item": "crate::server::blob::ChunkStore",
+   "category": "seam:state-handle",
+   "detail": "crate::server::blob::ChunkStore",
+   "dst": "src/server/blob/store.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/import/planning.rs",
+   "line": 188,
+   "item": "crate::server::blob::ChunkStore",
+   "category": "seam:state-handle",
+   "detail": "crate::server::blob::ChunkStore",
+   "dst": "src/server/blob/store.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/import/planning.rs",
+   "line": 204,
+   "item": "crate::server::blob::ChunkStore",
+   "category": "seam:state-handle",
+   "detail": "crate::server::blob::ChunkStore",
+   "dst": "src/server/blob/store.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/import/planning.rs",
+   "line": 429,
+   "item": "crate::server::blob::engine_bodies::read_engine_body",
+   "category": "seam:IngestApi",
+   "detail": "crate::server::blob::engine_bodies::read_engine_body",
+   "dst": "src/server/blob/engine_bodies.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/reconcile.rs",
+   "line": 159,
+   "item": "crate::server::blob::engine_bodies::engine_body_holder",
+   "category": "seam:IngestApi",
+   "detail": "crate::server::blob::engine_bodies::engine_body_holder",
+   "dst": "src/server/blob/engine_bodies.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/reconcile.rs",
+   "line": 159,
+   "item": "crate::server::blob::engine_bodies::engine_body_holder_namespace",
+   "category": "seam:IngestApi",
+   "detail": "crate::server::blob::engine_bodies::engine_body_holder_namespace",
+   "dst": "src/server/blob/engine_bodies.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/reconcile.rs",
+   "line": 160,
+   "item": "crate::server::blob::store::HolderId",
+   "category": "extract-type",
+   "detail": "crate::server::blob::store::HolderId",
+   "dst": "src/server/blob/store/holders.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/reconcile.rs",
+   "line": 160,
+   "item": "crate::server::blob::store::HolderNamespace",
+   "category": "extract-type",
+   "detail": "crate::server::blob::store::HolderNamespace",
+   "dst": "src/server/blob/store/holders.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/reconcile.rs",
+   "line": 160,
+   "item": "crate::server::blob::store::HolderReconcile",
+   "category": "extract-type",
+   "detail": "crate::server::blob::store::HolderReconcile",
+   "dst": "src/server/blob/store/holders.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/reconcile.rs",
+   "line": 88,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/reconcile.rs",
+   "line": 126,
+   "item": "crate::server::handlers::blob::compile_blob_batch",
+   "category": "seam:IngestApi",
+   "detail": "crate::server::handlers::blob::compile_blob_batch",
+   "dst": "src/server/handlers/blob.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/reconcile.rs",
+   "line": 158,
+   "item": "crate::server::blob::store::HolderReconcile",
+   "category": "extract-type",
+   "detail": "crate::server::blob::store::HolderReconcile",
+   "dst": "src/server/blob/store/holders.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/reproject.rs",
+   "line": 317,
+   "item": "crate::server::blob::engine_bodies::EngineBody",
+   "category": "extract-type",
+   "detail": "crate::server::blob::engine_bodies::EngineBody",
+   "dst": "src/server/blob/engine_bodies.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/reproject.rs",
+   "line": 318,
+   "item": "crate::server::blob::store::ChunkStore",
+   "category": "seam:state-handle",
+   "detail": "crate::server::blob::store::ChunkStore",
+   "dst": "src/server/blob/store.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/reproject.rs",
+   "line": 213,
+   "item": "crate::server::blob::BlobCursors",
+   "category": "extract-type",
+   "detail": "crate::server::blob::BlobCursors",
+   "dst": "src/server/blob/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/reproject.rs",
+   "line": 228,
+   "item": "crate::server::blob::store::ChunkStore",
+   "category": "seam:state-handle",
+   "detail": "crate::server::blob::store::ChunkStore",
+   "dst": "src/server/blob/store.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/reproject.rs",
+   "line": 237,
+   "item": "crate::server::blob::engine_bodies::read_engine_body",
+   "category": "seam:IngestApi",
+   "detail": "crate::server::blob::engine_bodies::read_engine_body",
+   "dst": "src/server/blob/engine_bodies.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/reproject.rs",
+   "line": 331,
+   "item": "crate::server::blob::store::RedbChunkStore::open_temp",
+   "category": "seam:state-handle",
+   "detail": "crate::server::blob::store::RedbChunkStore",
+   "dst": "src/server/blob/store.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/connector_pack/reproject.rs",
+   "line": 360,
+   "item": "crate::server::blob::store::RedbChunkStore::open_temp",
+   "category": "seam:state-handle",
+   "detail": "crate::server::blob::store::RedbChunkStore",
+   "dst": "src/server/blob/store.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/saga.rs",
+   "line": 509,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/admin/saga.rs",
+   "line": 575,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/blob.rs",
+   "line": 167,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/blob.rs",
+   "line": 571,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/assemble.rs",
+   "line": 70,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/commit.rs",
+   "line": 83,
+   "item": "crate::server::handlers::admin::bind_agent_library_context",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::handlers::admin::bind_agent_library_context",
+   "dst": "src/server/handlers/admin/agent.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/served_adapter.rs",
+   "line": 198,
+   "item": "crate::server::handlers::query::uql_text_embedder",
+   "category": "seam:QueryApi",
+   "detail": "crate::server::handlers::query::uql_text_embedder",
+   "dst": "src/server/handlers/query/planning.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/stat_decide.rs",
+   "line": 105,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/stat_jobs.rs",
+   "line": 535,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/stat_jobs.rs",
+   "line": 570,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/stat_jobs.rs",
+   "line": 600,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/stat_log.rs",
+   "line": 500,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/stat_reputation.rs",
+   "line": 373,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/stat_reputation.rs",
+   "line": 390,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/stat_retention.rs",
+   "line": 129,
+   "item": "crate::server::blob::store::HolderChange",
+   "category": "extract-type",
+   "detail": "crate::server::blob::store::HolderChange",
+   "dst": "src/server/blob/store/holders.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/stat_retention.rs",
+   "line": 129,
+   "item": "crate::server::blob::store::HolderId",
+   "category": "extract-type",
+   "detail": "crate::server::blob::store::HolderId",
+   "dst": "src/server/blob/store/holders.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/stat_retention.rs",
+   "line": 32,
+   "item": "crate::server::blob::BlobCursors",
+   "category": "extract-type",
+   "detail": "crate::server::blob::BlobCursors",
+   "dst": "src/server/blob/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/stat_retention.rs",
+   "line": 97,
+   "item": "crate::server::blob::engine_bodies::EngineBody",
+   "category": "extract-type",
+   "detail": "crate::server::blob::engine_bodies::EngineBody",
+   "dst": "src/server/blob/engine_bodies.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/stat_retention.rs",
+   "line": 118,
+   "item": "crate::server::blob::engine_bodies::read_engine_body",
+   "category": "seam:IngestApi",
+   "detail": "crate::server::blob::engine_bodies::read_engine_body",
+   "dst": "src/server/blob/engine_bodies.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/stat_retention.rs",
+   "line": 137,
+   "item": "crate::server::handlers::blob::compile_blob_batch",
+   "category": "seam:IngestApi",
+   "detail": "crate::server::handlers::blob::compile_blob_batch",
+   "dst": "src/server/handlers/blob.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/topology_schema.rs",
+   "line": 76,
+   "item": "crate::server::graph_schema::compose::scope_blank_nodes",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::graph_schema::compose::scope_blank_nodes",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/topology_schema.rs",
+   "line": 93,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
+   "file": "src/server/handlers/delegation/admission.rs",
+   "line": 234,
+   "item": "crate::server::dispatch::is_replicated_apply",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::is_replicated_apply",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
+  },
+  {
+   "file": "src/server/handlers/delegation/admission.rs",
+   "line": 235,
+   "item": "crate::server::dispatch::propose_native_mutation",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::propose_native_mutation",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/handlers/development_lane.rs",
+   "line": 75,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/dist_compute.rs",
+   "line": 284,
+   "item": "crate::server::handlers::admin::AdminSaga",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::admin::AdminSaga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/dist_compute.rs",
+   "line": 302,
+   "item": "crate::server::handlers::admin::begin_admin_saga",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::handlers::admin::begin_admin_saga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway.rs",
+   "line": 145,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway_graph.rs",
+   "line": 386,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway_graph_routes.rs",
+   "line": 656,
+   "item": "crate::server::graph_schema::handle_gateway",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::graph_schema::handle_gateway",
+   "dst": "src/server/graph_schema.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway_mining.rs",
+   "line": 2,
+   "item": "crate::server::handlers::mining::AnomalyRequest",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::mining::AnomalyRequest",
+   "dst": "src/server/handlers/mining/vector.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway_mining.rs",
+   "line": 2,
+   "item": "crate::server::handlers::mining::ClassifyPredictRequest",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::mining::ClassifyPredictRequest",
+   "dst": "src/server/handlers/mining/vector.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway_mining.rs",
+   "line": 2,
+   "item": "crate::server::handlers::mining::ClusterRequest",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::mining::ClusterRequest",
+   "dst": "src/server/handlers/mining/vector.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway_mining.rs",
+   "line": 2,
+   "item": "crate::server::handlers::mining::ReduceRequest",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::mining::ReduceRequest",
+   "dst": "src/server/handlers/mining/vector.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway_mining.rs",
+   "line": 2,
+   "item": "crate::server::handlers::mining::WritebackOptions",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::mining::WritebackOptions",
+   "dst": "src/server/handlers/mining/writeback.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway_mining_derived.rs",
+   "line": 3,
+   "item": "crate::server::handlers::mining::AssociationRequest",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::mining::AssociationRequest",
+   "dst": "src/server/handlers/mining/association.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway_mining_derived.rs",
+   "line": 3,
+   "item": "crate::server::handlers::mining::CommunityRequest",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::mining::CommunityRequest",
+   "dst": "src/server/handlers/mining/insight.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway_mining_derived.rs",
+   "line": 3,
+   "item": "crate::server::handlers::mining::EntityResolutionRequest",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::mining::EntityResolutionRequest",
+   "dst": "src/server/handlers/mining/entity.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway_mining_derived.rs",
+   "line": 3,
+   "item": "crate::server::handlers::mining::ForecastRequest",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::mining::ForecastRequest",
+   "dst": "src/server/handlers/mining/classic.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway_mining_derived.rs",
+   "line": 4,
+   "item": "crate::server::handlers::mining::RiskPropagationRequest",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::mining::RiskPropagationRequest",
+   "dst": "src/server/handlers/mining/insight.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway_mining_derived.rs",
+   "line": 4,
+   "item": "crate::server::handlers::mining::RootCauseRequest",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::mining::RootCauseRequest",
+   "dst": "src/server/handlers/mining/insight.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway_mining_derived.rs",
+   "line": 4,
+   "item": "crate::server::handlers::mining::TextRequest",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::mining::TextRequest",
+   "dst": "src/server/handlers/mining/classic.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/gateway_mining_derived.rs",
+   "line": 4,
+   "item": "crate::server::handlers::mining::WritebackOptions",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::mining::WritebackOptions",
+   "dst": "src/server/handlers/mining/writeback.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/semantic.rs",
+   "line": 233,
+   "item": "crate::server::handlers::decide::served_adapter::adapted_query",
+   "category": "seam:DecideApi",
+   "detail": "crate::server::handlers::decide::served_adapter::adapted_query",
+   "dst": "src/server/handlers/decide/served_adapter.rs"
+  },
+  {
+   "file": "src/server/handlers/graph_ops/semantic.rs",
+   "line": 233,
+   "item": "crate::server::handlers::decide::served_adapter::carrier_tenant",
+   "category": "seam:DecideApi",
+   "detail": "crate::server::handlers::decide::served_adapter::carrier_tenant",
+   "dst": "src/server/handlers/decide/served_adapter.rs"
+  },
+  {
+   "file": "src/server/handlers/jobs/core.rs",
+   "line": 122,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/jobs/helpers.rs",
+   "line": 78,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/jobs/worker_publish.rs",
+   "line": 171,
+   "item": "crate::server::dispatch::is_replicated_apply",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::is_replicated_apply",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
+  },
+  {
+   "file": "src/server/handlers/jobs_read_rls_architecture.rs",
+   "line": 38,
+   "item": "crate::server::handlers::*",
+   "category": "extract-helper",
+   "detail": "crate::server::handlers::*",
+   "dst": "src/server/handlers/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/mutation_outbox.rs",
+   "line": 100,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/mutation_outbox.rs",
+   "line": 234,
+   "item": "crate::server::semantic_index::existing_semantic_service",
+   "category": "seam:QueryApi",
+   "detail": "crate::server::semantic_index::existing_semantic_service",
+   "dst": "src/server/semantic_index.rs"
+  },
+  {
+   "file": "src/server/handlers/mutation_outbox.rs",
+   "line": 302,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/mutation_outbox.rs",
+   "line": 303,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/handlers/mutation_outbox.rs",
+   "line": 310,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/mutation_outbox.rs",
+   "line": 311,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/handlers/mutation_outbox.rs",
+   "line": 324,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/mutation_outbox.rs",
+   "line": 325,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/handlers/mutation_outbox.rs",
+   "line": 332,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/mutation_outbox.rs",
+   "line": 333,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/handlers/mutation_outbox.rs",
+   "line": 350,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/handlers/mutation_outbox.rs",
+   "line": 357,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/handlers/mutation_outbox.rs",
+   "line": 370,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/handlers/mutation_outbox.rs",
+   "line": 377,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/handlers/query.rs",
+   "line": 2039,
+   "item": "crate::server::blob::stream::stream_blob_put",
+   "category": "test-move",
+   "detail": "medulla-h-query -> medulla-h-ingest",
+   "dst": "src/server/blob/stream.rs"
+  },
+  {
+   "file": "src/server/handlers/query.rs",
+   "line": 2040,
+   "item": "crate::server::blob::ChunkStore",
+   "category": "test-move",
+   "detail": "medulla-h-query -> medulla-h-ingest",
+   "dst": "src/server/blob/store.rs"
+  },
+  {
+   "file": "src/server/handlers/query.rs",
+   "line": 2040,
+   "item": "crate::server::blob::RedbChunkStore",
+   "category": "test-move",
+   "detail": "medulla-h-query -> medulla-h-ingest",
+   "dst": "src/server/blob/store.rs"
+  },
+  {
+   "file": "src/server/handlers/query.rs",
+   "line": 732,
+   "item": "crate::server::cache_coherence::drain_and_invalidate",
+   "category": "test-move",
+   "detail": "medulla-h-query -> medulla-server",
+   "dst": "src/server/cache_coherence.rs"
+  },
+  {
+   "file": "src/server/handlers/query.rs",
+   "line": 1942,
+   "item": "crate::server::decode_uql_ids",
+   "category": "test-move",
+   "detail": "medulla-h-query -> medulla-server",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/query.rs",
+   "line": 1951,
+   "item": "crate::server::decode_uql_ids",
+   "category": "test-move",
+   "detail": "medulla-h-query -> medulla-server",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/query.rs",
+   "line": 1958,
+   "item": "crate::server::decode_uql_ids",
+   "category": "test-move",
+   "detail": "medulla-h-query -> medulla-server",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/query.rs",
+   "line": 1987,
+   "item": "crate::server::decode_uql_ids",
+   "category": "test-move",
+   "detail": "medulla-h-query -> medulla-server",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/query.rs",
+   "line": 1992,
+   "item": "crate::server::decode_uql_ids",
+   "category": "test-move",
+   "detail": "medulla-h-query -> medulla-server",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/query.rs",
+   "line": 2019,
+   "item": "crate::server::decode_uql_ids",
+   "category": "test-move",
+   "detail": "medulla-h-query -> medulla-server",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/query/dispatch.rs",
+   "line": 4,
+   "item": "crate::server::handlers::TryHandleContext",
+   "category": "seam:dispatch",
+   "detail": "src/server/handlers/mod.rs",
+   "dst": "src/server/handlers/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/query/explain_handlers.rs",
+   "line": 298,
+   "item": "crate::server::dispatch::is_replicated_apply",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::is_replicated_apply",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
+  },
+  {
+   "file": "src/server/handlers/query/explain_wire_b.rs",
+   "line": 281,
+   "item": "crate::server::blob::cas_resolver::CasEvidenceResolver",
+   "category": "extract-type",
+   "detail": "crate::server::blob::cas_resolver::CasEvidenceResolver",
+   "dst": "src/server/blob/cas_resolver.rs"
+  },
+  {
+   "file": "src/server/handlers/query/explain_wire_b.rs",
+   "line": 319,
+   "item": "crate::server::blob::ChunkStore",
+   "category": "seam:state-handle",
+   "detail": "crate::server::blob::ChunkStore",
+   "dst": "src/server/blob/store.rs"
+  },
+  {
+   "file": "src/server/handlers/query/explain_wire_b.rs",
+   "line": 355,
+   "item": "crate::server::blob::cas_resolver::CasEvidenceResolver::new",
+   "category": "extract-type",
+   "detail": "crate::server::blob::cas_resolver::CasEvidenceResolver",
+   "dst": "src/server/blob/cas_resolver.rs"
+  },
+  {
+   "file": "src/server/handlers/query/foreign_watermarks.rs",
+   "line": 58,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/query/foreign_watermarks.rs",
+   "line": 121,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/query/foreign_watermarks.rs",
+   "line": 174,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "test-move",
+   "detail": "medulla-h-query -> medulla-server",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/query/freshness_feed.rs",
+   "line": 65,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/query/graphql.rs",
+   "line": 3,
+   "item": "crate::server::handlers::txn",
+   "category": "seam:TxnApi",
+   "detail": "crate::server::handlers::txn",
+   "dst": "src/server/handlers/txn.rs"
+  },
+  {
+   "file": "src/server/handlers/query/planning.rs",
+   "line": 21,
+   "item": "crate::server::handlers::web_ingest::embedder::EmbedderConfig::from_env",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::web_ingest::embedder::EmbedderConfig",
+   "dst": "src/server/handlers/web_ingest/embedder.rs"
+  },
+  {
+   "file": "src/server/handlers/query/planning.rs",
+   "line": 22,
+   "item": "crate::server::handlers::web_ingest::embedder::REMOTE",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::web_ingest::embedder::REMOTE",
+   "dst": "src/server/handlers/web_ingest/embedder.rs"
+  },
+  {
+   "file": "src/server/handlers/query/planning.rs",
+   "line": 702,
+   "item": "crate::server::handlers::decide::served_adapter::ServedAdapter",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::decide::served_adapter::ServedAdapter",
+   "dst": "src/server/handlers/decide/served_adapter.rs"
+  },
+  {
+   "file": "src/server/handlers/query/planning.rs",
+   "line": 739,
+   "item": "crate::server::handlers::decide::served_adapter::served_plan_adapter",
+   "category": "seam:DecideApi",
+   "detail": "crate::server::handlers::decide::served_adapter::served_plan_adapter",
+   "dst": "src/server/handlers/decide/served_adapter.rs"
+  },
+  {
+   "file": "src/server/handlers/query/planning.rs",
+   "line": 809,
+   "item": "crate::server::handlers::decide::served_adapter::salt",
+   "category": "seam:DecideApi",
+   "detail": "crate::server::handlers::decide::served_adapter::salt",
+   "dst": "src/server/handlers/decide/served_adapter.rs"
+  },
+  {
+   "file": "src/server/handlers/query/planning.rs",
+   "line": 837,
+   "item": "crate::server::handlers::decide::decision_source",
+   "category": "seam:DecideApi",
+   "detail": "crate::server::handlers::decide::decision_source",
+   "dst": "src/server/handlers/decide.rs"
+  },
+  {
+   "file": "src/server/handlers/query/planning.rs",
+   "line": 1031,
+   "item": "crate::server::handlers::decide::served_adapter::adapt_plan",
+   "category": "seam:DecideApi",
+   "detail": "crate::server::handlers::decide::served_adapter::adapt_plan",
+   "dst": "src/server/handlers/decide/served_adapter.rs"
+  },
+  {
+   "file": "src/server/handlers/query/sql_catalog.rs",
+   "line": 256,
+   "item": "crate::server::wire::committed_sql_replay_receipt",
+   "category": "seam:WireApi",
+   "detail": "crate::server::wire::committed_sql_replay_receipt",
+   "dst": "src/server/wire/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/query/sql_catalog.rs",
+   "line": 258,
+   "item": "crate::server::wire::authorize_table_txn",
+   "category": "seam:WireApi",
+   "detail": "crate::server::wire::authorize_table_txn",
+   "dst": "src/server/wire/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/query/sql_catalog.rs",
+   "line": 263,
+   "item": "crate::server::wire::committed_sql_replay_receipt",
+   "category": "seam:WireApi",
+   "detail": "crate::server::wire::committed_sql_replay_receipt",
+   "dst": "src/server/wire/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/query/sql_read.rs",
+   "line": 430,
+   "item": "crate::server::handlers::decide::read_only_relations",
+   "category": "seam:DecideApi",
+   "detail": "crate::server::handlers::decide::read_only_relations",
+   "dst": "src/server/handlers/decide.rs"
+  },
+  {
+   "file": "src/server/handlers/rdf/dispatch.rs",
+   "line": 8,
+   "item": "crate::server::handlers::TryHandleContext",
+   "category": "seam:dispatch",
+   "detail": "src/server/handlers/mod.rs",
+   "dst": "src/server/handlers/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/rdf/dispatch.rs",
+   "line": 325,
+   "item": "crate::server::graph_schema::handle_list",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::graph_schema::handle_list",
+   "dst": "src/server/graph_schema.rs"
+  },
+  {
+   "file": "src/server/handlers/rdf/dispatch.rs",
+   "line": 333,
+   "item": "crate::server::graph_schema::terms::handle_classes",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::graph_schema::terms::handle_classes",
+   "dst": "src/server/graph_schema/terms.rs"
+  },
+  {
+   "file": "src/server/handlers/rdf/dispatch.rs",
+   "line": 337,
+   "item": "crate::server::graph_schema::terms::TermPageRequest",
+   "category": "extract-type",
+   "detail": "crate::server::graph_schema::terms::TermPageRequest",
+   "dst": "src/server/graph_schema/terms.rs"
+  },
+  {
+   "file": "src/server/handlers/rdf/reasoning.rs",
+   "line": 395,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
+   "file": "src/server/handlers/rdf/reasoning.rs",
+   "line": 461,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
+   "file": "src/server/handlers/rdf/validation.rs",
+   "line": 97,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
+   "file": "src/server/handlers/semantic_index.rs",
+   "line": 70,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/semantic_index.rs",
+   "line": 135,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/source_batch.rs",
+   "line": 50,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/sqlite_file.rs",
+   "line": 197,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/statechart.rs",
+   "line": 183,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/statechart.rs",
+   "line": 216,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/timeseries.rs",
+   "line": 233,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/timeseries/derived.rs",
+   "line": 229,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/handlers/txn.rs",
+   "line": 73,
+   "item": "crate::server::dispatch::is_replicated_apply",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::is_replicated_apply",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
+  },
+  {
+   "file": "src/server/handlers/txn.rs",
+   "line": 102,
+   "item": "crate::server::handlers::admin::decode_durable_saga_result",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::handlers::admin::decode_durable_saga_result",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/commit_modal.rs",
+   "line": 323,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/commit_modal.rs",
+   "line": 429,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/commit_modal.rs",
+   "line": 519,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/consensus/authority.rs",
+   "line": 10,
+   "item": "crate::server::handlers::admin::AdminSaga",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::admin::AdminSaga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/consensus/authority.rs",
+   "line": 11,
+   "item": "crate::server::handlers::admin::resume_named_admin_saga",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::handlers::admin::resume_named_admin_saga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/consensus/authority.rs",
+   "line": 54,
+   "item": "crate::server::handlers::admin::AdminSaga",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::admin::AdminSaga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/consensus/authority.rs",
+   "line": 221,
+   "item": "crate::server::handlers::admin::finish_admin_saga",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::handlers::admin::finish_admin_saga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts.rs",
+   "line": 168,
+   "item": "crate::server::handlers::admin::current_admin_saga_authority",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::handlers::admin::current_admin_saga_authority",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts.rs",
+   "line": 285,
+   "item": "crate::server::handlers::admin::AdminSaga",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::admin::AdminSaga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts.rs",
+   "line": 345,
+   "item": "crate::server::handlers::admin::AdminSaga",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::admin::AdminSaga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts.rs",
+   "line": 355,
+   "item": "crate::server::handlers::admin::resume_named_admin_saga",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::handlers::admin::resume_named_admin_saga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts.rs",
+   "line": 388,
+   "item": "crate::server::handlers::admin::begin_named_admin_saga_with_private_payload_and_nonce",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::handlers::admin::begin_named_admin_saga_with_private_payload_and_nonce",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts.rs",
+   "line": 393,
+   "item": "crate::server::handlers::admin::AdminSagaPayload",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::admin::AdminSagaPayload",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts.rs",
+   "line": 427,
+   "item": "crate::server::handlers::admin::AdminSaga",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::admin::AdminSaga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts.rs",
+   "line": 429,
+   "item": "crate::server::handlers::admin::AdminSaga",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::admin::AdminSaga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts.rs",
+   "line": 437,
+   "item": "crate::server::handlers::admin::begin_named_admin_saga_with_private_payload_and_nonce",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::handlers::admin::begin_named_admin_saga_with_private_payload_and_nonce",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts.rs",
+   "line": 442,
+   "item": "crate::server::handlers::admin::AdminSagaPayload",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::admin::AdminSagaPayload",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts.rs",
+   "line": 466,
+   "item": "crate::server::handlers::admin::AdminSaga",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::admin::AdminSaga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts.rs",
+   "line": 480,
+   "item": "crate::server::handlers::admin::AdminSaga",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::admin::AdminSaga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts.rs",
+   "line": 539,
+   "item": "crate::server::handlers::admin::resume_named_admin_saga",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::handlers::admin::resume_named_admin_saga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts.rs",
+   "line": 718,
+   "item": "crate::server::handlers::admin::AdminSaga",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::admin::AdminSaga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts.rs",
+   "line": 725,
+   "item": "crate::server::handlers::admin::finish_admin_saga",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::handlers::admin::finish_admin_saga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts/lifecycle.rs",
+   "line": 136,
+   "item": "crate::server::handlers::admin::AdminSaga",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::admin::AdminSaga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts/lifecycle.rs",
+   "line": 169,
+   "item": "crate::server::handlers::admin::resume_named_admin_saga",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::handlers::admin::resume_named_admin_saga",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/receipts/lifecycle.rs",
+   "line": 171,
+   "item": "crate::server::handlers::admin::begin_named_admin_saga_with_nonce",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::handlers::admin::begin_named_admin_saga_with_nonce",
+   "dst": "src/server/handlers/admin/saga.rs"
+  },
+  {
+   "file": "src/server/handlers/txn/staging.rs",
+   "line": 578,
+   "item": "crate::server::handlers::query::overlay_write_set",
+   "category": "seam:QueryApi",
+   "detail": "crate::server::handlers::query::overlay_write_set",
+   "dst": "src/server/handlers/query/overlay.rs"
+  },
+  {
+   "file": "src/server/handlers/web_ingest/embedder.rs",
+   "line": 114,
+   "item": "crate::server::outbound_http_config",
+   "category": "extract-helper",
+   "detail": "crate::server::outbound_http_config",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/handlers/work_item/lease_kind_policy.rs",
+   "line": 128,
+   "item": "crate::server::contract_wave::not_yet_served",
+   "category": "pending-delete",
+   "detail": "src/server/contract_wave.rs",
+   "dst": "src/server/contract_wave.rs"
+  },
+  {
+   "file": "src/server/handlers/write_back.rs",
+   "line": 37,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/icv_guard.rs",
+   "line": 60,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "extract-helper",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
+   "file": "src/server/icv_guard.rs",
+   "line": 232,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "extract-helper",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
+   "file": "src/server/impact_watch.rs",
+   "line": 183,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/impact_watch.rs",
+   "line": 262,
+   "item": "crate::server::dispatch::dispatch_verified_request",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::dispatch_verified_request",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/kv.rs",
+   "line": 292,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/kv.rs",
+   "line": 639,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/kvcache_http/mod.rs",
+   "line": 810,
+   "item": "crate::server::require_loopback_listener",
+   "category": "extract-helper",
+   "detail": "crate::server::require_loopback_listener",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/mqtt_wire/mod.rs",
+   "line": 101,
+   "item": "crate::server::validate_direct_wire_security",
+   "category": "extract-helper",
+   "detail": "crate::server::validate_direct_wire_security",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/mqtt_wire/mod.rs",
+   "line": 559,
+   "item": "crate::server::pseudonymous_broker_actor",
+   "category": "extract-helper",
+   "detail": "crate::server::pseudonymous_broker_actor",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/mqtt_wire/mod.rs",
+   "line": 796,
+   "item": "crate::server::pseudonymous_broker_actor",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-server",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/mssql_wire/mod.rs",
+   "line": 92,
+   "item": "crate::server::validate_direct_wire_security",
+   "category": "extract-helper",
+   "detail": "crate::server::validate_direct_wire_security",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/mutation.rs",
+   "line": 107,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation.rs",
+   "line": 183,
+   "item": "crate::server::persistence::redb_backend::RedbBackend",
+   "category": "test-move",
+   "detail": "medulla-server-api -> medulla-persistence",
+   "dst": "src/server/persistence/redb_backend.rs"
+  },
+  {
+   "file": "src/server/mutation.rs",
+   "line": 1112,
+   "item": "crate::server::handlers::mining::handle_associate",
+   "category": "test-move",
+   "detail": "medulla-server-api -> medulla-h-query",
+   "dst": "src/server/handlers/mining/association.rs"
+  },
+  {
+   "file": "src/server/mutation.rs",
+   "line": 1115,
+   "item": "crate::server::handlers::mining::AssociationRequest",
+   "category": "test-move",
+   "detail": "medulla-server-api -> medulla-h-query",
+   "dst": "src/server/handlers/mining/association.rs"
+  },
+  {
+   "file": "src/server/mutation.rs",
+   "line": 1121,
+   "item": "crate::server::handlers::mining::WritebackOptions",
+   "category": "test-move",
+   "detail": "medulla-server-api -> medulla-h-query",
+   "dst": "src/server/handlers/mining/writeback.rs"
+  },
+  {
+   "file": "src/server/mutation.rs",
+   "line": 1185,
+   "item": "crate::server::handlers::mining::handle_associate",
+   "category": "test-move",
+   "detail": "medulla-server-api -> medulla-h-query",
+   "dst": "src/server/handlers/mining/association.rs"
+  },
+  {
+   "file": "src/server/mutation.rs",
+   "line": 1188,
+   "item": "crate::server::handlers::mining::AssociationRequest",
+   "category": "test-move",
+   "detail": "medulla-server-api -> medulla-h-query",
+   "dst": "src/server/handlers/mining/association.rs"
+  },
+  {
+   "file": "src/server/mutation.rs",
+   "line": 1194,
+   "item": "crate::server::handlers::mining::WritebackOptions",
+   "category": "test-move",
+   "detail": "medulla-server-api -> medulla-h-query",
+   "dst": "src/server/handlers/mining/writeback.rs"
+  },
+  {
+   "file": "src/server/mutation.rs",
+   "line": 2247,
+   "item": "crate::raft::NATIVE_CONSENSUS_METHODS",
+   "category": "test-move",
+   "detail": "medulla-server-api -> medulla-raft",
+   "dst": "src/raft/command/native/catalog.rs"
+  },
+  {
+   "file": "src/server/mutation.rs",
+   "line": 2291,
+   "item": "crate::raft::NATIVE_CONSENSUS_METHODS",
+   "category": "test-move",
+   "detail": "medulla-server-api -> medulla-raft",
+   "dst": "src/raft/command/native/catalog.rs"
+  },
+  {
+   "file": "src/server/mutation/coalescer.rs",
+   "line": 399,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation/commit_encode.rs",
+   "line": 5,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation/commit_entry.rs",
+   "line": 372,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/mutation/commit_paths.rs",
+   "line": 5,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation/commit_replay.rs",
+   "line": 4,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation/commit_replay.rs",
+   "line": 126,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/mutation/commit_replay.rs",
+   "line": 321,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/mutation/conditional.rs",
+   "line": 9,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation/conditional.rs",
+   "line": 173,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/mutation/context.rs",
+   "line": 8,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation/plan.rs",
+   "line": 717,
+   "item": "crate::server::dispatch::is_replicated_apply",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::is_replicated_apply",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
+  },
+  {
+   "file": "src/server/mutation_batch.rs",
+   "line": 106,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit.rs",
+   "line": 60,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit.rs",
+   "line": 115,
+   "item": "crate::server::persistence::redb_backend::RedbBackend::open",
+   "category": "test-move",
+   "detail": "medulla-server-api -> medulla-persistence",
+   "dst": "src/server/persistence/redb_backend.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit.rs",
+   "line": 624,
+   "item": "crate::server::persistence::redb_backend::RedbBackend::open",
+   "category": "test-move",
+   "detail": "medulla-server-api -> medulla-persistence",
+   "dst": "src/server/persistence/redb_backend.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit.rs",
+   "line": 1183,
+   "item": "crate::server::persistence::redb_backend::RedbBackend::open",
+   "category": "test-move",
+   "detail": "medulla-server-api -> medulla-persistence",
+   "dst": "src/server/persistence/redb_backend.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit/internal.rs",
+   "line": 9,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit/internal.rs",
+   "line": 223,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit/internal.rs",
+   "line": 401,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit/lifecycle.rs",
+   "line": 6,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit/lifecycle.rs",
+   "line": 84,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit/program.rs",
+   "line": 3,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit/work_item.rs",
+   "line": 8,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit/work_item.rs",
+   "line": 266,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/compile.rs",
+   "line": 14,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/compile.rs",
+   "line": 520,
+   "item": "crate::server::dispatch::replicated_placement_authority",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::replicated_placement_authority",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
+  },
+  {
+   "file": "src/server/mysql_wire/mod.rs",
+   "line": 481,
+   "item": "crate::server::handlers::query::current_auth_test_support::grant_commons_user",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-query",
+   "dst": "src/server/handlers/query.rs"
+  },
+  {
+   "file": "src/server/mysql_wire/mod.rs",
+   "line": 481,
+   "item": "crate::server::handlers::query::current_auth_test_support::register_commons_agent",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-query",
+   "dst": "src/server/handlers/query.rs"
+  },
+  {
+   "file": "src/server/mysql_wire/mod.rs",
+   "line": 76,
+   "item": "crate::server::validate_direct_wire_security",
+   "category": "extract-helper",
+   "detail": "crate::server::validate_direct_wire_security",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/namespace_migration.rs",
+   "line": 326,
+   "item": "crate::server::dispatch::dispatch_verified_request",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::dispatch_verified_request",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/oidc.rs",
+   "line": 371,
+   "item": "crate::server::outbound_http_config",
+   "category": "extract-helper",
+   "detail": "crate::server::outbound_http_config",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/persistence/agent_library/write.rs",
+   "line": 243,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/persistence/agent_library/write.rs",
+   "line": 289,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/persistence/contract.rs",
+   "line": 467,
+   "item": "crate::raft::EnrichmentTopUpTransition",
+   "category": "extract-type",
+   "detail": "crate::raft::EnrichmentTopUpTransition",
+   "dst": "src/raft/command/enrichment_top_up.rs"
+  },
+  {
+   "file": "src/server/persistence/contract.rs",
+   "line": 753,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/server/persistence/mod.rs",
+   "line": 147,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend.rs",
+   "line": 3142,
+   "item": "crate::server::handlers::txn::try_handle",
+   "category": "test-move",
+   "detail": "medulla-persistence -> medulla-h-txn",
+   "dst": "src/server/handlers/txn/dispatch.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend.rs",
+   "line": 790,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "extract-helper",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend.rs",
+   "line": 3404,
+   "item": "crate::MeasurementBatch",
+   "category": "test-move",
+   "detail": "medulla-persistence -> medulla-engine",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend.rs",
+   "line": 4069,
+   "item": "crate::MeasurementBatch",
+   "category": "test-move",
+   "detail": "medulla-persistence -> medulla-engine",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend/backend_load.rs",
+   "line": 215,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "extract-helper",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend/commands.rs",
+   "line": 23,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend/commands.rs",
+   "line": 53,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend/commands.rs",
+   "line": 243,
+   "item": "crate::raft::EnrichmentTopUpTransition",
+   "category": "extract-type",
+   "detail": "crate::raft::EnrichmentTopUpTransition",
+   "dst": "src/raft/command/enrichment_top_up.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend/shard_writer.rs",
+   "line": 87,
+   "item": "crate::raft::config::raft_group_count",
+   "category": "extract-helper",
+   "detail": "crate::raft::config::raft_group_count",
+   "dst": "src/raft/config.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend/trait_envelopes.rs",
+   "line": 72,
+   "item": "crate::raft::EnrichmentTopUpTransition",
+   "category": "extract-type",
+   "detail": "crate::raft::EnrichmentTopUpTransition",
+   "dst": "src/raft/command/enrichment_top_up.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend/trait_graph.rs",
+   "line": 11,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend/trait_outbox.rs",
+   "line": 135,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend/work_item_read.rs",
+   "line": 246,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend/work_item_read.rs",
+   "line": 283,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/pgwire/mod.rs",
+   "line": 802,
+   "item": "crate::server::handlers::query::bind_sql_text_embedder",
+   "category": "seam:QueryApi",
+   "detail": "crate::server::handlers::query::bind_sql_text_embedder",
+   "dst": "src/server/handlers/query/planning.rs"
+  },
+  {
+   "file": "src/server/redis_wire/mod.rs",
+   "line": 1565,
+   "item": "crate::server::pseudonymous_broker_actor",
+   "category": "extract-helper",
+   "detail": "crate::server::pseudonymous_broker_actor",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/redis_wire/mod.rs",
+   "line": 2541,
+   "item": "crate::server::validate_direct_wire_security",
+   "category": "extract-helper",
+   "detail": "crate::server::validate_direct_wire_security",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/redis_wire/mod.rs",
+   "line": 2600,
+   "item": "crate::server::pseudonymous_broker_actor",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-server",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/repository_enrichment_worker.rs",
+   "line": 171,
+   "item": "crate::server::dispatch::drain_repository_enrichment_once",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::drain_repository_enrichment_once",
+   "dst": "src/server/dispatch/graph_pipeline/repository_index/consumer.rs"
+  },
+  {
+   "file": "src/server/repository_enrichment_worker.rs",
+   "line": 207,
+   "item": "crate::server::dispatch::DrainOutcome::Acknowledged",
+   "category": "extract-type",
+   "detail": "crate::server::dispatch::DrainOutcome",
+   "dst": "src/server/dispatch/graph_pipeline/repository_index/consumer.rs"
+  },
+  {
+   "file": "src/server/repository_enrichment_worker.rs",
+   "line": 262,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/repository_enrichment_worker.rs",
+   "line": 314,
+   "item": "crate::server::dispatch::submit_repository_enrichment_page",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::submit_repository_enrichment_page",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/repository_enrichment_worker/raft_park.rs",
+   "line": 87,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/repository_enrichment_worker/raft_park.rs",
+   "line": 91,
+   "item": "crate::server::dispatch::plan_held_underfunded_park",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::plan_held_underfunded_park",
+   "dst": "src/server/dispatch/graph_pipeline/repository_index/consumer.rs"
+  },
+  {
+   "file": "src/server/repository_enrichment_worker/raft_top_up.rs",
+   "line": 255,
+   "item": "crate::server::dispatch::decode_pending_enrichment_intent",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::decode_pending_enrichment_intent",
+   "dst": "src/server/dispatch/graph_pipeline/repository_index/consumer.rs"
+  },
+  {
+   "file": "src/server/repository_enrichment_worker/raft_top_up.rs",
+   "line": 270,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/repository_enrichment_worker/raft_top_up.rs",
+   "line": 272,
+   "item": "crate::server::dispatch::enrichment_intent_for_snapshot",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::enrichment_intent_for_snapshot",
+   "dst": "src/server/dispatch/graph_pipeline/repository_index/enrichment.rs"
+  },
+  {
+   "file": "src/server/ros2_bridge.rs",
+   "line": 229,
+   "item": "crate::server::dispatch::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/s3/mod.rs",
+   "line": 61,
+   "item": "crate::server::blob::store::ChunkStore",
+   "category": "seam:state-handle",
+   "detail": "crate::server::blob::store::ChunkStore",
+   "dst": "src/server/blob/store.rs"
+  },
+  {
+   "file": "src/server/s3/mod.rs",
+   "line": 61,
+   "item": "crate::server::blob::store::RedbChunkStore",
+   "category": "seam:state-handle",
+   "detail": "crate::server::blob::store::RedbChunkStore",
+   "dst": "src/server/blob/store.rs"
+  },
+  {
+   "file": "src/server/s3/mod.rs",
+   "line": 1172,
+   "item": "crate::server::require_loopback_listener",
+   "category": "extract-helper",
+   "detail": "crate::server::require_loopback_listener",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/sparql_http.rs",
+   "line": 110,
+   "item": "crate::server::require_loopback_listener",
+   "category": "extract-helper",
+   "detail": "crate::server::require_loopback_listener",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/sparql_http.rs",
+   "line": 302,
+   "item": "crate::server::dispatch::dispatch_authenticated_local_query",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/sparql_http/graph_store.rs",
+   "line": 121,
+   "item": "crate::server::dispatch::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/sparql_http/graph_store.rs",
+   "line": 154,
+   "item": "crate::server::dispatch::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/sparql_http/route.rs",
+   "line": 114,
+   "item": "crate::server::dispatch::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 180,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "seam:state-handle",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 185,
+   "item": "crate::server::persistence::agent_library::AgentLibraryStore",
+   "category": "seam:state-handle",
+   "detail": "crate::server::persistence::agent_library::AgentLibraryStore",
+   "dst": "src/server/persistence/agent_library.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 190,
+   "item": "crate::server::persistence::agent_library::AgentLibraryStore",
+   "category": "seam:state-handle",
+   "detail": "crate::server::persistence::agent_library::AgentLibraryStore",
+   "dst": "src/server/persistence/agent_library.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 198,
+   "item": "crate::server::persistence::cold_offload::ColdTenantTracker",
+   "category": "seam:state-handle",
+   "detail": "crate::server::persistence::cold_offload::ColdTenantTracker",
+   "dst": "src/server/persistence/cold_offload.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 207,
+   "item": "crate::server::viz_engine::VizEngineState",
+   "category": "seam:state-handle",
+   "detail": "crate::server::viz_engine::VizEngineState",
+   "dst": "src/server/viz_engine.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 279,
+   "item": "crate::server::blob::BlobCursors",
+   "category": "seam:state-handle",
+   "detail": "crate::server::blob::BlobCursors",
+   "dst": "src/server/blob/mod.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 290,
+   "item": "crate::raft::RaftHandle",
+   "category": "seam:state-handle",
+   "detail": "crate::raft::RaftHandle",
+   "dst": "src/raft/mod.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 299,
+   "item": "crate::raft::multi::MultiRaft",
+   "category": "seam:state-handle",
+   "detail": "crate::raft::multi::MultiRaft",
+   "dst": "src/raft/multi.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 314,
+   "item": "crate::server::obs::ObsState",
+   "category": "seam:state-handle",
+   "detail": "crate::server::obs::ObsState",
+   "dst": "src/server/obs/mod.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 331,
+   "item": "crate::server::udf_catalog::UdfCatalog",
+   "category": "seam:state-handle",
+   "detail": "crate::server::udf_catalog::UdfCatalog",
+   "dst": "src/server/udf_catalog.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 337,
+   "item": "crate::raft::pregel::MatViewStore",
+   "category": "seam:state-handle",
+   "detail": "crate::raft::pregel::MatViewStore",
+   "dst": "src/raft/pregel.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 352,
+   "item": "crate::server::foreign_catalog::ForeignSourceCatalog",
+   "category": "seam:state-handle",
+   "detail": "crate::server::foreign_catalog::ForeignSourceCatalog",
+   "dst": "src/server/foreign_catalog.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 356,
+   "item": "crate::server::foreign_read::ForeignReadSessions",
+   "category": "seam:state-handle",
+   "detail": "crate::server::foreign_read::ForeignReadSessions",
+   "dst": "src/server/foreign_read.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 365,
+   "item": "crate::server::kv::KvStore",
+   "category": "seam:state-handle",
+   "detail": "crate::server::kv::KvStore",
+   "dst": "src/server/kv.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 375,
+   "item": "crate::server::lake::LakeManager",
+   "category": "seam:state-handle",
+   "detail": "crate::server::lake::LakeManager",
+   "dst": "src/server/lake/mod.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 398,
+   "item": "crate::raft::RaftHandle",
+   "category": "seam:state-handle",
+   "detail": "crate::raft::RaftHandle",
+   "dst": "src/raft/mod.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 399,
+   "item": "crate::raft::multi::MultiRaft",
+   "category": "seam:state-handle",
+   "detail": "crate::raft::multi::MultiRaft",
+   "dst": "src/raft/multi.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 409,
+   "item": "crate::raft::RaftHandle",
+   "category": "seam:state-handle",
+   "detail": "crate::raft::RaftHandle",
+   "dst": "src/raft/mod.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 562,
+   "item": "crate::server::persistence::agent_library::AgentLibraryStore",
+   "category": "seam:state-handle",
+   "detail": "crate::server::persistence::agent_library::AgentLibraryStore",
+   "dst": "src/server/persistence/agent_library.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 594,
+   "item": "crate::server::persistence::agent_library::AgentLibraryStore",
+   "category": "seam:state-handle",
+   "detail": "crate::server::persistence::agent_library::AgentLibraryStore",
+   "dst": "src/server/persistence/agent_library.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 596,
+   "item": "crate::server::persistence::agent_library::AgentLibraryStore",
+   "category": "seam:state-handle",
+   "detail": "crate::server::persistence::agent_library::AgentLibraryStore",
+   "dst": "src/server/persistence/agent_library.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 602,
+   "item": "crate::server::persistence::agent_library::AgentLibraryStore::open",
+   "category": "seam:state-handle",
+   "detail": "crate::server::persistence::agent_library::AgentLibraryStore::open",
+   "dst": "src/server/persistence/agent_library.rs"
+  },
+  {
+   "file": "src/server/stomp_wire/mod.rs",
+   "line": 122,
+   "item": "crate::server::validate_direct_wire_security",
+   "category": "extract-helper",
+   "detail": "crate::server::validate_direct_wire_security",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/stomp_wire/mod.rs",
+   "line": 374,
+   "item": "crate::server::pseudonymous_broker_actor",
+   "category": "extract-helper",
+   "detail": "crate::server::pseudonymous_broker_actor",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/stomp_wire/mod.rs",
+   "line": 959,
+   "item": "crate::server::pseudonymous_broker_actor",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-server",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/transport.rs",
+   "line": 27,
+   "item": "crate::server::dispatch::dispatch_verified_request",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::dispatch_verified_request",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/transport.rs",
+   "line": 29,
+   "item": "crate::server::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch.rs",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/txn.rs",
+   "line": 173,
+   "item": "crate::server::dispatch::is_replicated_apply",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::is_replicated_apply",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
+  },
+  {
+   "file": "src/server/txn.rs",
+   "line": 174,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/txn.rs",
+   "line": 436,
+   "item": "crate::MeasurementBatch",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
+   "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 1245,
+   "item": "crate::server::txn_intent::ReplayStep",
+   "category": "extract-type",
+   "detail": "crate::server::txn_intent::ReplayStep",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 1594,
+   "item": "crate::server::txn_intent::ReplayStep::CopyRows",
+   "category": "extract-type",
+   "detail": "crate::server::txn_intent::ReplayStep",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 1840,
+   "item": "crate::server::handlers::decide::read_only_relations",
+   "category": "seam:DecideApi",
+   "detail": "crate::server::handlers::decide::read_only_relations",
+   "dst": "src/server/handlers/decide.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 2601,
+   "item": "crate::server::txn_intent::CommitIntent::new",
+   "category": "extract-type",
+   "detail": "crate::server::txn_intent::CommitIntent",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 2615,
+   "item": "crate::server::txn_intent::write_intent",
+   "category": "seam:TxnApi",
+   "detail": "crate::server::txn_intent::write_intent",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 2648,
+   "item": "crate::server::txn_intent::CommitIntent",
+   "category": "extract-type",
+   "detail": "crate::server::txn_intent::CommitIntent",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 2676,
+   "item": "crate::server::txn_intent::delete_intent",
+   "category": "seam:TxnApi",
+   "detail": "crate::server::txn_intent::delete_intent",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 2700,
+   "item": "crate::server::txn_intent::delete_intent",
+   "category": "seam:TxnApi",
+   "detail": "crate::server::txn_intent::delete_intent",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 2711,
+   "item": "crate::server::txn_intent::delete_intent",
+   "category": "seam:TxnApi",
+   "detail": "crate::server::txn_intent::delete_intent",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 2753,
+   "item": "crate::server::txn_intent::delete_intent",
+   "category": "seam:TxnApi",
+   "detail": "crate::server::txn_intent::delete_intent",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 2768,
+   "item": "crate::server::txn_intent::CommitIntent",
+   "category": "extract-type",
+   "detail": "crate::server::txn_intent::CommitIntent",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 2799,
+   "item": "crate::server::txn_intent::ReplayStep",
+   "category": "extract-type",
+   "detail": "crate::server::txn_intent::ReplayStep",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 2810,
+   "item": "crate::server::txn_intent::ReplayStep",
+   "category": "extract-type",
+   "detail": "crate::server::txn_intent::ReplayStep",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 2813,
+   "item": "crate::server::txn_intent::ReplayStep::Sql",
+   "category": "extract-type",
+   "detail": "crate::server::txn_intent::ReplayStep",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 2822,
+   "item": "crate::server::txn_intent::ReplayStep::CopyRows",
+   "category": "extract-type",
+   "detail": "crate::server::txn_intent::ReplayStep",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 2868,
+   "item": "crate::server::txn_intent::list_intents",
+   "category": "seam:TxnApi",
+   "detail": "crate::server::txn_intent::list_intents",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 4133,
+   "item": "crate::server::handlers::txn::commit_cross_modal_txn_with_nonce",
+   "category": "seam:TxnApi",
+   "detail": "crate::server::handlers::txn::commit_cross_modal_txn_with_nonce",
+   "dst": "src/server/handlers/txn/commit_modal.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 4193,
+   "item": "crate::server::txn_intent::ReplayStep::Sql",
+   "category": "extract-type",
+   "detail": "crate::server::txn_intent::ReplayStep",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 4201,
+   "item": "crate::server::txn_intent::CommitIntent::new",
+   "category": "extract-type",
+   "detail": "crate::server::txn_intent::CommitIntent",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 4218,
+   "item": "crate::server::txn_intent::write_intent",
+   "category": "seam:TxnApi",
+   "detail": "crate::server::txn_intent::write_intent",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 4501,
+   "item": "crate::server::handlers::txn::sparql_update_to_methods",
+   "category": "seam:TxnApi",
+   "detail": "crate::server::handlers::txn::sparql_update_to_methods",
+   "dst": "src/server/handlers/txn/staging.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 4522,
+   "item": "crate::server::handlers::txn::construct_view_to_methods",
+   "category": "seam:TxnApi",
+   "detail": "crate::server::handlers::txn::construct_view_to_methods",
+   "dst": "src/server/handlers/txn/staging.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 4591,
+   "item": "crate::server::handlers::query::plan_needs_tsdb",
+   "category": "seam:QueryApi",
+   "detail": "crate::server::handlers::query::plan_needs_tsdb",
+   "dst": "src/server/handlers/query/base.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 4622,
+   "item": "crate::server::handlers::query::overlay_write_set",
+   "category": "seam:QueryApi",
+   "detail": "crate::server::handlers::query::overlay_write_set",
+   "dst": "src/server/handlers/query/overlay.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 4651,
+   "item": "crate::server::handlers::query::run_unified_with_staged_finish",
+   "category": "seam:QueryApi",
+   "detail": "crate::server::handlers::query::run_unified_with_staged_finish",
+   "dst": "src/server/handlers/query/overlay.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 4657,
+   "item": "crate::server::foreign_catalog::bound_registry",
+   "category": "seam:QueryApi",
+   "detail": "crate::server::foreign_catalog::bound_registry",
+   "dst": "src/server/foreign_catalog.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 4659,
+   "item": "crate::server::handlers::query::TsdbLegBind",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::query::TsdbLegBind",
+   "dst": "src/server/handlers/query/planning.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 4665,
+   "item": "crate::server::handlers::query::execute_rows",
+   "category": "seam:QueryApi",
+   "detail": "crate::server::handlers::query::execute_rows",
+   "dst": "src/server/handlers/query/planning.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 4755,
+   "item": "crate::server::handlers::txn::commit_cross_modal_txn_with_nonce",
+   "category": "seam:TxnApi",
+   "detail": "crate::server::handlers::txn::commit_cross_modal_txn_with_nonce",
+   "dst": "src/server/handlers/txn/commit_modal.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 4929,
+   "item": "crate::server::txn_intent::ReplayStep::Sql",
+   "category": "extract-type",
+   "detail": "crate::server::txn_intent::ReplayStep",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 5293,
+   "item": "crate::server::test_state_with_services",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-server",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 5337,
+   "item": "crate::server::dispatch",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-server",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 5552,
+   "item": "crate::server::txn_intent::CommitIntent::new",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 5568,
+   "item": "crate::server::txn_intent::write_intent",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 5592,
+   "item": "crate::server::txn_intent::list_intents",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 5613,
+   "item": "crate::server::txn_intent::list_intents",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 5652,
+   "item": "crate::server::txn_intent::CommitIntent::new",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 5665,
+   "item": "crate::server::txn_intent::ReplayStep::Sql",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 5670,
+   "item": "crate::server::txn_intent::write_intent",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 5682,
+   "item": "crate::server::txn_intent::list_intents",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 5695,
+   "item": "crate::server::txn_intent::list_intents",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 6056,
+   "item": "crate::server::test_state_with_services",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-server",
+   "dst": "src/server/mod.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 6103,
+   "item": "crate::server::dispatch",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-server",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 6331,
+   "item": "crate::server::txn_intent::list_intents",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 6342,
+   "item": "crate::server::txn_intent::list_intents",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 6429,
+   "item": "crate::server::txn_intent::ReplayStep::Sql",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 6432,
+   "item": "crate::server::txn_intent::ReplayStep::Sql",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 6436,
+   "item": "crate::server::txn_intent::CommitIntent::new",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 6542,
+   "item": "crate::server::txn_intent::CommitIntent::new",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/mod.rs",
+   "line": 6547,
+   "item": "crate::server::txn_intent::ReplayStep::Sql",
+   "category": "test-move",
+   "detail": "medulla-wire -> medulla-h-txn",
+   "dst": "src/server/txn_intent.rs"
+  },
+  {
+   "file": "src/server/wire/wired_catalog_tests/edge_index.rs",
+   "line": 9,
+   "item": "crate::server::handlers::query::current_auth_test_support::edge_status_row",
+   "category": "seam:QueryApi",
+   "detail": "crate::server::handlers::query::current_auth_test_support::edge_status_row",
+   "dst": "src/server/handlers/query.rs"
+  },
+  {
+   "file": "src/server/wire/wired_catalog_tests/edge_index.rs",
+   "line": 9,
+   "item": "crate::server::handlers::query::current_auth_test_support::register_detached_edge_index",
+   "category": "seam:QueryApi",
+   "detail": "crate::server::handlers::query::current_auth_test_support::register_detached_edge_index",
+   "dst": "src/server/handlers/query.rs"
+  },
+  {
+   "file": "src/server/wire/wired_catalog_tests/edge_index.rs",
+   "line": 9,
+   "item": "crate::server::handlers::query::current_auth_test_support::sql_rows",
+   "category": "seam:QueryApi",
+   "detail": "crate::server::handlers::query::current_auth_test_support::sql_rows",
+   "dst": "src/server/handlers/query.rs"
+  },
+  {
+   "file": "src/server/wire/wired_catalog_tests/edge_index.rs",
+   "line": 9,
+   "item": "crate::server::handlers::query::current_auth_test_support::EDGE_STATUS_SQL",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::query::current_auth_test_support::EDGE_STATUS_SQL",
+   "dst": "src/server/handlers/query.rs"
+  },
+  {
+   "file": "src/server/wire/wired_catalog_tests/edge_index.rs",
+   "line": 93,
+   "item": "crate::server::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch.rs",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/store_authority.rs",
+   "line": 79,
+   "item": "crate::mutation_apply::ENGINE_LEDGER_PRINCIPAL",
+   "category": "extract-type",
+   "detail": "crate::mutation_apply::ENGINE_LEDGER_PRINCIPAL",
+   "dst": "src/mutation_apply.rs"
+  }
+ ]
+}

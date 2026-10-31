@@ -1,0 +1,319 @@
+# Crate-split boundary manifest (MEDULLA-CONTRACT-R056).
+# Source of truth for the planned crates and layering. The file-to-crate authority is
+# placement.toml (written by resolve.py from the initial assignment below).
+#
+# Layering: a crate may depend on any crate with a lower level. Crates sharing a level
+# are siblings and may not depend on each other:
+#   kernel 0 < store 1 < server-api 2 < persistence 3 < raft 4
+#   < {h-compute, h-ingest, h-graph, h-jobs, h-decide, h-query, h-admin, h-txn, wire} 5
+#   < server 6 < engine 7
+# Every medulla-* crate that is not listed here is a leaf crate; any crate may depend on it.
+#
+# Path rule: an entry without ".rs" names a module: it covers `<entry>.rs` and everything
+# under `<entry>/`. An entry ending in ".rs" names that single file. When several entries
+# match a file the longest wins; two entries of the same length in different crates is an
+# error. Every .rs file under src/ must resolve to exactly one crate.
+#
+# `# unplanned` marks an assignment the plan's "Target layout" does not name (best fit).
+# `kind = "handler"` crates are siblings with no edges between them.
+
+[scaffold]
+# Set true once the scaffold change created every crate below (MEDULLA-CONTRACT-R056.11).
+done = false
+
+[delete]
+# Contract machinery (plan step 0). `enforce = true` once the removal landed makes
+# check_crate_graph.py fail while any listed path still exists.
+enforce = false
+
+
+[crates.medulla-kernel]
+kind = "existing"
+# already extracted (PR #1039); remaining small top-level modules join it
+exists = true
+level = 0
+paths = [
+    "src/persist",
+    "src/store_authority",
+    "src/mutation_apply",
+    "src/channels",  # unplanned
+]
+
+[crates.medulla-store]
+kind = "store"
+# redb store, layout, sidecar
+exists = false
+level = 1
+paths = [
+    "src/redb_store",
+    "src/redb_layout",
+    "src/sidecar_store",
+    # The store persists work items and mirrors their outcomes on read; both
+    # statecharts depend only on kernel and the medulla-statechart leaf crate.
+    "src/loop_statechart",
+    "src/work_item_statechart",
+]
+
+[crates.medulla-raft]
+kind = "raft"
+# raft consensus
+exists = false
+level = 4
+paths = [
+    "src/raft",
+]
+
+[crates.medulla-server-api]
+kind = "api"
+# ServerState, auth/access contexts, MutationBatch API, shared helpers, HandlerRegistry seam
+exists = false
+level = 2
+paths = [
+    "src/server/state",
+    "src/server/auth",
+    "src/server/access",
+    "src/server/authority_context",
+    "src/server/mutation_batch",
+    "src/server/anonymous",  # unplanned
+    "src/server/request_scope",  # unplanned
+    "src/server/identity_view",  # unplanned
+    "src/server/service_grant",  # unplanned
+    "src/server/compute",  # unplanned
+    "src/test_support",  # unplanned
+]
+
+[crates.medulla-persistence]
+kind = "persistence"
+# server/persistence, implements PersistenceBackend
+exists = false
+level = 3
+paths = [
+    "src/server/persistence",
+    "src/server/cold_tier_impl",  # unplanned
+]
+
+[crates.medulla-h-admin]
+kind = "handler"
+# handler crate: depends on server-api only; never on a sibling handler
+exists = false
+level = 5
+paths = [
+    "src/server/handlers/admin",
+    "src/server/connector_pack_projection",
+    "src/server/graph_schema",
+    "src/server/handlers/raft_admin",  # unplanned
+]
+
+[crates.medulla-h-compute]
+kind = "handler"
+# handler crate: depends on server-api only; never on a sibling handler
+exists = false
+level = 5
+paths = [
+    "src/server/handlers/finance",
+    "src/server/handlers/datascience",
+    "src/server/handlers/quantum",
+    "src/server/handlers/viz",
+    "src/server/handlers/wasm_udf",  # unplanned
+    "src/server/viz_engine",  # unplanned
+    "src/server/viz_interactive",  # unplanned
+    "src/server/viz_provenance",  # unplanned
+    "src/server/graph_tile_server",  # unplanned
+    "src/server/graph_tile_source",  # unplanned
+]
+
+[crates.medulla-h-decide]
+kind = "handler"
+# handler crate: depends on server-api only; never on a sibling handler
+exists = false
+level = 5
+paths = [
+    "src/server/handlers/decide",
+    "src/server/handlers/solve",
+]
+
+[crates.medulla-h-graph]
+kind = "handler"
+# handler crate: depends on server-api only; never on a sibling handler
+exists = false
+level = 5
+paths = [
+    "src/server/handlers/graph_ops",
+    "src/server/handlers/graphlearn",
+    "src/server/handlers/topology",
+    "src/server/handlers/placement",
+    "src/server/handlers/pipeline",
+    "src/server/handlers/write_back",  # unplanned
+]
+
+[crates.medulla-h-ingest]
+kind = "handler"
+# handler crate: depends on server-api only; never on a sibling handler
+exists = false
+level = 5
+paths = [
+    "src/server/handlers/source_ingestion",
+    "src/server/handlers/source_batch",
+    "src/server/handlers/web_ingest",
+    "src/server/handlers/web_ingest_tests",
+    "src/server/handlers/repository_index",
+    "src/server/handlers/repository_index_tests",
+    "src/server/handlers/modality",
+    "src/server/handlers/asr",
+    "src/server/handlers/blob",
+    "src/server/blob",  # unplanned
+    "src/server/repository_enrichment_worker",  # unplanned
+]
+
+[crates.medulla-h-jobs]
+kind = "handler"
+# handler crate: depends on server-api only; never on a sibling handler
+exists = false
+level = 5
+paths = [
+    "src/server/handlers/jobs",
+    "src/server/handlers/work_item",
+    "src/server/handlers/work_item_read",
+    "src/server/handlers/delegation",
+    "src/server/handlers/development_lane",
+    "src/server/handlers/statechart",
+    "src/server/handlers/mutation_outbox",
+    "src/server/handlers/jobs_read_rls_architecture",  # unplanned
+    "src/server/handlers/native_write_authority",  # unplanned
+    "src/server/outbox_operator",  # unplanned
+    "src/agent_lifecycle_statechart",  # unplanned
+]
+
+[crates.medulla-h-query]
+kind = "handler"
+# handler crate: depends on server-api only; never on a sibling handler
+exists = false
+level = 5
+paths = [
+    "src/server/handlers/query",
+    "src/server/handlers/rdf",
+    "src/server/handlers/mining",
+    "src/server/handlers/knowledge_stream",
+    "src/server/handlers/federation",
+    "src/server/federation",
+    "src/server/sparql_service",
+    "src/server/foreign_catalog",
+    "src/server/foreign_read",
+    "src/server/foreign_share",
+    "src/server/handlers/streaming",  # unplanned
+    "src/server/handlers/semantic_index",  # unplanned
+    "src/server/semantic_index",  # unplanned
+]
+
+[crates.medulla-h-txn]
+kind = "handler"
+# handler crate: depends on server-api only; never on a sibling handler
+exists = false
+level = 5
+paths = [
+    "src/server/handlers/txn",
+    "src/server/handlers/dist_compute",
+    "src/server/handlers/timeseries",
+    "src/server/handlers/sqlite_file",
+    "src/server/txn",  # unplanned
+    "src/server/txn_intent",  # unplanned
+]
+
+[crates.medulla-wire]
+kind = "wire"
+# wire protocols, feature-gated per protocol
+exists = false
+level = 5
+paths = [
+    "src/server/pgwire",
+    "src/server/bolt_wire",
+    "src/server/redis_wire",
+    "src/server/mysql_wire",
+    "src/server/mssql_wire",
+    "src/server/amqp_wire",
+    "src/server/mqtt_wire",
+    "src/server/stomp_wire",
+    "src/server/sqlite_wire",
+    "src/server/broker_wire",
+    "src/server/wire",
+    "src/server/s3",  # unplanned
+    "src/server/kvcache_http",  # unplanned
+    "src/server/sparql_http",  # unplanned
+    "src/server/http1",  # unplanned
+    "src/server/dds",  # unplanned
+    "src/server/ros2_bridge",  # unplanned
+    "src/server/sql_wire_auth",  # unplanned
+]
+
+[crates.medulla-server]
+kind = "server"
+# dispatch/router/consensus/request_boundary + startup; builds the registry
+exists = false
+level = 6
+paths = [
+    "src/server/dispatch",
+    "src/server/mod.rs",
+    "src/server_startup",
+    "src/server/handlers/mod.rs",  # unplanned
+    "src/server/boot_maintenance",  # unplanned
+    "src/server/cache_coherence",  # unplanned
+    "src/server/cdc",  # unplanned
+    "src/server/cdc_sink",  # unplanned
+    "src/server/cep",  # unplanned
+    "src/server/denial_sample",  # unplanned
+    "src/server/harness_admission",  # unplanned
+    "src/server/icv_guard",  # unplanned
+    "src/server/impact_watch",  # unplanned
+    "src/server/issuer_trust",  # unplanned
+    "src/server/kv",  # unplanned
+    "src/server/lake",  # unplanned
+    "src/server/matview",  # unplanned
+    "src/server/mutation",  # unplanned
+    "src/server/namespace_migration",  # unplanned
+    "src/server/nl",  # unplanned
+    "src/server/obda",  # unplanned
+    "src/server/obs",  # unplanned
+    "src/server/oidc",  # unplanned
+    "src/server/policy_export",  # unplanned
+    "src/server/promql",  # unplanned
+    "src/server/qos",  # unplanned
+    "src/server/reasoning_cascade",  # unplanned
+    "src/server/reasoning_projection",  # unplanned
+    "src/server/registry_reaper",  # unplanned
+    "src/server/replica",  # unplanned
+    "src/server/request_cancel",  # unplanned
+    "src/server/request_replay",  # unplanned
+    "src/server/routed_write_coalescer",  # unplanned
+    "src/server/sealed_retention",  # unplanned
+    "src/server/secondary_indexes",  # unplanned
+    "src/server/semantic_activation",  # unplanned
+    "src/server/sql_catalog_acl",  # unplanned
+    "src/server/sql_tables",  # unplanned
+    "src/server/tests",  # unplanned
+    "src/server/traces",  # unplanned
+    "src/server/transport",  # unplanned
+    "src/server/udf_catalog",  # unplanned
+    "src/server/graphql_sub",  # unplanned
+    "src/cost",  # unplanned
+]
+
+[crates.medulla-engine]
+kind = "facade"
+# facade: re-exports + pyo3 bindings + bin
+exists = false
+level = 7
+paths = [
+    "src/lib.rs",
+    "src/main.rs",
+    "src/bin",
+    "src/embedded",
+    "src/offline_tools",
+    "src/operator_command",
+    "src/performance_probe",  # unplanned
+]
+# delete set paths (grouped below under [delete.paths])
+
+[delete.paths]
+entries = [
+    "src/server/contract_wave",
+]
