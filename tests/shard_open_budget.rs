@@ -17,9 +17,7 @@
 //! real-disk path (tmpfs fsyncs are free and would hide the cost under test).
 #![cfg(feature = "redb")]
 
-#[path = "../src/test_rendezvous.rs"]
-#[allow(dead_code)]
-mod test_rendezvous;
+use medulla_kernel::test_rendezvous;
 
 use medulla::protocol::Method;
 use medulla::server::persistence::redb_backend::RedbBackend;

@@ -86,23 +86,10 @@ macro_rules! work_item_resource_writes {
 
 #[cfg(feature = "server")]
 pub mod channels;
-pub mod metrics;
-// CONCEPT:MEDULLA-OS.observability.slow-query-descriptor — OTLP span export + tracing init (server-only: the subscriber
-// init needs tracing-subscriber, which is server-gated).
-#[cfg(feature = "server")]
-pub mod otel;
 // CONCEPT:MEDULLA-OS.observability.slow-query-descriptor — slow-query log. Server-only (only the server dispatch/pgwire
 // paths execute queries).
 #[cfg(feature = "server")]
 pub mod persist;
-#[cfg(feature = "server")]
-pub mod persist_lock;
-#[cfg(feature = "server")]
-pub mod slow_query;
-// Pure redb durable-row machinery (CONCEPT:MEDULLA-KG.backend.engine-modes) — server-INDEPENDENT, gated on
-// `redb` ALONE so the embedded API (and the server's `redb_backend`) share ONE
-// durable format with no Tokio. Built whenever the `redb` crate is linked.
-pub(crate) mod graph_delta;
 #[cfg(feature = "redb")]
 pub(crate) mod redb_layout;
 // The composition root's ONE scope-grant authority. `medulla-storage` opens every
@@ -110,25 +97,11 @@ pub(crate) mod redb_layout;
 // on which of them (RF-RULING-004).
 #[cfg(feature = "redb")]
 pub mod store_authority;
-// Bounded production thread joins; every caller is a redb writer shutdown path.
-#[cfg(feature = "redb")]
-pub(crate) mod bounded_join;
-/// Taking a lock whose previous holder panicked, without turning one bug into a
-/// permanent outage. A bare `.unwrap()` on a poisoned lock is the absence of a
-/// decision; these make the decision explicit and visible.
-pub(crate) mod lock_recovery;
-// Pure mutation outbox encoding shared by redb-only retry and server-only
-// compilation; neither feature may import the other's gated module.
-pub(crate) mod projection_wakeup;
 #[cfg(feature = "redb")]
 pub mod redb_store;
 // The one shape every small kernel-owned sidecar file in this binary takes.
 #[cfg(feature = "redb")]
 pub mod sidecar_store;
-/// Bounded rendezvous and joins for concurrency tests. A test that hangs takes
-/// the whole binary with it; a test that fails names itself.
-#[cfg(test)]
-pub(crate) mod test_rendezvous;
 
 // CONCEPT:INT-P2-2 -- the Loop statechart definition (W2.5 control-plane migration):
 // `LoopStatus`'s 16 values as a reusable `medulla_statechart::StatechartDef`, instantiated
@@ -167,14 +140,6 @@ pub mod agent_lifecycle_statechart;
 /// named alias so the `&[MeasurementBatch]` params don't trip the `type_complexity` lint.
 pub type MeasurementBatch = (String, usize, u64, Vec<String>, Vec<(i64, Vec<f64>)>);
 
-// Engine-level security (CONCEPT:MEDULLA-KG.sharding.row-level-security, Lane O): encryption-at-rest for the redb
-// durable value blobs (`crypto`) + the hash-chained tamper-evident audit log over the
-// ledger (`audit`). PURE-RUST (RustCrypto chacha20poly1305 + sha2). Gated on
-// `security` (→ `redb`).
-#[cfg(feature = "security")]
-pub mod audit;
-#[cfg(any(feature = "security", feature = "raft"))]
-pub mod crypto;
 // In-process embedded library API (CONCEPT:MEDULLA-KG.backend.engine-modes) — SQLite/DuckDB-style. Drives
 // the SAME GraphCore + redb durable rows the socket dispatch does, with NO Tokio
 // server/socket/HMAC. Gated on `embedded` (→ `redb`); needs NO `server` feature.
@@ -191,20 +156,6 @@ pub(crate) mod test_support;
 // embedded, and Raft paths.
 #[cfg(any(feature = "server", feature = "redb"))]
 pub mod mutation_apply;
-// EH-558: sealed record rows are create-only for every generic writer, in every mode.
-#[cfg(any(feature = "server", feature = "redb"))]
-pub(crate) mod sealed_guard;
-// Per-graph write coalescer (CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer): batches concurrent single-op
-// writes to one graph into a single topology-lock acquisition. Tokio-based, so it
-// lives in the server-gated top-level crate.
-#[cfg(feature = "server")]
-pub mod write_coalescer;
-// Hardware capacity auto-detection (CONCEPT:AU-KG.backend.b-auto-size). Derives the concurrency / buffer /
-// per-graph node-cap DEFAULTS from the effective host/cgroup CPU+RAM capacity so
-// the SAME binary is lean + OOM-safe in a constrained pod and exploits a large
-// host. The dependency-free implementation is shared with lower provider crates
-// through `medulla-resource`; this facade module preserves the existing API path.
-pub mod autosize;
 // Per-tenant memory budget + autoscale signals (CONCEPT:MEDULLA-KG.compute.lane-v, Lane V). The budget
 // enforcer (periodic over-budget eviction/hibernation), the per-tenant resident-RAM
 // tracking, the ResourceStats snapshot, and the capacity-planning cost model. PURE-RUST

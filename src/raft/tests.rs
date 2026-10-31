@@ -150,8 +150,8 @@ async fn start_multi(
 async fn direct_multi_raft_construction_reaches_trace_capture() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = fresh_dir("trace-capture-direct-construction");
     let backend: Arc<dyn PersistenceBackend> =
         Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
@@ -216,8 +216,8 @@ fn dispatch_on_heap<'a>(
 async fn three_node_cluster_replicates_and_survives_leader_failover() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let tmp = std::env::temp_dir().join(format!("medulla-raft-test-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     let dirs: Vec<String> = (1..=3)
@@ -378,8 +378,8 @@ async fn three_node_cluster_replicates_and_survives_leader_failover() {
 async fn cluster_members_reports_topology_and_tracks_leader_failover() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -730,8 +730,8 @@ where
 async fn multi_group_startup_creates_n_groups_from_config() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = fresh_dir("multigroup-startup");
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
         RedbBackend::open_with_shards(dir.clone(), 4096, 4).expect("open fresh K=4 layout"),
@@ -765,8 +765,8 @@ async fn multi_group_startup_creates_n_groups_from_config() {
 async fn graph_routes_to_its_ring_assigned_group_after_multi_group_startup() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = fresh_dir("multigroup-routing");
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
         RedbBackend::open_with_shards(dir.clone(), 4096, 3).expect("open fresh K=3 layout"),
@@ -802,8 +802,8 @@ async fn graph_routes_to_its_ring_assigned_group_after_multi_group_startup() {
 async fn default_startup_stays_single_group_unchanged() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = fresh_dir("multigroup-default");
     let state = make_state(&dir).await;
     let ports = free_ports(1);
@@ -1029,7 +1029,7 @@ mod placement_admin_wire_rpc {
             );
         });
         let driver = driver.expect("spawn the engine test driver thread");
-        if let Err(error) = crate::bounded_join::join_within(
+        if let Err(error) = medulla_kernel::bounded_join::join_within(
             driver,
             "placement admin three-node cluster test driver",
             PLACEMENT_ADMIN_SCENARIO_TIMEOUT,
@@ -1386,8 +1386,8 @@ fn make_log_entry(index: u64, term: u64, node_id: &str) -> EntryOf<super::TypeCo
 async fn durable_log_replays_from_redb_after_restart() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = fresh_dir("logreplay");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let state = make_state_with_backend(&dir, backend.clone()).await;
@@ -1441,9 +1441,9 @@ async fn fault_injection_no_committed_log_entry_lost_on_restart() {
     // Held for the whole test: opens the backend TWICE (initial + a restart reopen
     // of the SAME dir) and both opens must resolve the same encryption-at-rest
     // cipher, or the reopen's read fails with "encrypted durable value is missing
-    // sealed framing". See `crate::crypto::acquire_test_env_lock`'s doc.
+    // sealed framing". See `medulla_kernel::crypto::acquire_test_env_lock`'s doc.
     #[cfg(feature = "security")]
-    let _env_lock = crate::crypto::acquire_test_env_lock().await;
+    let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
     let dir = fresh_dir("faultlog");
     // The authoritative backend fsyncs each committed (awaited) append before the await
     // returns, so anything we observe as Ok IS on disk.
@@ -1508,8 +1508,8 @@ async fn fault_injection_no_committed_log_entry_lost_on_restart() {
 async fn multi_group_logs_isolate_on_shared_redb() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = fresh_dir("multigroup");
     let backend: Arc<dyn PersistenceBackend> =
         Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
@@ -1587,8 +1587,8 @@ async fn multi_group_logs_isolate_on_shared_redb() {
 async fn two_groups_one_node_commit_independently() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
 
     let dir = fresh_dir("twogroups");
     let backend = fixture::open_backend(&dir).expect("open redb");
@@ -1808,8 +1808,8 @@ fn group_router_distributes_tenants_across_ring() {
 async fn group_snapshot_is_scoped_to_its_tenant_range() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     use super::multi::GroupRouter;
 
     let dir = fresh_dir("scopedsnap");
@@ -2011,8 +2011,8 @@ fn heartbeat_coalescer_batches_per_peer() {
 async fn coalesced_batch_round_trips_on_one_connection() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     use super::network::{GroupRpc, GroupRpcReply, HeartbeatCoalescer, PeerPool};
 
     let dir = fresh_dir("hbbatch");
@@ -2277,7 +2277,7 @@ async fn start_group_cluster(
 /// "already undergoing a configuration change".
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn add_group_member_right_after_create_group_succeeds() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
 
     let root = std::env::temp_dir().join(format!("medulla-mnimmediate-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -2301,8 +2301,8 @@ async fn add_group_member_right_after_create_group_succeeds() {
 async fn multi_node_group_join_then_leader_rebalance() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     use super::multi::desired_leader;
     use super::xread::{ReadPageRequest, RouteToken};
 
@@ -2503,8 +2503,8 @@ async fn multi_node_group_join_then_leader_rebalance() {
 async fn multi_add_group_learner_attaches_non_voting_learner_then_promotes() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     use super::multi::MultiRaft;
 
     let root = std::env::temp_dir().join(format!("medulla-mnlearner-{}", std::process::id()));
@@ -2619,8 +2619,8 @@ async fn multi_add_group_learner_attaches_non_voting_learner_then_promotes() {
 async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     use crate::acl::{AgentIdentity, AgentRole};
     use crate::protocol::ResultPayload;
 
@@ -2805,8 +2805,8 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
 async fn member_add_follows_the_current_leader_after_a_leader_change() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     use super::multi::MultiRaft;
 
     let root = std::env::temp_dir().join(format!("medulla-memadd-{}", std::process::id()));
@@ -3041,8 +3041,8 @@ mod dist_compute {
     async fn cross_shard_pagerank_matches_single_graph() {
         // Opens a durable store, so the ambient encryption env must hold still for
         // this whole body. READ guard: it excludes only a key MUTATOR, never another
-        // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         // A union graph split across two shards by a parity rule. Distributed PageRank
         // over the two shards must match the single-graph power iteration on the union.
         let nodes = ["a", "b", "c", "d", "e", "f"];
@@ -3086,8 +3086,8 @@ mod dist_compute {
     async fn cross_shard_connected_components_matches_single_graph() {
         // Opens a durable store, so the ambient encryption env must hold still for
         // this whole body. READ guard: it excludes only a key MUTATOR, never another
-        // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         // Two components: {a,b,c} (in shA) and {d,e} (split shA/shB) — a cross-shard
         // component. Distributed CC must produce the SAME partition as single-graph CC.
         let nodes = ["a", "b", "c", "d", "e"];
@@ -3128,8 +3128,8 @@ mod dist_compute {
     async fn incremental_cc_equals_from_scratch() {
         // Opens a durable store, so the ambient encryption env must hold still for
         // this whole body. READ guard: it excludes only a key MUTATOR, never another
-        // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         // Start with two separate components, compute CC, then add a cross-shard edge
         // that MERGES them. The incremental recompute (seeded from the prior labeling,
         // re-propagating only the affected region) must equal a from-scratch CC.
@@ -3207,8 +3207,8 @@ mod matview {
     async fn matview_persists_and_reloads_from_redb() {
         // Opens a durable store, so the ambient encryption env must hold still for
         // this whole body. READ guard: it excludes only a key MUTATOR, never another
-        // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!(
             "medulla-matview-{}-{}",
             std::process::id(),
@@ -3662,8 +3662,8 @@ async fn wait_for_replicated_workload(
 async fn multi_group_writes_commit_on_independent_group_logs() {
     // Reads the ambient encryption env at its durable open, so the env must hold
     // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-    // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     const N_GROUPS: u64 = 8;
     // Three graphs per group: the workload that used to fail 5/5 even alone on an
     // idle host (EH-288, "no current leader"). Two head-of-line-blocking defects in
@@ -3804,8 +3804,8 @@ async fn group_one_recovers_writes(
 async fn per_group_leader_failover_is_independent() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     use super::multi::desired_leader;
 
     let root = std::env::temp_dir().join(format!("medulla-w12-failover-{}", std::process::id()));

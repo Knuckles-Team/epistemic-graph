@@ -62,7 +62,7 @@ pub(super) fn commit_prepare(
     // routed mutation whether or not a durable backend is attached; the durable row
     // applier judges it again inside the write transaction.
     if let Err(refused) =
-        crate::sealed_guard::refuse_generic_sealed_write(method, ctx.core.as_ref())
+        medulla_kernel::sealed_guard::refuse_generic_sealed_write(method, ctx.core.as_ref())
     {
         return Err(Response::err(ctx.req_id, refused));
     }
@@ -228,7 +228,7 @@ pub(super) fn commit_finalize_refresh_size_gauges(ctx: &MutationCtx<'_>, plan: &
     if !plan.mutates {
         return;
     }
-    crate::metrics::set_graph_size(
+    medulla_kernel::metrics::set_graph_size(
         ctx.graph_name,
         ctx.core.node_count() as i64,
         ctx.core.edge_count() as i64,

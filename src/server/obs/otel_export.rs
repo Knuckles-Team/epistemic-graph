@@ -8,7 +8,7 @@
 //! + PromQL (MEDULLA-172) and OTLP-JSON traces (MEDULLA-163). This closes the loop on the EGRESS
 //! side: the engine now also EMITS. It serializes:
 //!
-//!  * its own [`crate::metrics`] Prometheus registry (rendered to the text exposition
+//!  * its own [`medulla_kernel::metrics`] Prometheus registry (rendered to the text exposition
 //!    format, then parsed) into an OTLP `ExportMetricsServiceRequest`
 //!    (`resourceMetrics[].scopeMetrics[].metrics[]`), and
 //!  * its stored [`medulla_tsdb::traces::Span`]s into an OTLP `ExportTraceServiceRequest`
@@ -51,7 +51,7 @@ struct PromSample {
     value: f64,
 }
 
-/// Parse a Prometheus text-exposition body (the output of [`crate::metrics::render`])
+/// Parse a Prometheus text-exposition body (the output of [`medulla_kernel::metrics::render`])
 /// into flat samples, skipping `# HELP` / `# TYPE` comment lines and blank lines. Each
 /// data line is `name{k="v",…} value [timestamp]`; the optional trailing timestamp is
 /// ignored (the exporter stamps `now`). Malformed lines are skipped, never panicked on.
@@ -324,7 +324,7 @@ fn gather_spans(state: &Arc<ObsState>) -> Vec<Span> {
 /// blocking `ureq` calls off the reactor. Returns `(metrics_ok, traces_ok)` — a dead
 /// collector degrades to `Ok((false, false))` rather than failing the caller.
 pub async fn export_once(state: Arc<ObsState>, endpoint: String) -> Result<(bool, bool), String> {
-    let metrics_body = otlp_metrics_json(&crate::metrics::render(), now_ns());
+    let metrics_body = otlp_metrics_json(&medulla_kernel::metrics::render(), now_ns());
     let spans = gather_spans(&state);
     let traces_body = otlp_traces_json(&spans);
     let endpoint = endpoint.trim_end_matches('/').to_string();

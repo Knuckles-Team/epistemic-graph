@@ -374,7 +374,7 @@ def start_medulla_server(request, tmp_path_factory):
     server_env = strict_server_env(
         state_dir, auth_secret=auth_secret, persist_dir=persist_dir
     )
-    # Obviously-non-secret test key material (see `src/crypto.rs`'s
+    # Obviously-non-secret test key material (see `crates/medulla-kernel/src/crypto.rs`'s
     # `ENCRYPTION_KEY_ENV` doc: "any length; hashed to 32 bytes"). Configuring a
     # `persist_dir` above turns on durable multi-op transactions, which refuse to
     # start without this key (`server/handlers/txn/receipts.rs`); this is the

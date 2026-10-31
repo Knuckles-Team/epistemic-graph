@@ -101,7 +101,7 @@ pub(crate) async fn answer(
     if let Err(denied) =
         super::native_write_authority::require_carrier_tenant(read.tenant(), verified_tenant)
     {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Response::err(req_id, denied);
     }
     let graph = crate::persist::sanitize(graph_name);

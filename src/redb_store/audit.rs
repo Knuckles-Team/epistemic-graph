@@ -39,7 +39,7 @@ use super::shard::{Shard, ShardWrite};
 /// every append. `apply_checkpoint`/`purge_graph_rows`/`ClearGraph` never delete AUDIT
 /// rows, so the cached tail is never invalidated by those paths.
 #[cfg(feature = "security")]
-pub(crate) type AuditTailCache = std::collections::HashMap<String, (u64, crate::audit::Hash)>;
+pub(crate) type AuditTailCache = std::collections::HashMap<String, (u64, medulla_kernel::audit::Hash)>;
 
 /// A maintenance admission id unique per ATTEMPT, shared by every caller on
 /// this writer thread that needs one. `admit_maintenance` resolves a repeated
@@ -99,7 +99,7 @@ pub(crate) fn append_audit_entry(
     graph: &str,
     method: &Method,
 ) -> Result<(), String> {
-    let line = match crate::audit::audit_line(method) {
+    let line = match medulla_kernel::audit::audit_line(method) {
         Some(l) => l,
         None => return Ok(()),
     };
@@ -121,7 +121,7 @@ pub(crate) fn append_audit_entry_with_line(
     cache: &mut AuditTailCache,
     graph: &str,
     line: &[u8],
-) -> Result<(u64, crate::audit::Hash), String> {
+) -> Result<(u64, medulla_kernel::audit::Hash), String> {
     // O(1): chain off the cached tail; seed it from ONE seek only on first touch.
     let (prev, next_seq) = match cache.get(graph) {
         Some(&(seq, hash)) => (hash, seq + 1),
@@ -140,7 +140,7 @@ pub(crate) fn append_audit_entry_with_line(
             // start, turning this O(log n) seek into an O(n) scan — the exact
             // regression the cache was introduced to remove. Extract OWNED values so
             // the read access-guards drop before the mutable `insert` below.
-            let tail: Option<(u64, crate::audit::Hash)> = {
+            let tail: Option<(u64, medulla_kernel::audit::Hash)> = {
                 let mut iter = audit.range_inclusive((graph, 0u64), (graph, u64::MAX))?;
                 // Pull explicitly (rather than `.next_back()` inline) so every audit
                 // row this cold seed touches passes through ONE counted point. A
@@ -164,7 +164,7 @@ pub(crate) fn append_audit_entry_with_line(
                 match last {
                     Some((k, v)) => {
                         let seq = k.value().1;
-                        let (_, hash, _) = crate::audit::decode_entry(v.value())
+                        let (_, hash, _) = medulla_kernel::audit::decode_entry(v.value())
                             .ok_or_else(|| "corrupt audit tail entry".to_string())?;
                         Some((seq, hash))
                     }
@@ -173,12 +173,12 @@ pub(crate) fn append_audit_entry_with_line(
             };
             match tail {
                 Some((seq, hash)) => (hash, seq + 1),
-                None => (crate::audit::GENESIS, 0u64),
+                None => (medulla_kernel::audit::GENESIS, 0u64),
             }
         }
     };
-    let hash = crate::audit::link_hash(&prev, graph, next_seq, line);
-    let blob = crate::audit::encode_entry(&prev, &hash, line);
+    let hash = medulla_kernel::audit::link_hash(&prev, graph, next_seq, line);
+    let blob = medulla_kernel::audit::encode_entry(&prev, &hash, line);
     audit.insert((graph, next_seq), blob.as_slice())?;
     // Keep the tail hot: the next op (this batch or a later one) chains off RAM.
     cache.insert(graph.to_string(), (next_seq, hash));
@@ -224,7 +224,7 @@ pub(crate) fn cold_seed_rows_touched_take() -> u64 {
 
 /// Verify a graph's hash-chained audit log (CONCEPT:MEDULLA-KG.sharding.row-level-security). Walks every
 /// row of THIS graph's audit scope in seq order and checks the chain via
-/// `crate::audit::verify_chain`.
+/// `medulla_kernel::audit::verify_chain`.
 ///
 /// `scope_rows()` and not a range: this is the whole-chain prefix walk, which is
 /// O(chain length) by definition, and the scope bound the accessor carries
@@ -243,7 +243,7 @@ pub(crate) fn verify_audit(
         let (k, v) = row?;
         rows.push((k.value().1, v.value().to_vec()));
     }
-    Ok(crate::audit::verify_chain(
+    Ok(medulla_kernel::audit::verify_chain(
         graph,
         rows.iter().map(|(s, b)| (*s, b.as_slice())),
     ))
@@ -257,7 +257,7 @@ pub(crate) fn verify_audit(
 // invisible to `verify_audit` alone, which only proves the SEQUENCE of audit lines
 // is unbroken, not that a node's current bytes match what was written — becomes
 // detectable via a Merkle inclusion proof against that anchored, chain-protected
-// root. See `crate::audit`'s module doc for the full design rationale.
+// root. See `medulla_kernel::audit`'s module doc for the full design rationale.
 //
 // The three functions below split the work by WHERE it is safe to run:
 //   * [`provenance_leaf_hashes`] is a lock-free MVCC snapshot read (like
@@ -275,7 +275,7 @@ pub(crate) fn verify_audit(
 /// design so the periodic anchor sweep's "did anything change since the last
 /// anchor" check never range-scans on the common (unchanged) tick.
 #[cfg(feature = "security")]
-pub(crate) type ProvenanceAnchorCache = HashMap<String, (u64, crate::audit::Hash)>;
+pub(crate) type ProvenanceAnchorCache = HashMap<String, (u64, medulla_kernel::audit::Hash)>;
 
 /// One provenance-anchor write's operation id, unique per ATTEMPT: a stable
 /// id derived only from the graph and root would silently drop the second
@@ -299,7 +299,7 @@ pub(crate) fn provenance_leaf_hashes(
     graph: &str,
     node_ids: &[String],
     crypto: DurableCrypto<'_>,
-) -> Result<Vec<(String, crate::audit::Hash)>, String> {
+) -> Result<Vec<(String, medulla_kernel::audit::Hash)>, String> {
     let handle = shard.graph(graph)?;
     let read = shard.read(&handle)?;
     let nodes = read.scoped_owner_table(NODES)?;
@@ -307,7 +307,7 @@ pub(crate) fn provenance_leaf_hashes(
     for id in node_ids {
         if let Some(v) = nodes.get((graph, id.as_str()))? {
             let content = crypto.unseal_node(graph, id, v.value())?;
-            out.push((id.clone(), crate::audit::merkle_leaf_hash(id, &content)));
+            out.push((id.clone(), medulla_kernel::audit::merkle_leaf_hash(id, &content)));
         }
     }
     Ok(out)
@@ -328,7 +328,7 @@ pub(crate) fn provenance_leaf_hashes(
 pub(crate) fn read_latest_provenance_anchor_root(
     shard: &Shard,
     graph: &str,
-) -> Result<Option<(u64, crate::audit::Hash)>, String> {
+) -> Result<Option<(u64, medulla_kernel::audit::Hash)>, String> {
     let handle = shard.graph(graph)?;
     let read = shard.read(&handle)?;
     let anchor_members = read.scoped_owner_table(PROVENANCE_ANCHOR_MEMBERS)?;
@@ -345,9 +345,9 @@ pub(crate) fn read_latest_provenance_anchor_root(
     let audit_row = audit
         .get((graph, seq))?
         .ok_or_else(|| "provenance anchor row has no matching audit entry".to_string())?;
-    let (_, _, line) = crate::audit::decode_entry(audit_row.value())
+    let (_, _, line) = medulla_kernel::audit::decode_entry(audit_row.value())
         .ok_or_else(|| "corrupt audit entry at anchor seq".to_string())?;
-    let (_, root) = crate::audit::parse_provenance_anchor_line(line)
+    let (_, root) = medulla_kernel::audit::parse_provenance_anchor_line(line)
         .ok_or_else(|| "anchor seq is not a PROVENANCE_ANCHOR line".to_string())?;
     Ok(Some((seq, root)))
 }
@@ -370,8 +370,8 @@ pub(crate) fn provenance_anchor_commit(
     cache: &mut ProvenanceAnchorCache,
     audit_tail: &mut AuditTailCache,
     graph: &str,
-    root: crate::audit::Hash,
-    members: &[(String, crate::audit::Hash)],
+    root: medulla_kernel::audit::Hash,
+    members: &[(String, medulla_kernel::audit::Hash)],
 ) -> Result<Option<u64>, String> {
     if members.is_empty() {
         return Ok(None);
@@ -427,14 +427,14 @@ fn anchor_rows(
     write: &ShardWrite<'_>,
     graph: &str,
     audit_tail: &mut AuditTailCache,
-    root: &crate::audit::Hash,
-    members: &[(String, crate::audit::Hash)],
+    root: &medulla_kernel::audit::Hash,
+    members: &[(String, medulla_kernel::audit::Hash)],
 ) -> Result<u64, String> {
     let mut audit = write.graph(graph)?.open_scoped_table(AUDIT)?;
     let mut anchor_members = write
         .graph(graph)?
         .open_scoped_table(PROVENANCE_ANCHOR_MEMBERS)?;
-    let line = crate::audit::provenance_anchor_line(members.len(), root);
+    let line = medulla_kernel::audit::provenance_anchor_line(members.len(), root);
     let (seq, _hash) =
         append_audit_entry_with_line(&mut audit, audit_tail, graph, line.as_bytes())?;
     let on_disk: Vec<(String, Vec<u8>)> = members
@@ -488,9 +488,9 @@ pub(crate) fn prove_inclusion(
     let audit_row = audit
         .get((graph, seq))?
         .ok_or_else(|| format!("no audit entry at seq {seq}"))?;
-    let (_, _, line) = crate::audit::decode_entry(audit_row.value())
+    let (_, _, line) = medulla_kernel::audit::decode_entry(audit_row.value())
         .ok_or_else(|| "corrupt audit entry".to_string())?;
-    let (count, anchored_root) = crate::audit::parse_provenance_anchor_line(line)
+    let (count, anchored_root) = medulla_kernel::audit::parse_provenance_anchor_line(line)
         .ok_or_else(|| format!("audit entry at seq {seq} is not a PROVENANCE_ANCHOR line"))?;
 
     let members_row = anchor_members
@@ -500,10 +500,10 @@ pub(crate) fn prove_inclusion(
     if stored.len() != count {
         return Err("provenance-anchor member row does not match its audit line count".to_string());
     }
-    let members: Vec<(String, crate::audit::Hash)> = stored
+    let members: Vec<(String, medulla_kernel::audit::Hash)> = stored
         .into_iter()
         .map(|(id, h)| {
-            let hash: crate::audit::Hash = h
+            let hash: medulla_kernel::audit::Hash = h
                 .as_slice()
                 .try_into()
                 .map_err(|_| "corrupt provenance-anchor member hash".to_string())?;
@@ -529,8 +529,8 @@ pub(crate) fn prove_inclusion(
         });
     };
 
-    let leaf_hashes: Vec<crate::audit::Hash> = members.iter().map(|(_, h)| *h).collect();
-    let path = crate::audit::audit_path_from_hashes(&leaf_hashes, index);
+    let leaf_hashes: Vec<medulla_kernel::audit::Hash> = members.iter().map(|(_, h)| *h).collect();
+    let path = medulla_kernel::audit::audit_path_from_hashes(&leaf_hashes, index);
 
     let nodes = read.scoped_owner_table(NODES)?;
     let current = nodes
@@ -539,18 +539,18 @@ pub(crate) fn prove_inclusion(
         .transpose()?;
 
     let (current_leaf_hash, detail_if_missing) = match &current {
-        Some(content) => (crate::audit::merkle_leaf_hash(node_id, content), None),
+        Some(content) => (medulla_kernel::audit::merkle_leaf_hash(node_id, content), None),
         // No durable row anymore (removed since anchoring). There is nothing left
         // to re-hash; fold in a fixed domain-tagged sentinel so the proof walk
         // stays well-defined. It CANNOT reproduce the real anchor-time leaf hash,
         // so verification fails closed exactly like real content tampering would.
         None => (
-            crate::audit::merkle_leaf_hash(node_id, crate::audit::MISSING_NODE_SENTINEL),
+            medulla_kernel::audit::merkle_leaf_hash(node_id, medulla_kernel::audit::MISSING_NODE_SENTINEL),
             Some("node has no durable row anymore (removed since anchoring)".to_string()),
         ),
     };
 
-    let computed_root = crate::audit::recompute_root(&current_leaf_hash, &path);
+    let computed_root = medulla_kernel::audit::recompute_root(&current_leaf_hash, &path);
     let verified = computed_root == anchored_root;
 
     let proof = path

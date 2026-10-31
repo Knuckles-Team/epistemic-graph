@@ -82,7 +82,7 @@ to loopback, and a non-loopback auxiliary address is rejected at startup.
 
 With the `metrics` cargo feature (on by default) and `--metrics-addr` /
 `GRAPH_SERVICE_METRICS_ADDR` set, the server exposes Prometheus text-format
-metrics over a minimal HTTP listener (`src/metrics.rs`, CONCEPT:MEDULLA-KG.txn.per-graph-write-isolation). The
+metrics over a minimal HTTP listener (`crates/medulla-kernel/src/metrics.rs`, CONCEPT:MEDULLA-KG.txn.per-graph-write-isolation). The
 listener is completely separate from the MessagePack RPC transports, serves
 the full registry on any path, and stays disabled unless an address is
 configured — so multiple shards never collide on a default port. Recommended

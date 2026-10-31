@@ -52,5 +52,5 @@ fn report(writer: &ShardWriter, pass: &ScrubPass) {
         );
     }
     let causes: Vec<&str> = pass.findings.iter().map(|f| f.cause.code()).collect();
-    crate::metrics::storage_scrub_pass(pass.scanned, &causes, pass.next.graph.is_none());
+    medulla_kernel::metrics::storage_scrub_pass(pass.scanned, &causes, pass.next.graph.is_none());
 }

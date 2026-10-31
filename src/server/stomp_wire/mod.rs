@@ -1019,10 +1019,10 @@ mod tests {
         // drives; a concurrent `crypto::tests::EnvGuard`-protected test transiently
         // mutating the shared `MEDULLA_ENCRYPTION_KEY`/`_TXN_RECOVERY_KEY` env
         // vars elsewhere in the crate can otherwise land mid-flight of this test's
-        // message round trip. See `crate::crypto::acquire_test_env_lock`'s doc for the
+        // message round trip. See `medulla_kernel::crypto::acquire_test_env_lock`'s doc for the
         // full mechanism.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let addr = spawn_listener().await;
 
         // ── Subscriber connects + subscribes to /queue/orders (auto ack). ──

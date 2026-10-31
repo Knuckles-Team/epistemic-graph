@@ -229,7 +229,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
     // requires an encryption key configured. This test is the only one in this
     // binary, so setting the process-global env var here is race-free.
     std::env::set_var(
-        medulla::crypto::ENCRYPTION_KEY_ENV,
+        medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
         "txn-reconcile-ack-lost-retry-test-key",
     );
 
@@ -417,7 +417,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
 /// A fault child's engine: the durable backend at `dir_s`, opened under the
 /// child's own encryption key (set process-wide; the child owns its process).
 fn fault_child_state(dir_s: &str, encryption_key: &str) -> test_support::SharedState {
-    std::env::set_var(medulla::crypto::ENCRYPTION_KEY_ENV, encryption_key);
+    std::env::set_var(medulla_kernel::crypto::ENCRYPTION_KEY_ENV, encryption_key);
     test_support::redb_state_at(SECRET, common::current_isolation(), dir_s).1
 }
 
@@ -603,7 +603,7 @@ async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
         );
 
         std::env::set_var(
-            medulla::crypto::ENCRYPTION_KEY_ENV,
+            medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
             "txn-signed-commit-fault-test-key",
         );
         let backend = test_support::reopen_with_bounded_retry(
@@ -943,7 +943,7 @@ async fn signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay() {
         );
 
         std::env::set_var(
-            medulla::crypto::ENCRYPTION_KEY_ENV,
+            medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
             "txn-signed-lifecycle-fault-test-key",
         );
         let backend = test_support::reopen_with_bounded_retry(
@@ -1052,7 +1052,7 @@ async fn native_lifecycle_reopen_refuses_stale_begin_and_stage_success() {
     let dir = test_support::fresh_dir("medulla-txn-lifecycle-restart");
     let dir_s = dir.to_string_lossy().to_string();
     std::env::set_var(
-        medulla::crypto::ENCRYPTION_KEY_ENV,
+        medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
         "txn-lifecycle-restart-test-key",
     );
 

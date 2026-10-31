@@ -291,7 +291,7 @@ pub(super) fn test_destination(path: &Path) -> ExportDestination {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_rendezvous::{join_bounded, meet};
+    use medulla_kernel::test_rendezvous::{join_bounded, meet};
     #[cfg(target_os = "linux")]
     use std::io::Write;
     use std::time::{SystemTime, UNIX_EPOCH};

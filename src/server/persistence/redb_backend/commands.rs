@@ -198,8 +198,8 @@ pub(crate) enum Cmd {
     #[cfg(feature = "security")]
     ProvenanceAnchorCommit {
         graph: String,
-        root: crate::audit::Hash,
-        members: Vec<(String, crate::audit::Hash)>,
+        root: medulla_kernel::audit::Hash,
+        members: Vec<(String, medulla_kernel::audit::Hash)>,
         reply: std::sync::mpsc::SyncSender<Result<Option<u64>, String>>,
     },
     /// Produce + verify a Merkle inclusion proof for one node against a prior

@@ -40,7 +40,7 @@ pub(crate) async fn exec_sql_write_insert_nodes(
         let mut n = 0usize;
         for node in ins.rows {
             if core.has_node(&node.node_id) && !visible.has_node(&node.node_id) {
-                crate::metrics::access_denied();
+                medulla_kernel::metrics::access_denied();
                 return Err(
                     "ACCESS_DENIED: node write is outside the visible row scope".to_string()
                 );
@@ -202,7 +202,7 @@ pub(crate) fn apply_insert_nodes_select_row(
         }
     }
     if core.has_node(&node_id) && !visible.has_node(&node_id) {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Err("ACCESS_DENIED: node write is outside the visible row scope".to_string());
     }
     if visible.has_node(&node_id) {

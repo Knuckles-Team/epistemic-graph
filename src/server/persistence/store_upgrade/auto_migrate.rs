@@ -20,7 +20,7 @@
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
-use crate::persist_lock::PersistDirLock;
+use medulla_kernel::persist_lock::PersistDirLock;
 use medulla_storage::{classify_owner_store_format, OwnerLayout, OwnerStoreFormat};
 use serde::{Deserialize, Serialize};
 
@@ -184,7 +184,7 @@ pub(super) fn migrate_with(
             journal = %journal_path.display(),
             "store migration: resuming an interrupted migration"
         );
-        crate::metrics::store_migration_step("resume", "found");
+        medulla_kernel::metrics::store_migration_step("resume", "found");
     }
     let stores = discover(&data_dir).map_err(failed)?;
     let pending = plan(&stores, &mut migration);
@@ -196,7 +196,7 @@ pub(super) fn migrate_with(
     create_journal_directory(&data_dir).map_err(failed)?;
     let mut journal = Journal::planned(&pending);
     journal.write(&journal_path).map_err(failed)?;
-    crate::metrics::store_migration_step("journal", "written");
+    medulla_kernel::metrics::store_migration_step("journal", "written");
     tracing::info!(
         stores = pending.len(),
         journal = %journal_path.display(),
@@ -214,7 +214,7 @@ pub(super) fn migrate_with(
         }
     }
     clear_journal(&journal_path).map_err(failed)?;
-    crate::metrics::store_migration_step("journal", "cleared");
+    medulla_kernel::metrics::store_migration_step("journal", "cleared");
     finish(&migration);
     Ok(migration)
 }
@@ -253,7 +253,7 @@ fn plan<'a>(stores: &'a [StoreFile], migration: &mut AutoMigration) -> Vec<&'a S
 
 fn refuse(migration: &mut AutoMigration, store: &StoreFile, error: AutoMigrationError) {
     tracing::error!(code = error.code(), "store migration: {error}");
-    crate::metrics::store_migration_step("store", error.code());
+    medulla_kernel::metrics::store_migration_step("store", error.code());
     migration.refused.push(Refused {
         error,
         blocks_startup: store.served_layout == Some(OwnerLayout::GraphShard),
@@ -266,11 +266,11 @@ fn migrate_store(store: &StoreFile, staging: &Staging) -> Result<StoreReport, Au
     match report.status {
         StoreStatus::Upgraded | StoreStatus::Current => {
             tracing::info!(store = %store.name, "store migration: {}", report.detail);
-            crate::metrics::store_migration_step("store", "upgraded");
+            medulla_kernel::metrics::store_migration_step("store", "upgraded");
             Ok(report)
         }
         _ => {
-            crate::metrics::store_migration_step("store", "failed");
+            medulla_kernel::metrics::store_migration_step("store", "failed");
             let refusal = AutoMigrationError::Failed {
                 file: store.name.clone(),
                 detail: report.detail,
@@ -294,7 +294,7 @@ fn finish(migration: &AutoMigration) {
         outcome,
         "store migration: finished"
     );
-    crate::metrics::store_migration_step("run", outcome);
+    medulla_kernel::metrics::store_migration_step("run", outcome);
 }
 
 /// The journal lives in the same private directory as the default staging

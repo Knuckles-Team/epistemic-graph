@@ -83,7 +83,7 @@ pub(super) fn owned_job(
     if authority.owns(&job.policy.tenant, &job.policy.actor) {
         Ok(job)
     } else {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         Err("analytics job not found or not owned by caller".to_string())
     }
 }

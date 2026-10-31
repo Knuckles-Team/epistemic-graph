@@ -426,12 +426,12 @@ fn run_fixed_helper(args: &[&str]) -> Result<Vec<u8>, String> {
         }
         std::thread::sleep(Duration::from_millis(25));
     }
-    let stdout = crate::bounded_join::join_within(
+    let stdout = medulla_kernel::bounded_join::join_within(
         stdout,
         "RF-019 helper stdout reader",
         PREFLIGHT_TIMEOUT.saturating_sub(started.elapsed()),
     )??;
-    let stderr = crate::bounded_join::join_within(
+    let stderr = medulla_kernel::bounded_join::join_within(
         stderr,
         "RF-019 helper stderr reader",
         PREFLIGHT_TIMEOUT.saturating_sub(started.elapsed()),

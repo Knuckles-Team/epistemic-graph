@@ -94,7 +94,7 @@ impl RedbBackend {
         &self,
         graph_fname: &str,
         node_ids: &[String],
-    ) -> Result<Vec<(String, crate::audit::Hash)>, String> {
+    ) -> Result<Vec<(String, medulla_kernel::audit::Hash)>, String> {
         let writer = self.shard_for(graph_fname);
         let shard = writer
             .shard
@@ -112,8 +112,8 @@ impl RedbBackend {
     pub fn provenance_anchor_commit_blocking(
         &self,
         graph_fname: &str,
-        root: crate::audit::Hash,
-        members: Vec<(String, crate::audit::Hash)>,
+        root: medulla_kernel::audit::Hash,
+        members: Vec<(String, medulla_kernel::audit::Hash)>,
     ) -> Result<Option<u64>, String> {
         let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard_for(graph_fname)

@@ -81,7 +81,7 @@ impl SlowQuery {
         }
         crate::metrics::slow_query();
         tracing::warn!(
-            target: "medulla::slow_query",
+            target: "medulla_kernel::slow_query",
             kind = self.kind,
             elapsed_ms = ms,
             threshold_ms = thr,

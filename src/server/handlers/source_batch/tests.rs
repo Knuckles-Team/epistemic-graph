@@ -221,7 +221,7 @@ fn active_raft_refuses_local_sql_source_authority_before_publication() {
     fixture.grant_insert("bob");
     let carrier = authority("bob", "tenant-a", "raft", true);
     let request = fixture.request("bob");
-    let _environment_lock = crate::crypto::acquire_test_env_lock_blocking();
+    let _environment_lock = medulla_kernel::crypto::acquire_test_env_lock_blocking();
     let _environment =
         crate::server::persistence::backup::EnvVarGuard::set("MEDULLA_RAFT_NODE_ID", "1");
     assert!(submit(&fixture, &carrier, request, 1)
@@ -236,7 +236,7 @@ fn audit_line_carries_only_the_canonical_batch_digest() {
     let request = fixture.request("bob");
     let expected = request.canonical_digests().unwrap().batch_digest.to_hex();
     let line =
-        crate::audit::audit_line(&crate::protocol::Method::SqlSourceBatch { batch: request })
+        medulla_kernel::audit::audit_line(&crate::protocol::Method::SqlSourceBatch { batch: request })
             .unwrap();
     assert_eq!(line, format!("SQL_SOURCE_BATCH_MUTATION|sha256:{expected}"));
     for leaked in ["jira", "issues", "project-a", "issue_id", "deployment"] {

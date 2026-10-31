@@ -32,7 +32,7 @@ pub(super) struct EmbeddedRedbStore {
     /// `MEDULLA_ENCRYPTION_KEY` at open. `None` ⇒ encryption off ⇒ durable
     /// format unchanged. Only present in a `security` build.
     #[cfg(feature = "security")]
-    cipher: Option<crate::crypto::ValueCipher>,
+    cipher: Option<medulla_kernel::crypto::ValueCipher>,
     /// Unit-test-only hooks exercise lifecycle rollback paths without relying
     /// on filesystem or process failure injection.
     #[cfg(test)]
@@ -71,7 +71,7 @@ impl EmbeddedRedbStore {
         Ok(Self {
             shard,
             #[cfg(feature = "security")]
-            cipher: crate::crypto::ValueCipher::from_env_checked()?,
+            cipher: medulla_kernel::crypto::ValueCipher::from_env_checked()?,
             #[cfg(test)]
             fail_next_purge: AtomicBool::new(false),
             #[cfg(test)]
@@ -150,7 +150,7 @@ impl EmbeddedRedbStore {
         #[cfg(test)]
         if let Some(block) = self.register_failure_block.lock().unwrap().take() {
             let _ = block.entered.send(());
-            crate::test_rendezvous::recv_within(
+            medulla_kernel::test_rendezvous::recv_within(
                 &block.release,
                 "the injected registration-failure release",
             );

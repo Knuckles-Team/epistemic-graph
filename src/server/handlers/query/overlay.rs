@@ -47,14 +47,14 @@ pub(crate) async fn run_unified_overlaid_resolve_txn(
         .and_then(GraphReadAuthority::carrier)
         .map(crate::server::access::CarrierAuthority::owner_scope)
     else {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Err(Response::err(
             req_id,
             "ACCESS_DENIED: transaction read requires verified owner authority",
         ));
     };
     if guard.agent != expected_owner {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Err(Response::err(
             req_id,
             "ACCESS_DENIED: transaction is not owned by caller",

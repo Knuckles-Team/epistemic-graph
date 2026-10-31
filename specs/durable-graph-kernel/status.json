@@ -570,10 +570,10 @@
       ],
       "verified_by": [
         "crates/medulla-storage/src/physical/tests.rs:1077",
-        "tests/shard_open_budget.rs:388",
-        "tests/shard_open_budget.rs:423",
-        "tests/shard_open_budget.rs:442",
-        "tests/shard_open_budget.rs:463"
+        "tests/shard_open_budget.rs:386",
+        "tests/shard_open_budget.rs:421",
+        "tests/shard_open_budget.rs:440",
+        "tests/shard_open_budget.rs:461"
       ]
     },
     {
@@ -588,9 +588,9 @@
         "cdf5f87230de"
       ],
       "verified_by": [
-        "tests/shard_open_budget.rs:370",
-        "tests/shard_open_budget.rs:380",
-        "tests/shard_open_budget.rs:490"
+        "tests/shard_open_budget.rs:368",
+        "tests/shard_open_budget.rs:378",
+        "tests/shard_open_budget.rs:488"
       ]
     },
     {
@@ -747,7 +747,7 @@
         "crates/medulla-types/src/pre_merge_test_module.rs:232",
         "crates/medulla-types/src/pre_merge_test_module.rs:279",
         "crates/medulla-types/src/pre_merge_test_module.rs:295",
-        "scripts/tests/test_public_spec_inventory.py:102"
+        "scripts/tests/test_public_spec_inventory.py:104"
       ]
     },
     {
@@ -2094,7 +2094,7 @@
         "5c2ab50088c4"
       ],
       "verified_by": [
-        "src/sealed_guard/tests.rs:56",
+        "crates/medulla-kernel/src/sealed_guard/tests.rs:56",
         "tests/sealed_record_guard.rs:210"
       ],
       "rollup_of": [

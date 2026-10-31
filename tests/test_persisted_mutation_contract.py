@@ -37,7 +37,7 @@ def _m1_sources(module):
             "crates/medulla-types/src/mutation_batch.rs", include_tests=True
         ),
         module.mutation_kernel_source(include_tests=True),
-        module.read_module_tree("src/graph_delta.rs"),
+        module.read_module_tree("crates/medulla-kernel/src/graph_delta.rs"),
     )
 
 

@@ -51,7 +51,7 @@ fn raw_output(resp: &crate::protocol::Response) -> Vec<u8> {
 /// shadow it (B's registration of the same id is B's own module; A still runs A's).
 #[tokio::test]
 async fn udf_ids_are_owner_scoped_through_dispatch() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let state = multi_tenant_state().await;
     assert_ok(&dispatch_as(&state, 930, "worker1", register(IDENTITY_WAT)).await);
 

@@ -381,7 +381,7 @@ fn scoped_series_key(graph: &str, series: &str, principal: &str) -> String {
 async fn boot_listener_binds_before_the_projection_drain_completes() {
     // Held for the whole test: this opens durable stores, so the ambient
     // encryption environment must stay constant across every open.
-    let _env_lock = crate::crypto::acquire_test_env_lock().await;
+    let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
     let dir = tempfile::tempdir().unwrap();
     let persist = dir.path().to_string_lossy().into_owned();
 

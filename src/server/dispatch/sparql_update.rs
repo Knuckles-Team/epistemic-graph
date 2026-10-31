@@ -14,7 +14,7 @@ fn seal_private_coordinator_plan<T: serde::Serialize>(
     let cipher = backend.transaction_recovery_cipher().ok_or_else(|| {
         format!(
             "coordinator recovery requires {} to be configured",
-            crate::crypto::ENCRYPTION_KEY_ENV
+            medulla_kernel::crypto::ENCRYPTION_KEY_ENV
         )
     })?;
     seal_private_coordinator_plan_with_cipher(&cipher, plan)
@@ -22,7 +22,7 @@ fn seal_private_coordinator_plan<T: serde::Serialize>(
 
 #[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 fn seal_private_coordinator_plan_with_cipher<T: serde::Serialize>(
-    cipher: &crate::crypto::ValueCipher,
+    cipher: &medulla_kernel::crypto::ValueCipher,
     plan: &T,
 ) -> Result<(String, Vec<u8>), String> {
     use sha2::{Digest, Sha256};
@@ -73,7 +73,7 @@ fn open_private_coordinator_plan<T: serde::de::DeserializeOwned>(
     let cipher = backend.transaction_recovery_cipher().ok_or_else(|| {
         format!(
             "coordinator recovery requires {} to be configured",
-            crate::crypto::ENCRYPTION_KEY_ENV
+            medulla_kernel::crypto::ENCRYPTION_KEY_ENV
         )
     })?;
     open_private_coordinator_plan_with_cipher(&cipher, batch, event_type, encrypted)
@@ -81,13 +81,13 @@ fn open_private_coordinator_plan<T: serde::de::DeserializeOwned>(
 
 #[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 fn open_private_coordinator_plan_with_cipher<T: serde::de::DeserializeOwned>(
-    cipher: &crate::crypto::ValueCipher,
+    cipher: &medulla_kernel::crypto::ValueCipher,
     batch: &crate::mutation_batch::MutationBatch,
     event_type: &str,
     encrypted: &[u8],
 ) -> Result<T, String> {
     use sha2::{Digest, Sha256};
-    if !crate::crypto::is_sealed(encrypted) {
+    if !medulla_kernel::crypto::is_sealed(encrypted) {
         return Err("coordinator recovery plan is not authenticated ciphertext".to_string());
     }
     let plaintext = cipher
@@ -792,7 +792,7 @@ mod coordinator_restart_tests {
     /// recovery payloads, so — exactly like production — the store needs a real
     /// authority; `None` here would not be a stub, it would silently disable the
     /// authentication these tests exist to exercise.
-    struct TestPrivateIntegrity(crate::crypto::ValueCipher);
+    struct TestPrivateIntegrity(medulla_kernel::crypto::ValueCipher);
 
     impl medulla_storage::PrivatePayloadIntegrity for TestPrivateIntegrity {
         fn authenticate(
@@ -841,7 +841,7 @@ mod coordinator_restart_tests {
     fn open_coordinator_store(
         path: &std::path::Path,
         identity: &medulla_types::MutationScopeIdentity,
-        cipher: &crate::crypto::ValueCipher,
+        cipher: &medulla_kernel::crypto::ValueCipher,
     ) -> (
         medulla_storage::StorageKernel,
         medulla_transaction::MutationKernel,
@@ -900,7 +900,7 @@ mod coordinator_restart_tests {
     fn encrypted_sparql_preimages_survive_process_restart_and_tamper_fails() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("coordinator.redb");
-        let cipher = crate::crypto::ValueCipher::from_key_material(b"restart-test-key");
+        let cipher = medulla_kernel::crypto::ValueCipher::from_key_material(b"restart-test-key");
         let plan = SparqlRecoveryPlan {
             schema_version: 1,
             graphs: vec![crate::server::sparql_http::PlannedGraphUpdate {
@@ -954,7 +954,7 @@ mod coordinator_restart_tests {
     fn durable_compensation_marker_fixes_restart_direction_and_erases_its_plan() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("compensation.redb");
-        let cipher = crate::crypto::ValueCipher::from_key_material(b"compensation-test-key");
+        let cipher = medulla_kernel::crypto::ValueCipher::from_key_material(b"compensation-test-key");
         let parent_plan = SparqlRecoveryPlan {
             schema_version: 1,
             graphs: Vec::new(),

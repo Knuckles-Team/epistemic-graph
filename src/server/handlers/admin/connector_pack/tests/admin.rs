@@ -60,7 +60,7 @@ async fn an_environment_importer_is_a_bootstrap_default_superseded_by_an_admin_b
         }
     }
 
-    let _env_lock = crate::crypto::acquire_test_env_lock().await;
+    let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
     let _restore = RestoreEnv(std::env::var_os(ENV_VAR));
     std::env::set_var(
         ENV_VAR,

@@ -223,7 +223,7 @@ pub async fn apply_inbound(
     msg: &serde_json::Value,
 ) -> bool {
     let Some(request) = publish_to_request(msg, graph) else {
-        crate::metrics::auth_failure();
+        medulla_kernel::metrics::auth_failure();
         return false;
     };
     let response = crate::server::dispatch::dispatch(state, request).await;
@@ -283,7 +283,7 @@ pub async fn run_ros2_bridge(
     // authenticated row ownership is already active for this engine, before ever
     // opening the socket or advertising a topic.
     if ros2_cdc_denied(&state.read().await.isolation) {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Err(format!(
             "ACCESS_DENIED: ROS2 CDC bridge for graph {:?} refused — authenticated row \
              ownership is active and this carrier has no verified per-subscriber identity",

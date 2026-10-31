@@ -831,7 +831,7 @@ async fn served_decision_leg(
         if !required {
             return Ok(None);
         }
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Err("ACCESS_DENIED: DECISIONS requires a verified tenant carrier".to_string());
     };
     let source = crate::server::handlers::decide::decision_source(state, carrier).await;

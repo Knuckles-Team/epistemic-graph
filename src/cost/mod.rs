@@ -104,7 +104,7 @@ fn note_hibernated(graph: &str, incarnation_id: &str, hibernated: bool) {
         set.remove(&identity);
     }
     let any_hibernated = set.iter().any(|entry| entry.name.as_str() == graph);
-    crate::metrics::set_graph_hibernated(graph, any_hibernated);
+    medulla_kernel::metrics::set_graph_hibernated(graph, any_hibernated);
 }
 
 /// Is this exact graph incarnation currently hibernated by the enforcer?
@@ -125,7 +125,7 @@ pub(crate) fn forget_graph(graph: &str) {
     // Deletion/admission teardown must not recreate a label series after the
     // caller has dropped the graph's metrics.  `drop_graph` is idempotent and
     // also frees the bounded label slot.
-    crate::metrics::drop_graph(graph);
+    medulla_kernel::metrics::drop_graph(graph);
 }
 
 /// Clear one incarnation without touching a concurrently recreated identity.
@@ -139,7 +139,7 @@ pub(crate) fn forget_graph_incarnation(graph: &str, incarnation_id: &str) {
         .iter()
         .any(|identity| identity.name.as_str() == graph)
     {
-        crate::metrics::drop_graph(graph);
+        medulla_kernel::metrics::drop_graph(graph);
     }
 }
 
@@ -161,7 +161,7 @@ pub struct CostConfig {
 /// already intersects host RAM with cgroup v1/v2 and reserves RAM headroom, so
 /// this module must not maintain a second parser.
 fn system_memory_limit_bytes() -> Option<u64> {
-    Some(crate::autosize::detect_capacity().reserved_ram_bytes())
+    Some(medulla_kernel::autosize::detect_capacity().reserved_ram_bytes())
 }
 
 impl CostConfig {
@@ -498,7 +498,7 @@ async fn collect_resource_stats_inner(
 ) -> Result<ResourceSnapshot, String> {
     let request = request.validate()?;
     let config = CostConfig::from_env()?;
-    let capacity = crate::autosize::detect_capacity();
+    let capacity = medulla_kernel::autosize::detect_capacity();
     let (configured_max_inflight, permits_available) = {
         let current = state.read().await;
         let permits = current.max_in_flight.available_permits();
@@ -507,7 +507,7 @@ async fn collect_resource_stats_inner(
             .ok()
             .and_then(|value| value.parse::<usize>().ok())
             .filter(|&value| value > 0)
-            .map(|value| crate::autosize::bound_explicit(value, automatic_max))
+            .map(|value| medulla_kernel::autosize::bound_explicit(value, automatic_max))
             .unwrap_or(automatic_max);
         (max, permits)
     };
@@ -516,8 +516,8 @@ async fn collect_resource_stats_inner(
 
     let rss = process_rss_bytes().await;
     let (coalescer_queue_depth, coalescer_queue_bytes, coalescer_operations_total) =
-        crate::write_coalescer::global_stats();
-    crate::metrics::set_resource_stats(
+        medulla_kernel::write_coalescer::global_stats();
+    medulla_kernel::metrics::set_resource_stats(
         capacity.reserved_cpus().min(i64::MAX as usize) as i64,
         capacity.reserved_ram_bytes().min(i64::MAX as u64) as i64,
         rss.min(i64::MAX as u64) as i64,
@@ -881,8 +881,8 @@ mod tests {
         async fn over_budget_evicts_and_rehydrates() {
             // Reads the ambient encryption env at its durable open, so the env must hold
             // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-            // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-            let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+            // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+            let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
             let dir = std::env::temp_dir().join(format!("medulla-cost-budget-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             let dir_s = dir.to_string_lossy().to_string();
@@ -1018,8 +1018,8 @@ mod tests {
         async fn budget_eviction_leaves_graph_catalog_only_so_cypher_and_point_read_agree() {
             // Reads the ambient encryption env at its durable open, so the env must hold
             // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-            // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-            let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+            // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+            let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
             let dir =
                 std::env::temp_dir().join(format!("medulla-cost-cypher-evict-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
@@ -1124,8 +1124,8 @@ mod tests {
         async fn fair_cap_protects_small_tenant() {
             // Reads the ambient encryption env at its durable open, so the env must hold
             // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-            // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-            let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+            // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+            let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
             let dir = std::env::temp_dir().join(format!("medulla-cost-fair-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             let dir_s = dir.to_string_lossy().to_string();
@@ -1179,8 +1179,8 @@ mod tests {
         async fn resource_stats_counts_are_accurate() {
             // Reads the ambient encryption env at its durable open, so the env must hold
             // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-            // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-            let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+            // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+            let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
             let dir = std::env::temp_dir().join(format!("medulla-cost-stats-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             let dir_s = dir.to_string_lossy().to_string();

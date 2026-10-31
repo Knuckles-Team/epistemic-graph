@@ -45,7 +45,7 @@ class BoundEmbeddedTransport:
     one-engine-two-identities shape BUG-PE-022 needed.
 
     Two principals can only observe each other's writes if they share one
-    embedded `Engine`: the Rust lane's `src/persist_lock.rs` advisory flock
+    embedded `Engine`: the Rust lane's `crates/medulla-kernel/src/persist_lock.rs` advisory flock
     is scoped to the OS open-file-description, not the process, so a SECOND
     same-process open of one `persist_dir` (what building a separate
     `EmbeddedTransport` per principal used to do, `MEDULLA-PYENGINE-PLAN.md`'s

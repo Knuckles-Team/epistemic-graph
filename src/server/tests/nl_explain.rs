@@ -68,7 +68,7 @@ async fn echo_planned_fixture() -> Arc<RwLock<ServerState>> {
 // spec: MEDULLA-FEDERATED-QUERY-R058.2.2.1
 #[tokio::test]
 async fn nl_query_explain_returns_planner_uql_and_nl_query_rows() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let state = echo_planned_fixture().await;
     let text = "MATCH (:Doc) |> LIMIT 3";
 
@@ -95,7 +95,7 @@ async fn nl_query_explain_returns_planner_uql_and_nl_query_rows() {
 // spec: MEDULLA-FEDERATED-QUERY-R058.2.2.1
 #[tokio::test]
 async fn nl_query_explain_refuses_exactly_like_nl_query() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let state = echo_planned_fixture().await;
     let over_budget = "x".repeat(medulla_plan::nl::NlQueryBudget::default().max_uql_len + 1);
     for (id, text, code) in [
@@ -122,7 +122,7 @@ async fn nl_query_explain_refuses_exactly_like_nl_query() {
 // spec: MEDULLA-FEDERATED-QUERY-R058.2.2.2
 #[tokio::test]
 async fn nl_query_plan_returns_pins_without_executing_rows() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let state = echo_planned_fixture().await;
     let text = "MATCH (:Doc) |> LIMIT 3";
     let response = send(&state, 945, nl_plan(text)).await;
@@ -148,7 +148,7 @@ async fn nl_query_plan_returns_pins_without_executing_rows() {
 // spec: MEDULLA-FEDERATED-QUERY-R058.3.2
 #[tokio::test]
 async fn nl_mutating_candidates_refuse_without_changing_graph_data() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let state = echo_planned_fixture().await;
     let core = state
         .read()
@@ -209,7 +209,7 @@ async fn nl_mutating_candidates_refuse_without_changing_graph_data() {
 // spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[tokio::test]
 async fn nl_query_grounds_names_on_the_graph_schema_before_running() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let state = echo_planned_fixture().await;
 
     // A spelling variant of a stored label and property runs as the stored name,
@@ -239,7 +239,7 @@ async fn nl_query_grounds_names_on_the_graph_schema_before_running() {
 #[cfg(feature = "federation")]
 #[tokio::test]
 async fn nl_query_grounds_foreign_names_from_the_verified_owner_registry() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let state = {
         crate::server::set_nl_planner(Arc::new(EchoPlanner));
         let state = multi_tenant_state().await;

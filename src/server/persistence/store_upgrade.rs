@@ -104,7 +104,7 @@ fn upgrade_refusal(store: &StoreFile) -> Option<String> {
 
 fn inspect_stores(data_dir: &Path) -> Result<Vec<StoreReport>, String> {
     let data_dir = existing_directory(data_dir)?;
-    if crate::persist_lock::is_held(&data_dir)? {
+    if medulla_kernel::persist_lock::is_held(&data_dir)? {
         return Err(
             "an engine is running on this data directory and holds its stores; stop it first"
                 .to_string(),
@@ -131,7 +131,7 @@ fn apply_stores(
     let data_dir = existing_directory(data_dir)?;
     // The same single-writer lock the engine holds for its whole lifetime: a
     // running engine makes this fail, and no engine can start during the run.
-    let _lease = crate::persist_lock::acquire(&data_dir.to_string_lossy())?;
+    let _lease = medulla_kernel::persist_lock::acquire(&data_dir.to_string_lossy())?;
     let staging = Staging::new(&data_dir, options);
     let stores = discover(&data_dir)?;
     let mut reports = Vec::with_capacity(stores.len());

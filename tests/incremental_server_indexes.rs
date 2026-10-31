@@ -19,7 +19,7 @@ use medulla::index::{ChangeSet, NodeChange, SecondaryIndex};
 use medulla::server::secondary_indexes::{
     DerivedOwlIndex, GraphTemporalIndex, GraphTextIndex,
 };
-use medulla::write_coalescer::{CoalescerConfig, GraphWriter, WriteOp};
+use medulla_kernel::write_coalescer::{CoalescerConfig, GraphWriter, WriteOp};
 
 use medulla_tsdb::store::SeriesStore;
 

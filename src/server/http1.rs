@@ -26,7 +26,7 @@
 //! its surface's read timeout.
 //!
 //! One serving endpoint deliberately does NOT come through here:
-//! [`crate::metrics::serve`] parses no request at all — it drains one read and
+//! [`medulla_kernel::metrics::serve`] parses no request at all — it drains one read and
 //! answers the whole registry whatever was sent — so it has no framing to
 //! share. Every endpoint that does parse a request uses this reader.
 

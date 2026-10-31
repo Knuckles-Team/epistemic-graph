@@ -224,8 +224,8 @@ mod security_tests {
     //! (CONCEPT:MEDULLA-KG.sharding.row-level-security), exercised through the SAME `commit_ops`/read/`verify_audit`
     //! the server + embedded engine use.
     use super::*;
-    use crate::crypto::ValueCipher;
-    use crate::test_rendezvous::join_bounded;
+    use medulla_kernel::crypto::ValueCipher;
+    use medulla_kernel::test_rendezvous::join_bounded;
 
     fn open_db(dir: &std::path::Path) -> Shard {
         let path = dir.join("graph-0.redb");
@@ -936,7 +936,7 @@ mod mutation_batch_tests {
         DurabilityDomain, IncarnationId, LogicalName, MutationOperation, MutationOutboxIntent,
         MutationScopeIdentity, MutationSurface, ScopeTenantId, MUTATION_BATCH_VERSION,
     };
-    use crate::test_rendezvous::{join_bounded, meet};
+    use medulla_kernel::test_rendezvous::{join_bounded, meet};
     use medulla_transaction::OutboxClaimBudget;
     use medulla_types::outcome_bundle::{
         CommitOutcomeBundle, OutcomeCompleteness, ReceiptNode, ReceiptNodeKind, RunEvent,
@@ -4390,7 +4390,7 @@ mod mutation_batch_tests {
     #[test]
     fn work_item_mirror_divergence_raises_the_alarm() {
         fn divergence_count() -> u64 {
-            for line in crate::metrics::render().lines() {
+            for line in medulla_kernel::metrics::render().lines() {
                 if line.starts_with(
                     "medulla_statechart_divergence_total{machine=\"work_item\"}",
                 ) {
@@ -4877,7 +4877,7 @@ mod mutation_batch_tests {
             )
             .unwrap();
         after.install_schema_sources(std::sync::Arc::new(sources));
-        let delta = crate::graph_delta::GraphRowDelta::between(&before_snapshot, &after.snapshot())
+        let delta = medulla_kernel::graph_delta::GraphRowDelta::between(&before_snapshot, &after.snapshot())
             .unwrap();
         let state = delta.to_msgpack().unwrap();
 
@@ -4893,7 +4893,7 @@ mod mutation_batch_tests {
             },
         }];
         mutation.authoritative_state = Some(crate::mutation_batch::MutationStateDescriptor {
-            algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
+            algorithm: medulla_kernel::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
             digest: hex::encode(Sha256::digest(&state)),
             source_graph_version: 4,
             target_graph_version: 5,
@@ -4976,7 +4976,7 @@ mod mutation_batch_tests {
             )
             .unwrap();
         after.install_schema_sources(std::sync::Arc::new(sources));
-        let delta = crate::graph_delta::GraphRowDelta::between(&before_snapshot, &after.snapshot())
+        let delta = medulla_kernel::graph_delta::GraphRowDelta::between(&before_snapshot, &after.snapshot())
             .unwrap();
         let state = delta.to_msgpack().unwrap();
         let mut mutation = batch("batch-policy-fail", "idem-policy-fail");
@@ -4992,7 +4992,7 @@ mod mutation_batch_tests {
             },
         }];
         mutation.authoritative_state = Some(crate::mutation_batch::MutationStateDescriptor {
-            algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
+            algorithm: medulla_kernel::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
             digest: hex::encode(Sha256::digest(&state)),
             source_graph_version: 4,
             target_graph_version: 5,

@@ -72,7 +72,7 @@ where
 ///   * In `cfg(test)` default to 1 so the existing single-writer durability/audit/
 ///     group-commit tests run the byte-for-byte K=1 path unless they opt in via the env.
 ///   * Otherwise K = clamp(effective-cgroup-cpu/2, 1, 8) — mirrors the shared
-///     `crate::autosize::detect_capacity()` seam.
+///     `medulla_kernel::autosize::detect_capacity()` seam.
 pub(super) fn resolve_shard_count() -> usize {
     // Raft active ⇒ K == N groups (ADR-2 / W1.2), NOT the forced K=1 of the M2 spike.
     #[cfg(feature = "raft")]
@@ -103,7 +103,7 @@ pub(super) fn resolve_shard_count() -> usize {
     }
     #[cfg(not(test))]
     {
-        let cpus = crate::autosize::detect_capacity().reserved_cpus();
+        let cpus = medulla_kernel::autosize::detect_capacity().reserved_cpus();
         (cpus / 2).clamp(1, 8)
     }
 }
@@ -158,7 +158,7 @@ pub(super) struct ShardWriter {
     /// cipher the writer thread owns; resolved ONCE at open. `None` ⇒ encryption off ⇒
     /// the read path is byte-for-byte the plaintext path.
     #[cfg(feature = "security")]
-    pub(super) cipher: Option<crate::crypto::ValueCipher>,
+    pub(super) cipher: Option<medulla_kernel::crypto::ValueCipher>,
     /// Transaction-recovery-plan cipher (D-ORC-50, CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid) —
     /// DELIBERATELY SEPARATE from `cipher` above. Resolved from
     /// `MEDULLA_TXN_RECOVERY_KEY` (falling back to the shared data key when that
@@ -170,7 +170,7 @@ pub(super) struct ShardWriter {
     /// more than one op (e.g. a compare-and-set touching a node property + an ANN
     /// vector) fail durability with a "configure a key" error, same as before this seam.
     #[cfg(feature = "security")]
-    pub(super) txn_recovery_cipher: Option<crate::crypto::ValueCipher>,
+    pub(super) txn_recovery_cipher: Option<medulla_kernel::crypto::ValueCipher>,
     pub(super) handle: parking_lot::Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -182,11 +182,11 @@ pub(super) struct PreparedShard {
     db_path: String,
     shard: Arc<Shard>,
     #[cfg(feature = "security")]
-    cipher: Option<crate::crypto::ValueCipher>,
+    cipher: Option<medulla_kernel::crypto::ValueCipher>,
     #[cfg(feature = "security")]
     canary: Option<CanaryPlan>,
     #[cfg(feature = "security")]
-    txn_recovery_cipher: Option<crate::crypto::ValueCipher>,
+    txn_recovery_cipher: Option<medulla_kernel::crypto::ValueCipher>,
 }
 
 impl ShardWriter {
@@ -214,7 +214,7 @@ impl ShardWriter {
         // open from MEDULLA_ENCRYPTION_KEY (the KMS seam). `None` ⇒ encryption
         // OFF ⇒ the durable format + write/read paths are byte-for-byte unchanged.
         #[cfg(feature = "security")]
-        let cipher = crate::crypto::ValueCipher::from_env_checked()?;
+        let cipher = medulla_kernel::crypto::ValueCipher::from_env_checked()?;
         // GOC-16: encryption-at-rest readiness posture (MEDULLA_ENCRYPTION_
         // REQUIRED). Previously the `None` branch here logged NOTHING at all — a
         // production deployment could run fully unencrypted with zero signal to the
@@ -252,26 +252,26 @@ impl ShardWriter {
                          is not set, so every read of an existing value would fail. \
                          Configure the key reference and material that encrypted this \
                          store.",
-                        crate::crypto::ENCRYPTION_KEY_ENV,
+                        medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
                     ));
                 }
-                match crate::crypto::encryption_required_mode() {
-                    crate::crypto::EncryptionRequiredMode::Off => {}
-                    crate::crypto::EncryptionRequiredMode::Warn => {
+                match medulla_kernel::crypto::encryption_required_mode() {
+                    medulla_kernel::crypto::EncryptionRequiredMode::Off => {}
+                    medulla_kernel::crypto::EncryptionRequiredMode::Warn => {
                         tracing::warn!(
                             "redb encryption-at-rest is OFF ({} is not set) — value blobs are \
                          stored in PLAINTEXT. Set {}=on to refuse to start instead of \
                          warning.",
-                            crate::crypto::ENCRYPTION_KEY_ENV,
-                            crate::crypto::ENCRYPTION_REQUIRED_ENV,
+                            medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
+                            medulla_kernel::crypto::ENCRYPTION_REQUIRED_ENV,
                         );
                     }
-                    crate::crypto::EncryptionRequiredMode::On => {
+                    medulla_kernel::crypto::EncryptionRequiredMode::On => {
                         return Err(format!(
                             "refusing to open the durable graph store: at-rest encryption is \
                          REQUIRED ({}=on) but {} is not set",
-                            crate::crypto::ENCRYPTION_REQUIRED_ENV,
-                            crate::crypto::ENCRYPTION_KEY_ENV,
+                            medulla_kernel::crypto::ENCRYPTION_REQUIRED_ENV,
+                            medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
                         ));
                     }
                 }
@@ -282,7 +282,7 @@ impl ShardWriter {
         // implies (and never requires) enabling at-rest encryption of existing plaintext
         // values. See `crypto::TXN_RECOVERY_KEY_ENV` for the full rationale.
         #[cfg(feature = "security")]
-        let txn_recovery_cipher = crate::crypto::ValueCipher::from_env_for_txn_recovery();
+        let txn_recovery_cipher = medulla_kernel::crypto::ValueCipher::from_env_for_txn_recovery();
         #[cfg(feature = "security")]
         if txn_recovery_cipher.is_some() && cipher.is_none() {
             tracing::info!(
@@ -347,7 +347,7 @@ impl ShardWriter {
                      being used for the FIRST time here. If you expected this store \
                      to already hold data, it is not the store you meant — check the \
                      persist dir before writing to it.",
-                    crate::crypto::ENCRYPTION_KEY_ENV,
+                    medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
                 ),
             }
         }
@@ -406,7 +406,7 @@ impl ShardWriter {
             // is prompt in the healthy case. It is still bounded: a writer that
             // acked and then wedged in its own teardown would otherwise hang
             // shutdown forever.
-            if let Err(error) = crate::bounded_join::join_within(
+            if let Err(error) = medulla_kernel::bounded_join::join_within(
                 handle,
                 "the redb shard writer thread",
                 SHARD_WRITER_JOIN_TIMEOUT,

@@ -100,7 +100,7 @@ async fn fixture() -> (
 
 #[tokio::test]
 async fn signed_issuer_is_stamped_and_retry_retains_attribution() {
-    let _env = crate::crypto::acquire_test_env_read_lock().await;
+    let _env = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let (_dir, state, backend, request) = fixture().await;
     let before = authority_snapshot(&backend).await;
     let mut denied_request = request.clone();
@@ -169,7 +169,7 @@ async fn authority_snapshot(backend: &RedbBackend) -> serde_json::Value {
 
 #[tokio::test]
 async fn signed_wrong_tenant_and_forged_provenance_refuse_without_mutation() {
-    let _env = crate::crypto::acquire_test_env_read_lock().await;
+    let _env = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let (_dir, state, backend, request) = fixture().await;
     let before = authority_snapshot(&backend).await;
     assert!(before[1].is_null() && before[2].is_null());

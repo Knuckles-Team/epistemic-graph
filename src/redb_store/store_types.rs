@@ -288,7 +288,7 @@ pub(crate) const LEDGER: TableDefinition<(&str, u64), &str> = TableDefinition::n
 pub(crate) const SEMANTIC: TableDefinition<&str, &[u8]> = TableDefinition::new("semantic_store");
 // Tamper-evident hash-chained audit log (CONCEPT:MEDULLA-KG.sharding.row-level-security, feature `security`). One
 // row per durable mutation, keyed `(graph, seq)`, value = `prev_hash | entry_hash |
-// line` (see `crate::audit`). Appended in the SAME WriteTransaction as the mutation
+// line` (see `medulla_kernel::audit`). Appended in the SAME WriteTransaction as the mutation
 // it records, so the audit entry and the data it audits are durable together. The
 // table const is always defined (so the layout is stable) but only WRITTEN/READ under
 // `security`.
@@ -300,7 +300,7 @@ pub(crate) const AUDIT_REQUESTS: TableDefinition<(&str, &str), &[u8]> =
 // Provenance-anchor MEMBER list (CONCEPT:MEDULLA-KG.sharding.row-level-security, provenance anchoring): `(graph,
 // audit_seq) -> msgpack Vec<(node_id, leaf_hash_bytes)>` for the `:ToolCall`/`:RunTrace`
 // window folded into the audit-chain entry at that exact `seq` (a
-// `PROVENANCE_ANCHOR|...` line, see `crate::audit::provenance_anchor_line`). Keyed
+// `PROVENANCE_ANCHOR|...` line, see `medulla_kernel::audit::provenance_anchor_line`). Keyed
 // by the SAME seq as its audit entry so the two correlate with no extra index. The
 // anchored ROOT itself is never trusted from this table -- only from the
 // tamper-evident AUDIT entry at that seq -- so tampering this side table cannot
@@ -508,7 +508,7 @@ pub(crate) type MatViewScanResult = Result<Vec<(String, Vec<u8>)>, String>;
 #[derive(Clone, Copy, Default)]
 pub struct DurableCrypto<'a> {
     #[cfg(feature = "security")]
-    cipher: Option<&'a crate::crypto::ValueCipher>,
+    cipher: Option<&'a medulla_kernel::crypto::ValueCipher>,
     #[cfg(not(feature = "security"))]
     _marker: std::marker::PhantomData<&'a ()>,
 }
@@ -521,7 +521,7 @@ impl<'a> DurableCrypto<'a> {
 
     /// Wrap an optional cipher (the `security` path).
     #[cfg(feature = "security")]
-    pub fn new(cipher: Option<&'a crate::crypto::ValueCipher>) -> Self {
+    pub fn new(cipher: Option<&'a medulla_kernel::crypto::ValueCipher>) -> Self {
         DurableCrypto { cipher }
     }
 
@@ -578,7 +578,7 @@ impl<'a> DurableCrypto<'a> {
             return open_sealed(c, stored);
         }
         #[cfg(feature = "security")]
-        if crate::crypto::is_sealed(stored) {
+        if medulla_kernel::crypto::is_sealed(stored) {
             return Err(UnsealFailure::SealedWithoutKey);
         }
         Ok(stored.to_vec())
@@ -589,10 +589,10 @@ impl<'a> DurableCrypto<'a> {
 /// plaintext bound.
 #[cfg(feature = "security")]
 fn open_sealed(
-    cipher: &crate::crypto::ValueCipher,
+    cipher: &medulla_kernel::crypto::ValueCipher,
     stored: &[u8],
 ) -> Result<Vec<u8>, UnsealFailure> {
-    if !crate::crypto::is_sealed(stored) {
+    if !medulla_kernel::crypto::is_sealed(stored) {
         return Err(UnsealFailure::MissingFraming);
     }
     let plaintext = cipher

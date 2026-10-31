@@ -254,7 +254,7 @@ async fn create_declared_graph(
         committed_version,
     ) {
         Ok(()) => {
-            crate::metrics::set_graph_size(&graph_name, 0, 0);
+            medulla_kernel::metrics::set_graph_size(&graph_name, 0, 0);
             // Close the CreateGraph RBAC-provisioning gap (P0 tenant-graph
             // fix): a tenant graph's `owner` field is otherwise dead under
             // the mandatory `security` build (`check_access` ignores
@@ -485,7 +485,7 @@ async fn teardown_deleted_graph_in_memory(
     }
     match s.registry.delete_graph(graph_name) {
         Ok(()) => {
-            crate::metrics::drop_graph(graph_name);
+            medulla_kernel::metrics::drop_graph(graph_name);
             // In-memory teardown (CONCEPT:MEDULLA-KG.backend.many-repeated-create-delete) — distinct from the durable
             // purge below. The registry entry (the live GraphCore) is gone, but
             // per-graph state keyed by NAME elsewhere in ServerState would

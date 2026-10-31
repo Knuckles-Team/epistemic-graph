@@ -237,14 +237,14 @@ fn competing_coordinator_decisions_have_one_winner() {
         let shard = std::sync::Arc::clone(&shard);
         let barrier = std::sync::Arc::clone(&barrier);
         std::thread::spawn(move || {
-            crate::test_rendezvous::meet(&barrier, "coordinator decision contenders");
+            medulla_kernel::test_rendezvous::meet(&barrier, "coordinator decision contenders");
             put_xshard_decision(&shard, "race", decision, true)
         })
     };
     let commit = contender(true);
     let abort = contender(false);
-    let commit = crate::test_rendezvous::join_bounded(commit, "coordinator commit contender");
-    let abort = crate::test_rendezvous::join_bounded(abort, "coordinator abort contender");
+    let commit = medulla_kernel::test_rendezvous::join_bounded(commit, "coordinator commit contender");
+    let abort = medulla_kernel::test_rendezvous::join_bounded(abort, "coordinator abort contender");
     assert_ne!(commit.is_ok(), abort.is_ok());
     assert_eq!(
         get_xshard_decision(&shard, "race").unwrap(),

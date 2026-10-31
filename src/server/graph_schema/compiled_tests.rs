@@ -8,7 +8,7 @@ use std::time::Duration;
 use super::super::compose::{compose_validated_sources, ComposedSchema};
 use super::CompiledCache;
 use crate::graph::{GraphCore, GraphSchemaSource, GraphSchemaSources, SchemaSourceOrigin};
-use crate::test_rendezvous::{join_bounded, meet};
+use medulla_kernel::test_rendezvous::{join_bounded, meet};
 use medulla_types::contract::Digest256;
 
 const ONTOLOGY_A: &str = "@prefix ex: <http://example/eh382/> . \

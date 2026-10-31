@@ -18,7 +18,7 @@ The first implementation slice should land issuer verification with negative tes
 | `primary_oidc_validator`, `bind_verified_identity` in `src/server/auth.rs` | Keep envelope subject/tenant binding after cryptographic verification. |
 | `identity_access.rs`, `IsolationLayer::try_register_agent` | Route typed identity mutations through one ControlRedb transaction. |
 | `rbac_persist.rs` | Store complete role set, mode singleton and epoch under one owner; migration is versioned and restart-safe. |
-| `src/audit.rs` | Reuse chain hash/verification pattern. Add identity audit rows to the RBAC control transaction, because graph audit currently covers a different store. |
+| `crates/medulla-kernel/src/audit.rs` | Reuse chain hash/verification pattern. Add identity audit rows to the RBAC control transaction, because graph audit currently covers a different store. |
 | `domains/security.rs`, `gen_contract` | Emit the public scope registry and digest from the same capability declarations checked at dispatch. |
 
 ### Token processing order

@@ -467,7 +467,7 @@ async fn knowledge_stream_sql_lists_the_request_graph_edge_indexes() {
     use crate::server::handlers::query::{try_handle_with_policy, PolicyAwareQuery};
     use crate::server::handlers::TryHandleContext;
 
-    let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
     let fixture = durable_read_lease("tenant-graph", "alice");
     let state = crate::server::test_state_with_services(
         "ks-edge-status-secret",

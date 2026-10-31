@@ -34,7 +34,7 @@ The `none → local` transition requires a credentialed human admin; `none → e
 
 ## Design and quality rules
 
-Reuse `src/server/oidc.rs` and `src/server/auth.rs` for JWT binding, `crates/medulla-core/src/isolation/identity_admin.rs` and `src/server/dispatch/router/identity_access.rs` for RBAC mutations, `crates/medulla-core/src/rbac_persist.rs` for durable control state, `src/audit.rs` for the existing hash-chain algorithm, and `crates/medulla-capabilities/src/domains/security.rs` plus `gen_contract` for scope generation. Extend these authorities; do not add a second identity database or independent scope allowlist.
+Reuse `src/server/oidc.rs` and `src/server/auth.rs` for JWT binding, `crates/medulla-core/src/isolation/identity_admin.rs` and `src/server/dispatch/router/identity_access.rs` for RBAC mutations, `crates/medulla-core/src/rbac_persist.rs` for durable control state, `crates/medulla-kernel/src/audit.rs` for the existing hash-chain algorithm, and `crates/medulla-capabilities/src/domains/security.rs` plus `gen_contract` for scope generation. Extend these authorities; do not add a second identity database or independent scope allowlist.
 
 Tests cover both accepted and denied paths and exact restart behavior. Run CCCC, KISS, jscpd and Dupehound on changed code, with no new clone authority. Baseline PR tests use locally signed JWTs, local JWKS fixtures, disposable redb files and a test gateway attestation signer. No live IdP, private deployment or manually provisioned service is required. A public deployment smoke remains separate release evidence.
 

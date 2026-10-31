@@ -7,7 +7,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex as StdMutex, OnceLock};
 
-use crate::lock_recovery::LockRecovery;
+use medulla_kernel::lock_recovery::LockRecovery;
 
 #[cfg(feature = "traces")]
 use super::ObsState;

@@ -81,7 +81,7 @@ impl OwnerScopedCall<'_> {
         method: &str,
     ) -> Result<CarrierAuthority, crate::protocol::Response> {
         self.carrier.cloned().ok_or_else(|| {
-            crate::metrics::access_denied();
+            medulla_kernel::metrics::access_denied();
             crate::protocol::Response::err(
                 self.req_id,
                 format!("ACCESS_DENIED: {method} requires a verified tenant carrier"),
@@ -104,7 +104,7 @@ impl CarrierAuthority {
         let principal = context.principal().trim();
         let agent_id = context.agent_id().trim();
         if tenant.is_empty() || principal.is_empty() || agent_id.is_empty() {
-            crate::metrics::access_denied();
+            medulla_kernel::metrics::access_denied();
             return Err(
                 "ACCESS_DENIED: verified data carrier is missing tenant, principal, or actor"
                     .to_string(),
@@ -280,7 +280,7 @@ impl CarrierAuthority {
         if self.admin {
             Ok(())
         } else {
-            crate::metrics::access_denied();
+            medulla_kernel::metrics::access_denied();
             Err(format!(
                 "ACCESS_DENIED: {domain} has no per-row ownership and requires kg:admin"
             ))
@@ -344,7 +344,7 @@ impl GraphReadAuthority {
         {
             let actor = context.agent_id().trim().to_string();
             if actor.is_empty() {
-                crate::metrics::access_denied();
+                medulla_kernel::metrics::access_denied();
                 return Err(
                     "ACCESS_DENIED: verified row-level graph read has no actor identity"
                         .to_string(),
@@ -391,12 +391,12 @@ impl GraphReadAuthority {
         let actor = match self.carrier.as_ref() {
             Some(carrier) => carrier.agent_id(),
             None => {
-                crate::metrics::access_denied();
+                medulla_kernel::metrics::access_denied();
                 return Err("ACCESS_DENIED: verified row-level actor is required".to_string());
             }
         };
         if actor.trim().is_empty() {
-            crate::metrics::access_denied();
+            medulla_kernel::metrics::access_denied();
             Err("ACCESS_DENIED: verified row-level actor is required".to_string())
         } else {
             Ok(actor)
@@ -543,7 +543,7 @@ impl GraphReadAuthority {
         let actor = self.actor.clone();
         let current_version = core.version();
         if let Some(cached) = core.cached_projection(&actor, current_version) {
-            crate::metrics::projection_cache_hit();
+            medulla_kernel::metrics::projection_cache_hit();
             return cached;
         }
 
@@ -555,11 +555,11 @@ impl GraphReadAuthority {
         // `GraphCore::projection_cache_generation`'s doc.
         let generation = core.projection_cache_generation();
         // D-EGP-1 (t1-grounding-0802): time the rebuild a miss triggers — see
-        // `crate::metrics::projection_cache_miss` for why this is the decisive
+        // `medulla_kernel::metrics::projection_cache_miss` for why this is the decisive
         // measurement for the RLS-cache-thrash hypothesis.
         let build_started = std::time::Instant::now();
         let projected = self.build_projection(core);
-        crate::metrics::projection_cache_miss(build_started.elapsed().as_secs_f64());
+        medulla_kernel::metrics::projection_cache_miss(build_started.elapsed().as_secs_f64());
         core.put_cached_projection(actor, current_version, generation, projected.clone());
         projected
     }
@@ -789,7 +789,7 @@ fn check_graph_access_with_policy(
     if decide_graph_access(isolation, &query) {
         Ok(())
     } else {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         #[cfg(feature = "security")]
         crate::server::denial_sample::offer(agent, graph_name, "GRAPH_ACCESS_DENIED");
         Err(format!(
@@ -865,7 +865,7 @@ pub(crate) fn check_caller_is_known(
     if isolation.is_registered(agent) {
         return Ok(());
     }
-    crate::metrics::access_denied();
+    medulla_kernel::metrics::access_denied();
     Err(format!(
         "ACCESS_DENIED: verified principal lacks {access:?} access to graph '{graph_name}'"
     ))
@@ -878,7 +878,7 @@ fn require_verified_caller(caller: Option<&str>) -> Result<&str, String> {
     caller
         .filter(|agent| !agent.trim().is_empty())
         .ok_or_else(|| {
-            crate::metrics::access_denied();
+            medulla_kernel::metrics::access_denied();
             "ACCESS_DENIED: verified caller identity is required".to_string()
         })
 }
@@ -887,7 +887,7 @@ fn require_provisioned_policy(isolation: &IsolationLayer) -> Result<(), String> 
     if isolation.has_rules() {
         return Ok(());
     }
-    crate::metrics::access_denied();
+    medulla_kernel::metrics::access_denied();
     Err("ACCESS_DENIED: a provisioned identity/RBAC policy is required".to_string())
 }
 
@@ -1104,7 +1104,7 @@ fn require_admin_capability_with_policy(
 ) -> Result<(), String> {
     let agent = require_verified_caller(caller)?;
     if !isolation.has_rules() {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Err(format!(
             "ACCESS_DENIED: a provisioned identity/RBAC policy is required for '{action}'"
         ));
@@ -1112,7 +1112,7 @@ fn require_admin_capability_with_policy(
     if isolation.has_admin_capability(agent) {
         Ok(())
     } else {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         Err(format!(
             "ACCESS_DENIED: verified principal lacks admin capability required for '{action}'"
         ))

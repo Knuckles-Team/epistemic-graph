@@ -478,8 +478,8 @@ async fn process_lease(
         watermark.cloned(),
     )
     .await?;
-    crate::metrics::epistemic_materializations_staled(newly_stale as u64);
-    crate::metrics::set_epistemic_materializations_stale(stale_count as i64);
+    medulla_kernel::metrics::epistemic_materializations_staled(newly_stale as u64);
+    medulla_kernel::metrics::set_epistemic_materializations_stale(stale_count as i64);
     // The acknowledgement IS the cursor advance: the kernel marks the delivery
     // row delivered and writes the `(scope, consumer)` watermark in ONE admitted
     // transaction. A crash between the two is not representable, so there is no
@@ -851,7 +851,7 @@ pub async fn recompute_materialization(
         ))
     })
     .await?;
-    crate::metrics::set_epistemic_materializations_stale(stale_count as i64);
+    medulla_kernel::metrics::set_epistemic_materializations_stale(stale_count as i64);
     Ok((materialization, fence_epoch))
 }
 
@@ -1946,8 +1946,8 @@ mod tests {
     async fn delete_recreate_rebuilds_subscription_and_projection_before_ack() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
 
         let (root, root_str, backend) = shard_backend("open projection recreate backend");
         let graph = format!("projection-recreate-{}", std::process::id());
@@ -2085,8 +2085,8 @@ mod tests {
     async fn process_graphs_carries_one_claim_budget_across_graph_scopes() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
 
         let (root, root_str, backend) = shard_backend("open projection budget backend");
         let graph_names: Vec<String> = (0..5)

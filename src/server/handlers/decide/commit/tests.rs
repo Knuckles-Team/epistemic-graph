@@ -122,7 +122,7 @@ fn owner_bytes(dir: &std::path::Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
 #[tokio::test]
 async fn topology_commit_refuses_uncoordinated_owners() {
     #[cfg(any(feature = "security", feature = "raft"))]
-    let _env_guard = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_guard = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().to_str().unwrap().to_string();
     let backend = Arc::new(RedbBackend::open_with_shards(path.clone(), 16, 1).unwrap());

@@ -525,25 +525,30 @@ mod imp {
         }
     }
 
+    /// Record one request of type `op` taking `seconds`.
     pub fn record_request(op: &str, seconds: f64) {
         REQUESTS_TOTAL.with_label_values(&[op]).inc();
         REQUEST_DURATION.with_label_values(&[op]).observe(seconds);
     }
 
+    /// Record a connection request starting, with the permits left.
     pub fn connection_request_started(permits_available: usize) {
         IN_FLIGHT.inc();
         PERMITS_AVAILABLE.set(permits_available as i64);
     }
 
+    /// Record a connection request finishing, with the permits left.
     pub fn connection_request_finished(permits_available: usize) {
         IN_FLIGHT.dec();
         PERMITS_AVAILABLE.set(permits_available as i64);
     }
 
+    /// Count a request refused because the server was busy.
     pub fn busy_rejected() {
         BUSY_REJECTIONS.inc();
     }
 
+    /// Count a read admitted through the reserved read lane.
     pub fn read_reserved_admitted() {
         READ_RESERVED_ADMITTED.inc();
     }
@@ -578,10 +583,12 @@ mod imp {
         QOS_CLASS_IN_FLIGHT.with_label_values(&[class]).dec();
     }
 
+    /// Count one operation on `graph`.
     pub fn graph_op(graph: &str) {
         GRAPH_OPS.with_label_values(&[&graph_label(graph)]).inc();
     }
 
+    /// Set the node and edge counts for `graph`.
     pub fn set_graph_size(graph: &str, nodes: i64, edges: i64) {
         let label = graph_label(graph);
         GRAPH_NODES.with_label_values(&[&label]).set(nodes);
@@ -623,6 +630,7 @@ mod imp {
         COALESCER_OPERATIONS_TOTAL.set(coalescer_operations_total);
     }
 
+    /// Set the write coalescer queue depth, queued bytes and applied operations.
     pub fn set_coalescer_stats(queue_depth: u64, queue_bytes: u64, operations_total: u64) {
         COALESCER_QUEUE_DEPTH.set(bounded_i64(queue_depth));
         COALESCER_QUEUE_BYTES.set(bounded_i64(queue_bytes));
@@ -673,6 +681,7 @@ mod imp {
         let _ = WRITE_LOCK_HOLD.remove_label_values(&[OVERFLOW_LABEL]);
     }
 
+    /// Record a checkpoint that took `seconds`.
     pub fn checkpoint_completed(seconds: f64) {
         CHECKPOINT_DURATION.observe(seconds);
         let now = std::time::SystemTime::now()
@@ -689,10 +698,12 @@ mod imp {
         ANALYTICS_JOBS_PUBLISHING.set(publishing);
     }
 
+    /// Count an authentication failure.
     pub fn auth_failure() {
         AUTH_FAILURES.inc();
     }
 
+    /// Count an access-control denial.
     pub fn access_denied() {
         ACCESS_DENIED.inc();
     }

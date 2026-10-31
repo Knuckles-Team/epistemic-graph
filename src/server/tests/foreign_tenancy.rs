@@ -138,7 +138,7 @@ fn assert_access_denied_for_caller(resp: &crate::protocol::Response, surface: &s
 // spec: MEDULLA-FEDERATED-QUERY-R013
 #[tokio::test]
 async fn foreign_source_resolves_only_for_the_registering_principal() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let (_remote, local) = registered_by_owner_a(900).await;
 
     let a = dispatch_as(&local, 901, OWNER_A, named_scan_plan()).await;
@@ -166,7 +166,7 @@ async fn foreign_column_read_is_owner_scoped_and_mapping_gated() {
     #[cfg(feature = "federation-sql")]
     let _allow = crate::test_support::FederationAllowGuard::acquire("127.0.0.1:5432").await;
     #[cfg(not(feature = "federation-sql"))]
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let state = multi_tenant_state().await;
     register_in(
         &state,
@@ -260,7 +260,7 @@ async fn foreign_column_http_read_returns_projected_filtered_rows() {
         }
     }
 
-    let _env_lock = crate::crypto::acquire_test_env_lock().await;
+    let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let body = r#"{"data":[{"ref":"a","name":"Ada","age":19},{"ref":"b","name":"Bea","age":42},{"ref":"c","name":"Cam","age":55}]}"#;
@@ -342,7 +342,7 @@ async fn foreign_column_http_read_returns_projected_filtered_rows() {
 /// returns A's rows.
 #[tokio::test]
 async fn same_name_for_two_principals_resolves_each_owners_own_spec() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let (_remote, local) = registered_by_owner_a(910).await;
     let b_spec = medulla_types::wire::ForeignSourceSpec::HttpJson {
         url: "http://127.0.0.1:9/eh373-principal-b".into(),
@@ -378,7 +378,7 @@ async fn same_name_for_two_principals_resolves_each_owners_own_spec() {
 // spec: MEDULLA-FEDERATED-QUERY-R058.4.7.1
 #[tokio::test]
 async fn nl_query_foreign_leg_is_owner_scoped() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     crate::server::set_nl_planner(Arc::new(EchoPlanner));
     let (_remote, local) = registered_by_owner_a(920).await;
 
@@ -436,7 +436,7 @@ async fn nl_query_foreign_leg_is_owner_scoped() {
 // spec: MEDULLA-FEDERATED-QUERY-R013
 #[tokio::test]
 async fn shared_source_needs_an_explicit_grant() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let (_remote, local) = registered_by_owner_a(940).await;
     let qualified = crate::server::foreign_share::shared_name(OWNER_A, "remote_docs");
     let text = || {
@@ -511,7 +511,7 @@ async fn shared_source_needs_an_explicit_grant() {
 /// System caller.
 #[tokio::test]
 async fn a_graph_cannot_take_a_reserved_foreign_source_resource_name() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let local = multi_tenant_state().await;
     let reserved = crate::server::foreign_share::share_resource(OWNER_A, "remote_docs");
     let create = Method::CreateGraph {

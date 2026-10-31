@@ -94,8 +94,8 @@ async fn put_node(multi: &Arc<MultiRaft>, gid: GroupId, graph: &str, node_id: &s
 async fn read_cross_shard_merges_rows_from_two_groups() {
     // Reads the ambient encryption env at its durable open, so the env must hold
     // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-    // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let (multi, _state) = start_read_scenario("merge").await;
 
     multi.router().assign(GRAPH_A, GROUP_A);
@@ -133,8 +133,8 @@ async fn read_cross_shard_merges_rows_from_two_groups() {
 async fn read_cross_shard_single_group_is_not_flagged_cross_shard() {
     // Reads the ambient encryption env at its durable open, so the env must hold
     // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-    // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let (multi, _state) = start_read_scenario("single-group").await;
 
     multi.router().assign(GRAPH_A, GROUP_A);
@@ -166,8 +166,8 @@ async fn read_cross_shard_single_group_is_not_flagged_cross_shard() {
 async fn read_cross_shard_routes_each_leg_via_the_placement_catalog() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("medulla-xread", "catalog-routing");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
@@ -237,8 +237,8 @@ async fn read_cross_shard_routes_each_leg_via_the_placement_catalog() {
 async fn read_cross_shard_errors_loudly_on_a_leg_whose_group_is_not_running_here() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("medulla-xread", "unreachable");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;

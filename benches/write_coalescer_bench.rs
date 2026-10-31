@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use medulla::graph::GraphCore;
-use medulla::write_coalescer::{fan_in_add_nodes, CoalescerConfig, GraphWriter};
+use medulla_kernel::write_coalescer::{fan_in_add_nodes, CoalescerConfig, GraphWriter};
 use tokio::runtime::Builder;
 
 const GRAPH: &str = "__commons__";

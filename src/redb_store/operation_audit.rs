@@ -23,7 +23,7 @@
 use super::audit::{append_audit_entry_with_line, fresh_attempt_id, verify_audit, AuditTailCache};
 use super::shard::{Shard, ShardWrite};
 use super::{AUDIT, AUDIT_REQUESTS};
-use crate::audit::Hash;
+use medulla_kernel::audit::Hash;
 use medulla_storage::ScopedOwnerTableMut;
 use sha2::{Digest, Sha256};
 
@@ -338,7 +338,7 @@ pub(crate) fn operation_audit_read(
     let entry = audit
         .get((graph, seq))?
         .ok_or_else(|| "AUDIT_EVENT_NOT_FOUND".to_string())?;
-    let (previous, hash, line) = crate::audit::decode_entry(entry.value())
+    let (previous, hash, line) = medulla_kernel::audit::decode_entry(entry.value())
         .ok_or_else(|| "AUDIT_EVENT_CORRUPT".to_string())?;
     let event_line = std::str::from_utf8(line).map_err(|_| "AUDIT_EVENT_CORRUPT")?;
     if !event_line.starts_with(&format!("OP_AUDIT|v1|tenant={verified_tenant}|")) {

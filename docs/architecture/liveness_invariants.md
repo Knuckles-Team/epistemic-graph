@@ -25,8 +25,8 @@ arrived collects a finished thread, so it cannot block.
 itself. These sites implement the replacement that the lint directs callers to.
 
 **Sites.**
-- `src/test_rendezvous.rs`: `meet`, `join_bounded` (three allows).
-- `src/bounded_join.rs`: `join_within` (two allows).
+- `crates/medulla-kernel/src/test_rendezvous.rs`: `meet`, `join_bounded` (three allows).
+- `crates/medulla-kernel/src/bounded_join.rs`: `join_within` (two allows).
 - `src/performance_probe/wire.rs`: `join_probe_worker` (two allows). This
   copy is local because the server binary cannot reach the library's
   `pub(crate)` `bounded_join`.
@@ -71,7 +71,7 @@ fixture itself, for example the way a mutex gets poisoned. `join_bounded`
 cannot be used because it re-raises the worker's panic.
 
 **Sites.**
-- `src/lock_recovery.rs`: `an_authority_lock_refuses_after_a_holder_panics`.
+- `crates/medulla-kernel/src/lock_recovery.rs`: `an_authority_lock_refuses_after_a_holder_panics`.
 
 ## reporting-recovery
 
@@ -81,7 +81,7 @@ point where it happens. The lint bans silent recovery. The report is what
 turns recovery into a decision.
 
 **Sites.**
-- `src/lock_recovery.rs`: the `Mutex` and `RwLock` read `lock_recovering`
+- `crates/medulla-kernel/src/lock_recovery.rs`: the `Mutex` and `RwLock` read `lock_recovering`
   and `write_recovering`, the reporting helpers the lint directs callers to
   (three allows).
 - `crates/medulla-wasm/src/lib.rs`: the UDF-registry mutex. The registry can be

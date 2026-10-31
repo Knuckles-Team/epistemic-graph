@@ -13,7 +13,7 @@
 use std::cell::RefCell;
 use std::sync::{Condvar, Mutex, OnceLock};
 
-use crate::lock_recovery::LockRecovery;
+use medulla_kernel::lock_recovery::LockRecovery;
 
 /// Concurrent cluster tests per process: a quarter of the cores' worth of
 /// three-node clusters, never fewer than two.
@@ -86,7 +86,7 @@ mod tests {
             (after_first, used())
         });
         let (after_first, after_second) =
-            crate::test_rendezvous::join_bounded(inner, "cluster slot claim thread");
+            medulla_kernel::test_rendezvous::join_bounded(inner, "cluster slot claim thread");
         assert_eq!(
             after_first, after_second,
             "a second claim on one thread is free"

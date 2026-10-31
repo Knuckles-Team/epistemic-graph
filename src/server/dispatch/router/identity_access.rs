@@ -150,7 +150,7 @@ async fn dispatch_identity_and_access_methods_arm_0(
                         )
                     };
                     if let Err(message) = verification {
-                        crate::metrics::auth_failure();
+                        medulla_kernel::metrics::auth_failure();
                         return Response::err(req_id, message);
                     }
                     let mut s = timed_write(state).await;
@@ -340,7 +340,7 @@ async fn dispatch_identity_and_access_methods_arm_3(
                             &mutation_type,
                             &query,
                         ) {
-                            crate::metrics::auth_failure();
+                            medulla_kernel::metrics::auth_failure();
                             return Response::err(req_id, message);
                         }
                     }
