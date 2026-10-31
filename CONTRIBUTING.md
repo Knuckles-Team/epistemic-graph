@@ -80,5 +80,5 @@ Each step names its skill and the files it writes, in the
 [organization contribution guide](https://github.com/Knuckles-Team/.github/blob/main/CONTRIBUTING.md).
 Read the [constitution](https://github.com/Knuckles-Team/pipelines/blob/main/.specify/memory/constitution.md),
 the [spec standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/spec-standard.md) and the
-[spec templates](https://github.com/Knuckles-Team/pipelines/tree/main/specs/_template), and pick an open row in
+[spec templates](.specify/templates), and pick an open row in
 [Canopy](https://knuckles-team.github.io/.github/architecture/). Commit with a `Spec: <ROW-ID>` trailer and a bound test.
