@@ -125,12 +125,12 @@ fn walk(
             }
             return Ok(());
         }
-        0xc4 => (1, be_len(&bytes.get(*cursor..*cursor + 1).unwrap_or(&[])), 0),
-        0xc5 => (2, be_len(&bytes.get(*cursor..*cursor + 2).unwrap_or(&[])), 0),
-        0xc6 => (4, be_len(&bytes.get(*cursor..*cursor + 4).unwrap_or(&[])), 0),
-        0xc7 => (1, be_len(&bytes.get(*cursor..*cursor + 1).unwrap_or(&[])) + 1, 0),
-        0xc8 => (2, be_len(&bytes.get(*cursor..*cursor + 2).unwrap_or(&[])) + 1, 0),
-        0xc9 => (4, be_len(&bytes.get(*cursor..*cursor + 4).unwrap_or(&[])) + 1, 0),
+        0xc4 => (1, be_len(bytes.get(*cursor..*cursor + 1).unwrap_or(&[])), 0),
+        0xc5 => (2, be_len(bytes.get(*cursor..*cursor + 2).unwrap_or(&[])), 0),
+        0xc6 => (4, be_len(bytes.get(*cursor..*cursor + 4).unwrap_or(&[])), 0),
+        0xc7 => (1, be_len(bytes.get(*cursor..*cursor + 1).unwrap_or(&[])) + 1, 0),
+        0xc8 => (2, be_len(bytes.get(*cursor..*cursor + 2).unwrap_or(&[])) + 1, 0),
+        0xc9 => (4, be_len(bytes.get(*cursor..*cursor + 4).unwrap_or(&[])) + 1, 0),
         0xca => (0, 4, 0),
         0xcb => (0, 8, 0),
         0xcc | 0xd0 => (0, 1, 0),
@@ -142,10 +142,10 @@ fn walk(
         0xd6 => (0, 5, 0),
         0xd7 => (0, 9, 0),
         0xd8 => (0, 17, 0),
-        0xdc => (2, 0, be_len(&bytes.get(*cursor..*cursor + 2).unwrap_or(&[]))),
-        0xdd => (4, 0, be_len(&bytes.get(*cursor..*cursor + 4).unwrap_or(&[]))),
-        0xde => (2, 0, 2 * be_len(&bytes.get(*cursor..*cursor + 2).unwrap_or(&[]))),
-        0xdf => (4, 0, 2 * be_len(&bytes.get(*cursor..*cursor + 4).unwrap_or(&[]))),
+        0xdc => (2, 0, be_len(bytes.get(*cursor..*cursor + 2).unwrap_or(&[]))),
+        0xdd => (4, 0, be_len(bytes.get(*cursor..*cursor + 4).unwrap_or(&[]))),
+        0xde => (2, 0, 2 * be_len(bytes.get(*cursor..*cursor + 2).unwrap_or(&[]))),
+        0xdf => (4, 0, 2 * be_len(bytes.get(*cursor..*cursor + 4).unwrap_or(&[]))),
         0xc1 => return Err(format!("invalid MessagePack marker 0xc1 at {start}")),
     };
     take(bytes, cursor, header + payload)?;
@@ -326,7 +326,7 @@ async fn submit(state: &Arc<RwLock<ServerState>>, graph: &str, method: Method) -
     let response = crate::server::dispatch::dispatch_verified_request(state, request, context).await;
     match response.refusal_text() {
         None => Ok(()),
-        Some(refusal) => Err(format!("{refusal}")),
+        Some(refusal) => Err(refusal.to_string()),
     }
 }
 
