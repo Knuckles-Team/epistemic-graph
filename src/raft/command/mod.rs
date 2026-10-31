@@ -23,8 +23,8 @@ mod tests;
 fn pending_repository_intent(
     snapshot: crate::parser::enrichment_snapshot::EligibleSnapshot,
     topic: &str,
-) -> eg_types::MutationOutboxIntent {
-    eg_types::MutationOutboxIntent {
+) -> medulla_types::MutationOutboxIntent {
+    medulla_types::MutationOutboxIntent {
         topic: topic.into(),
         key: snapshot.source_envelope.clone(),
         payload: rmp_serde::to_vec_named(&serde_json::json!({
@@ -205,7 +205,7 @@ impl ReplicatedMutation {
     /// determined that the next immutable unit is underfunded. No public
     /// Method variant can construct this command.
     pub(crate) fn enrichment_park(
-        park: &eg_types::native_control::EnrichmentBudgetPark,
+        park: &medulla_types::native_control::EnrichmentBudgetPark,
         server_secret: &str,
     ) -> Result<Self, String> {
         Self::validate_enrichment_park(park)?;
@@ -219,7 +219,7 @@ impl ReplicatedMutation {
     pub(crate) fn open_enrichment_park(
         &self,
         server_secret: &str,
-    ) -> Result<Option<eg_types::native_control::EnrichmentBudgetPark>, String> {
+    ) -> Result<Option<medulla_types::native_control::EnrichmentBudgetPark>, String> {
         match self {
             Self::Native {
                 command: NativeMutationCommand::EnrichmentPark { sealed_park },
@@ -233,10 +233,10 @@ impl ReplicatedMutation {
     }
 
     fn validate_enrichment_park(
-        park: &eg_types::native_control::EnrichmentBudgetPark,
+        park: &medulla_types::native_control::EnrichmentBudgetPark,
     ) -> Result<(), String> {
         fn digest(value: &str) -> bool {
-            eg_types::contract::Digest256::parse(value).is_ok()
+            medulla_types::contract::Digest256::parse(value).is_ok()
         }
         if park.schema_version != 1
             || park.parked_at_ms == 0

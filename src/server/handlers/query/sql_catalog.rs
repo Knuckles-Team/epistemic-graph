@@ -4,12 +4,12 @@ pub(crate) async fn exec_sql_property_graph(
     req_id: u64,
     scope: SqlWriteScope<'_>,
     sql_method: Method,
-    store: &eg_query::TableStore,
-    read_store: &eg_query::TableStore,
+    store: &medulla_query::TableStore,
+    read_store: &medulla_query::TableStore,
     read_core: &Arc<GraphCore>,
-    kind: eg_query::StatementKind,
+    kind: medulla_query::StatementKind,
 ) -> Response {
-    use eg_query::StatementKind as K;
+    use medulla_query::StatementKind as K;
     match kind {
         K::PropertyGraphDdlRequiresCatalogAdmission(_) => {
             exec_sql_property_graph_ddl(req_id, scope, sql_method, store).await
@@ -34,7 +34,7 @@ pub(crate) async fn exec_sql_property_graph_privilege(
     req_id: u64,
     scope: SqlWriteScope<'_>,
     sql_method: Method,
-    store: &eg_query::TableStore,
+    store: &medulla_query::TableStore,
 ) -> Response {
     let Method::Sql { query, .. } = &sql_method else {
         return Response::err(
@@ -43,7 +43,7 @@ pub(crate) async fn exec_sql_property_graph_privilege(
                 .to_string(),
         );
     };
-    let statement = match eg_query::sql::parse_property_graph_privilege(query) {
+    let statement = match medulla_query::sql::parse_property_graph_privilege(query) {
         Ok(statement) => statement,
         Err(error) => return Response::err(req_id, sql_refusal(error)),
     };
@@ -57,13 +57,13 @@ pub(crate) async fn exec_sql_property_graph_privilege(
         }
         Err(error) => return Response::err(req_id, sql_refusal(error)),
     };
-    let (op, tag) = eg_query::PropertyGraphTxnOp::from_privilege_statement(
+    let (op, tag) = medulla_query::PropertyGraphTxnOp::from_privilege_statement(
         statement,
         scope.tenant_scope,
         record.object_id,
     );
-    let mut txn = eg_query::TableTxn::new();
-    txn.push(eg_query::TxnOp::PropertyGraphDdl(op));
+    let mut txn = medulla_query::TableTxn::new();
+    txn.push(medulla_query::TxnOp::PropertyGraphDdl(op));
     commit_sql_catalog_txn(req_id, scope, sql_method.clone(), store, txn, tag).await
 }
 
@@ -74,7 +74,7 @@ pub(crate) async fn exec_sql_property_graph_ddl(
     req_id: u64,
     scope: SqlWriteScope<'_>,
     sql_method: Method,
-    store: &eg_query::TableStore,
+    store: &medulla_query::TableStore,
 ) -> Response {
     let Method::Sql { query, .. } = &sql_method else {
         return Response::err(
@@ -83,13 +83,13 @@ pub(crate) async fn exec_sql_property_graph_ddl(
         );
     };
     let actor = scope.caller.unwrap_or(scope.tenant_scope).to_string();
-    let statement = match eg_query::sql::parse_property_graph_ddl(query, scope.tenant_scope) {
+    let statement = match medulla_query::sql::parse_property_graph_ddl(query, scope.tenant_scope) {
         Ok(statement) => statement,
         Err(error) => return Response::err(req_id, sql_refusal(error)),
     };
-    let (op, tag) = eg_query::PropertyGraphTxnOp::from_statement(statement, &actor);
-    let mut txn = eg_query::TableTxn::new();
-    txn.push(eg_query::TxnOp::PropertyGraphDdl(op));
+    let (op, tag) = medulla_query::PropertyGraphTxnOp::from_statement(statement, &actor);
+    let mut txn = medulla_query::TableTxn::new();
+    txn.push(medulla_query::TxnOp::PropertyGraphDdl(op));
     commit_sql_catalog_txn(req_id, scope, sql_method.clone(), store, txn, tag).await
 }
 
@@ -102,7 +102,7 @@ pub(crate) async fn exec_sql_property_graph_ddl(
 ///
 /// Lowering runs on the blocking pool, exactly like every other SQL read on
 /// this route (`handle_sql`'s read arm, `exec_sql_write_insert_select`, and the
-/// pgwire `run_read` path all wrap their call the same way). `eg_query`'s
+/// pgwire `run_read` path all wrap their call the same way). `medulla_query`'s
 /// executor builds and `block_on`s its OWN current-thread runtime, which panics
 /// with "Cannot start a runtime from within a runtime" if it is entered from a
 /// reactor worker -- so calling it inline here made every `GRAPH_TABLE` query
@@ -110,9 +110,9 @@ pub(crate) async fn exec_sql_property_graph_ddl(
 #[cfg(feature = "query")]
 pub(crate) async fn exec_sql_graph_table_read(
     req_id: u64,
-    store: eg_query::TableStore,
+    store: medulla_query::TableStore,
     read_core: Arc<GraphCore>,
-    query: eg_query::GraphTableQuery,
+    query: medulla_query::GraphTableQuery,
 ) -> Response {
     let rows = compute_off_lock(req_id, move || graph_table_rows(&store, &read_core, &query)).await;
     match rows {
@@ -124,10 +124,10 @@ pub(crate) async fn exec_sql_graph_table_read(
 
 #[cfg(feature = "query")]
 pub(crate) fn graph_table_rows(
-    store: &eg_query::TableStore,
+    store: &medulla_query::TableStore,
     read_core: &Arc<GraphCore>,
-    query: &eg_query::GraphTableQuery,
-) -> Result<eg_query::TypedQueryResult, String> {
+    query: &medulla_query::GraphTableQuery,
+) -> Result<medulla_query::TypedQueryResult, String> {
     // The authorized projection re-admits visible graphs under its own private
     // index scope. Resolve and lower against that scope rather than the source
     // tenant name, which intentionally is not copied into the projection.
@@ -145,7 +145,7 @@ pub(crate) fn graph_table_rows(
     // Read-time proof that every pinned base relation still has its admitted
     // schema digest -- defence in depth behind the base-DDL fence.
     store.verify_property_graph_dependencies(&record)?;
-    eg_query::exec_graph_table_typed_with_tables(
+    medulla_query::exec_graph_table_typed_with_tables(
         &read_core.analysis_snapshot(),
         store,
         query,
@@ -155,7 +155,7 @@ pub(crate) fn graph_table_rows(
 }
 
 /// A scalar cell (from a resolved SELECT row) coerced to the string node-id form the
-/// engine stores (CONCEPT:EG-KG.query.insert-into-nodes-select/047).
+/// engine stores (CONCEPT:MEDULLA-KG.query.insert-into-nodes-select/047).
 #[cfg(feature = "query")]
 pub(crate) fn cell_to_node_id(v: &serde_json::Value) -> Result<String, String> {
     match v {
@@ -167,7 +167,7 @@ pub(crate) fn cell_to_node_id(v: &serde_json::Value) -> Result<String, String> {
     }
 }
 
-/// Build a `QueryResult`-shaped write ack and map the off-lock outcome (CONCEPT:EG-KG.query.mirrors-pgwire).
+/// Build a `QueryResult`-shaped write ack and map the off-lock outcome (CONCEPT:MEDULLA-KG.query.mirrors-pgwire).
 #[cfg(feature = "query")]
 pub(crate) fn sql_write_ack(
     req_id: u64,
@@ -202,8 +202,8 @@ struct SqlCatalogWork<'a> {
     caller: Option<&'a str>,
     authority: &'a crate::server::access::CarrierAuthority,
     persist_dir: &'a std::path::Path,
-    store: &'a eg_query::TableStore,
-    txn: &'a mut eg_query::TableTxn,
+    store: &'a medulla_query::TableStore,
+    txn: &'a mut medulla_query::TableTxn,
     sql_method: &'a Method,
 }
 
@@ -279,9 +279,9 @@ fn commit_sql_catalog_work(work: SqlCatalogWork<'_>) -> Result<usize, String> {
             .result_msgpack
             .as_deref()
             .ok_or_else(|| "committed SQL MutationBatch has no result".to_string())?;
-        eg_types::msgpack::decode_bounded::<usize>(
+        medulla_types::msgpack::decode_bounded::<usize>(
             bytes,
-            eg_types::msgpack::MsgpackLimits::new(64, 1, 1),
+            medulla_types::msgpack::MsgpackLimits::new(64, 1, 1),
         )
         .map_err(|_| "committed SQL result is corrupt".to_string())
     })
@@ -296,8 +296,8 @@ pub(crate) async fn commit_sql_catalog_txn(
     req_id: u64,
     scope: SqlWriteScope<'_>,
     sql_method: Method,
-    store: &eg_query::TableStore,
-    txn: eg_query::TableTxn,
+    store: &medulla_query::TableStore,
+    txn: medulla_query::TableTxn,
     tag: &'static str,
 ) -> Response {
     let SqlWriteScope {
@@ -331,25 +331,25 @@ pub(crate) async fn commit_sql_catalog_txn(
     sql_write_ack(req_id, tag, outcome)
 }
 
-/// Resolve the node ids a WHERE selects (CONCEPT:EG-KG.query.mirrors-pgwire). `Id` is the fast path (the
-/// node if it exists); `Predicate` (CONCEPT:EG-KG.query.compound-predicate-decode) scans the node store once,
+/// Resolve the node ids a WHERE selects (CONCEPT:MEDULLA-KG.query.mirrors-pgwire). `Id` is the fast path (the
+/// node if it exists); `Predicate` (CONCEPT:MEDULLA-KG.query.compound-predicate-decode) scans the node store once,
 /// decodes each blob to a row map (with the synthetic `id` column injected) and
 /// evaluates the compound predicate. The matched ids are re-checked under the write
 /// guard by the caller (`compare_and_set_fields_if`/`remove_node_if`).
 #[cfg(feature = "query")]
-pub(crate) fn matched_node_ids(core: &GraphCore, selector: &eg_query::WhereEq) -> Vec<String> {
+pub(crate) fn matched_node_ids(core: &GraphCore, selector: &medulla_query::WhereEq) -> Vec<String> {
     match selector {
-        eg_query::WhereEq::Id(id) => {
+        medulla_query::WhereEq::Id(id) => {
             if core.has_node(id) {
                 vec![id.clone()]
             } else {
                 Vec::new()
             }
         }
-        eg_query::WhereEq::Predicate { pred, .. } => {
+        medulla_query::WhereEq::Predicate { pred, .. } => {
             let mut out = Vec::new();
             for (id, blob) in core.get_nodes() {
-                if let Ok(mut obj) = eg_types::msgpack::decode_property_object(&blob) {
+                if let Ok(mut obj) = medulla_types::msgpack::decode_property_object(&blob) {
                     obj.entry("id".to_string())
                         .or_insert_with(|| serde_json::Value::String(id.clone()));
                     if pred.eval(&obj) {
@@ -362,46 +362,46 @@ pub(crate) fn matched_node_ids(core: &GraphCore, selector: &eg_query::WhereEq) -
     }
 }
 
-/// Shared parser-to-catalog conversion owned by `eg-query`. Keep the historical
+/// Shared parser-to-catalog conversion owned by `medulla-query`. Keep the historical
 /// local name because `sql_write` imports this module's helpers, while the
 /// implementation itself has one canonical owner for every SQL transport.
 #[cfg(feature = "query")]
-pub(crate) use eg_query::columns_from_defs as to_store_columns;
+pub(crate) use medulla_query::columns_from_defs as to_store_columns;
 
 /// Lower a decoded `ALTER TABLE` action into the shared transactional table-store
 /// operation. The SQL native coordinator can then apply the catalog change and its
 /// MutationBatch metadata in one redb transaction.
 #[cfg(feature = "query")]
 pub(crate) fn alter_table_txn_op(
-    plan: eg_query::AlterTablePlan,
-) -> Result<eg_query::TxnOp, String> {
-    use eg_query::AlterTableAction as A;
+    plan: medulla_query::AlterTablePlan,
+) -> Result<medulla_query::TxnOp, String> {
+    use medulla_query::AlterTableAction as A;
     match plan.action {
         A::AddColumn(col) => {
             let columns = to_store_columns(std::slice::from_ref(&col))?;
             let column = columns.into_iter().next().ok_or("ALTER TABLE: no column")?;
-            Ok(eg_query::TxnOp::AddColumn {
+            Ok(medulla_query::TxnOp::AddColumn {
                 table: plan.name,
                 column,
             })
         }
-        A::DropColumn { column, if_exists } => Ok(eg_query::TxnOp::DropColumn {
+        A::DropColumn { column, if_exists } => Ok(medulla_query::TxnOp::DropColumn {
             table: plan.name,
             column,
             if_exists,
         }),
-        A::RenameColumn { from, to } => Ok(eg_query::TxnOp::RenameColumn {
+        A::RenameColumn { from, to } => Ok(medulla_query::TxnOp::RenameColumn {
             table: plan.name,
             from,
             to,
         }),
-        A::RenameTable { new_name } => Ok(eg_query::TxnOp::RenameTable {
+        A::RenameTable { new_name } => Ok(medulla_query::TxnOp::RenameTable {
             table: plan.name,
             new_name,
         }),
         A::AlterColumnType { column, new_type } => {
-            let ty = eg_query::ColumnType::parse(&new_type)?;
-            Ok(eg_query::TxnOp::AlterColumnType {
+            let ty = medulla_query::ColumnType::parse(&new_type)?;
+            Ok(medulla_query::TxnOp::AlterColumnType {
                 table: plan.name,
                 column,
                 new_type: ty,
@@ -410,7 +410,7 @@ pub(crate) fn alter_table_txn_op(
         A::DropConstraint {
             constraint,
             if_exists,
-        } => Ok(eg_query::TxnOp::DropConstraint {
+        } => Ok(medulla_query::TxnOp::DropConstraint {
             table: plan.name,
             constraint,
             if_exists,
@@ -455,7 +455,7 @@ pub(crate) fn versioned_rls_snapshot(
 }
 
 /// Produce the off-lock `GraphView` the query planner consumes, with per-agent
-/// Row-Level Security applied IN the read/plan path (CONCEPT:EG-KG.sharding.row-level-security). Under the
+/// Row-Level Security applied IN the read/plan path (CONCEPT:MEDULLA-KG.sharding.row-level-security). Under the
 /// `security` feature the owned snapshot is filtered down to the rows `caller` may
 /// see BEFORE it reaches any query surface (SQL/Cypher/unified), so no surface can
 /// exfiltrate a forbidden row. Without the feature this is exactly
@@ -517,7 +517,7 @@ pub(crate) fn rls_snapshot(
     }
 }
 
-/// ⚠ THE RLS-AWARE RESULT-CACHE KEY (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231 — the headline
+/// ⚠ THE RLS-AWARE RESULT-CACHE KEY (CONCEPT:MEDULLA-KG.coordination.distributed-cache-coherence × KG-2.231 — the headline
 /// reconciliation). RLS makes a query's RESULT agent-specific: agent A and agent B
 /// running the SAME query text see DIFFERENT rows (A cannot see B's private nodes).
 /// The result cache is keyed by `(query-hash, version)`; if that hash ignored the

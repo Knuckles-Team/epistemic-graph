@@ -1,4 +1,4 @@
-//! EG-FINANCE-PRIMITIVES-R901.3 / R613.3 / R018.3: the served banking, regime,
+//! MEDULLA-FINANCE-PRIMITIVES-R901.3 / R613.3 / R018.3: the served banking, regime,
 //! execution, pairs and factor-rank methods run the shared kernels through the
 //! real signed `dispatch` surface, and a refusal carries the kernel's stable code.
 #![cfg(all(feature = "server", feature = "security", feature = "finance"))]
@@ -7,10 +7,10 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use epistemic_graph::protocol::{GraphType, Method, Response, ResultPayload};
+use medulla::protocol::{GraphType, Method, Response, ResultPayload};
 use serde_json::Value;
 
-const SECRET: &str = "eg-fin-served-numeric-kernels-secret";
+const SECRET: &str = "medulla-fin-served-numeric-kernels-secret";
 const GRAPH: &str = "fin-numeric-kernels";
 
 async fn call(method: Method) -> Response {
@@ -57,7 +57,7 @@ fn aml(amount_minor: i64, threshold_minor: i64) -> Method {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-// spec: EG-FINANCE-PRIMITIVES-R901.3
+// spec: MEDULLA-FINANCE-PRIMITIVES-R901.3
 async fn banking_methods_run_their_kernels() {
     let structuring = body(&call(aml(8_500, 10_000)).await);
     assert_eq!(structuring["alert"]["kind"], "structuring");
@@ -102,7 +102,7 @@ async fn banking_methods_run_their_kernels() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-// spec: EG-FINANCE-PRIMITIVES-R901.3
+// spec: MEDULLA-FINANCE-PRIMITIVES-R901.3
 async fn banking_refusals_carry_the_kernel_code() {
     refusal_code_in_detail(&call(aml(1, 0)).await, "AML_INPUT_INVALID");
     let rwa = call(Method::FinanceCapitalRatios {
@@ -124,7 +124,7 @@ async fn banking_refusals_carry_the_kernel_code() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-// spec: EG-FINANCE-PRIMITIVES-R613.3
+// spec: MEDULLA-FINANCE-PRIMITIVES-R613.3
 async fn execution_methods_run_their_kernels() {
     let regime = body(
         &call(Method::FinanceRegimeChain {
@@ -194,7 +194,7 @@ async fn execution_methods_run_their_kernels() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-// spec: EG-FINANCE-PRIMITIVES-R613.3
+// spec: MEDULLA-FINANCE-PRIMITIVES-R613.3
 async fn execution_refusals_carry_the_kernel_code() {
     let bad = call(Method::FinanceExecutionSchedule {
         symbol: "AAPL".into(),
@@ -223,7 +223,7 @@ fn rank(signals: Vec<Vec<f64>>, forward: Vec<f64>) -> Method {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-// spec: EG-FINANCE-PRIMITIVES-R018.3
+// spec: MEDULLA-FINANCE-PRIMITIVES-R018.3
 async fn factor_rank_orders_by_absolute_information_ratio() {
     let forward = vec![0.01, 0.02, 0.03, 0.04, 0.05, 0.06];
     let strong = forward.clone();
@@ -241,7 +241,7 @@ async fn factor_rank_orders_by_absolute_information_ratio() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-// spec: EG-FINANCE-PRIMITIVES-R018.3
+// spec: MEDULLA-FINANCE-PRIMITIVES-R018.3
 async fn factor_rank_abstains_on_thin_input() {
     refusal_code_in_detail(
         &call(rank(vec![vec![1.0]], vec![1.0])).await,

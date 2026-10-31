@@ -20,7 +20,7 @@ def _module():
     if scripts not in sys.path:
         sys.path.insert(0, scripts)
     path = REPO / "scripts/check_rust_arch_lint.py"
-    spec = importlib.util.spec_from_file_location("eg_check_rust_arch_lint", path)
+    spec = importlib.util.spec_from_file_location("medulla_check_rust_arch_lint", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -553,8 +553,8 @@ def test_installed_scanner_fixture_contract(
         binary = module.resolve_binary("arch-lint", "ARCH_LINT_BIN")
     except FileNotFoundError:
         # The scanner-quality job installs the pinned scanners and sets
-        # EG_REQUIRE_SCANNERS, so a missing binary fails closed there.
-        if os.environ.get("EG_REQUIRE_SCANNERS"):
+        # MEDULLA_REQUIRE_SCANNERS, so a missing binary fails closed there.
+        if os.environ.get("MEDULLA_REQUIRE_SCANNERS"):
             raise
         pytest.skip("arch-lint is not installed (scripts/install_scanners.sh)")
     result = subprocess.run(

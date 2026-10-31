@@ -1,4 +1,4 @@
-//! Ack-lost `Commit` retry reconciliation (CONCEPT:EG-KG.txn.multi-op-occ-acid),
+//! Ack-lost `Commit` retry reconciliation (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid),
 //! covering the W1d hot-path fix in `handlers::txn::reconcile_committed_txn`.
 //!
 //! When a client's `Commit` response is lost after the transaction already
@@ -30,10 +30,10 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use epistemic_graph::acl::RequestContextClaims;
-use epistemic_graph::mutation_batch::MutationBatchStatus;
-use epistemic_graph::protocol::{GraphType, Method, Request, Response, ResultPayload};
-use epistemic_graph::server::{compute_verified_envelope_token, dispatch, VerifiedEnvelopeParams};
+use medulla::acl::RequestContextClaims;
+use medulla::mutation_batch::MutationBatchStatus;
+use medulla::protocol::{GraphType, Method, Request, Response, ResultPayload};
+use medulla::server::{compute_verified_envelope_token, dispatch, VerifiedEnvelopeParams};
 use std::process::Command;
 
 const SECRET: &str = "txn-reconcile-ack-lost-secret";
@@ -76,7 +76,7 @@ const TEST_TENANT_CLAIM: &str = "integration-test-tenant";
 /// a signed request resolves to: `opaque_coordinator_key("carrier-tenant",
 /// "verified", <tenant claim>)`. The single-graph OCC commit path stamps a
 /// durable `MutationBatch.tenant` with this same value (CONCEPT:
-/// EG-KG.txn.multi-op-occ-acid). The test deliberately keeps that tenant scope
+/// MEDULLA-KG.txn.multi-op-occ-acid). The test deliberately keeps that tenant scope
 /// distinct from its target graph: recovery must compare the child batch against
 /// the verified tenant, not incorrectly require `batch.tenant == batch.graph`.
 fn opaque_coordinator_key(namespace: &str, graph: &str, coordinator_id: &str) -> String {
@@ -174,7 +174,7 @@ fn signed_fixed_request(
     let context = RequestContextClaims {
         principal: common::TEST_AGENT.to_string(),
         tenant: TEST_TENANT_CLAIM.to_string(),
-        audience: "epistemic-graph-integration-tests".to_string(),
+        audience: "medulla-integration-tests".to_string(),
         agent_id: common::TEST_AGENT.to_string(),
         roles: Vec::new(),
         scopes: vec!["*".to_string()],
@@ -221,15 +221,15 @@ fn certification_fault_spec(request_id: u64, phase: &str) -> String {
 #[tokio::test]
 async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
     let _env_lock = TEST_ENV_LOCK.lock().await;
-    let dir = test_support::fresh_dir("eg-txn-reconcile");
+    let dir = test_support::fresh_dir("medulla-txn-reconcile");
     let dir_s = dir.to_string_lossy().to_string();
 
     // The single/multi-graph OCC `Commit` receipt is sealed via the transaction
-    // recovery cipher (CONCEPT:EG-KG.txn.multi-op-occ-acid), so a durable Commit
+    // recovery cipher (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid), so a durable Commit
     // requires an encryption key configured. This test is the only one in this
     // binary, so setting the process-global env var here is race-free.
     std::env::set_var(
-        epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
+        medulla::crypto::ENCRYPTION_KEY_ENV,
         "txn-reconcile-ack-lost-retry-test-key",
     );
 
@@ -417,7 +417,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
 /// A fault child's engine: the durable backend at `dir_s`, opened under the
 /// child's own encryption key (set process-wide; the child owns its process).
 fn fault_child_state(dir_s: &str, encryption_key: &str) -> test_support::SharedState {
-    std::env::set_var(epistemic_graph::crypto::ENCRYPTION_KEY_ENV, encryption_key);
+    std::env::set_var(medulla::crypto::ENCRYPTION_KEY_ENV, encryption_key);
     test_support::redb_state_at(SECRET, common::current_isolation(), dir_s).1
 }
 
@@ -437,7 +437,7 @@ async fn signed_dispatch_commit_fault_child() {
         .expect("fault dir from parent harness; run signed_dispatch_commit_fault_windows_recover_parent_once instead of setting the child env by hand");
     let phase = std::env::var(FAULT_PHASE_ENV).expect("fault phase from parent harness");
     std::env::set_var(
-        "EPISTEMIC_GRAPH_CERTIFICATION_FAULT",
+        "MEDULLA_CERTIFICATION_FAULT",
         certification_fault_spec(405, &phase),
     );
     let state = fault_child_state(&dir_s, "txn-signed-commit-fault-test-key");
@@ -570,7 +570,7 @@ async fn enter_signed_dispatch_commit_fault_child_if_requested() {
 /// windows. A fresh retry must recover the prepared parent, produce exactly one
 /// child effect, and then replay the same terminal receipt; reusing the original
 /// commit nonce must still be rejected by the kernel.
-// spec: EG-DURABLE-KERNEL-R065
+// spec: MEDULLA-DURABLE-KERNEL-R065
 #[tokio::test]
 async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
     enter_signed_dispatch_commit_fault_child_if_requested().await;
@@ -583,7 +583,7 @@ async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
             true,
         ),
     ] {
-        let dir = test_support::fresh_dir(&format!("eg-txn-signed-fault-{label}"));
+        let dir = test_support::fresh_dir(&format!("medulla-txn-signed-fault-{label}"));
         let dir_s = dir.to_string_lossy().into_owned();
         let child = Command::new(std::env::current_exe().expect("integration test executable"))
             .arg("--exact")
@@ -603,7 +603,7 @@ async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
         );
 
         std::env::set_var(
-            epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
+            medulla::crypto::ENCRYPTION_KEY_ENV,
             "txn-signed-commit-fault-test-key",
         );
         let backend = test_support::reopen_with_bounded_retry(
@@ -827,7 +827,7 @@ async fn signed_dispatch_lifecycle_fault_child() {
     );
 
     if mode == "begin" {
-        std::env::set_var("EPISTEMIC_GRAPH_LIFECYCLE_EFFECT_FAULT_REQUEST_ID", "501");
+        std::env::set_var("MEDULLA_LIFECYCLE_EFFECT_FAULT_REQUEST_ID", "501");
         std::fs::write(
             std::path::Path::new(&dir_s).join(LIFECYCLE_ARMED_MARKER_FILE),
             "armed:begin:501\n",
@@ -874,7 +874,7 @@ async fn signed_dispatch_lifecycle_fault_child() {
             &txn_id,
         )
         .expect("persist lifecycle stage handle for restart harness");
-        std::env::set_var("EPISTEMIC_GRAPH_LIFECYCLE_EFFECT_FAULT_REQUEST_ID", "503");
+        std::env::set_var("MEDULLA_LIFECYCLE_EFFECT_FAULT_REQUEST_ID", "503");
         std::fs::write(
             std::path::Path::new(&dir_s).join(LIFECYCLE_ARMED_MARKER_FILE),
             "armed:stage:503\n",
@@ -918,7 +918,7 @@ async fn signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay() {
     enter_signed_dispatch_lifecycle_fault_child_if_requested().await;
     let _env_lock = TEST_ENV_LOCK.lock().await;
     for mode in ["begin", "stage"] {
-        let dir = test_support::fresh_dir(&format!("eg-txn-signed-lifecycle-fault-{mode}"));
+        let dir = test_support::fresh_dir(&format!("medulla-txn-signed-lifecycle-fault-{mode}"));
         let dir_s = dir.to_string_lossy().into_owned();
         let child = Command::new(std::env::current_exe().expect("integration test executable"))
             .arg("--exact")
@@ -943,7 +943,7 @@ async fn signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay() {
         );
 
         std::env::set_var(
-            epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
+            medulla::crypto::ENCRYPTION_KEY_ENV,
             "txn-signed-lifecycle-fault-test-key",
         );
         let backend = test_support::reopen_with_bounded_retry(
@@ -1049,10 +1049,10 @@ async fn signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay() {
 #[tokio::test]
 async fn native_lifecycle_reopen_refuses_stale_begin_and_stage_success() {
     let _env_lock = TEST_ENV_LOCK.lock().await;
-    let dir = test_support::fresh_dir("eg-txn-lifecycle-restart");
+    let dir = test_support::fresh_dir("medulla-txn-lifecycle-restart");
     let dir_s = dir.to_string_lossy().to_string();
     std::env::set_var(
-        epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
+        medulla::crypto::ENCRYPTION_KEY_ENV,
         "txn-lifecycle-restart-test-key",
     );
 

@@ -130,7 +130,7 @@ async fn commit_prepublish_durable_batch(
         .map_err(|error| {
             Response::err(
                 ctx.req_id,
-                eg_types::contract::classify_refusal(
+                medulla_types::contract::classify_refusal(
                     "INTERNAL",
                     "MutationBatch durable commit failed: ",
                     &error,
@@ -230,9 +230,9 @@ where
         Ok(payload) => payload,
         Err(error) => return Err(Response::err(ctx.req_id, error)),
     };
-    // X5-enforce, native writes (W4.13, CONCEPT:EG-KG.ontology.rdf-update-guard): the same
+    // X5-enforce, native writes (W4.13, CONCEPT:MEDULLA-KG.ontology.rdf-update-guard): the same
     // registered per-graph integrity policy the RDF write path enforces, extended
-    // (opt-in, `EPISTEMIC_GRAPH_ICV_NATIVE_WRITES`) to this gateway's staged/
+    // (opt-in, `MEDULLA_ICV_NATIVE_WRITES`) to this gateway's staged/
     // diffable native-write path (`CompareAndSetNodeFields`, `ApplyMutation`, and
     // any other write NOT on the `prepublish_success` row-local fast path — see
     // `conditional::commit_conditional_mutation_async_inner` for the sibling `CypherQuery`

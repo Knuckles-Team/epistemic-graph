@@ -52,7 +52,7 @@ class ReleasePublication(unittest.TestCase):
         )
         self.assertEqual(
             jobs["build-x86"]["uses"],
-            "Knuckles-Team/medulla/.github/workflows/eg-release-x86.yml@219c853efa7aacb8cf7032abf67fc7f70aefb1ce",
+            "Knuckles-Team/medulla/.github/workflows/medulla-release-x86.yml@219c853efa7aacb8cf7032abf67fc7f70aefb1ce",
         )
         self.assertNotIn("docker-image", jobs)
         self.assertNotIn("publish-image", jobs)
@@ -109,7 +109,7 @@ class ReleasePublication(unittest.TestCase):
         commands = [step.get("run", "") for step in jobs["gates-storage"]["steps"]]
         storage = (
             "python3 scripts/cargo_test_rescue.py cargo test --locked "
-            "-p eg-storage --all-features --no-fail-fast -- --test-threads=1"
+            "-p medulla-storage --all-features --no-fail-fast -- --test-threads=1"
         )
         self.assertEqual(commands.count(storage), 1)
         workspace = next(
@@ -117,7 +117,7 @@ class ReleasePublication(unittest.TestCase):
             for step in jobs["gates-crates"]["steps"]
             if "--locked --workspace" in step.get("run", "")
         )
-        self.assertIn("--exclude eg-storage ", workspace)
+        self.assertIn("--exclude medulla-storage ", workspace)
         self.assertNotIn("--test-threads=1", workspace)
         steps = jobs["gates-storage"]["steps"]
         self.assertEqual(steps, jobs["gates-crates"]["steps"])
@@ -244,11 +244,11 @@ class ReleasePublication(unittest.TestCase):
         for proof in (
             "set -euo pipefail",
             "--force-reinstall",
-            "unexpected epistemic-graph-server executable",
+            "unexpected medulla-server executable",
             "metadata.requires",
             "numpy",
             "n.sum(values)==10.0",
-            "import epistemic_graph.engine",
+            "import medulla.engine",
         ):
             self.assertIn(proof, script)
         hosted_steps = self.workflow["jobs"]["build"]["steps"]

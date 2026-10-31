@@ -1,7 +1,7 @@
 //! Resolve only an exact native terminal binding; never mint an event.
-use eg_types::outcome_bundle::{RunEvent, RUN_EVENT_OUTBOX_TOPIC};
-use eg_types::work_item_read::{CommittedTerminalEvent, TerminalEventRead};
-use eg_types::{
+use medulla_types::outcome_bundle::{RunEvent, RUN_EVENT_OUTBOX_TOPIC};
+use medulla_types::work_item_read::{CommittedTerminalEvent, TerminalEventRead};
+use medulla_types::{
     MutationBatchRecord, MutationBatchStatus, MutationOutboxRecord, MutationScopeIdentity,
 };
 use sha2::{Digest, Sha256};

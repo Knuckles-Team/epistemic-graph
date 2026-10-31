@@ -3,15 +3,15 @@
 //! Starts the real pgwire listener over an in-process `ServerState`, connects with
 //! the real `tokio-postgres` client, and proves the shim end-to-end:
 //!   * `SELECT id FROM nodes …` over a seeded graph returns the expected rows
-//!     (reusing the eg-query DataFusion path — the SAME code `Method::Sql` runs),
+//!     (reusing the medulla-query DataFusion path — the SAME code `Method::Sql` runs),
 //!   * an `INSERT INTO nodes …` (routed through the GraphTxn write path) is visible
 //!     to a subsequent `SELECT` on the same connection.
 //!
-//! It also proves the durability barrier (CONCEPT:EG-KG.query.concept-10): a pgwire
+//! It also proves the durability barrier (CONCEPT:MEDULLA-KG.query.concept-10): a pgwire
 //! INSERT awaits `record_durable` before completion, verified by reading the row
 //! back from a fresh backend on the same directory.
 //!
-//! Only compiled with `--features pgwire` (the listener + the eg-query SQL path);
+//! Only compiled with `--features pgwire` (the listener + the medulla-query SQL path);
 //! the authoritative durability test additionally needs `--features redb`.
 
 #![cfg(feature = "pgwire")]
@@ -24,11 +24,11 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use epistemic_graph::isolation::{AgentIdentity, AgentRole};
-use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::persistence::PersistenceBackend;
-use epistemic_graph::server::pgwire;
-use epistemic_graph::server::ServerState;
+use medulla::isolation::{AgentIdentity, AgentRole};
+use medulla::registry::GraphRegistry;
+use medulla::server::persistence::PersistenceBackend;
+use medulla::server::pgwire;
+use medulla::server::ServerState;
 
 fn sql_test_persist_dir() -> String {
     test_support::sql_test_persist_dir("pgwire")
@@ -55,7 +55,7 @@ fn state_with_dir(
 /// kernel (`commit_cross_modal_txn`), which fails closed ("cross-modal mutation
 /// requires durable persistence") against a `persistence: None` state. A keyed
 /// backend additionally satisfies the multi-op commit's transaction-recovery-plan
-/// seal, which requires `EPISTEMIC_GRAPH_ENCRYPTION_KEY` at `open()` (see
+/// seal, which requires `MEDULLA_ENCRYPTION_KEY` at `open()` (see
 /// `redb_backend::tests::cm_dir`'s identical requirement) — provisioned once, before
 /// the first backend opens.
 fn default_persistence() -> Option<test_support::SharedPersistence> {
@@ -78,8 +78,8 @@ fn seeded_state() -> test_support::SharedState {
 fn reopen_redb_with_retry(
     dir: &str,
     cache: usize,
-) -> epistemic_graph::server::persistence::redb_backend::RedbBackend {
-    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
+) -> medulla::server::persistence::redb_backend::RedbBackend {
+    use medulla::server::persistence::redb_backend::RedbBackend;
     let mut last_err = None;
     for attempt in 0..50 {
         match RedbBackend::open(dir.to_string(), cache) {
@@ -95,12 +95,12 @@ fn reopen_redb_with_retry(
 
 #[cfg(feature = "redb")]
 fn interval_backend(label: &str) -> (String, Arc<dyn PersistenceBackend>) {
-    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
+    use medulla::server::persistence::redb_backend::RedbBackend;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT: AtomicU64 = AtomicU64::new(1);
     let dir = std::env::temp_dir().join(format!(
-        "eg-pgwire-{label}-{}-{}",
+        "medulla-pgwire-{label}-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
@@ -116,7 +116,7 @@ async fn reopened_node(
     dir: &str,
     node_id: &str,
 ) -> (
-    epistemic_graph::server::persistence::redb_backend::RedbBackend,
+    medulla::server::persistence::redb_backend::RedbBackend,
     Option<Vec<u8>>,
 ) {
     let reopened = reopen_redb_with_retry(dir, 64);
@@ -133,7 +133,7 @@ async fn spawn_listener(state: Arc<RwLock<ServerState>>) -> String {
     spawn_listener_mode(state, pgwire::PgWireAuthMode::Scram).await
 }
 
-/// Bind + serve with an EXPLICIT auth mode (CONCEPT:EG-KG.query.concept-13). Used by the auth
+/// Bind + serve with an EXPLICIT auth mode (CONCEPT:MEDULLA-KG.query.concept-13). Used by the auth
 /// tests to pin SCRAM deterministically (no process-global env toggle).
 async fn spawn_listener_mode(
     state: Arc<RwLock<ServerState>>,
@@ -143,7 +143,7 @@ async fn spawn_listener_mode(
     test_support::spawn_pgwire_listener(state, mode).await
 }
 
-/// Provision `EG_UQL_TEXT_EMBEDDER=hash` for this whole test process, before ANY
+/// Provision `MEDULLA_UQL_TEXT_EMBEDDER=hash` for this whole test process, before ANY
 /// pgwire listener exists (GOC-70 rule 2).
 ///
 /// The server resolves that variable exactly once per process -- `uql_text_embedder`
@@ -159,7 +159,7 @@ async fn spawn_listener_mode(
 /// other test in this binary depends on the embedder being unbound.
 fn provision_text_embedder_once() {
     static TEXT_EMBEDDER_ENV: std::sync::Once = std::sync::Once::new();
-    TEXT_EMBEDDER_ENV.call_once(|| std::env::set_var("EG_UQL_TEXT_EMBEDDER", "hash"));
+    TEXT_EMBEDDER_ENV.call_once(|| std::env::set_var("MEDULLA_UQL_TEXT_EMBEDDER", "hash"));
 }
 
 /// Like [`spawn_listener`], but hands back the listener task's `JoinHandle` too. A
@@ -248,18 +248,18 @@ async fn wire_rejects_retired_graph_compatibility_sql_and_extensions() {
     assert_eq!(simple_ids(rows), vec!["n2".to_string(), "n3".to_string()]);
 }
 
-/// BUG-CX-084: `eg_embed(text)`'s process-wide embedder (design §9 phase 2) used to be
+/// BUG-CX-084: `medulla_embed(text)`'s process-wide embedder (design §9 phase 2) used to be
 /// bound ONLY at the top of the native RPC `handle_sql` entry point — the pgwire
 /// `do_query`/extended-`do_query` handlers never call `handle_sql` (they run the
 /// shared `WireSession::execute` core directly), so a `psql`/tokio-postgres client
-/// speaking ONLY pgwire could never reach a bound embedder: `eg_embed(...)` always
+/// speaking ONLY pgwire could never reach a bound embedder: `medulla_embed(...)` always
 /// fell through to its typed "no server-side text embedder is bound" error, even with
-/// `EG_UQL_TEXT_EMBEDDER` configured. This drives a real tokio-postgres client at a
+/// `MEDULLA_UQL_TEXT_EMBEDDER` configured. This drives a real tokio-postgres client at a
 /// real pgwire listener — the actual reachability path the bug report names — and
 /// proves the SQL resolves rather than erroring closed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wire_eg_embed_is_reachable_over_a_pgwire_only_session() {
-    // `EG_UQL_TEXT_EMBEDDER=hash` is provisioned process-wide by
+    // `MEDULLA_UQL_TEXT_EMBEDDER=hash` is provisioned process-wide by
     // `provision_text_embedder_once` inside `spawn_listener`, before this or any other
     // session's first query can latch the embedder (see that function's doc).
     let state = seeded_state();
@@ -267,11 +267,11 @@ async fn wire_eg_embed_is_reachable_over_a_pgwire_only_session() {
     let client = connect(&addr).await;
 
     let rows = client
-        .simple_query("SELECT eg_embed('leaky pump') AS v")
+        .simple_query("SELECT medulla_embed('leaky pump') AS v")
         .await
         .unwrap_or_else(|e| {
             panic!(
-                "eg_embed(...) must be reachable over a pgwire-only session \
+                "medulla_embed(...) must be reachable over a pgwire-only session \
                  (BUG-CX-084), got: {e:?}"
             )
         });
@@ -309,7 +309,7 @@ async fn wire_insert_then_select_round_trip() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Extended / prepared protocol (CONCEPT:EG-KG.query.describe) — real driver path.
+// Extended / prepared protocol (CONCEPT:MEDULLA-KG.query.describe) — real driver path.
 // `tokio-postgres`'s `prepare`/`query`/`execute` use the extended protocol
 // (Parse/Bind/Describe/Execute/Sync), which is what psycopg3/asyncpg/JDBC/sqlx/
 // SQLAlchemy use by DEFAULT. These prove a real driver's prepared+parameterized
@@ -388,7 +388,7 @@ async fn extended_parameterized_delete_then_select() {
     assert_eq!(rows.len(), 0, "deleted node must be gone");
 }
 
-/// Multi-row INSERT (CONCEPT:EG-KG.query.follow-up): `INSERT … VALUES (…),(…),(…)` adds three
+/// Multi-row INSERT (CONCEPT:MEDULLA-KG.query.follow-up): `INSERT … VALUES (…),(…),(…)` adds three
 /// nodes in one statement; a COUNT confirms all landed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn multi_row_insert_then_count() {
@@ -415,7 +415,7 @@ async fn multi_row_insert_then_count() {
     assert_eq!(c, 3, "all three multi-insert rows present");
 }
 
-/// `INSERT … RETURNING id` (CONCEPT:EG-KG.query.follow-up): the write returns the affected row
+/// `INSERT … RETURNING id` (CONCEPT:MEDULLA-KG.query.follow-up): the write returns the affected row
 /// as a result set, not just a CommandComplete tag.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn insert_returning_row() {
@@ -471,11 +471,11 @@ impl PersistenceBackend for RecordingBackend {
     async fn record_durable(
         &self,
         graph_fname: &str,
-        method: &epistemic_graph::protocol::Method,
+        method: &medulla::protocol::Method,
     ) -> Result<(), String> {
         self.durable
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        if let epistemic_graph::protocol::Method::AddNode { node_id, .. } = method {
+        if let medulla::protocol::Method::AddNode { node_id, .. } = method {
             self.recorded
                 .lock()
                 .unwrap()
@@ -494,12 +494,12 @@ impl PersistenceBackend for RecordingBackend {
     // authoritative-commit-flip seam this mock must speak now.
     async fn commit_mutation_batch_crossmodal(
         &self,
-        args: epistemic_graph::server::persistence::CrossModalCommitArgs<'_>,
-    ) -> Result<epistemic_graph::mutation_batch::MutationBatchCommit, String> {
+        args: medulla::server::persistence::CrossModalCommitArgs<'_>,
+    ) -> Result<medulla::mutation_batch::MutationBatchCommit, String> {
         self.durable
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         for method in args.methods {
-            if let epistemic_graph::protocol::Method::AddNode { node_id, .. } = method {
+            if let medulla::protocol::Method::AddNode { node_id, .. } = method {
                 self.recorded
                     .lock()
                     .unwrap()
@@ -516,8 +516,8 @@ impl PersistenceBackend for RecordingBackend {
         // `VersionExpectation::Graph`, and production fails closed on anything
         // else, so this mock does too rather than stubbing a default.
         let committed_version = match args.batch.version_expectation {
-            epistemic_graph::mutation_batch::VersionExpectation::Graph(expected) => {
-                epistemic_graph::mutation_batch::CommittedVersion::checked_graph(expected)?
+            medulla::mutation_batch::VersionExpectation::Graph(expected) => {
+                medulla::mutation_batch::CommittedVersion::checked_graph(expected)?
             }
             other => {
                 return Err(format!(
@@ -525,11 +525,11 @@ impl PersistenceBackend for RecordingBackend {
                 ))
             }
         };
-        Ok(epistemic_graph::mutation_batch::MutationBatchCommit {
-            record: epistemic_graph::mutation_batch::MutationBatchRecord {
+        Ok(medulla::mutation_batch::MutationBatchCommit {
+            record: medulla::mutation_batch::MutationBatchRecord {
                 batch: args.batch.clone(),
                 identity: args.batch.identity.clone(),
-                status: epistemic_graph::mutation_batch::MutationBatchStatus::Committed,
+                status: medulla::mutation_batch::MutationBatchStatus::Committed,
                 committed_version,
                 result_msgpack: args.result_msgpack.map(|b| b.to_vec()),
                 committed_at_ms: args.committed_at_ms,
@@ -568,7 +568,7 @@ async fn wire_insert_awaits_durable_backend() {
     );
 }
 
-/// Authoritative durability (CONCEPT:EG-KG.query.concept-10): a pgwire INSERT is
+/// Authoritative durability (CONCEPT:MEDULLA-KG.query.concept-10): a pgwire INSERT is
 /// commit-before-ack — `record_durable` is awaited before the
 /// CommandComplete is sent. We prove the wire write is durable WITHOUT any checkpoint
 /// by reading the row back from a SEPARATE redb backend reopened on the same dir: the
@@ -621,7 +621,7 @@ async fn wire_insert_authoritative_is_durable_without_checkpoint() {
     let _ = std::fs::remove_dir_all(&dir_s);
 }
 
-/// Extended-protocol durable-on-ack (CONCEPT:EG-KG.query.describe + KG-2.198): a parameterized
+/// Extended-protocol durable-on-ack (CONCEPT:MEDULLA-KG.query.describe + KG-2.198): a parameterized
 /// `UPDATE … WHERE id = $1` issued over the extended protocol
 /// mode is commit-before-ack — `record_durable` (a `CompareAndSetNodeFields` method)
 /// is AWAITED before the client's `execute()` returns. We prove the wire write is
@@ -679,7 +679,7 @@ async fn extended_update_authoritative_is_durable_without_checkpoint() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Synthetic catalog (CONCEPT:EG-KG.query.datafusion) — a real driver introspects on connect.
+// Synthetic catalog (CONCEPT:MEDULLA-KG.query.datafusion) — a real driver introspects on connect.
 // A tokio-postgres client lists tables via information_schema, reflects the
 // `nodes` columns, calls version()/current_schema(), then SELECTs — all succeed.
 // ───────────────────────────────────────────────────────────────────────────
@@ -758,12 +758,12 @@ async fn catalog_introspection_then_select() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// pg-wire SCRAM auth bridged to the engine identity (CONCEPT:EG-KG.query.concept-13).
+// pg-wire SCRAM auth bridged to the engine identity (CONCEPT:MEDULLA-KG.query.concept-13).
 // A SCRAM login succeeds with the derived password, is REJECTED with the wrong
 // one, and post-login queries run under the mapped engine AgentIdentity/ACL.
 // ───────────────────────────────────────────────────────────────────────────
 
-use epistemic_graph::server::pgwire::derive_pg_password;
+use medulla::server::pgwire::derive_pg_password;
 
 /// A SCRAM-auth state: a known engine secret + a registered identity so the
 /// IsolationLayer has rules (the ACL is enforced once any identity exists). The
@@ -776,14 +776,14 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
     registry
         .create_graph(
             "agent:worker",
-            epistemic_graph::protocol::GraphType::Agent,
+            medulla::protocol::GraphType::Agent,
             Some("worker".to_string()),
         )
         .unwrap();
     registry
         .create_graph(
             "agent:peer",
-            epistemic_graph::protocol::GraphType::Agent,
+            medulla::protocol::GraphType::Agent,
             Some("peer".to_string()),
         )
         .unwrap();
@@ -798,7 +798,7 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
     // graph while still being denied `peer`'s.
     #[cfg(feature = "security")]
     {
-        use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+        use medulla::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
         for (owner, graph) in [("worker", "agent:worker"), ("peer", "agent:peer")] {
             let role = format!("owner-{owner}");
             isolation.add_role(Role::new(role.clone()));
@@ -865,7 +865,7 @@ async fn scram_login_succeeds_with_correct_password() {
     // `wire_select_returns_seeded_rows`/`extended_prepared_parameterized_select`
     // rely on elsewhere in this file) — no JSON deep-index accessor is needed. The
     // `props->>'k'` operator form is only wired for the narrow graph-node
-    // UPDATE/DELETE selector decoder (`eg_query::sql::classify`), not the general
+    // UPDATE/DELETE selector decoder (`medulla_query::sql::classify`), not the general
     // DataFusion-planned SELECT path this query runs on, so using it here panicked
     // with "Operator ->> is not yet supported".
     let rows = client
@@ -950,7 +950,7 @@ fn error_chain(err: &tokio_postgres::Error) -> String {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Mixed-store wire transactions (CONCEPT:EG-KG.compute.kg-transaction-is-pinned) — BEGIN/COMMIT/ROLLBACK over the
+// Mixed-store wire transactions (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned) — BEGIN/COMMIT/ROLLBACK over the
 // simple-query protocol, on ONE persistent connection (== one EngineBackend).
 // ───────────────────────────────────────────────────────────────────────────
 
@@ -1159,7 +1159,7 @@ async fn wire_txn_error_blocks_until_rollback_25p02() {
 }
 
 /// SET graph is rejected while a transaction is open (a txn stays within one graph /
-/// redb shard, CONCEPT:EG-KG.sharding.semantic-embedding-store-backed).
+/// redb shard, CONCEPT:MEDULLA-KG.sharding.semantic-embedding-store-backed).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wire_txn_set_graph_rejected_while_open() {
     let state = seeded_state();
@@ -1184,14 +1184,14 @@ async fn wire_txn_set_graph_rejected_while_open() {
 // the seam lands. They COMPILE against the real tokio-postgres client path.
 // ───────────────────────────────────────────────────────────────────────────
 
-/// SEAM (CONCEPT:EG-KG.txn.isolation-ryow-begin-set): inside an open transaction, staged writes are visible to a
+/// SEAM (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set): inside an open transaction, staged writes are visible to a
 /// same-connection *SQL* read (read-your-own-writes — proven by
 /// `wire_txn_rollback_discards_and_ryow`) AND to an in-txn cross-modal `UQL …` read over
-/// the PGWIRE TEXT protocol — the entrypoint this PR adds onto the committed EG-359 RPC
+/// the PGWIRE TEXT protocol — the entrypoint this PR adds onto the committed MEDULLA-359 RPC
 /// seam. The UQL is genuinely cross-modal: its `MATCH … WHERE rank = 99` reads the staged
 /// UPDATE (graph modality, RYOW) and its `RANK BY ~[…]` reads the staged embedding (vector
 /// modality, RYOW) — both overlaid onto the committed snapshot by the shared `run_unified`
-/// overlay. (`RANK BY` retains only rows carrying an embedding — the documented eg-plan
+/// overlay. (`RANK BY` retains only rows carrying an embedding — the documented medulla-plan
 /// hybrid-metadata-filter invariant — so the row the UPDATE touches is ALSO given a staged
 /// embedding, which is what makes the filter→rank return it.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1244,18 +1244,18 @@ async fn wire_txn_update_then_cross_modal_read() {
     client.simple_query("COMMIT").await.expect("COMMIT");
 }
 
-/// SEAM (CONCEPT:EG-KG.txn.isolation-ryow-begin-set): a single transaction that stages FIVE modalities over the
+/// SEAM (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set): a single transaction that stages FIVE modalities over the
 /// PGWIRE TEXT protocol — a graph node (`INSERT INTO nodes`), a vector embedding
 /// (`SET EMBEDDING FOR`), a timeseries point (`INSERT INTO series`), an OWL/SPARQL axiom
 /// (`SPARQL UPDATE INSERT DATA`), and a `SPARQL CONSTRUCT` — then COMMITs them atomically
 /// through the shared RPC cross-modal commit (all modalities in ONE redb
 /// `WriteTransaction`), and reads the committed result with a cross-modal UQL join over
-/// the graph + vector + timeseries legs. This is the pgwire entrypoint for the EG-360/361/
-/// 362 staging seam + EG-363 planner reach the RPC transport already proved. (The final
+/// the graph + vector + timeseries legs. This is the pgwire entrypoint for the MEDULLA-360/361/
+/// 362 staging seam + MEDULLA-363 planner reach the RPC transport already proved. (The final
 /// read uses `MATCH (:Sensor) |> RANK BY …`. The string-type↔IRI-class bridge for a
-/// `REASON <iri>` over the committed axiom is now BUILT — EG-375/376 — and proved over the
+/// `REASON <iri>` over the committed axiom is now BUILT — MEDULLA-375/376 — and proved over the
 /// wire by `wire_reason_iri_bridges_string_typed_node` below under the reasoner-exec build
-/// layer; the in-txn tsdb-RYOW overlay is likewise built, EG-374, see `docs/north_star.md`.)
+/// layer; the in-txn tsdb-RYOW overlay is likewise built, MEDULLA-374, see `docs/north_star.md`.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wire_txn_mixed_five_modality_commit() {
     let state = seeded_state();
@@ -1302,7 +1302,7 @@ async fn wire_txn_mixed_five_modality_commit() {
 
     // A cross-modal UQL join reads the just-committed txn: the new Sensor node (graph)
     // ranked by its committed embedding (vector). (The in-txn tsdb-RYOW overlay — a
-    // `TsScan` reading the txn's OWN staged points — is now built, EG-374; the staged
+    // `TsScan` reading the txn's OWN staged points — is now built, MEDULLA-374; the staged
     // measurement above still commits atomically here.)
     let joined = simple_ids(
         client
@@ -1317,7 +1317,7 @@ async fn wire_txn_mixed_five_modality_commit() {
     );
 }
 
-/// SEAM (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) — isolation + RYOW: a `BEGIN; SET EMBEDDING; INSERT INTO series;
+/// SEAM (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set) — isolation + RYOW: a `BEGIN; SET EMBEDDING; INSERT INTO series;
 /// <UQL join over graph+vector+tsdb>; COMMIT` reads its OWN writes inside the txn, while a
 /// SECOND connection sees NONE of them until COMMIT (the cross-modal writes are staged, not
 /// committed). After COMMIT the second connection reads the committed cross-modal state.
@@ -1331,8 +1331,8 @@ async fn wire_txn_crossmodal_ryow_isolated_until_commit() {
     // The UQL cross-modal join used by both connections: a Widget node filtered on the
     // graph modality and ranked by the query embedding (graph + vector legs). The
     // timeseries WRITE is exercised below; the in-txn tsdb-RYOW READ overlay (a `TsScan`
-    // reading the txn's own staged points) is now built (EG-374) and proved by the
-    // hand-built `eg_plan::tsdb_scan_tests::tsdb_in_txn_ryow_staged_overlay`.
+    // reading the txn's own staged points) is now built (MEDULLA-374) and proved by the
+    // hand-built `medulla_plan::tsdb_scan_tests::tsdb_in_txn_ryow_staged_overlay`.
     let uql = "UQL MATCH (:Widget) WHERE rank = 5 |> RANK BY ~[1.0,0.0,0.0] |> LIMIT 5";
 
     writer.simple_query("BEGIN").await.expect("BEGIN");
@@ -1393,7 +1393,7 @@ async fn wire_txn_crossmodal_ryow_isolated_until_commit() {
     );
 }
 
-/// SEAM (CONCEPT:EG-KG.query.reason-iri-parses-angle / EG-376) — `REASON <iri>` + the string-type↔IRI-class bridge over
+/// SEAM (CONCEPT:MEDULLA-KG.query.reason-iri-parses-angle / MEDULLA-376) — `REASON <iri>` + the string-type↔IRI-class bridge over
 /// the PGWIRE wire. Off-txn (each statement auto-commits as one atomic cross-modal write):
 /// INSERT a bare-string-typed `Sensor` node, then stage the OWL axiom `<http://ex/Sensor>
 /// ⊑ <http://ex/Device>` via `SPARQL UPDATE`. A `UQL MATCH (:Sensor) |> REASON
@@ -1402,7 +1402,7 @@ async fn wire_txn_crossmodal_ryow_isolated_until_commit() {
 /// the local name) and reasoned into `<http://ex/Device>` through the committed subclass
 /// axiom. This is the ORIGINAL intended `REASON <iri>` read the five-modality spec had to
 /// avoid before the bridge existed. It needs the reasoner-exec build layer (`owl-plan` →
-/// `eg-plan/owl`, which compiles the `Op::Reason` executor the UQL clause lowers to); it
+/// `medulla-plan/owl`, which compiles the `Op::Reason` executor the UQL clause lowers to); it
 /// is in the `full` build (so the `cargo-test-full` / `clippy --features full` gates cover
 /// it) but not the narrower `owl` feature alone.
 #[cfg(feature = "owl-plan")]
@@ -1424,16 +1424,16 @@ async fn wire_reason_iri_bridges_string_typed_node() {
     //
     // FIXED (A18 -- was the KNOWN GAP this test used to document): the two axiom class
     // nodes (`<http://ex/Sensor>`, `<http://ex/Device>`) land with an EMPTY property
-    // blob (`lower_triples`/`eg_rdf::update::insert_triple` only populate ordinary
+    // blob (`lower_triples`/`medulla_rdf::update::insert_triple` only populate ordinary
     // properties for a subject/object that also carries a literal-valued triple) --
     // untagged and unowned in the ABox sense. Row-level default-deny RLS
     // (`IsolationLayer::can_see_row`) exists to protect ABox rows, but an OWL axiom is
     // SCHEMA (TBox), not a row about anyone -- applying row-level default-deny to it was
     // a category error, and its consequence was exactly this: `REASON <http://ex/Device>`
-    // never saw the axiom for the pgwire "tester" actor. `eg_rdf::update::insert_triple`
+    // never saw the axiom for the pgwire "tester" actor. `medulla_rdf::update::insert_triple`
     // (and `mapping::lower_triples` for bulk RDF load) now stamps BOTH endpoints of a
     // recognized RDFS/OWL schema predicate (`rdfs:subClassOf` here) with
-    // `eg_core::isolation::RLS_SCHEMA_KEY`, and `can_see_row` treats a schema-marked row
+    // `medulla_core::isolation::RLS_SCHEMA_KEY`, and `can_see_row` treats a schema-marked row
     // as visible -- narrowly: ONLY rows the RDF/OWL lowering structurally identified as
     // schema, never merely because they are untagged. Graph-level ACL
     // (`check_graph_access`, exercised in the SECOND connection below) is completely
@@ -1485,9 +1485,9 @@ async fn wire_reason_iri_bridges_string_typed_node() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// DIFFERENTIAL WIRE-SURFACE ORACLE (CONCEPT:EG-KG.query.pgwire-leg) — the pgwire leg of the
+// DIFFERENTIAL WIRE-SURFACE ORACLE (CONCEPT:MEDULLA-KG.query.pgwire-leg) — the pgwire leg of the
 // query-surface harness. The in-process UQL-vs-builder-vs-oracle legs live in
-// `crates/eg-plan/tests/differential_oracle.rs`; this leg REUSES the live pgwire
+// `crates/medulla-plan/tests/differential_oracle.rs`; this leg REUSES the live pgwire
 // listener above to prove the SQL-wire and UQL-wire surfaces agree on the SAME query,
 // so a caller reaches the identical result whichever door they speak.
 // ───────────────────────────────────────────────────────────────────────────

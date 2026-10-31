@@ -19,8 +19,8 @@ from conftest import (
     strict_server_env,
 )
 
-from epistemic_graph.client import EngineResponseError, SyncEpistemicGraphClient
-from epistemic_graph.decision_client import task_plan_request, verify_task_plan_receipt
+from medulla.client import EngineResponseError, SyncMedullaClient
+from medulla.decision_client import task_plan_request, verify_task_plan_receipt
 
 # Public loopback fixture value shared with tests/conftest.py; not a credential.
 TEST_AUTH_FIXTURE_VALUE = "-".join(("test", "epistemic", "graph", "secret"))
@@ -38,10 +38,10 @@ def authenticated_plan_client(tmp_path):
         auth_secret=secret,
         persist_dir=str(tmp_path / "data"),
     )
-    env["EPISTEMIC_GRAPH_ENCRYPTION_KEY"] = "test-epistemic-graph-encryption-key"
+    env["MEDULLA_ENCRYPTION_KEY"] = "test-medulla-encryption-key"
     with server(tmp_path, mode="authenticated", extra_env=env) as address:
         tcp = f"{address[0]}:{address[1]}"
-        bootstrap = SyncEpistemicGraphClient.connect(
+        bootstrap = SyncMedullaClient.connect(
             tcp_addr=tcp,
             auth_secret=secret,
             verified_context=bootstrap_context(),
@@ -54,7 +54,7 @@ def authenticated_plan_client(tmp_path):
             )
         finally:
             bootstrap.close()
-        yield SyncEpistemicGraphClient.connect(
+        yield SyncMedullaClient.connect(
             tcp_addr=tcp,
             auth_secret=secret,
             verified_context=request_context(),
@@ -233,10 +233,10 @@ def _persist_and_read(
     return run_id, restored
 
 
-# spec: EG-DECISION-ENGINE-R134.111
-# spec: EG-DECISION-ENGINE-R134.111.3
-# spec: EG-DECISION-ENGINE-R134.111.5
-# spec: EG-DURABLE-KERNEL-R028.5.3
+# spec: MEDULLA-DECISION-ENGINE-R134.111
+# spec: MEDULLA-DECISION-ENGINE-R134.111.3
+# spec: MEDULLA-DECISION-ENGINE-R134.111.5
+# spec: MEDULLA-DURABLE-KERNEL-R028.5.3
 def test_explicit_plan_end_to_end(authenticated_plan_client):
     client = authenticated_plan_client
     try:
@@ -302,7 +302,7 @@ def test_explicit_plan_end_to_end(authenticated_plan_client):
         client.close()
 
 
-# spec: EG-DECISION-ENGINE-R134.111.4
+# spec: MEDULLA-DECISION-ENGINE-R134.111.4
 def test_task_plan_refuses_noncanonical_requests(authenticated_plan_client):
     client = authenticated_plan_client
     try:
@@ -356,15 +356,15 @@ def test_task_plan_refuses_noncanonical_requests(authenticated_plan_client):
         client.close()
 
 
-# spec: EG-DECISION-ENGINE-R134.111.3
-# spec: EG-DURABLE-KERNEL-R028.5.3
+# spec: MEDULLA-DECISION-ENGINE-R134.111.3
+# spec: MEDULLA-DURABLE-KERNEL-R028.5.3
 @pytest.mark.no_engine
 def test_anonymous_task_plan_publication_and_restart(tmp_path):
     from test_native_no_auth_served import server
 
     expected_principal = "principal:sha256:" + hashlib.sha256(b"anonymous").hexdigest()
     with server(tmp_path) as address:
-        client = SyncEpistemicGraphClient.connect(
+        client = SyncMedullaClient.connect(
             auth_mode="none", tcp_addr=f"{address[0]}:{address[1]}"
         )
         try:
@@ -400,7 +400,7 @@ def test_anonymous_task_plan_publication_and_restart(tmp_path):
                     plan,
                     tenant="local",
                     agent="anonymous",
-                    audience="epistemic-graph",
+                    audience="medulla",
                     policy="no-auth",
                 )
             run_id, snapshot = _persist_and_read(
@@ -409,7 +409,7 @@ def test_anonymous_task_plan_publication_and_restart(tmp_path):
                 plan,
                 tenant="local",
                 agent="anonymous",
-                audience="epistemic-graph",
+                audience="medulla",
                 policy="no-auth",
                 authentication_method="none",
             )
@@ -418,7 +418,7 @@ def test_anonymous_task_plan_publication_and_restart(tmp_path):
         finally:
             client.close()
     with server(tmp_path) as address:
-        client = SyncEpistemicGraphClient.connect(
+        client = SyncMedullaClient.connect(
             auth_mode="none", tcp_addr=f"{address[0]}:{address[1]}"
         )
         try:

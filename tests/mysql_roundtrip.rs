@@ -1,7 +1,7 @@
-//! MySQL/MariaDB wire cross-modal transaction round-trip test (CONCEPT:EG-KG.query.eg-8).
+//! MySQL/MariaDB wire cross-modal transaction round-trip test (CONCEPT:MEDULLA-KG.query.medulla-8).
 //!
-//! Per-surface parity proof (the North-Star "seamless" discipline, EG-373): the in-txn
-//! cross-modal seam already routes through the SHARED `WireSession` (EG-074/EG-372), so
+//! Per-surface parity proof (the North-Star "seamless" discipline, MEDULLA-373): the in-txn
+//! cross-modal seam already routes through the SHARED `WireSession` (MEDULLA-074/MEDULLA-372), so
 //! the MySQL wire INHERITS the pgwire seam. This test proves it end-to-end over the
 //! MySQL text protocol by MIRRORING the pgwire cross-modal cases
 //! (`tests/pgwire_roundtrip.rs`):
@@ -31,7 +31,7 @@ mod test_support;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use epistemic_graph::server::mysql_wire::{self, MysqlAuthMode};
+use medulla::server::mysql_wire::{self, MysqlAuthMode};
 
 fn sql_test_persist_dir() -> String {
     test_support::sql_test_persist_dir("mysql")
@@ -45,7 +45,7 @@ fn sql_test_persist_dir() -> String {
 /// means every graph-node write now routes through the universal cross-modal
 /// MutationBatch kernel, which fails closed ("cross-modal mutation requires durable
 /// persistence") against `persistence: None` -- `commit_cross_modal_txn` is no longer
-/// persistence-None tolerant. Also provisions `EPISTEMIC_GRAPH_ENCRYPTION_KEY` once,
+/// persistence-None tolerant. Also provisions `MEDULLA_ENCRYPTION_KEY` once,
 /// before the first backend opens, for the multi-op commit's
 /// transaction-recovery-plan seal (`redb_backend::tests::cm_dir`'s identical
 /// requirement).
@@ -274,7 +274,7 @@ async fn query(stream: &mut TcpStream, sql: &str) -> QueryResult {
 
 // ── the cross-modal round-trip tests (mirror pgwire) ────────────────────────────────
 
-/// Mirrors pgwire `wire_txn_update_then_cross_modal_read` (CONCEPT:EG-KG.query.eg-8 / EG-372):
+/// Mirrors pgwire `wire_txn_update_then_cross_modal_read` (CONCEPT:MEDULLA-KG.query.medulla-8 / MEDULLA-372):
 /// inside an open txn, a staged graph UPDATE AND a staged vector `SET EMBEDDING` are BOTH
 /// read back by an in-txn cross-modal `UQL` read over the MySQL wire (read-your-own-writes
 /// across the graph + vector modalities before COMMIT).
@@ -314,8 +314,8 @@ async fn mysql_wire_txn_update_then_cross_modal_read() {
     query(&mut c, "COMMIT").await;
 }
 
-/// Mirrors pgwire `wire_txn_crossmodal_ryow_isolated_until_commit` (CONCEPT:EG-KG.query.eg-8 /
-/// EG-372) — the headline per-surface parity proof. A `BEGIN; INSERT node; SET EMBEDDING;
+/// Mirrors pgwire `wire_txn_crossmodal_ryow_isolated_until_commit` (CONCEPT:MEDULLA-KG.query.medulla-8 /
+/// MEDULLA-372) — the headline per-surface parity proof. A `BEGIN; INSERT node; SET EMBEDDING;
 /// INSERT INTO series; <UQL join over graph+vector>; COMMIT` reads its OWN writes inside
 /// the txn, while a SECOND connection sees NONE of them until COMMIT. After COMMIT the
 /// second connection reads the committed cross-modal state.

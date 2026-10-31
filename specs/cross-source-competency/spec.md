@@ -1,4 +1,4 @@
-# EG-CQ-XSRC — Cross-source competency: supply chain to services
+# MEDULLA-CQ-XSRC — Cross-source competency: supply chain to services
 
 Owner: Medulla. Cross-repo IDs: Arbora (served intent tool, connected-source list), agent-packages connectors (operation contracts for erpnext, uptime, container-manager).
 Public provenance: program exit gate for the Arbora refactor.
@@ -19,7 +19,7 @@ A question is **answered** when one query over the ontology returns a correct, p
 
 ## Requirements and acceptance
 
-- FR-001: The ontology declares, per concept, the authoritative connected source (`EG-CQ-XSRC-R001`), with SHACL.
+- FR-001: The ontology declares, per concept, the authoritative connected source (`MEDULLA-CQ-XSRC-R001`), with SHACL.
 - FR-002: Supply-chain and service concepts exist and are bound to sources (`R002`, `R003`).
 - FR-003: A relation links a supply-chain entity to a service, and records in different sources resolve to one node only through an approved link (`R004`).
 - FR-004: The query names classes only; the planner derives the sources from the authority declarations (`R005`).
@@ -30,7 +30,7 @@ A question is **answered** when one query over the ontology returns a correct, p
 
 ## Scope and interfaces
 
-Owned here: the authority vocabulary, the missing supply-chain and commercial terms, the linking relations, the report model and the acceptance tests. Not owned here: the federated planner, pushdown, virtual-graph execution, entity-resolution scoring and decision-engine routing. These are cited as the mechanism: `EG-FEDERATED-QUERY-R072`, `R073`, `R046`, `R069`, `R044`; `EG-UNIFIED-DATA-PLANE-R005`, `R006`, `R030`, `R037`, `R038`; `EG-DECISION-ENGINE-R126` for capability coverage. The served tool belongs to Arbora; connector operation contracts belong to agent-packages.
+Owned here: the authority vocabulary, the missing supply-chain and commercial terms, the linking relations, the report model and the acceptance tests. Not owned here: the federated planner, pushdown, virtual-graph execution, entity-resolution scoring and decision-engine routing. These are cited as the mechanism: `MEDULLA-FEDERATED-QUERY-R072`, `R073`, `R046`, `R069`, `R044`; `MEDULLA-UNIFIED-DATA-PLANE-R005`, `R006`, `R030`, `R037`, `R038`; `MEDULLA-DECISION-ENGINE-R126` for capability coverage. The served tool belongs to Arbora; connector operation contracts belong to agent-packages.
 
 ## Traceability
 

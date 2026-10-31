@@ -5,47 +5,47 @@
 #![recursion_limit = "256"]
 // No unsafe anywhere except a few platform/C-FFI boundaries, each carrying a
 // scoped #[allow(unsafe_code)] with a soundness note: the tree-sitter block
-// (eg-compute ast/parser.rs), the CycloneDDS loan (server/dds.rs, ros2-rmw only),
+// (medulla-compute ast/parser.rs), the CycloneDDS loan (server/dds.rs, ros2-rmw only),
 // and the Win32 atomic-replace (server/reasoning_projection.rs, cfg(windows)).
 // Any new unsafe is a compile error until it is explicitly justified the same way.
 #![deny(unsafe_code)]
 
-// CONCEPT:EG-KG.compute.graph-compute-engine - High-Performance Graph Compute Engine
-// CONCEPT:EG-ORCH.execution.compiled-orchestration-kernel - Compiled Orchestration Kernel
-// CONCEPT:EG-KG.query.tokio-service-server - Tokio Service Layer
+// CONCEPT:MEDULLA-KG.compute.graph-compute-engine - High-Performance Graph Compute Engine
+// CONCEPT:MEDULLA-ORCH.execution.compiled-orchestration-kernel - Compiled Orchestration Kernel
+// CONCEPT:MEDULLA-KG.query.tokio-service-server - Tokio Service Layer
 //
 // Tokio service layer handling MessagePack RPC.
 // All logic delegated to graph, algorithms, and reasoning modules.
 // Service-layer modules (protocol, registry, isolation, channels, server)
-// are used by the epistemic-graph-server binary.
+// are used by the medulla-server binary.
 
-// Bottom-of-DAG wire types live in `eg-types`; the graph core (storage, registry,
-// isolation, semantic search) lives in `eg-core`. Re-export both under the
+// Bottom-of-DAG wire types live in `medulla-types`; the graph core (storage, registry,
+// isolation, semantic search) lives in `medulla-core`. Re-export both under the
 // historical `crate::` paths so every module's `crate::protocol::` /
 // `crate::graph::` / `crate::registry::` reference resolves unchanged.
-pub use eg_core::{compute, decay, graph, index, isolation, registry};
-// CONCEPT:EG-KG.compute.message-broker-exchanges — message-broker primitives, re-exported under `crate::broker`.
+pub use medulla_core::{compute, decay, graph, index, isolation, registry};
+// CONCEPT:MEDULLA-KG.compute.message-broker-exchanges — message-broker primitives, re-exported under `crate::broker`.
 #[cfg(feature = "broker")]
-pub use eg_core::broker;
+pub use medulla_core::broker;
 #[cfg(feature = "knowledge-batch")]
-pub use eg_types::knowledge_stream;
-pub use eg_types::{
+pub use medulla_types::knowledge_stream;
+pub use medulla_types::{
     acl, change_envelope, epistemic_operations, epistemic_operations_ext, mutation_batch, protocol,
     types, wire,
 };
-// Compute domains live in `eg-compute`; re-export under the historical `crate::`
+// Compute domains live in `medulla-compute`; re-export under the historical `crate::`
 // paths. algorithms/ast/parser are always present; the feature-gated domains are
-// re-exported only when their facade feature (→ eg-compute feature) is on.
+// re-exported only when their facade feature (→ medulla-compute feature) is on.
 #[cfg(feature = "datascience")]
-pub use eg_compute::datascience;
+pub use medulla_compute::datascience;
 #[cfg(feature = "finance")]
-pub use eg_compute::finance;
+pub use medulla_compute::finance;
 #[cfg(feature = "reasoning")]
-pub use eg_compute::reasoning;
-pub use eg_compute::{algorithms, ast, parser, screen};
+pub use medulla_compute::reasoning;
+pub use medulla_compute::{algorithms, ast, parser, screen};
 
 /// The native WorkItem-kernel lease and lifecycle writes (claim, renew,
-/// cancel, defer, metadata CAS, the graph-os EG-2 control-lease writes and the
+/// cancel, defer, metadata CAS, the graph-os MEDULLA-2 control-lease writes and the
 /// EH-558 sealed-record retirement),
 /// as ONE pattern. The apply and classification sites match through it, so a
 /// new family member is added once and every exhaustive `match` using it
@@ -87,11 +87,11 @@ macro_rules! work_item_resource_writes {
 #[cfg(feature = "server")]
 pub mod channels;
 pub mod metrics;
-// CONCEPT:EG-OS.observability.slow-query-descriptor — OTLP span export + tracing init (server-only: the subscriber
+// CONCEPT:MEDULLA-OS.observability.slow-query-descriptor — OTLP span export + tracing init (server-only: the subscriber
 // init needs tracing-subscriber, which is server-gated).
 #[cfg(feature = "server")]
 pub mod otel;
-// CONCEPT:EG-OS.observability.slow-query-descriptor — slow-query log. Server-only (only the server dispatch/pgwire
+// CONCEPT:MEDULLA-OS.observability.slow-query-descriptor — slow-query log. Server-only (only the server dispatch/pgwire
 // paths execute queries).
 #[cfg(feature = "server")]
 pub mod persist;
@@ -99,13 +99,13 @@ pub mod persist;
 pub mod persist_lock;
 #[cfg(feature = "server")]
 pub mod slow_query;
-// Pure redb durable-row machinery (CONCEPT:EG-KG.backend.engine-modes) — server-INDEPENDENT, gated on
+// Pure redb durable-row machinery (CONCEPT:MEDULLA-KG.backend.engine-modes) — server-INDEPENDENT, gated on
 // `redb` ALONE so the embedded API (and the server's `redb_backend`) share ONE
 // durable format with no Tokio. Built whenever the `redb` crate is linked.
 pub(crate) mod graph_delta;
 #[cfg(feature = "redb")]
 pub(crate) mod redb_layout;
-// The composition root's ONE scope-grant authority. `eg-storage` opens every
+// The composition root's ONE scope-grant authority. `medulla-storage` opens every
 // durable file; only this binary decides which principal may serve which scope
 // on which of them (RF-RULING-004).
 #[cfg(feature = "redb")]
@@ -131,7 +131,7 @@ pub mod sidecar_store;
 pub(crate) mod test_rendezvous;
 
 // CONCEPT:INT-P2-2 -- the Loop statechart definition (W2.5 control-plane migration):
-// `LoopStatus`'s 16 values as a reusable `eg_statechart::StatechartDef`, instantiated
+// `LoopStatus`'s 16 values as a reusable `medulla_statechart::StatechartDef`, instantiated
 // via the EXISTING `Method::Statechart` surface. Pure data + tests; no wire/dispatch
 // change. See `loop_statechart.rs`'s module doc for the full derivation.
 #[cfg(feature = "statechart")]
@@ -139,7 +139,7 @@ pub mod loop_statechart;
 
 // CONCEPT:INT-P2-2 / ADR-5 (W2.2) -- the WorkItem statechart definition: the durable
 // unit-of-work lifecycle (`submitted → ready → leased → running → {succeeded|failed|
-// cancelled|dead_letter}`) as ONE reusable `eg_statechart::StatechartDef`, plus the
+// cancelled|dead_letter}`) as ONE reusable `medulla_statechart::StatechartDef`, plus the
 // phase-1 dual-write mirror decision + divergence alarm the native `redb_store.rs`
 // WorkItem handlers drive. Pure data + tests; the CAS/fencing row stays the lease
 // authority. See `work_item_statechart.rs`'s module doc for the full derivation.
@@ -148,7 +148,7 @@ pub mod work_item_statechart;
 
 // CONCEPT:INT-P2-2 / ADR-6 (W2.3) -- the agent-instance lifecycle statechart: an agent
 // instance's own `dormant ⇄ active` (+ `terminated`) lifecycle as ONE reusable
-// `eg_statechart::StatechartDef`, the canonical "statechart template" the agents-as-data
+// `medulla_statechart::StatechartDef`, the canonical "statechart template" the agents-as-data
 // activation layer instantiates per dormant instance. Distinct from (and composed with)
 // the WorkItem chart above — this owns "is the instance dormant or active", the WorkItem
 // owns "is an activation submitted/leased/running/done". Pure data + tests; instantiated
@@ -159,15 +159,15 @@ pub mod work_item_statechart;
 pub mod agent_lifecycle_statechart;
 
 /// One staged time-series measurement batch for a cross-modal ACID commit
-/// (CONCEPT:EG-KG.backend.cross-modal-atomic-commit): `(series_id, n_fields, bucket_ns, field_names, points)` where each
-/// point is `(ts_nanos, field_values)`. Carried as PLAIN data (no `eg-tsdb` type) so it
+/// (CONCEPT:MEDULLA-KG.backend.cross-modal-atomic-commit): `(series_id, n_fields, bucket_ns, field_names, points)` where each
+/// point is `(ts_nanos, field_values)`. Carried as PLAIN data (no `medulla-tsdb` type) so it
 /// threads through the `PersistenceBackend` trait + the server-independent `redb_store`
 /// without pulling the `tsdb` feature into either — the redb backend converts it to
-/// `eg_tsdb::point::Point` only where the SERIES tables are actually written. Kept as a
+/// `medulla_tsdb::point::Point` only where the SERIES tables are actually written. Kept as a
 /// named alias so the `&[MeasurementBatch]` params don't trip the `type_complexity` lint.
 pub type MeasurementBatch = (String, usize, u64, Vec<String>, Vec<(i64, Vec<f64>)>);
 
-// Engine-level security (CONCEPT:EG-KG.sharding.row-level-security, Lane O): encryption-at-rest for the redb
+// Engine-level security (CONCEPT:MEDULLA-KG.sharding.row-level-security, Lane O): encryption-at-rest for the redb
 // durable value blobs (`crypto`) + the hash-chained tamper-evident audit log over the
 // ledger (`audit`). PURE-RUST (RustCrypto chacha20poly1305 + sha2). Gated on
 // `security` (→ `redb`).
@@ -175,7 +175,7 @@ pub type MeasurementBatch = (String, usize, u64, Vec<String>, Vec<(i64, Vec<f64>
 pub mod audit;
 #[cfg(any(feature = "security", feature = "raft"))]
 pub mod crypto;
-// In-process embedded library API (CONCEPT:EG-KG.backend.engine-modes) — SQLite/DuckDB-style. Drives
+// In-process embedded library API (CONCEPT:MEDULLA-KG.backend.engine-modes) — SQLite/DuckDB-style. Drives
 // the SAME GraphCore + redb durable rows the socket dispatch does, with NO Tokio
 // server/socket/HMAC. Gated on `embedded` (→ `redb`); needs NO `server` feature.
 #[cfg(feature = "embedded")]
@@ -194,7 +194,7 @@ pub mod mutation_apply;
 // EH-558: sealed record rows are create-only for every generic writer, in every mode.
 #[cfg(any(feature = "server", feature = "redb"))]
 pub(crate) mod sealed_guard;
-// Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): batches concurrent single-op
+// Per-graph write coalescer (CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer): batches concurrent single-op
 // writes to one graph into a single topology-lock acquisition. Tokio-based, so it
 // lives in the server-gated top-level crate.
 #[cfg(feature = "server")]
@@ -203,9 +203,9 @@ pub mod write_coalescer;
 // per-graph node-cap DEFAULTS from the effective host/cgroup CPU+RAM capacity so
 // the SAME binary is lean + OOM-safe in a constrained pod and exploits a large
 // host. The dependency-free implementation is shared with lower provider crates
-// through `eg-resource`; this facade module preserves the existing API path.
+// through `medulla-resource`; this facade module preserves the existing API path.
 pub mod autosize;
-// Per-tenant memory budget + autoscale signals (CONCEPT:EG-KG.compute.lane-v, Lane V). The budget
+// Per-tenant memory budget + autoscale signals (CONCEPT:MEDULLA-KG.compute.lane-v, Lane V). The budget
 // enforcer (periodic over-budget eviction/hibernation), the per-tenant resident-RAM
 // tracking, the ResourceStats snapshot, and the capacity-planning cost model. PURE-RUST
 // (a sweep over the registry reusing the existing evict/hibernate ops); gated on `cost`.
@@ -222,8 +222,8 @@ pub mod raft;
 // workstream W-A; docs/architecture/unified-inprocess-engine.md). Re-exported ONLY
 // under the opt-in `pyo3-engine` feature (never in default/full/cluster) so a
 // Rust-only embedder can construct the SAME in-process engine handle the compiled
-// `epistemic_graph.engine` extension wraps, with no Python involved. The
+// `medulla.engine` extension wraps, with no Python involved. The
 // out-of-process scale-out build links none of this crate and none of its optional
 // dependencies (`scripts/check_no_pyo3.sh` scopes to exactly that build).
 #[cfg(feature = "pyo3-engine")]
-pub use eg_pyengine;
+pub use medulla_pyengine;

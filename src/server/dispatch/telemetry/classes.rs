@@ -25,10 +25,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
-use eg_core::graph::GraphSchemaSources;
-use eg_rdf::owl::{Classification, Reasoner};
-use eg_stream::telemetry::EntityClass;
-use eg_types::contract::Digest256;
+use medulla_core::graph::GraphSchemaSources;
+use medulla_rdf::owl::{Classification, Reasoner};
+use medulla_stream::telemetry::EntityClass;
+use medulla_types::contract::Digest256;
 use parking_lot::Mutex;
 
 use crate::server::graph_schema::compose::validate_and_compose;

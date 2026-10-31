@@ -12,9 +12,9 @@
     "head": "0b13f1aebbfd994cc829121e08bebcf74f35b2d1"
   },
   "cache": {
-    "worktree": "eg-native-fixture-fixes",
+    "worktree": "medulla-native-fixture-fixes",
     "target": "target-isolated",
-    "origin_checkout": "validation/eg-storage-lock",
+    "origin_checkout": "validation/medulla-storage-lock",
     "origin_checkout_commit": "7c572aab45554e7d524e223773058efbdba21bed",
     "copy": "cp -a --reflink=auto; separate inodes verified; no shared hardlinks",
     "reuse": "Preserved in the same validation worktree through PR481 and this run. The origin checkout identity does not prove every original cached artifact was built at that revision."
@@ -29,7 +29,7 @@
   "profiles": {
     "rdf_compute": "Unchanged repository test profile: opt-level 1, debug 0, incremental true, codegen-units 256.",
     "initial_generator_and_contract": "Same unchanged repository test profile.",
-    "repaired_generator_and_contract": "User-authorized profile.test.package.eg-types.opt-level=0 only; every other profile and feature setting preserved."
+    "repaired_generator_and_contract": "User-authorized profile.test.package.medulla-types.opt-level=0 only; every other profile and feature setting preserved."
   },
   "initial_generator": {
     "command": [
@@ -39,7 +39,7 @@
       "--profile",
       "test",
       "-p",
-      "eg-capabilities",
+      "medulla-capabilities",
       "--features",
       "contract",
       "--bin",
@@ -56,13 +56,13 @@
     "command": [
       "cargo",
       "--config",
-      "profile.test.package.eg-types.opt-level=0",
+      "profile.test.package.medulla-types.opt-level=0",
       "run",
       "--locked",
       "--profile",
       "test",
       "-p",
-      "eg-capabilities",
+      "medulla-capabilities",
       "--features",
       "contract",
       "--bin",
@@ -94,16 +94,16 @@
       "contract/schemas/method.request.json",
       "contract/schemas/result.query.json",
       "contract/schemas/result.storage.json",
-      "crates/eg-capabilities/generated/catalog_digest.rs",
-      "epistemic_graph/contract/receipt.json",
-      "epistemic_graph/contract/schemas/method.request.json",
-      "epistemic_graph/contract/schemas/result.query.json",
-      "epistemic_graph/contract/schemas/result.storage.json",
-      "epistemic_graph/generated/_shared.py",
-      "epistemic_graph/generated/agent_component.py",
-      "epistemic_graph/generated/decision.py",
-      "epistemic_graph/generated/decision_commit.py",
-      "epistemic_graph/generated/models.py"
+      "crates/medulla-capabilities/generated/catalog_digest.rs",
+      "medulla/contract/receipt.json",
+      "medulla/contract/schemas/method.request.json",
+      "medulla/contract/schemas/result.query.json",
+      "medulla/contract/schemas/result.storage.json",
+      "medulla/generated/_shared.py",
+      "medulla/generated/agent_component.py",
+      "medulla/generated/decision.py",
+      "medulla/generated/decision_commit.py",
+      "medulla/generated/models.py"
     ],
     "started_utc": "2026-10-11T16:50:57.044687+00:00",
     "elapsed_seconds": 5.994,
@@ -121,16 +121,16 @@
     "contract/schemas/method.request.json": "1d1ba5901ce313cb1a8d81541659ab25f60e69697991517469984c4dd221bb48",
     "contract/schemas/result.query.json": "fe1565f54b8e17b43adb77b4b030bc57d731ed6e5014e4acd0c8f26d2cf06bfb",
     "contract/schemas/result.storage.json": "b7c541bfa8d8251701786651c875ca94d05f1c3c7b86988605124a380f5056d8",
-    "crates/eg-capabilities/generated/catalog_digest.rs": "286629c2d6cd2a3540f29b67cac7fd6333b2763a99bc771806840a63bf98163a",
-    "epistemic_graph/contract/receipt.json": "f494f331deb7f08fa520bb05d940f746b24416e97f3a072d614889b3ad156163",
-    "epistemic_graph/contract/schemas/method.request.json": "1d1ba5901ce313cb1a8d81541659ab25f60e69697991517469984c4dd221bb48",
-    "epistemic_graph/contract/schemas/result.query.json": "fe1565f54b8e17b43adb77b4b030bc57d731ed6e5014e4acd0c8f26d2cf06bfb",
-    "epistemic_graph/contract/schemas/result.storage.json": "b7c541bfa8d8251701786651c875ca94d05f1c3c7b86988605124a380f5056d8",
-    "epistemic_graph/generated/_shared.py": "605e207677469e09727fb95a914143db290e239bd6c9479d22556a2f269ed5cb",
-    "epistemic_graph/generated/agent_component.py": "52f45868212cbe04e1bac2d72e197864e37a9f6bf8af44c1660ce5c5e1ecae89",
-    "epistemic_graph/generated/decision.py": "00b79385668061677e8e1ae810b2265b19f02c46d2acc9d4773b09fca96c54f2",
-    "epistemic_graph/generated/decision_commit.py": "0af942a7269a7fd2fcd3937867b76d03677754a0f544dff2eaa9328ebe17859f",
-    "epistemic_graph/generated/models.py": "54506a563d55d7ee79dcf15eec29f69ede04467938404082e8b10cfb0027fe83"
+    "crates/medulla-capabilities/generated/catalog_digest.rs": "286629c2d6cd2a3540f29b67cac7fd6333b2763a99bc771806840a63bf98163a",
+    "medulla/contract/receipt.json": "f494f331deb7f08fa520bb05d940f746b24416e97f3a072d614889b3ad156163",
+    "medulla/contract/schemas/method.request.json": "1d1ba5901ce313cb1a8d81541659ab25f60e69697991517469984c4dd221bb48",
+    "medulla/contract/schemas/result.query.json": "fe1565f54b8e17b43adb77b4b030bc57d731ed6e5014e4acd0c8f26d2cf06bfb",
+    "medulla/contract/schemas/result.storage.json": "b7c541bfa8d8251701786651c875ca94d05f1c3c7b86988605124a380f5056d8",
+    "medulla/generated/_shared.py": "605e207677469e09727fb95a914143db290e239bd6c9479d22556a2f269ed5cb",
+    "medulla/generated/agent_component.py": "52f45868212cbe04e1bac2d72e197864e37a9f6bf8af44c1660ce5c5e1ecae89",
+    "medulla/generated/decision.py": "00b79385668061677e8e1ae810b2265b19f02c46d2acc9d4773b09fca96c54f2",
+    "medulla/generated/decision_commit.py": "0af942a7269a7fd2fcd3937867b76d03677754a0f544dff2eaa9328ebe17859f",
+    "medulla/generated/models.py": "54506a563d55d7ee79dcf15eec29f69ede04467938404082e8b10cfb0027fe83"
   },
   "compute_and_initial_rdf_attempt": {
     "command": [
@@ -138,12 +138,12 @@
       "test",
       "--locked",
       "-p",
-      "eg-rdf",
+      "medulla-rdf",
       "-p",
-      "eg-compute",
+      "medulla-compute",
       "--lib",
       "--features",
-      "eg-compute/decide",
+      "medulla-compute/decide",
       "-j",
       "4",
       "--",
@@ -219,7 +219,7 @@
       "test",
       "--locked",
       "-p",
-      "eg-rdf",
+      "medulla-rdf",
       "--lib",
       "--features",
       "owl",
@@ -264,7 +264,7 @@
       "test",
       "--locked",
       "-p",
-      "eg-capabilities",
+      "medulla-capabilities",
       "--features",
       "contract",
       "-j",
@@ -362,7 +362,7 @@
     ]
   },
   "repair": {
-    "file": "crates/eg-types/src/agent_component/facts.rs",
+    "file": "crates/medulla-types/src/agent_component/facts.rs",
     "change": "One contract-schema-only cfg_attr naming each MeasuredFact<T> schema MeasuredFact_{T}, following WorkItemTransition<Status>. No runtime serializer or validator changes.",
     "resolved_names": [
       "MeasuredFact_ShellProficiency",
@@ -374,11 +374,11 @@
     "command": [
       "cargo",
       "--config",
-      "profile.test.package.eg-types.opt-level=0",
+      "profile.test.package.medulla-types.opt-level=0",
       "test",
       "--locked",
       "-p",
-      "eg-capabilities",
+      "medulla-capabilities",
       "--features",
       "contract",
       "-j",
@@ -390,16 +390,16 @@
       "contract/schemas/method.request.json",
       "contract/schemas/result.query.json",
       "contract/schemas/result.storage.json",
-      "crates/eg-capabilities/generated/catalog_digest.rs",
-      "epistemic_graph/contract/receipt.json",
-      "epistemic_graph/contract/schemas/method.request.json",
-      "epistemic_graph/contract/schemas/result.query.json",
-      "epistemic_graph/contract/schemas/result.storage.json",
-      "epistemic_graph/generated/_shared.py",
-      "epistemic_graph/generated/agent_component.py",
-      "epistemic_graph/generated/decision.py",
-      "epistemic_graph/generated/decision_commit.py",
-      "epistemic_graph/generated/models.py"
+      "crates/medulla-capabilities/generated/catalog_digest.rs",
+      "medulla/contract/receipt.json",
+      "medulla/contract/schemas/method.request.json",
+      "medulla/contract/schemas/result.query.json",
+      "medulla/contract/schemas/result.storage.json",
+      "medulla/generated/_shared.py",
+      "medulla/generated/agent_component.py",
+      "medulla/generated/decision.py",
+      "medulla/generated/decision_commit.py",
+      "medulla/generated/models.py"
     ],
     "started_utc": "2026-10-11T16:51:03.038819+00:00",
     "elapsed_seconds": 126.509,
@@ -627,11 +627,11 @@
     "notes": "The stale spec status was regenerated officially. A concurrent status write caused the otherwise passing no-version-suffixes hook to report files modified; both affected hooks passed on targeted retry. No second broad hook loop was run."
   },
   "acceptance_boundary": {
-    "EG-TYPED-PACKS-R048.5": "SPECIFIED; signed pack import/readback remains open"
+    "MEDULLA-TYPED-PACKS-R048.5": "SPECIFIED; signed pack import/readback remains open"
   },
   "excluded": [
     "Full facade build",
-    "Duplicate eg-types behavior tests",
+    "Duplicate medulla-types behavior tests",
     "Resident-scorer tracing",
     "Hosted CI reruns",
     "Live deployment or restart",

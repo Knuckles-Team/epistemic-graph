@@ -1,7 +1,7 @@
-use eg_compute::datascience::primitives::train_test_split;
-use eg_compute::datascience::{estimators, metrics};
-use eg_compute::mining::classify;
-use eg_types::wire::{EstimatorParams, FittedClassifier, FittedModel, ModelSpec, SplitSpec};
+use medulla_compute::datascience::primitives::train_test_split;
+use medulla_compute::datascience::{estimators, metrics};
+use medulla_compute::mining::classify;
+use medulla_types::wire::{EstimatorParams, FittedClassifier, FittedModel, ModelSpec, SplitSpec};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 

@@ -1,19 +1,19 @@
-//! `MutationPlan` + the single commit gateway (CONCEPT:EG-P0-2).
+//! `MutationPlan` + the single commit gateway (CONCEPT:MEDULLA-P0-2).
 //!
 //! ## Why this exists
 //!
-//! `eg-capabilities` (CONCEPT:EG-P0-1) is a machine-checked, exhaustive `MethodPolicy`
+//! `medulla-capabilities` (CONCEPT:MEDULLA-P0-1) is a machine-checked, exhaustive `MethodPolicy`
 //! table over every `Method` variant — but on its own it is a one-way AUDIT: it
 //! cross-checks the existing hand-rolled classifiers (`access.rs::requires_write`,
 //! `mutation_apply::is_durable_mutation`, `audit.rs::audit_line`, `cdc.rs::emit_for_method`)
 //! against its declared policy, without either side CONSUMING the other. Handlers
-//! still mutate `eg-core` directly (`src/server/handlers/graph_ops.rs`'s
+//! still mutate `medulla-core` directly (`src/server/handlers/graph_ops.rs`'s
 //! `g.add_node(...)` etc.), and the dispatch shell (`src/server/dispatch.rs`)
 //! separately re-derives whether to durably commit / CDC-emit a given method from its
 //! own classifiers.
 //!
 //! This module is the other direction: [`MutationPlan`] is POPULATED FROM
-//! `eg_capabilities::policy` (never re-hardcoded), and [`commit_mutation`] is the
+//! `medulla_capabilities::policy` (never re-hardcoded), and [`commit_mutation`] is the
 //! ONE place a routed mutation's authz + durable write + CDC emission happen
 //! together, driven by that plan. The invariant this buys: for a method in
 //! [`plan::GATEWAY_ROUTED`], mutation + durability + audit + CDC happen together, in one
@@ -21,7 +21,7 @@
 //!
 //! ## Scope (read before assuming more is covered)
 //!
-//! [`plan::GATEWAY_ROUTED`] methods are wired through this gateway. EG-P0-2 started with
+//! [`plan::GATEWAY_ROUTED`] methods are wired through this gateway. MEDULLA-P0-2 started with
 //! 7 (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge` + `CreateSummaryNode`/
 //! `Consolidate`/`Reinforce`); the L11 rollout expanded it across the full routed
 //! graph surface, adding:
@@ -62,13 +62,13 @@
 //! that chaining here would risk a second, diverging chain. Instead,
 //! Compact row commits and staged-state MutationBatch commits both append the audit
 //! entry inside their authoritative redb transaction. `plan.audited`
-//! (sourced from `eg_capabilities::policy`) is the assertable, tested FACT that this
+//! (sourced from `medulla_capabilities::policy`) is the assertable, tested FACT that this
 //! delegation actually happens for the methods policy says should be audited (see
 //! `tests::routed_mutation_produces_one_durable_record_one_audit_entry_and_one_cdc_event`,
 //! which uses a REAL `RedbBackend` and reads the audit chain back).
 //!
 //! The per-graph write-coalescer's batching is genuinely live for the routed set
-//! (L18/EG-P0-6, rewritten): the five coalescable structural writes
+//! (L18/MEDULLA-P0-6, rewritten): the five coalescable structural writes
 //! (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`/`CompareAndSetNodeFields`) are routed through
 //! [`commit_coalescable_mutation`] instead of [`commit_mutation`] (see
 //! `handlers::graph_ops::try_handle_gateway`'s dedicated arms). That function
@@ -95,7 +95,7 @@
 use std::sync::Arc;
 
 #[cfg(all(test, feature = "redb"))]
-use eg_capabilities::DurabilityDomain;
+use medulla_capabilities::DurabilityDomain;
 
 #[cfg(test)]
 use crate::graph::GraphCore;
@@ -232,7 +232,7 @@ mod tests {
     }
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
-        crate::test_support::temp_dir("eg-mutation-gateway-test", tag)
+        crate::test_support::temp_dir("medulla-mutation-gateway-test", tag)
     }
 
     #[test]
@@ -278,7 +278,7 @@ mod tests {
         let core = Arc::new(GraphCore::new());
         let isolation = isolation_with_system_agent();
         let cdc_hub = Arc::new(crate::server::cdc::CdcHub::new());
-        let graph_name = "g-eg-p0-2-a";
+        let graph_name = "g-medulla-p0-2-a";
 
         let method = Method::AddNode {
             node_id: "n1".to_string(),
@@ -360,8 +360,8 @@ mod tests {
         );
     }
 
-    /// Regression: `commit_finalize` must refresh the per-graph `epistemic_graph_
-    /// graph_nodes`/`epistemic_graph_graph_edges` gauges. Before the fix, that
+    /// Regression: `commit_finalize` must refresh the per-graph `medulla_
+    /// graph_nodes`/`medulla_graph_edges` gauges. Before the fix, that
     /// refresh existed only in the legacy non-gateway dispatch tail and Raft
     /// snapshot-install -- NOT in `commit_finalize`, the universal gateway
     /// essentially all current writes (including `AddNode`, GATEWAY_ROUTED) route
@@ -386,7 +386,7 @@ mod tests {
 
         let core = Arc::new(GraphCore::new());
         let isolation = isolation_with_system_agent();
-        let graph_name = "g-eg-p0-2-gauge-refresh";
+        let graph_name = "g-medulla-p0-2-gauge-refresh";
 
         fn gauge_value(metric: &str, graph_name: &str) -> Option<i64> {
             let rendered = crate::metrics::render();
@@ -446,7 +446,7 @@ mod tests {
         // Before any write, either unset (no series yet) or zero -- never stale.
         add_node(&core, &isolation, &persistence, graph_name, "n1").await;
         assert_eq!(
-            gauge_value("epistemic_graph_graph_nodes", graph_name),
+            gauge_value("medulla_graph_nodes", graph_name),
             Some(1),
             "gauge must reflect the ACTUAL count (1) immediately after the first \
              gateway-routed AddNode, not a frozen/absent value"
@@ -454,7 +454,7 @@ mod tests {
 
         add_node(&core, &isolation, &persistence, graph_name, "n2").await;
         assert_eq!(
-            gauge_value("epistemic_graph_graph_nodes", graph_name),
+            gauge_value("medulla_graph_nodes", graph_name),
             Some(2),
             "a SECOND gateway-routed AddNode must advance the gauge again -- this \
              is exactly what stayed frozen before the fix (measured live: the \
@@ -466,7 +466,7 @@ mod tests {
 
     /// (a2) A GATEWAY_ROUTED durable + audited BUT NON-CDC mutation (`Reinforce`)
     /// commits durably, appends exactly ONE audit-chain entry, and leaves the CDC
-    /// feed UNTOUCHED. As of L3/EG-P0-6, `audit_line` is exhaustive over the full
+    /// feed UNTOUCHED. As of L3/MEDULLA-P0-6, `audit_line` is exhaustive over the full
     /// durable-mutation surface, so `Reinforce` is now policy-`audited: true` (its
     /// agent-memory write chains into the tamper-evident log); it stays
     /// `emits_cdc: false`. This test now proves CDC -- NOT audit -- is the
@@ -487,7 +487,7 @@ mod tests {
         core.add_node("n1".to_string(), Vec::new());
         let isolation = isolation_with_system_agent();
         let cdc_hub = Arc::new(crate::server::cdc::CdcHub::new());
-        let graph_name = "g-eg-p0-2-a2";
+        let graph_name = "g-medulla-p0-2-a2";
 
         let method = Method::Reinforce {
             node_id: "n1".to_string(),
@@ -496,7 +496,7 @@ mod tests {
         };
         let plan = MutationPlan::for_method(&method);
         assert!(plan.mutates);
-        assert!(plan.audited, "Reinforce is now policy-audited (L3/EG-P0-6)");
+        assert!(plan.audited, "Reinforce is now policy-audited (L3/MEDULLA-P0-6)");
         assert!(!plan.emits_cdc, "Reinforce policy-does-NOT-emit-CDC");
         assert_eq!(plan.durability_domain, DurabilityDomain::GraphRedb);
 
@@ -867,7 +867,7 @@ mod tests {
         let core = Arc::new(GraphCore::new());
         let isolation = isolation_with_system_agent();
         let cdc_hub = Arc::new(crate::server::cdc::CdcHub::new());
-        let graph_name = "g-eg-p0-2-l11-broker-a";
+        let graph_name = "g-medulla-p0-2-l11-broker-a";
 
         let method = Method::DeclareExchange {
             exchange: "orders".to_string(),
@@ -951,7 +951,7 @@ mod tests {
             rmp_serde::to_vec_named(&serde_json::json!({})).expect("encode seed node"),
         );
         let isolation = isolation_with_system_agent();
-        let graph_name = "g-eg-p0-2-l11-none-durability-a";
+        let graph_name = "g-medulla-p0-2-l11-none-durability-a";
 
         let method = Method::TouchNodes {
             node_ids: vec!["n1".to_string()],
@@ -1008,7 +1008,7 @@ mod tests {
             .expect("TouchNodes batch is durable");
         assert_eq!(
             record.batch.identity.tenant().as_str(),
-            eg_storage::GRAPH_SHARD_TENANT
+            medulla_storage::GRAPH_SHARD_TENANT
         );
         let (snapshot, version) = persistence
             .read_authoritative_graph_snapshot(&fname)
@@ -1022,7 +1022,7 @@ mod tests {
             .find(|(id, _)| id == "n1")
             .expect("durable node");
         let properties: serde_json::Value =
-            eg_types::msgpack::decode_property_value(node.1.as_slice())
+            medulla_types::msgpack::decode_property_value(node.1.as_slice())
                 .expect("decode durable node");
         assert_eq!(properties["last_access"], serde_json::json!(1_000));
         assert_eq!(properties["confidence"], serde_json::json!(1.0));
@@ -1061,7 +1061,7 @@ mod tests {
         let persistence: Arc<dyn PersistenceBackend> = Arc::new(backend);
 
         let core = Arc::new(GraphCore::new());
-        let graph_name = "g-eg-p0-2-l11-mining-a";
+        let graph_name = "g-medulla-p0-2-l11-mining-a";
 
         // This test's job is the DURABILITY/AUDIT half of the runtime-conditional
         // gateway (below). The Read-vs-Write ACL distinction is already covered
@@ -1302,7 +1302,7 @@ mod tests {
             Arc::new(RedbBackend::open(dir_s.clone(), 64).expect("open redb backend"));
         let core = Arc::new(GraphCore::new());
         let isolation = isolation_with_system_agent();
-        let graph_name = "g-eg-stable-kernel-replay";
+        let graph_name = "g-medulla-stable-kernel-replay";
         let method = Method::RemoveNode {
             node_id: "n1".to_string(),
         };
@@ -1310,7 +1310,7 @@ mod tests {
         let apply_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let first = MutationCtx {
             req_id: 4,
-            attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([1; 32])),
+            attempt_nonce: Some(medulla_types::contract::Nonce::from_bytes([1; 32])),
             idempotency_key: "caller-stable-remove",
             ..durable_replay_context(graph_name, &core, &isolation, &persistence)
         };
@@ -1331,7 +1331,7 @@ mod tests {
         let core = Arc::new(GraphCore::new());
         let retry = MutationCtx {
             req_id: 5,
-            attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([2; 32])),
+            attempt_nonce: Some(medulla_types::contract::Nonce::from_bytes([2; 32])),
             idempotency_key: "caller-stable-remove",
             ..durable_replay_context(graph_name, &core, &isolation, &persistence)
         };
@@ -1348,7 +1348,7 @@ mod tests {
         let consumed = MutationCtx {
             anonymous: false,
             req_id: 6,
-            attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([1; 32])),
+            attempt_nonce: Some(medulla_types::contract::Nonce::from_bytes([1; 32])),
             ..retry
         };
         let response = commit_mutation(&consumed, &plan, &method, |_| {
@@ -1367,7 +1367,7 @@ mod tests {
         let conflict = MutationCtx {
             anonymous: false,
             req_id: 7,
-            attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([3; 32])),
+            attempt_nonce: Some(medulla_types::contract::Nonce::from_bytes([3; 32])),
             ..consumed
         };
         let response = commit_mutation(&conflict, &changed_plan, &changed, |_| {
@@ -1397,7 +1397,7 @@ mod tests {
             Arc::new(RedbBackend::open(dir_s.clone(), 64).expect("open redb backend"));
         let core = Arc::new(GraphCore::new());
         let isolation = isolation_with_system_agent();
-        let graph_name = "g-eg-staged-query-replay";
+        let graph_name = "g-medulla-staged-query-replay";
         let method = Method::CypherQuery {
             query: "CREATE (n:ReplayProbe {id: 'n1'})".to_string(),
             mode: crate::protocol::CypherMode::Write,
@@ -1406,7 +1406,7 @@ mod tests {
         let apply_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let first = MutationCtx {
             req_id: 40,
-            attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([11; 32])),
+            attempt_nonce: Some(medulla_types::contract::Nonce::from_bytes([11; 32])),
             idempotency_key: "caller-stable-cypher",
             ..durable_replay_context(graph_name, &core, &isolation, &persistence)
         };
@@ -1433,7 +1433,7 @@ mod tests {
         let core = Arc::new(GraphCore::new());
         let retry = MutationCtx {
             req_id: 41,
-            attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([12; 32])),
+            attempt_nonce: Some(medulla_types::contract::Nonce::from_bytes([12; 32])),
             idempotency_key: "caller-stable-cypher",
             ..durable_replay_context(graph_name, &core, &isolation, &persistence)
         };
@@ -1452,7 +1452,7 @@ mod tests {
         let consumed = MutationCtx {
             anonymous: false,
             req_id: 42,
-            attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([11; 32])),
+            attempt_nonce: Some(medulla_types::contract::Nonce::from_bytes([11; 32])),
             ..retry
         };
         let response =
@@ -1473,7 +1473,7 @@ mod tests {
         let conflict = MutationCtx {
             anonymous: false,
             req_id: 43,
-            attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([13; 32])),
+            attempt_nonce: Some(medulla_types::contract::Nonce::from_bytes([13; 32])),
             ..consumed
         };
         let response = commit_conditional_mutation_async(
@@ -1492,7 +1492,7 @@ mod tests {
     }
 
     /// (d) Bypass guard, part 1: `MutationPlan` never diverges from
-    /// `eg_capabilities::policy` for any [`GATEWAY_ROUTED`] method -- if someone
+    /// `medulla_capabilities::policy` for any [`GATEWAY_ROUTED`] method -- if someone
     /// edits `MutationPlan::for_method` to hardcode a field instead of reading it
     /// off `policy()`, this catches the divergence.
     #[test]
@@ -1832,16 +1832,16 @@ mod tests {
             },
             // ── L11 rollout batch 3: runtime-conditional data-mining family.
             // `MineAssociate` is a SPOT CHECK, not full coverage of all 17: every
-            // Mine* variant's `policy()` arm (`crates/eg-capabilities/src/lib.rs`)
+            // Mine* variant's `policy()` arm (`crates/medulla-capabilities/src/lib.rs`)
             // is one of 4 groups that share the IDENTICAL `MethodPolicy` value, and
             // `MutationPlan::for_method`'s call site has no per-variant branching at
-            // all (it is `eg_capabilities::policy(method)` verbatim for every Method
+            // all (it is `medulla_capabilities::policy(method)` verbatim for every Method
             // in existence) -- so one sample exercises the same code path the other
             // 16 would. Full name-level coverage (every Mine* name really is a
             // mutating, policy-known method) is still asserted for ALL 17 by
             // `gateway_routed_set_matches_mutating_policy_surface` below, which
             // needs no `Method` construction (it reads
-            // `eg_capabilities::method_policy_entries()` by name). The runtime-conditional (`writeback`) gateway PATH itself is
+            // `medulla_capabilities::method_policy_entries()` by name). The runtime-conditional (`writeback`) gateway PATH itself is
             // proven end-to-end (WAL + audit, no CDC, Read-vs-Write ACL both ways)
             // by `mining_family_writeback_gates_durability_and_authz` below.
             #[cfg(feature = "mining")]
@@ -1868,7 +1868,7 @@ mod tests {
         for m in &samples {
             assert!(is_gateway_routed(m), "{m:?} must be in GATEWAY_ROUTED");
             let plan = MutationPlan::for_method(m);
-            let p = eg_capabilities::policy(m);
+            let p = medulla_capabilities::policy(m);
             assert_eq!(plan.mutates, p.mutates, "{}", plan.method_name);
             assert_eq!(
                 plan.durability_domain, p.durability_domain,
@@ -1928,7 +1928,7 @@ mod tests {
         ("Commit", "named control-plane receipt coordinates graph/cross-modal/2PC child MutationBatches"),
         ("Rollback", "replicated removal of encrypted OCC staging authority"),
         // ── RF-ADR-009 / RF-ADR-010: the decision and connector-pack surfaces ──
-        // Each commits through the agent-library owner's own eg-transaction
+        // Each commits through the agent-library owner's own medulla-transaction
         // write, not a `(ctx, plan, method, apply)` graph mutation, and each
         // has process-local ordering only (see `plan::LOCAL_ONLY_METHODS`).
         ("ConnectorPack", "native MutationBatch in agent_library.redb: pack head, members, component revisions, body holders, import record, receipt and outbox in one WTX; local-only authority"),
@@ -1937,7 +1937,7 @@ mod tests {
         ("DecisionFit", "native MutationBatch in agent_library.redb: the terminal decision job row and its draft head body in one control-owner WTX; local-only authority"),
         ("DecisionEval", "native MutationBatch in agent_library.redb: the terminal evaluation job row and its receipt in one control-owner WTX; local-only authority"),
         ("DecisionLog", "native MutationBatch in agent_library.redb: one verify-replayed statistical record or one outcome evaluation per control-owner WTX; local-only authority"),
-        ("MutationOutbox", "owner-local outbox ledger rewind: bounded eg-transaction transactions with a durable control cursor; local-only authority"),
+        ("MutationOutbox", "owner-local outbox ledger rewind: bounded medulla-transaction transactions with a durable control cursor; local-only authority"),
         ("EdgeIndex", "tenant SQL owner maintenance writes: edge-index registration, generation parts and fenced drop, one WTX each; local-only authority"),
         ("ClaimWorkItem", "dedicated engine-native MutationBatch lease transition in mutation_batch.rs/redb_store.rs"),
         ("KgDelegate", "authenticated Agent Library admission lowers to the native WorkItem command-log transaction"),
@@ -1981,49 +1981,49 @@ mod tests {
         ("KvPut", "native MutationBatch in kv.redb: KV row + status/fence/idempotency/outbox in one WTX"),
         ("KvDelete", "native MutationBatch in kv.redb: KV row + status/fence/idempotency/outbox in one WTX"),
         ("KvCas", "native MutationBatch in kv.redb: CAS decision/row + exact result/coordinator metadata in one WTX"),
-        ("MediaRemember", "EG-MEDIA-VOCAB-R650.3: blob bytes into the blob CAS under the owner holder (blob.redb WTX), then lowers to MediaIndexPut"),
-        ("MediaIndexPut", "EG-MEDIA-VOCAB-R650.3 engine-internal: the tenant-namespaced media index row as one ledgered kv.redb owner mutation; native KeyValue command, no blob bytes"),
+        ("MediaRemember", "MEDULLA-MEDIA-VOCAB-R650.3: blob bytes into the blob CAS under the owner holder (blob.redb WTX), then lowers to MediaIndexPut"),
+        ("MediaIndexPut", "MEDULLA-MEDIA-VOCAB-R650.3 engine-internal: the tenant-namespaced media index row as one ledgered kv.redb owner mutation; native KeyValue command, no blob bytes"),
         ("TsAppend", "native MutationBatch in series.redb: series rows/projection + coordinator metadata in one WTX"),
-        ("TsEvict", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; one series.redb WTX via SeriesStore::evict_before_scoped -- no eg_transaction idempotency batch, because retention is content-idempotent (re-evicting an already-past cutoff is a safe no-op), unlike TsAppend"),
-        ("TsDeleteSeries", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; one series.redb WTX via SeriesStore::delete_scoped -- no eg_transaction idempotency batch, because deletion is content-idempotent (re-deleting an already-gone series is a safe no-op), unlike TsAppend"),
+        ("TsEvict", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; one series.redb WTX via SeriesStore::evict_before_scoped -- no medulla_transaction idempotency batch, because retention is content-idempotent (re-evicting an already-past cutoff is a safe no-op), unlike TsAppend"),
+        ("TsDeleteSeries", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; one series.redb WTX via SeriesStore::delete_scoped -- no medulla_transaction idempotency batch, because deletion is content-idempotent (re-deleting an already-gone series is a safe no-op), unlike TsAppend"),
         ("TsDefineSeries", "native MutationBatch in series.redb, like TsAppend: the derived points plus the definition/checkpoint in the series metadata in one WTX (EH-524)"),
         #[cfg(feature = "jobs")]
         ("AnalyticsJob", "native MutationBatch in jobs.redb; asynchronous claim writeback uses a staged graph MutationBatch"),
         // `Statechart` self-routes in dispatch.rs BEFORE dispatch_graph_op (see the
         // `Method::Statechart` arm there and `handlers::statechart` module docs) --
         // it never reaches this gateway's `try_handle_gateway`/`commit_mutation` at
-        // all. `eg-statechart`'s `StatechartStore::instantiate`/`send_event` commit
-        // through `eg-transaction` (the SAME universal MutationBatch/OCC
-        // primitive `eg-jobs` uses for `AnalyticsJob`, per eg-statechart/Cargo.toml)
+        // all. `medulla-statechart`'s `StatechartStore::instantiate`/`send_event` commit
+        // through `medulla-transaction` (the SAME universal MutationBatch/OCC
+        // primitive `medulla-jobs` uses for `AnalyticsJob`, per medulla-statechart/Cargo.toml)
         // against their OWN `statecharts.redb`, keyed by def_id/instance_id, not a
         // graph -- structurally identical to `AnalyticsJob` above, just gated
-        // `statechart` instead of `jobs`. Note: this is `eg-transaction` (a
+        // `statechart` instead of `jobs`. Note: this is `medulla-transaction` (a
         // generic per-store OCC/durable-commit primitive shared by jobs/kv/blob/
         // series/statecharts), NOT this module's `GATEWAY_ROUTED`/`commit_mutation`
         // -- the two are easily conflated by name but are different mechanisms.
         #[cfg(feature = "statechart")]
-        ("Statechart", "native MutationBatch in statecharts.redb; instance define/instantiate/send_event commit status/version/fence/idempotency/outbox in one WTX via eg-transaction, exactly like AnalyticsJob in jobs.redb"),
+        ("Statechart", "native MutationBatch in statecharts.redb; instance define/instantiate/send_event commit status/version/fence/idempotency/outbox in one WTX via medulla-transaction, exactly like AnalyticsJob in jobs.redb"),
         // RF-020. `AgentLibrary` self-routes in router.rs's
         // `dispatch_agent_library_methods` BEFORE the per-graph chain and owns
         // its own `agent_library.redb`. `AgentLibraryStore` commits publish and
-        // retire through `eg-transaction`'s `MutationKernel` -- the same
+        // retire through `medulla-transaction`'s `MutationKernel` -- the same
         // per-store OCC primitive `AnalyticsJob` and `Statechart` use -- so the
         // revision row, kernel receipt and outbox event land in one WTX.
-        ("AgentLibrary", "native MutationBatch in agent_library.redb: entry revision + head + kernel receipt/outbox in one WTX via eg-transaction, exactly like AnalyticsJob in jobs.redb"),
+        ("AgentLibrary", "native MutationBatch in agent_library.redb: entry revision + head + kernel receipt/outbox in one WTX via medulla-transaction, exactly like AnalyticsJob in jobs.redb"),
         // RF-ADR-008. Published into the SAME `agent_library.redb` owner as
         // `AgentLibrary` -- an agent graph is a composition of agent entries,
         // not a separate entity family, so a second physical store would split
         // one authority in two (RF-RULING-004).
-        ("AgentGraph", "native MutationBatch in agent_library.redb: graph revision + head + kernel receipt/outbox in one WTX via eg-transaction, exactly like AgentLibrary alongside it"),
-        ("AgentComponent", "native MutationBatch in agent_library.redb: component revision + head + kernel receipt/outbox in one WTX via eg-transaction, alongside the agents and graphs that reference it"),
-        ("AgentTemplate", "native MutationBatch in agent_library.redb: template revision + head + kernel receipt/outbox in one WTX via eg-transaction, alongside the components, agents and graphs its base is assembled from"),
+        ("AgentGraph", "native MutationBatch in agent_library.redb: graph revision + head + kernel receipt/outbox in one WTX via medulla-transaction, exactly like AgentLibrary alongside it"),
+        ("AgentComponent", "native MutationBatch in agent_library.redb: component revision + head + kernel receipt/outbox in one WTX via medulla-transaction, alongside the agents and graphs that reference it"),
+        ("AgentTemplate", "native MutationBatch in agent_library.redb: template revision + head + kernel receipt/outbox in one WTX via medulla-transaction, alongside the components, agents and graphs its base is assembled from"),
         // RF-019. Commits into the semantic index's OWN `OwnerLayout::SemanticIndex`
-        // owner through `eg-transaction`, never a graph shard: one WTX carries the
+        // owner through `medulla-transaction`, never a graph shard: one WTX carries the
         // stage transition, its artifact, the successor intent, the generation
         // checkpoint and the outbox lease acknowledgement together, which is what
         // makes "a stage cannot complete before its predecessor" a durable property
         // rather than an ordering convention.
-        ("SemanticIndex", "native MutationBatch in the OwnerLayout::SemanticIndex owner: binding/stage row + artifact + successor intent + lease ack in one WTX via eg-transaction, exactly like AnalyticsJob in jobs.redb"),
+        ("SemanticIndex", "native MutationBatch in the OwnerLayout::SemanticIndex owner: binding/stage row + artifact + successor intent + lease ack in one WTX via medulla-transaction, exactly like AnalyticsJob in jobs.redb"),
         ("ImportSqliteFile", "native SQL-catalog MutationBatch: all imported tables + exact result/coordinator metadata in one WTX"),
         ("SqlSourceBatch", "native SQL owner MutationBatch: typed source rows, provider checkpoint, committed epoch, terminal result, replay and outbox in one WTX; LocalOnly authority refuses active Raft"),
         // ── Process-global registries on ServerState: opaque control-redb sagas,
@@ -2090,7 +2090,7 @@ mod tests {
         ("ApplyChangeEnvelopeDrafts", "client draft batch compiled at the request boundary into ApplyChangeEnvelopes under the verified context, then committed by that same native coordinator"),
         ("SourceIngest", "RF-ADR-009 stages raw CAS and an authoritative Connector Manifest mapping, then delegates its sole canonical graph/provenance/cursor commit to ApplyChangeEnvelope"),
         ("IndexRepository", "EH-280 runtime-conditional: an unscoped batch is a stateless parse; a scoped batch lowers its :Blob/:FileVersion/:Branch projection and delegates its sole graph commit to ApplyChangeEnvelope, exactly like SourceIngest"),
-        ("EnrichDocument", "EG-UNIFIED-DATA-PLANE-R651.7 lowers chunk nodes, chunkOf edges, vectors and one enrichment record of a held Document and delegates its sole graph commit to ApplyChangeEnvelope, exactly like IndexRepository"),
+        ("EnrichDocument", "MEDULLA-UNIFIED-DATA-PLANE-R651.7 lowers chunk nodes, chunkOf edges, vectors and one enrichment record of a held Document and delegates its sole graph commit to ApplyChangeEnvelope, exactly like IndexRepository"),
         ("RecomputeMaterialization", "fenced reasoning-projection coordinator resolves authoritative graph provenance and fsyncs its projection watermark"),
         // ── Server lifecycle: TxnParticipation::None, not a graph mutation. ──
         ("Shutdown", "server-lifecycle control-plane action, not a graph mutation"),
@@ -2122,7 +2122,7 @@ mod tests {
         // begin_write()/commit() against the native `development_lane_*` tables. Same posture
         // as `MintWorkItemClaimCapability` above: no MutationBatch/result/outbox/CDC
         // projection, so it does not fit commit_mutation's (ctx, plan, method, apply) shape.
-        // Formerly NOT_YET_AUDITED-adjacent placeholder text (push/eg-merge-artifacts, commit
+        // Formerly NOT_YET_AUDITED-adjacent placeholder text (push/medulla-merge-artifacts, commit
         // 174c381) said "no dispatch.rs wire-routing arm exists yet" -- that arm now exists;
         // see access.rs's REASON_NATIVE_DEVELOPMENT_LANE_READ for the read-side twin
         // (DevelopmentLaneStatus/QueryDevelopmentLane). ──
@@ -2143,7 +2143,7 @@ mod tests {
     ///     the RDF dispatch site, with multi-valued literals included in the staged
     ///     authoritative image;
     ///   - `RunRules` was AUDITED to be genuinely read-only, so the fix was the
-    ///     policy (`eg_capabilities::policy(RunRules).mutates` : true -> false), not
+    ///     policy (`medulla_capabilities::policy(RunRules).mutates` : true -> false), not
     ///     a route -- it left the mutating surface entirely.
     ///
     /// Kept as an explicit (empty) const, and asserted empty below, so "nothing is
@@ -2153,7 +2153,7 @@ mod tests {
     const OPEN_NOT_JUSTIFIED: &[(&str, &str)] = &[];
 
     /// (d) Bypass guard, part 2: the migration surface is machine-visible. Every
-    /// name in [`GATEWAY_ROUTED`] really exists in `eg_capabilities::method_policy_entries()`
+    /// name in [`GATEWAY_ROUTED`] really exists in `medulla_capabilities::method_policy_entries()`
     /// and really is `mutates == true` (catches a rename/typo silently un-routing
     /// a method); the COMPLEMENT (every other mutating method) must fall ENTIRELY
     /// into [`NON_GATEWAY_COORDINATED`] or [`OPEN_NOT_JUSTIFIED`] -- an undocumented name in
@@ -2162,7 +2162,7 @@ mod tests {
     fn gateway_routed_set_matches_mutating_policy_surface() {
         use std::collections::BTreeSet;
 
-        let all_mutating: BTreeSet<&'static str> = eg_capabilities::method_policy_entries()
+        let all_mutating: BTreeSet<&'static str> = medulla_capabilities::method_policy_entries()
             .filter(|(_, p, _)| p.mutates)
             .map(|(name, _, _)| name)
             .collect();
@@ -2171,7 +2171,7 @@ mod tests {
             assert!(
                 all_mutating.contains(routed),
                 "GATEWAY_ROUTED name '{routed}' is not a mutating method in \
-                 eg_capabilities::method_policy_entries() (renamed/typo'd?)"
+                 medulla_capabilities::method_policy_entries() (renamed/typo'd?)"
             );
         }
 
@@ -2221,7 +2221,7 @@ mod tests {
         );
 
         println!(
-            "EG-P0-2/L11 gateway migration surface: {} routed / {} mutating total; \
+            "MEDULLA-P0-2/L11 gateway migration surface: {} routed / {} mutating total; \
              {} non-gateway = {} natively coordinated + \
              {} open-not-justified (MUST be 0)",
             routed_set.len(),
@@ -2241,7 +2241,7 @@ mod tests {
     fn clustered_mutation_inventory_is_complete() {
         use std::collections::BTreeSet;
 
-        let expected: BTreeSet<&'static str> = eg_capabilities::method_policy_entries()
+        let expected: BTreeSet<&'static str> = medulla_capabilities::method_policy_entries()
             .filter(|(_, policy, _)| policy.mutates)
             .map(|(name, _, _)| name)
             .collect();
@@ -2267,7 +2267,7 @@ mod tests {
         // substance, so `plan::LOCAL_ONLY_METHODS` above already covers them
         // and a second, silent insert would hide a future regression in it.
         // RF-019. Self-routes in router.rs and commits into its own semantic
-        // owner through `eg-transaction`, so it never reaches a
+        // owner through `medulla-transaction`, so it never reaches a
         // `NativeMutationCommand` or the gateway -- same reason as the four
         // agent layers above.
         covered.insert("SemanticIndex");
@@ -2387,7 +2387,7 @@ mod tests {
         );
     }
 
-    /// EG-TYPED-PACKS-R012: `ConnectorPack` and its four agent-layer write
+    /// MEDULLA-TYPED-PACKS-R012: `ConnectorPack` and its four agent-layer write
     /// methods -- the exact set named in the requirement, not the broader
     /// decision/outbox half of [`LOCAL_ONLY_METHODS`] -- are `LocalOnly` and
     /// refuse in clustered mode until a separately specified clustered writer
@@ -2398,20 +2398,20 @@ mod tests {
     /// saga or store -- the same classifier
     /// `source_batch_is_a_local_only_cluster_route` already relies on as its
     /// clustered-mode proof for `SqlSourceBatch`.
-    // spec: EG-TYPED-PACKS-R012
+    // spec: MEDULLA-TYPED-PACKS-R012
     #[test]
     fn pack_and_agent_layer_write_methods_are_the_local_only_five() {
         // Only the mutating ops are LocalOnly: the capability policy is
         // runtime-conditional, so Status/Current reads classify ReadOnly.
-        let ctx = eg_types::test_support::contract_wave::decision::mutation_context;
+        let ctx = medulla_types::test_support::contract_wave::decision::mutation_context;
         let methods: [(&str, Method); 5] = [
             (
                 "ConnectorPack",
                 Method::ConnectorPack {
-                    op: Box::new(eg_types::connector_pack::ConnectorPackOp::Unbind {
-                        request: eg_types::connector_pack::ConnectorPackUnbindRequest {
+                    op: Box::new(medulla_types::connector_pack::ConnectorPackOp::Unbind {
+                        request: medulla_types::connector_pack::ConnectorPackUnbindRequest {
                             context: ctx(),
-                            connector: eg_types::test_support::contract_wave::pack::connector(),
+                            connector: medulla_types::test_support::contract_wave::pack::connector(),
                         },
                     }),
                 },
@@ -2419,8 +2419,8 @@ mod tests {
             (
                 "AgentComponent",
                 Method::AgentComponent {
-                    op: eg_types::agent_component::AgentComponentOp::Retire {
-                        request: eg_types::agent_component::AgentComponentRetireRequest {
+                    op: medulla_types::agent_component::AgentComponentOp::Retire {
+                        request: medulla_types::agent_component::AgentComponentRetireRequest {
                             context: ctx(),
                             component_id: "component-a".to_string(),
                         },
@@ -2430,8 +2430,8 @@ mod tests {
             (
                 "AgentGraph",
                 Method::AgentGraph {
-                    op: eg_types::agent_graph::AgentGraphOp::Retire {
-                        request: eg_types::agent_graph::AgentGraphRetireRequest {
+                    op: medulla_types::agent_graph::AgentGraphOp::Retire {
+                        request: medulla_types::agent_graph::AgentGraphRetireRequest {
                             context: ctx(),
                             graph_id: "graph-a".to_string(),
                         },
@@ -2441,8 +2441,8 @@ mod tests {
             (
                 "AgentLibrary",
                 Method::AgentLibrary {
-                    op: eg_types::agent_library::AgentLibraryOp::Retire {
-                        request: eg_types::agent_library::AgentLibraryRetireRequest {
+                    op: medulla_types::agent_library::AgentLibraryOp::Retire {
+                        request: medulla_types::agent_library::AgentLibraryRetireRequest {
                             context: ctx(),
                             agent_id: "agent-a".to_string(),
                         },
@@ -2452,8 +2452,8 @@ mod tests {
             (
                 "AgentTemplate",
                 Method::AgentTemplate {
-                    op: eg_types::agent_template::AgentTemplateOp::Retire {
-                        request: eg_types::agent_template::AgentTemplateRetireRequest {
+                    op: medulla_types::agent_template::AgentTemplateOp::Retire {
+                        request: medulla_types::agent_template::AgentTemplateRetireRequest {
                             context: ctx(),
                             template_id: "template-a".to_string(),
                         },

@@ -86,7 +86,7 @@ impl Store {
         table: redb::TableDefinition<'static, K, &'static [u8]>,
     ) -> Vec<Vec<u8>>
     where
-        for<'k> K::SelfType<'k>: eg_storage::OwnerRowScope + eg_storage::OwnerRowScopeStart<'k>,
+        for<'k> K::SelfType<'k>: medulla_storage::OwnerRowScope + medulla_storage::OwnerRowScopeStart<'k>,
     {
         let handle = self.shard.graph(GRAPH).unwrap();
         let read = self.shard.read(&handle).unwrap();
@@ -275,7 +275,7 @@ fn a_pending_reservation_is_not_closed_by_another_request_context() {
 /// again before any outcome and with no restart in between, is a replay: it
 /// returns the original reservation receipt unchanged and adds neither a
 /// second audit-chain entry nor a second request-index row.
-// spec: EG-DURABLE-KERNEL-R031
+// spec: MEDULLA-DURABLE-KERNEL-R031
 #[test]
 fn a_duplicate_reservation_is_replayed_without_a_restart() {
     let dir = tempfile::tempdir().unwrap();

@@ -8,7 +8,7 @@
 //!
 //! * [`Shard`] replaces `db: &redb::Database`. It holds the file's
 //!   [`StorageKernel`], its [`MutationKernel`], the bound control handle, and an
-//!   `Arc` cache of one bound handle per graph -- the same shape `eg-tsdb`'s
+//!   `Arc` cache of one bound handle per graph -- the same shape `medulla-tsdb`'s
 //!   `SeriesStore` uses per series, and for the same reason:
 //!   `OwnedStoreHandle` is not `Clone` because a handle IS a capability, so the
 //!   cache hands out `Arc` clones of the one bound handle rather than copies.
@@ -33,7 +33,7 @@
 //! `bind_scope_in` is idempotent for an identical proposed binding.
 //!
 //! **A group is bounded at `MAX_SHARD_GROUP_GRAPHS` graph members.** The kernel
-//! admits at most `eg_storage` `MAX_SCOPE_GROUP_MEMBERS` (1024) members
+//! admits at most `medulla_storage` `MAX_SCOPE_GROUP_MEMBERS` (1024) members
 //! *including* the control member, so one drain covers at most 1023 distinct
 //! graphs. A burst touching more flushes in chunks -- see [`chunk_graphs`].
 
@@ -45,20 +45,20 @@ use std::sync::{Arc, RwLock};
 #[cfg(all(test, feature = "server"))]
 use std::sync::{Barrier, OnceLock};
 
-use eg_storage::{
+use medulla_storage::{
     GraphShardOwner, OwnedStoreHandle, OwnerDomain, PhysicalStoreIdentity, ScopedRead,
     StorageKernel, GRAPH_SHARD_CONTROL_GRAPH, GRAPH_SHARD_TENANT,
 };
-use eg_transaction::{
+use medulla_transaction::{
     AdmittedGroup, AdmittedOwnerWrite, Begin, CurrentIntent, MutationKernel, OutboxClaimBudget,
     OutboxClaimOutcome, OutboxStatus, ScopedIntent,
 };
 #[cfg(feature = "server")]
-use eg_transaction::{GraftDestination, GraftSource, GraftedScope, OwnerPayloadTransfer};
-use eg_types::mutation_batch::COMPILED_BATCH_INCARNATION;
+use medulla_transaction::{GraftDestination, GraftSource, GraftedScope, OwnerPayloadTransfer};
+use medulla_types::mutation_batch::COMPILED_BATCH_INCARNATION;
 #[cfg(feature = "raft")]
-use eg_types::MutationOutboxRecord;
-use eg_types::{
+use medulla_types::MutationOutboxRecord;
+use medulla_types::{
     MutationBatch, MutationBatchRecord, MutationOutboxLease, MutationProjectionCursor,
     MutationScopeIdentity,
 };
@@ -79,7 +79,7 @@ pub(crate) const SHARD_PHYSICAL_STORE: &str = "epistemic-graph:graph-shard";
 /// Distinct graphs one admitted group may carry.
 ///
 /// `MutationOwnerAuthority::group_write_capabilities` refuses a group whose
-/// `members.len() + 1` exceeds `eg-storage`'s `MAX_SCOPE_GROUP_MEMBERS` (1024),
+/// `members.len() + 1` exceeds `medulla-storage`'s `MAX_SCOPE_GROUP_MEMBERS` (1024),
 /// and the control member is always present, so the graph budget is one less.
 /// Stated here rather than imported because the kernel's constant is private;
 /// [`the_group_budget_matches_the_kernels_own_bound`] proves the two agree by
@@ -195,7 +195,7 @@ pub(crate) struct Shard {
     kernel: StorageKernel,
     mutations: MutationKernel,
     /// The exact path this shard was opened with (EH-290 write-amplification
-    /// measurement, CONCEPT:EG-KG.storage.commit-ops-phase-timing): a stat of
+    /// measurement, CONCEPT:MEDULLA-KG.storage.commit-ops-phase-timing): a stat of
     /// this path around a commit is the on-disk byte growth that commit cost.
     /// Diagnostic only -- not the kernel's canonicalized physical root -- so a
     /// caller-relative path is exactly as valid here as an absolute one.
@@ -221,9 +221,9 @@ impl Shard {
     /// census, so the hand-written `initialize_canonical_tables` bootstrap the
     /// raw path needed is not repeated here.
     pub(crate) fn open(path: &Path) -> Result<Self, String> {
-        // EG-OBJECT-STORAGE-BACKEND-R001: the graph is opened from its declared
+        // MEDULLA-OBJECT-STORAGE-BACKEND-R001: the graph is opened from its declared
         // backend spec; an unbound or unsupported spec refuses before any effect.
-        admit_backend_setting(std::env::var("EG_STORAGE_BACKEND").ok().as_deref())?;
+        admit_backend_setting(std::env::var("MEDULLA_STORAGE_BACKEND").ok().as_deref())?;
         let (kernel, mutations, control) = open_kernel_owned_store::<GraphShardOwner>(
             path,
             SHARD_PHYSICAL_STORE,
@@ -674,7 +674,7 @@ impl Shard {
         consumer: &str,
     ) -> Result<Option<MutationProjectionCursor>, String> {
         let handle = self.graph(graph_fname)?;
-        eg_transaction::outbox_cursor(&self.read(&handle)?, consumer)
+        medulla_transaction::outbox_cursor(&self.read(&handle)?, consumer)
     }
 
     /// One consumer's queue depth, lag and saturation on one graph.
@@ -685,7 +685,7 @@ impl Shard {
         now_ms: u64,
     ) -> Result<OutboxStatus, String> {
         let handle = self.graph(graph_fname)?;
-        eg_transaction::outbox_status(&self.read(&handle)?, consumer, now_ms)
+        medulla_transaction::outbox_status(&self.read(&handle)?, consumer, now_ms)
     }
 
     /// Reserve a graph's destination before an online move copies owner rows.
@@ -737,7 +737,7 @@ impl Shard {
     ) -> Result<(), String>
     where
         F: for<'cap, 'store> FnOnce(
-            &eg_transaction::GraftOwnerWrite<'cap, 'store, GraphShardOwner>,
+            &medulla_transaction::GraftOwnerWrite<'cap, 'store, GraphShardOwner>,
         ) -> Result<(), String>,
     {
         let identity = graph_scope_identity(graph_fname)?;
@@ -760,7 +760,7 @@ impl Shard {
     pub(crate) fn graft_destination_reserved(&self, graph_fname: &str) -> Result<bool, String> {
         let handle = self.graph(graph_fname)?;
         let read = self.read(&handle)?;
-        Ok(eg_transaction::read_batches(&read)?.iter().any(|record| {
+        Ok(medulla_transaction::read_batches(&read)?.iter().any(|record| {
             record
                 .batch
                 .batch_id
@@ -860,7 +860,7 @@ impl Shard {
     ) -> Result<(), String>
     where
         F: for<'cap, 'store> FnOnce(
-            &eg_transaction::GraftOwnerWrite<'cap, 'store, GraphShardOwner>,
+            &medulla_transaction::GraftOwnerWrite<'cap, 'store, GraphShardOwner>,
         ) -> Result<(), String>,
     {
         let identity = graph_scope_identity(graph_fname)?;
@@ -1194,12 +1194,12 @@ pub(crate) fn bind_scope<D: OwnerDomain>(
     kernel.bind_serving_scope(grant, 0).map(Arc::new)
 }
 
-/// Parse and admit the `EG_STORAGE_BACKEND` setting: unset or `local` is the
+/// Parse and admit the `MEDULLA_STORAGE_BACKEND` setting: unset or `local` is the
 /// redb default; anything else is a JSON [`StorageBackendSpec`]. Refusals are
 /// typed and name their reason; `object_store` is `Unsupported` until the
-/// object-store open path lands (EG-OBJECT-STORAGE-BACKEND-R002).
+/// object-store open path lands (MEDULLA-OBJECT-STORAGE-BACKEND-R002).
 pub(crate) fn admit_backend_setting(setting: Option<&str>) -> Result<(), String> {
-    use eg_storage::StorageBackendSpec;
+    use medulla_storage::StorageBackendSpec;
     let spec = match setting.map(str::trim) {
         None | Some("") | Some("local") => StorageBackendSpec::default(),
         Some(json) => serde_json::from_str::<StorageBackendSpec>(json)
@@ -1225,7 +1225,7 @@ pub(crate) fn open_kernel_owned_store<D: OwnerDomain>(
     let physical = PhysicalStoreIdentity::new(physical_name)?;
     let existed = path.exists();
     // A fresh file binds its control scope inside the single create commit
-    // (EG-DURABLE-KERNEL-R006.1); the bind below then finds it current.
+    // (MEDULLA-DURABLE-KERNEL-R006.1); the bind below then finds it current.
     let kernel = if existed {
         StorageKernel::open_owner::<D>(path, physical, None)
     } else {
@@ -1374,15 +1374,15 @@ impl<'g> ShardWrite<'g> {
 mod tests {
     use super::*;
     use crate::redb_store::{GRAPH_META, NODES, RAFT_LOG};
-    use eg_types::mutation_batch::{authority_scope_for, DurabilityDomain};
-    use eg_types::protocol::Method;
-    use eg_types::{
+    use medulla_types::mutation_batch::{authority_scope_for, DurabilityDomain};
+    use medulla_types::protocol::Method;
+    use medulla_types::{
         MutationOperation, MutationSurface, VersionExpectation, MUTATION_BATCH_VERSION,
     };
     use redb::ReadableTable;
 
     fn temp_path(tag: &str) -> std::path::PathBuf {
-        crate::redb_store::temp_path("eg-shard-seam", tag)
+        crate::redb_store::temp_path("medulla-shard-seam", tag)
     }
 
     fn members(shard: &Shard, graphs: &[&str]) -> Vec<(String, ShardHandle)> {
@@ -1593,7 +1593,7 @@ mod tests {
             created_at_ms: 1,
         };
         batch
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
 
         let error = bind_caller_batch(handle.as_ref(), "graph-a", &batch).unwrap_err();
@@ -1650,7 +1650,7 @@ mod tests {
             created_at_ms: 1,
         };
         batch
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         batch.identity = malformed_identity;
 
@@ -1781,7 +1781,7 @@ mod tests {
         };
         let fence_before = {
             let read = destination.read(&destination_handle).unwrap();
-            eg_transaction::read_fences(&read)
+            medulla_transaction::read_fences(&read)
                 .unwrap()
                 .expect("the S2 reservation fences its destination")
         };
@@ -1826,7 +1826,7 @@ mod tests {
         assert_eq!(payload_after, payload_before);
         let fence_after = {
             let read = destination.read(&destination_handle).unwrap();
-            eg_transaction::read_fences(&read)
+            medulla_transaction::read_fences(&read)
                 .unwrap()
                 .expect("the unrelated reservation remains fenced")
         };
@@ -1935,7 +1935,7 @@ mod tests {
             .get(("graph-a", "loser-staged"))
             .unwrap()
             .is_some());
-        let fence = eg_transaction::read_fences(&retained)
+        let fence = medulla_transaction::read_fences(&retained)
             .unwrap()
             .expect("the retry handle remains fenced");
         assert_eq!(fence.placement_epoch, u64::MAX);
@@ -2189,7 +2189,7 @@ mod tests {
             let shard = Shard::open(&path).unwrap();
             let members = members(&shard, &[physical.as_str()]);
             let (group, batches) = shard.admit_drain(&members, "drain-escaped").unwrap();
-            let eg_types::MutationEnvelope::Maintenance(maintenance) = &batches[1].envelope else {
+            let medulla_types::MutationEnvelope::Maintenance(maintenance) = &batches[1].envelope else {
                 panic!("shard drain must use a maintenance envelope");
             };
             assert_eq!(
@@ -2226,7 +2226,7 @@ mod tests {
     /// `MAX_SHARD_GROUP_GRAPHS` is the kernel's own bound, not a guess.
     ///
     /// Asserted by admitting a group of exactly that many graph members and
-    /// then one more, because `eg-storage`'s `MAX_SCOPE_GROUP_MEMBERS` is
+    /// then one more, because `medulla-storage`'s `MAX_SCOPE_GROUP_MEMBERS` is
     /// private: if the kernel's budget moved, one of these two halves would
     /// fail.
     #[test]
@@ -2272,7 +2272,7 @@ mod tests {
 mod backend_setting_tests {
     use super::admit_backend_setting;
 
-    // spec: EG-OBJECT-STORAGE-BACKEND-R001
+    // spec: MEDULLA-OBJECT-STORAGE-BACKEND-R001
     #[test]
     fn backend_setting_local_default_and_typed_refusals() {
         assert!(admit_backend_setting(None).is_ok());

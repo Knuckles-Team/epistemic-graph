@@ -20,9 +20,9 @@ pub(super) async fn dispatch_cluster_admin_methods(
     } = ctx;
     ControlFlow::Break(match method {
 
-        // ── M3 catalog-driven resharding admin (CONCEPT:EG-KG.backend.m3-admin-dispatch) ──────
-        // The wire surface that drives online resharding (EG-032), the tenant catalog
-        // (EG-031) and the rebalance planner (EG-035) + its execution (EG-039). All
+        // ── M3 catalog-driven resharding admin (CONCEPT:MEDULLA-KG.backend.m3-admin-dispatch) ──────
+        // The wire surface that drives online resharding (MEDULLA-032), the tenant catalog
+        // (MEDULLA-031) and the rebalance planner (MEDULLA-035) + its execution (MEDULLA-039). All
         // self-routing service-level ops handled here (not the per-graph chain), so they
         // reach the concrete redb backend via `as_redb`. A non-redb build returns a clean
         // "not available" error from the handler.
@@ -33,34 +33,34 @@ pub(super) async fn dispatch_cluster_admin_methods(
         | Method::CatalogList
         | Method::RebalancePlan { .. }
         | Method::RebalanceExecute { .. }
-        // ── Online backup / restore + PITR (CONCEPT:EG-KG.sharding.reshard-on-restore) ──────────
+        // ── Online backup / restore + PITR (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore) ──────────
         // Routed through the SAME admin handler: self-routing service-level DR ops that
         // reach the concrete redb backend via `as_redb`. Non-redb builds return a clean
         // "not available" error from the handler.
         | Method::Backup { .. }
         | Method::Restore { .. }) => dispatch_cluster_admin_methods_arm_0(ctx, method).await,
 
-        // ── Placement-catalog wire RPC (CONCEPT:EG-KG.sharding.placement-route-rpc, DIST-P2-4) ──
+        // ── Placement-catalog wire RPC (CONCEPT:MEDULLA-KG.sharding.placement-route-rpc, DIST-P2-4) ──
         // Self-routing, NOT graph-scoped (the catalog is cluster-wide, like the M3 admin
         // block above) — exposes the DIST-P2-1 `PlacementCatalog` over the wire so an
-        // external caller (`epistemic_graph.client`'s `placement` namespace, AU's
+        // external caller (`medulla.client`'s `placement` namespace, AU's
         // `placement_catalog.py`) can consume it instead of guessing independently. A
         // A single-node engine returns an authoritative unplaced route. A configured
         // Raft node without MultiRaft is an invalid cluster and fails closed.
-        // The admin mutation (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc, DIST-P2-5) is
+        // The admin mutation (CONCEPT:MEDULLA-KG.sharding.placement-catalog-admin-rpc, DIST-P2-5) is
         // routed through the SAME handler, self-routing exactly like the M3 admin
         // block above -- see `handlers::placement::try_handle`'s per-variant arms.
                 method @ (Method::PlacementRoute { .. } | Method::PlacementAdmin { .. }) => dispatch_cluster_admin_methods_arm_1(ctx, method).await,
 
-        // ── Raft cluster membership admin (CONCEPT:EG-KG.storage.kg-kg-2 — cluster_deployment.md §5
+        // ── Raft cluster membership admin (CONCEPT:MEDULLA-KG.storage.kg-kg-2 — cluster_deployment.md §5
         // item 2) ── Self-routing, NOT graph-scoped (cluster-wide, like the M3 admin
         // block above): attaches/promotes a node against `MultiRaft` directly. Gated
         // `admin:cluster` by the SAME scope+admin enforcement every other admin-tier
-        // method goes through above (`eg_capabilities::policy`), not a second check
+        // method goes through above (`medulla_capabilities::policy`), not a second check
         // here.
                 method @ (Method::RaftAddLearner { .. } | Method::RaftChangeMembership { .. }) => dispatch_cluster_admin_methods_arm_2(ctx, method).await,
 
-        // ── Cluster topology discovery (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1) ──
+        // ── Cluster topology discovery (CONCEPT:MEDULLA-KG.sharding.cluster-topology, ADR-1 / W1.1) ──
         // Self-routing, NOT graph-scoped (cluster-wide, like the raft-admin block
         // above): `ClusterMembers` answers from ANY node's local `NodeInfoStore` +
         // live `MultiRaft` membership (no leader redirect, unlike `PlacementRoute` —
@@ -68,7 +68,7 @@ pub(super) async fn dispatch_cluster_admin_methods(
         // typed internal Raft command and never enter public dispatch.
                 method @ Method::ClusterMembers => dispatch_cluster_admin_methods_arm_3(ctx, method).await,
 
-        // ── Fleet server registry (CONCEPT:EG-KG.sharding.server-registry, W2.5) ──────
+        // ── Fleet server registry (CONCEPT:MEDULLA-KG.sharding.server-registry, W2.5) ──────
         // Self-routing, like `ClusterMembers` above, but for the
         // OPPOSITE reason: those are cluster-wide and NOT graph nodes, while this
         // owns REAL `:Server` graph nodes in `__commons__` -- self-routes here
@@ -103,7 +103,7 @@ async fn dispatch_cluster_admin_methods_arm_0(ctx: DispatchCtx<'_>, method: Meth
         | Method::CatalogList
         | Method::RebalancePlan { .. }
         | Method::RebalanceExecute { .. }
-        // ── Online backup / restore + PITR (CONCEPT:EG-KG.sharding.reshard-on-restore) ──────────
+        // ── Online backup / restore + PITR (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore) ──────────
         // Routed through the SAME admin handler: self-routing service-level DR ops that
         // reach the concrete redb backend via `as_redb`. Non-redb builds return a clean
         // "not available" error from the handler.
@@ -485,7 +485,7 @@ pub(super) async fn dispatch_compute_and_media_methods(
                 dispatch_compute_and_media_methods_arm_1(ctx, method).await
             }
 
-            // ── Agent-facing quantum control plane (Q8, CONCEPT:EG-KG.compute.quantum-agent-api,
+            // ── Agent-facing quantum control plane (Q8, CONCEPT:MEDULLA-KG.compute.quantum-agent-api,
             // feature `quantum-agent-api`) ──────────────────────────────────────────
             // NOT graph-scoped (pure compute -- reads no persisted graph state, writes
             // nothing durable) — self-routes here, BEFORE the per-graph `dispatch_graph_op`
@@ -513,7 +513,7 @@ pub(super) async fn dispatch_compute_and_media_methods(
             // ColumnStore, never reads a live GraphCore) — self-routes here, BEFORE
             // the per-graph `dispatch_graph_op` chain, exactly like
             // `AnalyticsJob`/`Statechart` above. See `handlers/viz.rs` module docs.
-            // Gated on `viz-static-export` (not bare `viz`, which `eg-types` alone
+            // Gated on `viz-static-export` (not bare `viz`, which `medulla-types` alone
             // already gates the wire `Method::Viz` variant on) — a deliberate,
             // documented deviation: the handler needs a real ColumnStore + export
             // backend to do anything, which only exist at that tier.
@@ -521,7 +521,7 @@ pub(super) async fn dispatch_compute_and_media_methods(
             method @ Method::Viz { .. } => {
                 dispatch_compute_and_media_methods_arm_4(ctx, method).await
             }
-            // ── Multimodal memory (EG-MEDIA-VOCAB-R650.3, feature `modality-serving`) ──
+            // ── Multimodal memory (MEDULLA-MEDIA-VOCAB-R650.3, feature `modality-serving`) ──
             // NOT graph-scoped: the tenant-scoped store lives in engine state, so it
             // self-routes here BEFORE the per-graph chain, like `AnalyticsJob` above.
             #[cfg(all(feature = "modality-serving", feature = "blob", feature = "kv"))]

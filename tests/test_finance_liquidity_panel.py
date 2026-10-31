@@ -2,7 +2,7 @@
 
 import pytest
 
-from epistemic_graph.client import EngineResponseError
+from medulla.client import EngineResponseError
 
 DAY = 86_400_000
 
@@ -51,7 +51,7 @@ def test_liquidity_panel_refuses_a_future_capture(clean_graph):
 
 @pytest.mark.no_engine
 def test_generated_liquidity_request_contract():
-    from epistemic_graph.generated.models import MethodFinanceMarketParams
+    from medulla.generated.models import MethodFinanceMarketParams
 
     parsed = MethodFinanceMarketParams.model_validate(
         {"op": {"op": "liquidity_panel", "request": request()}}

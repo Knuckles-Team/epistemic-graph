@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use eg_capabilities::DurabilityDomain;
+use medulla_capabilities::DurabilityDomain;
 
 use crate::graph::GraphCore;
 use crate::isolation::IsolationLayer;
@@ -19,7 +19,7 @@ pub struct MutationCtx<'a> {
     pub caller: Option<&'a str>,
     /// Authenticated transport nonce; consumed by the mutation envelope's
     /// kernel replay ledger when this context commits a durable write.
-    pub attempt_nonce: Option<eg_types::contract::Nonce>,
+    pub attempt_nonce: Option<medulla_types::contract::Nonce>,
     /// Stable caller retry identity from the authenticated request envelope.
     /// Unlike `req_id` and `attempt_nonce`, this is identical across attempts.
     pub idempotency_key: &'a str,
@@ -38,7 +38,7 @@ pub struct MutationCtx<'a> {
     /// so a stale gateway completion cannot publish into a same-name recreation.
     pub materialization_manifest:
         Option<&'a Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>>,
-    /// Per-graph routed-write coalescer registry (CONCEPT:EG-KG.sharding.per-graph-write-coalescer,
+    /// Per-graph routed-write coalescer registry (CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer,
     /// L18 rewrite). When present, a coalescable routed mutation
     /// (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`/`CompareAndSetNodeFields`), routed through
     /// [`commit_coalescable_mutation`] rather than [`commit_mutation`], has its
@@ -78,7 +78,7 @@ pub(crate) struct LifecycleAttempt<'a> {
     pub(crate) request_id: u64,
     /// Authenticated per-attempt transport nonce; see [`MutationCtx`]. A replay
     /// probe refuses an attempt that re-presents the nonce its receipt consumed.
-    pub(crate) attempt_nonce: Option<eg_types::contract::Nonce>,
+    pub(crate) attempt_nonce: Option<medulla_types::contract::Nonce>,
     pub(crate) principal: Option<&'a str>,
     /// Stable across attempts, unlike `request_id`/`attempt_nonce`.
     pub(crate) idempotency_key: &'a str,
@@ -107,7 +107,7 @@ pub(super) fn advance_authoritative_manifest(
     }
 }
 
-/// Bounded process-global idempotency-replay cache (CONCEPT:EG-P0-2). Keyed by a
+/// Bounded process-global idempotency-replay cache (CONCEPT:MEDULLA-P0-2). Keyed by a
 /// deterministic `(method, graph, identity-args)` string (see [`idempotency_key`]).
 ///
 /// Bounded, not TTL/LRU, for this increment: past [`MAX_IDEMPOTENCY_ENTRIES`] a new
@@ -219,7 +219,7 @@ pub(super) fn idempotency_key(graph_name: &str, method: &Method, req_id: u64) ->
         // (empty) input.
         Method::ClearGraph => format!("ClearGraph|{graph_name}|{req_id}"),
         Method::ClearLedger => format!("ClearLedger|{graph_name}|{req_id}"),
-        // `PublishIdempotent`'s policy (`eg_capabilities::policy`) marks it
+        // `PublishIdempotent`'s policy (`medulla_capabilities::policy`) marks it
         // `idempotent: true` because its OWN handler already de-duplicates by
         // `(producer_id, seq)` -- "replays are idempotent by construction", per
         // that policy's own comment. But the generic fallback key below is
@@ -246,7 +246,7 @@ pub(super) fn idempotency_key(graph_name: &str, method: &Method, req_id: u64) ->
         #[cfg(feature = "modality-serving")]
         Method::ServedModality {
             op:
-                eg_types::ServedModalityOp::Ingest {
+                medulla_types::ServedModalityOp::Ingest {
                     modality,
                     idempotency_ref,
                     target_occurrence_id,
@@ -266,7 +266,7 @@ pub(super) fn idempotency_key(graph_name: &str, method: &Method, req_id: u64) ->
         #[cfg(feature = "modality-serving")]
         Method::ServedModality {
             op:
-                eg_types::ServedModalityOp::Delete {
+                medulla_types::ServedModalityOp::Delete {
                     modality,
                     idempotency_ref,
                     occurrence_id,
@@ -278,7 +278,7 @@ pub(super) fn idempotency_key(graph_name: &str, method: &Method, req_id: u64) ->
         ),
         #[cfg(feature = "modality-serving")]
         Method::ServedModality {
-            op: eg_types::ServedModalityOp::IngestStream { modality, items },
+            op: medulla_types::ServedModalityOp::IngestStream { modality, items },
         } => served_modality_ingest_stream_key(graph_name, modality, items),
         other => format!("{other:?}|{graph_name}"),
     }
@@ -286,12 +286,12 @@ pub(super) fn idempotency_key(graph_name: &str, method: &Method, req_id: u64) ->
 
 /// The `modality`/discriminator half of every `ServedModality` idempotency key.
 #[cfg(feature = "modality-serving")]
-fn modality_discriminator(value: &eg_types::ServedModalityKind) -> &'static str {
+fn modality_discriminator(value: &medulla_types::ServedModalityKind) -> &'static str {
     match value {
-        eg_types::ServedModalityKind::Document => "document",
-        eg_types::ServedModalityKind::Image => "image",
-        eg_types::ServedModalityKind::Audio => "audio",
-        eg_types::ServedModalityKind::Video => "video",
+        medulla_types::ServedModalityKind::Document => "document",
+        medulla_types::ServedModalityKind::Image => "image",
+        medulla_types::ServedModalityKind::Audio => "audio",
+        medulla_types::ServedModalityKind::Video => "video",
     }
 }
 
@@ -301,7 +301,7 @@ fn modality_discriminator(value: &eg_types::ServedModalityKind) -> &'static str 
 #[allow(clippy::too_many_arguments)]
 fn served_modality_ingest_key(
     graph_name: &str,
-    modality: &eg_types::ServedModalityKind,
+    modality: &medulla_types::ServedModalityKind,
     idempotency_ref: &str,
     target_occurrence_id: &str,
     expected_version: Option<u64>,
@@ -330,8 +330,8 @@ fn served_modality_ingest_key(
 #[cfg(feature = "modality-serving")]
 fn served_modality_ingest_stream_key(
     graph_name: &str,
-    modality: &eg_types::ServedModalityKind,
-    items: &[eg_types::ServedModalityIngestItem],
+    modality: &medulla_types::ServedModalityKind,
+    items: &[medulla_types::ServedModalityIngestItem],
 ) -> String {
     use sha2::{Digest, Sha256};
     let mut digest = Sha256::new();
@@ -375,7 +375,7 @@ pub(crate) fn durable_receipt_method(method: &Method) -> Method {
 }
 
 #[cfg(feature = "modality-serving")]
-fn served_modality_receipt_digest(op: &eg_types::ServedModalityOp) -> Option<String> {
+fn served_modality_receipt_digest(op: &medulla_types::ServedModalityOp) -> Option<String> {
     use sha2::{Digest, Sha256};
 
     let mut digest = Sha256::new();
@@ -389,9 +389,9 @@ fn served_modality_receipt_digest(op: &eg_types::ServedModalityOp) -> Option<Str
 #[cfg(feature = "modality-serving")]
 fn append_served_modality_receipt_fields(
     digest: &mut sha2::Sha256,
-    op: &eg_types::ServedModalityOp,
+    op: &medulla_types::ServedModalityOp,
 ) -> bool {
-    use eg_types::ServedModalityOp;
+    use medulla_types::ServedModalityOp;
 
     match op {
         ServedModalityOp::Ingest {
@@ -449,7 +449,7 @@ fn modality_receipt_field(digest: &mut sha2::Sha256, value: &[u8]) {
 #[cfg(feature = "modality-serving")]
 fn append_modality_receipt_kind(
     digest: &mut sha2::Sha256,
-    modality: &eg_types::ServedModalityKind,
+    modality: &medulla_types::ServedModalityKind,
 ) {
     modality_receipt_field(digest, modality_discriminator(modality).as_bytes());
 }
@@ -457,7 +457,7 @@ fn append_modality_receipt_kind(
 #[cfg(feature = "modality-serving")]
 fn append_ingest_receipt_fields(
     digest: &mut sha2::Sha256,
-    modality: &eg_types::ServedModalityKind,
+    modality: &medulla_types::ServedModalityKind,
     idempotency_ref: &str,
     target_occurrence_id: &str,
     expected_version: Option<u64>,
@@ -473,8 +473,8 @@ fn append_ingest_receipt_fields(
 #[cfg(feature = "modality-serving")]
 fn append_ingest_stream_receipt_fields(
     digest: &mut sha2::Sha256,
-    modality: &eg_types::ServedModalityKind,
-    items: &[eg_types::ServedModalityIngestItem],
+    modality: &medulla_types::ServedModalityKind,
+    items: &[medulla_types::ServedModalityIngestItem],
 ) -> bool {
     modality_receipt_field(digest, b"ingest-stream");
     append_modality_receipt_kind(digest, modality);
@@ -493,7 +493,7 @@ fn append_ingest_stream_receipt_fields(
 #[cfg(feature = "modality-serving")]
 fn append_delete_receipt_fields(
     digest: &mut sha2::Sha256,
-    modality: &eg_types::ServedModalityKind,
+    modality: &medulla_types::ServedModalityKind,
     idempotency_ref: &str,
     occurrence_id: &str,
     expected_version: u64,
@@ -510,7 +510,7 @@ fn append_delete_receipt_fields(
 fn append_occurrence_receipt_fields(
     digest: &mut sha2::Sha256,
     tag: &[u8],
-    modality: &eg_types::ServedModalityKind,
+    modality: &medulla_types::ServedModalityKind,
     occurrence_id: &str,
 ) -> bool {
     modality_receipt_field(digest, tag);
@@ -522,7 +522,7 @@ fn append_occurrence_receipt_fields(
 #[cfg(feature = "modality-serving")]
 fn append_tombstone_receipt_fields(
     digest: &mut sha2::Sha256,
-    modality: &eg_types::ServedModalityKind,
+    modality: &medulla_types::ServedModalityKind,
     through_event_sequence: u64,
 ) -> bool {
     modality_receipt_field(digest, b"collect-tombstones");
@@ -564,7 +564,7 @@ mod response_dedup_scope_tests {
         response_dedup_key(&ctx, &method)
     }
 
-    // spec: EG-DURABLE-KERNEL-R018
+    // spec: MEDULLA-DURABLE-KERNEL-R018
     #[test]
     fn dedup_key_separates_tenants_and_actors_but_keeps_retries() {
         let original = dedup_key_for("tenant-a", "agent", 1);

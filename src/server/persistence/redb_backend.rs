@@ -1,4 +1,4 @@
-//! redb write-through persistence backend (CONCEPT:EG-KG.storage.kg-kg, feature `redb`).
+//! redb write-through persistence backend (CONCEPT:MEDULLA-KG.storage.kg-kg, feature `redb`).
 //!
 //! The authoritative tier commits every graph mutation into an embedded
 //! canonical `redb` shard database (`{persist_dir}/graph-<n>.redb`), keyed by a
@@ -16,7 +16,7 @@
 //!
 //! ## Every shard commit is `Durability::Immediate`, and there is no runtime knob
 //!
-//! The level is not this backend's to choose any more: `eg_storage`'s
+//! The level is not this backend's to choose any more: `medulla_storage`'s
 //! `physical::root::WRITE_DURABILITY` is a CONSTANT `Durability::Immediate` on
 //! the one `begin_write` every kernel mutation takes, because a weaker level
 //! would let redb roll a committed ledger back on crash — un-consuming an
@@ -59,14 +59,14 @@ use super::PersistenceBackend;
 
 // The graph table layout + the PURE durable-row machinery (Method→rows apply,
 // group-commit, checkpoint/load) now live in the server-INDEPENDENT
-// `crate::redb_store` (CONCEPT:EG-KG.backend.engine-modes) so the embedded API can drive the SAME
+// `crate::redb_store` (CONCEPT:MEDULLA-KG.backend.engine-modes) so the embedded API can drive the SAME
 // durable format with no Tokio. This backend reuses them verbatim — ONE format,
 // never duplicated — and adds only the off-reactor group-commit writer thread +
 // the `PersistenceBackend` async trait wiring on top.
 use crate::redb_store::shard::Shard;
 
 #[cfg(test)]
-use eg_transaction::OutboxClaimBudget;
+use medulla_transaction::OutboxClaimBudget;
 
 #[cfg(all(test, feature = "security"))]
 pub(crate) mod audit_append_tests;
@@ -115,7 +115,7 @@ pub use timeseries::TsReconcileReport;
 #[cfg(feature = "security")]
 use writer_thread::in_control_write;
 use writer_thread::run;
-/// `(first, last)` present Raft log index for a group, or an error (CONCEPT:EG-KG.storage.one-fsync-covers-raft).
+/// `(first, last)` present Raft log index for a group, or an error (CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft).
 type LogBoundsResult = Result<(Option<u64>, Option<u64>), String>;
 
 /// Per-ATTEMPT identity for one shard write this backend admits.
@@ -142,9 +142,9 @@ const MAX_DURABLE_SEMANTIC_ITEMS: usize = 4_000_000;
 fn decode_durable_semantic(
     bytes: &[u8],
 ) -> Result<crate::compute::semantic::SemanticStore, String> {
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_DURABLE_SEMANTIC_BYTES,
             MAX_DURABLE_SEMANTIC_ITEMS,
             64,
@@ -176,7 +176,7 @@ const ENCRYPTION_CANARY_KEY: &str = "v1";
 #[cfg(feature = "security")]
 pub(crate) const ENCRYPTION_KEY_BINDING_KEY: &str = "key-binding-v1";
 #[cfg(feature = "security")]
-const ENCRYPTION_CANARY_PLAINTEXT: &[u8] = b"epistemic-graph-encryption-canary";
+const ENCRYPTION_CANARY_PLAINTEXT: &[u8] = b"medulla-encryption-canary";
 
 /// What [`verify_or_establish_encryption_canary`] did, so the open path can log the
 /// TRUTH rather than one undifferentiated "ENABLED" line (BUG-PE-055).
@@ -383,7 +383,7 @@ fn plan_encryption_canary(
 /// (the data shard refuses "this store was written in PLAINTEXT") and would not
 /// open WITHOUT it (the converted shards refuse "this store carries
 /// encryption-at-rest metadata"), which makes the first refusal's own documented
-/// remediation -- "unset EPISTEMIC_GRAPH_ENCRYPTION_KEY to keep serving this
+/// remediation -- "unset MEDULLA_ENCRYPTION_KEY to keep serving this
 /// store as it is" -- false. K is greater than one by default in a served
 /// process (`resolve_shard_count` autosizes from CPUs, and under Raft K == N
 /// groups), so this was the ordinary case, not an edge one.
@@ -441,9 +441,9 @@ fn write_encryption_canary(
     })
 }
 
-/// Adaptive group-commit micro-linger tuning for the redb writer (CONCEPT:EG-KG.backend.adaptive-linger-coalesce).
+/// Adaptive group-commit micro-linger tuning for the redb writer (CONCEPT:MEDULLA-KG.backend.adaptive-linger-coalesce).
 ///
-/// Live profiling of the `eg-redb-writer` thread showed it pinned ~100% on ext4
+/// Live profiling of the `medulla-redb-writer` thread showed it pinned ~100% on ext4
 /// writeback (disk ~83% util, ~50ms write latency, queue depth 42) while every
 /// tokio worker sat idle — it is the ingestion write ceiling. The machinery already
 /// group-commits (many `Cmd::Mutation` fold into ONE `WriteTransaction`/fsync), but
@@ -459,7 +459,7 @@ fn write_encryption_canary(
 /// both are rows in the same pending durable transaction, so excluding a raft-only
 /// append would restore the pathological one-append/one-fsync shape EH-290 measured.
 /// It MIRRORS the in-memory write-coalescer's `max_linger`
-/// (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, `write_coalescer.rs`) but for the DURABLE tier — it does NOT
+/// (CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer, `write_coalescer.rs`) but for the DURABLE tier — it does NOT
 /// touch the coalescer. Durability is unchanged: authoritative writes still commit
 /// `Durability::Immediate` BEFORE their `done` fires; we only widen the batch, never
 /// defer an ack past its commit. A crash before commit still loses only un-acked writes.
@@ -550,17 +550,17 @@ pub struct RedbGroupCommitConfig {
 
 impl RedbGroupCommitConfig {
     /// Resolve from env (Configuration discipline: read once at backend open).
-    ///   * `EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US` — linger microseconds (default
+    ///   * `MEDULLA_REDB_GROUP_LINGER_US` — linger microseconds (default
     ///     `1000` = 1ms; `0` disables lingering / restores commit-on-drain).
-    ///   * `EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW` — shallow durable-work threshold
+    ///   * `MEDULLA_REDB_GROUP_SHALLOW` — shallow durable-work threshold
     ///     (default `32`); the writer lingers only while the pending graph-mutation
     ///     plus Raft-entry count is under it.
     pub fn from_env() -> Self {
-        let linger_us = std::env::var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US")
+        let linger_us = std::env::var("MEDULLA_REDB_GROUP_LINGER_US")
             .ok()
             .and_then(|s| s.trim().parse::<u64>().ok())
             .unwrap_or(1000);
-        let shallow = std::env::var("EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW")
+        let shallow = std::env::var("MEDULLA_REDB_GROUP_SHALLOW")
             .ok()
             .and_then(|s| s.trim().parse::<usize>().ok())
             .unwrap_or(32);
@@ -580,7 +580,7 @@ impl Default for RedbGroupCommitConfig {
     }
 }
 
-/// Group-commit observability for the redb writer (CONCEPT:EG-KG.backend.adaptive-linger-coalesce), mirroring
+/// Group-commit observability for the redb writer (CONCEPT:MEDULLA-KG.backend.adaptive-linger-coalesce), mirroring
 /// `write_coalescer::BatchStats`. `ops / commits` is the average batch size = the
 /// fsyncs-saved ratio; `lingered` counts commits that paid a micro-linger window.
 /// `linger_waiting` exposes whether the writer is currently inside that bounded
@@ -631,7 +631,7 @@ impl RedbCommitStats {
     }
 }
 
-/// Fixed [`eg_types::MutationScopeIdentity`] for the admin-mutations / "cluster-admin"
+/// Fixed [`medulla_types::MutationScopeIdentity`] for the admin-mutations / "cluster-admin"
 /// coordinator store (`{persist_dir}/admin-mutations.redb`) — see [`AdminMutationStore`].
 ///
 /// GRAPH-shaped, not native: every batch here is compiled with an "either"-family domain
@@ -640,15 +640,15 @@ impl RedbCommitStats {
 /// admin-saga commit fails closed with "mutation scope binding identity mismatch". Only
 /// [`AdminOwner`]'s `OwnerLayout::LedgerOnly` can serve it: declaring no owner tables, it
 /// is the one layout that places no shape requirement on the scopes it binds.
-pub(crate) fn cluster_admin_scope_identity() -> Result<eg_types::MutationScopeIdentity, String> {
-    eg_types::MutationScopeIdentity::fixed_graph(
+pub(crate) fn cluster_admin_scope_identity() -> Result<medulla_types::MutationScopeIdentity, String> {
+    medulla_types::MutationScopeIdentity::fixed_graph(
         "native",
         "cluster-admin",
         crate::server::mutation_batch::COMPILED_BATCH_INCARNATION,
     )
 }
 
-/// [`eg_storage::PrivatePayloadIntegrity`] for the admin-mutations store, backed by the
+/// [`medulla_storage::PrivatePayloadIntegrity`] for the admin-mutations store, backed by the
 /// SAME transaction-recovery-plan cipher (D-ORC-50) that sealed the bytes in the first
 /// place (`handlers::txn::seal_txn_recovery_plan`/`open_txn_recovery_plan`). The storage
 /// kernel enforces it on every private-payload read/write, so without a real authority
@@ -686,29 +686,29 @@ pub(crate) fn authenticate_private_payload(
 }
 
 #[cfg(feature = "security")]
-impl eg_storage::PrivatePayloadIntegrity for TxnRecoveryPrivateIntegrity {
+impl medulla_storage::PrivatePayloadIntegrity for TxnRecoveryPrivateIntegrity {
     fn authenticate(&self, sealed: &[u8], expected_plaintext_digest: &str) -> Result<(), String> {
         authenticate_private_payload(&self.0, sealed, expected_plaintext_digest)
     }
 }
 
 /// Resolve the admin-mutations store's private-payload integrity authority. Reads the
-/// SAME `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY` (falling back to the shared data key) as every
+/// SAME `MEDULLA_TXN_RECOVERY_KEY` (falling back to the shared data key) as every
 /// [`ShardWriter`]'s own `txn_recovery_cipher`, but as a function of the environment
 /// rather than of any one shard (none is constructed yet at this call site). `None` without the
 /// `security` feature or the key: the write/read path already fails closed itself there.
 #[cfg(feature = "security")]
 pub(crate) fn admin_mutations_private_integrity(
-) -> Option<Arc<dyn eg_storage::PrivatePayloadIntegrity>> {
+) -> Option<Arc<dyn medulla_storage::PrivatePayloadIntegrity>> {
     crate::crypto::ValueCipher::from_env_for_txn_recovery().map(|cipher| {
         Arc::new(TxnRecoveryPrivateIntegrity(cipher))
-            as Arc<dyn eg_storage::PrivatePayloadIntegrity>
+            as Arc<dyn medulla_storage::PrivatePayloadIntegrity>
     })
 }
 
 #[cfg(not(feature = "security"))]
 pub(crate) fn admin_mutations_private_integrity(
-) -> Option<Arc<dyn eg_storage::PrivatePayloadIntegrity>> {
+) -> Option<Arc<dyn medulla_storage::PrivatePayloadIntegrity>> {
     None
 }
 
@@ -716,10 +716,10 @@ pub(crate) fn admin_mutations_private_integrity(
 pub(crate) const ADMIN_MUTATIONS_STORE: &str = "epistemic-graph:admin-mutations";
 
 /// The owner domain of `admin-mutations.redb`: it declares no owner tables of its own,
-/// so `eg_storage` materializes only the ledger census for it.
-pub(crate) type AdminOwner = eg_storage::LedgerOnlyOwner;
+/// so `medulla_storage` materializes only the ledger census for it.
+pub(crate) type AdminOwner = medulla_storage::LedgerOnlyOwner;
 /// One kernel-issued scoped read over that store, as the consumers name it.
-pub(crate) type AdminScopedRead<'a> = eg_storage::ScopedRead<'a, AdminOwner>;
+pub(crate) type AdminScopedRead<'a> = medulla_storage::ScopedRead<'a, AdminOwner>;
 
 /// The kernel-owned admin-mutations coordinator store (RF-RULING-004): the storage
 /// kernel that owns the file, the one mutation kernel it issued, and the single bound
@@ -739,38 +739,38 @@ fn open_admin_mutations(path: &std::path::Path) -> Result<AdminMutationStore, St
     )
 }
 
-/// Handle to the redb write-through tier (CONCEPT:EG-KG.storage.kg-kg / EG-026). The dispatch
+/// Handle to the redb write-through tier (CONCEPT:MEDULLA-KG.storage.kg-kg / MEDULLA-026). The dispatch
 /// path holds an `Arc` of this and calls `record`/`record_durable`; each routes by
 /// graph to one of K independent single-writer [`ShardWriter`]s, so K cores commit in
 /// parallel. K=1 holds exactly one shard backed by canonical `graph-0.redb`.
 pub struct RedbBackend {
     /// The K shards (len >= 1). Index `shard_index(graph_fname, K)` owns a graph.
     shards: Vec<ShardWriter>,
-    /// Optional tenant catalog OVERRIDE for graph→shard routing (CONCEPT:EG-KG.sharding.empty-catalog-routing, M3).
-    /// `None` (the default) ⇒ pure EG-026 FNV-1a routing, byte-for-byte unchanged. When
+    /// Optional tenant catalog OVERRIDE for graph→shard routing (CONCEPT:MEDULLA-KG.sharding.empty-catalog-routing, M3).
+    /// `None` (the default) ⇒ pure MEDULLA-026 FNV-1a routing, byte-for-byte unchanged. When
     /// `Some` AND it holds an explicit entry for a graph, that entry's shard wins
     /// (enabling rebalanceable / resharded placement); a graph with no entry STILL
     /// falls back to FNV-1a inside `TenantCatalog::resolve_shard`. So an empty catalog
-    /// is indistinguishable from no catalog — the seam never destabilizes EG-026.
+    /// is indistinguishable from no catalog — the seam never destabilizes MEDULLA-026.
     catalog: Option<Arc<crate::server::persistence::tenant_catalog::TenantCatalog>>,
-    /// Routing quiesce barrier for online resharding (CONCEPT:EG-KG.backend.catalog-shard-resolve). Catalog-attached
+    /// Routing quiesce barrier for online resharding (CONCEPT:MEDULLA-KG.backend.catalog-shard-resolve). Catalog-attached
     /// durable writes resolve their shard + enqueue their op while holding a SHARED READ
     /// guard; [`RedbBackend::reshard_graph`] holds the EXCLUSIVE WRITE guard across a
     /// graph's move, so the route flip can never interleave a write (no lost / misrouted
     /// rows). When NO catalog is attached (the default) the write path never touches this
-    /// — EG-026 is byte-for-byte unchanged.
+    /// — MEDULLA-026 is byte-for-byte unchanged.
     routing_epoch: Arc<RwLock<()>>,
     /// Local durable projection of cluster-wide/admin saga authority: in clustered
     /// serving this file is replayable consensus state on every group member rather than
     /// a pod-local coordinator, and single-node serving uses the same image directly.
     admin_mutations: AdminMutationStore,
-    /// Durable cluster-topology self-report store (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1).
+    /// Durable cluster-topology self-report store (CONCEPT:MEDULLA-KG.sharding.cluster-topology, ADR-1 / W1.1).
     /// Always opened (like `admin_mutations` above) so the shape of `RedbBackend`
     /// doesn't vary with whether Raft happens to be configured; it is populated
     /// only when a clustered node self-reports at startup (`raft::node::start`).
     /// See `server::persistence::node_info_store` for the replication story.
     node_info: Arc<super::node_info_store::NodeInfoStore>,
-    /// Durable cluster-hierarchy cache (CONCEPT:EG-KG.compute.leiden-hierarchy, VIZ-1). Own-file,
+    /// Durable cluster-hierarchy cache (CONCEPT:MEDULLA-KG.compute.leiden-hierarchy, VIZ-1). Own-file,
     /// like `node_info` above, but carries no replication story — a cache entry
     /// is node-local and always safely recomputable. See
     /// `server::persistence::cluster_hierarchy_store` for why membership never
@@ -778,7 +778,7 @@ pub struct RedbBackend {
     cluster_hierarchy: Arc<super::cluster_hierarchy_store::ClusterHierarchyStore>,
 }
 
-/// Rebuild a live [`GraphCore`] from a durable [`GraphDump`] (CONCEPT:EG-KG.storage.100m-tenant —
+/// Rebuild a live [`GraphCore`] from a durable [`GraphDump`] (CONCEPT:MEDULLA-KG.storage.100m-tenant —
 /// tenant rehydration). Uses the SAME `add_node`/`add_edge`/semantic-restore path
 /// `load_into` uses, so a rehydrated graph is byte-identical to a freshly loaded one.
 /// The core is cleared first so a re-rehydrate is idempotent.
@@ -870,7 +870,7 @@ mod tests {
             &owner_scope,
             graph,
         );
-        eg_tsdb::store::SeriesKey::new(tenant_scope, graph_scope, series).encode()
+        medulla_tsdb::store::SeriesKey::new(tenant_scope, graph_scope, series).encode()
     }
 
     #[cfg(feature = "tsdb")]
@@ -941,7 +941,7 @@ mod tests {
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!(
-            "eg-redb-outbox-subscribe-{}-{}",
+            "medulla-redb-outbox-subscribe-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1000,7 +1000,7 @@ mod tests {
         #[cfg(feature = "security")]
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!(
-            "eg-redb-implicit-drop-{}-{}",
+            "medulla-redb-implicit-drop-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1340,7 +1340,7 @@ mod tests {
         #[cfg(feature = "security")]
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         // Commit nodes/edges through the awaited barrier, drop, and reload.
-        let dir = std::env::temp_dir().join(format!("eg-redb-rt-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
@@ -1501,8 +1501,8 @@ mod tests {
         }
     }
 
-    /// GOC-16 known-bad proof: `EPISTEMIC_GRAPH_ENCRYPTION_REQUIRED=on` with no
-    /// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` configured must refuse to open the durable
+    /// GOC-16 known-bad proof: `MEDULLA_ENCRYPTION_REQUIRED=on` with no
+    /// `MEDULLA_ENCRYPTION_KEY` configured must refuse to open the durable
     /// store — before any writer thread spawns, before any listener binds — with a
     /// bounded, actionable diagnostic naming both env vars, never a silent open.
     #[cfg(feature = "security")]
@@ -1511,7 +1511,7 @@ mod tests {
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let _guard = EncryptionRequiredEnvGuard::set(None, "on");
 
-        let dir = std::env::temp_dir().join(format!("eg-redb-enc-required-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-enc-required-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
@@ -1526,7 +1526,7 @@ mod tests {
             Err(message) => message,
         };
         assert!(
-            message.contains("REQUIRED") && message.contains("EPISTEMIC_GRAPH_ENCRYPTION_KEY"),
+            message.contains("REQUIRED") && message.contains("MEDULLA_ENCRYPTION_KEY"),
             "diagnostic must be bounded and name the missing key, got: {message}"
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -1542,7 +1542,7 @@ mod tests {
             EncryptionRequiredEnvGuard::set(Some("redb-encryption-required-test-key"), "on");
 
         let dir =
-            std::env::temp_dir().join(format!("eg-redb-enc-required-ok-{}", std::process::id()));
+            std::env::temp_dir().join(format!("medulla-redb-enc-required-ok-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
@@ -1553,7 +1553,7 @@ mod tests {
     }
 
     /// GOC-16 / BUG-248 known-bad proof: reopening an ALREADY-ENCRYPTED store with a
-    /// DIFFERENT `EPISTEMIC_GRAPH_ENCRYPTION_KEY` than the one that sealed it must
+    /// DIFFERENT `MEDULLA_ENCRYPTION_KEY` than the one that sealed it must
     /// fail closed at open time — before any writer thread spawns or any listener
     /// binds — instead of opening successfully and only surfacing the mismatch later
     /// as a decrypt failure on whichever value a caller happens to read first.
@@ -1562,7 +1562,7 @@ mod tests {
     async fn encryption_key_mismatch_refuses_to_reopen() {
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
 
-        let dir = std::env::temp_dir().join(format!("eg-redb-enc-mismatch-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-enc-mismatch-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
@@ -1598,7 +1598,7 @@ mod tests {
     async fn encryption_key_reference_mismatch_refuses_to_reopen() {
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!(
-            "eg-redb-enc-key-ref-mismatch-{}",
+            "medulla-redb-enc-key-ref-mismatch-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1635,7 +1635,7 @@ mod tests {
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let _guard = EncryptionRequiredEnvGuard::set(Some("stable-key-material"), "warn");
 
-        let dir = std::env::temp_dir().join(format!("eg-redb-enc-stable-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-enc-stable-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
@@ -1656,7 +1656,7 @@ mod tests {
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let _guard = EncryptionRequiredEnvGuard::set(None, "off");
 
-        let dir = std::env::temp_dir().join(format!("eg-redb-enc-none-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-enc-none-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
@@ -1683,7 +1683,7 @@ mod tests {
     async fn populated_plaintext_store_refuses_a_brand_new_key() {
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!(
-            "eg-redb-enc-adopt-plaintext-{}",
+            "medulla-redb-enc-adopt-plaintext-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1740,13 +1740,13 @@ mod tests {
     /// opened cleanly and then failed one read at a time with
     /// `"encrypted durable value requires configured key material"`. That is the
     /// symmetric partner of the wrong-key refusal, and it holds regardless of
-    /// `EPISTEMIC_GRAPH_ENCRYPTION_REQUIRED` — a missing key for an encrypted store is
+    /// `MEDULLA_ENCRYPTION_REQUIRED` — a missing key for an encrypted store is
     /// not a rollout-posture choice.
     #[cfg(feature = "security")]
     #[tokio::test(flavor = "multi_thread")]
     async fn encrypted_store_refuses_to_open_without_a_key() {
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-redb-enc-nokey-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-enc-nokey-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
@@ -1798,7 +1798,7 @@ mod tests {
         for mode in ["off", "warn"] {
             let _guard = EncryptionRequiredEnvGuard::set(None, mode);
             let dir = std::env::temp_dir().join(format!(
-                "eg-redb-enc-required-{mode}-{}",
+                "medulla-redb-enc-required-{mode}-{}",
                 std::process::id()
             ));
             let _ = std::fs::remove_dir_all(&dir);
@@ -1811,7 +1811,7 @@ mod tests {
         }
     }
 
-    /// CONCEPT:EG-KG.storage.occ-durable-commit — a committed OCC transaction is durable through the redb
+    /// CONCEPT:MEDULLA-KG.storage.occ-durable-commit — a committed OCC transaction is durable through the redb
     /// backend: stage nodes/edge in a txn, commit through the full dispatch path
     /// (which commits its MutationBatch durably), drop, then
     /// reload via redb-only → the committed graph is recovered.
@@ -1820,7 +1820,7 @@ mod tests {
         use crate::protocol::ResultPayload;
 
         // Held for the whole test: the `Commit` below reaches `seal_txn_recovery_plan`
-        // (fails closed without a configured `EPISTEMIC_GRAPH_ENCRYPTION_KEY`), and
+        // (fails closed without a configured `MEDULLA_ENCRYPTION_KEY`), and
         // this test ALSO reopens the backend ("reload via redb-only") — both opens
         // must resolve the same cipher. See `crate::crypto::acquire_test_env_lock`'s
         // doc for the full mechanism.
@@ -1834,7 +1834,7 @@ mod tests {
         crate::crypto::provision_test_at_rest_key_under_write_guard();
 
         const SECRET: &str = "redb-txn-secret";
-        let dir = std::env::temp_dir().join(format!("eg-redb-txn-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-txn-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
@@ -1955,7 +1955,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-KG.backend.tenant-delete-recreate-same — tenant DELETE + recreate-same-name must not drop the new
+    /// CONCEPT:MEDULLA-KG.backend.tenant-delete-recreate-same — tenant DELETE + recreate-same-name must not drop the new
     /// graph's writes. Under redb-authoritative mode (read-through wired exactly as
     /// `main.rs` does it) we: create "g", add "n1"={v:1}, DELETE "g", recreate "g",
     /// add "n1"={v:2}, then read "n1" back through the full dispatch path. The
@@ -1974,7 +1974,7 @@ mod tests {
         use crate::server::persistence::read_through::BackendReadThroughFactory;
 
         const SECRET: &str = "redb-recreate";
-        let dir = std::env::temp_dir().join(format!("eg-redb-recreate-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-recreate-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
@@ -2054,7 +2054,7 @@ mod tests {
 
         // (a) LIVE read-through: force every node out of RAM so the next read
         // RAM-MISSES and falls to the durable read-through (the eviction path is real
-        // under authoritative mode — it bounds memory per CONCEPT:EG-KG.storage.read-through-seam-exercised).
+        // under authoritative mode — it bounds memory per CONCEPT:MEDULLA-KG.storage.read-through-seam-exercised).
         let ev = dispatch_on_heap(&state, req(7, Method::EvictLRU { max_nodes: 0 })).await;
         assert!(ev.error.is_none(), "evict: {:?}", ev.error);
 
@@ -2148,7 +2148,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-KG.backend.many-repeated-create-delete — MANY repeated create→delete→recreate cycles on the SAME
+    /// CONCEPT:MEDULLA-KG.backend.many-repeated-create-delete — MANY repeated create→delete→recreate cycles on the SAME
     /// graph name must NOT enter a corrupted in-memory state that silently drops the
     /// recreated graph's writes (the vault-lane `__secrets__` failure). DISTINCT from
     /// KG-2.221 (durable redb purge): here every read is served HOT from RAM (no
@@ -2178,7 +2178,7 @@ mod tests {
 
         for graph in ["g", "__secrets__"] {
             let dir = std::env::temp_dir().join(format!(
-                "eg-redb-churn-{}-{}",
+                "medulla-redb-churn-{}-{}",
                 std::process::id(),
                 graph.trim_matches('_')
             ));
@@ -2297,7 +2297,7 @@ mod tests {
         }
     }
 
-    /// CONCEPT:EG-KG.backend.authoritative-dispatch — full dispatch path under AUTHORITATIVE mode: a write acked
+    /// CONCEPT:MEDULLA-KG.backend.authoritative-dispatch — full dispatch path under AUTHORITATIVE mode: a write acked
     /// through `dispatch` is durable in redb WITHOUT any checkpoint, and reloads via
     /// redb `load_all` (the authoritative source). This proves the commit-before-ack
     /// barrier covers the real dispatch write path (incl. the coalescer) AND that the
@@ -2313,7 +2313,7 @@ mod tests {
         use crate::protocol::ResultPayload;
 
         const SECRET: &str = "redb-auth-dispatch";
-        let dir = std::env::temp_dir().join(format!("eg-redb-authd-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-authd-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
@@ -2392,7 +2392,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-KG.backend.authoritative-dispatch — commit-before-ack: `record_durable` returns ONLY after the
+    /// CONCEPT:MEDULLA-KG.backend.authoritative-dispatch — commit-before-ack: `record_durable` returns ONLY after the
     /// op is durably committed. The ONLY way the await completes is the group commit
     /// firing the waiter — there is no per-drained-batch commit path left for it to
     /// settle on incidentally. After the await returns, a SEPARATE reopened store
@@ -2404,7 +2404,7 @@ mod tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-redb-durable-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-durable-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend = RedbBackend::open(dir_s.clone(), 64).expect("open");
@@ -2428,7 +2428,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-KG.backend.authoritative-dispatch — many concurrent `record_durable` calls COALESCE into group
+    /// CONCEPT:MEDULLA-KG.backend.authoritative-dispatch — many concurrent `record_durable` calls COALESCE into group
     /// commits (NOT one fsync per op): all N complete, all N are durable. We can't
     /// directly count fsyncs here, but we assert all N awaited writers resolve Ok and
     /// every node is durably present — the coalescing path (one WriteTransaction per
@@ -2440,7 +2440,7 @@ mod tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-redb-coalesce-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-coalesce-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend = Arc::new(RedbBackend::open(dir_s.clone(), 256).expect("open"));
@@ -2472,13 +2472,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ── CONCEPT:EG-KG.storage.snapshot-read-off-writer — snapshot reads off the writer ───────────────────────────
+    // ── CONCEPT:MEDULLA-KG.storage.snapshot-read-off-writer — snapshot reads off the writer ───────────────────────────
     //
     // The point-read / read-through path (`read_node`) serves directly from a redb
     // `begin_read()` MVCC snapshot on the target shard's shared `Database`, routed by
-    // the SAME EG-026 `shard_for`. It NEVER routes through the writer thread's channel
+    // the SAME MEDULLA-026 `shard_for`. It NEVER routes through the writer thread's channel
     // and NEVER forces a group-commit. These tests pin that invariant:
-    //   (a) a read-through never increments any shard's commit counter (EG-026), and
+    //   (a) a read-through never increments any shard's commit counter (MEDULLA-026), and
     //       reads route to the correct shard under K>1 and return the right value;
     //   (b) reads complete CONCURRENTLY while many writes are in flight (MVCC, not
     //       serialized behind the writer queue);
@@ -2486,7 +2486,7 @@ mod tests {
     // None mutate env, so they need no LINGER_ENV_LOCK guard.
 
     /// (a) Read-through serves the node from a snapshot and triggers NO writer commit.
-    /// Proven via the per-shard commit counters (EG-026 `commit_stats_all`): after the
+    /// Proven via the per-shard commit counters (MEDULLA-026 `commit_stats_all`): after the
     /// writes settle, a burst of reads leaves EVERY shard's commit count UNCHANGED.
     /// Uses K=3 so we also prove reads route to the correct shard (the value comes
     /// back) and that no OTHER shard commits either.
@@ -2497,7 +2497,7 @@ mod tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-redb-snapread-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-snapread-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         // K=3 explicit (cfg(test) defaults to 1; open_with_shards honors the request on
@@ -2564,7 +2564,7 @@ mod tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-redb-snapconc-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-snapconc-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend = Arc::new(RedbBackend::open(dir_s.clone(), 256).expect("open"));
@@ -2630,7 +2630,7 @@ mod tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-redb-snapack-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-snapack-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend = RedbBackend::open(dir_s.clone(), 64).expect("open");
@@ -2671,7 +2671,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-KG.backend.adaptive-linger-coalesce — the adaptive micro-linger COALESCES concurrent in-flight
+    /// CONCEPT:MEDULLA-KG.backend.adaptive-linger-coalesce — the adaptive micro-linger COALESCES concurrent in-flight
     /// authoritative writers into fewer, larger group commits WITHOUT losing
     /// durability. We enqueue N ops directly onto the shard's writer channel (see the
     /// GOC-70 rule 3 note below) and assert:
@@ -2683,7 +2683,7 @@ mod tests {
     ///   * lingered commits were actually exercised.
     ///
     /// The live cadence is the only one now (the `Each` per-drained-batch policy is
-    /// deleted), and pre-EG-024 a drained channel committed immediately at ~1
+    /// deleted), and pre-MEDULLA-024 a drained channel committed immediately at ~1
     /// op/fsync — which is exactly the shape the linger exists to widen.
     ///
     /// GOC-70 (fix/micro-linger-stats-race): on the real 2-vCPU CI runner this test
@@ -2726,7 +2726,7 @@ mod tests {
     ///
     /// Serializes the remaining env-mutating linger fixture. The coalescing fixture
     /// injects its config directly; the disabled baseline still reads
-    /// `EPISTEMIC_GRAPH_REDB_GROUP_*` once at open.
+    /// `MEDULLA_REDB_GROUP_*` once at open.
     static LINGER_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[tokio::test(flavor = "multi_thread")]
@@ -2736,7 +2736,7 @@ mod tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-redb-linger-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-linger-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let (control, entered_rx, release_tx) = RedbGroupCommitTestControl::new();
@@ -2836,7 +2836,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-KG.backend.adaptive-linger-coalesce — with the linger DISABLED (`LINGER_US=0`) the writer falls back
+    /// CONCEPT:MEDULLA-KG.backend.adaptive-linger-coalesce — with the linger DISABLED (`LINGER_US=0`) the writer falls back
     /// to the exact commit-on-drain behavior, and durability is identical. This pins
     /// the baseline the bench measures against and proves the knob is a real opt-out.
     #[tokio::test(flavor = "multi_thread")]
@@ -2846,15 +2846,15 @@ mod tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-redb-nolinger-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-nolinger-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend = {
             // Serialized vs the coalesce test so its linger value can't leak into our `open`.
             let _env = LINGER_ENV_LOCK.lock().unwrap();
-            std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US", "0");
+            std::env::set_var("MEDULLA_REDB_GROUP_LINGER_US", "0");
             let b = Arc::new(RedbBackend::open(dir_s.clone(), 256).expect("open"));
-            std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US");
+            std::env::remove_var("MEDULLA_REDB_GROUP_LINGER_US");
             b
         };
 
@@ -2897,7 +2897,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ── CONCEPT:EG-KG.storage.read-through-seam-exercised — read-through-on-RAM-miss + safe authoritative eviction ──
+    // ── CONCEPT:MEDULLA-KG.storage.read-through-seam-exercised — read-through-on-RAM-miss + safe authoritative eviction ──
 
     /// Populate `core` AND redb with `n` durable nodes, then install the read-through
     /// factory + the backend on `state` exactly as `main.rs` does under authoritative
@@ -2953,7 +2953,7 @@ mod tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-redb-evict-rt-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-evict-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend: Arc<dyn PersistenceBackend> =
@@ -3017,7 +3017,7 @@ mod tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-redb-evict-safe-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-evict-safe-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend: Arc<dyn PersistenceBackend> =
@@ -3082,7 +3082,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-KG.storage.one-fsync-covers-raft — ONE fsync covers a Raft log entry AND its graph mutation.
+    /// CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft — ONE fsync covers a Raft log entry AND its graph mutation.
     /// The only way an awaited op completes is the group commit firing. We launch a
     /// `record_durable` (M2 graph mutation) and a
     /// `raft_log_append` (Raft log entry) CONCURRENTLY into the same tick window;
@@ -3096,7 +3096,7 @@ mod tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-redb-1txn-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-redb-1txn-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend = Arc::new(RedbBackend::open(dir_s.clone(), 64).expect("open"));
@@ -3135,7 +3135,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ── Cross-modal ACID (CONCEPT:EG-KG.txn.reader-never-sees-node) ─────────────────────────────────────
+    // ── Cross-modal ACID (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node) ─────────────────────────────────────
 
     use crate::protocol::{Response, ResultPayload};
     use crate::server::auth::VerifiedRequestContext;
@@ -3144,7 +3144,7 @@ mod tests {
     fn cm_dir(tag: &str) -> String {
         // The cross-modal handler-commit path seals its transaction recovery plan
         // (`server::handlers::txn::seal_txn_recovery_plan`), which fail-closed REQUIRES
-        // `EPISTEMIC_GRAPH_ENCRYPTION_KEY` to be configured — the same seal requirement
+        // `MEDULLA_ENCRYPTION_KEY` to be configured — the same seal requirement
         // the xshard harness hit. Provision it ONCE before any backend opens. Encryption
         // is symmetric and transparent to every durable round-trip these tests make, so
         // a keyed store behaves identically for their assertions. The env var is
@@ -3155,7 +3155,7 @@ mod tests {
         // body (see each call site), so the provisioning below always runs under that
         // lock -- do NOT acquire it here, `tokio::sync::RwLock` is not reentrant.
         crate::crypto::provision_test_at_rest_key_under_write_guard();
-        let d = std::env::temp_dir().join(format!("eg-crossmodal-{tag}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("medulla-crossmodal-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d.to_string_lossy().to_string()
@@ -3265,7 +3265,7 @@ mod tests {
     /// modalities land durably in ONE WriteTransaction and survive a reload.
     #[tokio::test(flavor = "multi_thread")]
     async fn crossmodal_txn_commits_all_modalities_atomically() {
-        // Held for the whole test: `cm_dir` provisions `EPISTEMIC_GRAPH_ENCRYPTION_KEY`
+        // Held for the whole test: `cm_dir` provisions `MEDULLA_ENCRYPTION_KEY`
         // once (process-global) and this test's backend opens depend on it staying set
         // throughout — see `crate::crypto::acquire_test_env_lock`'s doc.
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
@@ -3357,7 +3357,7 @@ mod tests {
     /// A backend whose cross-modal DURABLE COMMIT always FAILS — used to prove the
     /// handler rolls back ALL modalities (applies nothing in-memory) on a
     /// durable-commit failure: no partial cross-modal commit
-    /// (CONCEPT:EG-KG.txn.reader-never-sees-node).
+    /// (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node).
     ///
     /// Everything that is NOT the injected failure delegates to a real
     /// `RedbBackend`, including the `as_redb` downcast. That delegation is load
@@ -3486,7 +3486,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ── Extended cross-modal ACID: 5 modalities in ONE wtx (CONCEPT:EG-KG.backend.cross-modal-atomic-commit/361/362) ──
+    // ── Extended cross-modal ACID: 5 modalities in ONE wtx (CONCEPT:MEDULLA-KG.backend.cross-modal-atomic-commit/361/362) ──
 
     /// A data-independent CONSTRUCT that yields exactly one triple
     /// `<urn:a> <urn:p> <urn:b>` via an inline VALUES row (needs no committed data), so
@@ -3597,11 +3597,11 @@ mod tests {
 
     /// CAPSTONE: one txn stages node + embedding + blob-ref + measurement + CONSTRUCT
     /// triple; `Commit` lands ALL FIVE atomically in ONE redb `WriteTransaction`; every
-    /// modality is durably present after a full backend reload (CONCEPT:EG-KG.backend.cross-modal-atomic-commit/361/362).
+    /// modality is durably present after a full backend reload (CONCEPT:MEDULLA-KG.backend.cross-modal-atomic-commit/361/362).
     #[cfg(all(feature = "tsdb", feature = "sparql"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn five_modality_atomic_commit() {
-        use eg_tsdb::store::SeriesStore;
+        use medulla_tsdb::store::SeriesStore;
 
         // See `crossmodal_txn_commits_all_modalities_atomically` above: held for the
         // whole test.
@@ -3701,15 +3701,15 @@ mod tests {
                 Shard::open(std::path::Path::new(&dir).join(shard_filename(0)).as_path()).unwrap();
             let read = shard.control_read().unwrap();
             let key = direct_test_series_key("media", "sensor");
-            let meta = eg_tsdb::store::meta_in_rtx(&read, &key)
+            let meta = medulla_tsdb::store::meta_in_rtx(&read, &key)
                 .unwrap()
                 .expect("series durable");
             assert_eq!(meta.count, 2, "both measurement points durable");
-            let scanned = eg_tsdb::store::range_in_rtx(
+            let scanned = medulla_tsdb::store::range_in_rtx(
                 &read,
                 &key,
-                eg_tsdb::point::Ts::MIN,
-                eg_tsdb::point::Ts::MAX,
+                medulla_tsdb::point::Ts::MIN,
+                medulla_tsdb::point::Ts::MAX,
             )
             .unwrap();
             assert_eq!(scanned.len(), 2, "measurement points readable post-reload");
@@ -3746,7 +3746,7 @@ mod tests {
 
     /// ATOMICITY: a five-modality txn whose durable commit FAILS mid-way (the always-fails
     /// backend, injected AFTER the measurement is staged) lands NONE of the five — no node,
-    /// no vector, no CONSTRUCT triple in-memory, and NO series durable (CONCEPT:EG-KG.backend.cross-modal-atomic-commit).
+    /// no vector, no CONSTRUCT triple in-memory, and NO series durable (CONCEPT:MEDULLA-KG.backend.cross-modal-atomic-commit).
     #[cfg(all(feature = "tsdb", feature = "sparql"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn five_modality_rolls_back_all_on_failure() {
@@ -3804,14 +3804,14 @@ mod tests {
             let read = shard.control_read().unwrap();
             let key = direct_test_series_key("media", "sensor");
             assert!(
-                eg_tsdb::store::meta_in_rtx(&read, &key).unwrap().is_none(),
+                medulla_tsdb::store::meta_in_rtx(&read, &key).unwrap().is_none(),
                 "series never landed durably"
             );
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// EG-P0-4 (CONCEPT:EG-KG.backend.ts-served-materialize) — the canonical time-series
+    /// MEDULLA-P0-4 (CONCEPT:MEDULLA-KG.backend.ts-served-materialize) — the canonical time-series
     /// read-path unification proof. A measurement committed through the cross-modal txn
     /// path (staged alongside a plain node write in ONE txn — a measurement alone already
     /// makes a txn cross-modal per `GraphTxnState::is_cross_modal`) is:
@@ -3830,7 +3830,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn crossmodal_measurement_visible_via_public_tsrange_post_commit_and_restart() {
         use crate::protocol::ResultPayload;
-        use eg_tsdb::store::SeriesStore;
+        use medulla_tsdb::store::SeriesStore;
 
         const SECRET: &str = "ts-unify-secret";
         // Held for the whole test — this one literally reopens the backend
@@ -3971,7 +3971,7 @@ mod tests {
                 Shard::open(std::path::Path::new(&dir).join(shard_filename(0)).as_path()).unwrap();
             let read = shard.control_read().unwrap();
             let key = envelope_test_series_key("media", "sensor.ts-unify");
-            let meta = eg_tsdb::store::meta_in_rtx(&read, &key)
+            let meta = medulla_tsdb::store::meta_in_rtx(&read, &key)
                 .unwrap()
                 .expect("measurement durable in the authoritative shard");
             assert_eq!(meta.count, 3, "all 3 points durable in the shard");
@@ -4013,8 +4013,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// L16 startup reconciliation (CONCEPT:EG-KG.backend.ts-startup-reconcile) — the proof that closes the
-    /// EG-P0-4 residual. Simulates a crash STRICTLY BETWEEN the two commits by landing a
+    /// L16 startup reconciliation (CONCEPT:MEDULLA-KG.backend.ts-startup-reconcile) — the proof that closes the
+    /// MEDULLA-P0-4 residual. Simulates a crash STRICTLY BETWEEN the two commits by landing a
     /// measurement batch in the authoritative shard via the low-level `commit_crossmodal` (the atomic
     /// barrier alone) WITHOUT going through `handlers::txn::commit_cross_modal_txn` (which
     /// is what performs the served-store replay) — so the served `series.redb` never sees
@@ -4028,7 +4028,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn startup_reconciliation_closes_the_crash_window_gap() {
         use crate::protocol::ResultPayload;
-        use eg_tsdb::store::SeriesStore;
+        use medulla_tsdb::store::SeriesStore;
 
         const SECRET: &str = "ts-reconcile-secret";
         // See `crossmodal_txn_commits_all_modalities_atomically` above: held for the
@@ -4103,7 +4103,7 @@ mod tests {
         // finding + replaying exactly 3 points — a SECOND `Database` handle can't be
         // opened directly on the shard here to double-check, since `backend` still
         // holds redb's exclusive per-process file lock on it, same constraint the
-        // EG-P0-4 test works around by dropping its backend first.)
+        // MEDULLA-P0-4 test works around by dropping its backend first.)
         let before = decode_ts(dispatch_on_heap(&state, ts_range(1)).await);
         assert!(
             before.is_empty(),
@@ -4152,7 +4152,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// AuditVerify dispatch round-trip (CONCEPT:EG-KG.sharding.row-level-security): durable writes build a
+    /// AuditVerify dispatch round-trip (CONCEPT:MEDULLA-KG.sharding.row-level-security): durable writes build a
     /// hash-chained audit log; `Method::AuditVerify` over the served dispatch returns
     /// `ok=true`; tampering an entry makes the served verify report the break.
     #[cfg(feature = "security")]
@@ -4166,7 +4166,7 @@ mod tests {
         use crate::protocol::{AuditReport, ResultPayload};
 
         const SECRET: &str = "audit-secret";
-        let dir = std::env::temp_dir().join(format!("eg-audit-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-audit-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
@@ -4236,7 +4236,7 @@ mod tests {
     /// ledger (`raw_core`), not the RLS projection's permanently-empty one.
     /// `watermark` must be `0` here: well under the ledger's 100k cap, this
     /// instance has never dropped anything (see
-    /// `eg_core::graph::tests::ledger_cap_drop_advances_the_watermark` for
+    /// `medulla_core::graph::tests::ledger_cap_drop_advances_the_watermark` for
     /// the cap-drop case itself -- that mechanism is a SEPARATE, real gap
     /// this fix does not paper over: the ledger remains a purely in-memory,
     /// ephemeral buffer, not a durable change log).
@@ -4250,7 +4250,7 @@ mod tests {
         use crate::protocol::{LedgerReadResult, ResultPayload};
 
         const SECRET: &str = "get-ledger-secret";
-        let dir = std::env::temp_dir().join(format!("eg-get-ledger-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-get-ledger-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend = Arc::new(RedbBackend::open(dir_s.clone(), 64).expect("open redb backend"));
@@ -4353,7 +4353,7 @@ mod tests {
         );
     }
 
-    /// Provenance-anchor inclusion proof (CONCEPT:EG-KG.sharding.row-level-security, provenance anchoring) —
+    /// Provenance-anchor inclusion proof (CONCEPT:MEDULLA-KG.sharding.row-level-security, provenance anchoring) —
     /// the tamper-detection acceptance test: a `:ToolCall` node's window is
     /// anchored, its inclusion proof verifies against that anchor's chain-protected
     /// root, and
@@ -4374,7 +4374,7 @@ mod tests {
         use crate::server::persistence::provenance_anchor;
 
         const SECRET: &str = "provenance-secret";
-        let dir = std::env::temp_dir().join(format!("eg-provenance-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-provenance-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
@@ -4589,7 +4589,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ── CONCEPT:EG-KG.backend.sharded-k-way-durable — sharded K-way durable writer ──────────────────────────
+    // ── CONCEPT:MEDULLA-KG.backend.sharded-k-way-durable — sharded K-way durable writer ──────────────────────────
 
     /// Routing is a stable, deterministic FNV-1a — a graph maps to the SAME shard
     /// every process/restart (else its durable rows become unreachable), stays in
@@ -4627,7 +4627,7 @@ mod tests {
         // mid-flight" class. See `crate::crypto::acquire_test_env_lock`'s doc.
         #[cfg(feature = "security")]
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-shard-k1-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-shard-k1-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend = RedbBackend::open_with_shards(dir_s.clone(), 64, 1).expect("open K=1");
@@ -4647,7 +4647,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let auto = {
             let _env = LINGER_ENV_LOCK.lock().unwrap();
-            std::env::remove_var("EPISTEMIC_GRAPH_REDB_SHARDS");
+            std::env::remove_var("MEDULLA_REDB_SHARDS");
             RedbBackend::open(dir_s.clone(), 64).expect("open auto")
         };
         assert_eq!(auto.shard_count(), 1, "cfg(test) default K=1");
@@ -4663,7 +4663,7 @@ mod tests {
         // it, but `blocking_read` is the only guard available off a runtime.
         let _env_read_lock = crate::crypto::TEST_ENV_LOCK.blocking_read();
         let dir = std::env::temp_dir().join(format!(
-            "eg-shard-retired-layout-{}-{:?}",
+            "medulla-shard-retired-layout-{}-{:?}",
             std::process::id(),
             std::thread::current().id()
         ));
@@ -4695,13 +4695,13 @@ mod tests {
         // resolved fresh at each `open`) or the restart reopen's read fails with
         // "encrypted durable value is missing sealed framing" -- the exact
         // destructive-read mismatch documented on `RedbBackend::transaction_recovery_cipher`.
-        // This test never sets `EPISTEMIC_GRAPH_ENCRYPTION_KEY` itself; it only needs
+        // This test never sets `MEDULLA_ENCRYPTION_KEY` itself; it only needs
         // the AMBIENT value (set or unset) to stay constant across both opens, which
         // requires excluding every other test that mutates that process-global for its
         // duration. See `crate::crypto::acquire_test_env_lock`'s doc.
         #[cfg(feature = "security")]
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-shard-route-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-shard-route-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         const K: usize = 4;
@@ -4788,7 +4788,7 @@ mod tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-shard-par-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-shard-par-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         const K: usize = 4;
@@ -4855,7 +4855,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The `EPISTEMIC_GRAPH_REDB_SHARDS` env override is honored by `open()` even in
+    /// The `MEDULLA_REDB_SHARDS` env override is honored by `open()` even in
     /// cfg(test) (the env check precedes the test default). Serialized vs the other
     /// env-mutating tests via the shared lock.
     #[tokio::test]
@@ -4865,14 +4865,14 @@ mod tests {
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-shard-env-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-shard-env-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend = {
             let _env = LINGER_ENV_LOCK.lock().unwrap();
-            std::env::set_var("EPISTEMIC_GRAPH_REDB_SHARDS", "3");
+            std::env::set_var("MEDULLA_REDB_SHARDS", "3");
             let b = RedbBackend::open(dir_s.clone(), 64).expect("open");
-            std::env::remove_var("EPISTEMIC_GRAPH_REDB_SHARDS");
+            std::env::remove_var("MEDULLA_REDB_SHARDS");
             b
         };
         assert_eq!(backend.shard_count(), 3, "env override sets K=3");
@@ -4883,9 +4883,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-KG.sharding.r5-feature (R5) — the catalog auto-attach gate + the empty-catalog routing
+    /// CONCEPT:MEDULLA-KG.sharding.r5-feature (R5) — the catalog auto-attach gate + the empty-catalog routing
     /// identity. A durable `catalog.redb` ⇒ `open()` attaches it; absent (and no flag) ⇒
-    /// no catalog (pure EG-026). An EMPTY catalog resolves every graph to the exact EG-026
+    /// no catalog (pure MEDULLA-026). An EMPTY catalog resolves every graph to the exact MEDULLA-026
     /// `shard_index` (byte-for-byte), and an explicit assignment overrides the hash.
     #[tokio::test]
     async fn catalog_auto_attach_gate_and_empty_is_fnv1a() {
@@ -4895,10 +4895,10 @@ mod tests {
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::tenant_catalog::TenantCatalog;
-        let root = std::env::temp_dir().join(format!("eg-r5-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("medulla-r5-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
 
-        // (1) No catalog.redb, no env ⇒ open() attaches NOTHING (default EG-026 routing).
+        // (1) No catalog.redb, no env ⇒ open() attaches NOTHING (default MEDULLA-026 routing).
         let plain_dir = root.join("plain");
         std::fs::create_dir_all(&plain_dir).unwrap();
         let plain = RedbBackend::open(plain_dir.to_string_lossy().to_string(), 64).unwrap();
@@ -4920,7 +4920,7 @@ mod tests {
         assert_eq!(cat.len(), 1, "the prior placement survived + reloaded");
         attached.shutdown();
 
-        // (3) Empty catalog routes IDENTICALLY to EG-026 for every graph/K (no regression).
+        // (3) Empty catalog routes IDENTICALLY to MEDULLA-026 for every graph/K (no regression).
         let empty = TenantCatalog::in_memory();
         for k in [1usize, 2, 4, 8, 16] {
             for g in ["__commons__", "agent:7", "g-move", "tenant_x", "ZZZ"] {
@@ -4937,7 +4937,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// CONCEPT:EG-KG.backend.catalog-shard-resolve (R1) — move ONE graph between shards while the engine RUNS, with
+    /// CONCEPT:MEDULLA-KG.backend.catalog-shard-resolve (R1) — move ONE graph between shards while the engine RUNS, with
     /// concurrent writes to that graph ACROSS the flip. Every node/edge survives, the
     /// audit chain stays valid, reads/writes follow the graph to its new shard, the source
     /// rows are GC'd, and an unrelated graph is untouched.
@@ -4950,7 +4950,7 @@ mod tests {
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::tenant_catalog::TenantCatalog;
         const K: usize = 4;
-        let dir = std::env::temp_dir().join(format!("eg-r1-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-r1-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let dir_s = dir.to_string_lossy().to_string();
@@ -5096,7 +5096,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-KG.sharding.eg-r6 (R6) — a cold (idle) graph is offloaded: its whole in-RAM state is
+    /// CONCEPT:MEDULLA-KG.sharding.medulla-r6 (R6) — a cold (idle) graph is offloaded: its whole in-RAM state is
     /// dropped to bound RAM, yet every node still SERVES on access via the KG-2.191
     /// read-through from redb. The shared `__commons__` is never offloaded.
     #[tokio::test(flavor = "multi_thread")]
@@ -5107,7 +5107,7 @@ mod tests {
         // other -- only a key MUTATOR is excluded.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::cold_offload::{offload_cold_tenants, ColdTenantTracker};
-        let dir = std::env::temp_dir().join(format!("eg-r6-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-r6-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend: Arc<dyn PersistenceBackend> =
@@ -5201,7 +5201,7 @@ mod tests {
         #[cfg(feature = "security")]
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         const K: usize = 4;
-        let dir = std::env::temp_dir().join(format!("eg-f-load-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-f-load-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let names = [
@@ -5277,7 +5277,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-KG.backend.r3-plan-execution (R3 plan execution) — a fully-skewed placement (every graph pinned to
+    /// CONCEPT:MEDULLA-KG.backend.r3-plan-execution (R3 plan execution) — a fully-skewed placement (every graph pinned to
     /// shard 0) → `plan_rebalance` → `rebalance_execute` applies each move via online
     /// resharding → graphs spread across shards and every node survives (no loss).
     #[tokio::test(flavor = "multi_thread")]
@@ -5292,7 +5292,7 @@ mod tests {
         };
         use crate::server::persistence::tenant_catalog::TenantCatalog;
         const K: usize = 4;
-        let dir = std::env::temp_dir().join(format!("eg-r3-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-r3-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let catalog = Arc::new(TenantCatalog::open(&dir_s).expect("catalog"));
@@ -5346,7 +5346,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-KG.backend.flush-pending-first (R1 delta-copy) — moving an IDLE graph copies the whole graph in the
+    /// CONCEPT:MEDULLA-KG.backend.flush-pending-first (R1 delta-copy) — moving an IDLE graph copies the whole graph in the
     /// UNQUIESCED bulk pass, so the under-quiesce DELTA (the work that actually pauses the
     /// moved graph's writes) is 0. Proves the snapshot+delta path shrank the pause to ~0
     /// for the common idle case, with no data loss.
@@ -5359,7 +5359,7 @@ mod tests {
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::tenant_catalog::TenantCatalog;
         const K: usize = 4;
-        let dir = std::env::temp_dir().join(format!("eg-r1-delta-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-r1-delta-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let catalog = Arc::new(TenantCatalog::open(&dir_s).expect("catalog"));
@@ -5438,7 +5438,7 @@ mod tests {
         // below) and later reads them back through the backend's OWN decode path
         // (PurgeGraph's pre-existing lifecycle-authority validation — see those
         // helpers' doc comments). `cm_dir` (used by the crossmodal txn tests
-        // above) provisions `EPISTEMIC_GRAPH_ENCRYPTION_KEY` PROCESS-GLOBALLY via
+        // above) provisions `MEDULLA_ENCRYPTION_KEY` PROCESS-GLOBALLY via
         // a `std::sync::Once` and, by its own documented design, NEVER unsets it.
         // A plain READ lock does not protect against that already-set ambient
         // state left behind by an earlier test in the same binary (confirmed:
@@ -5457,7 +5457,7 @@ mod tests {
         use crate::redb_store::{RESOURCE_RESERVATIONS, WORK_ITEM_COMMAND_SEQUENCE};
         use crate::server::persistence::tenant_catalog::TenantCatalog;
         const K: usize = 4;
-        let dir = std::env::temp_dir().join(format!("eg-reshard-cx054-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-reshard-cx054-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let catalog = Arc::new(TenantCatalog::open(&dir_s).expect("catalog"));
@@ -5581,7 +5581,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-KG.backend.m3-admin-dispatch — drive the M3 admin ops over the FULL dispatch path (protocol →
+    /// CONCEPT:MEDULLA-KG.backend.m3-admin-dispatch — drive the M3 admin ops over the FULL dispatch path (protocol →
     /// `handlers::admin` → the persistence APIs): assign a catalog placement, list it back,
     /// and get a rebalance plan. Proves the WIRE surface, not just the backend methods.
     #[tokio::test(flavor = "multi_thread")]
@@ -5595,7 +5595,7 @@ mod tests {
         use crate::server::persistence::tenant_catalog::TenantCatalog;
         const SECRET: &str = "admin-rpc";
         const K: usize = 4;
-        let dir = std::env::temp_dir().join(format!("eg-admin-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-admin-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let catalog = Arc::new(TenantCatalog::open(&dir_s).expect("catalog"));
@@ -5675,7 +5675,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-KG.backend.r6-feature (R6 touch wiring) — the cold sweep selects a graph IDLE past the
+    /// CONCEPT:MEDULLA-KG.backend.r6-feature (R6 touch wiring) — the cold sweep selects a graph IDLE past the
     /// window but NEVER a recently-touched one. Proves the touch-driven selection semantics
     /// the dispatch read/write path relies on.
     #[test]

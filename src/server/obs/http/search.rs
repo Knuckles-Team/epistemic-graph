@@ -1,4 +1,4 @@
-//! EG-162 search surface over HTTP (O2 / Elasticsearch `_search`).
+//! MEDULLA-162 search surface over HTTP (O2 / Elasticsearch `_search`).
 
 use std::sync::Arc;
 
@@ -251,7 +251,7 @@ fn es_search_response(hits: &[LogRecord]) -> String {
 
 /// The SQL `_search` response: columns + rows, plus row objects (`hits`) keyed by
 /// column name (the O2 SQL result shape).
-fn sql_search_response(res: &eg_query::TypedQueryResult) -> String {
+fn sql_search_response(res: &medulla_query::TypedQueryResult) -> String {
     let cols: Vec<&str> = res.columns.iter().map(|c| c.name.as_str()).collect();
     let hits: Vec<serde_json::Value> = res
         .rows

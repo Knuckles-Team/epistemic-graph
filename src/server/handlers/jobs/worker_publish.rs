@@ -33,13 +33,13 @@ pub(super) fn handle_worker_stage(
         return Response::err(req_id, error);
     }
     if worker_stage_already_matches(&current, &worker_ref, lease_epoch, &result) {
-        return job_response::<eg_types::result_contract::coordination::JobWorkerStage>(
+        return job_response::<medulla_types::result_contract::coordination::JobWorkerStage>(
             req_id, &current,
         );
     }
     match store.stage_result_fenced(job_id, &worker_ref, lease_epoch, result, unix_ms()) {
         Ok(job) => {
-            job_response::<eg_types::result_contract::coordination::JobWorkerStage>(req_id, &job)
+            job_response::<medulla_types::result_contract::coordination::JobWorkerStage>(req_id, &job)
         }
         Err(error) => Response::err(req_id, job_refusal(&error)),
     }
@@ -49,7 +49,7 @@ pub(super) fn handle_worker_stage(
 /// already-`Succeeded` job for the SAME worker/lease — an idempotent retry
 /// that should replay the existing job rather than re-stage.
 pub(super) fn worker_stage_already_matches(
-    current: &eg_jobs::AnalyticsJob,
+    current: &medulla_jobs::AnalyticsJob,
     worker_ref: &str,
     lease_epoch: u64,
     result: &TypedJobResult,
@@ -82,7 +82,7 @@ pub(super) async fn handle_worker_publish(
         Err(error) => return Response::err(req_id, job_refusal(&error)),
     };
     if worker_publish_already_succeeded(&job, &worker_ref, lease_epoch) {
-        return job_response::<eg_types::result_contract::coordination::JobWorkerPublish>(
+        return job_response::<medulla_types::result_contract::coordination::JobWorkerPublish>(
             req_id, &job,
         );
     }
@@ -105,7 +105,7 @@ pub(super) async fn handle_worker_publish(
 pub(super) async fn finalize_local_publish(
     state: &Arc<RwLock<ServerState>>,
     store: &Arc<JobStore>,
-    job: eg_jobs::AnalyticsJob,
+    job: medulla_jobs::AnalyticsJob,
     worker_ref: &str,
     lease_epoch: u64,
     job_id: &str,
@@ -113,7 +113,7 @@ pub(super) async fn finalize_local_publish(
 ) -> Response {
     match publish_staged_result(state, store, job, worker_ref, lease_epoch).await {
         Ok(()) => match store.get(job_id) {
-            Ok(job) => job_response::<eg_types::result_contract::coordination::JobWorkerPublish>(
+            Ok(job) => job_response::<medulla_types::result_contract::coordination::JobWorkerPublish>(
                 req_id, &job,
             ),
             Err(error) => Response::err(req_id, job_refusal(&error)),
@@ -126,7 +126,7 @@ pub(super) async fn finalize_local_publish(
 /// idempotent retry that should replay the existing job rather than re-verify
 /// the lease and republish.
 pub(super) fn worker_publish_already_succeeded(
-    job: &eg_jobs::AnalyticsJob,
+    job: &medulla_jobs::AnalyticsJob,
     worker_ref: &str,
     lease_epoch: u64,
 ) -> bool {
@@ -143,7 +143,7 @@ pub(super) fn require_publishing_lease(
     job_id: &str,
     worker_ref: &str,
     lease_epoch: u64,
-) -> Result<eg_jobs::AnalyticsJob, Response> {
+) -> Result<medulla_jobs::AnalyticsJob, Response> {
     match store.verify_lease(job_id, worker_ref, lease_epoch, unix_ms()) {
         Ok(job) if matches!(&job.state, JobState::Publishing { .. }) => Ok(job),
         Ok(job) => Err(Response::err(
@@ -164,7 +164,7 @@ pub(super) fn require_publishing_lease(
 pub(super) async fn publish_via_consensus_if_replicated(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
-    job: &eg_jobs::AnalyticsJob,
+    job: &medulla_jobs::AnalyticsJob,
     worker_ref: &str,
     lease_epoch: u64,
 ) -> Option<Response> {
@@ -197,14 +197,14 @@ pub(super) fn handle_worker_cancel(
             && job.last_worker_ref == worker_ref
             && job.lease_epoch == lease_epoch
         {
-            return job_response::<eg_types::result_contract::coordination::JobWorkerCancel>(
+            return job_response::<medulla_types::result_contract::coordination::JobWorkerCancel>(
                 req_id, &job,
             );
         }
     }
     match store.mark_cancelled_fenced(job_id, &worker_ref, lease_epoch, unix_ms()) {
         Ok(job) => {
-            job_response::<eg_types::result_contract::coordination::JobWorkerCancel>(req_id, &job)
+            job_response::<medulla_types::result_contract::coordination::JobWorkerCancel>(req_id, &job)
         }
         Err(error) => Response::err(req_id, job_refusal(&error)),
     }
@@ -240,14 +240,14 @@ pub(super) fn handle_worker_fail(
             && job.last_worker_ref == worker_ref
             && job.lease_epoch == lease_epoch
         {
-            return job_response::<eg_types::result_contract::coordination::JobWorkerFail>(
+            return job_response::<medulla_types::result_contract::coordination::JobWorkerFail>(
                 req_id, &job,
             );
         }
     }
     match store.fail_attempt_fenced(job_id, &worker_ref, lease_epoch, reason_code, unix_ms()) {
         Ok(job) => {
-            job_response::<eg_types::result_contract::coordination::JobWorkerFail>(req_id, &job)
+            job_response::<medulla_types::result_contract::coordination::JobWorkerFail>(req_id, &job)
         }
         Err(error) => Response::err(req_id, job_refusal(&error)),
     }

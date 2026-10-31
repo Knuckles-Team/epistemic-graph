@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
-use eg_types::change_envelope::{ChangeEnvelope, MaterialClass};
-use eg_types::ingestion_wire::{ExtractedEdge, ExtractedNode, IndexResult};
+use medulla_types::change_envelope::{ChangeEnvelope, MaterialClass};
+use medulla_types::ingestion_wire::{ExtractedEdge, ExtractedNode, IndexResult};
 
 use super::{
     lower, seal, IndexWriteSet, BATCH_TOO_LARGE, REDACTED_HOST_IDENTITY, REPOSITORY_LABELS,
@@ -79,7 +79,7 @@ fn tombstones_lower_to_membership_removal() {
     )));
 }
 
-// Supplementary source evidence for EG-REPO-INGEST-R009. The served hydration
+// Supplementary source evidence for MEDULLA-REPO-INGEST-R009. The served hydration
 // acceptance still needs the source-to-specification readback; this regression
 // protects its existing typed relation projection from endpoint-pair loss.
 #[test]
@@ -174,7 +174,7 @@ fn repository_code_passes_the_repository_content_rule() {
 }
 
 /// Attested material admits `@` and a relative `home/` segment as ordinary
-/// text (EG-DURABLE-KERNEL-R043.7): the same code is not refused for privacy
+/// text (MEDULLA-DURABLE-KERNEL-R043.7): the same code is not refused for privacy
 /// under the attested rule either.
 #[test]
 fn the_same_code_is_not_a_privacy_refusal_under_the_attested_rule() {
@@ -239,10 +239,10 @@ fn a_repository_sized_batch_is_one_envelope_with_a_bounded_notice() {
 
 /// Past the mutation batch's operation budget the batch is refused whole,
 /// with a code the source transport acts on, never committed in parts.
-// spec: EG-REPO-INGEST-R007
+// spec: MEDULLA-REPO-INGEST-R007
 #[test]
 fn a_batch_over_the_commit_budget_is_refused_whole() {
-    let limit = eg_types::mutation_batch::MAX_MUTATION_OPERATIONS;
+    let limit = medulla_types::mutation_batch::MAX_MUTATION_OPERATIONS;
     let error = lower(&large_result(limit / 2 + 1))
         .err()
         .expect("over-budget batch is refused");
@@ -263,7 +263,7 @@ fn byte_heavy_result(count: usize, value: &str) -> IndexResult {
     }
 }
 
-// Supplementary lowering-only evidence for EG-REPO-INGEST-R008.
+// Supplementary lowering-only evidence for MEDULLA-REPO-INGEST-R008.
 // The roughly 60 MB fixture crosses MAX_WRITE_SET_BYTES (48 MiB), not the
 // requirement's 64 MiB ceiling. lower() checks refusal and admission of the
 // halved write set; it does not submit, commit, or retry through a served client.

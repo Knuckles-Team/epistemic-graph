@@ -15,8 +15,8 @@ use super::{allocation_bytes, timed, Observation, ProbeError};
 /// the fault it exists to detect -- and a probe that hangs reports nothing,
 /// which is strictly worse than one that fails by name.
 const PROBE_RENDEZVOUS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-use epistemic_graph::broker::{self, Binding, ExchangeKind, ReadFrom, StreamRetention};
-use epistemic_graph::graph::{ChangeEvent, ChangeNotifier, ChangeSink, GraphCore};
+use medulla::broker::{self, Binding, ExchangeKind, ReadFrom, StreamRetention};
+use medulla::graph::{ChangeEvent, ChangeNotifier, ChangeSink, GraphCore};
 
 /// Join a probe worker within [`PROBE_RENDEZVOUS_TIMEOUT`], or say which probe
 /// stalled.

@@ -23,29 +23,29 @@ SCRIPT = ROOT / "scripts" / "cargo_test_rescue.py"
 pytestmark = pytest.mark.no_engine
 
 # Verbatim shape of cargo's output when a libtest binary dies on SIGABRT
-# (235fffb28, `cargo test -p epistemic-graph --features full`), with the colour
+# (235fffb28, `cargo test -p medulla-engine --features full`), with the colour
 # CI's CARGO_TERM_COLOR=always adds.
 ERROR = "\x1b[1m\x1b[91merror\x1b[0m: test failed, to rerun pass "
 LIB_CRASH = (
     "thread 'server::bolt_wire::tests::bolt_atomic' (1) has overflowed its stack\n"
-    f"{ERROR}`-p epistemic-graph --lib`\n\nCaused by:\n"
-    "  process didn't exit successfully: `/t/deps/epistemic_graph-1d4e` "
+    f"{ERROR}`-p medulla-engine --lib`\n\nCaused by:\n"
+    "  process didn't exit successfully: `/t/deps/medulla_engine-1d4e` "
     "(signal: 6, SIGABRT: process abort signal)\n"
 )
 IT_FAILURE = (
-    f"{ERROR}`-p epistemic-graph --test graphql_crossmodal_durable`\n\n"
+    f"{ERROR}`-p medulla-engine --test graphql_crossmodal_durable`\n\n"
     "Caused by:\n"
     "  process didn't exit successfully: `/t/deps/graphql_crossmodal_durable-9f` "
     "(exit status: 101)\n"
 )
 CRASH = "running 1750 tests\n" + LIB_CRASH + IT_FAILURE
 
-NEXTEST = """        PASS [   0.030s] (   1/3) epistemic-graph server::a::ok_test
-     SIGABRT [  11.700s] (   2/3) epistemic-graph server::bolt_wire::tests::bolt_atomic
-        FAIL [   0.040s] (   3/3) epistemic-graph server::c::bad
+NEXTEST = """        PASS [   0.030s] (   1/3) medulla server::a::ok_test
+     SIGABRT [  11.700s] (   2/3) medulla server::bolt_wire::tests::bolt_atomic
+        FAIL [   0.040s] (   3/3) medulla server::c::bad
      Summary [  12.000s] 3 tests run: 1 passed, 2 failed, 0 skipped
-     SIGABRT [  11.700s] (   2/3) epistemic-graph server::bolt_wire::tests::bolt_atomic
-        FAIL [   0.040s] (   3/3) epistemic-graph server::c::bad
+     SIGABRT [  11.700s] (   2/3) medulla server::bolt_wire::tests::bolt_atomic
+        FAIL [   0.040s] (   3/3) medulla server::c::bad
 """
 
 
@@ -100,13 +100,13 @@ def fake_cargo(tmp_path):
     return run
 
 
-FACADE = ("cargo", "test", "-p", "epistemic-graph", "--features", "full")
+FACADE = ("cargo", "test", "-p", "medulla", "--features", "full")
 
 
 def test_green_run_costs_nothing_extra(fake_cargo):
     proc, calls = fake_cargo("test result: ok.\n", 0, *FACADE, "--no-fail-fast")
     assert proc.returncode == 0
-    assert calls == ["test -p epistemic-graph --features full --no-fail-fast"]
+    assert calls == ["test -p medulla-engine --features full --no-fail-fast"]
 
 
 def test_ordinary_failure_is_not_rerun(fake_cargo):
@@ -121,13 +121,13 @@ def test_signal_killed_binary_gets_per_test_verdicts_and_still_fails(fake_cargo)
     assert proc.returncode == 101
     # Only the SIGABRT target is re-run; the exit-101 target already has verdicts.
     assert calls[1:] == [
-        "nextest run --features full -p epistemic-graph --lib --no-fail-fast"
+        "nextest run --features full -p medulla-engine --lib --no-fail-fast"
     ]
     assert (
-        "RESCUE-VERDICT SIGABRT  epistemic-graph server::bolt_wire::tests::bolt_atomic"
+        "RESCUE-VERDICT SIGABRT  medulla server::bolt_wire::tests::bolt_atomic"
         in proc.stdout
     )
-    assert "RESCUE-VERDICT FAIL     epistemic-graph server::c::bad" in proc.stdout
+    assert "RESCUE-VERDICT FAIL     medulla server::c::bad" in proc.stdout
     assert "3 test(s) with a verdict, 1 passed, 2 failed" in proc.stdout
     assert "gate FAILS: 1 target(s) died on a signal" in proc.stdout
 
@@ -144,14 +144,14 @@ def test_filters_and_libtest_flags_carry_over_to_nextest():
             "--test-threads=1",
         ]
     )
-    assert rescue.nextest_command(selection, "-p epistemic-graph --lib") == [
+    assert rescue.nextest_command(selection, "-p medulla-engine --lib") == [
         "cargo",
         "nextest",
         "run",
         "--features",
         "full",
         "-p",
-        "epistemic-graph",
+        "medulla",
         "--lib",
         "--run-ignored",
         "only",
@@ -166,7 +166,7 @@ def test_filters_and_libtest_flags_carry_over_to_nextest():
             "test",
             "--locked",
             "-p",
-            "epistemic-graph",
+            "medulla",
             "--features",
             "cluster,harness,calvin",
             "--lib",
@@ -177,7 +177,7 @@ def test_filters_and_libtest_flags_carry_over_to_nextest():
     )
     assert raft.filters == ("raft::",) and "--lib" not in raft.cargo_flags
     exact = rescue.parse_selection([*FACADE, "--", "a::b", "c::d", "--exact"])
-    assert rescue.nextest_command(exact, "-p epistemic-graph --lib")[-2:] == [
+    assert rescue.nextest_command(exact, "-p medulla-engine --lib")[-2:] == [
         "-E",
         "test(=a::b) | test(=c::d)",
     ]

@@ -1,0 +1,284 @@
+//! Typed model for metadata materialization and selective acceleration
+//! (MEDULLA-UNIFIED-DATA-PLANE-R038): the versioned, hashed `MetadataContract`
+//! every registered source kind's discovery writes (metadata only, never
+//! copied entity rows), and the `AccelerationPolicy` that alone decides
+//! whether a mapping's query fragment may run from a copy instead of live.
+//! This is the typed-model slice (`.1`): the models plus the refusal of a
+//! policy that declares a hot-subset predicate for a source with no `copy`
+//! capability, and `AccelerationPolicy::resolve_mode`, which falls back to
+//! `Live` whenever the copy capability, the predicate, or the freshness
+//! watermark is missing — a missing watermark disables the copied route
+//! rather than silently serving stale rows. Real discovery, the copy
+//! pipeline, and EXPLAIN's per-fragment live/copy reporting are later
+//! children.
+
+use serde::{Deserialize, Serialize};
+
+/// A versioned, hashed metadata-discovery result for one registered
+/// source. Carries no entity row data — only the discovered shape and its
+/// content hash.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MetadataContract {
+    pub source_kind: String,
+    pub source_name: String,
+    pub schema_version: u32,
+    pub content_hash: String,
+}
+
+/// The closed set of attached-source categories. Each category is one row of
+/// the source-category coverage matrix (MEDULLA-UNIFIED-DATA-PLANE-R022.4); an
+/// unknown category refuses at deserialization.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceCategory {
+    RelationalSql,
+    PostgresWire,
+    OltpRowStore,
+    OlapColumnar,
+    TimeSeries,
+    SearchIndex,
+    DocumentStore,
+    WebMetasearch,
+    KeyValueStore,
+    DataLakeTables,
+    HadoopCatalog,
+    SparkEngine,
+    ArrowFlightSql,
+    PropertyGraph,
+    ObjectStorage,
+}
+
+impl SourceCategory {
+    /// Every category, in coverage-matrix order.
+    pub const ALL: [SourceCategory; 15] = [
+        Self::RelationalSql,
+        Self::PostgresWire,
+        Self::OltpRowStore,
+        Self::OlapColumnar,
+        Self::TimeSeries,
+        Self::SearchIndex,
+        Self::DocumentStore,
+        Self::WebMetasearch,
+        Self::KeyValueStore,
+        Self::DataLakeTables,
+        Self::HadoopCatalog,
+        Self::SparkEngine,
+        Self::ArrowFlightSql,
+        Self::PropertyGraph,
+        Self::ObjectStorage,
+    ];
+
+    /// The category name as written in the coverage matrix of `plan.md`.
+    pub fn matrix_label(self) -> &'static str {
+        match self {
+            Self::RelationalSql => "Relational SQL",
+            Self::PostgresWire => "PostgreSQL wire",
+            Self::OltpRowStore => "OLTP row store",
+            Self::OlapColumnar => "OLAP and columnar",
+            Self::TimeSeries => "Time series",
+            Self::SearchIndex => "Search index",
+            Self::DocumentStore => "Document store",
+            Self::WebMetasearch => "Web metasearch",
+            Self::KeyValueStore => "Key-value store",
+            Self::DataLakeTables => "Data lake tables",
+            Self::HadoopCatalog => "Hadoop-family catalog",
+            Self::SparkEngine => "Spark-compatible engine",
+            Self::ArrowFlightSql => "Arrow Flight SQL",
+            Self::PropertyGraph => "Property-graph source",
+            Self::ObjectStorage => "Object storage",
+        }
+    }
+}
+
+/// The isolation a source snapshot read runs at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SnapshotIsolation {
+    Snapshot,
+    RepeatableRead,
+}
+
+/// Default replica lag bound, in milliseconds, for a read served by a
+/// declared read replica (a starting default; a measurement replaces it).
+pub const DEFAULT_REPLICA_LAG_BOUND_MS: u64 = 5_000;
+
+/// How one query reads a transactional source: one read-only snapshot per
+/// source per query, shared by every fragment of that source.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SnapshotSemantics {
+    pub isolation: SnapshotIsolation,
+    pub snapshot_token: String,
+    pub replica_lag_bound_ms: u64,
+}
+
+/// Whether a mapping's query fragment is permitted to run from a copy of
+/// its hot subset, or must run live against the source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FragmentExecutionMode {
+    Live,
+    Copy,
+}
+
+/// The acceleration policy for one mapping: whether its source declares the
+/// `copy` capability, the hot-subset predicate it would copy, and the
+/// freshness watermark that bounds how stale a copy may be.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccelerationPolicy {
+    pub source_supports_copy: bool,
+    pub hot_subset_predicate: String,
+    pub freshness_watermark: Option<String>,
+}
+
+impl AccelerationPolicy {
+    /// Resolve how a fragment under this policy must run: `Copy` only when
+    /// the source supports copying, a hot-subset predicate is declared, and
+    /// a freshness watermark is present; `Live` otherwise. A missing
+    /// watermark disables the copied route — it never silently serves a
+    /// copy of unknown freshness.
+    pub fn resolve_mode(&self) -> FragmentExecutionMode {
+        if self.source_supports_copy
+            && !self.hot_subset_predicate.is_empty()
+            && self.freshness_watermark.is_some()
+        {
+            FragmentExecutionMode::Copy
+        } else {
+            FragmentExecutionMode::Live
+        }
+    }
+}
+
+/// A `MetadataContract` or `AccelerationPolicy` failed validation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InvalidMetadataContract(pub String);
+
+impl std::fmt::Display for InvalidMetadataContract {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "invalid metadata contract: {}", self.0)
+    }
+}
+
+impl std::error::Error for InvalidMetadataContract {}
+
+/// Confirm a `MetadataContract` names both its source kind and source name.
+pub fn validate_contract(contract: &MetadataContract) -> Result<(), InvalidMetadataContract> {
+    if contract.source_kind.is_empty() || contract.source_name.is_empty() {
+        return Err(InvalidMetadataContract(
+            "source_kind and source_name must both be non-empty".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Confirm an `AccelerationPolicy` is internally consistent: a hot-subset
+/// predicate may only be declared for a source that actually supports
+/// copying. Refuses rather than admitting a policy that claims
+/// acceleration the source cannot provide.
+pub fn validate_policy(policy: &AccelerationPolicy) -> Result<(), InvalidMetadataContract> {
+    if !policy.hot_subset_predicate.is_empty() && !policy.source_supports_copy {
+        return Err(InvalidMetadataContract(
+            "hot-subset predicate declared but source has no copy capability".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn contract() -> MetadataContract {
+        MetadataContract {
+            source_kind: "postgres".to_string(),
+            source_name: "app-primary".to_string(),
+            schema_version: 1,
+            content_hash: "deadbeef".to_string(),
+        }
+    }
+
+    fn policy(copy: bool, predicate: &str, watermark: Option<&str>) -> AccelerationPolicy {
+        AccelerationPolicy {
+            source_supports_copy: copy,
+            hot_subset_predicate: predicate.to_string(),
+            freshness_watermark: watermark.map(str::to_string),
+        }
+    }
+
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R038.1
+    #[test]
+    fn well_formed_contract_validates() {
+        assert_eq!(validate_contract(&contract()), Ok(()));
+    }
+
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R038.1
+    #[test]
+    fn contract_with_empty_source_kind_is_refused() {
+        let mut bad = contract();
+        bad.source_kind = String::new();
+        assert!(validate_contract(&bad).is_err());
+    }
+
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R038.1
+    #[test]
+    fn fully_declared_policy_resolves_to_copy() {
+        let p = policy(
+            true,
+            "updated_at > now() - interval '1 day'",
+            Some("lsn:42"),
+        );
+        assert!(validate_policy(&p).is_ok());
+        assert_eq!(p.resolve_mode(), FragmentExecutionMode::Copy);
+    }
+
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R038.1
+    #[test]
+    fn missing_watermark_falls_back_to_live() {
+        let p = policy(true, "updated_at > now() - interval '1 day'", None);
+        assert_eq!(p.resolve_mode(), FragmentExecutionMode::Live);
+    }
+
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R038.1
+    #[test]
+    fn cold_mapping_with_no_predicate_is_live() {
+        let p = policy(true, "", None);
+        assert_eq!(p.resolve_mode(), FragmentExecutionMode::Live);
+    }
+
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R038.1
+    #[test]
+    fn predicate_without_copy_capability_is_refused() {
+        let p = policy(
+            false,
+            "updated_at > now() - interval '1 day'",
+            Some("lsn:42"),
+        );
+        let Err(error) = validate_policy(&p) else {
+            panic!("a predicate declared without copy capability must be refused");
+        };
+        assert!(error.0.contains("copy capability"), "{error}");
+    }
+
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R038.3.1
+    #[test]
+    fn snapshot_semantics_round_trip() {
+        let semantics = SnapshotSemantics {
+            isolation: SnapshotIsolation::RepeatableRead,
+            snapshot_token: "pg:000003A0/1F2E3D4C".to_string(),
+            replica_lag_bound_ms: DEFAULT_REPLICA_LAG_BOUND_MS,
+        };
+        let json = serde_json::to_string(&semantics).unwrap();
+        let back: SnapshotSemantics = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, semantics);
+        for category in SourceCategory::ALL {
+            let json = serde_json::to_string(&category).unwrap();
+            assert_eq!(
+                serde_json::from_str::<SourceCategory>(&json).unwrap(),
+                category
+            );
+        }
+        assert!(serde_json::from_str::<SourceCategory>("\"mainframe\"").is_err());
+        let bad = json.replace("repeatable_read", "read_committed");
+        assert!(serde_json::from_str::<SnapshotSemantics>(&bad).is_err());
+    }
+}

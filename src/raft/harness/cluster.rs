@@ -154,7 +154,7 @@ impl Drop for AllocatedRoot {
         // async executor thread (the receiver dropped with the value inside), so
         // the removal gets a thread of its own.
         let spawned = std::thread::Builder::new()
-            .name("eg-harness-root-cleanup".to_string())
+            .name("medulla-harness-root-cleanup".to_string())
             .spawn(move || {
                 if let Err(error) = std::fs::remove_dir_all(&root) {
                     tracing::error!(
@@ -181,7 +181,7 @@ async fn allocate_root(
             for _attempt in 0..PORT_ALLOCATION_ATTEMPTS {
                 let sequence = HARNESS_ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let root = std::env::temp_dir().join(format!(
-                    "eg-harness-{tag}-{}-{sequence}",
+                    "medulla-harness-{tag}-{}-{sequence}",
                     std::process::id(),
                 ));
                 match std::fs::create_dir(&root) {
@@ -760,7 +760,7 @@ impl Cluster {
     }
 
     /// RESTART a previously-killed node over the SAME persist dir + port. Its durable
-    /// redb log replays locally (CONCEPT:EG-KG.storage.one-fsync-covers-raft) and it rejoins, catching up via the
+    /// redb log replays locally (CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft) and it rejoins, catching up via the
     /// leader's append/snapshot.
     pub async fn restart(&mut self, id: NodeId) -> Result<(), String> {
         let dir = {

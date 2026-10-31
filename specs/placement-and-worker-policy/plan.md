@@ -1,4 +1,4 @@
-# EG-PLACEMENT - Design and implementation plan
+# MEDULLA-PLACEMENT - Design and implementation plan
 
 Governing spec: [spec.md](spec.md). Rows: [requirements.md](requirements.md).
 
@@ -6,9 +6,9 @@ All three gaps keep ONE decision authority: the engine decides, callers (Arbora,
 
 ## Problem and evidence
 
-- A. Arbora `ARBORA-DEPLOY-R017` (branch `land/train-1010h`, `specs/portable-deployment/requirements.md:27`) requires "a deployment-placement question kind under `EG-DECISION-ENGINE-R046`/`R111`" and says assemble is "a refusal stub". In code: `QuestionKind` (`crates/eg-types/src/decision/statistical.rs:56-95`) has no placement or topology kind. `R111.1` (`specs/decision-engine/requirements.md:163`) says the standalone topology question is not built and its proving test name `a_standalone_topology_decide_question_returns_a_typed_decision_record` appears nowhere in `src`. Topology is reachable only through `AgentAssemble` (`src/server/handlers/decide/assemble.rs:57`, `topology_read.rs:44`).
-- B. `specs/ingest-worker` (R001.2, .3, .10, .11, .15) asks the worker/Graft SDK to autosize (0.36 of cores, 3 GiB), hold a hydration floor and route partitions. `EG-DURABLE-KERNEL-R074`-`R077` (`specs/durable-graph-kernel/requirements.md:109-112`) give the engine the registry, admission, floors and shard-writer width. No code for either exists yet (`git grep AdmitWorkerTask|SchedulerConfig|WorkerRecord` finds nothing in `src`/`crates`). The overlap is still only in specs and is cheap to remove now. The only live autosize knob is `EG_ANALYTICS_WORKERS` (`src/server/handlers/jobs/executor_loop.rs:22-25`, default 1, cap 32).
-- C. `EG-DURABLE-KERNEL-R082.3` says the cap's existence "was not determinable". It is: `src/server/handlers/jobs/submit.rs:289` refuses `distinct_items > 31` (inside the same merged check as the threshold tests, one message at `:293`).
+- A. Arbora `ARBORA-DEPLOY-R017` (branch `land/train-1010h`, `specs/portable-deployment/requirements.md:27`) requires "a deployment-placement question kind under `MEDULLA-DECISION-ENGINE-R046`/`R111`" and says assemble is "a refusal stub". In code: `QuestionKind` (`crates/medulla-types/src/decision/statistical.rs:56-95`) has no placement or topology kind. `R111.1` (`specs/decision-engine/requirements.md:163`) says the standalone topology question is not built and its proving test name `a_standalone_topology_decide_question_returns_a_typed_decision_record` appears nowhere in `src`. Topology is reachable only through `AgentAssemble` (`src/server/handlers/decide/assemble.rs:57`, `topology_read.rs:44`).
+- B. `specs/ingest-worker` (R001.2, .3, .10, .11, .15) asks the worker/Graft SDK to autosize (0.36 of cores, 3 GiB), hold a hydration floor and route partitions. `MEDULLA-DURABLE-KERNEL-R074`-`R077` (`specs/durable-graph-kernel/requirements.md:109-112`) give the engine the registry, admission, floors and shard-writer width. No code for either exists yet (`git grep AdmitWorkerTask|SchedulerConfig|WorkerRecord` finds nothing in `src`/`crates`). The overlap is still only in specs and is cheap to remove now. The only live autosize knob is `MEDULLA_ANALYTICS_WORKERS` (`src/server/handlers/jobs/executor_loop.rs:22-25`, default 1, cap 32).
+- C. `MEDULLA-DURABLE-KERNEL-R082.3` says the cap's existence "was not determinable". It is: `src/server/handlers/jobs/submit.rs:289` refuses `distinct_items > 31` (inside the same merged check as the threshold tests, one message at `:293`).
 
 ## Architecture
 
@@ -42,13 +42,13 @@ The worker holds NO policy. Sequence: `register(cores, mem_bytes, lanes_supporte
 
 ### C. Association bound
 
-`rules_for_itemset` enumerates antecedent masks `for mask in 1u32..((1u32 << k) - 1)` (`crates/eg-compute/src/mining/association.rs:402`), and `rule_parts`/`rule_for_mask` take `mask: u32` (`:349`, `:364`). `k` is an itemset length, which cannot exceed the number of distinct items, so 31 distinct items guarantees `1u32 << k` cannot overflow (`1u32 << 32` overflows). The Apriori/Eclat/FP-Growth itemset engines themselves have no bound (`association.rs:124`, `:265`); `generate_rules` is `pub`, so a direct caller with k >= 32 is unprotected.
+`rules_for_itemset` enumerates antecedent masks `for mask in 1u32..((1u32 << k) - 1)` (`crates/medulla-compute/src/mining/association.rs:402`), and `rule_parts`/`rule_for_mask` take `mask: u32` (`:349`, `:364`). `k` is an itemset length, which cannot exceed the number of distinct items, so 31 distinct items guarantees `1u32 << k` cannot overflow (`1u32 << 32` overflows). The Apriori/Eclat/FP-Growth itemset engines themselves have no bound (`association.rs:124`, `:265`); `generate_rules` is `pub`, so a direct caller with k >= 32 is unprotected.
 
 ## Decisions
 
 | # | Item | Outcome | Evidence and reasoning |
 |---|---|---|---|
-| D1 | `AgentAssemble` is a refusal stub? | CONFIRMED NOT a stub | `src/server/handlers/decide/assemble.rs:28-55` reads the library snapshot, runs `eg_compute::assemble`, returns `AssemblyResult`; routed at `src/server/dispatch/router/decision_plane.rs:64`. It refuses only when built without the `decide` feature (`assemble.rs:134-140`; `decide` is in `full`, `Cargo.toml:1278`, which `default` enables, `Cargo.toml:168`). The Arbora "stub" claim is therefore stale or describes a build without `decide`; propose reword (R001.14). |
+| D1 | `AgentAssemble` is a refusal stub? | CONFIRMED NOT a stub | `src/server/handlers/decide/assemble.rs:28-55` reads the library snapshot, runs `medulla_compute::assemble`, returns `AssemblyResult`; routed at `src/server/dispatch/router/decision_plane.rs:64`. It refuses only when built without the `decide` feature (`assemble.rs:134-140`; `decide` is in `full`, `Cargo.toml:1278`, which `default` enables, `Cargo.toml:168`). The Arbora "stub" claim is therefore stale or describes a build without `decide`; propose reword (R001.14). |
 | D2 | What does the topology decision path return today? | CONFIRMED | Only inside assembly: `TopologyPlan` (`topology/plan.rs:120`) when `request.requirements.topology` is set (`topology_read.rs:44-47`), else `None`. Standalone Decide topology question: absent (R111.1 open; test name not in tree). |
 | D3 | Placement ID/shape | DECIDED | New `QuestionKind::Placement` with declared candidates, modelled on `IngestionLane`/`ToolSubset`; alternative (encode targets as swarm templates in `TopologyRequirements`) rejected: targets are not slots/widths, and it would stretch the swarm model. Depends on R111.1 only for the shared standalone-dispatch pattern, not for its types. |
 | D4 | Assemble prerequisites | BLOCKED (owner: Arbora + typed packs) | Handler exists, but a `Solved` deployment graph needs published components: fleet-tool components and a deployment graph template in the tenant Agent Library. None exists for deployment; Arbora publishes them as a typed pack (`specs/typed-packs-and-catalog`). Medulla row R001.12 proves assembly with a fixture template. |
@@ -81,15 +81,15 @@ Rendering or applying manifests (Arbora `deploy/`), acquiring capacity, systemd,
 
 ### B producer implementation boundary
 
-R002.2 is implemented by the pure `eg_types::scheduler_config` contract (R076.1). R076.2 owns its later served integration. Neither the autosize grant function nor the existing analytics pool has been switched by this producer slice.
+R002.2 is implemented by the pure `medulla_types::scheduler_config` contract (R076.1). R076.2 owns its later served integration. Neither the autosize grant function nor the existing analytics pool has been switched by this producer slice.
 
 R002.3 now provides pure `worker_registry::granted_slots` with `WorkerSizingInput` for the optional request ceiling, current available memory and engine-selected write classification. It consumes the real `WorkerRecord` and `SchedulerConfig`; the typed `WorkerSlotGrant` reports zero on refusal. CPU sizing alone may round up to one; memory, request ceiling, pool, disabled resources and writer width remain hard bounds. No reservations, served registration or R075 admission are claimed.
 
 ## Capability-declared heavy compute routing (R004)
 
-Data flow: job submit wire method -> ready queue -> `claim_next` (`crates/eg-jobs/src/store.rs:736`) -> capability anchor filter (`store.rs:773`) -> claim on the capable host.
+Data flow: job submit wire method -> ready queue -> `claim_next` (`crates/medulla-jobs/src/store.rs:736`) -> capability anchor filter (`store.rs:773`) -> claim on the capable host.
 
-Types: `HostCapability`, `RoutingFact`. Attach point: `store.rs:773`. Production caller: `crates/eg-quantum-jobs/src/job.rs:275`, which passes no capabilities today; the Wiring row passes them. Failure behavior: `no_capable_host` leaves the job queued.
+Types: `HostCapability`, `RoutingFact`. Attach point: `store.rs:773`. Production caller: `crates/medulla-quantum-jobs/src/job.rs:275`, which passes no capabilities today; the Wiring row passes them. Failure behavior: `no_capable_host` leaves the job queued.
 
 Reused: the capability anchor selection in `select_ready_for_worker`. New: capability declaration from graph topology facts.
 
@@ -100,7 +100,7 @@ Cross-repository: `ARBORA-` rows that submit jobs only pass the job class.
 <!-- spec-definition-patch:owner-batch-20261012-placement-and-worker-policy -->
 ## Owner implementation plan — 2026-10-12
 
-### `EG-PLACEMENT-R001.15` — EG:9
+### `MEDULLA-PLACEMENT-R001.15` — EG:9
 
 - Define pure `evaluate_capacity_adjustment(proposal, capacity_premise) -> CapacityAdjustmentVerdictV1`.
 - Return a verdict for a typed capacity proposal. Bind it to tenant, resource class, and unit.
@@ -111,7 +111,7 @@ Cross-repository: `ARBORA-` rows that submit jobs only pass the job class.
 - Refuse increases above observed headroom. Return the applicable `CapacityRefusalCode` without host or graph mutation.
 - Arbora owns mode, AIMD proposal generation, limits, and actuation.
 - Arbora exposes an applied receipt for independent readback. The receipt binds proposal digest, requested/applied amount, resource/host, policy revision, and resulting state revision.
-- Preserve `ARBORA-CAPACITY-R001.1`, `EG-DECISION-ENGINE-R112`, `ARBORA-CAPACITY-R001/R002`, and `EG-PLACEMENT-R001.6`. Source hash: `cb17ea03a7344584fed7a9f22a78c1e97c58919616433e7026481606fd0bdccb`.
+- Preserve `ARBORA-CAPACITY-R001.1`, `MEDULLA-DECISION-ENGINE-R112`, `ARBORA-CAPACITY-R001/R002`, and `MEDULLA-PLACEMENT-R001.6`. Source hash: `cb17ea03a7344584fed7a9f22a78c1e97c58919616433e7026481606fd0bdccb`.
 - **Hold:** Reviewed evidence names no Medulla decision method or QuestionKind for this proposal. It names no Arbora apply/readback operation or receipt schema.
 - Resolve those exact owner API and receipt bindings before this candidate represents a wired closed loop.
 <!-- /spec-definition-patch -->

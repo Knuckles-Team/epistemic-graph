@@ -1,0 +1,72 @@
+//! Arbitrary user-defined relational tables (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside) — the first complete
+//! increment of a real relational store living BESIDE the graph projection.
+//!
+//! Where `sql::providers` projects the GRAPH as a fixed schema-on-read `nodes` table,
+//! this module lets an agent `CREATE TABLE` arbitrary typed tables (Prometheus
+//! metrics, Langfuse time-series, stock bars, connector mirrors, ETL outputs), write
+//! to them with full DML, and `SELECT … JOIN` them against the graph in ONE query.
+//!
+//! Three layers:
+//!   * [`schema`] — the catalog data model: [`ColumnType`], [`Column`], [`TableSchema`],
+//!     and the typed row [`Cell`] (+ coercion).
+//!   * [`store`] — the durable redb [`TableStore`]: a catalog system table + a
+//!     per-table row store, all writes commit-before-ack at `Durability::Immediate`,
+//!     persisting across restart.
+//!   * [`embedding_binding`] — the SEPARATE, tenant-scoped catalog of semantic
+//!     (embedding) bindings: which text-bearing source is embedded, by which
+//!     digest-pinned model, into which vector column. Kept out of [`index`] on
+//!     that module's own instruction — its kind enum is closed so a vector/ANN
+//!     request cannot silently enter the scalar directory.
+//!   * [`index`] — bounded, schema/version-bound scalar secondary-index catalog
+//!     identities and deterministic equality/range/order key contracts. Vector
+//!     columns remain in the separate ANN path.
+//!   * [`ann_authority`] — the maintained ANN authority: the live, worker-built
+//!     generation of every registered `hnsw`/`ivfflat` index, serving top-k reads
+//!     with visibility applied inside the probe (RF-019).
+//!   * [`provider`] — Arrow materialization so each user table registers as a
+//!     DataFusion `TableProvider` alongside `nodes`/`edges`.
+
+pub mod ann_authority;
+pub mod embedding_binding;
+pub mod index;
+pub mod migration;
+pub mod property_graph;
+pub mod provider;
+pub mod schema;
+pub mod store;
+
+pub use ann_authority::{
+    AnnFallbackReason, AnnIndexStatus, AnnLimits, AnnRefreshOutcome, AnnRefreshPolicy,
+    AnnServeReceipt, AnnServingPath, AnnTopK, AnnTopKRequest, UserAnnAuthority,
+};
+pub use embedding_binding::{
+    catalog_key as embedding_binding_catalog_key, decode_binding, default_target_column,
+    encode_binding, is_embeddable, model_digest, prepare_catalog_write, recommend_vectorization,
+    validate_binding, BindingRequest, BindingState, EmbeddingBinding, Maintenance, ModelRef,
+    SourceSelector, StampedVector, TargetVector, TextColumnStats, VectorizationRecommendation,
+    EMBEDDING_BINDING_SCHEMA_VERSION, EMBEDDING_TARGET_SUFFIX, MAX_EMBEDDING_BINDINGS_PER_TABLE,
+    MAX_EMBEDDING_DIM,
+};
+pub use index::{
+    SecondaryIndexColumn, SecondaryIndexKind, SecondaryIndexLookup, SecondaryIndexOrder,
+    SecondaryIndexSpec,
+};
+pub use property_graph::{
+    decode_property_graph, decode_property_graph_catalog_record, AlterElementAction,
+    AlterPropertyGraphAction, CanonicalCatalogName, DropBehavior, EdgeEndpoint,
+    EdgeTableDefinition, ElementKeyResolution, ElementKind, EndpointResolution, GraphOwner,
+    LabelDefinition, PropertyDefinition, PropertyGraphCatalog, PropertyGraphCatalogRecord,
+    PropertyGraphDefinition, PropertyGraphDependency, PropertyGraphGrantee, PropertyGraphObjectId,
+    PropertyGraphOwner, PropertyGraphPrivilegeOperation, PropertyGraphPrivilegeStatement,
+    PropertyGraphStatement, PropertySet, RelationCatalogSnapshot, RelationKind, RelationObjectId,
+    ResolvedColumnDependency, SqlIdentifier, SqlName, VertexTableDefinition,
+    MAX_PROPERTY_GRAPH_CATALOG_RECORD_BYTES, PROPERTY_GRAPH_CATALOG_SCHEMA_VERSION,
+    PROPERTY_GRAPH_SCHEMA_VERSION,
+};
+pub use schema::{
+    Cell, CmpOp, ColCheck, Column, ColumnType, FunctionArg, FunctionLanguage, FunctionReturns,
+    StoredFunction, TableSchema,
+};
+pub use store::{
+    ConflictAction, IndexCatalogTxnOp, PropertyGraphTxnOp, TableStore, TableTxn, TxnOp,
+};

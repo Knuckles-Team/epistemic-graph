@@ -1,6 +1,6 @@
 //! The durable analytics-job plane's protocol surface (CONCEPT:INT-P2-1, feature
 //! `jobs`): `Method::AnalyticsJob { op }` — submit/status/cancel/resume over
-//! `eg-jobs`'s redb-backed `AnalyticsJob` state machine.
+//! `medulla-jobs`'s redb-backed `AnalyticsJob` state machine.
 //!
 //! NOT graph-scoped: jobs are keyed by `job_id` in the consensus-owned analytics
 //! control range and projected into local `jobs.redb`, so this module self-routes
@@ -46,16 +46,16 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, OnceLock};
 use tokio::sync::RwLock;
 
-use eg_core::graph::GraphCore;
-use eg_jobs::model::InputSnapshotHandle;
-use eg_jobs::store::{JobStore, SubmitSpec};
-use eg_types::contract::Nonce;
-use eg_types::jobs::{JobKind, JobOp, SubmitJobSpec};
+use medulla_core::graph::GraphCore;
+use medulla_jobs::model::InputSnapshotHandle;
+use medulla_jobs::store::{JobStore, SubmitSpec};
+use medulla_types::contract::Nonce;
+use medulla_types::jobs::{JobKind, JobOp, SubmitJobSpec};
 
 #[cfg(feature = "program-optimization")]
-use eg_modality::{OpaqueRef, PolicyEnvelope};
+use medulla_modality::{OpaqueRef, PolicyEnvelope};
 #[cfg(feature = "program-optimization")]
-use eg_program::ProgramRevisionIdentity;
+use medulla_program::ProgramRevisionIdentity;
 
 use crate::lock_recovery::{LockRecovery, WriteRecovery};
 use crate::mutation_batch::MutationBatch;
@@ -64,10 +64,10 @@ use crate::server::access::CarrierAuthority;
 use crate::server::state::ServerState;
 
 /// The engine build that ran a job (CONCEPT:INT-P2-1 lineage) — `CARGO_PKG_VERSION`
-/// of the `epistemic-graph` facade crate itself.
+/// of the `medulla` facade crate itself.
 const CODE_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Stable runtime/feature contract recorded in result reproducibility lineage.
-const ENV_VERSION: &str = "eg-jobs-v1";
+const ENV_VERSION: &str = "medulla-jobs-v1";
 const MAX_JOB_INPUT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_JOB_INPUT_ITEMS: usize = 1_000_000;
 #[cfg(feature = "raft")]
@@ -126,13 +126,13 @@ use worker_validation::*;
 
 /// Classify a job-store refusal: a lifecycle transition the job's state forbids
 /// is a conflict, an unknown job is invalid input, and a store fault is internal.
-pub(super) fn job_refusal(error: &eg_jobs::JobError) -> String {
+pub(super) fn job_refusal(error: &medulla_jobs::JobError) -> String {
     let code = match error {
-        eg_jobs::JobError::InvalidTransition { .. } => "CONFLICT",
-        eg_jobs::JobError::NotFound(_) => "INVALID_ARGUMENT",
+        medulla_jobs::JobError::InvalidTransition { .. } => "CONFLICT",
+        medulla_jobs::JobError::NotFound(_) => "INVALID_ARGUMENT",
         // A lost optimistic-concurrency race is a retryable conflict, not a fault.
-        eg_jobs::JobError::Redb(message) if message.contains("STALE_VERSION") => "CONFLICT",
-        eg_jobs::JobError::Redb(_) | eg_jobs::JobError::Codec(_) => "INTERNAL",
+        medulla_jobs::JobError::Redb(message) if message.contains("STALE_VERSION") => "CONFLICT",
+        medulla_jobs::JobError::Redb(_) | medulla_jobs::JobError::Codec(_) => "INTERNAL",
     };
     format!("{code}: {error}")
 }
@@ -299,7 +299,7 @@ fn handle_status_op(
     job_id: &str,
 ) -> Response {
     match owned_job(store, authority, job_id) {
-        Ok(job) => job_response::<eg_types::result_contract::coordination::JobStatus>(req_id, &job),
+        Ok(job) => job_response::<medulla_types::result_contract::coordination::JobStatus>(req_id, &job),
         Err(error) => Response::err(req_id, error),
     }
 }
@@ -403,7 +403,7 @@ mod jobs_read_rls_architecture;
 /// node/edge property data server-side, and therefore need its `GraphCore`
 /// routed through [`GraphReadAuthority::project_core`]/`filter_view`
 /// (`crate::server::access`, backed by
-/// `crates/eg-core/src/isolation.rs::can_see_row`) before anything downstream
+/// `crates/medulla-core/src/isolation.rs::can_see_row`) before anything downstream
 /// inspects a row?
 ///
 /// Exhaustive match, deliberately NO wildcard arm: a new `JobKind` variant
@@ -494,7 +494,7 @@ async fn handle_submit(
 
 #[cfg(feature = "program-optimization")]
 fn staged_program_promotion(
-    job: &eg_jobs::AnalyticsJob,
+    job: &medulla_jobs::AnalyticsJob,
 ) -> Result<Option<ProgramRevisionIdentity>, String> {
     let output = job
         .output
@@ -643,7 +643,7 @@ async fn finalize_submit(
     let input_snapshot =
         InputSnapshotHandle::new(native_opaque_ref("graph", &spec.graph), snapshot_version)
             .with_dataset(format!("eg:job_input:{input_digest}"), input_digest.clone());
-    let params_digest = eg_jobs::digest_params(&serde_json::json!({
+    let params_digest = medulla_jobs::digest_params(&serde_json::json!({
         "params": params,
         "input_content_digest": input_digest,
     }));
@@ -678,7 +678,7 @@ fn finish_job_submit(
 ) -> Response {
     match store.submit_batch(submit_spec, batch, committed_at_ms) {
         Ok((job, _replayed)) => {
-            job_response::<eg_types::result_contract::coordination::JobSubmit>(req_id, &job)
+            job_response::<medulla_types::result_contract::coordination::JobSubmit>(req_id, &job)
         }
         Err(e) => Response::err(req_id, job_refusal(&e)),
     }
@@ -700,7 +700,7 @@ async fn handle_resume(
     let _ = (state, store);
     let _replayed = replayed;
 
-    job_response::<eg_types::result_contract::coordination::JobResume>(req_id, &job)
+    job_response::<medulla_types::result_contract::coordination::JobResume>(req_id, &job)
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-// CONCEPT:EG-KG.query.tokio-service-server — Tokio Service Server
+// CONCEPT:MEDULLA-KG.query.tokio-service-server — Tokio Service Server
 //
 // Long-running Tokio server that holds the GraphRegistry in memory
 // and serves requests over UDS or TCP with HMAC-SHA256 authentication.
@@ -43,7 +43,7 @@ where
     T: Send + 'static,
 {
     std::thread::Builder::new()
-        .name("epistemic-graph-runtime-driver".to_string())
+        .name("medulla-runtime-driver".to_string())
         .stack_size(ENGINE_WORKER_STACK_BYTES)
         .spawn(driver)
         .map_err(|error| {
@@ -84,7 +84,7 @@ pub fn decode_unified_ids(response: &crate::protocol::Response) -> Vec<String> {
 #[cfg(feature = "query")]
 #[doc(hidden)]
 pub fn decode_uql_ids(response: &crate::protocol::Response) -> Vec<String> {
-    use eg_types::wire::UqlResult;
+    use medulla_types::wire::UqlResult;
     let rows = match rmp_serde::from_slice(raw_result(response)).unwrap() {
         UqlResult::Rows { rows, .. } | UqlResult::Profile { rows, .. } => rows,
         UqlResult::Explain { .. } => panic!("an EXPLAIN result has no rows"),
@@ -287,7 +287,7 @@ pub(crate) fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     ))
 }
 
-// Streamed content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace). Facade-only,
+// Streamed content-addressed BLOB substrate (CONCEPT:MEDULLA-KG.storage.blob-namespace). Facade-only,
 // behind the `blob` cargo feature. Default/server-only builds compile NONE of it;
 // the Blob* methods then fall to the dispatch "not available" catch-all.
 //
@@ -296,25 +296,25 @@ pub(crate) fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
 // `#[cfg(feature = "blob")]` attribute and its intended target, so the
 // attribute silently re-attached to the new function instead of gating this
 // `mod` declaration. That made `server::blob` (and therefore `blob/store.rs`'s
-// unconditional `redb`/`eg_storage`/`eg_transaction` imports) compile in EVERY build,
+// unconditional `redb`/`medulla_storage`/`medulla_transaction` imports) compile in EVERY build,
 // including `--no-default-features --features server`, breaking the slim
 // server. It went unnoticed because this repo has not pushed in a long time,
 // so CI never ran that feature-matrix row. Restoring the attribute here is
 // the fix (AGENTS.md "Feature-gating gates three sites").
-// Post-bind boot maintenance (EG-DURABLE-KERNEL-R006.4): the background
+// Post-bind boot maintenance (MEDULLA-DURABLE-KERNEL-R006.4): the background
 // materialized-view reload + time-series startup reconciliation that run
 // AFTER the primary listeners bind — never on the pre-listener critical
 // path. Both tasks are feature-gated inside; without either, a no-op.
 #[cfg(feature = "blob")]
 pub mod blob;
 pub mod boot_maintenance;
-// Generic namespaced Key→Value surface (CONCEPT:EG-KG.storage.namespaced-kv-surface). Self-routing (NOT graph-
+// Generic namespaced Key→Value surface (CONCEPT:MEDULLA-KG.storage.namespaced-kv-surface). Self-routing (NOT graph-
 // scoped) like blob/tsdb, behind the `kv` cargo feature. A build without it compiles
 // none of it; the Kv* methods then fall to the dispatch "not available" catch-all.
 #[cfg(feature = "kv")]
 pub mod kv;
 // Change-Data-Capture hub + continuous queries + subscriptions/triggers
-// (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230). Facade-only, behind the `streaming` cargo feature (no heavy
+// (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions/230). Facade-only, behind the `streaming` cargo feature (no heavy
 // dep, folds into pi/node/cluster/full). A build without it compiles none of it.
 #[cfg(feature = "streaming")]
 pub mod cdc;
@@ -323,31 +323,31 @@ pub mod cdc;
 // edits this shared module list.
 #[cfg(feature = "cdc-kafka")]
 pub mod cdc_sink;
-// Live CEP standing-query surface (CONCEPT:EG-KG.query.protocol-types): the PUSH half of the event-stream +
-// CEP modality (CONCEPT:EG-KG.query.pipelined-execution). Owns an `eg_stream::live::CepEngine` (feature `stream`)
+// Live CEP standing-query surface (CONCEPT:MEDULLA-KG.query.protocol-types): the PUSH half of the event-stream +
+// CEP modality (CONCEPT:MEDULLA-KG.query.pipelined-execution). Owns an `medulla_stream::live::CepEngine` (feature `stream`)
 // adapted onto the CDC feed (feature `streaming`) — register a CEP pattern once, then
 // poll pushed matches. Needs BOTH: the CDC hub to feed it (`streaming`) AND the live NFA
-// engine (`stream`, the only thing that pulls eg-stream's tokio). A build with one but
+// engine (`stream`, the only thing that pulls medulla-stream's tokio). A build with one but
 // not the other compiles none of it.
 #[cfg(all(feature = "streaming", feature = "stream"))]
 pub mod cep;
-// Plan-backed materialized views (CONCEPT:EG-KG.storage.plan-backed-matview): a NAMED,
+// Plan-backed materialized views (CONCEPT:MEDULLA-KG.storage.plan-backed-matview): a NAMED,
 // DURABLE `wire::Plan` whose result rides the version-keyed, RLS-aware result cache. The
 // manager subscribes to the CDC feed (`CdcHub::emit`) to mark views over a changed graph
 // stale. Gated behind `matview` (which pulls `compute-dist`/`query`/`result-cache`/
 // `streaming`); its Method variants route through the `compute-dist` dispatch line.
 #[cfg(feature = "matview")]
 pub mod matview;
-// Distributed result-cache coherence over the CDC feed (CONCEPT:EG-KG.coordination.distributed-cache-coherence): a replica
+// Distributed result-cache coherence over the CDC feed (CONCEPT:MEDULLA-KG.coordination.distributed-cache-coherence): a replica
 // tailing CDC invalidates its local version-keyed result cache on a remote write.
 // Needs BOTH the cache (`result-cache`) and the CDC feed (`streaming`).
 #[cfg(all(feature = "result-cache", feature = "streaming"))]
 pub mod cache_coherence;
-// Facade-side ColdTier impls (CONCEPT:EG-KG.coordination.distributed-cache-coherence): redb-durable default + S3 behind
-// `cold-tier-s3`. The seam + in-memory impl live in eg-core; this needs redb.
+// Facade-side ColdTier impls (CONCEPT:MEDULLA-KG.coordination.distributed-cache-coherence): redb-durable default + S3 behind
+// `cold-tier-s3`. The seam + in-memory impl live in medulla-core; this needs redb.
 #[cfg(all(feature = "cold-tier", feature = "redb"))]
 pub mod cold_tier_impl;
-// Semantic ANN index activation (W0.4, CONCEPT:EG-KG.storage.semantic-index-directory): the ONE
+// Semantic ANN index activation (W0.4, CONCEPT:MEDULLA-KG.storage.semantic-index-directory): the ONE
 // reopen-else-build-else-activate body plus the two triggers the boot-time task
 // cannot supply — the post-write hook and the periodic backstop — for a graph
 // created, or crossing `ANN_BUILD_THRESHOLD`, after boot. Gated with the `ann`
@@ -434,19 +434,19 @@ pub mod graph_tile_server;
 // VIZ-1/VIZ-2 bridge: the real GraphCore-backed `GraphSource` graph_tile_server
 // serves once a graph has a cached cluster hierarchy, replacing the `DemoGraph`
 // placeholder VIZ-2 shipped pending this lane. Same feature gate as
-// graph_tile_server (its only caller) since it depends on eg_viz_graph_tiles.
+// graph_tile_server (its only caller) since it depends on medulla_viz_graph_tiles.
 #[cfg(feature = "viz-graph-tiles")]
 pub(crate) mod graph_tile_source;
-// Fleet server registry stale-lease reaper (CONCEPT:EG-KG.sharding.server-registry, W2.5): periodic
+// Fleet server registry stale-lease reaper (CONCEPT:MEDULLA-KG.sharding.server-registry, W2.5): periodic
 // sweep that expires a `:Server` node whose `Method::RegisterServer`-issued
 // lease has lapsed. Always declared (mirrors `semantic_activation` above) — the
 // sweep is a no-op when nothing has registered.
 pub(crate) mod handlers;
-// Owner-scoped foreign-source catalog (CONCEPT:EG-KG.query.query-federation, EH-373): the one
+// Owner-scoped foreign-source catalog (CONCEPT:MEDULLA-KG.query.query-federation, EH-373): the one
 // place a caller's verified owner (tenant+principal) selects which sources a plan may resolve.
 #[cfg(feature = "federation")]
 pub mod foreign_catalog;
-// EG-FEDERATED-QUERY-R722.3 — bounded host-driven foreign-read executions.
+// MEDULLA-FEDERATED-QUERY-R722.3 — bounded host-driven foreign-read executions.
 #[cfg(feature = "federation")]
 pub(crate) mod foreign_read;
 // Explicit RBAC-grant sharing of an owner-scoped foreign source (EH-378).
@@ -455,27 +455,27 @@ pub(crate) mod foreign_share;
 pub mod registry_reaper;
 // EH-558: policy-driven expiry of sealed records through their owning op.
 pub mod sealed_retention;
-// Owner-scoped WASM UDF catalog (CONCEPT:EG-KG.query.rowset-execution, EH-374):
+// Owner-scoped WASM UDF catalog (CONCEPT:MEDULLA-KG.query.rowset-execution, EH-374):
 // `RegisterUdf`/`RunUdf` resolve ids only within the caller's verified owner (tenant+principal).
 #[cfg(feature = "wasm-udf")]
 pub mod udf_catalog;
-// MutationPlan + the single commit gateway (CONCEPT:EG-P0-2): consumes
-// `eg-capabilities`' MethodPolicy to drive authz + durable-commit + audit + CDC for
+// MutationPlan + the single commit gateway (CONCEPT:MEDULLA-P0-2): consumes
+// `medulla-capabilities`' MethodPolicy to drive authz + durable-commit + audit + CDC for
 // the GATEWAY_ROUTED mutation set from ONE call site. See its module docs for scope.
 pub(crate) mod mutation;
 pub(crate) mod mutation_batch;
-// EG-ORCH-VOCAB-R801 — engine-side admission of the versioned
+// MEDULLA-ORCH-VOCAB-R801 — engine-side admission of the versioned
 // harness-component writes on both write paths (direct AddNode and
 // ChangeEnvelope). `pub` (not `pub(crate)`) so the hot-path receipt
-// (`benches/harness_components.rs`, EG-ORCH-VOCAB-R801.6) measures the
+// (`benches/harness_components.rs`, MEDULLA-ORCH-VOCAB-R801.6) measures the
 // engine's real per-write path. See the module docs for the shared rules.
 pub mod harness_admission;
 // Per-graph batching worker for the five coalescable GATEWAY_ROUTED structural
-// writes (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18 rewrite). See its module
+// writes (CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer, L18 rewrite). See its module
 // docs and `mutation::commit_coalescable_mutation` for why the durable commit, not
 // just the RAM publish, must run inside the worker's ONE `lock_graph` hold per batch.
 // `pub` (not `pub(crate)`) so `ServerState::routed_write_coalescer`'s field type is
-// nameable from the `epistemic-graph-server` binary crate, mirroring `write_coalescer`.
+// nameable from the `medulla-server` binary crate, mirroring `write_coalescer`.
 pub mod routed_write_coalescer;
 // Durable incremental reasoning authority. It tails the committed MutationBatch
 // outbox, fsyncs each per-graph projection before cursor acknowledgement, and serves
@@ -484,16 +484,16 @@ pub mod routed_write_coalescer;
 pub mod reasoning_projection;
 // Reasoning auto-cascade (W3.6/E16, opt-in via `REASON_ON_WRITE`): CDC-triggered,
 // debounced OWL/RL closure re-materialization per graph. Wires the EXISTING
-// `eg_rdf::owl::Reasoner` incremental delta re-seed (`add_axioms`) into the write
+// `medulla_rdf::owl::Reasoner` incremental delta re-seed (`add_axioms`) into the write
 // path via the CDC hub's `emit` choke point (see `cdc.rs`). Gated on `owl` alone
 // (this module's real dependency) — a `streaming`-less build compiles it, but its
 // only call site (the `owl`-gated hook inside `cdc.rs`, itself `streaming`-gated)
 // then has nothing to reach it, so nothing spawns.
 #[cfg(feature = "owl")]
 pub mod reasoning_cascade;
-// X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): wires the EXISTING eg-shacl ICV
+// X5-enforce (CONCEPT:MEDULLA-KG.ontology.rdf-update-guard): wires the EXISTING medulla-shacl ICV
 // commit guard onto the live RDF write path (AddTriples/RemoveTriples/ApplyMutation).
-// Pure-Rust (no new dep — `eg-shacl` + `std::sync::OnceLock`), gated `shacl`; a build
+// Pure-Rust (no new dep — `medulla-shacl` + `std::sync::OnceLock`), gated `shacl`; a build
 // without it compiles none of it and every write path stays byte-identical.
 #[cfg(feature = "shacl")]
 pub(crate) mod icv_guard;
@@ -531,7 +531,7 @@ pub mod persistence;
     feature = "redis-wire"
 ))]
 pub(crate) mod broker_wire;
-// Wire-agnostic SQL execution core (CONCEPT:EG-KG.compute.subsystems-reference) — the multi-wire keystone. The
+// Wire-agnostic SQL execution core (CONCEPT:MEDULLA-KG.compute.subsystems-reference) — the multi-wire keystone. The
 // wire-NEUTRAL `classify → dispatch → exec` pipeline + per-connection session/txn
 // state that EVERY wire (Postgres today; SQLite/MySQL/MSSQL Phase J; AMQP Phase Y)
 // reuses. Built with `query`: the native `Method::Sql` catalog path shares its SQL
@@ -540,73 +540,73 @@ pub(crate) mod broker_wire;
 #[cfg(feature = "query")]
 pub mod wire;
 // Postgres wire-protocol shim (CONCEPT:AU-KG.query.raw-python). Facade-only, behind the `pgwire`
-// cargo feature (cluster tier). The FIRST `wire::WireProtocol` adapter (CONCEPT:EG-KG.compute.subsystems-reference).
+// cargo feature (cluster tier). The FIRST `wire::WireProtocol` adapter (CONCEPT:MEDULLA-KG.compute.subsystems-reference).
 // Default/pi/node builds compile NONE of it.
 #[cfg(feature = "pgwire")]
 pub mod pgwire;
-// SQLite-compatible served surface (CONCEPT:EG-KG.query.concept-3) — Phase J. SQLite has NO client/
+// SQLite-compatible served surface (CONCEPT:MEDULLA-KG.query.concept-3) — Phase J. SQLite has NO client/
 // server wire protocol, so this is a lightweight NDJSON-over-TCP endpoint that accepts
 // SQLite-dialect SQL, rewrites the SQLite-isms (AUTOINCREMENT / INTEGER PRIMARY KEY /
-// PRAGMA no-ops) and runs them through the shared `WireSession` (CONCEPT:EG-KG.compute.subsystems-reference). The
+// PRAGMA no-ops) and runs them through the shared `WireSession` (CONCEPT:MEDULLA-KG.compute.subsystems-reference). The
 // SECOND `wire` consumer after pgwire; behind the `sqlite-wire` feature (pulls in
 // `wire`). Pure-Rust — NO C-linked sqlite. Kept OUT of node/full — the orchestrator folds it.
 #[cfg(feature = "sqlite-wire")]
 pub mod sqlite_wire;
-// MySQL / MariaDB wire-protocol listener (CONCEPT:EG-KG.query.kg-2). A hand-rolled MySQL
+// MySQL / MariaDB wire-protocol listener (CONCEPT:MEDULLA-KG.query.kg-2). A hand-rolled MySQL
 // client/server protocol (handshake v10 + `mysql_native_password` + `COM_QUERY`)
 // behind the `mysql-wire` cargo feature. The SECOND `wire::WireProtocol` adapter
-// (CONCEPT:EG-KG.compute.subsystems-reference), reusing the shared `WireSession` execution core. Default/pi/node/
+// (CONCEPT:MEDULLA-KG.compute.subsystems-reference), reusing the shared `WireSession` execution core. Default/pi/node/
 // full builds compile NONE of it.
 #[cfg(feature = "mysql-wire")]
 pub mod mysql_wire;
-// MSSQL TDS wire-protocol listener (CONCEPT:EG-KG.query.hand-rolled-tds-server). A hand-rolled TDS server — the
-// MSSQL `wire::WireProtocol` adapter (CONCEPT:EG-KG.compute.subsystems-reference), sibling of `pgwire`. Behind the
+// MSSQL TDS wire-protocol listener (CONCEPT:MEDULLA-KG.query.hand-rolled-tds-server). A hand-rolled TDS server — the
+// MSSQL `wire::WireProtocol` adapter (CONCEPT:MEDULLA-KG.compute.subsystems-reference), sibling of `pgwire`. Behind the
 // `mssql-wire` cargo feature (which pulls `wire`); DELIBERATELY kept OUT of
 // `node`/`full`/`pi` — the orchestrator folds it into a tier. Default builds compile
 // NONE of it.
 #[cfg(feature = "mssql-wire")]
 pub mod mssql_wire;
-// AMQP 0.9.1 wire-protocol listener (CONCEPT:EG-KG.compute.message-broker-exchanges). A hand-rolled AMQP 0.9.1 server
+// AMQP 0.9.1 wire-protocol listener (CONCEPT:MEDULLA-KG.compute.message-broker-exchanges). A hand-rolled AMQP 0.9.1 server
 // mapping exchange/queue/basic.* frames onto the `broker` primitives via the engine
 // dispatch. Behind the `amqp-wire` cargo feature; links NO AMQP crate (Pi contract).
 // Default/pi/node/full builds compile NONE of it.
 #[cfg(feature = "amqp-wire")]
 pub mod amqp_wire;
-// Neo4j Bolt wire-protocol listener (CONCEPT:EG-KG.query.bolt-wire-protocol). A native Bolt v4.4 server — a
+// Neo4j Bolt wire-protocol listener (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol). A native Bolt v4.4 server — a
 // hand-rolled PackStream v2 codec + chunked framing + message state machine over
-// `tokio::net`, routing RUN's Cypher straight to the eg-query cypher engine. Behind the
+// `tokio::net`, routing RUN's Cypher straight to the medulla-query cypher engine. Behind the
 // `bolt-wire` cargo feature (which pulls `cypher` + `server`); it does NOT use the SQL
 // `wire`/`WireSession` core (Bolt speaks Cypher). Default/pi builds compile NONE of it.
 #[cfg(feature = "bolt-wire")]
 pub mod bolt_wire;
-// Redis RESP wire-protocol listener (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round). A native, hand-rolled Redis
+// Redis RESP wire-protocol listener (CONCEPT:MEDULLA-KG.ontology.resp2-resp3-codec-round). A native, hand-rolled Redis
 // server — a RESP2 + RESP3 codec + the core command set (string/list/hash/set/zset,
-// GET/SET/EXPIRE/SCAN/…) over the engine's durable KV surface (CONCEPT:EG-KG.storage.namespaced-kv-surface).
+// GET/SET/EXPIRE/SCAN/…) over the engine's durable KV surface (CONCEPT:MEDULLA-KG.storage.namespaced-kv-surface).
 // Behind the `redis-wire` cargo feature (pulls `kv`); links NO redis crate (Pi
 // contract). Default/pi builds compile NONE of it.
 #[cfg(feature = "redis-wire")]
 pub mod redis_wire;
-// MQTT 3.1.1 (+ basic 5.0) wire-protocol listener (CONCEPT:EG-KG.query.mqtt-packet-codec). A hand-rolled MQTT
+// MQTT 3.1.1 (+ basic 5.0) wire-protocol listener (CONCEPT:MEDULLA-KG.query.mqtt-packet-codec). A hand-rolled MQTT
 // broker front-end mapping CONNECT/PUBLISH/SUBSCRIBE/… onto the `broker` topic exchange
 // + per-session queues via the engine dispatch. Behind the `mqtt-wire` cargo feature
 // (pulls `broker` + `server`); links NO MQTT crate (Pi contract). Default/pi builds
 // compile NONE of it.
 #[cfg(feature = "mqtt-wire")]
 pub mod mqtt_wire;
-// STOMP 1.2 wire-protocol listener (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit). A hand-rolled STOMP text-frame
+// STOMP 1.2 wire-protocol listener (CONCEPT:MEDULLA-KG.ontology.stomp-frame-codec-unit). A hand-rolled STOMP text-frame
 // server mapping CONNECT/SEND/SUBSCRIBE/ACK/… onto the `broker` primitives (destinations
 // → exchange + per-subscription queues) via the engine dispatch. Behind the `stomp-wire`
 // cargo feature (pulls `broker` + `server`); links NO STOMP crate (Pi contract).
 // Default/pi builds compile NONE of it.
 #[cfg(feature = "stomp-wire")]
 pub mod stomp_wire;
-// S3-compatible object-storage REST surface (CONCEPT:EG-KG.ontology.object-put-get-head). A hand-rolled HTTP/1.1
+// S3-compatible object-storage REST surface (CONCEPT:MEDULLA-KG.ontology.object-put-get-head). A hand-rolled HTTP/1.1
 // listener exposing PutObject/GetObject/ListObjectsV2/CreateBucket/… over the
 // content-addressed BLOB CAS (bytes) + the durable KV index (listing), with a
 // SigV4-lite auth guard. Behind the `s3-api` cargo feature (pulls `blob` + `kv`).
 // Default/pi builds compile NONE of it.
 /// Current GraphQL subscriptions over authenticated Server-Sent Events
-/// (CONCEPT:EG-KG.compute.cdc-event-emit, feature `graphql`): eg2 request binding,
+/// (CONCEPT:MEDULLA-KG.compute.cdc-event-emit, feature `graphql`): eg2 request binding,
 /// graph ACL, and default-deny RLS guard every caller-visible re-resolution.
 #[cfg(feature = "graphql")]
 pub mod graphql_sub;
@@ -627,17 +627,17 @@ pub mod graphql_sub;
     feature = "s3-api",
 ))]
 pub(crate) mod http1;
-/// Remote KV-cache HTTP surface (CONCEPT:EG-KG.backend.is-configured-so-co, feature `kvcache-server`): a
-/// hand-rolled HTTP listener exposing the `eg-kvcache` shared, content-addressed
-/// backend (EG-186) so parallel vLLM/LMCache instances SHARE KV blocks by token-hash
+/// Remote KV-cache HTTP surface (CONCEPT:MEDULLA-KG.backend.is-configured-so-co, feature `kvcache-server`): a
+/// hand-rolled HTTP listener exposing the `medulla-kvcache` shared, content-addressed
+/// backend (MEDULLA-186) so parallel vLLM/LMCache instances SHARE KV blocks by token-hash
 /// over GET/PUT/HEAD /kv/<hash> + /kv/stats, with a bearer-token guard. Default/pi
-/// builds compile NONE of it (no eg-kvcache/ureq in pi).
+/// builds compile NONE of it (no medulla-kvcache/ureq in pi).
 #[cfg(feature = "kvcache-server")]
 pub mod kvcache_http;
 /// Observability log ingestion + Parquet segment substrate (CONCEPT:AU-KG.ingest.self-ingest/161,
 /// feature `obs`): a hand-rolled HTTP listener accepting OTLP/HTTP, Elasticsearch
-/// `_bulk`/`_doc` and JSON-lines log records, landing them in eg-tsdb series +
-/// eg-text full-text indices and rolling Parquet-on-blob-CAS segments — the first
+/// `_bulk`/`_doc` and JSON-lines log records, landing them in medulla-tsdb series +
+/// medulla-text full-text indices and rolling Parquet-on-blob-CAS segments — the first
 /// slice of Phase T (surpass OpenObserve). Self-contained (its own `ObsState`), not
 /// tied to the graph `ServerState`.
 #[cfg(feature = "obs")]
@@ -665,7 +665,7 @@ pub(crate) fn outbound_http_config() -> ureq::config::ConfigBuilder<ureq::typest
 pub(crate) mod oidc;
 #[cfg(feature = "s3-api")]
 pub mod s3;
-/// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-KG.query.named-graph-support, feature `sparql-http`).
+/// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:MEDULLA-KG.query.named-graph-support, feature `sparql-http`).
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;
 // SPARQL graph publication to an external Fuseki endpoint (CA-12, feature
@@ -687,28 +687,28 @@ pub mod obda;
 #[cfg(feature = "policy_export")]
 pub mod policy_export;
 
-/// LTAP lakehouse materialization tier (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns engine-side seam, feature
-/// `lake`, INT-P2-3): converts real `eg_tsdb` series into `eg_lake::LakeBatch`es,
+/// LTAP lakehouse materialization tier (CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns engine-side seam, feature
+/// `lake`, INT-P2-3): converts real `medulla_tsdb` series into `medulla_lake::LakeBatch`es,
 /// materializes them to Parquet on the blob CAS with Delta/Iceberg logs + an
 /// Iceberg-REST catalog + OpenLineage run events. The `rest` submodule (feature
 /// `lake-rest`) serves the standards Iceberg-REST catalog surface over it.
 #[cfg(feature = "lake")]
 pub mod lake;
 
-/// PromQL + the Prometheus-compatible HTTP query API (CONCEPT:EG-KG.query.prometheus-http-query-api, feature
+/// PromQL + the Prometheus-compatible HTTP query API (CONCEPT:MEDULLA-KG.query.prometheus-http-query-api, feature
 /// `promql`): `/api/v1/query[_range]` + `/labels` served on the obs listener over the
-/// durable eg-tsdb series, backed by the pure-Rust `eg_tsdb::promql` engine.
+/// durable medulla-tsdb series, backed by the pure-Rust `medulla_tsdb::promql` engine.
 #[cfg(feature = "promql")]
 pub mod promql;
 
 /// Distributed traces: OTLP-JSON span ingest + Jaeger/OpenObserve trace-search,
-/// assembly and service-dependency-graph API (CONCEPT:EG-OS.observability.trace-assembly, feature `traces`),
-/// served on the obs listener over the pure-Rust `eg_tsdb::traces` span store —
+/// assembly and service-dependency-graph API (CONCEPT:MEDULLA-OS.observability.trace-assembly, feature `traces`),
+/// served on the obs listener over the pure-Rust `medulla_tsdb::traces` span store —
 /// completing the observability trilogy (logs + metrics + traces).
 #[cfg(feature = "traces")]
 pub mod traces;
-// Owner-scoped user-defined relational catalogs (CONCEPT:EG-KG.query.register-user-tables-alongside/EG-023): one
-// `eg_query::TableStore` per verified tenant+actor, shared across Method::Sql and every
+// Owner-scoped user-defined relational catalogs (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside/MEDULLA-023): one
+// `medulla_query::TableStore` per verified tenant+actor, shared across Method::Sql and every
 // native SQL/SQLite/OBDA surface for that owner. Opaque files live under the configured
 // persistence directory; there is no global or temporary fallback.
 #[cfg(feature = "query")]
@@ -718,11 +718,11 @@ pub mod sql_tables;
 // wired into any live request path — see the module doc for why.
 #[cfg(feature = "query")]
 pub(crate) mod sql_catalog_acl;
-// Natural-language query planner resolution (CONCEPT:EG-KG.query.fence-stripper, feature `nl-query`): owns
-// which `eg_plan::NlPlanner` the facade uses (injected vs standalone-config default).
+// Natural-language query planner resolution (CONCEPT:MEDULLA-KG.query.fence-stripper, feature `nl-query`): owns
+// which `medulla_plan::NlPlanner` the facade uses (injected vs standalone-config default).
 #[cfg(feature = "nl-query")]
 pub mod nl;
-// Super-cluster federated search (CONCEPT:EG-KG.ontology.federation-client, feature `federation-search`): fans a
+// Super-cluster federated search (CONCEPT:MEDULLA-KG.ontology.federation-client, feature `federation-search`): fans a
 // read query across a registry of peer engine instances (SSRF-vetted, per-peer timeouts)
 // AND the local store, then unions/de-dups + RRF-re-ranks the partials — a slow/dead peer
 // degrades to `partial: true` + `failed_peers` rather than failing the query. Behind the
@@ -730,58 +730,58 @@ pub mod nl;
 // other federation surfaces link — NO new HTTP dep, kept OUT of the Pi tier).
 #[cfg(feature = "federation-search")]
 pub mod federation;
-// Cross-region async read-replica tier (CONCEPT:EG-KG.sharding.follower-pull-loop) + capacity guardrails
-// (CONCEPT:EG-KG.coordination.circuit-breaker): a bounded LSN replication log the primary ships over `/replicate`, an
+// Cross-region async read-replica tier (CONCEPT:MEDULLA-KG.sharding.follower-pull-loop) + capacity guardrails
+// (CONCEPT:MEDULLA-KG.coordination.circuit-breaker): a bounded LSN replication log the primary ships over `/replicate`, an
 // async follower pull-loop that applies the tail via the canonical `mutation_apply::apply` path, and
 // the pure circuit-breaker / per-tenant-quota / backpressure guards the transport + the
 // follower consult. Behind `federation-search` (reuses the same pure-Rust `ureq` stack —
 // NO new dep, kept OUT of the Pi tier).
 #[cfg(feature = "federation-search")]
 pub mod replica;
-// ROS2 bridge over the rosbridge-WebSocket JSON protocol (CONCEPT:EG-KG.domains.robotics-gpu-distribution): bridges engine
+// ROS2 bridge over the rosbridge-WebSocket JSON protocol (CONCEPT:MEDULLA-KG.domains.robotics-gpu-distribution): bridges engine
 // CDC events ↔ ROS2 topics by talking `rosbridge_suite` JSON-over-WebSocket to a
 // `rosbridge_server` — NO CycloneDDS/rmw/DDS C stack, just a pure-Rust tokio-tungstenite
 // client. Behind the `ros2-bridge` cargo feature; kept OUT of the Pi tier (a slim build
-// links no tokio-tungstenite). Also compiled behind `ros2-dds`/`ros2-rmw` (CONCEPT:EG-KG.ingest.dds-transport), which
+// links no tokio-tungstenite). Also compiled behind `ros2-dds`/`ros2-rmw` (CONCEPT:MEDULLA-KG.ingest.dds-transport), which
 // reuse this module's PURE CDC↔ROS2 message mapping (`cdc_to_publish`/`publish_to_method`)
 // as the shared shaping for the native DDS legs — only the tungstenite driver
 // (`run_ros2_bridge`) is `ros2-bridge`-specific.
 #[cfg(any(feature = "ros2-bridge", feature = "ros2-dds", feature = "ros2-rmw"))]
 pub mod ros2_bridge;
-// Native DDS/RTPS ROS2 transport seam (CONCEPT:EG-KG.ingest.dds-transport): the `DdsTransport` trait that
-// unifies the EG-325 rosbridge-WebSocket leg and TWO native DDS legs behind ONE
+// Native DDS/RTPS ROS2 transport seam (CONCEPT:MEDULLA-KG.ingest.dds-transport): the `DdsTransport` trait that
+// unifies the MEDULLA-325 rosbridge-WebSocket leg and TWO native DDS legs behind ONE
 // interface — the pure-Rust `rustdds`-backed `NativeDdsTransport` (feature `ros2-dds`)
 // and the CycloneDDS-C-backed `CycloneDdsTransport` (feature `ros2-rmw`, S5). Kept OUT of
 // pi/default/node/full — only the opt-in `full-extras` bundle (a default/pi/full build
 // links no rustdds/cyclonedds).
 #[cfg(any(feature = "ros2-bridge", feature = "ros2-dds", feature = "ros2-rmw"))]
 pub mod dds;
-// Real-time QoS / SLO-aware admission scheduler (CONCEPT:EG-KG.coordination.backpressure-busy-signal). An additive, opt-in
-// gate (enabled by `EPISTEMIC_GRAPH_QOS`) the transport runs BEFORE the baseline
+// Real-time QoS / SLO-aware admission scheduler (CONCEPT:MEDULLA-KG.coordination.backpressure-busy-signal). An additive, opt-in
+// gate (enabled by `MEDULLA_QOS`) the transport runs BEFORE the baseline
 // admission: priority-class preemption + per-tenant fair-share + hard quotas +
 // deadline-aware ordering + typed backpressure. With QoS unconfigured the transport never
 // touches it and the baseline path is byte-for-byte unchanged.
 pub mod qos;
 // Server-layer secondary indexes (text/temporal/derived-OWL) wired into the per-graph
 // IndexManager seam so a committed write batch maintains them incrementally
-// (CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl).
+// (CONCEPT:MEDULLA-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl).
 #[cfg(any(feature = "text", feature = "tsdb", feature = "owl", feature = "geo"))]
 pub mod secondary_indexes;
-// Request-scoped cancellation registry (CONCEPT:EG-KG.query.streaming-spillable-collect, L36): threads
+// Request-scoped cancellation registry (CONCEPT:MEDULLA-KG.query.streaming-spillable-collect, L36): threads
 // a REAL `CancellationToken` from a served `Method::Sql` down to the SQL streaming
 // collect path, tripped by an explicit `Method::CancelRequest` or a per-request
 // timeout, instead of the always-fresh never-cancelled token the collect path built
-// internally before this. Needs `eg_query::CancellationToken`, gated behind `query`
-// (which implies `eg-query/sql`).
+// internally before this. Needs `medulla_query::CancellationToken`, gated behind `query`
+// (which implies `medulla-query/sql`).
 #[cfg(feature = "query")]
 pub mod request_cancel;
 mod state;
 mod transport;
-// Server-staged OCC ACID transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid). `txn` holds the staged
+// Server-staged OCC ACID transactions (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid). `txn` holds the staged
 // transaction state + id source; `handlers::txn` owns the Txn* methods.
 pub mod txn;
 // Durable cross-store commit-intent log for a mixed graph+user-table SQL
-// transaction (CONCEPT:EG-TXN.mixed-commit-intent, NE-004) — see its module doc.
+// transaction (CONCEPT:MEDULLA-TXN.mixed-commit-intent, NE-004) — see its module doc.
 pub(crate) mod txn_intent;
 
 // External path surface — `server::ServerState`, `server::MAX_BATCH_IDS`,
@@ -802,14 +802,14 @@ pub(crate) use dispatch::{
 };
 #[cfg(feature = "raft")]
 pub(crate) use handlers::topology::apply_replicated_node_info;
-// NL planner injection (CONCEPT:EG-KG.query.fence-stripper): an embedder opts into engine-driven NL→query.
+// NL planner injection (CONCEPT:MEDULLA-KG.query.fence-stripper): an embedder opts into engine-driven NL→query.
 #[cfg(feature = "nl-query")]
 pub use nl::{resolve_planner as resolve_nl_planner, set_nl_planner};
-// Distributed-compute materialized-view boot reload (CONCEPT:EG-KG.storage.feature): the binary
+// Distributed-compute materialized-view boot reload (CONCEPT:MEDULLA-KG.storage.feature): the binary
 // calls this on startup to repopulate the in-RAM matview index from redb.
 #[cfg(any(feature = "compute-dist", feature = "matview"))]
 pub use handlers::dist_compute::reload_matviews;
-// Post-bind maintenance hook (EG-DURABLE-KERNEL-R006.4): the binary calls this
+// Post-bind maintenance hook (MEDULLA-DURABLE-KERNEL-R006.4): the binary calls this
 // from `serve_transports` right after the listeners bind.
 pub use boot_maintenance::spawn_post_bind_maintenance;
 pub use persistence::PersistenceBackend;
@@ -854,7 +854,7 @@ pub(crate) fn test_state_with_services(
     #[cfg(feature = "tsdb")]
     {
         state.tsdb_store = Some(std::sync::Arc::new(
-            eg_tsdb::store::SeriesStore::open_in_dir(
+            medulla_tsdb::store::SeriesStore::open_in_dir(
                 &crate::server::unique_temp_dir(tsdb_label),
                 crate::store_authority::process_verifier(),
                 crate::store_authority::process_authority().principal(),
@@ -901,12 +901,12 @@ mod ca17_feature_stub_contract {
     /// `(feature name, the exact dependency list its owning lane builds on)`.
     const RESERVED: [(&str, &str); 6] = [
         // CA-11 widened this from `["streaming"]` (CA-17's original stub) to route
-        // `dep:eg-stream`/`eg-stream/cdc-kafka` -- see the Cargo.toml comment on the
+        // `dep:medulla-stream`/`medulla-stream/cdc-kafka` -- see the Cargo.toml comment on the
         // `cdc-kafka` line and CA-11's report for why (the `CdcSink` trait/`rdkafka`
-        // producer live in `eg-stream`, which nothing else pulls in without `stream`).
+        // producer live in `medulla-stream`, which nothing else pulls in without `stream`).
         (
             "cdc-kafka",
-            "[\"streaming\", \"dep:eg-stream\", \"eg-stream/cdc-kafka\"]",
+            "[\"streaming\", \"dep:medulla-stream\", \"medulla-stream/cdc-kafka\"]",
         ),
         ("sparql-fuseki", "[\"sparql\"]"),
         ("obda-wire", "[\"obda\"]"),
@@ -1047,7 +1047,7 @@ mod tests {
         Box::pin(dispatch(state, request))
     }
 
-    /// Provision `EPISTEMIC_GRAPH_ENCRYPTION_KEY` for every test in this module that
+    /// Provision `MEDULLA_ENCRYPTION_KEY` for every test in this module that
     /// reaches a multi-op transaction `Commit` (`handlers::txn::seal_txn_recovery_plan`
     /// fails closed without a configured key — see `crypto::TXN_RECOVERY_KEY_ENV`'s
     /// doc). Every caller MUST already hold `crate::crypto::acquire_test_env_lock()`
@@ -1059,7 +1059,7 @@ mod tests {
     /// tests::cm_dir`'s own `Once`) happening to have set this process-global var
     /// FIRST. That is not something a test may rely on — running it filtered/alone,
     /// or simply losing the race to be scheduled first, reproduces "transaction
-    /// durability requires EPISTEMIC_GRAPH_ENCRYPTION_KEY to be configured" without
+    /// durability requires MEDULLA_ENCRYPTION_KEY to be configured" without
     /// this. Encryption is transparent to every one of these tests' assertions
     /// (they never inspect raw on-disk bytes), so provisioning it here is harmless.
     #[cfg(feature = "security")]
@@ -1075,15 +1075,15 @@ mod tests {
         crate::server::test_state_with_services(
             SECRET,
             ServerState::test_isolation("system"),
-            "eg-server-test",
-            "eg-tsdb-test",
+            "medulla-server-test",
+            "medulla-tsdb-test",
         )
     }
 
     /// State with worker1/worker2 (team alpha) + their manager registered, and
     /// per-agent + team graphs created with real owners.
     ///
-    /// RBAC (CONCEPT:EG-KG.compute.feature) is the mandatory current access decision
+    /// RBAC (CONCEPT:MEDULLA-KG.compute.feature) is the mandatory current access decision
     /// under `feature = "security"` (`isolation.rs::check_access`) — there is no
     /// pre-RBAC owner/manager/team ACL fall-through any more. This fixture used to
     /// register worker1/worker2/manager with `roles: vec![]`, which meant the
@@ -1219,7 +1219,7 @@ mod tests {
                 .unwrap();
 
             // Under the `security` feature, `IsolationLayer::check_access` defers
-            // entirely to the RBAC evaluator (CONCEPT:EG-KG.compute.feature) -- the
+            // entirely to the RBAC evaluator (CONCEPT:MEDULLA-KG.compute.feature) -- the
             // `GraphType`/`graph_owner`-derived rules below are IGNORED for any
             // non-System identity. These grants reproduce, via RBAC, the EXACT same
             // access shape the graph-type rules describe (owner full access to their
@@ -1405,7 +1405,7 @@ mod tests {
         );
     }
 
-    // ── Cross-graph union reads (CONCEPT:EG-KG.query.cross-graph-union) ──────────────────────
+    // ── Cross-graph union reads (CONCEPT:MEDULLA-KG.query.cross-graph-union) ──────────────────────
 
     #[cfg(feature = "redb")]
     #[tokio::test]
@@ -1530,7 +1530,7 @@ mod tests {
         assert!(matches!(um.result, Some(ResultPayload::Raw(_))));
     }
 
-    // ── SQL query surface (CONCEPT:EG-KG.query.read-only-sql-query) ────────────────────────────
+    // ── SQL query surface (CONCEPT:MEDULLA-KG.query.read-only-sql-query) ────────────────────────────
 
     /// End-to-end: add nodes, then route `Method::Sql` through the full dispatch
     /// chain and decode the `Raw(QueryResult)` payload back to rows. Proves the
@@ -1598,7 +1598,7 @@ mod tests {
 
     /// Build the canonical cross-modal fixture in `__commons__` via the full
     /// dispatch chain: Doc nodes with a `year`, CITES/MENTIONS edges, and an
-    /// embedding per Doc. Mirrors eg-plan's test fixture so the dispatched plan and
+    /// embedding per Doc. Mirrors medulla-plan's test fixture so the dispatched plan and
     /// the in-crate oracle operate on identical data.
     #[cfg(feature = "query")]
     async fn build_unified_fixture(state: &Arc<RwLock<ServerState>>) {
@@ -1671,7 +1671,7 @@ mod tests {
 
     /// THE oracle proof, end-to-end through the SERVED surface: run the unified plan
     /// `Method::UnifiedQuery` over the full dispatch chain, then run the SAME query
-    /// the siloed way via `eg_plan::oracle::separate_surfaces` over the graph's
+    /// the siloed way via `medulla_plan::oracle::separate_surfaces` over the graph's
     /// snapshot, and assert the served result is byte-identical. (CONCEPT:AU-KG.compute.vector)
     #[cfg(feature = "query")]
     #[tokio::test]
@@ -1680,7 +1680,7 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        use eg_plan::{Op, Pred};
+        use medulla_plan::{Op, Pred};
         let state = test_state();
         build_unified_fixture(&state).await;
 
@@ -1711,7 +1711,7 @@ mod tests {
                 "__commons__",
                 None,
                 Method::UnifiedQuery {
-                    plan: eg_plan::Plan::new(plan),
+                    plan: medulla_plan::Plan::new(plan),
                     foreign_execution: None,
 
                     foreign_executions: Default::default(),
@@ -1730,10 +1730,10 @@ mod tests {
         let view = core.analysis_snapshot();
         let semantic = core.semantic_store.read().clone();
         // The oracle's FILTER leg drives DataFusion via a current-thread runtime
-        // (eg_query::exec_sql), which cannot nest inside this #[tokio::test] reactor —
+        // (medulla_query::exec_sql), which cannot nest inside this #[tokio::test] reactor —
         // run it off-reactor, exactly as the served handler does via spawn_blocking.
         let oracle = tokio::task::spawn_blocking(move || {
-            eg_plan::oracle::separate_surfaces(
+            medulla_plan::oracle::separate_surfaces(
                 &view,
                 &semantic,
                 "Doc",
@@ -1778,7 +1778,7 @@ mod tests {
         rmp_serde::from_slice(raw).unwrap()
     }
 
-    /// WIRE REACHABILITY of declared-clock sensor fusion (CONCEPT:EG-KG.query.multi-rate-sensor-stream)
+    /// WIRE REACHABILITY of declared-clock sensor fusion (CONCEPT:MEDULLA-KG.query.multi-rate-sensor-stream)
     /// — `Op::SensorAlign` driven through `dispatch`, the outermost entrypoint every wire
     /// edge (transport / MQTT / broker / ROS2 / SPARQL-HTTP / federation) funnels into.
     ///
@@ -1787,7 +1787,7 @@ mod tests {
     /// verification → `requires_write` → the capability policy → the router arm →
     /// `handle_unified_query` (including `served_tsdb_scope`, which must NOT demand a tsdb
     /// carrier for an op that reads the graph snapshot rather than the `SeriesStore`) → the
-    /// planner's `PlanCtx` → `sensor_align_op` → `eg_tsdb::fusion` + `eg_tensor::fusion`.
+    /// planner's `PlanCtx` → `sensor_align_op` → `medulla_tsdb::fusion` + `medulla_tensor::fusion`.
     /// Nothing here is hand-constructed below the wire: the plan travels INSIDE
     /// `Method::UnifiedQuery`, which is how a caller expresses one.
     ///
@@ -1804,8 +1804,8 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        use eg_plan::Op;
-        use eg_types::wire::{FuseClock, FuseInterp, FuseStream};
+        use medulla_plan::Op;
+        use medulla_types::wire::{FuseClock, FuseInterp, FuseStream};
 
         const NS: i64 = 1_000_000_000;
         let state = test_state();
@@ -1823,7 +1823,7 @@ mod tests {
         }
 
         let align = |interp| Method::UnifiedQuery {
-            plan: eg_plan::Plan::new(vec![Op::SensorAlign {
+            plan: medulla_plan::Plan::new(vec![Op::SensorAlign {
                 streams: vec![FuseStream {
                     layer: "imu".into(),
                     interp,
@@ -1890,7 +1890,7 @@ mod tests {
                 "__commons__",
                 None,
                 Method::UnifiedQuery {
-                    plan: eg_plan::Plan::new(vec![Op::SensorFuse {
+                    plan: medulla_plan::Plan::new(vec![Op::SensorFuse {
                         streams: vec!["imu".into()],
                         tolerance_ns: (10 * NS) as u64,
                     }]),
@@ -1910,7 +1910,7 @@ mod tests {
     }
 
     /// WIRE REACHABILITY of the TUMBLING-window clock through `dispatch`: the second
-    /// `FuseClock` shape emits one row per EG-067 window, scored by the window MEAN — a
+    /// `FuseClock` shape emits one row per MEDULLA-067 window, scored by the window MEAN — a
     /// different row cardinality from the grid clock over the identical fixture, so this
     /// cannot pass by accident if `FuseClock::Tumbling` were decoded as `Uniform`.
     #[cfg(all(feature = "query", feature = "tsdb"))]
@@ -1920,8 +1920,8 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        use eg_plan::Op;
-        use eg_types::wire::{FuseClock, FuseInterp, FuseStream};
+        use medulla_plan::Op;
+        use medulla_types::wire::{FuseClock, FuseInterp, FuseStream};
 
         const NS: i64 = 1_000_000_000;
         let state = test_state();
@@ -1943,7 +1943,7 @@ mod tests {
                 "__commons__",
                 None,
                 Method::UnifiedQuery {
-                    plan: eg_plan::Plan::new(vec![Op::SensorAlign {
+                    plan: medulla_plan::Plan::new(vec![Op::SensorAlign {
                         streams: vec![FuseStream {
                             layer: "imu".into(),
                             interp: FuseInterp::AsofHold,
@@ -1985,7 +1985,7 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        use eg_plan::{Op, Pred};
+        use medulla_plan::{Op, Pred};
         let state = test_state();
         build_unified_fixture(&state).await;
 
@@ -2017,7 +2017,7 @@ mod tests {
                 "__commons__",
                 None,
                 Method::UnifiedQuery {
-                    plan: eg_plan::Plan::new(plan),
+                    plan: medulla_plan::Plan::new(plan),
                     foreign_execution: None,
 
                     foreign_executions: Default::default(),
@@ -2059,7 +2059,7 @@ mod tests {
         let view = core.analysis_snapshot();
         let semantic = core.semantic_store.read().clone();
         let oracle = tokio::task::spawn_blocking(move || {
-            eg_plan::oracle::separate_surfaces(
+            medulla_plan::oracle::separate_surfaces(
                 &view,
                 &semantic,
                 "Doc",
@@ -2126,7 +2126,7 @@ mod tests {
     /// A label Scan served through `Method::Uql` and `Method::UnifiedQuery` sees nodes
     /// whose writer stored the label under `node_type` (the AU/connector convention),
     /// not only under `type`.
-    // spec: EG-FEDERATED-QUERY-R022.1
+    // spec: MEDULLA-FEDERATED-QUERY-R022.1
     #[cfg(feature = "query")]
     #[tokio::test]
     async fn test_served_scan_reads_node_type_labels() {
@@ -2175,7 +2175,7 @@ mod tests {
                 "__commons__",
                 None,
                 Method::UnifiedQuery {
-                    plan: eg_plan::Plan::new(vec![eg_plan::Op::Scan {
+                    plan: medulla_plan::Plan::new(vec![medulla_plan::Op::Scan {
                         label: "Paper".into(),
                     }]),
                     foreign_execution: None,
@@ -2195,7 +2195,7 @@ mod tests {
     /// request boundary into the `ApplyChangeEnvelope` it continues as) whose document
     /// text carries `@` and `\\` commits, and one carrying an e-mail address is refused
     /// with the declared `INVALID_ARGUMENT` code, a diagnostic detail, and no echo.
-    // spec: EG-DURABLE-KERNEL-R043.7, EG-DURABLE-KERNEL-R043.8
+    // spec: MEDULLA-DURABLE-KERNEL-R043.7, MEDULLA-DURABLE-KERNEL-R043.8
     #[cfg(feature = "redb")]
     #[tokio::test]
     async fn test_served_change_envelope_admits_document_text_and_codes_refusals() {
@@ -2240,7 +2240,7 @@ mod tests {
         assert_ok(&admitted);
     }
 
-    // ── Query federation / foreign sources (CONCEPT:EG-KG.query.query-federation, Lane P) ───────
+    // ── Query federation / foreign sources (CONCEPT:MEDULLA-KG.query.query-federation, Lane P) ───────
 
     /// Stand up the REMOTE engine (B) the query-federation tests read from: a
     /// `test_state()` carrying the `agent:federation-test` identity, the shared unified
@@ -2256,10 +2256,10 @@ mod tests {
         // registered on `remote`'s isolation layer, and `test_state()` only ever
         // registers "system":
         //
-        //  1. Coarse graph-level RBAC (CONCEPT:EG-KG.compute.feature) —
+        //  1. Coarse graph-level RBAC (CONCEPT:MEDULLA-KG.compute.feature) —
         //     `check_graph_access` denies outright when the caller isn't a
         //     registered identity at all (`isolation.agents.get(agent_id)` misses).
-        //  2. Row-level security (CONCEPT:EG-KG.sharding.row-level-security) —
+        //  2. Row-level security (CONCEPT:MEDULLA-KG.sharding.row-level-security) —
         //     `rls.filter_view` hides every row an identity's OWN visibility check
         //     (`can_see_row`) rejects, and an identity's default posture for an
         //     UNTAGGED row (no `_owner`/`_visibility`/`_grants` property — exactly
@@ -2329,7 +2329,7 @@ mod tests {
         (remote, remote_addr)
     }
 
-    /// The `RemoteEngine` [`eg_types::wire::ForeignSourceSpec`] pointed at
+    /// The `RemoteEngine` [`medulla_types::wire::ForeignSourceSpec`] pointed at
     /// [`spawn_federation_remote`]'s engine. Its UQL
     /// (`MATCH (:Doc) WHERE year > 2024 |> TRAVERSE -[:CITES]->{1,2}`) returns
     /// `{d2, d3, d4}` over the shared fixture. ONE spec, used BOTH inline (as an
@@ -2337,15 +2337,15 @@ mod tests {
     /// `Method::RegisterForeignSource`, then referenced as a `Named` spec /
     /// `Op::Foreign`) — the two reach the SAME federation machinery.
     #[cfg(feature = "federation")]
-    fn federation_remote_spec(endpoint: String) -> eg_types::wire::ForeignSourceSpec {
-        eg_types::wire::ForeignSourceSpec::RemoteEngine {
+    fn federation_remote_spec(endpoint: String) -> medulla_types::wire::ForeignSourceSpec {
+        medulla_types::wire::ForeignSourceSpec::RemoteEngine {
             endpoint,
             graph: "__commons__".into(),
             secret: SECRET.into(),
-            context: Box::new(eg_types::acl::RequestContextClaims {
+            context: Box::new(medulla_types::acl::RequestContextClaims {
                 principal: "agent:federation-test".into(),
                 tenant: "tenant-shared".into(),
-                audience: "epistemic-graph-test".into(),
+                audience: "medulla-test".into(),
                 agent_id: "agent:federation-test".into(),
                 roles: vec!["federation-reader".into()],
                 scopes: vec!["kg:read".into()],
@@ -2365,7 +2365,7 @@ mod tests {
     /// TCP, queried with the engine's own length-prefixed-MessagePack + HMAC transport),
     /// JOINS B's rows with A's local graph, ranks, and limits. The fused result equals
     /// the MANUAL join done by hand. This is the cross-engine federation seam: ONE plan,
-    /// TWO engines, no Python round-trip. (CONCEPT:EG-KG.query.query-federation)
+    /// TWO engines, no Python round-trip. (CONCEPT:MEDULLA-KG.query.query-federation)
     #[cfg(feature = "federation")]
     #[tokio::test]
     async fn test_federated_query_two_engines_equals_manual_join() {
@@ -2373,7 +2373,7 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        use eg_plan::{Op, Pred};
+        use medulla_plan::{Op, Pred};
 
         // ── engine B (the REMOTE), served over TCP ──
         let (_remote, remote_addr) = spawn_federation_remote().await;
@@ -2416,7 +2416,7 @@ mod tests {
                 "__commons__",
                 None,
                 Method::UnifiedQuery {
-                    plan: eg_plan::Plan::new(plan),
+                    plan: medulla_plan::Plan::new(plan),
                     foreign_execution: None,
 
                     foreign_executions: Default::default(),
@@ -2460,7 +2460,7 @@ mod tests {
         assert_eq!(fused, vec!["d2", "d4"], "ranked: d2 (closest) then d4");
     }
 
-    /// `RegisterForeignSource` is served and recorded on `ServerState`. (CONCEPT:EG-KG.query.query-federation)
+    /// `RegisterForeignSource` is served and recorded on `ServerState`. (CONCEPT:MEDULLA-KG.query.query-federation)
     #[cfg(feature = "federation")]
     #[tokio::test]
     async fn test_register_foreign_source_served() {
@@ -2477,10 +2477,10 @@ mod tests {
                 None,
                 Method::RegisterForeignSource {
                     name: "papers_api".into(),
-                    source: eg_types::wire::ForeignSourceSpec::HttpJson {
+                    source: medulla_types::wire::ForeignSourceSpec::HttpJson {
                         url: "http://example.invalid/papers".into(),
                         json_path: "data".into(),
-                        field_map: eg_types::wire::HttpFieldMap {
+                        field_map: medulla_types::wire::HttpFieldMap {
                             id: "id".into(),
                             score: None,
                             columns: Default::default(),
@@ -2504,11 +2504,11 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-KG.query.closure-backed-source — the READ side of `RegisterForeignSource`.
+    /// CONCEPT:MEDULLA-KG.query.closure-backed-source — the READ side of `RegisterForeignSource`.
     ///
     /// `Method::RegisterForeignSource` has always WRITTEN `ServerState::foreign_sources`
     /// (proven by `test_register_foreign_source_served` above), but until `run_unified`
-    /// bound that map into the executor's `eg_plan::federation::ForeignSourceRegistry`
+    /// bound that map into the executor's `medulla_plan::federation::ForeignSourceRegistry`
     /// NOTHING in `src/` ever READ it: a caller could register a source successfully,
     /// exactly as the client/MCP surface and the agent-utilities skill reference
     /// document, and then have EVERY query naming it fail with "no ForeignSourceRegistry
@@ -2531,7 +2531,7 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        use eg_plan::{Op, Pred};
+        use medulla_plan::{Op, Pred};
 
         let (_remote, remote_addr) = spawn_federation_remote().await;
         let local = test_state();
@@ -2566,7 +2566,7 @@ mod tests {
                 }],
             },
             Op::ForeignScan {
-                source: Box::new(eg_types::wire::ForeignSourceSpec::Named {
+                source: Box::new(medulla_types::wire::ForeignSourceSpec::Named {
                     name: "remote_docs".into(),
                 }),
                 join: true,
@@ -2583,7 +2583,7 @@ mod tests {
                 "__commons__",
                 None,
                 Method::UnifiedQuery {
-                    plan: eg_plan::Plan::new(named_plan),
+                    plan: medulla_plan::Plan::new(named_plan),
                     foreign_execution: None,
 
                     foreign_executions: Default::default(),
@@ -2608,7 +2608,7 @@ mod tests {
                 "__commons__",
                 None,
                 Method::UnifiedQuery {
-                    plan: eg_plan::Plan::new(vec![
+                    plan: medulla_plan::Plan::new(vec![
                         Op::Foreign {
                             name: "remote_docs".into(),
                         },
@@ -2631,7 +2631,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-KG.query.closure-backed-source — the NEGATIVE half: naming a source that
+    /// CONCEPT:MEDULLA-KG.query.closure-backed-source — the NEGATIVE half: naming a source that
     /// was never registered must still fail, CLEANLY and loudly. Binding the registry
     /// must not turn an unbound name into silently-local rows (a `Named` `ForeignScan`
     /// with `join: true` degrading to "just the local candidate set" would be a silent
@@ -2644,7 +2644,7 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        use eg_plan::{Op, Pred};
+        use medulla_plan::{Op, Pred};
 
         let (_remote, remote_addr) = spawn_federation_remote().await;
         let local = test_state();
@@ -2672,7 +2672,7 @@ mod tests {
                 "__commons__",
                 None,
                 Method::UnifiedQuery {
-                    plan: eg_plan::Plan::new(vec![
+                    plan: medulla_plan::Plan::new(vec![
                         Op::Scan {
                             label: "Doc".into(),
                         },
@@ -2683,7 +2683,7 @@ mod tests {
                             }],
                         },
                         Op::ForeignScan {
-                            source: Box::new(eg_types::wire::ForeignSourceSpec::Named {
+                            source: Box::new(medulla_types::wire::ForeignSourceSpec::Named {
                                 name: "typo_docs".into(),
                             }),
                             join: true,
@@ -2715,7 +2715,7 @@ mod tests {
                 "__commons__",
                 None,
                 Method::UnifiedQuery {
-                    plan: eg_plan::Plan::new(vec![Op::Foreign {
+                    plan: medulla_plan::Plan::new(vec![Op::Foreign {
                         name: "typo_docs".into(),
                     }]),
                     foreign_execution: None,
@@ -2739,20 +2739,20 @@ mod tests {
     // EH-373 foreign-source tenancy proofs through the full served dispatch chain.
     #[cfg(all(feature = "federation", feature = "nl-query"))]
     mod foreign_tenancy;
-    // EG-FEDERATED-QUERY-R058.2.2.1 NlQueryExplain proofs through the full served chain.
+    // MEDULLA-FEDERATED-QUERY-R058.2.2.1 NlQueryExplain proofs through the full served chain.
     #[cfg(all(feature = "query", feature = "nl-query"))]
     mod nl_explain;
-    // EG-MEDIA-VOCAB-R650.3-R650.5 media memory proofs through the full served chain.
+    // MEDULLA-MEDIA-VOCAB-R650.3-R650.5 media memory proofs through the full served chain.
     #[cfg(all(feature = "modality-serving", feature = "blob", feature = "kv"))]
     mod media_memory;
     // EH-374 WASM UDF tenancy proofs through the full served dispatch chain.
     #[cfg(feature = "wasm-udf")]
     mod udf_tenancy;
-    // Served ShEx data-selection proof for EG-FEDERATED-QUERY-R084.2.
+    // Served ShEx data-selection proof for MEDULLA-FEDERATED-QUERY-R084.2.
     #[cfg(feature = "shex")]
     mod shex_served;
 
-    // ── Cypher query surface (CONCEPT:EG-KG.query.dep-free-behind) ─────────────────────────
+    // ── Cypher query surface (CONCEPT:MEDULLA-KG.query.dep-free-behind) ─────────────────────────
 
     /// End-to-end: add nodes + a KNOWS edge, route `Method::CypherQuery` through
     /// the FULL dispatch chain, and decode the `Raw(QueryResult)` rows. Proves the
@@ -2766,7 +2766,7 @@ mod tests {
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = test_state();
-        // `node_type`, not `type`: `eg_query::cypher::exec::node_has_label`
+        // `node_type`, not `type`: `medulla_query::cypher::exec::node_has_label`
         // deliberately treats a bare `type`/`label` property as a legacy payload
         // that must never satisfy a Cypher node label (its `CREATE`/`MERGE` path
         // canonicalizes onto `node_type` only) — a documented, intentional
@@ -2832,7 +2832,7 @@ mod tests {
         assert_eq!(qr.columns, vec!["a".to_string()]);
         let cells: Vec<serde_json::Value> = rmp_serde::from_slice(&qr.rows[0]).unwrap();
         // A bare node variable (`RETURN a`) projects as a canonical MAP (id +
-        // node_type + properties), not a plain id string — see eg-query's own
+        // node_type + properties), not a plain id string — see medulla-query's own
         // `bare_node_projection_is_a_canonical_map` test.
         assert_eq!(cells[0]["id"].as_str(), Some("alice"));
 
@@ -2876,7 +2876,7 @@ mod tests {
         );
     }
 
-    /// Feature-gating contract for the Cypher surface (CONCEPT:EG-KG.query.dep-free-behind): with the
+    /// Feature-gating contract for the Cypher surface (CONCEPT:MEDULLA-KG.query.dep-free-behind): with the
     /// `cypher` feature off, `Method::CypherQuery`'s handler arm is compiled away
     /// and the request must hit the not-built catch-all. (Compiled out when
     /// `cypher` is on, where the real handler answers instead.)
@@ -2892,7 +2892,7 @@ mod tests {
         assert_not_built(&resp, "method");
     }
 
-    /// End-to-end (CONCEPT:EG-KG.query.sparql-completeness): add the SAME alice-KNOWS->bob graph the Cypher
+    /// End-to-end (CONCEPT:MEDULLA-KG.query.sparql-completeness): add the SAME alice-KNOWS->bob graph the Cypher
     /// test builds, route `Method::GraphQl` through the FULL dispatch chain, and PROVE
     /// the GraphQL result is the expected node/field set. When `cypher` is ALSO built,
     /// cross-check that the GraphQL KNOWS traversal equals the served Cypher result for
@@ -2907,7 +2907,7 @@ mod tests {
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = test_state();
         // Both `type` AND `node_type`: GraphQL's own type resolution accepts either
-        // (`eg_graphql::schema` checks `type`/`node_type`/`label`/`labels`), but
+        // (`medulla_graphql::schema` checks `type`/`node_type`/`label`/`labels`), but
         // Cypher's `node_has_label` deliberately does NOT — a bare `type` is
         // documented as "a legacy payload [that] must never satisfy a Cypher node
         // label" (its `CREATE`/`MERGE` path canonicalizes onto `node_type` only).
@@ -3056,7 +3056,7 @@ mod tests {
         assert_not_built(&resp, "method");
     }
 
-    /// Same feature-gating contract for the SQL surface (CONCEPT:EG-KG.query.read-only-sql-query): with
+    /// Same feature-gating contract for the SQL surface (CONCEPT:MEDULLA-KG.query.read-only-sql-query): with
     /// the `query` feature off, `Method::Sql`'s handler arm is compiled away and
     /// the request must hit the not-built catch-all. (Compiled out when `query` is
     /// on, where the real handler answers instead.)
@@ -3072,7 +3072,7 @@ mod tests {
         assert_not_built(&resp, "method");
     }
 
-    /// Feature-gating contract for X-1 (CONCEPT:EG-X1): `Method::ExplainEvidence`
+    /// Feature-gating contract for X-1 (CONCEPT:MEDULLA-X1): `Method::ExplainEvidence`
     /// exists in the wire enum whenever `epistemic` is on (see its doc comment), but
     /// its handler arm additionally requires `evidence-graph` — a build with
     /// `epistemic` on and `evidence-graph` off must hit the "not available in this
@@ -3363,7 +3363,7 @@ mod tests {
         // A hot graph that has exhausted its per-graph in-flight cap sheds WRITES with
         // BUSY, but OTHER graphs keep being served from the (ample) global pool — one
         // tenant cannot starve the rest. Per-graph backpressure is a WRITE property:
-        // reads bypass the per-graph cap via the reserved read lane (CONCEPT:EG-KG.coordination.reserved-read-lane),
+        // reads bypass the per-graph cap via the reserved read lane (CONCEPT:MEDULLA-KG.coordination.reserved-read-lane),
         // so both probes here are writes.
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -3381,7 +3381,7 @@ mod tests {
             rmp_serde::from_slice(&buf).unwrap()
         }
 
-        // RBAC (CONCEPT:EG-KG.compute.feature) is mandatory for every non-System
+        // RBAC (CONCEPT:MEDULLA-KG.compute.feature) is mandatory for every non-System
         // identity under `feature = "security"` — `check_graph_access` denies with
         // "a provisioned identity/RBAC policy is required" the instant
         // `isolation.has_rules()` is false (i.e. ZERO agents registered), which an
@@ -3397,13 +3397,13 @@ mod tests {
         #[cfg(feature = "redb")]
         {
             // AddNode is a durable, `GraphRedb`-domain GATEWAY_ROUTED method
-            // (CONCEPT:EG-P0-2): now that `g_cold`'s write clears the RBAC gate
+            // (CONCEPT:MEDULLA-P0-2): now that `g_cold`'s write clears the RBAC gate
             // above, it reaches `commit_mutation_inner`'s durable-commit branch,
             // which fails closed without a REAL backend.  Give this focused
             // fixture its own uniquely-named backend, as `test_state()` does.
             state.persistence = Some(std::sync::Arc::new(
                 crate::server::persistence::redb_backend::RedbBackend::open(
-                    unique_temp_dir("eg-per-graph-backpressure")
+                    unique_temp_dir("medulla-per-graph-backpressure")
                         .to_string_lossy()
                         .into_owned(),
                     256,
@@ -3529,7 +3529,7 @@ mod tests {
 
         // The chokepoint stamped `_owner_id` from the caller — never present
         // in the caller-supplied blob.
-        let stamped = eg_types::msgpack::decode_property_value(
+        let stamped = medulla_types::msgpack::decode_property_value(
             &core.get_node_properties("native-write").unwrap(),
         )
         .unwrap();
@@ -3761,7 +3761,7 @@ mod tests {
         // P0 root-cause regression test: `tenant__homelab____commons__` was
         // durably unreadable/unwritable by every ordinary principal because
         // CreateGraph never provisioned an RBAC grant for anyone
-        // (`plans/au-eg-program/HANDOFF-2026-07-22.md` §7-8). This proves the
+        // (`plans/au-medulla-program/HANDOFF-2026-07-22.md` §7-8). This proves the
         // fix end-to-end through the REAL dispatch entrypoint (not just the
         // isolation.rs unit tests): creating a tenant graph must make it
         // reachable for a SEPARATE registered principal that merely carries
@@ -3938,7 +3938,7 @@ mod tests {
         assert_ok(&resp);
     }
 
-    // ── Lock-free compute (CONCEPT:EG-KG.txn.per-graph-write-isolation) ─────────────────────────────
+    // ── Lock-free compute (CONCEPT:MEDULLA-KG.txn.per-graph-write-isolation) ─────────────────────────────
 
     fn msgpack_props(val: serde_json::Value) -> Option<Vec<u8>> {
         Some(rmp_serde::to_vec_named(&val).expect("encode property object"))
@@ -4210,7 +4210,7 @@ mod tests {
         assert!(after.iter().any(|(id, _)| id == "n42"));
     }
 
-    /// One-round-trip hybrid discovery (CONCEPT:EG-KG.retrieval.one-round-trip-discovery): a single `Discover`
+    /// One-round-trip hybrid discovery (CONCEPT:MEDULLA-KG.retrieval.one-round-trip-discovery): a single `Discover`
     /// blends dense (HNSW) similarity with lexical keyword overlap and returns the
     /// top-k hydrated with `name`/`description`/`type` text. The keyword signal
     /// must be able to promote a lexically-strong hit above a slightly-closer pure
@@ -4436,7 +4436,7 @@ mod tests {
         assert_denied(&resp);
     }
 
-    /// CONCEPT:EG-KG.txn.per-graph-write-isolation — Per-graph write isolation (parallel writers).
+    /// CONCEPT:MEDULLA-KG.txn.per-graph-write-isolation — Per-graph write isolation (parallel writers).
     ///
     /// Writers to DIFFERENT graphs must never serialize on a global/registry lock:
     /// `dispatch_graph_op` only takes the global `ServerState` lock as a SHARED
@@ -4528,7 +4528,7 @@ mod tests {
         assert_eq!(control_core.node_count(), 25);
     }
 
-    /// CONCEPT:EG-KG.sharding.per-graph-write-coalescer — per-graph write coalescer, end-to-end through dispatch.
+    /// CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer — per-graph write coalescer, end-to-end through dispatch.
     ///
     /// Many concurrent writers to ONE hot graph (the `__commons__` firehose) must ALL
     /// land via the dispatch path — no lost writes among admitted requests — and
@@ -4549,7 +4549,7 @@ mod tests {
     /// acquisition first, so this proves a REAL batching win, not just a 1:1
     /// accounting identity.
     ///
-    /// Portability fix (2026-08-13, D-EG-CI-2core): this test used to spawn its
+    /// Portability fix (2026-08-13, D-MEDULLA-CI-2core): this test used to spawn its
     /// 200 dispatches and just hope enough of them piled up concurrently for a
     /// meaningful batching win to occur AND for all of them to land via the
     /// worker's queue. That is exactly what a small CI runner breaks:
@@ -4713,13 +4713,13 @@ mod tests {
         // `persistence::redb_backend::tests::cm_dir`'s `Once`), but that is an
         // execution-order accident, not something this test may rely on —
         // running it filtered/alone reliably reproduces "transaction
-        // durability requires EPISTEMIC_GRAPH_ENCRYPTION_KEY to be
+        // durability requires MEDULLA_ENCRYPTION_KEY to be
         // configured" without this. Set it the same way `cm_dir` does: once,
         // process-global, harmless for every other test since encryption is
         // transparent to a durable round-trip's assertions.
         //
         // Held for the WHOLE test (not just the key provisioning): a `RedbBackend`
-        // resolves its cipher once at `open()`, so `EPISTEMIC_GRAPH_ENCRYPTION_KEY`
+        // resolves its cipher once at `open()`, so `MEDULLA_ENCRYPTION_KEY`
         // must stay stable for the rest of this test too — a concurrent `crypto::
         // tests::EnvGuard`-protected test transiently clearing/changing it mid-flight
         // would otherwise reproduce the "sealed framing"/"wrong key" failures. See
@@ -4989,7 +4989,7 @@ mod tests {
                 // CAS payloads never collide with another test's literal
                 // `CompareAndSetNodeFields` payload on the SAME `node_id`/graph name
                 // under `mutation`'s process-global idempotency-replay cache
-                // (CONCEPT:EG-P0-2) -- `CompareAndSetNodeFields` is policy-idempotent,
+                // (CONCEPT:MEDULLA-P0-2) -- `CompareAndSetNodeFields` is policy-idempotent,
                 // so an identical (graph_name, method) tuple from a DIFFERENT test
                 // sharing this process would otherwise return THIS test's cached
                 // response instead of really executing (see
@@ -5017,7 +5017,7 @@ mod tests {
         assert_eq!(winners, 1, "exactly one CAS claimer wins through dispatch");
     }
 
-    // ── Multi-op OCC ACID transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid) ───────────────
+    // ── Multi-op OCC ACID transactions (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid) ───────────────
 
     /// Open a txn on `graph` and return its server-issued id.
     #[cfg(feature = "redb")]
@@ -5025,7 +5025,7 @@ mod tests {
         begin_txn_iso(state, id, graph, None).await
     }
 
-    /// Open a txn on `graph` with an explicit isolation hint (CONCEPT:EG-KG.txn.serializable-zero-cost) and
+    /// Open a txn on `graph` with an explicit isolation hint (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost) and
     /// return its server-issued id.
     #[cfg(feature = "redb")]
     async fn begin_txn_iso(
@@ -5066,7 +5066,7 @@ mod tests {
     async fn txn_commit_applies_staged_writes() {
         // Held for the whole test: this test's `Commit` reaches
         // `seal_txn_recovery_plan`, which fails closed without a configured
-        // `EPISTEMIC_GRAPH_ENCRYPTION_KEY`. See `ensure_txn_recovery_key`'s doc.
+        // `MEDULLA_ENCRYPTION_KEY`. See `ensure_txn_recovery_key`'s doc.
         #[cfg(feature = "security")]
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         #[cfg(feature = "security")]
@@ -5618,7 +5618,7 @@ mod tests {
         );
     }
 
-    // ── Transaction isolation levels (CONCEPT:EG-KG.txn.serializable-zero-cost — M6b) ────────────
+    // ── Transaction isolation levels (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — M6b) ────────────
 
     /// Commit `txn` and return the Bool payload (true=committed, false=conflict).
     async fn commit_bool(
@@ -6099,11 +6099,11 @@ mod tests {
         assert_eq!(grid.len(), 4);
     }
 
-    // ── RDF/SPARQL Method round-trips through dispatch (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql/218) ──
+    // ── RDF/SPARQL Method round-trips through dispatch (CONCEPT:MEDULLA-KG.ontology.kg-native-rdf-sparql/218) ──
 
     /// Register a minimal but VALID SHACL shapes document (no constraints) on
     /// `graph` -- satisfies the mandatory rdf-update-guard integrity-policy
-    /// requirement (CONCEPT:EG-KG.ontology.rdf-update-guard): once the `shacl` feature is compiled in,
+    /// requirement (CONCEPT:MEDULLA-KG.ontology.rdf-update-guard): once the `shacl` feature is compiled in,
     /// `icv_guard::CoreIcvGuard::check_graph` fails EVERY `AddTriples`/
     /// `RemoveTriples` on a graph closed ("no integrity policy is registered")
     /// until that graph has one registered via `IcvConfigure`, even a permissive
@@ -6111,7 +6111,7 @@ mod tests {
     /// own non-empty shapes; this is for the many round-trip tests that exist to
     /// prove something else and just need the write to be let through.
     ///
-    /// `IcvConfigure` is policy-idempotent (CONCEPT:EG-P0-2 `MutationPlan::idempotent`),
+    /// `IcvConfigure` is policy-idempotent (CONCEPT:MEDULLA-P0-2 `MutationPlan::idempotent`),
     /// and its replay-dedup cache (`mutation::idempotency_store`) is a PROCESS-GLOBAL
     /// `OnceLock`, keyed only by `(graph_name, method content)` — it has no notion of
     /// "which `test_state()`" issued the call. Every `#[tokio::test]` in this module
@@ -6178,7 +6178,7 @@ ex:bob   a ex:Person ; ex:name "Bob"@en .
         )
         .await;
         assert_ok(&r);
-        let report: eg_rdf::mapping::LoadReport = match r.result {
+        let report: medulla_rdf::mapping::LoadReport = match r.result {
             Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
             other => panic!("expected Raw(LoadReport), got {other:?}"),
         };
@@ -6191,11 +6191,11 @@ ex:bob   a ex:Person ; ex:name "Bob"@en .
             Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
             other => panic!("expected Raw(String), got {other:?}"),
         };
-        let parsed_in = eg_rdf::mapping::parse_turtle(ttl).unwrap();
-        let parsed_out = eg_rdf::mapping::parse_ntriples(&nt).unwrap();
+        let parsed_in = medulla_rdf::mapping::parse_turtle(ttl).unwrap();
+        let parsed_out = medulla_rdf::mapping::parse_ntriples(&nt).unwrap();
         assert_eq!(
-            eg_rdf::mapping::triple_set_key(&parsed_in),
-            eg_rdf::mapping::triple_set_key(&parsed_out),
+            medulla_rdf::mapping::triple_set_key(&parsed_in),
+            medulla_rdf::mapping::triple_set_key(&parsed_out),
             "AddTriples→GetRdf must round-trip the triple set"
         );
     }
@@ -6276,7 +6276,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
 
     /// OwlReason Method round-trips through dispatch: an EL existential-restriction
     /// subsumption + an inferred instance membership the property-graph stored no
-    /// explicit type edge for, plus a consistency verdict (CONCEPT:EG-KG.ontology.incremental-materialization).
+    /// explicit type edge for, plus a consistency verdict (CONCEPT:MEDULLA-KG.ontology.incremental-materialization).
     #[cfg(feature = "owl")]
     #[tokio::test]
     async fn test_owl_reason_method_round_trips() {
@@ -6462,10 +6462,10 @@ ex:myHeart a ex:HumanHeart .
         );
     }
 
-    /// OwlExplain Method round-trips through dispatch (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation): the
+    /// OwlExplain Method round-trips through dispatch (CONCEPT:MEDULLA-KG.ontology.owl-proof-tree-explanation): the
     /// classic transitive-subClassOf chain `Dog ⊑ Animal ⊑ LivingThing` reconstructs a
     /// FULL proof tree down to the asserted leaf, over the wire exactly like the
-    /// in-process `eg_rdf::owl` unit test proves.
+    /// in-process `medulla_rdf::owl` unit test proves.
     #[cfg(feature = "owl")]
     #[tokio::test]
     async fn test_owl_explain_method_round_trips() {
@@ -6555,9 +6555,9 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
         assert!(res2.tree.is_none());
     }
 
-    /// SparqlVirtual Method round-trips through dispatch (CONCEPT:EG-KG.query.r2rml-virtual-graph /
-    /// CONCEPT:EG-KG.query.obda-query-rewrite): a real user SQL table (created via
-    /// `Method::Sql` DDL/DML — the SAME owner-scoped `eg_query::TableStore`
+    /// SparqlVirtual Method round-trips through dispatch (CONCEPT:MEDULLA-KG.query.r2rml-virtual-graph /
+    /// CONCEPT:MEDULLA-KG.query.obda-query-rewrite): a real user SQL table (created via
+    /// `Method::Sql` DDL/DML — the SAME owner-scoped `medulla_query::TableStore`
     /// `ImportSqliteFile` and the pgwire shim resolve for this caller) is exposed as RDF via a compact R2RML-style mapping and queried
     /// with SPARQL — WITHOUT any `AddTriples`/materialize step ever touching this graph.
     #[cfg(feature = "obda")]
@@ -6568,7 +6568,7 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = test_state();
-        let table = format!("eg_obda_people_{}", std::process::id());
+        let table = format!("medulla_obda_people_{}", std::process::id());
         let sql = |q: String| Method::Sql {
             query: q,
             params_msgpack: Vec::new(),
@@ -6670,7 +6670,7 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
     }
 
     /// DISTRIBUTED OwlReason over TWO graphs derives the SAME entailment a single graph
-    /// would (CONCEPT:EG-KG.ontology.concept-13). The shared TBox + p1 live in graph A; p2 lives in graph
+    /// would (CONCEPT:MEDULLA-KG.ontology.concept-13). The shared TBox + p1 live in graph A; p2 lives in graph
     /// B; `OwlReasonDistributed{[A,B]}` unions them and infers p2 ⊑ ScholarlyWork — an
     /// entailment NEITHER shard alone reaches (B has no axioms).
     #[cfg(feature = "owl")]
@@ -6787,7 +6787,7 @@ ex:p1 a ex:Paper .
         assert!(res.consistent);
     }
 
-    // ── Streaming / CDC / subscriptions / triggers (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230) ──
+    // ── Streaming / CDC / subscriptions / triggers (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions/230) ──
     // End-to-end through the FULL dispatch path (the emit hook fires from the
     // write-side-effect block, NOT a direct hub call).
 
@@ -6820,7 +6820,7 @@ ex:p1 a ex:Paper .
     }
 
     /// A write through dispatch lands in the CDC feed in order; re-reading from a
-    /// later cursor skips what was already seen (CONCEPT:EG-KG.query.streaming-cdc-subscriptions).
+    /// later cursor skips what was already seen (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions).
     #[cfg(feature = "streaming")]
     #[tokio::test]
     async fn test_cdc_ordered_read_from_cursor() {
@@ -6920,7 +6920,7 @@ ex:p1 a ex:Paper .
         assert!(matches!(tail[0].kind, crate::wire::CdcKind::RemoveNode));
         assert_eq!(tail[0].node_id, "n1");
 
-        // ClearGraph through dispatch RESETS the feed (CONCEPT:EG-KG.query.streaming-cdc-subscriptions): the seq
+        // ClearGraph through dispatch RESETS the feed (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions): the seq
         // rewinds to 0 and the ring empties, so a consumer re-seeds from 0. (This is
         // what gives a wiped/cleared graph a clean change feed.)
         assert_ok(
@@ -6976,7 +6976,7 @@ ex:p1 a ex:Paper .
     }
 
     /// A continuous query maintained incrementally off the CDC feed equals a full
-    /// re-run over the final graph state (CONCEPT:EG-KG.query.streaming-cdc-subscriptions).
+    /// re-run over the final graph state (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions).
     #[cfg(feature = "streaming")]
     #[tokio::test]
     async fn test_continuous_query_incremental_equals_full_rerun() {
@@ -7072,7 +7072,7 @@ ex:p1 a ex:Paper .
     }
 
     /// A `Watch` long-poll delivers a change to a subscriber, and a registered trigger
-    /// fires its action on a matching change (CONCEPT:EG-KG.query.wire-codec).
+    /// fires its action on a matching change (CONCEPT:MEDULLA-KG.query.wire-codec).
     #[cfg(feature = "streaming")]
     #[tokio::test]
     async fn test_watch_and_trigger_delivery() {
@@ -7272,11 +7272,11 @@ ex:p1 a ex:Paper .
         assert_eq!(batch.events[0].node_id, "late");
     }
 
-    /// End-to-end WASM UDF through the SERVER dispatch (CONCEPT:EG-KG.query.rowset-execution): RegisterUdf
+    /// End-to-end WASM UDF through the SERVER dispatch (CONCEPT:MEDULLA-KG.query.rowset-execution): RegisterUdf
     /// compiles+caches a sandboxed module, then RunUdf runs it over a payload and the
     /// output round-trips — AND an infinite-loop UDF registered the same way is
     /// FUEL-KILLED (a trap error response), never a hang. Proves the Method surface +
-    /// the off-reactor sandboxed execution path, not just the eg-wasm unit tests.
+    /// the off-reactor sandboxed execution path, not just the medulla-wasm unit tests.
     #[cfg(feature = "wasm-udf")]
     #[tokio::test]
     async fn run_udf_through_dispatch_runs_sandboxed_and_fuel_kills_infinite_loop() {

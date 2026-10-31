@@ -1,8 +1,8 @@
-//! Offline K-shard MIGRATION tool (CONCEPT:EG-KG.sharding.atomic-shard-swap, M3 catalog-driven resharding).
+//! Offline K-shard MIGRATION tool (CONCEPT:MEDULLA-KG.sharding.atomic-shard-swap, M3 catalog-driven resharding).
 //!
 //! ## What it solves
 //!
-//! EG-026 fixes the durable shard count K per persist-dir once created: a graph routes
+//! MEDULLA-026 fixes the durable shard count K per persist-dir once created: a graph routes
 //! to `graph-<FNV-1a(name) % K>.redb` and `reconcile_shard_layout` HONORS the on-disk
 //! layout at open. It also refuses the retired unindexed `graph.redb` K=1 layout.
 //! **This is the bounded one-time offline reader** that converts that retired file to
@@ -10,7 +10,7 @@
 //!
 //! Run OFFLINE (engine stopped — the kernel holds an exclusive per-file lock), it opens
 //! an existing shard set as [`Shard`]s and moves every durable row into
-//! `graph-<n>.redb` for the NEW K, routing each graph with the **same** EG-026
+//! `graph-<n>.redb` for the NEW K, routing each graph with the **same** MEDULLA-026
 //! [`shard_index`], so every graph lands in exactly the shard the running engine will
 //! look for it in.
 //!
@@ -88,8 +88,8 @@ use crate::redb_store::MATVIEWS;
 use crate::redb_store::{GRAPH_META, RAFT_LOG, XSHARD_DECISION, XSHARD_PREPARE};
 #[cfg(feature = "matview")]
 use crate::redb_store::{MATVIEW_OPERATOR_STATE, PLAN_MATVIEWS};
-use eg_storage::{GraphShardOwner, ScopedRead};
-use eg_transaction::OwnerPayloadWrite;
+use medulla_storage::{GraphShardOwner, ScopedRead};
+use medulla_transaction::OwnerPayloadWrite;
 use redb::{ReadableTable, TableDefinition};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -101,7 +101,7 @@ mod swap;
 pub use inplace::migrate_in_place;
 pub(crate) use payload::GraphShardPayloadTransfer;
 
-/// Outcome of a migration run (CONCEPT:EG-KG.sharding.atomic-shard-swap) — totals moved + the layout change.
+/// Outcome of a migration run (CONCEPT:MEDULLA-KG.sharding.atomic-shard-swap) — totals moved + the layout change.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct MigrationReport {
     /// Source shard file count (the OLD K).
@@ -140,7 +140,7 @@ pub struct MigrationReport {
     /// layout supports. Under raft, K (redb shards) == N (groups) — raft group `g` owns
     /// shard `g` — so this equals `dest_shards`. Surfaced explicitly in the manifest so the
     /// W5.2 cutover runbook can assert the migrated store's group count matches the
-    /// cluster's `EPISTEMIC_GRAPH_RAFT_GROUPS` before seeding the groups.
+    /// cluster's `MEDULLA_RAFT_GROUPS` before seeding the groups.
     pub dest_raft_groups: usize,
 }
 
@@ -150,7 +150,7 @@ struct SourceShard {
     graphs: Vec<String>,
 }
 
-/// Discover a migration source under `dir` (CONCEPT:EG-KG.sharding.atomic-shard-swap).
+/// Discover a migration source under `dir` (CONCEPT:MEDULLA-KG.sharding.atomic-shard-swap).
 /// This OFFLINE-only reader accepts either one retired `graph.redb`, or a contiguous
 /// canonical `graph-<n>.redb` set. Mixed, malformed, and sparse layouts fail closed.
 pub fn discover_source_shards(dir: &Path) -> Result<Vec<PathBuf>, String> {
@@ -173,7 +173,7 @@ pub fn discover_source_shards(dir: &Path) -> Result<Vec<PathBuf>, String> {
 
 /// Migrate the durable store under `src_dir` into a NEW shard count `new_k`, writing
 /// canonical `graph-<n>.redb` files into `dst_dir`
-/// (CONCEPT:EG-KG.sharding.atomic-shard-swap).
+/// (CONCEPT:MEDULLA-KG.sharding.atomic-shard-swap).
 ///
 /// OFFLINE only — the engine must be stopped (exclusive per-file lock). `dst_dir` must
 /// not already contain a target shard file (the tool refuses to clobber). Use a fresh
@@ -245,7 +245,7 @@ fn prepare_destination(
 }
 
 /// Open every source shard file once as a kernel-owned store, with the graphs its
-/// control scope's catalog declares (CONCEPT:EG-KG.sharding.atomic-shard-swap).
+/// control scope's catalog declares (CONCEPT:MEDULLA-KG.sharding.atomic-shard-swap).
 fn open_source_shards(src_paths: &[PathBuf]) -> Result<Vec<SourceShard>, String> {
     let mut sources = Vec::with_capacity(src_paths.len());
     for path in src_paths {
@@ -292,7 +292,7 @@ fn source_graph_catalog(sources: &[SourceShard]) -> Result<HashSet<&str>, String
 }
 
 /// Refuse every existing current or retired destination shard file under `dst_dir`
-/// (CONCEPT:EG-KG.sharding.atomic-shard-swap). Prevents an out-of-place K decrease
+/// (CONCEPT:MEDULLA-KG.sharding.atomic-shard-swap). Prevents an out-of-place K decrease
 /// from leaving stale high-numbered files behind.
 fn refuse_existing_destination_shards(dst_dir: &Path) -> Result<(), String> {
     let entries = std::fs::read_dir(dst_dir)
@@ -321,7 +321,7 @@ fn now_ms() -> u64 {
 }
 
 /// Create destination shard `dest_idx` and populate it from every source
-/// (CONCEPT:EG-KG.sharding.atomic-shard-swap).
+/// (CONCEPT:MEDULLA-KG.sharding.atomic-shard-swap).
 ///
 /// `Shard::open` materializes the whole declared `OwnerLayout::GraphShard` census, so
 /// there is no hand-written canonical-table bootstrap here and no table can be missing
@@ -379,7 +379,7 @@ fn move_one_graph(
 }
 
 /// Copy the FILE-WIDE (non-per-graph) durable tables from every source into `dest_idx`
-/// (CONCEPT:EG-KG.sharding.atomic-shard-swap), as ONE control-only admitted write.
+/// (CONCEPT:MEDULLA-KG.sharding.atomic-shard-swap), as ONE control-only admitted write.
 ///
 /// `members` is empty here, which is exactly the control-only write the shard seam
 /// defines: these rows belong to the file, not to any graph, and the control member is

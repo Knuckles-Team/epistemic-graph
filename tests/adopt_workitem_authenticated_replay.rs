@@ -19,31 +19,31 @@ use std::sync::{
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use eg_types::native_control::{
+use medulla_types::native_control::{
     NativeControlSchemaVersion, SubmitWorkItemRequest, SubmitWorkItemResult,
 };
-use epistemic_graph::acl::RequestContextClaims;
-use epistemic_graph::epistemic_operations::{
+use medulla::acl::RequestContextClaims;
+use medulla::epistemic_operations::{
     ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion, ClaimWorkItemResult, RequestContext,
     RequestContextAuthenticationMethod, RequestContextSchemaVersion,
 };
-use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
-use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::persistence::{redb_backend::RedbBackend, PersistenceBackend};
-use epistemic_graph::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
+use medulla::protocol::{Method, Request, Response, ResultPayload};
+use medulla::registry::GraphRegistry;
+use medulla::server::persistence::{redb_backend::RedbBackend, PersistenceBackend};
+use medulla::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
 
 const SECRET: &str = "adopt-workitem-authenticated-replay-secret";
 const GRAPH: &str = "adoptworkitemauthreplay";
 const TENANT: &str = "integration-test-tenant";
 const WORK_ITEM: &str = "work-item-auth-replay";
 const WORKER: &str = "worker-auth-replay";
-const AUDIENCE: &str = "epistemic-graph-integration-tests";
+const AUDIENCE: &str = "medulla-integration-tests";
 const POLICY_VERSION: &str = "integration-test-policy-v1";
 
 fn state_with(backend: Arc<dyn PersistenceBackend>, dir: String) -> test_support::SharedState {
     let mut registry = GraphRegistry::new();
     registry
-        .create_graph(GRAPH, epistemic_graph::protocol::GraphType::Commons, None)
+        .create_graph(GRAPH, medulla::protocol::GraphType::Commons, None)
         .expect("create graph");
     test_support::state_with_registry(
         SECRET,
@@ -190,9 +190,9 @@ fn decode_raw<T: serde::de::DeserializeOwned>(response: &Response, label: &str) 
         Some(ResultPayload::Raw(bytes)) => bytes,
         other => panic!("{label} did not return a typed byte result: {other:?}"),
     };
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
+        medulla_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
     )
     .unwrap_or_else(|error| panic!("decode {label} result: {error:?}"))
 }
@@ -258,7 +258,7 @@ async fn assert_durable_row(
 
 #[tokio::test]
 async fn authenticated_submit_dispatch_replays_once_in_redb() {
-    let dir = temp_dir("eg-workitem-auth-submit");
+    let dir = temp_dir("medulla-workitem-auth-submit");
     let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).expect("open redb backend"));
     let backend: Arc<dyn PersistenceBackend> = concrete.clone();
     let state = state_with(backend, dir.clone());
@@ -313,7 +313,7 @@ async fn authenticated_submit_dispatch_replays_once_in_redb() {
 
 #[tokio::test]
 async fn authenticated_claim_dispatch_replays_once_in_redb() {
-    let dir = temp_dir("eg-workitem-auth-claim");
+    let dir = temp_dir("medulla-workitem-auth-claim");
     let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).expect("open redb backend"));
     let backend: Arc<dyn PersistenceBackend> = concrete.clone();
     let state = state_with(backend, dir.clone());
@@ -391,7 +391,7 @@ async fn run_state_with(
     backend: Arc<dyn PersistenceBackend>,
     dir: String,
 ) -> test_support::SharedState {
-    use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector};
+    use medulla::acl::{Grant, GrantEffect, RbacAction, ResourceSelector};
 
     let state = state_with(backend, dir);
     let mut isolation = test_support::wire_isolation(&[
@@ -456,11 +456,11 @@ fn signed_run_request(id: u64, method: Method, idempotency_key: &str) -> Request
     )
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4
+// spec: MEDULLA-DURABLE-KERNEL-R028.4
 #[tokio::test]
 async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     use sha2::{Digest, Sha256};
-    let (dir, concrete, state) = fresh_run_state("eg-run-owner-admission").await;
+    let (dir, concrete, state) = fresh_run_state("medulla-run-owner-admission").await;
     let first = test_support::dispatch(
         &state,
         signed_request_with_agent(
@@ -604,14 +604,14 @@ async fn claim_admitted_run(
     )
 }
 
-// spec: EG-DURABLE-KERNEL-R028.5
-// spec: EG-DURABLE-KERNEL-R028.5.3
+// spec: MEDULLA-DURABLE-KERNEL-R028.5
+// spec: MEDULLA-DURABLE-KERNEL-R028.5.3
 #[tokio::test]
 async fn current_plan_native_publish_read_and_receipt_replay() {
-    use eg_types::current_plan::{
+    use medulla_types::current_plan::{
         CurrentPlanPublished, CurrentPlanSnapshot, PlanItem, PlanStatus, PublishCurrentPlanRequest,
     };
-    let dir = temp_dir("eg-current-plan-native");
+    let dir = temp_dir("medulla-current-plan-native");
     let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
     let state = run_state_with(concrete.clone(), dir.clone()).await;
     let admitted: SubmitWorkItemResult = decode_raw(
@@ -651,7 +651,7 @@ async fn current_plan_native_publish_read_and_receipt_replay() {
     );
     let mut updated = initial.clone();
     updated.snapshot.revision = 2;
-    let attachment = eg_types::current_plan::sample_task_plan_publish_request();
+    let attachment = medulla_types::current_plan::sample_task_plan_publish_request();
     updated.snapshot.task_plan = attachment.snapshot.task_plan;
     updated.task_plan_proposal = attachment.task_plan_proposal;
     updated.snapshot.items = vec![
@@ -735,7 +735,7 @@ async fn current_plan_native_publish_read_and_receipt_replay() {
     let mut changed = updated.clone();
     changed.task_plan_proposal.as_mut().unwrap().max_concurrency = 1;
     changed.snapshot.task_plan = Some(
-        eg_types::decision::task_plan::plan_explicit_tasks(
+        medulla_types::decision::task_plan::plan_explicit_tasks(
             changed.task_plan_proposal.as_ref().unwrap(),
         )
         .unwrap(),
@@ -839,7 +839,7 @@ fn current_plan_receipt_id(key: &str, revision: u64) -> String {
 fn work_item_receipt_id(fields: &[&str]) -> String {
     use sha2::{Digest, Sha256};
     let mut hash = Sha256::new();
-    hash.update(b"epistemic-graph.work-item-terminal.v1");
+    hash.update(b"medulla.work-item-terminal.v1");
     for field in fields {
         hash.update((field.len() as u64).to_be_bytes());
         hash.update(field.as_bytes());
@@ -851,10 +851,10 @@ async fn current_plan_expired_replay(
     state: &test_support::SharedState,
     backend: &RedbBackend,
     work_item_id: &str,
-    published: eg_types::current_plan::PublishCurrentPlanRequest,
-    receipt: eg_types::current_plan::CurrentPlanPublished,
+    published: medulla_types::current_plan::PublishCurrentPlanRequest,
+    receipt: medulla_types::current_plan::CurrentPlanPublished,
 ) {
-    use eg_types::current_plan::{CurrentPlanPublished, CurrentPlanSnapshot};
+    use medulla_types::current_plan::{CurrentPlanPublished, CurrentPlanSnapshot};
     let renew = Method::RenewWorkItemLease {
         tenant: TENANT.into(),
         work_item_id: work_item_id.into(),
@@ -927,21 +927,21 @@ async fn current_plan_expired_replay(
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R028.1.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.1.1
 #[tokio::test]
 async fn checkpoint_native_authenticated_cas_replay_and_owner_isolation() {
-    use eg_types::run_checkpoint::{
+    use medulla_types::run_checkpoint::{
         CheckpointContent, GetRunCheckpointRequest, PublishRunCheckpointRequest,
         RunCheckpointPublished, RunCheckpointRead,
     };
     use sha2::{Digest, Sha256};
-    let dir = temp_dir("eg-checkpoint-native");
+    let dir = temp_dir("medulla-checkpoint-native");
     let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
     let state = run_state_with(concrete.clone(), dir.clone()).await;
     let mut submission = run_submit_method();
     if let Method::SubmitWorkItem { request } = &mut submission {
         request.conversation = Some(Box::new(
-            eg_types::native_control::ConversationTurnAdmission {
+            medulla_types::native_control::ConversationTurnAdmission {
                 schema_version: NativeControlSchemaVersion::V1,
                 context_id: "checkpoint-context".into(),
                 expected_revision: 0,
@@ -1049,7 +1049,7 @@ async fn checkpoint_native_authenticated_cas_replay_and_owner_isolation() {
                 changed
                     .snapshot
                     .short_term
-                    .push(eg_types::run_checkpoint::CheckpointMemoryRef {
+                    .push(medulla_types::run_checkpoint::CheckpointMemoryRef {
                         document_id: "private-memory".into(),
                         revision: 1,
                         digest: "a".repeat(64),
@@ -1136,7 +1136,7 @@ async fn checkpoint_native_authenticated_cas_replay_and_owner_isolation() {
     else {
         unreachable!("checkpoint read fixture")
     };
-    claimed_read.current_claim = Some(eg_types::run_checkpoint::CheckpointClaim {
+    claimed_read.current_claim = Some(medulla_types::run_checkpoint::CheckpointClaim {
         worker_id: request.worker_id.clone(),
         lease_epoch: request.lease_epoch,
         fencing_token: request.fencing_token,
@@ -1199,11 +1199,11 @@ async fn checkpoint_native_authenticated_cas_replay_and_owner_isolation() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.1
 #[tokio::test]
 async fn run_admission_owner_read_survives_native_changes_and_restart() {
-    use eg_types::work_item_read::RunWorkItemView;
-    let (dir, concrete, state) = fresh_run_state("eg-run-admission-read").await;
+    use medulla_types::work_item_read::RunWorkItemView;
+    let (dir, concrete, state) = fresh_run_state("medulla-run-admission-read").await;
     let Method::SubmitWorkItem { request: original } = run_submit_method() else {
         unreachable!()
     };
@@ -1253,7 +1253,7 @@ async fn assert_original_admission_reads(
     admitted: &SubmitWorkItemResult,
     backend: &RedbBackend,
 ) {
-    use eg_types::work_item_read::RunWorkItemView;
+    use medulla_types::work_item_read::RunWorkItemView;
     let get = || Method::GetRunWorkItem {
         tenant: TENANT.into(),
         run_id: original.run_id.clone().unwrap(),
@@ -1333,7 +1333,7 @@ async fn change_and_cancel_admission(
     original: &SubmitWorkItemRequest,
     admitted: &SubmitWorkItemResult,
 ) {
-    use eg_types::epistemic_operations_ext::{
+    use medulla_types::epistemic_operations_ext::{
         CasWorkItemMetadataRequest, CasWorkItemMetadataRequestSchemaVersion,
     };
     let changed = test_support::dispatch(
@@ -1383,11 +1383,11 @@ async fn change_and_cancel_admission(
     assert!(cancelled.error.is_none(), "cancel: {cancelled:?}");
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.1
 #[tokio::test]
 async fn run_admission_concurrent_retry_recovers_exact_winner() {
-    use eg_types::work_item_read::RunWorkItemView;
-    let (dir, concrete, state) = fresh_run_state("eg-run-admission-race").await;
+    use medulla_types::work_item_read::RunWorkItemView;
+    let (dir, concrete, state) = fresh_run_state("medulla-run-admission-race").await;
     let Method::SubmitWorkItem { request: original } = run_submit_method() else {
         unreachable!()
     };
@@ -1559,7 +1559,7 @@ async fn assert_strict_admission_recovery(
             "{case} must not mutate receipt, outbox, version or row"
         );
     }
-    let found: Option<eg_types::work_item_read::RunWorkItemView> = decode_raw(
+    let found: Option<medulla_types::work_item_read::RunWorkItemView> = decode_raw(
         &test_support::dispatch(
             state,
             signed_run_request(
@@ -1586,10 +1586,10 @@ async fn assert_strict_admission_recovery(
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.1
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.1
 #[tokio::test]
 async fn strict_run_admission_refusals_preserve_durable_evidence_after_restart() {
-    let (dir, concrete, state) = fresh_run_state("eg-strict-run-admission").await;
+    let (dir, concrete, state) = fresh_run_state("medulla-strict-run-admission").await;
     let admitted: SubmitWorkItemResult = decode_raw(
         &test_support::dispatch(
             &state,

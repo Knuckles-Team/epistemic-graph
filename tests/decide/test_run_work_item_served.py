@@ -17,9 +17,9 @@ from conftest import (
 )
 from test_work_item_retry_identity import _submit_request
 
-from epistemic_graph.client import EngineResponseError, SyncEpistemicGraphClient
+from medulla.client import EngineResponseError, SyncMedullaClient
 
-pytestmark = [pytest.mark.no_engine, pytest.mark.spec("EG-DURABLE-KERNEL-R028.4.1")]
+pytestmark = [pytest.mark.no_engine, pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R028.4.1")]
 
 
 @pytest.fixture
@@ -33,10 +33,10 @@ def authenticated_plan_client(tmp_path):
         auth_secret=test_auth_secret,
         persist_dir=str(tmp_path / "data"),
     )
-    env["EPISTEMIC_GRAPH_ENCRYPTION_KEY"] = "test-epistemic-graph-encryption-key"
+    env["MEDULLA_ENCRYPTION_KEY"] = "test-medulla-encryption-key"
     with server(tmp_path, mode="authenticated", extra_env=env) as address:
         tcp = f"{address[0]}:{address[1]}"
-        bootstrap = SyncEpistemicGraphClient.connect(
+        bootstrap = SyncMedullaClient.connect(
             tcp_addr=tcp,
             auth_secret=test_auth_secret,
             verified_context=bootstrap_context(),
@@ -49,7 +49,7 @@ def authenticated_plan_client(tmp_path):
             )
         finally:
             bootstrap.close()
-        yield SyncEpistemicGraphClient.connect(
+        yield SyncMedullaClient.connect(
             tcp_addr=tcp,
             auth_secret=test_auth_secret,
             verified_context=request_context(),

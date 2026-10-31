@@ -1,4 +1,4 @@
-//! Online-resharding + tenant-hibernation gauntlet (CONCEPT:EG-KG.storage.100m-tenant).
+//! Online-resharding + tenant-hibernation gauntlet (CONCEPT:MEDULLA-KG.storage.100m-tenant).
 //!
 //! Spins a live one-node, two-group cluster over a shared authoritative shard (the SAME
 //! machinery the cross-shard harness uses) and proves the two elastic-tenant
@@ -89,7 +89,7 @@ async fn reshard_keeps_data_and_serves_after() {
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let (dir, backend) = fixture::fresh_backend("eg-reshard", "keep");
+    let (dir, backend) = fixture::fresh_backend("medulla-reshard", "keep");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
 
@@ -141,7 +141,7 @@ async fn reshard_data_durable_across_restart() {
     // them. See `crate::crypto::acquire_test_env_lock`'s doc.
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = fixture::fresh_dir("eg-reshard", "durable");
+    let dir = fixture::fresh_dir("medulla-reshard", "durable");
     let backend = fixture::open_backend(&dir).expect("open redb");
     {
         let (multi, _state) = bring_up(&dir, backend.clone()).await;
@@ -172,7 +172,7 @@ async fn reshard_data_durable_across_restart() {
     }
     // Restart over the SAME files: every reshareded node is durable.
     //
-    // Recovery order matters and this fixture had it backwards: `EgStore::open`'s
+    // Recovery order matters and this fixture had it backwards: `MedullaStore::open`'s
     // own doc states that "the graph DATA is recovered separately by the M2
     // `load_all` path BEFORE Raft starts, so on boot the applied pointers and the
     // on-disk graph data agree". Calling `bring_up` (which creates the groups) and
@@ -226,7 +226,7 @@ async fn hibernate_then_rehydrate_intact() {
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = fixture::fresh_dir("eg-reshard", "hib");
+    let dir = fixture::fresh_dir("medulla-reshard", "hib");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());

@@ -3,17 +3,17 @@
 //!
 //! # EH-316/EH-319: wire-unconditional `Method` variants vs. this crate's own facade features
 //!
-//! `eg-capabilities` (linked whenever this root crate's `server` feature is on
-//! -- see its own Cargo.toml doc comment) forces most `eg-types` feature flags
+//! `medulla-capabilities` (linked whenever this root crate's `server` feature is on
+//! -- see its own Cargo.toml doc comment) forces most `medulla-types` feature flags
 //! on UNCONDITIONALLY for its exhaustive policy ledger, including `query`,
 //! `graphql`, `broker`, `blob`, `kv`, `sqlite-file`, `mining`, `graphlearn` and
-//! `ml-pipeline`. That means the `Method` variants those `eg-types` features
+//! `ml-pipeline`. That means the `Method` variants those `medulla-types` features
 //! gate (`Sql`'s siblings `SqlSourceBatch`/`GraphQl`, the whole Broker family,
 //! `KvPut`/`KvDelete`/`KvCas`, `ImportSqliteFile`, every `Mine*`/`GraphLearn*`/
 //! `MiningPipeline*` variant, ...) exist in ANY `server` build -- including
 //! `--no-default-features --features server` -- regardless of whether THIS
 //! root crate's own same-named facade feature (which additionally gates the
-//! real handler/dependency, e.g. `dep:eg-query`) is enabled.
+//! real handler/dependency, e.g. `dep:medulla-query`) is enabled.
 //!
 //! Gating a classification arm below behind this crate's own facade feature
 //! was therefore wrong for every one of those methods: under a slim build the
@@ -30,14 +30,14 @@
 //!
 //! The three query-LANGUAGE surfaces (`Sql`/`CypherQuery`/`GraphQl`) are
 //! different: classifying them by parsing the query text genuinely needs the
-//! optional parser crate (`eg-query`/`eg-graphql`), which only links when this
+//! optional parser crate (`medulla-query`/`medulla-graphql`), which only links when this
 //! crate's OWN `query`/`cypher`/`graphql` feature is on. When that parser is
 //! not compiled in, this module fails CLOSED to `true` (Write) rather than
 //! guessing `false` (Read): the caller still cannot mutate anything (the
 //! handler refuses the method as not-built either way), but the ACL/QoS
 //! decision is never silently wrong about what kind of request this is.
 //!
-//! `modality-serving` is NOT in `eg-capabilities`'s forced list (it has its
+//! `modality-serving` is NOT in `medulla-capabilities`'s forced list (it has its
 //! own mirrored lockstep feature there instead, like `jobs`/`statechart`), so
 //! `Method::ServedModality` genuinely does not exist without this crate's own
 //! `modality-serving` feature; that one arm keeps its cfg gate.
@@ -51,7 +51,7 @@ fn requires_write_agent_surface(method: &Method) -> Option<bool> {
     if let Method::AgentLibrary { op } = method {
         return Some(matches!(
             op,
-            eg_types::AgentLibraryOp::Publish { .. } | eg_types::AgentLibraryOp::Retire { .. }
+            medulla_types::AgentLibraryOp::Publish { .. } | medulla_types::AgentLibraryOp::Retire { .. }
         ));
     }
     // Agent graphs are the same runtime-conditional shape. `is_mutation` lives
@@ -72,7 +72,7 @@ fn requires_write_agent_surface(method: &Method) -> Option<bool> {
     }
     // The semantic index's S1-S6 queue is the same runtime-conditional shape,
     // and the same rule applies: `is_mutation` lives on the op, so this
-    // classifier and `eg_capabilities::semantic_index_policy` cannot disagree.
+    // classifier and `medulla_capabilities::semantic_index_policy` cannot disagree.
     // Three of its reads-by-name are writes -- subscribing a consumer, claiming
     // leases, and replaying an already-committed S1 all advance durable rows --
     // and the op is the one place that fact is recorded.
@@ -135,7 +135,7 @@ fn requires_write_native_surface(method: &Method) -> Option<bool> {
         return Some(op.mutates());
     }
     // `AddTriples` / `RemoveTriples` / `DropNamedGraph` mutate the target
-    // graph's RDF content (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql / EG-017).
+    // graph's RDF content (CONCEPT:MEDULLA-KG.ontology.kg-native-rdf-sparql / MEDULLA-017).
     // Wire-unconditional (see module doc): no cfg gate.
     if matches!(
         method,
@@ -143,7 +143,7 @@ fn requires_write_native_surface(method: &Method) -> Option<bool> {
     ) {
         return Some(true);
     }
-    // Key→Value mutations (CONCEPT:EG-KG.storage.namespaced-kv-surface). KV is namespace-scoped (NOT
+    // Key→Value mutations (CONCEPT:MEDULLA-KG.storage.namespaced-kv-surface). KV is namespace-scoped (NOT
     // graph-scoped) and self-routes BEFORE `dispatch_graph_op`, so this classifier is
     // not on the KV routing path — but it is the canonical read/write classifier, so
     // `KvPut`/`KvDelete`/`KvCas` are recorded here as writes (`KvGet`/`KvScan` read).
@@ -166,16 +166,16 @@ fn requires_write_native_surface(method: &Method) -> Option<bool> {
     if matches!(method, Method::SqlSourceBatch { .. }) {
         return Some(true);
     }
-    // Message-broker admin + publish (CONCEPT:EG-KG.compute.message-broker-exchanges) all mutate the
+    // Message-broker admin + publish (CONCEPT:MEDULLA-KG.compute.message-broker-exchanges) all mutate the
     // control graph's exchange/binding/message nodes, so they classify as writes (Write
     // access + WAL record). Consume/ack ride `ClaimNext`/`CompareAndSetNodeFields`,
     // already classified below.
     //
-    // Broker policy extensions (CONCEPT:EG-KG.compute.dead-letter-queues..280) mutate
-    // policy/message/dead-letter/claim state. L10 (EG-P0-6 security finding): the
-    // streams (CONCEPT:EG-KG.compute.replayable-append-log) and tag-addressed
+    // Broker policy extensions (CONCEPT:MEDULLA-KG.compute.dead-letter-queues..280) mutate
+    // policy/message/dead-letter/claim state. L10 (MEDULLA-P0-6 security finding): the
+    // streams (CONCEPT:MEDULLA-KG.compute.replayable-append-log) and tag-addressed
     // publisher-confirm/consumer-ack family
-    // (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos) mutate the SAME Outbox
+    // (CONCEPT:MEDULLA-KG.compute.publisher-confirms-consumer-qos) mutate the SAME Outbox
     // control-graph state as the ops above, so the ACL-write and durability
     // classifications agree exactly. Wire-unconditional (see module doc): no cfg
     // gate (EH-316/EH-319: previously gated behind this crate's own `broker`
@@ -188,7 +188,7 @@ fn requires_write_native_surface(method: &Method) -> Option<bool> {
 }
 
 fn requires_write_query_surface(method: &Method) -> Option<bool> {
-    // Query-surface writes (CONCEPT:EG-KG.query.mirrors-pgwire): the `Sql`/`CypherQuery`/`GraphQl` variants
+    // Query-surface writes (CONCEPT:MEDULLA-KG.query.mirrors-pgwire): the `Sql`/`CypherQuery`/`GraphQl` variants
     // are wire-unconditional (see module doc) and carry a query STRING, so
     // whether they mutate the graph depends on the statement, not the
     // variant. Parse just enough to classify when this crate's own parser
@@ -224,9 +224,9 @@ fn classify_sql_write(_query: &str) -> bool {
 
 #[cfg(feature = "cypher")]
 fn classify_cypher_write(query: &str, mode: CypherMode) -> bool {
-    match eg_query::classify_cypher(query) {
-        Ok(eg_query::CypherStatementKind::Read) => false,
-        Ok(eg_query::CypherStatementKind::Write) => true,
+    match medulla_query::classify_cypher(query) {
+        Ok(medulla_query::CypherStatementKind::Read) => false,
+        Ok(medulla_query::CypherStatementKind::Write) => true,
         // The dispatcher rejects parser errors and mode mismatches before
         // authorization. Until then, preserve the caller's more restrictive
         // declaration rather than accidentally admitting a declared write to
@@ -254,12 +254,12 @@ fn classify_graphql_write(_query: &str) -> bool {
 }
 
 fn requires_write_mining_surface(method: &Method) -> Option<bool> {
-    // Data mining (CONCEPT:EG-KG.mining.frequent-itemset-mining / dbscan-density /
+    // Data mining (CONCEPT:MEDULLA-KG.mining.frequent-itemset-mining / dbscan-density /
     // isolation-forest): only a write when it writes back the mined
     // `:AssociationRule` / `:Cluster` / `:Anomaly` nodes; a pure query
     // (writeback=false) reads its rows off an off-lock snapshot.
-    // Wire-unconditional (see module doc): `eg-capabilities` forces
-    // `eg-types/mining` on unconditionally, so no cfg gate here.
+    // Wire-unconditional (see module doc): `medulla-capabilities` forces
+    // `medulla-types/mining` on unconditionally, so no cfg gate here.
     if let Method::MineAssociate { writeback, .. }
     | Method::MineCluster { writeback, .. }
     | Method::MineAnomaly { writeback, .. }
@@ -294,7 +294,7 @@ fn requires_write_mining_surface(method: &Method) -> Option<bool> {
     if matches!(method, Method::MineClassifyFit { .. }) {
         return Some(false);
     }
-    // Residual insight/mining families (CONCEPT:EG-KG.mining.entity-resolution /
+    // Residual insight/mining families (CONCEPT:MEDULLA-KG.mining.entity-resolution /
     // causal-impact / process-mining / root-cause / risk-propagation /
     // ontology-gap / retrieval-quality / community-writeback): only a write when
     // it writes back the family's typed nodes; a pure query (writeback=false)
@@ -314,21 +314,21 @@ fn requires_write_mining_surface(method: &Method) -> Option<bool> {
 }
 
 fn requires_write_learning_surface(method: &Method) -> Option<bool> {
-    // Graph learning (CONCEPT:EG-KG.graphlearn.link-predictor): only a write when it
+    // Graph learning (CONCEPT:MEDULLA-KG.graphlearn.link-predictor): only a write when it
     // writes back the `:EdgeFunction` / `:PredictedEdge` nodes; a pure fit/predict
     // (writeback=false) reads its rows off an off-lock snapshot.
-    // Wire-unconditional (see module doc): `eg-capabilities` forces
-    // `eg-types/graphlearn` on unconditionally, so no cfg gate here.
+    // Wire-unconditional (see module doc): `medulla-capabilities` forces
+    // `medulla-types/graphlearn` on unconditionally, so no cfg gate here.
     if let Method::GraphLearnFit { writeback, .. } | Method::GraphLearnPredict { writeback, .. } =
         method
     {
         return Some(*writeback);
     }
-    // ML pipeline (CONCEPT:EG-KG.mining.ml-pipeline): Train/Predict mutate only when
+    // ML pipeline (CONCEPT:MEDULLA-KG.mining.ml-pipeline): Train/Predict mutate only when
     // their `writeback` writes back the `:Model` / `:Prediction` nodes; Evaluate and
     // Compare are pure reads (they fall through to `false`).
-    // Wire-unconditional (see module doc): `eg-capabilities` forces
-    // `eg-types/ml-pipeline` on unconditionally, so no cfg gate here.
+    // Wire-unconditional (see module doc): `medulla-capabilities` forces
+    // `medulla-types/ml-pipeline` on unconditionally, so no cfg gate here.
     if let Method::MiningPipelineTrain { writeback, .. }
     | Method::MiningPipelinePredict { writeback, .. } = method
     {
@@ -367,7 +367,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     if let Some(result) = CONDITIONAL.iter().find_map(|classify| classify(method)) {
         return result;
     }
-    // Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-KG.memory.eg-batch-decay-caller):
+    // Agent-memory / scene-graph / trajectory mutations (CONCEPT:MEDULLA-KG.memory.medulla-batch-decay-caller):
     // each writes nodes/edges (summaries, semantic nodes, decay/evict
     // bookkeeping, scene objects, trajectories/steps) → Write access + WAL
     // record. The paired reads (SummaryChildren/SummariesAtLevel/
@@ -409,7 +409,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
                 | Method::Reconcile { .. }
                 | Method::ApplyMutation { .. }
                 | Method::ApplyMultisigMutation { .. }
-                // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): configuring the ICV
+                // X5-enforce (CONCEPT:MEDULLA-KG.ontology.rdf-update-guard): configuring the ICV
                 // shapes for a graph is a security-relevant operation. Its
                 // `security:admin` capability is enforced before this graph Write check;
                 // the graph ACL then binds that admin operation to its authorized route.
@@ -429,8 +429,8 @@ pub(crate) fn requires_write(method: &Method) -> bool {
 }
 
 /// EH-316/EH-319 regression coverage: every `Method` variant named here is
-/// wire-unconditional (see the module doc) -- `eg-capabilities` forces its
-/// `eg-types` feature on for ANY `server` build, so these tests compile and
+/// wire-unconditional (see the module doc) -- `medulla-capabilities` forces its
+/// `medulla-types` feature on for ANY `server` build, so these tests compile and
 /// run under `--no-default-features --features server` (the exact profile
 /// `.github/workflows/release.yml`'s "Test (slim server)" step exercises)
 /// with no `#[cfg]` gate of their own needed for the variant to exist. Before
@@ -461,7 +461,7 @@ mod eh316_eh319_slim_profile_tests {
     #[test]
     fn list_registered_servers_is_a_read() {
         let method = Method::ListRegisteredServers {
-            request: eg_types::result_contract::cluster::RegisteredServerListRequest {
+            request: medulla_types::result_contract::cluster::RegisteredServerListRequest {
                 limit: None,
                 cursor: None,
             },
@@ -471,7 +471,7 @@ mod eh316_eh319_slim_profile_tests {
 
     #[test]
     fn fleet_catalog_reads_and_writes_split_on_the_op() {
-        use eg_types::fleet_catalog::{
+        use medulla_types::fleet_catalog::{
             DiscoveryCounts, DiscoveryOutcome, DiscoveryScope, FleetCatalogKind,
             FleetCatalogListRequest, FleetCatalogOp, FleetDiscoveryRecordRequest,
         };
@@ -492,7 +492,7 @@ mod eh316_eh319_slim_profile_tests {
                 request: FleetDiscoveryRecordRequest {
                     server_name: "github".to_string(),
                     scope: DiscoveryScope::TenantLocal,
-                    connector: eg_types::contract::ResourceId::new("github").unwrap(),
+                    connector: medulla_types::contract::ResourceId::new("github").unwrap(),
                     outcome: DiscoveryOutcome::Reachable,
                     counts: DiscoveryCounts::default(),
                     expected_revision: None,

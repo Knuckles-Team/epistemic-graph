@@ -8,7 +8,7 @@ from typing import cast
 import pytest
 from _client_send_stub import CapturingEngine
 
-from epistemic_graph.client import EpistemicGraphClient, WorkItemClient
+from medulla.client import MedullaClient, WorkItemClient
 
 pytestmark = pytest.mark.no_engine
 
@@ -32,7 +32,7 @@ pytestmark = pytest.mark.no_engine
 )
 def test_public_commit_preserves_optional_completion(completion):
     transport = CapturingEngine({"status": "failed"})
-    client = WorkItemClient(cast(EpistemicGraphClient, transport))
+    client = WorkItemClient(cast(MedullaClient, transport))
     result = asyncio.run(
         client.commit_result(
             tenant="tenant",

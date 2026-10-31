@@ -7,7 +7,7 @@ use super::{
 #[test]
 fn v2_owner_path_remains_readable_and_v3_marker_fences_split_authority() {
     let persist_dir = std::env::temp_dir().join(format!(
-        "eg-semantic-owner-upgrade-{}",
+        "medulla-semantic-owner-upgrade-{}",
         uuid::Uuid::new_v4()
     ));
     let tenant = format!("tenant:organic:19:{}", uuid::Uuid::new_v4());
@@ -38,7 +38,7 @@ fn v2_owner_path_remains_readable_and_v3_marker_fences_split_authority() {
 #[test]
 fn durable_fence_blocks_v2_after_v3_name_disappears() {
     let persist_dir = std::env::temp_dir().join(format!(
-        "eg-semantic-migration-fence-{}",
+        "medulla-semantic-migration-fence-{}",
         uuid::Uuid::new_v4()
     ));
     let tenant = format!("tenant:{}", uuid::Uuid::new_v4());

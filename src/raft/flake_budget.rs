@@ -1,6 +1,6 @@
-//! EG-DURABLE-KERNEL-R014.1: the typed flake-budget / retry-policy model.
+//! MEDULLA-DURABLE-KERNEL-R014.1: the typed flake-budget / retry-policy model.
 //!
-//! EG-DURABLE-KERNEL-R014 requires the leader-rebalance and three-node
+//! MEDULLA-DURABLE-KERNEL-R014 requires the leader-rebalance and three-node
 //! placement-admin cluster tests to pass reliably under representative load,
 //! not only on an idle host, backed by causal trace capture on any failure.
 //! That needs a representative-load generator and a harness that actually
@@ -161,34 +161,34 @@ impl FlakeBudget {
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R014.1
+    // spec: MEDULLA-DURABLE-KERNEL-R014.1
     #[test]
     fn well_formed_budget_is_accepted() {
         FlakeBudget::new(3, 50, 2_000).unwrap();
     }
 
-    // spec: EG-DURABLE-KERNEL-R014.1
+    // spec: MEDULLA-DURABLE-KERNEL-R014.1
     #[test]
     fn zero_retries_is_refused() {
         let err = FlakeBudget::new(0, 50, 2_000).unwrap_err();
         assert!(err.contains("at least one retry"), "{err}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R014.1
+    // spec: MEDULLA-DURABLE-KERNEL-R014.1
     #[test]
     fn zero_backoff_is_refused() {
         let err = FlakeBudget::new(3, 0, 2_000).unwrap_err();
         assert!(err.contains("retry storm"), "{err}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R014.1
+    // spec: MEDULLA-DURABLE-KERNEL-R014.1
     #[test]
     fn max_backoff_below_backoff_is_refused() {
         let err = FlakeBudget::new(3, 500, 100).unwrap_err();
         assert!(err.contains("max_backoff_ms must be"), "{err}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R014.1
+    // spec: MEDULLA-DURABLE-KERNEL-R014.1
     #[test]
     fn retry_beyond_budget_is_refused() {
         let budget = FlakeBudget::new(2, 10, 1_000).unwrap();
@@ -196,7 +196,7 @@ mod tests {
         assert!(err.contains("exceeds max_retries"), "{err}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R014.1
+    // spec: MEDULLA-DURABLE-KERNEL-R014.1
     #[test]
     fn zero_attempt_is_refused() {
         let budget = FlakeBudget::new(2, 10, 1_000).unwrap();
@@ -204,7 +204,7 @@ mod tests {
         assert!(err.contains("exceeds max_retries"), "{err}");
     }
 
-    // spec: EG-DURABLE-KERNEL-R014.1
+    // spec: MEDULLA-DURABLE-KERNEL-R014.1
     #[test]
     fn backoff_grows_exponentially_and_caps() {
         let budget = FlakeBudget::new(5, 10, 100).unwrap();

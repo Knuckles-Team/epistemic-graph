@@ -37,12 +37,12 @@ personal display names.
 Secure deployments must align these values with the issuing Arbora service:
 
 - `GRAPH_SERVICE_AUTH_SECRET`, loaded from the same runtime secret authority;
-- `EPISTEMIC_GRAPH_AUDIENCE` and the issuer's configured audience;
-- `EPISTEMIC_GRAPH_TENANT` and the routed tenant policy;
-- `EPISTEMIC_GRAPH_POLICY_VERSION` and the active authorization revision;
-- `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON`, loaded from a runtime secret provider;
+- `MEDULLA_AUDIENCE` and the issuer's configured audience;
+- `MEDULLA_TENANT` and the routed tenant policy;
+- `MEDULLA_POLICY_VERSION` and the active authorization revision;
+- `MEDULLA_SIGNER_KEYS_JSON`, loaded from a runtime secret provider;
 - `GRAPH_SERVICE_PERSIST_DIR`, which owns the durable replay ledger;
-- `EPISTEMIC_GRAPH_ENVELOPE_SKEW_SECS`, the timestamp and replay-retention
+- `MEDULLA_ENVELOPE_SKEW_SECS`, the timestamp and replay-retention
   horizon.
 
 The replay ledger keeps accepted read-request nonces in a bounded in-memory
@@ -66,7 +66,7 @@ It admits only one narrowly shaped bootstrap mutation in `__commons__`:
 - the checked envelope has no delegation and exactly one scope,
   `security:bootstrap`;
 - the detached registration signature checks against
-  `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON`, and the signer id equals the checked
+  `MEDULLA_SIGNER_KEYS_JSON`, and the signer id equals the checked
   principal.
 
 After that first identity rule is durable, the bootstrap predicate is false.
@@ -80,7 +80,7 @@ any kind. A deputy executor that needs the scope for one feature must not gain
 every other lease kind with it. That includes kinds an approver or the
 two-person elevation flow owns, such as `rbac.elevation`.
 
-`EPISTEMIC_GRAPH_CONTROL_LEASE_KIND_POLICY_JSON` narrows this per checked
+`MEDULLA_CONTROL_LEASE_KIND_POLICY_JSON` narrows this per checked
 `agent_id`:
 
 ```json
@@ -124,7 +124,7 @@ read before adding a new auxiliary surface's identity binding (SPARQL,
 federation, observability) — the Iceberg-bearer tenant-match pattern above is
 the template such a surface should follow, not a new mechanism.
 
-## Explicit local anonymous store (EG-IDENTITY-R003.1)
+## Explicit local anonymous store (MEDULLA-IDENTITY-R003.1)
 
 Arbora owns public admission. For its explicit local `none` mode, the native
 engine supports `--auth-mode none` (`GRAPH_SERVICE_AUTH_MODE=none`) with a fresh
@@ -135,7 +135,7 @@ carriers and cannot open each other's stored data.
 For a local TCP-only deployment:
 
 ```sh
-epistemic-graph-server --auth-mode none --persist-dir /path/to/fresh-local-store \
+medulla-server --auth-mode none --persist-dir /path/to/fresh-local-store \
   --tcp-only --tcp-addr 127.0.0.1:19100
 ```
 
@@ -148,7 +148,7 @@ anonymous-store marker. Switching an anonymous store to authenticated mode is
 not supported by this option. Use a separate fresh store for authenticated tests.
 
 Every anonymous request uses server-owned principal/agent `anonymous`, tenant
-`local`, audience `epistemic-graph`, and policy `no-auth`. This is local-owner
+`local`, audience `medulla`, and policy `no-auth`. This is local-owner
 store authorization, not authenticated identity; ordinary ACL/mutation machinery
 still handles reads, writes and persistence. WorkItem provenance explicitly uses
 `authentication_method: none`, and caller-supplied principal substitutions fail.

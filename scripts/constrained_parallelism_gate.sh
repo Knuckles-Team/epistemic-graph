@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GOC-70 constrained-parallelism verification gate.
 #
-# WHY THIS EXISTS: epistemic-graph 2.25.0 shipped with all six gates verified
+# WHY THIS EXISTS: medulla 2.25.0 shipped with all six gates verified
 # green on a 64-core dev host, and CI (a 2-core runner) failed anyway.
 # `server::tests::dispatch_coalesces_concurrent_writes_to_one_graph` spawned
 # 400 concurrent writes and asserted every one landed through a specific
@@ -15,7 +15,7 @@
 # TRACKS.md, GOC-70.
 #
 # WHAT THIS DOES: restricts CPU affinity to 2 cores (`taskset -c 0,1` by
-# default, override with EG_CONSTRAINED_CORES) and runs the lib test suite
+# default, override with MEDULLA_CONSTRAINED_CORES) and runs the lib test suite
 # under that constraint -- the same mechanism (fewer schedulable cores,
 # tokio workers genuinely contending) that broke 2.25.0 in CI, reproducible
 # on any dev box regardless of its real core count. This is NOT a substitute
@@ -46,37 +46,37 @@
 # integration-test binaries under tests/ (pgwire/mysql/mssql roundtrip,
 # advanced_crossmodal_roundtrip, etc.) now run BY DEFAULT, in this same
 # pre-push-tier invocation -- not behind an opt-in flag. That opt-in
-# (`EG_CONSTRAINED_EXTRA_TESTS=1`, "periodic/CI-only deeper sweep rather than
+# (`MEDULLA_CONSTRAINED_EXTRA_TESTS=1`, "periodic/CI-only deeper sweep rather than
 # every push") is exactly why a real defect in this class reached CI instead
 # of being caught before the push: `advanced_crossmodal_roundtrip.rs`'s
 # `plan_writeback_stages_and_commits_inferred_edges_atomically_d7` depended on
 # ambient process-global env state another test in the same binary mutated
-# (`EPISTEMIC_GRAPH_ENCRYPTION_KEY` -- see that file's `state()` doc), which
+# (`MEDULLA_ENCRYPTION_KEY` -- see that file's `state()` doc), which
 # only manifests under exactly the kind of low-core scheduling this gate
 # exists to reproduce -- and this gate never ran it by default. Measured cost
 # of including these binaries (`--features full`, `--test <name>` x7, build +
 # `taskset -c 0,1` run) on a 24-core host: **the extra tier adds ~2-3 minutes
 # on top of the `--lib` tier's ~4-5 minutes** (see the fix report for exact
 # numbers) -- well inside "routine pre-push", not the rare "periodic/CI-only"
-# cost the old comment assumed. Opt OUT with `EG_CONSTRAINED_EXTRA_TESTS=0` if
+# cost the old comment assumed. Opt OUT with `MEDULLA_CONSTRAINED_EXTRA_TESTS=0` if
 # a narrower, faster local iteration loop is needed; CI and the merge queue
 # must never set that.
 #
 # USAGE:
 #   scripts/constrained_parallelism_gate.sh                # default: 2 same-NUMA-node cores, --lib + extra integration binaries
-#   EG_CONSTRAINED_CORES=0,1,2,3 scripts/constrained_parallelism_gate.sh
-#   EG_CONSTRAINED_TIMEOUT=2400 scripts/constrained_parallelism_gate.sh    # raise the suite deadline (default 1200s)
-#   EG_CONSTRAINED_TEST_TIMEOUT=1200 scripts/constrained_parallelism_gate.sh # raise one-test watchdog (default 900s)
-#   EG_CONSTRAINED_TERM_GRACE=45 EG_CONSTRAINED_KILL_GRACE=15 scripts/constrained_parallelism_gate.sh
-#   EG_CONSTRAINED_EXTRA_TESTS=0 scripts/constrained_parallelism_gate.sh   # --lib ONLY (fast local loop, not for CI/pre-push)
-#   EG_CONSTRAINED_FILTER='write_coalescer::' scripts/constrained_parallelism_gate.sh  # scope to one area
+#   MEDULLA_CONSTRAINED_CORES=0,1,2,3 scripts/constrained_parallelism_gate.sh
+#   MEDULLA_CONSTRAINED_TIMEOUT=2400 scripts/constrained_parallelism_gate.sh    # raise the suite deadline (default 1200s)
+#   MEDULLA_CONSTRAINED_TEST_TIMEOUT=1200 scripts/constrained_parallelism_gate.sh # raise one-test watchdog (default 900s)
+#   MEDULLA_CONSTRAINED_TERM_GRACE=45 MEDULLA_CONSTRAINED_KILL_GRACE=15 scripts/constrained_parallelism_gate.sh
+#   MEDULLA_CONSTRAINED_EXTRA_TESTS=0 scripts/constrained_parallelism_gate.sh   # --lib ONLY (fast local loop, not for CI/pre-push)
+#   MEDULLA_CONSTRAINED_FILTER='write_coalescer::' scripts/constrained_parallelism_gate.sh  # scope to one area
 #
 # Coordinate with `rm_gates(action=run, stage=heavy)` (feat/rm-gates,
 # in-flight sibling lane): this belongs in the heavy tier as one more
 # pre-push check, not as a second, parallel enforcement mechanism.
 #
 # CORE SELECTION (fix/txn-snapshot-phantom-deadlock, 2026-08-15): the old
-# hardcoded default `EG_CONSTRAINED_CORES=0,1` picks logical CPUs 0 and 1
+# hardcoded default `MEDULLA_CONSTRAINED_CORES=0,1` picks logical CPUs 0 and 1
 # LITERALLY, with no regard for topology. On a single-socket box (a real
 # 2-vCPU CI runner, most laptops) that is harmless -- CPU 0 and CPU 1 are the
 # only two CPUs there is. On a multi-socket dev/build host it is NOT: e.g. a
@@ -89,7 +89,7 @@
 # such a host (`server::tests::txn_snapshot_allows_phantom`, stuck ~48min,
 # all threads parked in `futex_do_wait`/`ep_poll`, zero forward progress) --
 # investigated on `fix/txn-snapshot-phantom-deadlock`: the SAME command
-# (`taskset -c 0,1 cargo test -p epistemic-graph --features full --lib
+# (`taskset -c 0,1 cargo test -p medulla-engine --features full --lib
 # --no-fail-fast`) was re-run 6 times on the same host, 3 uncontended and 3
 # while 4 extra `taskset -c 0,1`-pinned busy-loops deliberately hammered
 # those exact 2 cores, plus the single hanging test in isolation 5 more
@@ -132,7 +132,7 @@ default_cores() {
   echo "0,1"
 }
 
-CORES="${EG_CONSTRAINED_CORES:-$(default_cores)}"
+CORES="${MEDULLA_CONSTRAINED_CORES:-$(default_cores)}"
 TARGET_DIR="${CARGO_TARGET_DIR:-target-isolated}"
 export CARGO_TARGET_DIR="$TARGET_DIR"
 
@@ -146,9 +146,9 @@ export CARGO_TARGET_DIR="$TARGET_DIR"
 # uncontended, ~47-73s under deliberate 4-way same-core contention -- 20min is
 # a >15x margin over the worst measured figure, and still far below the
 # point where a genuinely wedged run would be indistinguishable from "just
-# slow." Override with EG_CONSTRAINED_TIMEOUT for a slower/smaller runner;
+# slow." Override with MEDULLA_CONSTRAINED_TIMEOUT for a slower/smaller runner;
 # never remove the bound.
-TIMEOUT_SECS="${EG_CONSTRAINED_TIMEOUT:-1200}"
+TIMEOUT_SECS="${MEDULLA_CONSTRAINED_TIMEOUT:-1200}"
 # EH-305: COMPILATION is not part of the contract. The 1200s/900s bounds above
 # measure constrained TEST EXECUTION; a cold facade build under a build host's
 # CPU quota takes about an hour, so bounding the build with the suite contract
@@ -156,10 +156,10 @@ TIMEOUT_SECS="${EG_CONSTRAINED_TIMEOUT:-1200}"
 # before constrained execution even started", 2026-09-19 and 2026-09-23). Every
 # `--no-run` compile gets its own, separate ceiling: still bounded (it never
 # hangs), never charged to the contract.
-BUILD_TIMEOUT_SECS="${EG_CONSTRAINED_BUILD_TIMEOUT:-7200}"
-TEST_TIMEOUT_SECS="${EG_CONSTRAINED_TEST_TIMEOUT:-900}"
-TERM_GRACE_SECS="${EG_CONSTRAINED_TERM_GRACE:-30}"
-KILL_GRACE_SECS="${EG_CONSTRAINED_KILL_GRACE:-10}"
+BUILD_TIMEOUT_SECS="${MEDULLA_CONSTRAINED_BUILD_TIMEOUT:-7200}"
+TEST_TIMEOUT_SECS="${MEDULLA_CONSTRAINED_TEST_TIMEOUT:-900}"
+TERM_GRACE_SECS="${MEDULLA_CONSTRAINED_TERM_GRACE:-30}"
+KILL_GRACE_SECS="${MEDULLA_CONSTRAINED_KILL_GRACE:-10}"
 if ! command -v python3 >/dev/null 2>&1; then
   echo "FAIL: python3 is not installed -- bounded lifecycle gate refuses to run unbounded." >&2
   exit 2
@@ -169,7 +169,7 @@ if ! command -v taskset >/dev/null 2>&1; then
   cat >&2 <<EOF
 FAIL: taskset is not installed -- constrained-parallelism verification cannot run.
 
-This gate exists because epistemic-graph 2.25.0 shipped with all gates green
+This gate exists because medulla 2.25.0 shipped with all gates green
 on a 64-core host and CI (2 cores) failed. Skipping it silently would recreate
 exactly that gap. Install taskset (util-linux; on Debian/Ubuntu:
 'apt-get install -y util-linux') or run this on a Linux host, then re-run:
@@ -217,7 +217,7 @@ bounded_build() {
 }
 
 echo "-- step 1/2: unconstrained build (full host parallelism; compile cost must not be paid under 2-core affinity) --"
-if ! bounded_build "constrained-lib-build" cargo test --no-run -p epistemic-graph --features full --lib; then
+if ! bounded_build "constrained-lib-build" cargo test --no-run -p medulla-engine --features full --lib; then
   echo "FAIL: build failed before constrained execution even started." >&2
   exit 1
 fi
@@ -227,7 +227,7 @@ echo "-- step 2/2: running --lib suite under taskset -c $CORES (bounded to ${TIM
 # which would under-report exactly the class this gate exists to find.
 # The runner sends TERM at the deadline and KILL after the configured grace if
 # a genuinely wedged process (all threads parked, for example) ignores TERM.
-if bounded_test "constrained-lib" taskset -c "$CORES" cargo test -p epistemic-graph --features full --lib --no-fail-fast; then
+if bounded_test "constrained-lib" taskset -c "$CORES" cargo test -p medulla-engine --features full --lib --no-fail-fast; then
   constrained_rc=0
 else
   constrained_rc=$?
@@ -251,7 +251,7 @@ why that changed. A timeout here means one of:
     on a quieter host/time before assuming a product defect;
   - this host's CORES selection is unrepresentative -- check \`lscpu
     -p=CPU,NODE\` for the cores in \`$CORES\`; they should share a NUMA node.
-Do NOT raise EG_CONSTRAINED_TIMEOUT to make this go away without first
+Do NOT raise MEDULLA_CONSTRAINED_TIMEOUT to make this go away without first
 establishing which of the above it is -- that masks the same class of defect
 this gate exists to catch.
 EOF
@@ -302,11 +302,11 @@ bounded_kafka_test() {
 }
 
 echo "-- Kafka non-blocking contract: unconstrained build + exact selection proof --"
-if ! bounded_build "constrained-eg-stream-kafka-build" cargo test --no-run -p eg-stream --features cdc-kafka; then
-  echo "FAIL: eg-stream cdc-kafka build failed before the Kafka contract started." >&2
+if ! bounded_build "constrained-medulla-stream-kafka-build" cargo test --no-run -p medulla-stream --features cdc-kafka; then
+  echo "FAIL: medulla-stream cdc-kafka build failed before the Kafka contract started." >&2
   exit 1
 fi
-if kafka_test_list=$(bounded_test "constrained-eg-stream-kafka-list" cargo test -p eg-stream --features cdc-kafka -- --list --format terse); then
+if kafka_test_list=$(bounded_test "constrained-medulla-stream-kafka-list" cargo test -p medulla-stream --features cdc-kafka -- --list --format terse); then
   printf '%s\n' "$kafka_test_list"
 else
   kafka_rc=$?
@@ -322,33 +322,33 @@ for kafka_test in "${KAFKA_TESTS[@]}"; do
 done
 echo "-- Kafka non-blocking contract: deterministic enqueue-only proofs under taskset -c $CORES (test watchdog ${KAFKA_TEST_TIMEOUT_SECS}s) --"
 for kafka_test in "${KAFKA_TESTS[@]}"; do
-  if bounded_kafka_test "constrained-eg-stream-kafka" taskset -c "$CORES" cargo test -p eg-stream --features cdc-kafka "$kafka_test" -- --exact; then
+  if bounded_kafka_test "constrained-medulla-stream-kafka" taskset -c "$CORES" cargo test -p medulla-stream --features cdc-kafka "$kafka_test" -- --exact; then
     kafka_rc=0
   else
     kafka_rc=$?
   fi
   if [ "$kafka_rc" -ne 0 ]; then
-    echo "FAIL: eg-stream Kafka non-blocking contract failed or timed out: $kafka_test" >&2
+    echo "FAIL: medulla-stream Kafka non-blocking contract failed or timed out: $kafka_test" >&2
     exit "$kafka_rc"
   fi
 done
 
 # Default ON (see the header comment: this used to be an opt-in
-# `EG_CONSTRAINED_EXTRA_TESTS=1` "periodic/CI-only" sweep, which is exactly why
+# `MEDULLA_CONSTRAINED_EXTRA_TESTS=1` "periodic/CI-only" sweep, which is exactly why
 # a real ambient-process-state defect in one of these binaries
 # (`advanced_crossmodal_roundtrip.rs`) reached CI instead of failing pre-push).
-# Only skip this tier with an explicit `EG_CONSTRAINED_EXTRA_TESTS=0` for a
+# Only skip this tier with an explicit `MEDULLA_CONSTRAINED_EXTRA_TESTS=0` for a
 # fast local iteration loop -- never in CI or the merge queue.
-if [ "${EG_CONSTRAINED_EXTRA_TESTS:-1}" != "0" ]; then
+if [ "${MEDULLA_CONSTRAINED_EXTRA_TESTS:-1}" != "0" ]; then
   echo "-- extra: concurrency-sensitive integration test binaries under taskset -c $CORES --"
   EXTRA_TESTS="pgwire_roundtrip mysql_roundtrip mssql_roundtrip advanced_crossmodal_roundtrip incremental_server_indexes txn_recovery_key_decoupled_d_orc_50 external_compute_e2e"
   build_args=()
   for t in $EXTRA_TESTS; do build_args+=(--test "$t"); done
-  if ! bounded_build "constrained-extra-build" cargo test --no-run -p epistemic-graph --features full "${build_args[@]}"; then
+  if ! bounded_build "constrained-extra-build" cargo test --no-run -p medulla-engine --features full "${build_args[@]}"; then
     echo "FAIL: extra-target build failed." >&2
     exit 1
   fi
-  if bounded_test "constrained-extra" taskset -c "$CORES" cargo test -p epistemic-graph --features full "${build_args[@]}" --no-fail-fast; then
+  if bounded_test "constrained-extra" taskset -c "$CORES" cargo test -p medulla-engine --features full "${build_args[@]}" --no-fail-fast; then
     extra_rc=0
   else
     extra_rc=$?
@@ -362,7 +362,7 @@ not a test assertion failure. The bounded runner emitted process-group,
 thread, fd, and teardown evidence above. See the --lib tier's identical-shaped timeout
 message above for how to get a backtrace from the next hang and how to tell
 a host-contention artifact from a real product deadlock before touching
-EG_CONSTRAINED_TIMEOUT.
+MEDULLA_CONSTRAINED_TIMEOUT.
 EOF
     exit "$extra_rc"
   elif [ "$extra_rc" -ne 0 ]; then
@@ -382,5 +382,5 @@ EOF
   fi
   echo "== PASS: full lib suite + extra integration binaries green under $n_cores-core CPU affinity (cores $CORES) =="
 else
-  echo "== PASS: full lib suite green under $n_cores-core CPU affinity (cores $CORES) [EG_CONSTRAINED_EXTRA_TESTS=0: integration binaries SKIPPED, not for CI/pre-push] =="
+  echo "== PASS: full lib suite green under $n_cores-core CPU affinity (cores $CORES) [MEDULLA_CONSTRAINED_EXTRA_TESTS=0: integration binaries SKIPPED, not for CI/pre-push] =="
 fi

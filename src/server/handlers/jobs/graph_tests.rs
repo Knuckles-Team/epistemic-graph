@@ -108,7 +108,7 @@ mod resolve_core_ref_tests {
     }
 }
 
-// EG-DURABLE-KERNEL-R082.2: exercise the same typed governor used by Submit.
+// MEDULLA-DURABLE-KERNEL-R082.2: exercise the same typed governor used by Submit.
 #[cfg(test)]
 mod mine_associate_submission_tests {
     use super::*;
@@ -120,7 +120,7 @@ mod mine_associate_submission_tests {
                 principal: "analytics-test".into(),
                 agent_id: "analytics-test".into(),
                 tenant: "analytics-test-tenant".into(),
-                audience: "epistemic-graph".into(),
+                audience: "medulla".into(),
                 policy_version: "test".into(),
                 ..Default::default()
             },
@@ -142,7 +142,7 @@ mod mine_associate_submission_tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R082.2
+    // spec: MEDULLA-DURABLE-KERNEL-R082.2
     #[test]
     fn mine_associate_invalid_parameters_have_typed_bounded_refusals() {
         for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.01, 1.01] {
@@ -167,7 +167,7 @@ mod mine_associate_submission_tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R082.2
+    // spec: MEDULLA-DURABLE-KERNEL-R082.2
     #[test]
     fn mine_associate_defaults_aliases_and_threshold_boundaries_are_accepted() {
         let payload = rmp_serde::to_vec_named(&serde_json::json!({
@@ -201,7 +201,7 @@ mod mine_associate_submission_tests {
         }
     }
 
-    // spec: EG-PLACEMENT-R003.3
+    // spec: MEDULLA-PLACEMENT-R003.3
     #[test]
     fn mine_associate_accepts_thirty_one_distinct_items_and_refuses_thirty_two() {
         for count in [31, 32] {
@@ -245,7 +245,7 @@ mod mine_associate_submission_tests {
         }
     }
 
-    // spec: EG-PLACEMENT-R003.5
+    // spec: MEDULLA-PLACEMENT-R003.5
     #[test]
     fn mine_associate_accepts_plain_item_references_and_stores_opaque_refs() {
         let (kind, _, _, _) = govern(JobKind::MineAssociate {
@@ -267,7 +267,7 @@ mod mine_associate_submission_tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R082.2
+    // spec: MEDULLA-DURABLE-KERNEL-R082.2
     #[test]
     fn mine_associate_malformed_transaction_shapes_have_typed_wire_refusals() {
         // Use the actual native transport decoder: malformed shapes must retain

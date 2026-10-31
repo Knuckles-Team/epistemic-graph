@@ -79,7 +79,7 @@ def test_generated_ledger_uses_registry_order_and_policy_values() -> None:
         ]
 
 
-# spec: EG-DURABLE-KERNEL-R066
+# spec: MEDULLA-DURABLE-KERNEL-R066
 def test_blob_holder_idempotency_matches_published_contract() -> None:
     """Keep the public policy aligned with the Rust registry and holder tests.
 
@@ -181,17 +181,17 @@ def test_domain_registry_reordering_fails_closed() -> None:
 
 
 def test_no_retired_flat_policy_surface_exists() -> None:
-    capability_source = (ROOT / "crates/eg-capabilities/src/lib.rs").read_text(
+    capability_source = (ROOT / "crates/medulla-capabilities/src/lib.rs").read_text(
         encoding="utf-8"
     )
-    registry_source = (ROOT / "crates/eg-capabilities/src/domains/mod.rs").read_text(
+    registry_source = (ROOT / "crates/medulla-capabilities/src/domains/mod.rs").read_text(
         encoding="utf-8"
     )
     scanner_source = (ROOT / "scripts/method_policy_inventory.py").read_text(
         encoding="utf-8"
     )
 
-    assert not (ROOT / "crates/eg-capabilities/src/dispatch.rs").exists()
+    assert not (ROOT / "crates/medulla-capabilities/src/dispatch.rs").exists()
     assert "ALL_METHODS" not in capability_source
     assert "historical" not in capability_source.lower()
     assert "compatib" not in capability_source.lower()

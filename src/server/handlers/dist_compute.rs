@@ -1,4 +1,4 @@
-//! Distributed graph compute handlers (CONCEPT:EG-KG.storage.feature).
+//! Distributed graph compute handlers (CONCEPT:MEDULLA-KG.storage.feature).
 //!
 //! `DistributedCompute` runs a Pregel/GAS cross-shard algorithm (PageRank /
 //! connected-components / BFS) across a set of graphs spanning multiple Raft groups,
@@ -27,9 +27,9 @@ const MAX_DISTRIBUTED_MATVIEW_ITEMS: usize = 1_000_000;
 
 #[cfg(feature = "compute-dist")]
 fn decode_distributed_matview(blob: &[u8]) -> Result<MatView, String> {
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         blob,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_DISTRIBUTED_MATVIEW_BYTES,
             MAX_DISTRIBUTED_MATVIEW_ITEMS,
             64,
@@ -80,7 +80,7 @@ impl<'a> DistributedRequest<'a> {
         match pregel::run_distributed(self.state, &graphs, &algo, read_authority).await {
             Ok(result) => Response::ok(
                 self.req_id,
-                ResultPayload::of::<eg_types::result_contract::compute::DistributedCompute>(result),
+                ResultPayload::of::<medulla_types::result_contract::compute::DistributedCompute>(result),
             ),
             Err(error) => Response::err(self.req_id, error),
         }
@@ -112,7 +112,7 @@ impl<'a> DistributedRequest<'a> {
             algo,
             result,
         };
-        persist_and_index::<eg_types::result_contract::cluster::CreateMatView>(
+        persist_and_index::<medulla_types::result_contract::cluster::CreateMatView>(
             self.state,
             self.req_id,
             self.caller,
@@ -133,7 +133,7 @@ impl<'a> DistributedRequest<'a> {
         match self.load_matview(&name).await {
             Some(view) => Response::ok(
                 self.req_id,
-                ResultPayload::of_ref::<eg_types::result_contract::cluster::GetMatView>(
+                ResultPayload::of_ref::<medulla_types::result_contract::cluster::GetMatView>(
                     &view.result,
                 ),
             ),
@@ -172,7 +172,7 @@ impl<'a> DistributedRequest<'a> {
                 Err(error) => return Response::err(self.req_id, error),
             };
         view.result = refreshed;
-        persist_and_index::<eg_types::result_contract::cluster::RefreshMatView>(
+        persist_and_index::<medulla_types::result_contract::cluster::RefreshMatView>(
             self.state,
             self.req_id,
             self.caller,
@@ -224,7 +224,7 @@ pub(crate) async fn try_handle(
         #[cfg(feature = "compute-dist")]
         Method::RefreshMatView { name } => Ok(request.refresh_matview(name).await),
 
-        // ── Plan-backed materialized views (CONCEPT:EG-KG.storage.plan-backed-matview) ──
+        // ── Plan-backed materialized views (CONCEPT:MEDULLA-KG.storage.plan-backed-matview) ──
         // GENERALIZES the algo-only matviews above: a matview is a named, durable
         // `wire::Plan` over one graph whose RESULT rides the version-keyed, RLS-aware
         // result cache. Define executes + caches, Get serves fresh-or-recomputes, Refresh
@@ -354,7 +354,7 @@ where
     operation(control).await
 }
 
-// ── Plan-backed matview handlers (CONCEPT:EG-KG.storage.plan-backed-matview) ──────────
+// ── Plan-backed matview handlers (CONCEPT:MEDULLA-KG.storage.plan-backed-matview) ──────────
 
 /// Clone a graph's `GraphCore` out from under the registry read lock. `None` = the graph
 /// does not exist.
@@ -362,14 +362,14 @@ where
 async fn resolve_core(
     state: &Arc<RwLock<ServerState>>,
     graph: &str,
-) -> Option<std::sync::Arc<eg_core::graph::GraphCore>> {
+) -> Option<std::sync::Arc<medulla_core::graph::GraphCore>> {
     let s = state.read().await;
     s.registry.get(graph).map(|e| e.core.clone())
 }
 
 /// MATERIALIZE a plan-backed matview + cache its serialized result on the graph's
 /// `GraphCore` result cache. Returns `(serialized_rows, row_count)`. The result is cached
-/// under `(plan_hash, graph_version, actor_scope=0)` (CONCEPT:EG-KG.query.rls-scoped-result-cache):
+/// under `(plan_hash, graph_version, actor_scope=0)` (CONCEPT:MEDULLA-KG.query.rls-scoped-result-cache):
 /// a write bumps `version` (retiring it); an RLS actor's nonzero scope MISSES this
 /// system-scoped entry, so an unfiltered result is never served across actors.
 #[cfg(feature = "matview")]
@@ -415,7 +415,7 @@ async fn define_plan_matview(
         redb.plan_matview_put(&def.name, blob).await?;
         let result = finish_control_saga(
             control,
-            ResultPayload::scalar::<eg_types::result_contract::cluster::PlanMatViewDefine>(
+            ResultPayload::scalar::<medulla_types::result_contract::cluster::PlanMatViewDefine>(
                 count as u64,
             ),
         )?;
@@ -430,21 +430,21 @@ async fn define_plan_matview(
 }
 
 /// Index a freshly-defined view into the manager: attempt to compile its plan into a DBSP
-/// circuit (CONCEPT:EG-KG.storage.incremental-matview). On success it installs the view in
+/// circuit (CONCEPT:MEDULLA-KG.storage.incremental-matview). On success it installs the view in
 /// `Mode::Incremental` — seeded from the current graph so future CDC deltas maintain it in
 /// O(delta) and `Get` serves the maintained result directly — and durably snapshots the
 /// operator state. On an unsupported op it falls back to `Mode::Recompute` (today's
 /// path, unchanged), NEVER a silently-wrong incremental result.
 #[cfg(feature = "matview")]
 async fn index_matview(state: &Arc<RwLock<ServerState>>, def: PlanMatView) {
-    let mut circuit = match eg_plan::incremental::Circuit::compile(&def.plan) {
+    let mut circuit = match medulla_plan::incremental::Circuit::compile(&def.plan) {
         Ok(circuit) => circuit,
         Err(unsupported) => {
-            // First-class, queryable fallback (CONCEPT:EG-KG.storage.incremental-matview):
+            // First-class, queryable fallback (CONCEPT:MEDULLA-KG.storage.incremental-matview):
             // record the TYPED reason on the tracked view and log it structured — never a
             // silent drop. The view stays correct on today's recompute-on-`Get` path.
             tracing::info!(
-                target: "epistemic_graph::matview",
+                target: "medulla::matview",
                 view = %def.name,
                 graph = %def.graph,
                 op_index = unsupported.index,
@@ -492,7 +492,7 @@ async fn get_plan_matview(state: &Arc<RwLock<ServerState>>, req_id: u64, name: &
     let Some(def) = matview::manager().get(name) else {
         return Response::err(req_id, format!("no plan materialized view '{name}'"));
     };
-    // INCREMENTAL fast path (CONCEPT:EG-KG.storage.incremental-matview): the view's plan
+    // INCREMENTAL fast path (CONCEPT:MEDULLA-KG.storage.incremental-matview): the view's plan
     // compiled to a DBSP circuit that CDC deltas already maintained, so serve the live
     // `current` result directly — no recompute, no `ResultCache` round-trip, no staleness
     // check (it is fresh by construction).
@@ -500,7 +500,7 @@ async fn get_plan_matview(state: &Arc<RwLock<ServerState>>, req_id: u64, name: &
         return match rmp_serde::to_vec_named(&rows) {
             Ok(bytes) => Response::ok(
                 req_id,
-                ResultPayload::of_encoded::<eg_types::result_contract::cluster::PlanMatViewGet>(
+                ResultPayload::of_encoded::<medulla_types::result_contract::cluster::PlanMatViewGet>(
                     bytes,
                 ),
             ),
@@ -515,7 +515,7 @@ async fn get_plan_matview(state: &Arc<RwLock<ServerState>>, req_id: u64, name: &
             if let Some(bytes) = core.result_cache().get_scoped(hash, version, 0) {
                 return Response::ok(
                     req_id,
-                    ResultPayload::of_encoded::<eg_types::result_contract::cluster::PlanMatViewGet>(
+                    ResultPayload::of_encoded::<medulla_types::result_contract::cluster::PlanMatViewGet>(
                         bytes,
                     ),
                 );
@@ -528,7 +528,7 @@ async fn get_plan_matview(state: &Arc<RwLock<ServerState>>, req_id: u64, name: &
             matview::manager().mark_fresh(name);
             Response::ok(
                 req_id,
-                ResultPayload::of_encoded::<eg_types::result_contract::cluster::PlanMatViewGet>(
+                ResultPayload::of_encoded::<medulla_types::result_contract::cluster::PlanMatViewGet>(
                     bytes,
                 ),
             )
@@ -554,7 +554,7 @@ async fn refresh_plan_matview(
         let (_, count) = materialize_and_cache(&operation_state, &def).await?;
         let result = finish_control_saga(
             control,
-            ResultPayload::scalar::<eg_types::result_contract::cluster::PlanMatViewRefresh>(
+            ResultPayload::scalar::<medulla_types::result_contract::cluster::PlanMatViewRefresh>(
                 count as u64,
             ),
         )?;
@@ -584,14 +584,14 @@ async fn drop_plan_matview(
             .as_redb()
             .ok_or_else(|| "materialized-view mutation requires durable redb".to_string())?;
         redb.plan_matview_delete(name).await?;
-        // Also drop the incremental operator-state row (CONCEPT:EG-KG.storage.incremental-matview);
+        // Also drop the incremental operator-state row (CONCEPT:MEDULLA-KG.storage.incremental-matview);
         // best-effort — a missing row is a clean no-op.
         if let Err(error) = redb.matview_operator_state_delete(name).await {
             tracing::warn!("drop matview '{name}' operator state failed: {error}");
         }
         let result = finish_control_saga(
             control,
-            ResultPayload::scalar::<eg_types::result_contract::cluster::PlanMatViewDrop>(true),
+            ResultPayload::scalar::<medulla_types::result_contract::cluster::PlanMatViewDrop>(true),
         )?;
         matview::manager().drop_view(name);
         Ok(Response::ok(req_id, result))
@@ -615,9 +615,9 @@ async fn persist_and_index<M>(
     view: MatView,
 ) -> Response
 where
-    M: eg_types::result_contract::MethodResult<
+    M: medulla_types::result_contract::MethodResult<
         Body = u64,
-        Encoding = eg_types::result_contract::encoding::Count,
+        Encoding = medulla_types::result_contract::encoding::Count,
     >,
 {
     let operation_state = Arc::clone(state);
@@ -646,7 +646,7 @@ where
 }
 
 /// Reload every persisted materialized view into the in-RAM index on boot
-/// (CONCEPT:EG-KG.storage.feature). Called once after the redb store is up. Returns the count
+/// (CONCEPT:MEDULLA-KG.storage.feature). Called once after the redb store is up. Returns the count
 /// reloaded. A missing/empty table reloads nothing (a fresh DB).
 pub async fn reload_matviews(state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
     let backend = {
@@ -677,7 +677,7 @@ pub async fn reload_matviews(state: &Arc<RwLock<ServerState>>) -> Result<usize, 
         }
     }
     // Re-hydrate the PLAN-BACKED matview manager from its disjoint durable table
-    // (CONCEPT:EG-KG.storage.plan-backed-matview). The result rows are NOT persisted (they
+    // (CONCEPT:MEDULLA-KG.storage.plan-backed-matview). The result rows are NOT persisted (they
     // ride the version-keyed result cache), so a reloaded view materializes lazily on its
     // first `Get` (its cache lookup MISSES — nothing cached yet — and recomputes).
     #[cfg(feature = "matview")]

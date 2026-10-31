@@ -1,4 +1,4 @@
-"""Served catalog competency queries (EG-TYPED-PACKS-R106.7).
+"""Served catalog competency queries (MEDULLA-TYPED-PACKS-R106.7).
 
 The fixture is the R106.6 catalog shape: one connector with two tools, one
 skill, one prompt, two resources and one field for each resource.  The test
@@ -17,7 +17,7 @@ import uuid
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
 CATALOG = "http://knuckles.team/kg/catalog#"
 CONNECTOR_PACK = "http://knuckles.team/kg/connector-pack#"
@@ -133,8 +133,8 @@ def _uql_relationship(iri: str) -> str:
 def catalog_graph():
     """Give this served integration test a graph isolated from xdist peers."""
 
-    graph = f"eg-r1067-{uuid.uuid4().hex}"
-    client = SyncEpistemicGraphClient.connect(
+    graph = f"medulla-r1067-{uuid.uuid4().hex}"
+    client = SyncMedullaClient.connect(
         socket_path=os.environ["GRAPH_SERVICE_SOCKET"],
         graph_name=graph,
         verified_context=request_context(),

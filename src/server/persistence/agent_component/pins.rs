@@ -11,18 +11,18 @@ use super::{
 
 /// The connector-pack heads, read to gate new pins on pack visibility.
 type PackHeadTable<'a> =
-    eg_storage::OwnerReadTable<'a, (&'static str, &'static str), &'static [u8]>;
+    medulla_storage::OwnerReadTable<'a, (&'static str, &'static str), &'static [u8]>;
 
 pub(super) fn resolve_component_pins_in_write(
-    write: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+    write: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
     tenant_id: &str,
     subject: &str,
-    pins: &[&eg_types::agent_component::ComponentDependency],
+    pins: &[&medulla_types::agent_component::ComponentDependency],
 ) -> Result<(), String> {
     let distinct = distinct_component_pins(subject, pins)?;
-    let heads = write.open_read_table(eg_storage::AGENT_COMPONENT_HEADS)?;
-    let revisions = write.open_read_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
-    let pack_heads = write.open_read_table(eg_storage::CONNECTOR_PACK_HEADS)?;
+    let heads = write.open_read_table(medulla_storage::AGENT_COMPONENT_HEADS)?;
+    let revisions = write.open_read_table(medulla_storage::AGENT_COMPONENT_REVISIONS)?;
+    let pack_heads = write.open_read_table(medulla_storage::CONNECTOR_PACK_HEADS)?;
     let mut rows = 0usize;
     for pin in distinct {
         require_visible_pack_component(&pack_heads, tenant_id, subject, pin.0)?;
@@ -59,7 +59,7 @@ fn require_visible_pack_component(
 
 fn distinct_component_pins<'a>(
     subject: &str,
-    pins: &[&'a eg_types::agent_component::ComponentDependency],
+    pins: &[&'a medulla_types::agent_component::ComponentDependency],
 ) -> Result<BTreeSet<(&'a str, &'a str, &'a str)>, String> {
     // Deduplicated: an agent that pins the same prompt component from two
     // slots should cost one lookup, not two, and the fan-out bound should
@@ -152,7 +152,7 @@ fn find_component_revision(
     definition_digest: &str,
     subject: &str,
     rows: &mut usize,
-) -> Result<Option<eg_types::agent_component::AgentComponentEntry>, String> {
+) -> Result<Option<medulla_types::agent_component::AgentComponentEntry>, String> {
     let mut scanned = 0usize;
     for row in revisions.range_from((tenant_id, component_id, 0))? {
         let (key, value) = row.map_err(|error| error.to_string())?;
@@ -186,7 +186,7 @@ fn validate_component_pin(
     tenant_id: &str,
     component_id: &str,
     kind: &str,
-    resolved: &eg_types::agent_component::AgentComponentEntry,
+    resolved: &medulla_types::agent_component::AgentComponentEntry,
     rows: usize,
 ) -> Result<(), String> {
     // The scan is tenant-prefixed, but the row's own identity remains an

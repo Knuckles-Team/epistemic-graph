@@ -4,28 +4,28 @@
 //! Socket, embedded, and Raft execution share this deterministic implementation, so
 //! a committed Method produces the same graph state on every path.
 //!
-//! **Hoisted (`plans/pyengine/EG-PYENGINE-PLAN.md` §4.2, `docs/architecture/
+//! **Hoisted (`plans/pyengine/MEDULLA-PYENGINE-PLAN.md` §4.2, `docs/architecture/
 //! unified-inprocess-engine.md` §11 item 1):** the base graph-mutation set and the
-//! `broker` family now live in `eg_core::durable_apply` — see that module's doc
-//! comment for the full rationale. `crates/eg-pyengine` depends on `eg-core`
+//! `broker` family now live in `medulla_core::durable_apply` — see that module's doc
+//! comment for the full rationale. `crates/medulla-pyengine` depends on `medulla-core`
 //! directly (below this facade in the workspace DAG, to avoid a cycle) and calls
 //! that module, not this one.
 //!
 //! **What stayed here, and why:** four `Method` families genuinely cannot move
-//! below the facade — `BatchUpdate`'s application calls `eg_compute::algorithms::
-//! batch_update` (`eg-compute` depends on `eg-core`, not the reverse); `AddTriples`/
-//! `RemoveTriples`/`DropNamedGraph` call `eg_rdf::mapping`/`eg_rdf::update` (same
+//! below the facade — `BatchUpdate`'s application calls `medulla_compute::algorithms::
+//! batch_update` (`medulla-compute` depends on `medulla-core`, not the reverse); `AddTriples`/
+//! `RemoveTriples`/`DropNamedGraph` call `medulla_rdf::mapping`/`medulla_rdf::update` (same
 //! direction); the mining/graphlearn write-back replay arms call
 //! `crate::server::handlers::{mining,graphlearn}::replay` (`src/server` IS this
 //! facade). Their matching `is_durable_mutation` classifier blocks
 //! (`modality-serving`/`rdf`/`mining`×4/`graphlearn`) stay here too, since this
-//! crate's own Cargo features (not `eg-core`'s) are what root `Cargo.toml` forwards
+//! crate's own Cargo features (not `medulla-core`'s) are what root `Cargo.toml` forwards
 //! those facade feature flags into.
 //!
 //! `is_durable_mutation` checks these DAG-forced families first, then delegates the
-//! base+`broker` set to `eg_core::durable_apply::is_durable_mutation`. `apply`
+//! base+`broker` set to `medulla_core::durable_apply::is_durable_mutation`. `apply`
 //! handles these same DAG-forced families explicitly, then delegates everything
-//! else (its `_` arm) to `eg_core::durable_apply::apply`.
+//! else (its `_` arm) to `medulla_core::durable_apply::apply`.
 
 use crate::{graph::GraphCore, protocol::Method};
 
@@ -40,7 +40,7 @@ pub(crate) const ENGINE_LEDGER_PRINCIPAL: &str =
 /// True for the methods whose effect must survive a crash in the authoritative store.
 ///
 /// EH-323 (same root cause as EH-316/EH-319, `write_classification.rs`'s module
-/// doc has the full mechanism): `eg-capabilities` forces `eg-types`'s `rdf`,
+/// doc has the full mechanism): `medulla-capabilities` forces `medulla-types`'s `rdf`,
 /// `mining` and `graphlearn` features on unconditionally whenever this root
 /// crate's `server` feature links it, so `AddTriples`/`RemoveTriples`/
 /// `DropNamedGraph` and every `Mine*`/`GraphLearn*` `Method` variant are
@@ -48,20 +48,20 @@ pub(crate) const ENGINE_LEDGER_PRINCIPAL: &str =
 /// crate's OWN same-named facade feature is enabled. Gating a CLASSIFICATION
 /// arm below behind that facade feature was therefore wrong the same way it
 /// was in `write_classification.rs`: a durable write could be silently
-/// misclassified non-durable (acknowledged, then lost on crash — EG-P0-3, the
+/// misclassified non-durable (acknowledged, then lost on crash — MEDULLA-P0-3, the
 /// exact defect class this file's own `MineSequence`/`MineForecast` comment
 /// already names) under a build where the facade feature happens to be off
 /// even though the variant, and the `Method` value carrying it, both exist.
-/// `modality-serving` is NOT in `eg-capabilities`'s forced list (it has its
+/// `modality-serving` is NOT in `medulla-capabilities`'s forced list (it has its
 /// own separate mirrored lockstep feature there instead), so
 /// `Method::ServedModality` genuinely does not exist without this crate's own
 /// `modality-serving` feature; that arm keeps its cfg gate.
 ///
 /// `apply`, below, is different on purpose: its matching arms call INTO
-/// `eg_rdf`/`crate::server::handlers::{mining,graphlearn}`, dependencies that
+/// `medulla_rdf`/`crate::server::handlers::{mining,graphlearn}`, dependencies that
 /// truly do not link without this crate's own facade feature, so those arms
 /// correctly stay gated — a replay that cannot run without the dependency
-/// falls through to `eg_core::durable_apply::apply`'s `_` catch-all rather
+/// falls through to `medulla_core::durable_apply::apply`'s `_` catch-all rather
 /// than pretending to replay it. Making the classifier accurate is still the
 /// right fix: it means a caller cannot end up with a genuinely durable write
 /// that this function denies logging, on ANY build that can construct the
@@ -81,12 +81,12 @@ pub fn is_durable_mutation(m: &Method) -> bool {
     // Triple edits and mining / graph-learning write-backs are durable: the
     // dispatch shell records the Method and `apply` below re-derives and
     // re-writes deterministically on replay. Their variants are gated by
-    // eg-types' own features (enabled by whichever crate needs them), so the
-    // classification lives there, under the same gates (EG-P0-3).
+    // medulla-types' own features (enabled by whichever crate needs them), so the
+    // classification lives there, under the same gates (MEDULLA-P0-3).
     if m.is_writeback_mutation() {
         return true;
     }
-    eg_core::durable_apply::is_durable_mutation(m)
+    medulla_core::durable_apply::is_durable_mutation(m)
 }
 
 /// Apply one durable mutation to a graph core. Mirrors the dispatch mutation
@@ -98,9 +98,9 @@ pub fn is_durable_mutation(m: &Method) -> bool {
 /// replayed durable mutation does. Deterministic (replaying the same Method over the
 /// same pre-image yields the same state), which is the Raft state-machine contract.
 ///
-/// The base+`broker` set is handled by `eg_core::durable_apply::apply` (this
+/// The base+`broker` set is handled by `medulla_core::durable_apply::apply` (this
 /// function's `_` arm) — see this module's doc comment for why the arms below
-/// (needing `eg-compute`/`eg-rdf`/`src/server`) could not move with it.
+/// (needing `medulla-compute`/`medulla-rdf`/`src/server`) could not move with it.
 pub fn apply(core: &GraphCore, m: &Method) {
     match m {
         Method::BatchUpdate { operations_msgpack } => {
@@ -113,27 +113,27 @@ pub fn apply(core: &GraphCore, m: &Method) {
         #[cfg(feature = "rdf")]
         Method::AddTriples { turtle, ntriples } => {
             if let Ok(triples) = parse_replayed_triples(turtle, ntriples) {
-                let mut iris = eg_rdf::mapping::IriStore::default();
+                let mut iris = medulla_rdf::mapping::IriStore::default();
                 // Rebuild the canonical property-graph RDF projection.
-                let _ = eg_rdf::mapping::load_triples(core, &mut iris, "", triples);
+                let _ = medulla_rdf::mapping::load_triples(core, &mut iris, "", triples);
             }
         }
-        // `RemoveTriples` (feature `rdf`, CONCEPT:EG-KG.query.named-graph-support): deterministic replay =
+        // `RemoveTriples` (feature `rdf`, CONCEPT:MEDULLA-KG.query.named-graph-support): deterministic replay =
         // re-parse the SAME source and re-retract. Idempotent — re-removing an absent
         // triple is a no-op. The lossless quad store is durable on its own file.
         #[cfg(feature = "rdf")]
         Method::RemoveTriples { turtle, ntriples } => {
             if let Ok(triples) = parse_replayed_triples(turtle, ntriples) {
-                let _ = eg_rdf::update::remove_triples(core, &triples);
+                let _ = medulla_rdf::update::remove_triples(core, &triples);
             }
         }
-        // `DropNamedGraph` (feature `rdf`, CONCEPT:EG-KG.query.named-graph-support): the named graph IS this
+        // `DropNamedGraph` (feature `rdf`, CONCEPT:MEDULLA-KG.query.named-graph-support): the named graph IS this
         // registry graph, so dropping it clears the whole core. The quad-store rows are
         // dropped durably on their own redb file at original execution, so replay only
         // needs to rebuild the empty in-graph state.
         #[cfg(feature = "rdf")]
         Method::DropNamedGraph => core.clear(),
-        // Data-mining write-back (CONCEPT:EG-KG.mining.frequent-itemset-mining /
+        // Data-mining write-back (CONCEPT:MEDULLA-KG.mining.frequent-itemset-mining /
         // dbscan-density / isolation-forest): re-run the mining op + re-materialize
         // the `:AssociationRule` / `:Cluster` / `:Anomaly` nodes. The node ids are a
         // deterministic digest of the mined content, so replay is idempotent.
@@ -155,14 +155,14 @@ pub fn apply(core: &GraphCore, m: &Method) {
         | Method::MineOntologyGap { .. }
         | Method::MineRetrievalQuality { .. }
         | Method::MineCommunity { .. } => crate::server::handlers::mining::replay(core, m),
-        // Graph-learning write-back (CONCEPT:EG-KG.graphlearn.link-predictor): re-run the
+        // Graph-learning write-back (CONCEPT:MEDULLA-KG.graphlearn.link-predictor): re-run the
         // fit/predict + re-materialize the `:EdgeFunction` / `:PredictedEdge` nodes.
         // The node ids are a deterministic digest, so replay is idempotent.
         #[cfg(all(feature = "graphlearn", feature = "server"))]
         Method::GraphLearnFit { .. } | Method::GraphLearnPredict { .. } => {
             crate::server::handlers::graphlearn::replay(core, m)
         }
-        _ => eg_core::durable_apply::apply(core, m),
+        _ => medulla_core::durable_apply::apply(core, m),
     }
 }
 
@@ -175,11 +175,11 @@ pub fn apply(core: &GraphCore, m: &Method) {
 fn parse_replayed_triples(
     turtle: &str,
     ntriples: &str,
-) -> Result<Vec<eg_rdf::oxrdf::Triple>, String> {
+) -> Result<Vec<medulla_rdf::oxrdf::Triple>, String> {
     if !turtle.trim().is_empty() {
-        eg_rdf::mapping::parse_turtle(turtle)
+        medulla_rdf::mapping::parse_turtle(turtle)
     } else if !ntriples.trim().is_empty() {
-        eg_rdf::mapping::parse_ntriples(ntriples)
+        medulla_rdf::mapping::parse_ntriples(ntriples)
     } else {
         Ok(Vec::new())
     }
@@ -191,7 +191,7 @@ fn parse_replayed_triples(
 /// of its own needed for the variant to exist. Before the fix, `is_durable_mutation`
 /// classified it non-durable under any build lacking this crate's own `rdf` facade
 /// feature, even though the variant (and thus a request carrying it) exists —
-/// exactly the "acknowledged, then silently lost on crash" defect class EG-P0-3
+/// exactly the "acknowledged, then silently lost on crash" defect class MEDULLA-P0-3
 /// names elsewhere in this file. `AddTriples`/`RemoveTriples`/`MineText`/
 /// `GraphLearnFit`/etc. got the identical mechanical fix (see the diff) but are not
 /// independently re-tested here: several `Mine*` variants carry their OWN
@@ -203,7 +203,7 @@ mod eh323_slim_profile_tests {
     use super::is_durable_mutation;
     use crate::protocol::Method;
 
-    // spec: EG-DURABLE-KERNEL-R056
+    // spec: MEDULLA-DURABLE-KERNEL-R056
     #[test]
     fn drop_named_graph_is_durable_regardless_of_this_crates_own_rdf_feature() {
         assert!(

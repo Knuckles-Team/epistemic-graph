@@ -1,0 +1,154 @@
+[package]
+name = "medulla-numeric"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Slim, BLAS/LAPACK-free numeric kernel (ndarray + nalgebra) for the medulla-engine analytics program — one kernel, two surfaces (pyo3 Surface A + engine Surface B). CONCEPT:MEDULLA-321."
+license = "MIT"
+
+[lib]
+name = "medulla_numeric"
+# cdylib → the pyo3 Surface-A Python extension wheel; rlib → the engine links the
+# pure kernel for Surface B (in-database analytics) WITHOUT pulling pyo3.
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# pyo3 Surface-A Python bindings. OFF by default so the engine can link the rlib
+# (nalgebra + ndarray core) for Surface B WITHOUT pulling pyo3 — this preserves the
+# Plan-01 "no PyO3 in the engine" contract (scripts/check_no_pyo3.sh only scans
+# src/, medulla/, and the top-level Cargo.toml/pyproject.toml, never
+# crates/; and this crate keeps pyo3 out of any engine-linked build). Only the
+# wheel build (maturin) turns this on. The boundary accepts/returns Python built-ins;
+# it deliberately has no NumPy runtime dependency.
+python = ["dep:pyo3", "analytics", "dep:medulla-types", "medulla-types/wire-complete"]
+# Analytics stats ops (CONCEPT:MEDULLA-357/MEDULLA-358): spearmanr / ks_2samp / normal
+# ppf+pdf. Pulls `statrs` for the distribution CDFs (Student-t, Normal). Kept OUT
+# of `default` so an engine `pi`/`node`/`full` build that links the medulla-numeric rlib
+# for Surface B does NOT pull statrs unless it opts in — the Pi-contract holds
+# (`cargo tree --features pi` links no statrs). `python` implies it so the Surface-A
+# wheel carries the scipy-parity stats ops.
+analytics = ["dep:statrs"]
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+# cluster::KMeansResult` + the `modality_conformance_tests!` battery. OFF by
+# default, deliberately NOT folded into any tier aggregate (pi/node/full) — it is
+# a capability-discovery/testing seam, not a serving feature. Also turns on
+# ndarray's OWN `serde` cargo feature (via the `<dep>/<feature>` Cargo syntax,
+# valid even though `ndarray` is a mandatory, non-optional dependency) so
+# `KMeansResult`'s `Array2<f64>` field can derive `Serialize`/`Deserialize` ONLY
+# under this feature — a default (non-contract) build never needs
+# `Array2<f64>: Serialize` at all. `cargo test -p medulla-numeric --features contract`
+# runs the suite.
+contract = ["dep:medulla-modality", "ndarray/serde"]
+# Complex64 array surface (D-QN-3 handoff from lane w0-medulla-quantum-contracts / the
+# quantum numeric-stack decision): a thin `Complex64` re-export + generic dense-block
+# tensor-index application (`apply_block2`/`apply_block4`) that Q1's `medulla-quantum-sim`
+# statevector backend uses to apply 1-/2-qubit unitaries. OFF by default, deliberately
+# NOT folded into `default`/`pi`/`node`/`full` — a build that never asks for `quantum`/
+# `quantum-sim` on the root `medulla-engine` package pulls none of this. Adds ONE new
+# direct dependency EDGE (`num-complex`) but ZERO new crates to the resolved lockfile:
+# `nalgebra` (already a mandatory dependency above) already resolves `num-complex
+# 0.4.6` transitively (nalgebra needs `ComplexField` for its own generic linear
+# algebra) — see the workspace Cargo.lock. This is the numeric-stack decision recorded
+# in `crates/medulla-quantum-core/src/lib.rs` and `crates/medulla-quantum-sim/src/lib.rs`: the
+# quantum numeric path bridges to medulla-numeric instead of importing QuantRS2's SciRS2
+# stack as a second/third numeric foundation.
+complex = ["dep:num-complex"]
+# The statistical decision layer's engine-side computation (`src/decision/`):
+# feature matrices, head reading, the act/abstain ladder, keyed exploration,
+# label admission, deterministic fitting and evaluation. It lives in this crate
+# so the crate `clippy.toml`'s float-transcendental ban covers it. Pulls only
+# `medulla-types`, which the lockfile already lists as an (optional) dependency.
+decision = ["dep:medulla-types"]
+# Motif / discord search (EH-529, ANALYTICS-HARVEST AH-09): MASS query-by-example and the
+# SCRIMP++ matrix profile need FFT sliding dot products — the `rustfft` crate
+# (coordinator ruling 2026-09-24: pure Rust, runtime-detected AVX/SSE/NEON with scalar
+# fallback, so one binary serves non-AVX2 nodes; MIT OR Apache-2.0, cargo-deny clean).
+# OFF by default; the UQL `MOTIF`/`DISCORD` stages (medulla-plan `timeseries`) and
+# `MineAnomaly` `matrix_profile_discord` (medulla-compute `mining`) turn it on. The streaming
+# left profile (`series::stampi`) needs no FFT and is always built.
+motif = ["dep:rustfft"]
+
+[dependencies]
+# arrays / reductions / element-wise / broadcasting — mature ndarray primitives.
+ndarray = "0.17"
+# Percentile/quantile are implemented in this crate so the Python boundary and
+# kernel share the same ndarray implementation without a second stats stack.
+# LAPACK-class linalg: svd / eigh / solve / qr / cholesky / pinv / lstsq —
+# PURE RUST, NO system BLAS/LAPACK. Developer parity is validated separately.
+nalgebra = { version = "0.35", default-features = false, features = ["std"] }
+# random (default_rng / normal / randint / RandomState equivalents).
+rand = "0.8"
+rand_distr = "0.4"
+rand_chacha = "0.3"
+# Ubiquitous elsewhere in the workspace; a normal (always-on) dep here too, so
+# `KMeansResult`'s non-ndarray fields (`labels`/`inertia`/`n_iter`) can derive
+# serde unconditionally and only the ndarray-backed `centroids` field needs the
+# `contract`-gated `ndarray/serde` feature above.
+serde = { version = "1.0", features = ["derive"] }
+# Pinned pure-software transcendentals for the deterministic statistics modules
+# (`detkernel`, `calibration`, `risk`, `conformal`, `ope`). An exact pin: a libm
+# release may change the last bit of `exp`/`log`/`pow`, and decision records must
+# replay byte-identically on every release target. `force-soft-floats` turns off
+# the architecture-specific implementations. The transcendentals used here are
+# software on every target that has SSE2 either way; the arch paths only cover
+# correctly rounded operations (sqrt, floor, fma) whose results do not change.
+# The crate-local `clippy.toml` bans the `f64`/`f32` std transcendentals so every
+# call goes through `detkernel::math`. Same version the lockfile already resolves.
+libm = { version = "=0.2.16", default-features = false, features = ["force-soft-floats"] }
+
+# Surface-A only (feature `python`): built-in Python sequence conversion + GIL release.
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optional = true }
+# The mandatory wheel's private wire adapter delegates to the existing protocol
+# authority. It is absent from engine-linked/default numeric builds. Only `python`
+# turns on `wire-complete` (the wheel decodes every Method). `decision` uses the
+# unconditional pure types alone; unifying `wire-complete` into every engine build
+# that enables `decision` would add wire variants (e.g. `Op::Probabilistic`) that
+# medulla-plan's own feature set does not handle.
+medulla-types = { path = "../medulla-types", optional = true }
+# Analytics only (feature `analytics`): distribution CDFs/quantiles for the
+# scipy-parity stats ops (Student-t p-value, Normal ppf/pdf). Pure Rust, no BLAS.
+statrs = { version = "0.19", default-features = false, optional = true }
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/pi/node/full build links none of it and `KMeansResult` carries
+# no new required trait. See `src/contract.rs`.
+medulla-modality = { path = "../medulla-modality", optional = true }
+# Complex64 surface only (feature `complex`, default OFF). Same version nalgebra
+# already resolves transitively (0.4.6, workspace Cargo.lock) — promoting it to a
+# direct dependency here adds zero new packages to the lockfile. `default-features =
+# false` keeps out num-complex's own optional `rand`/`serde` integration features,
+# none of which this crate's `complex` module needs.
+num-complex = { version = "0.4", default-features = false, optional = true }
+# FFT for `motif` only (see the feature). Adds rustfft + primal-check + transpose to the
+# lockfile (num-complex / num-integer / strength_reduce are already there).
+rustfft = { version = "6.4", optional = true }
+
+[dev-dependencies]
+libc = "0.2"
+# Shared Decide-layer fixtures (`medulla_types::test_support::decision`).
+medulla-types = { path = "../medulla-types", features = ["test-support"] }
+# The offline scorer-training example reads an FX-SYNTH gold corpus exported as
+# JSON (`examples/decision_scorer_train.rs`), and the pandas reference goldens
+# (`tests/series_golden.rs`) read JSON. Same version the lockfile resolves.
+serde_json = "1.0"
+# Series-kernel checkpoint round trips (`series::tests`), bit-exact. Already in the lockfile.
+rmp-serde = "1.3"
+
+[[example]]
+name = "decision_scorer_train"
+required-features = ["decision"]
+
+[[bench]]
+name = "decision_resident_scorer"
+harness = false
+required-features = ["decision"]
+
+[[bench]]
+name = "web_fetch_selection"
+harness = false
+required-features = ["decision"]
+
+[[bench]]
+name = "harness_contrast"
+harness = false
+required-features = ["decision"]

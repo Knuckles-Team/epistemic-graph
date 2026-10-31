@@ -9,15 +9,15 @@
 
 use std::collections::BTreeMap;
 
-use eg_numeric::decision::adapter::{to_q16, wilson_lower};
-use eg_numeric::decision::retrieval::Verdict;
-use eg_types::decision::statistical::body::{canonical_body_bytes, content_digest_of};
-use eg_types::decision::statistical::retrieval_generation::{
+use medulla_numeric::decision::adapter::{to_q16, wilson_lower};
+use medulla_numeric::decision::retrieval::Verdict;
+use medulla_types::decision::statistical::body::{canonical_body_bytes, content_digest_of};
+use medulla_types::decision::statistical::retrieval_generation::{
     GenerationEvalItem, GenerationEvalRequest, GenerationEvaluated, GenerationReceipt,
     GENERATION_RECEIPT_SCHEMA_VERSION, MAX_GENERATION_TOP_K,
 };
-use eg_types::decision::statistical::retrieval_pointer::PointerState;
-use eg_types::decision::statistical::StatisticalErrorCode;
+use medulla_types::decision::statistical::retrieval_pointer::PointerState;
+use medulla_types::decision::statistical::StatisticalErrorCode;
 
 use super::stat_executor::ExecutionContext;
 use super::stat_log::LogReader;
@@ -115,7 +115,7 @@ impl Tally {
 #[cfg(feature = "ann")]
 fn score_psi(tally: &Tally) -> Option<i64> {
     let report =
-        eg_ann::drift::population_stability_index(&tally.active_top1, &tally.shadow_top1, PSI_BINS);
+        medulla_ann::drift::population_stability_index(&tally.active_top1, &tally.shadow_top1, PSI_BINS);
     Some(to_q16(report.psi))
 }
 

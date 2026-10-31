@@ -16,7 +16,7 @@ use crate::epistemic_operations::{
 };
 use crate::protocol::Method;
 use crate::redb_store::shard::Shard;
-use eg_storage::{GraphShardOwner, ScopedRead};
+use medulla_storage::{GraphShardOwner, ScopedRead};
 
 /// One bounded page of the tenant status scan.
 pub(super) struct StatusPage {

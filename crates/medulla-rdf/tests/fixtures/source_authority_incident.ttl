@@ -1,0 +1,38 @@
+@prefix vg:  <http://knuckles.team/kg/virtual-graph#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix kg:  <http://knuckles.team/kg#> .
+@prefix ex:  <urn:eg:fixture:incident:> .
+
+# MEDULLA-SRC-AUTH-R009.1: ServiceNow is rank 1 and PagerDuty rank 2 for :Incident.
+# The rank literals are RANK_SERVICENOW / RANK_PAGERDUTY so the decisive test
+# (R009.2) can swap them without touching the query text.
+
+ex:servicenow a vg:SourceConnection ; vg:sourceKind "mcp" ; vg:endpointRef ex:ep-snow ;
+    vg:foreignSourceName "servicenow-mcp" ; vg:sourceRole "live_truth" .
+ex:ep-snow vg:url "https://servicenow.example.invalid/mcp" .
+ex:pagerduty a vg:SourceConnection ; vg:sourceKind "mcp" ; vg:endpointRef ex:ep-pd ;
+    vg:foreignSourceName "pagerduty-mcp" ; vg:sourceRole "live_truth" .
+ex:ep-pd vg:url "https://pagerduty.example.invalid/mcp" .
+
+ex:snow-contract a vg:MetadataContract ; vg:contractSource ex:servicenow ; vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:0000000000000000000000000000000000000000000000000000000000000001" ;
+    vg:discoveredEntity "incident" ; vg:discoveredField "incident.sys_id", "incident.short_description" .
+ex:snow-incidents a vg:VirtualMapping ; vg:mapsContract ex:snow-contract ;
+    vg:mapsOntologyClass kg:Incident ; vg:mapsEntity "incident" ; vg:keyField "incident.sys_id" ;
+    vg:approved true ; vg:hasPredicateFieldPair ex:snow-title .
+ex:snow-title a vg:PredicateFieldPair ; vg:predicate rdfs:label ; vg:field "incident.short_description" .
+
+ex:pd-contract a vg:MetadataContract ; vg:contractSource ex:pagerduty ; vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:0000000000000000000000000000000000000000000000000000000000000002" ;
+    vg:discoveredEntity "incident" ; vg:discoveredField "incident.id", "incident.title" .
+ex:pd-incidents a vg:VirtualMapping ; vg:mapsContract ex:pd-contract ;
+    vg:mapsOntologyClass kg:Incident ; vg:mapsEntity "incident" ; vg:keyField "incident.id" ;
+    vg:approved true ; vg:hasPredicateFieldPair ex:pd-title .
+ex:pd-title a vg:PredicateFieldPair ; vg:predicate rdfs:label ; vg:field "incident.title" .
+
+ex:incident-servicenow a vg:SourceAuthority ; vg:authoritativeSource ex:servicenow ;
+    vg:authorityFor kg:Incident ; vg:authorityMapping ex:snow-incidents ;
+    vg:authorityRank RANK_SERVICENOW ; vg:authorityContract "mcp" .
+ex:incident-pagerduty a vg:SourceAuthority ; vg:authoritativeSource ex:pagerduty ;
+    vg:authorityFor kg:Incident ; vg:authorityMapping ex:pd-incidents ;
+    vg:authorityRank RANK_PAGERDUTY ; vg:authorityContract "mcp" .

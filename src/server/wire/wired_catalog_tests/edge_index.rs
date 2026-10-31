@@ -1,6 +1,6 @@
 //! EH-352 over the served surfaces: `DROP INDEX [IF EXISTS]` never discloses an
 //! index across an authorization boundary, and the request graph's edge indexes
-//! reach `information_schema.eg_index_status` on the pgwire and Method::Sql
+//! reach `information_schema.medulla_index_status` on the pgwire and Method::Sql
 //! reads (the KnowledgeStream read is proven in `handlers::knowledge_stream`'s
 //! tests) through the one shared projection builder.
 

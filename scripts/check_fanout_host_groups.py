@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""EG-CONTRACT-R011.1: validate the land gate's fan-out host-group manifest.
+"""MEDULLA-CONTRACT-R011.1: validate the land gate's fan-out host-group manifest.
 
-The land gate's default execution (EG-CONTRACT-R011) fans work out across
+The land gate's default execution (MEDULLA-CONTRACT-R011) fans work out across
 independent build-host groups, each with a persistent warm target and a
 reserved headroom fraction on its gate host. Before any work is dispatched,
 the manifest describing those groups must be structurally sound: every group

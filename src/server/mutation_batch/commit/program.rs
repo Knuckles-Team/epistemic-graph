@@ -1,10 +1,10 @@
 use crate::graph::GraphCore;
 use crate::protocol::{Method, ResultPayload};
 use crate::server::persistence::PersistenceBackend;
-use eg_types::contract::Nonce;
+use medulla_types::contract::Nonce;
 
 #[cfg(feature = "program-optimization")]
-use eg_modality::OpaqueRef;
+use medulla_modality::OpaqueRef;
 
 pub(crate) struct ProgramPromotionRequest<'a> {
     pub(crate) persistence: Option<&'a std::sync::Arc<dyn PersistenceBackend>>,
@@ -15,7 +15,7 @@ pub(crate) struct ProgramPromotionRequest<'a> {
     pub(crate) batch_id: &'a str,
     pub(crate) claim_methods: Vec<Method>,
     pub(crate) result: &'a ResultPayload,
-    identity: Option<&'a eg_program::ProgramRevisionIdentity>,
+    identity: Option<&'a medulla_program::ProgramRevisionIdentity>,
     attempt_nonce: Option<Nonce>,
 }
 
@@ -45,7 +45,7 @@ impl<'a> ProgramPromotionRequest<'a> {
 
     pub(crate) fn with_identity(
         mut self,
-        identity: &'a eg_program::ProgramRevisionIdentity,
+        identity: &'a medulla_program::ProgramRevisionIdentity,
     ) -> Self {
         self.identity = Some(identity);
         self
@@ -95,7 +95,7 @@ pub(crate) async fn commit_program_promotion(
     let claim_properties = claim_method
         .ok_or_else(|| "program promotion claim has no selected candidate row".to_string())
         .and_then(|properties| {
-            eg_types::msgpack::decode_property_value(properties)
+            medulla_types::msgpack::decode_property_value(properties)
                 .map_err(|_| "program promotion candidate claim is not decodable".to_string())
         })?;
     let result_claim_ref = format!("jobclaim:{}", record.result_ref.as_str());
@@ -109,7 +109,7 @@ pub(crate) async fn commit_program_promotion(
     let result_claim_properties = result_claim_properties
         .ok_or_else(|| "program promotion claim has no result lineage row".to_string())
         .and_then(|properties| {
-            eg_types::msgpack::decode_property_value(properties)
+            medulla_types::msgpack::decode_property_value(properties)
                 .map_err(|_| "program promotion result claim is not decodable".to_string())
         })?;
     validate_program_result_claim(identity, &result_claim_properties)?;
@@ -144,7 +144,7 @@ pub(crate) async fn commit_program_promotion(
 }
 
 fn program_promotion_methods(
-    identity: &eg_program::ProgramRevisionIdentity,
+    identity: &medulla_program::ProgramRevisionIdentity,
 ) -> Result<Vec<Method>, String> {
     let record = identity
         .candidate_record
@@ -259,7 +259,7 @@ fn resolve_program_binding_node(
                 reference.as_str()
             )
         })?;
-    let value = eg_types::msgpack::decode_property_value(&properties)
+    let value = medulla_types::msgpack::decode_property_value(&properties)
         .map_err(|_| format!("durable program binding '{}' is not decodable", reference))?;
     let object = value
         .as_object()
@@ -276,7 +276,7 @@ fn resolve_program_binding_node(
 }
 
 fn validate_program_result_claim(
-    identity: &eg_program::ProgramRevisionIdentity,
+    identity: &medulla_program::ProgramRevisionIdentity,
     claim_properties: &serde_json::Value,
 ) -> Result<(), String> {
     let record = identity
@@ -292,7 +292,7 @@ fn validate_program_result_claim(
 }
 
 fn validate_program_claim_identity(
-    record: &eg_program::ProgramCandidateRecord,
+    record: &medulla_program::ProgramCandidateRecord,
     object: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), String> {
     if object.get("type").and_then(serde_json::Value::as_str) != Some("Claim")
@@ -308,7 +308,7 @@ fn validate_program_claim_identity(
 }
 
 fn validate_program_input_snapshot(
-    record: &eg_program::ProgramCandidateRecord,
+    record: &medulla_program::ProgramCandidateRecord,
     object: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), String> {
     let input_dataset_ref = object
@@ -396,7 +396,7 @@ fn validate_program_claim_lineage(
 pub(crate) fn resolve_program_promotion_identity(
     core: &GraphCore,
     revision_ref: &OpaqueRef,
-) -> Result<eg_program::ProgramRevisionIdentity, String> {
+) -> Result<medulla_program::ProgramRevisionIdentity, String> {
     let identity = load_program_revision_identity(core, revision_ref)?;
     let record = identity
         .candidate_record
@@ -410,13 +410,13 @@ pub(crate) fn resolve_program_promotion_identity(
 fn load_program_revision_identity(
     core: &GraphCore,
     revision_ref: &OpaqueRef,
-) -> Result<eg_program::ProgramRevisionIdentity, String> {
+) -> Result<medulla_program::ProgramRevisionIdentity, String> {
     let revision_properties = core
         .get_node_properties(revision_ref.as_str())
         .ok_or_else(|| "durable program revision is missing".to_string())?;
-    let revision_value = eg_types::msgpack::decode_property_value(&revision_properties)
+    let revision_value = medulla_types::msgpack::decode_property_value(&revision_properties)
         .map_err(|_| "durable program revision is not decodable".to_string())?;
-    let identity = eg_program::ProgramRevisionIdentity::from_durable_properties(&revision_value)
+    let identity = medulla_program::ProgramRevisionIdentity::from_durable_properties(&revision_value)
         .map_err(|error| format!("durable program revision is invalid: {error}"))?;
     if identity.revision_ref != *revision_ref {
         return Err("durable program revision id does not match its row".to_string());
@@ -426,13 +426,13 @@ fn load_program_revision_identity(
 
 fn validate_program_candidate_chain(
     core: &GraphCore,
-    identity: &eg_program::ProgramRevisionIdentity,
-    record: &eg_program::ProgramCandidateRecord,
+    identity: &medulla_program::ProgramRevisionIdentity,
+    record: &medulla_program::ProgramCandidateRecord,
 ) -> Result<(), String> {
     let candidate_properties = core
         .get_node_properties(identity.candidate_ref.as_str())
         .ok_or_else(|| "durable program candidate record is missing".to_string())?;
-    let candidate_value = eg_types::msgpack::decode_property_value(&candidate_properties)
+    let candidate_value = medulla_types::msgpack::decode_property_value(&candidate_properties)
         .map_err(|_| "durable program candidate record is not decodable".to_string())?;
     let mut candidate_object = candidate_value
         .as_object()
@@ -443,7 +443,7 @@ fn validate_program_candidate_chain(
     {
         return Err("durable program candidate record has the wrong type".to_string());
     }
-    let stored_record: eg_program::ProgramCandidateRecord =
+    let stored_record: medulla_program::ProgramCandidateRecord =
         serde_json::from_value(serde_json::Value::Object(candidate_object))
             .map_err(|_| "durable program candidate record is invalid".to_string())?;
     stored_record
@@ -463,13 +463,13 @@ fn validate_program_candidate_chain(
 
 fn validate_program_claim_chain(
     core: &GraphCore,
-    identity: &eg_program::ProgramRevisionIdentity,
-    record: &eg_program::ProgramCandidateRecord,
+    identity: &medulla_program::ProgramRevisionIdentity,
+    record: &medulla_program::ProgramCandidateRecord,
 ) -> Result<(), String> {
     let claim_properties = core
         .get_node_properties(&record.candidate_claim_ref)
         .ok_or_else(|| "durable selected candidate claim is missing".to_string())?;
-    let claim_value = eg_types::msgpack::decode_property_value(&claim_properties)
+    let claim_value = medulla_types::msgpack::decode_property_value(&claim_properties)
         .map_err(|_| "durable selected candidate claim is not decodable".to_string())?;
     identity
         .validate_candidate_claim(&claim_value)
@@ -478,7 +478,7 @@ fn validate_program_claim_chain(
     let result_claim_properties = core
         .get_node_properties(&result_claim_ref)
         .ok_or_else(|| "durable program result claim is missing".to_string())?;
-    let result_claim_value = eg_types::msgpack::decode_property_value(&result_claim_properties)
+    let result_claim_value = medulla_types::msgpack::decode_property_value(&result_claim_properties)
         .map_err(|_| "durable program result claim is not decodable".to_string())?;
     validate_program_result_claim(identity, &result_claim_value)
 }
@@ -540,9 +540,9 @@ pub(super) fn apply_promotion_projectable_method(
             conditions_msgpack,
             updates_msgpack,
         } => {
-            let conditions = eg_types::msgpack::decode_property_object(conditions_msgpack)
+            let conditions = medulla_types::msgpack::decode_property_object(conditions_msgpack)
                 .map_err(|_| "invalid promotion CAS conditions".to_string())?;
-            let updates = eg_types::msgpack::decode_property_object(updates_msgpack)
+            let updates = medulla_types::msgpack::decode_property_object(updates_msgpack)
                 .map_err(|_| "invalid promotion CAS updates".to_string())?;
             if core.compare_and_set_fields(node_id, &conditions, &updates) {
                 Ok(())

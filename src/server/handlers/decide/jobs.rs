@@ -13,7 +13,7 @@ pub(crate) async fn handle_decision_fit(
     state: &SharedState,
     req_id: u64,
     verified: &VerifiedRequestContext,
-    op: eg_types::decision::DecisionFitOp,
+    op: medulla_types::decision::DecisionFitOp,
 ) -> Response {
     #[cfg(feature = "decide")]
     {
@@ -31,7 +31,7 @@ pub(crate) async fn handle_decision_eval(
     state: &SharedState,
     req_id: u64,
     verified: &VerifiedRequestContext,
-    op: eg_types::decision::DecisionEvalOp,
+    op: medulla_types::decision::DecisionEvalOp,
 ) -> Response {
     #[cfg(feature = "decide")]
     {

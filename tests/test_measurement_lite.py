@@ -5,8 +5,8 @@ Mirrors a subset of the incident proofs in `agent-utilities`'
 gates actually use. Each test names the incident it reproduces.
 
 Pure static/subprocess/git/systemd-run tests -- never touches the native
-`epistemic-graph` engine -- so the whole module is marked ``no_engine``
-(see ``tests/conftest.py``'s ``start_epistemic_graph_server`` fixture) to
+`medulla` engine -- so the whole module is marked ``no_engine``
+(see ``tests/conftest.py``'s ``start_medulla_server`` fixture) to
 keep a `pytest tests/test_measurement_lite.py` run from triggering a full
 `cargo build --features full` of the shared engine.
 """
@@ -149,7 +149,7 @@ def test_background_redirect_wraps_the_whole_multi_stage_command(monkeypatch, tm
 
     monkeypatch.setattr("measurement_lite.subprocess.run", fake_run)
     result = run_background(
-        "echo one && echo two", unit_name="eg-test-unit", log_dir=tmp_path
+        "echo one && echo two", unit_name="medulla-test-unit", log_dir=tmp_path
     )
     inner_cmd = captured["argv"][-1]
     assert inner_cmd.startswith("{ echo one && echo two ; } >")
@@ -160,9 +160,9 @@ def test_background_redirect_wraps_the_whole_multi_stage_command(monkeypatch, tm
     __import__("shutil").which("systemd-run") is None, reason="no systemd-run on PATH"
 )
 def test_background_end_to_end_lands_in_file(tmp_path):
-    unit = f"eg-measurement-lite-test-{int(time.time())}"
+    unit = f"medulla-measurement-lite-test-{int(time.time())}"
     result = run_background(
-        "echo eg-canary && sleep 0.2", unit_name=unit, log_dir=tmp_path
+        "echo medulla-canary && sleep 0.2", unit_name=unit, log_dir=tmp_path
     )
     assert result.launch_returncode == 0
     deadline = time.monotonic() + 15
@@ -173,7 +173,7 @@ def test_background_end_to_end_lands_in_file(tmp_path):
         if status != "active":
             break
         time.sleep(0.2)
-    assert "eg-canary" in poll(result.log_path)
+    assert "medulla-canary" in poll(result.log_path)
 
 
 def test_poll_missing_file_returns_empty():

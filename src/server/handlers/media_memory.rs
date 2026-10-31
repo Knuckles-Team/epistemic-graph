@@ -1,7 +1,7 @@
-//! Served multimodal memory (EG-MEDIA-VOCAB-R650.3).
+//! Served multimodal memory (MEDULLA-MEDIA-VOCAB-R650.3).
 //!
 //! `Method::MediaRemember` and `Method::MediaRecall` apply the one set of rules
-//! in `eg_modality::media_memory` (`admit`, `fold_remember`, `MediaEntry`)
+//! in `medulla_modality::media_memory` (`admit`, `fold_remember`, `MediaEntry`)
 //! over the engine's durable substrates:
 //!
 //! * the blob bytes go into the content-addressed blob CAS under the verified
@@ -20,10 +20,10 @@ use tokio::sync::RwLock;
 use super::super::state::ServerState;
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
-use eg_modality::media_memory::{
+use medulla_modality::media_memory::{
     admit, fold_remember, MediaDerivation, MediaEntry, MediaMemoryRefusal, MediaRecall,
 };
-use eg_types::result_contract::storage as storage_results;
+use medulla_types::result_contract::storage as storage_results;
 
 /// Upper bound on index rows one text recall scans.
 const MAX_RECALL_SCAN: usize = 10_000;
@@ -145,7 +145,7 @@ fn index_put(stores: &Stores, req_id: u64, authority: &CarrierAuthority, method:
     else {
         return Response::err(req_id, "media memory routing mismatch");
     };
-    if size > eg_modality::media_memory::MEDIA_MEMORY_MAX_BYTES as u64 {
+    if size > medulla_modality::media_memory::MEDIA_MEMORY_MAX_BYTES as u64 {
         return refusal(req_id, MediaMemoryRefusal::OversizeBlob);
     }
     let ns = index_namespace(authority);
@@ -192,7 +192,7 @@ async fn proposes_through_consensus(state: &Arc<RwLock<ServerState>>) -> bool {
 fn as_remember(resp: Response) -> Response {
     match resp.result {
         Some(ResultPayload::Raw(bytes)) if resp.error.is_none() => {
-            match rmp_serde::from_slice::<eg_types::media_memory::MediaMemory>(&bytes) {
+            match rmp_serde::from_slice::<medulla_types::media_memory::MediaMemory>(&bytes) {
                 Ok(memory) => Response::ok(
                     resp.id,
                     ResultPayload::of_ref::<storage_results::MediaRemember>(&memory),
@@ -317,9 +317,9 @@ pub(crate) async fn try_handle(
 mod tests {
     use super::*;
 
-    /// EG-MEDIA-VOCAB-R650.3: the replicated command carries the digest and
+    /// MEDULLA-MEDIA-VOCAB-R650.3: the replicated command carries the digest and
     /// the index row only, never the blob bytes.
-    // spec: EG-MEDIA-VOCAB-R650.3
+    // spec: MEDULLA-MEDIA-VOCAB-R650.3
     #[test]
     fn replicated_index_command_carries_no_blob_bytes() {
         let dir = crate::server::unique_temp_dir("media-memory-lower");

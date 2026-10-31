@@ -86,7 +86,7 @@ pub(crate) struct ChangeEnvelopesError {
 
 /// Engine-native BATCH ChangeEnvelope commit: apply EVERY envelope in `envelopes`
 /// (all of which must target `graph_fname`) into ONE redb transaction and one
-/// durability barrier (CONCEPT:EG-KG.ingest.batched-change-envelopes). The envelopes
+/// durability barrier (CONCEPT:MEDULLA-KG.ingest.batched-change-envelopes). The envelopes
 /// are applied in order; read-your-writes inside the shared transaction chains each
 /// envelope's content-version, cursor, and +1 graph-version onto the previous one,
 /// so a page of records built with sequential `expected_graph_version`s commits as a

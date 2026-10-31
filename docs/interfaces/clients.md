@@ -1,4 +1,4 @@
-# Client drivers (CONCEPT:EG-KG.ingest.broker-streams-namespaces)
+# Client drivers (CONCEPT:MEDULLA-KG.ingest.broker-streams-namespaces)
 
 The Python package provides the complete network client and the release wheel's
 in-process engine binding. JavaScript and Go provide focused bindings for the
@@ -8,9 +8,9 @@ online **backup/restore**, and **NL→query** surfaces.
 Network clients use out-of-process **framed MessagePack** over UDS/TCP. For
 that deployment shape, the wire is the API: Python, JavaScript, and Go mirror
 the serde-tagged `Method` enum in
-[`crates/eg-types/src/protocol.rs`](https://github.com/Knuckles-Team/medulla/blob/main/crates/eg-types/src/protocol.rs) by sending the
+[`crates/medulla-types/src/protocol.rs`](https://github.com/Knuckles-Team/medulla/blob/main/crates/medulla-types/src/protocol.rs) by sending the
 variant name and its exact parameter fields. The separate
-`epistemic_graph.engine` binding embeds the Rust graph core directly for
+`medulla.engine` binding embeds the Rust graph core directly for
 single-process use and does not traverse the wire.
 
 ## Full vs thin, per language
@@ -21,7 +21,7 @@ Applications that hold a process proof for one local engine must bind the client
 before its first connection, even if that connection starts without the proof:
 
 ```python
-client = await EpistemicGraphClient.connect(
+client = await MedullaClient.connect(
     socket_path=recipient,
     required_socket_path=recipient,
     auth_secret=auth_secret,
@@ -88,8 +88,8 @@ validation, issuer/audience policy, and credential renewal remain required.
 
 | Language | Location | Scope | Tested |
 |----------|----------|-------|--------|
-| **Python** | [`epistemic_graph/client.py`](https://github.com/Knuckles-Team/medulla/blob/main/epistemic_graph/client.py) | **Full** — graph/vector/RDF/SQL/txn/broker plus governed `modalities` and native `knowledge` streaming. | `tests/test_pb_clients.py`, `tests/test_modality_stream_clients.py`, and the `gen_contract --check` engine-contract gate. |
-| **Python embedded** | `epistemic_graph.engine` in the release wheel | In-process graph creation and node operations for explicit local/ephemeral use. | Wheel-completeness and transport-parity gates. |
+| **Python** | [`medulla/client.py`](https://github.com/Knuckles-Team/medulla/blob/main/medulla/client.py) | **Full** — graph/vector/RDF/SQL/txn/broker plus governed `modalities` and native `knowledge` streaming. | `tests/test_pb_clients.py`, `tests/test_modality_stream_clients.py`, and the `gen_contract --check` engine-contract gate. |
+| **Python embedded** | `medulla.engine` in the release wheel | In-process graph creation and node operations for explicit local/ephemeral use. | Wheel-completeness and transport-parity gates. |
 | **JS / Node** | [`clients/js`](https://github.com/Knuckles-Team/medulla/tree/main/clients/js) | **Thin** — ONLY the B1.7 methods, generated from the Method list. Not a full SDK. | Current `eg2.` binding; run the package tests before release. |
 | **Go** | [`clients/go`](https://github.com/Knuckles-Team/medulla/tree/main/clients/go) | **Thin** — ONLY the B1.7 methods, generated from the Method list. Not a full SDK. | Current `eg2.` binding; run `go test ./...` before release. |
 
@@ -156,12 +156,12 @@ and trust configuration remains outside these protocol payloads.
 - **Canonical body (JS/Go):** the MAC covers the body the engine re-derives from the
   request it DECODED (declaration order, serde defaults, sorted maps, float/byte widths),
   not the bytes sent. The thin clients compute it with the engine's own decoder and
-  encoder: the embedded `eg_method_codec.wasm` (`crates/eg-method-codec`, built by
+  encoder: the embedded `medulla_method_codec.wasm` (`crates/medulla-method-codec`, built by
   `scripts/build_method_codec_wasm.py`). Each client's vector test replays every
   contract method-body vector (body digest + engine envelope MAC) through its signer. A
   request the engine can not decode is refused before it is sent.
 - **Correlation:** each response carries the request `id`. The Python client demuxes
-  out-of-order responses on one pipelined connection (EG-043); the thin JS client does the
+  out-of-order responses on one pipelined connection (MEDULLA-043); the thin JS client does the
   same by `id`; the thin Go client serializes one round-trip at a time (in-order).
 - **Compact results:** a top-level MessagePack `bin` result is a second `Raw` layer and is
   decoded once more.
@@ -170,13 +170,13 @@ and trust configuration remains outside these protocol payloads.
 
 | Domain | Engine `Method`s | Concept | Python | JS | Go |
 |--------|------------------|---------|--------|----|----|
-| Broker admin | `DeclareExchange` `DeleteExchange` `DeclareQueue` `BindQueue` `UnbindQueue` | EG-275/276/277/278 | `client.broker.*` | ✓ | ✓ |
-| Broker publish | `Publish` `PublishEx` `PublishConfirmed` `PublishIdempotent` | EG-275/279/284/314 | `client.broker.publish*` | ✓ | ✓ |
-| Broker consume | `BrokerConsume` `BrokerAck` `BrokerReject` `BrokerAckTag` `BrokerNackTag` `BrokerRenewTag` `SweepExpired` | EG-KG.compute.groups-qos-prefetch-honoring/276/284 | `client.broker.consume`/`ack_tag`/`nack_tag`/`renew_tag`/… | ✓ | ✓ |
-| Streams | `StreamDeclare` `StreamPublish` `StreamRead` `StreamTrim` `StreamCommitOffset` `StreamCommittedOffset` | EG-283 | `client.broker.stream_*` | ✓ | ✓ |
-| RBAC admin | `RbacAdmin` (AddRole/RemoveRole/AddGrant/RemoveGrant/List) | EG-KG.compute.feature | `client.rbac.*` | ✓ | ✓ |
-| Ops | `Backup` `Restore` | EG-090 | `client.admin.*` | ✓ | ✓ |
-| NL→query | `NlQuery` `NlQueryExplain` | EG-080 | `client.query.nl_query` / `nl_query_explain` | ✓ | ✓ |
+| Broker admin | `DeclareExchange` `DeleteExchange` `DeclareQueue` `BindQueue` `UnbindQueue` | MEDULLA-275/276/277/278 | `client.broker.*` | ✓ | ✓ |
+| Broker publish | `Publish` `PublishEx` `PublishConfirmed` `PublishIdempotent` | MEDULLA-275/279/284/314 | `client.broker.publish*` | ✓ | ✓ |
+| Broker consume | `BrokerConsume` `BrokerAck` `BrokerReject` `BrokerAckTag` `BrokerNackTag` `BrokerRenewTag` `SweepExpired` | MEDULLA-KG.compute.groups-qos-prefetch-honoring/276/284 | `client.broker.consume`/`ack_tag`/`nack_tag`/`renew_tag`/… | ✓ | ✓ |
+| Streams | `StreamDeclare` `StreamPublish` `StreamRead` `StreamTrim` `StreamCommitOffset` `StreamCommittedOffset` | MEDULLA-283 | `client.broker.stream_*` | ✓ | ✓ |
+| RBAC admin | `RbacAdmin` (AddRole/RemoveRole/AddGrant/RemoveGrant/List) | MEDULLA-KG.compute.feature | `client.rbac.*` | ✓ | ✓ |
+| Ops | `Backup` `Restore` | MEDULLA-090 | `client.admin.*` | ✓ | ✓ |
+| NL→query | `NlQuery` `NlQueryExplain` | MEDULLA-080 | `client.query.nl_query` / `nl_query_explain` | ✓ | ✓ |
 
 Every served build requires `security`. Other ops remain feature-gated on the server:
 `broker` (broker + streams), redb (backup/restore), and `nl-query` plus a configured
@@ -189,8 +189,8 @@ agent-utilities' LLM); the client just carries the text.
 
 ```mermaid
 flowchart LR
-  subgraph clients["Client drivers (CONCEPT:EG-KG.ingest.broker-streams-namespaces)"]
-    PY["Python (full)\nepistemic_graph/client.py\n.knowledge / .modalities / .broker / .rbac / .admin"]
+  subgraph clients["Client drivers (CONCEPT:MEDULLA-KG.ingest.broker-streams-namespaces)"]
+    PY["Python (full)\nmedulla/client.py\n.knowledge / .modalities / .broker / .rbac / .admin"]
     JS["JS thin\nclients/js"]
     GO["Go thin\nclients/go"]
   end
@@ -201,7 +201,7 @@ flowchart LR
 
   T["Transport\nsrc/server/transport.rs\n(UDS / TCP, pipelined, id-demux)"] --> D["dispatch\nsrc/server/dispatch.rs"]
 
-  subgraph methods["Method enum · crates/eg-types/src/protocol.rs"]
+  subgraph methods["Method enum · crates/medulla-types/src/protocol.rs"]
     M_BROKER["Publish* / DeclareExchange /\nDeclareQueue / BindQueue /\nBrokerConsume / BrokerAck / BrokerReject /\nBrokerAckTag / BrokerNackTag / BrokerRenewTag / SweepExpired"]
     M_STREAM["StreamDeclare / StreamPublish /\nStreamRead / StreamTrim /\nStreamCommitOffset / StreamCommittedOffset"]
     M_RBAC["RbacAdmin{op}"]
@@ -219,27 +219,27 @@ flowchart LR
   D --> M_MODAL
   D --> M_KNOW
 
-  M_BROKER --> H1["handlers/graph_ops.rs\ncrate::broker (eg-core)\nEG-275..284/314"]
+  M_BROKER --> H1["handlers/graph_ops.rs\ncrate::broker (medulla-core)\nEG-275..284/314"]
   M_STREAM --> H1
-  M_RBAC --> H2["dispatch.rs → isolation.rbac\neg-core acl · EG-KG.compute.feature"]
-  M_BAK  --> H3["handlers/admin.rs\nredb backup/restore · EG-090"]
-  M_NL   --> H4["handlers/query.rs → NlPlanner\n→ UQL → run_unified · EG-078/080"]
+  M_RBAC --> H2["dispatch.rs → isolation.rbac\neg-core acl · MEDULLA-KG.compute.feature"]
+  M_BAK  --> H3["handlers/admin.rs\nredb backup/restore · MEDULLA-090"]
+  M_NL   --> H4["handlers/query.rs → NlPlanner\n→ UQL → run_unified · MEDULLA-078/080"]
   M_MODAL --> H5["handlers/modality.rs\nverified governed serving"]
   M_KNOW --> H6["handlers/knowledge_stream/{mod,families,stream}.rs\nsole Arrow IPC result stream"]
 ```
 
 ## Parity gate
 
-RF-RULING-003 made the contract itself the gate. `crates/eg-capabilities` declares one
+RF-RULING-003 made the contract itself the gate. `crates/medulla-capabilities` declares one
 `MethodDescriptor` per `Method` variant, and
-`cargo run -p eg-capabilities --features contract --bin gen_contract -- --check`
+`cargo run -p medulla-capabilities --features contract --bin gen_contract -- --check`
 regenerates `contract/methods.json`, `contract/schemas/*.json`, `contract/receipt.json`,
-`docs/capabilities.generated.md` and `epistemic_graph/generated/*.py` in memory, then
+`docs/capabilities.generated.md` and `medulla/generated/*.py` in memory, then
 byte-diffs the committed tree. "Does the Python client send this method" is now the
 descriptor's `consumer_profiles` field, and a method with no consumer is
 `stability: internal` on its own row — so the old
 `tests/protocol_unbound_baseline.txt` ratchet is deleted rather than re-baselined.
-`crates/eg-capabilities/tests/contract_registry.rs` proves the registry and the `Method`
+`crates/medulla-capabilities/tests/contract_registry.rs` proves the registry and the `Method`
 enum are a bijection with no baseline, and `tests/test_generated_client_contract.py`
 (pure stdlib) proves the generated Python surface is exactly the published profile.
 The JS/Go thin clients are still hand-maintained; their `ConsumerProfile` values exist in

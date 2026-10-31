@@ -53,7 +53,7 @@ uvx pre-commit install --config .config/pre-commit.yaml --hook-type pre-commit -
 
 if [[ "$scanners" == 1 ]]; then
   echo "bootstrap: native scanners (cargo builds; ~15 min cold)"
-  scanner_root="$HOME/.local/share/eg-scanners"
+  scanner_root="$HOME/.local/share/medulla-scanners"
   bash scripts/install_scanners.sh "$scanner_root" >/dev/null
   deny_version="$(PYTHONPATH=scripts python3 -c 'from scanner_contract import load_contract; print(load_contract().cargo_deny_version)')"
   command -v cargo-deny >/dev/null 2>&1 || cargo install --locked --version "$deny_version" cargo-deny

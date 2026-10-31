@@ -1,7 +1,7 @@
 {
   "name": "@knuckles-team/medulla-client",
   "version": "0.1.0",
-  "description": "Thin JS/Node client for the Medulla Program-B engine Methods (broker/streams/RBAC/backup/NL) \u2014 CONCEPT:EG-328",
+  "description": "Thin JS/Node client for the Medulla Program-B engine Methods (broker/streams/RBAC/backup/NL) \u2014 CONCEPT:MEDULLA-328",
   "type": "module",
   "main": "index.mjs",
   "exports": {

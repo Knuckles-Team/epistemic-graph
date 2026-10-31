@@ -205,7 +205,7 @@ fn apply_coalescable_add_node(
     txn.record_replaced_image(change, node_id);
     txn.add_node(node_id.to_string(), properties_msgpack.to_vec());
     Ok(ResultPayload::scalar::<
-        eg_types::result_contract::graph::AddNode,
+        medulla_types::result_contract::graph::AddNode,
     >("ok".to_string()))
 }
 
@@ -226,7 +226,7 @@ fn apply_coalescable_remove_node(
     txn.remove_node(node_id.to_string());
     core.semantic_store.write().remove_embedding(node_id);
     Ok(ResultPayload::scalar::<
-        eg_types::result_contract::graph::RemoveNode,
+        medulla_types::result_contract::graph::RemoveNode,
     >("ok".to_string()))
 }
 
@@ -263,7 +263,7 @@ fn apply_coalescable_remove_edge(
     );
     txn.remove_edge(source_id.to_string(), target_id.to_string());
     Ok(ResultPayload::scalar::<
-        eg_types::result_contract::graph::RemoveEdge,
+        medulla_types::result_contract::graph::RemoveEdge,
     >("ok".to_string()))
 }
 
@@ -275,11 +275,11 @@ fn apply_coalescable_cas_fields(
     conditions_msgpack: &[u8],
     updates_msgpack: &[u8],
 ) -> Result<ResultPayload, String> {
-    let conditions = match eg_types::msgpack::decode_property_object(conditions_msgpack) {
+    let conditions = match medulla_types::msgpack::decode_property_object(conditions_msgpack) {
         Ok(value) => value,
         Err(_) => return Ok(ResultPayload::Bool(false)),
     };
-    let updates = match eg_types::msgpack::decode_property_object(updates_msgpack) {
+    let updates = match medulla_types::msgpack::decode_property_object(updates_msgpack) {
         Ok(value) => value,
         Err(_) => return Ok(ResultPayload::Bool(false)),
     };
@@ -308,7 +308,7 @@ fn apply_coalescable_cas_fields(
 }
 
 /// The commit gateway entry point for a coalescable structural write
-/// (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18 rewrite). Identical contract to
+/// (CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer, L18 rewrite). Identical contract to
 /// [`commit_mutation`] (same authz/durability/audit/CDC/idempotency guarantees,
 /// same `Response`), but for the five hot-path methods
 /// (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`/`CompareAndSetNodeFields`) it batches the WHOLE
@@ -388,7 +388,7 @@ struct OwnedMutationCtx {
     anonymous: bool,
     req_id: u64,
     caller: Option<String>,
-    attempt_nonce: Option<eg_types::contract::Nonce>,
+    attempt_nonce: Option<medulla_types::contract::Nonce>,
     idempotency_key: String,
     tenant_scope: String,
     graph_name: String,

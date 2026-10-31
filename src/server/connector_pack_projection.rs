@@ -1,7 +1,7 @@
 //! The connector-pack projection worker: the first Agent Library outbox
 //! consumer (PB1, pack design §7.2, X10).
 //!
-//! Every committed import publishes one `eg.connector-pack.import.v1` row on
+//! Every committed import publishes one `medulla.connector-pack.import.v1` row on
 //! its tenant's Agent Library outbox. This worker claims those rows and, for
 //! each, projects its connector's CURRENT head into the `pack__<connector>`
 //! graph and flips the head visible (the readiness gate) -- never the record
@@ -41,7 +41,7 @@ pub fn spawn(state: Arc<RwLock<ServerState>>) {
 ))]
 mod grant;
 
-// G9 boot regression (EG-DURABLE-KERNEL-R006.4/.5): listener bound before the
+// G9 boot regression (MEDULLA-DURABLE-KERNEL-R006.4/.5): listener bound before the
 // projection drain completes, post-bind reconcile/reload, cursor fast path.
 #[cfg(all(
     test,
@@ -63,9 +63,9 @@ pub(crate) mod worker {
 
     use tokio::sync::RwLock;
 
-    use eg_transaction::{OutboxClaimBudget, OutboxClaimOutcome, OutboxRejectReason};
-    use eg_types::connector_pack::{PackImportRecord, CONNECTOR_PACK_IMPORT_TOPIC};
-    use eg_types::mutation_batch::MutationOutboxLease;
+    use medulla_transaction::{OutboxClaimBudget, OutboxClaimOutcome, OutboxRejectReason};
+    use medulla_types::connector_pack::{PackImportRecord, CONNECTOR_PACK_IMPORT_TOPIC};
+    use medulla_types::mutation_batch::MutationOutboxLease;
 
     use crate::server::auth::VerifiedRequestContext;
     use crate::server::outbox_operator::OutboxWrite;
@@ -143,7 +143,7 @@ pub(crate) mod worker {
         if progressed {
             // Bounded cadence: one INFO per non-empty sweep (a sweep claims at
             // most CLAIM_LIMIT rows), so a multi-minute drain is never silent
-            // in the log (EG-DURABLE-KERNEL-R006.4).
+            // in the log (MEDULLA-DURABLE-KERNEL-R006.4).
             tracing::info!(
                 rows_claimed = claimed,
                 committed_graphs,
@@ -155,7 +155,7 @@ pub(crate) mod worker {
     }
 
     /// Open/ensure the Agent Library store OUTSIDE the global write lock
-    /// (EG-DURABLE-KERNEL-R006.4). The open is slow on a large store, and pre-G9
+    /// (MEDULLA-DURABLE-KERNEL-R006.4). The open is slow on a large store, and pre-G9
     /// the first sweep held the `ServerState` write lock across it — queueing
     /// the pre-listener critical path (matview reload, listener bind) behind
     /// the whole drain. A read lock adopts an already-ensured handle; the open
@@ -219,14 +219,14 @@ pub(crate) mod worker {
     /// Project one leased import's connector and resolve the lease: ack on
     /// success, reject on a failed projection or an unreadable row. Returns
     /// whether the projection's graph commit ran (the sweep's drain log counts
-    /// it — EG-DURABLE-KERNEL-R006.4).
+    /// it — MEDULLA-DURABLE-KERNEL-R006.4).
     async fn settle(
         state: &Arc<RwLock<ServerState>>,
         store: &Arc<AgentLibraryStore>,
         tenant: &str,
         lease: MutationOutboxLease,
     ) -> Result<bool, String> {
-        let (reason, projected) = match eg_storage::decode_ledger_record::<PackImportRecord>(
+        let (reason, projected) = match medulla_storage::decode_ledger_record::<PackImportRecord>(
             &lease.record.intent.payload,
         ) {
             Err(_) => (Some(OutboxRejectReason::InvalidEvent), false),
@@ -360,18 +360,18 @@ pub(crate) mod worker {
         Ok(VerifiedRequestContext::from_verified_claims_with_nonce(
             service.claims().clone(),
             format!("{CONSUMER}:{record_id}"),
-            Some(eg_types::contract::Nonce::minted()),
+            Some(medulla_types::contract::Nonce::minted()),
         ))
     }
 
     /// A context shell `bind_agent_library_context` fills in completely from
     /// the verified service identity.
-    fn unbound_context(tenant: &str) -> eg_types::agent_library::AgentLibraryMutationContext {
-        eg_types::agent_library::AgentLibraryMutationContext {
+    fn unbound_context(tenant: &str) -> medulla_types::agent_library::AgentLibraryMutationContext {
+        medulla_types::agent_library::AgentLibraryMutationContext {
             request_id: 0,
             principal: String::new(),
             caller_principal: String::new(),
-            attempt_nonce: eg_types::contract::Nonce::minted(),
+            attempt_nonce: medulla_types::contract::Nonce::minted(),
             tenant_id: tenant.to_string(),
             actor_scope: String::new(),
             purpose_id: String::new(),

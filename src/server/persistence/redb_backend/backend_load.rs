@@ -72,7 +72,7 @@ impl RedbBackend {
     }
 
     /// Populate the registry's CATALOG from every shard's `graph_meta` table ONLY
-    /// (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3) — NO node/edge/ledger/semantic row is
+    /// (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog, DIST-P2-3) — NO node/edge/ledger/semantic row is
     /// read. Mirrors `load_into`'s parallel cross-shard fan-out (each shard's
     /// cheap meta scan runs concurrently on the blocking pool) but with a vastly
     /// smaller per-shard read: one small `{name, graph_type}` table instead of
@@ -156,7 +156,7 @@ impl RedbBackend {
     /// When a tenant catalog is attached, the routing-quiesce READ guard is held
     /// across both the shard resolve and the send, so an online reshard cannot flip
     /// the route between the two (no lost or misrouted write). With no catalog —
-    /// the default — there is no guard and this is the plain EG-026 send.
+    /// the default — there is no guard and this is the plain MEDULLA-026 send.
     pub(super) async fn enqueue(
         &self,
         graph_fname: &str,

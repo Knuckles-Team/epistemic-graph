@@ -1,31 +1,31 @@
 # Messaging & broker interface
 
 Medulla carries a **RabbitMQ-class message broker** as a native modality (feature `broker`),
-built on the EG-KG.compute.atomically-claim-oldest-pending in-engine claim/ack work-queue: exchanges, queues, bindings, DLQ, TTL, priority,
+built on the MEDULLA-KG.compute.atomically-claim-oldest-pending in-engine claim/ack work-queue: exchanges, queues, bindings, DLQ, TTL, priority,
 delayed delivery, consumer groups, replayable streams, and publisher confirms — all as nodes in the
 isolated `__control__` graph, Raft-safe and redb-durable. Three protocol wires front it: **AMQP 0.9.1**, **MQTT**,
 and **STOMP**. All three share the **one** broker, so a message published over AMQP can be consumed over
 MQTT/STOMP by topic.
 
 > Status snapshot: the broker (exchanges/routing, DLQ, TTL, priority, delayed delivery, consumer groups +
-> QoS/prefetch, replayable streams, publisher confirms + manual acks) is shipped (EG-275..284), as are the
-> AMQP (EG-275), MQTT (EG-281), and STOMP (EG-KG.ontology.stomp-frame-codec-unit) wires. Program B adds **effectively-exactly-once**
-> delivery (idempotent producer) + AMQP `confirm.select` / MQTT 5 frame exposure (EG-314). See the
+> QoS/prefetch, replayable streams, publisher confirms + manual acks) is shipped (MEDULLA-275..284), as are the
+> AMQP (MEDULLA-275), MQTT (MEDULLA-281), and STOMP (MEDULLA-KG.ontology.stomp-frame-codec-unit) wires. Program B adds **effectively-exactly-once**
+> delivery (idempotent producer) + AMQP `confirm.select` / MQTT 5 frame exposure (MEDULLA-314). See the
 > [capability matrix](../capabilities.md).
 
 ## The broker model
 
 | Capability | What it is | Concept |
 |------------|-----------|---------|
-| **Exchanges + routing** | Durable exchanges (`direct`/`topic`/`fanout`) + bindings/routing-keys; queues are `__control__` graph nodes; publish/consume/ack are additive `Method::*` ops on the EG-KG.compute.atomically-claim-oldest-pending claim path | EG-275 |
-| **Dead-letter queues** | Per-queue DLQ: a message that exceeds max-delivery-attempts or is rejected routes to a configured dead-letter exchange/queue, original routing metadata preserved | EG-KG.compute.dead-letter-queues |
-| **Message TTL + queue expiry** | Per-message and per-queue TTL; expired messages are dead-lettered (or dropped) on a lazy sweep at claim time + a periodic reaper | EG-KG.compute.message-ttl-expiry |
-| **Priority queues** | Priority-ordered delivery (higher priority claimed first, FIFO within a band) on the claim path | EG-KG.compute.priority-queues |
-| **Delayed / scheduled delivery** | Deliver-after (delay) + deliver-at (scheduled): messages held invisible until their eta, then made claimable, via a due-time index | EG-KG.compute.delayed-scheduled-delivery |
-| **Consumer groups + QoS/prefetch** | Named consumer groups sharing a queue, per-consumer prefetch (unacked-in-flight limit), fair round-robin dispatch, per-consumer visibility leases | EG-KG.compute.groups-qos-prefetch-honoring |
-| **Replayable streams** | Kafka/RabbitMQ-Streams-style persistent append-only logs: messages retained (not deleted on consume) in an ordered offset-indexed log; consumers read from an explicit offset (earliest/latest/N) and replay; retention by size/age | EG-283 |
-| **Publisher confirms + consumer acks** | Per-message confirm/nack once durably enqueued (monotonic delivery-tag ⇒ at-least-once) + owner-fenced manual ack/nack and live-lease renewal over the claim path | EG-KG.compute.publisher-confirms-consumer-qos |
-| **Exactly-once (idempotent producer)** | A producer-id + monotonic sequence lets the broker **drop duplicate publishes** (a retried publish after a lost confirm is de-duplicated) for effectively-exactly-once on top of at-least-once; the stream/confirm/ack ops are exposed over the AMQP `confirm.select` + MQTT 5 wire frames (previously engine-Method-only) | EG-314 |
+| **Exchanges + routing** | Durable exchanges (`direct`/`topic`/`fanout`) + bindings/routing-keys; queues are `__control__` graph nodes; publish/consume/ack are additive `Method::*` ops on the MEDULLA-KG.compute.atomically-claim-oldest-pending claim path | MEDULLA-275 |
+| **Dead-letter queues** | Per-queue DLQ: a message that exceeds max-delivery-attempts or is rejected routes to a configured dead-letter exchange/queue, original routing metadata preserved | MEDULLA-KG.compute.dead-letter-queues |
+| **Message TTL + queue expiry** | Per-message and per-queue TTL; expired messages are dead-lettered (or dropped) on a lazy sweep at claim time + a periodic reaper | MEDULLA-KG.compute.message-ttl-expiry |
+| **Priority queues** | Priority-ordered delivery (higher priority claimed first, FIFO within a band) on the claim path | MEDULLA-KG.compute.priority-queues |
+| **Delayed / scheduled delivery** | Deliver-after (delay) + deliver-at (scheduled): messages held invisible until their eta, then made claimable, via a due-time index | MEDULLA-KG.compute.delayed-scheduled-delivery |
+| **Consumer groups + QoS/prefetch** | Named consumer groups sharing a queue, per-consumer prefetch (unacked-in-flight limit), fair round-robin dispatch, per-consumer visibility leases | MEDULLA-KG.compute.groups-qos-prefetch-honoring |
+| **Replayable streams** | Kafka/RabbitMQ-Streams-style persistent append-only logs: messages retained (not deleted on consume) in an ordered offset-indexed log; consumers read from an explicit offset (earliest/latest/N) and replay; retention by size/age | MEDULLA-283 |
+| **Publisher confirms + consumer acks** | Per-message confirm/nack once durably enqueued (monotonic delivery-tag ⇒ at-least-once) + owner-fenced manual ack/nack and live-lease renewal over the claim path | MEDULLA-KG.compute.publisher-confirms-consumer-qos |
+| **Exactly-once (idempotent producer)** | A producer-id + monotonic sequence lets the broker **drop duplicate publishes** (a retried publish after a lost confirm is de-duplicated) for effectively-exactly-once on top of at-least-once; the stream/confirm/ack ops are exposed over the AMQP `confirm.select` + MQTT 5 wire frames (previously engine-Method-only) | MEDULLA-314 |
 
 Work-queue (claim/delete) semantics and stream (retain/replay) semantics coexist: the queue is the
 task/RPC pattern, the stream is the event-log pattern.
@@ -43,15 +43,15 @@ owned until its current consumer acknowledges or nacks it.
 filesystem path, host name, or connection URL; identity-aware gateways derive it from the
 verified principal before dispatch.
 
-## AMQP 0.9.1 wire (EG-275, feature `amqp-wire`)
+## AMQP 0.9.1 wire (MEDULLA-275, feature `amqp-wire`)
 
 A hand-rolled AMQP 0.9.1 server (no heavy AMQP crate) maps connection/channel/exchange/queue/`basic.*`
 frames onto the broker primitives.
 
 ```bash
-EPISTEMIC_GRAPH_AMQP_ADDR=127.0.0.1:5672 \
+MEDULLA_AMQP_ADDR=127.0.0.1:5672 \
 GRAPH_SERVICE_AUTH_SECRET=$SECRET \
-  epistemic-graph-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "amqp-wire server"
+  medulla-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "amqp-wire server"
 ```
 
 ```python
@@ -65,31 +65,31 @@ ch = conn.channel()
 ch.exchange_declare(exchange="events", exchange_type="topic")
 ch.queue_declare(queue="tasks")
 ch.queue_bind(queue="tasks", exchange="events", routing_key="task.*")
-ch.confirm_delivery()  # publisher confirms (EG-KG.compute.publisher-confirms-consumer-qos)
+ch.confirm_delivery()  # publisher confirms (MEDULLA-KG.compute.publisher-confirms-consumer-qos)
 ch.basic_publish(exchange="events", routing_key="task.new", body="hello")
 ```
 
-## MQTT 3.1.1 / 5.0 wire (EG-281, feature `mqtt-wire`)
+## MQTT 3.1.1 / 5.0 wire (MEDULLA-281, feature `mqtt-wire`)
 
 Maps CONNECT/PUBLISH/SUBSCRIBE/PINGREQ/DISCONNECT onto the broker's topic exchange + bindings, QoS 0/1.
 
 ```bash
-EPISTEMIC_GRAPH_MQTT_ADDR=127.0.0.1:1883 \
+MEDULLA_MQTT_ADDR=127.0.0.1:1883 \
 GRAPH_SERVICE_AUTH_SECRET=$SECRET \
-  epistemic-graph-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "mqtt-wire server"
+  medulla-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "mqtt-wire server"
 
 mosquitto_sub -h 127.0.0.1 -p 1883 -u subscriber -P "$MQTT_SUB_PASSWORD" -t 'sensors/#' &
 mosquitto_pub -h 127.0.0.1 -p 1883 -u publisher -P "$MQTT_PUB_PASSWORD" -t 'sensors/room1' -m '21.5'
 ```
 
-## STOMP 1.2 wire (EG-KG.ontology.stomp-frame-codec-unit, feature `stomp-wire`)
+## STOMP 1.2 wire (MEDULLA-KG.ontology.stomp-frame-codec-unit, feature `stomp-wire`)
 
 A text-frame listener mapping CONNECT/SEND/SUBSCRIBE/ACK/DISCONNECT onto the broker.
 
 ```bash
-EPISTEMIC_GRAPH_STOMP_ADDR=127.0.0.1:61613 \
+MEDULLA_STOMP_ADDR=127.0.0.1:61613 \
 GRAPH_SERVICE_AUTH_SECRET=$SECRET \
-  epistemic-graph-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "stomp-wire server"
+  medulla-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "stomp-wire server"
 ```
 
 All three direct broker listeners require authenticated loopback. Credentials are
@@ -102,12 +102,12 @@ that forwards to loopback; missing key material fails startup.
 ## Wire ↔ broker graph
 
 Each wire selects the broker graph via its `*_GRAPH` env var (default `__commons__`):
-`EPISTEMIC_GRAPH_AMQP_GRAPH`, `EPISTEMIC_GRAPH_MQTT_GRAPH`, `EPISTEMIC_GRAPH_STOMP_GRAPH`. Because all
+`MEDULLA_AMQP_GRAPH`, `MEDULLA_MQTT_GRAPH`, `MEDULLA_STOMP_GRAPH`. Because all
 three front the same broker, cross-protocol pub/sub works by topic. See
 [connecting](connecting.md#rabbitmq-amqp-client) for the per-wire connect recipes.
 
 ---
-*The broker is the Phase-Y modality over the EG-KG.compute.atomically-claim-oldest-pending native engine task queue — messages are durable,
+*The broker is the Phase-Y modality over the MEDULLA-KG.compute.atomically-claim-oldest-pending native engine task queue — messages are durable,
 replicated engine state, not a bolt-on daemon.*
 
 ---

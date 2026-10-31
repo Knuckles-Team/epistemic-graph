@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::server::persistence::decision_jobs::evaluation_run_key;
-use eg_types::decision::replay::{
+use medulla_types::decision::replay::{
     AllocationRule, EvalMode, EvaluationRun, RefitSpec, ReplayEnvironment, ReplaySpec, SharedCap,
     TrialLog, WalkForward,
 };
@@ -184,7 +184,7 @@ fn failed(job: &DecisionJobRecord) -> &str {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R119
+// spec: MEDULLA-DECISION-ENGINE-R119
 #[tokio::test]
 async fn a_replay_is_sealed_stored_and_supersedable() {
     let h = Harness::new().await;
@@ -218,7 +218,7 @@ async fn a_replay_is_sealed_stored_and_supersedable() {
     let mut unsealed = run.clone();
     unsealed.run_digest = String::new();
     assert_eq!(
-        eg_types::decision::digest::digest_text("eg/decision/evaluation-run/v1", &unsealed),
+        medulla_types::decision::digest::digest_text("eg/decision/evaluation-run/v1", &unsealed),
         run.run_digest
     );
     assert!(h
@@ -243,7 +243,7 @@ async fn a_replay_is_sealed_stored_and_supersedable() {
     assert!(failed(&refused).starts_with("REPLAY_SPEC_INVALID"));
 }
 
-// spec: EG-DECISION-ENGINE-R119
+// spec: MEDULLA-DECISION-ENGINE-R119
 #[tokio::test]
 async fn replay_refuses_what_it_cannot_answer() {
     let h = Harness::new().await;

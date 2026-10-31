@@ -1,0 +1,104 @@
+# kafka store-mapping fixture (MEDULLA-DATAPLAT-VOCAB-R006.5).
+#
+# One attached Kafka cluster. Topics, partitions and the point-in-time lag
+# of the groups are served by named MCP operations, virtual. "Sustained"
+# lag is different: a point-in-time lags call cannot return history, so the
+# lag_summary mapping is materialised — the lag time series is recorded via
+# the R038 AccelerationPolicy (metadata only, no records; decision 4).
+# Records themselves are never mapped.
+
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix vg: <http://knuckles.team/kg/virtual-graph#> .
+@prefix ex: <http://knuckles.team/kg/fixtures/data-platform/kafka/> .
+
+ex:store a dp:DataStore ;
+    dp:storeFamily "stream" .
+
+ex:contract a vg:MetadataContract ;
+    vg:contractSource <http://knuckles.team/kg/fixtures/data-platform/kafka/connection> ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:2574bc63850d02cd8a19cd7b4f4ffe1a2c924782a01cad1563a7147b55c4b953" ;
+    vg:discoveredEntity "topics" ;
+    vg:discoveredEntity "partitions" ;
+    vg:discoveredEntity "partition_lags" ;
+    vg:discoveredField "topic_name" ;
+    vg:discoveredField "partition_id" ;
+    vg:discoveredField "lag" ;
+    vg:discoveredField "as_of" .
+
+# dp:Topic and dp:Partition carry no scalar field of their own; partition
+# membership is projected onto the partitionOf link.
+ex:mapping_topics a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:Topic ;
+    vg:mapsEntity "topics" ;
+    vg:keyField "topic_name" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:partitionOf ;
+        vg:field "partition_id"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "kafka_topics:list" ;
+    dp:accelerationMode "virtual" .
+
+ex:mapping_partitions a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:Partition ;
+    vg:mapsEntity "partitions" ;
+    vg:keyField "partition_id" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:partitionOf ;
+        vg:field "topic_name"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "kafka_partitions:list" ;
+    dp:accelerationMode "virtual" .
+
+ex:mapping_current_lag a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:PartitionLag ;
+    vg:mapsEntity "partition_lags" ;
+    vg:keyField "partition_id" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:lag ;
+        vg:field "lag"
+    ] ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:asOf ;
+        vg:field "as_of"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "kafka_groups:lags" ;
+    dp:accelerationMode "virtual" .
+
+ex:mapping_sustained_lag a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:PartitionLag ;
+    vg:mapsEntity "partition_lags" ;
+    vg:keyField "partition_id" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:lag ;
+        vg:field "lag"
+    ] ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:asOf ;
+        vg:field "as_of"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
+    dp:contractKind "mcp-operation" ;
+    dp:viaOperation "kafka_groups:lag_summary" ;
+    dp:accelerationMode "materialised" ;
+    dp:materialisationReason "Sustained lag is a time series, not a point-in-time value a lags call can return; the lag history is materialised via the R038 AccelerationPolicy (metadata only, no records) (MEDULLA-DATAPLAT-VOCAB-R006.5)." .

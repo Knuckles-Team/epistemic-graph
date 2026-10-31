@@ -1,6 +1,6 @@
-//! CONCEPT:EG-KG.coordination.backpressure-busy-signal — engine-native QoS lanes (W2.4, generalizing EG-044).
+//! CONCEPT:MEDULLA-KG.coordination.backpressure-busy-signal — engine-native QoS lanes (W2.4, generalizing MEDULLA-044).
 //!
-//! The transport's baseline admission (CONCEPT:EG-KG.backend.framed-response/EG-044 in `transport.rs`) is a
+//! The transport's baseline admission (CONCEPT:MEDULLA-KG.backend.framed-response/MEDULLA-044 in `transport.rs`) is a
 //! try-acquire over a global in-flight pool + a per-graph fairness cap + a reserved
 //! read lane. It is FIFO-ish: once a permit is free ANY waiting request may take it,
 //! regardless of who it belongs to or how urgent it is. Under a mixed workload — an
@@ -151,7 +151,7 @@ pub fn classify(
 }
 
 /// QoS scheduler configuration. Opt-in: [`configured`] returns `Some` only when
-/// `EPISTEMIC_GRAPH_QOS` is truthy. All sizes derive from the same admission budget the
+/// `MEDULLA_QOS` is truthy. All sizes derive from the same admission budget the
 /// baseline path uses so the two layers agree on "capacity".
 #[derive(Clone, Copy, Debug)]
 pub struct QosConfig {
@@ -225,28 +225,28 @@ impl QosConfig {
 }
 
 /// Process-global QoS scheduler, built ONCE from the environment on first use. `None`
-/// unless `EPISTEMIC_GRAPH_QOS` is truthy — then the transport skips this module entirely
+/// unless `MEDULLA_QOS` is truthy — then the transport skips this module entirely
 /// and the baseline admission path is unchanged. Sizing:
 ///
-/// * `EPISTEMIC_GRAPH_QOS` — `1`/`true`/`on`/`yes` to enable (default off).
-/// * `EPISTEMIC_GRAPH_QOS_CAPACITY` — admission budget; defaults to the auto-sized
+/// * `MEDULLA_QOS` — `1`/`true`/`on`/`yes` to enable (default off).
+/// * `MEDULLA_QOS_CAPACITY` — admission budget; defaults to the auto-sized
 ///   `Capacity::max_inflight()`.
-/// * `EPISTEMIC_GRAPH_QOS_PRINCIPAL_QUOTA` — per-principal hard quota override.
+/// * `MEDULLA_QOS_PRINCIPAL_QUOTA` — per-principal hard quota override.
 pub fn configured() -> Option<Arc<QosScheduler>> {
     static QOS: OnceLock<Option<Arc<QosScheduler>>> = OnceLock::new();
     QOS.get_or_init(|| {
-        if !env_truthy("EPISTEMIC_GRAPH_QOS") {
+        if !env_truthy("MEDULLA_QOS") {
             return None;
         }
         let automatic_capacity = crate::autosize::detect_capacity().max_inflight();
-        let capacity = std::env::var("EPISTEMIC_GRAPH_QOS_CAPACITY")
+        let capacity = std::env::var("MEDULLA_QOS_CAPACITY")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n > 0)
             .map(|value| crate::autosize::bound_explicit(value, automatic_capacity))
             .unwrap_or(automatic_capacity);
         let mut config = QosConfig::auto(capacity);
-        if let Some(q) = std::env::var("EPISTEMIC_GRAPH_QOS_PRINCIPAL_QUOTA")
+        if let Some(q) = std::env::var("MEDULLA_QOS_PRINCIPAL_QUOTA")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n > 0)
@@ -254,7 +254,7 @@ pub fn configured() -> Option<Arc<QosScheduler>> {
             config.per_principal_quota = crate::autosize::bound_explicit(q, config.capacity);
         }
         tracing::info!(
-            target: "epistemic_graph::qos",
+            target: "medulla::qos",
             capacity = config.capacity,
             per_principal_quota = config.per_principal_quota,
             interactive_reserve = config.interactive_reserve,
@@ -376,7 +376,7 @@ pub struct QosStats {
     pub rate_limited_rejected: u64,
 }
 
-/// Engine-native QoS admission scheduler (CONCEPT:EG-KG.coordination.backpressure-busy-signal, W2.4). Cheaply cloneable (an
+/// Engine-native QoS admission scheduler (CONCEPT:MEDULLA-KG.coordination.backpressure-busy-signal, W2.4). Cheaply cloneable (an
 /// `Arc` inside); every clone shares the same counters.
 #[derive(Clone)]
 pub struct QosScheduler {
@@ -474,7 +474,7 @@ impl QosScheduler {
             .or_insert(0) += 1;
         self.inner.admitted_total.fetch_add(1, Ordering::Relaxed);
         tracing::trace!(
-            target: "epistemic_graph::qos",
+            target: "medulla::qos",
             class = req.class.label(),
             principal = req.principal.as_str(),
             in_flight = in_flight + 1,
@@ -522,7 +522,7 @@ impl QosScheduler {
     fn reject(&self, req: &QosRequest, why: QosReject) -> QosDecision {
         self.inner.rejected_total[why.stat_idx()].fetch_add(1, Ordering::Relaxed);
         tracing::debug!(
-            target: "epistemic_graph::qos",
+            target: "medulla::qos",
             class = req.class.label(),
             principal = req.principal.as_str(),
             reason = why.label(),
@@ -595,7 +595,7 @@ impl Drop for QosPermit {
 }
 
 /// Deterministically order a batch of pending requests for admission and pick the top
-/// `available` slots — the deadline-aware, priority-first scheduler seam (CONCEPT:EG-KG.coordination.backpressure-busy-signal).
+/// `available` slots — the deadline-aware, priority-first scheduler seam (CONCEPT:MEDULLA-KG.coordination.backpressure-busy-signal).
 ///
 /// Ordering key: **class descending** (Interactive before Orch before Hydration before
 /// Ingest), then **deadline ascending** (an earlier / more-urgent deadline first; `None`
@@ -904,7 +904,7 @@ mod tests {
     #[test]
     fn default_no_qos_is_disabled() {
         assert!(
-            std::env::var("EPISTEMIC_GRAPH_QOS").is_err(),
+            std::env::var("MEDULLA_QOS").is_err(),
             "test env must not preset the QoS flag"
         );
         assert!(configured().is_none(), "QoS is opt-in; default is disabled");

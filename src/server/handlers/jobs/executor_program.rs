@@ -10,18 +10,18 @@ use super::*;
 pub(super) async fn execute_program_claim(
     state: &Arc<RwLock<ServerState>>,
     store: &Arc<JobStore>,
-    job: &eg_jobs::AnalyticsJob,
+    job: &medulla_jobs::AnalyticsJob,
     worker_ref: &str,
     epoch: u64,
     payload: Vec<u8>,
     request_msgpack: Vec<u8>,
 ) -> Result<(), String> {
-    let request: OptimizationRequest = eg_types::msgpack::decode_bounded(
+    let request: OptimizationRequest = medulla_types::msgpack::decode_bounded(
         &request_msgpack,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_JOB_INPUT_BYTES,
             MAX_JOB_INPUT_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| "program optimization input decoding failed".to_string())?;
@@ -89,10 +89,10 @@ pub(super) async fn execute_program_claim(
 #[cfg(feature = "program-optimization")]
 async fn program_promotion_identity(
     state: &Arc<RwLock<ServerState>>,
-    job: &eg_jobs::AnalyticsJob,
-    optimization: &eg_program::OptimizationResult,
-    program: &eg_program::ProgramRevision,
-    corpus: &eg_program::TrainingCorpus,
+    job: &medulla_jobs::AnalyticsJob,
+    optimization: &medulla_program::OptimizationResult,
+    program: &medulla_program::ProgramRevision,
+    corpus: &medulla_program::TrainingCorpus,
     seed: u64,
 ) -> Result<Option<ProgramRevisionIdentity>, String> {
     if !optimization.promoted {
@@ -110,14 +110,14 @@ async fn program_promotion_identity(
                 program,
                 candidate,
                 active_revision_ref,
-                eg_program::ProgramResultInput {
+                medulla_program::ProgramResultInput {
                     result_ref: promotion_result_ref,
                     dataset_ref: OpaqueRef::new(job.input_snapshot.dataset_ref.clone())
-                        .map_err(|_| eg_program::ProgramError::InvalidCommit)?,
+                        .map_err(|_| medulla_program::ProgramError::InvalidCommit)?,
                     content_digest: job.input_snapshot.content_digest.clone(),
                     snapshot_version: job.input_snapshot.version,
                 },
-                eg_program::ProgramCorpusBinding {
+                medulla_program::ProgramCorpusBinding {
                     corpus_ref: corpus.corpus_ref.clone(),
                     snapshot_version: corpus.snapshot_version,
                 },
@@ -135,7 +135,7 @@ async fn run_program_kernel(
     worker_ref: &str,
     epoch: u64,
     request: OptimizationRequest,
-) -> Result<Option<eg_program::OptimizationResult>, String> {
+) -> Result<Option<medulla_program::OptimizationResult>, String> {
     let cancellation = Arc::new(AtomicBool::new(false));
     let kernel_token = cancellation.clone();
     let mut kernel = tokio::task::spawn_blocking(move || {
@@ -149,7 +149,7 @@ async fn run_program_kernel(
             joined = &mut kernel => {
                 match joined {
                     Ok(Ok(result)) if stop_reason.is_none() => break result,
-                    Ok(Ok(_)) | Ok(Err(eg_program::ProgramError::Cancelled)) => {
+                    Ok(Ok(_)) | Ok(Err(medulla_program::ProgramError::Cancelled)) => {
                         finish_cancelled_kernel(store, job_id, worker_ref, epoch, stop_reason);
                         return Ok(None);
                     }
@@ -214,7 +214,7 @@ fn finish_failed_kernel(store: &JobStore, job_id: &str, worker_ref: &str, epoch:
 
 #[cfg(feature = "program-optimization")]
 fn program_stop_reason(
-    current: &eg_jobs::AnalyticsJob,
+    current: &medulla_jobs::AnalyticsJob,
     began: &Instant,
     now: i64,
 ) -> Option<&'static str> {
@@ -248,7 +248,7 @@ pub(super) async fn current_program_active_revision_ref(
     let Some(properties) = core.get_node_properties(pointer.as_str()) else {
         return Ok(None);
     };
-    let value = eg_types::msgpack::decode_property_value(&properties)
+    let value = medulla_types::msgpack::decode_property_value(&properties)
         .map_err(|_| "program active pointer properties are invalid".to_string())?;
     if value.get("program_ref").and_then(serde_json::Value::as_str) != Some(program_ref.as_str()) {
         return Err("program active pointer has a different program identity".to_string());

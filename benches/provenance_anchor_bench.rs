@@ -1,4 +1,4 @@
-//! Provenance-anchoring write-path overhead (provenance anchoring, CONCEPT:EG-KG.sharding.row-level-security):
+//! Provenance-anchoring write-path overhead (provenance anchoring, CONCEPT:MEDULLA-KG.sharding.row-level-security):
 //! measures the write-throughput delta a running anchor sweep adds to the
 //! ordinary durable write path, so the <1% overhead budget is a measured
 //! number, not an assumption.
@@ -12,7 +12,7 @@
 //!     tick — a real durable commit every time, never the free
 //!     unchanged-root skip path) and re-anchors it on a DELIBERATELY
 //!     aggressive fixed interval, far tighter than any real deployment's
-//!     `EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS` (seconds, not milliseconds).
+//!     `MEDULLA_PROVENANCE_ANCHOR_SECS` (seconds, not milliseconds).
 //!     This is a stress-test upper bound on overhead, not a realistic
 //!     cadence — if overhead stays under budget here, it is strictly lower
 //!     at a real deployment's cadence.
@@ -35,10 +35,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use epistemic_graph::audit;
-use epistemic_graph::protocol::Method;
-use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-use epistemic_graph::server::persistence::PersistenceBackend;
+use medulla::audit;
+use medulla::protocol::Method;
+use medulla::server::persistence::redb_backend::RedbBackend;
+use medulla::server::persistence::PersistenceBackend;
 use redb_fan_in::{fan_in, GRAPH};
 use tokio::runtime::Builder;
 
@@ -124,7 +124,7 @@ fn bench_provenance_anchor_overhead(c: &mut Criterion) {
         .expect("tokio runtime");
 
     const N: usize = 1_000;
-    // Deliberately aggressive vs. any real `EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS`
+    // Deliberately aggressive vs. any real `MEDULLA_PROVENANCE_ANCHOR_SECS`
     // (seconds) -- a stress-test upper bound, not a realistic cadence.
     const ANCHOR_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -136,7 +136,7 @@ fn bench_provenance_anchor_overhead(c: &mut Criterion) {
 
     for &anchoring_on in &[false, true] {
         let dir = std::env::temp_dir().join(format!(
-            "eg-provenance-bench-{}-{anchoring_on}",
+            "medulla-provenance-bench-{}-{anchoring_on}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);

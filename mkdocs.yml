@@ -65,12 +65,12 @@ nav:
       - AIF argumentation: architecture/aif-argumentation.md
   - Components:
       - Overview: components/index.md
-      - eg.types: components/eg-types.md
-      - eg.core: components/eg-core.md
-      - eg.storage-transaction: components/eg-storage-transaction.md
-      - eg.query-reasoning: components/eg-query-reasoning.md
-      - eg.server-protocol: components/eg-server-protocol.md
-      - eg.composition: components/eg-composition.md
+      - medulla.types: components/medulla-types.md
+      - medulla.core: components/medulla-core.md
+      - medulla.storage-transaction: components/medulla-storage-transaction.md
+      - medulla.query-reasoning: components/medulla-query-reasoning.md
+      - medulla.server-protocol: components/medulla-server-protocol.md
+      - medulla.composition: components/medulla-composition.md
   - Operate:
       - Deploy the engine: standalone_deployment.md
       - Deployment reference: deployment.md

@@ -4,8 +4,8 @@ use std::sync::Arc;
 use crate::protocol::{GraphType, Method, ResultPayload};
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
-use eg_types::contract::Nonce;
-use eg_types::mutation_batch::CommittedVersion;
+use medulla_types::contract::Nonce;
+use medulla_types::mutation_batch::CommittedVersion;
 
 use super::commit::lifecycle_identity_matches;
 use super::{
@@ -162,7 +162,7 @@ async fn create_lifecycle_replay_keeps_one_stable_receipt() {
     // still for this whole body. READ guard: it excludes only a key MUTATOR, never
     // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = crate::test_support::temp_dir("eg-lifecycle-replay", "create");
+    let dir = crate::test_support::temp_dir("medulla-lifecycle-replay", "create");
     assert_stable_lifecycle_replay(
         &dir,
         "create",
@@ -189,7 +189,7 @@ async fn delete_lifecycle_replay_keeps_one_stable_receipt() {
     // still for this whole body. READ guard: it excludes only a key MUTATOR, never
     // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = crate::test_support::temp_dir("eg-lifecycle-replay", "delete");
+    let dir = crate::test_support::temp_dir("medulla-lifecycle-replay", "delete");
     let graph = "lifecycle-delete";
     {
         let persistence = open_backend(&dir);
@@ -240,12 +240,12 @@ async fn delete_lifecycle_replay_keeps_one_stable_receipt() {
 /// a graph under the same name with the SAME CreateGraph idempotency key (and
 /// so the same deterministic batch id) as the now-deleted incarnation commits
 /// fresh rather than replaying the purged, stale outcome.
-// spec: EG-DURABLE-KERNEL-R049
+// spec: MEDULLA-DURABLE-KERNEL-R049
 #[cfg(feature = "redb")]
 #[tokio::test(flavor = "multi_thread")]
 async fn delete_purges_receipts_of_a_prior_incarnation() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = crate::test_support::temp_dir("eg-lifecycle-replay", "purge-incarnation");
+    let dir = crate::test_support::temp_dir("medulla-lifecycle-replay", "purge-incarnation");
     let graph = "lifecycle-reincarnated";
     let principal = Some("principal:lifecycle-test");
     let create_method = || Method::CreateGraph {
@@ -408,11 +408,11 @@ async fn delete_purges_receipts_of_a_prior_incarnation() {
 /// idempotency key, same graph name, different tenants: tenant B's retry probe must
 /// NOT find (and so must not replay) tenant A's committed CreateGraph.
 #[cfg(feature = "redb")]
-// spec: EG-DURABLE-KERNEL-R019
+// spec: MEDULLA-DURABLE-KERNEL-R019
 #[tokio::test(flavor = "multi_thread")]
 async fn lifecycle_receipt_is_not_replayed_across_tenants() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = crate::test_support::temp_dir("eg-lifecycle-replay", "cross-tenant");
+    let dir = crate::test_support::temp_dir("medulla-lifecycle-replay", "cross-tenant");
     let persistence = open_backend(&dir);
     let graph = "lifecycle-shared-name";
     let method = || Method::CreateGraph {
@@ -477,11 +477,11 @@ async fn lifecycle_receipt_is_not_replayed_across_tenants() {
 /// what this build would compile, yet the retained CreateGraph identity is the
 /// same, so it is committed. A receipt for another graph type is a conflict.
 #[cfg(feature = "redb")]
-// spec: EG-DURABLE-KERNEL-R861.1
+// spec: MEDULLA-DURABLE-KERNEL-R861.1
 #[tokio::test(flavor = "multi_thread")]
 async fn lifecycle_replay_compares_identity_not_recompiled_bytes() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = crate::test_support::temp_dir("eg-lifecycle-replay", "identity");
+    let dir = crate::test_support::temp_dir("medulla-lifecycle-replay", "identity");
     let persistence = open_backend(&dir);
     let graph = "lifecycle-identity-graph";
     let principal = Some("principal:identity-agent");
@@ -517,10 +517,10 @@ async fn lifecycle_replay_compares_identity_not_recompiled_bytes() {
 
     // Same identity, different bytes: an older build's catalog digest, result
     // encoding and timestamps.
-    if let eg_types::mutation_batch::MutationEnvelope::Operation(operation) =
+    if let medulla_types::mutation_batch::MutationEnvelope::Operation(operation) =
         &mut stored.batch.envelope
     {
-        operation.authority.catalog_digest = eg_types::contract::Digest256::from_bytes([9; 32]);
+        operation.authority.catalog_digest = medulla_types::contract::Digest256::from_bytes([9; 32]);
     }
     stored.result_msgpack = Some(vec![0xc0]);
     stored.batch.created_at_ms += 1;

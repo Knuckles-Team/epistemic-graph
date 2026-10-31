@@ -1,4 +1,4 @@
-//! W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-KG.query.named-graph-support, feature `sparql-http`).
+//! W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:MEDULLA-KG.query.named-graph-support, feature `sparql-http`).
 //!
 //! A minimal, dependency-free HTTP/1.1 listener (the SAME hand-rolled idiom as the
 //! Prometheus `--metrics-addr` exposition — no axum/hyper/warp, so the Pi contract
@@ -10,12 +10,12 @@
 //!   * `POST /sparql`  `application/sparql-update`     → UPDATE (body = the update)
 //!   * `POST /sparql`  `application/x-www-form-urlencoded` with `query=` or `update=`
 //!
-//! Result media types are content-negotiated (CONCEPT:EG-KG.ontology.content-negotiation-serializers) from the `Accept` header
+//! Result media types are content-negotiated (CONCEPT:MEDULLA-KG.ontology.content-negotiation-serializers) from the `Accept` header
 //! (with an `output=`/`format=` query-param override): SELECT/ASK serve SPARQL-results
 //! JSON (default), XML, CSV or TSV; CONSTRUCT/DESCRIBE serve N-Triples (default) or
 //! Turtle. With no `Accept` header the per-form default is used (byte-identical to the
 //! prior fixed behavior). The default
-//! graph is `?default-graph-uri=` (or `EPISTEMIC_GRAPH_SPARQL_DEFAULT_GRAPH`, else
+//! graph is `?default-graph-uri=` (or `MEDULLA_SPARQL_DEFAULT_GRAPH`, else
 //! `__commons__`); EVERY registry graph is exposed as a named graph so `GRAPH <name>{}`
 //! and `GRAPH ?g{}` work across the engine's graphs.
 //!
@@ -33,7 +33,7 @@ use tokio::sync::RwLock;
 use crate::graph::GraphCore;
 use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::ServerState;
-use eg_rdf::sparql::{Binding, Dataset, Projection, QueryOutcome, SparqlResult};
+use medulla_rdf::sparql::{Binding, Dataset, Projection, QueryOutcome, SparqlResult};
 
 mod graph_store;
 mod negotiation;
@@ -51,18 +51,18 @@ pub(crate) use update_plan::{
 };
 
 /// Env var naming the default-graph the endpoint resolves a bare query against.
-pub const DEFAULT_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_DEFAULT_GRAPH";
+pub const DEFAULT_GRAPH_ENV: &str = "MEDULLA_SPARQL_DEFAULT_GRAPH";
 /// Env var carrying the bind address (`host:port`) when `--sparql-addr` is not passed.
-pub const SPARQL_ADDR_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_ADDR";
+pub const SPARQL_ADDR_ENV: &str = "MEDULLA_SPARQL_ADDR";
 /// Current typed event carried by the signed `ApplyMutation` protocol method.
 pub const SPARQL_HTTP_UPDATE_EVENT: &str = "sparql_http_update_v1";
-/// SSRF allowlist for outbound `SERVICE` federation (CONCEPT:EG-KG.query.sparql-service-federation-client, feature
+/// SSRF allowlist for outbound `SERVICE` federation (CONCEPT:MEDULLA-KG.query.sparql-service-federation-client, feature
 /// `sparql-service`): a comma-separated set of allowed endpoint hosts / `scheme://host:port`
 /// origins. **Empty / unset ⇒ SERVICE is DISABLED (fail-closed)** — no remote client is
 /// bound, so a `SERVICE <ep> { … }` clause errors (or, under `SERVICE SILENT`, yields the
 /// empty solution). A host resolving to a loopback/link-local/RFC-1918 address is refused
 /// unless the allowlist names that exact host literally.
-pub const SERVICE_ALLOW_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW";
+pub const SERVICE_ALLOW_ENV: &str = "MEDULLA_SPARQL_SERVICE_ALLOW";
 /// Env var: the static bearer-token secret for the `/sparql` SELECT/CONSTRUCT/
 /// ASK read leg's carrier credential (A18) — the same credential SHAPE the
 /// KV-cache HTTP surface accepts (`server::auth::BearerCredential`),
@@ -71,7 +71,7 @@ pub const SERVICE_ALLOW_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW";
 /// SPARQL reads. Ignored once a JWT issuer is configured (see
 /// `crate::server::oidc::JwtValidator::from_env_sparql`); unset with no JWT
 /// issuer ⇒ the read leg has no credential to check and stays denied.
-pub const SPARQL_BEARER_TOKEN_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_BEARER_TOKEN";
+pub const SPARQL_BEARER_TOKEN_ENV: &str = "MEDULLA_SPARQL_BEARER_TOKEN";
 const HTTP_LIMITS: RequestLimits = RequestLimits {
     max_head_bytes: 64 * 1024,
     max_body_bytes: 8 * 1024 * 1024,
@@ -225,7 +225,7 @@ async fn handle(
     route::handle_sparql(state, bearer, &req, query_string, &content_type, &body).await
 }
 
-/// Natural-language query facade route (CONCEPT:EG-KG.query.fence-stripper). Accepts a JSON body
+/// Natural-language query facade route (CONCEPT:MEDULLA-KG.query.fence-stripper). Accepts a JSON body
 /// `{"text": "...", "graph": "..."}` (graph optional — defaults to the SPARQL default
 /// graph), builds an AUTHENTICATED in-process `Method::NlQuery` request, and runs it
 /// through the FULL dispatch path (the planner + RLS + the deterministic
@@ -360,7 +360,7 @@ async fn run_query(
             "text/plain",
             "ACCESS_DENIED: SPARQL SELECT/CONSTRUCT/ASK over HTTP requires a valid \
              Authorization: Bearer <token> (static secret or JWT) credential — see \
-             EPISTEMIC_GRAPH_SPARQL_BEARER_TOKEN / EPISTEMIC_GRAPH_SPARQL_JWT_ISSUER"
+             MEDULLA_SPARQL_BEARER_TOKEN / MEDULLA_SPARQL_JWT_ISSUER"
                 .to_string(),
         );
     }
@@ -369,11 +369,11 @@ async fn run_query(
     let query = query.to_string();
     let outcome = tokio::task::spawn_blocking(move || {
         let default_view = default_core.analysis_snapshot();
-        let named_views: Vec<(String, eg_core::graph::GraphView)> = named_cores
+        let named_views: Vec<(String, medulla_core::graph::GraphView)> = named_cores
             .iter()
             .map(|(n, c)| (n.clone(), c.analysis_snapshot()))
             .collect();
-        let named_refs: Vec<(String, &eg_core::graph::GraphView)> =
+        let named_refs: Vec<(String, &medulla_core::graph::GraphView)> =
             named_views.iter().map(|(n, v)| (n.clone(), v)).collect();
         let ds = Dataset::new(&default_view, named_refs);
         run_dataset_query(&ds, &query)
@@ -417,27 +417,27 @@ async fn registry_cores(
 }
 
 /// Evaluate a parsed dataset query, binding the outbound `SERVICE` client when the
-/// `sparql-service` feature is on AND the SSRF allowlist is non-empty (CONCEPT:EG-KG.query.sparql-service-federation-client).
+/// `sparql-service` feature is on AND the SSRF allowlist is non-empty (CONCEPT:MEDULLA-KG.query.sparql-service-federation-client).
 /// Otherwise (feature off, or allowlist empty) NO client is bound — SERVICE is fail-closed.
 /// Runs inside the caller's `spawn_blocking` (the `ureq` client is blocking).
 fn run_dataset_query(ds: &Dataset, query: &str) -> Result<QueryOutcome, String> {
     #[cfg(feature = "sparql-service")]
     {
         let client = ServiceClient::from_env();
-        let svc: Option<&dyn eg_rdf::sparql::RemoteSparql> = client
+        let svc: Option<&dyn medulla_rdf::sparql::RemoteSparql> = client
             .as_ref()
-            .map(|c| c as &dyn eg_rdf::sparql::RemoteSparql);
-        eg_rdf::sparql::execute(ds, query, &Projection::raw(), svc)
+            .map(|c| c as &dyn medulla_rdf::sparql::RemoteSparql);
+        medulla_rdf::sparql::execute(ds, query, &Projection::raw(), svc)
     }
     #[cfg(not(feature = "sparql-service"))]
     {
-        eg_rdf::sparql::execute(ds, query, &Projection::raw(), None)
+        medulla_rdf::sparql::execute(ds, query, &Projection::raw(), None)
     }
 }
 
-// ── SPARQL SERVICE federation client (CONCEPT:EG-KG.query.sparql-service-federation-client, feature `sparql-service`) ───
+// ── SPARQL SERVICE federation client (CONCEPT:MEDULLA-KG.query.sparql-service-federation-client, feature `sparql-service`) ───
 
-/// A `ureq`-backed [`eg_rdf::sparql::RemoteSparql`] with an SSRF allowlist. Reuses the SAME
+/// A `ureq`-backed [`medulla_rdf::sparql::RemoteSparql`] with an SSRF allowlist. Reuses the SAME
 /// pure-Rust rustls `ureq` stack `federation` already links (no new crate enters the tree).
 ///
 /// `pub(crate)` (CA-12, feature `sparql-fuseki`): `server::sparql_service`'s Fuseki startup
@@ -490,9 +490,9 @@ impl ServiceClient {
 }
 
 #[cfg(feature = "sparql-service")]
-impl eg_rdf::sparql::RemoteSparql for ServiceClient {
+impl medulla_rdf::sparql::RemoteSparql for ServiceClient {
     fn select(&self, endpoint: &str, query: &str) -> Result<SparqlResult, String> {
-        use eg_plan::federation_ssrf::{
+        use medulla_plan::federation_ssrf::{
             pinned_agent, validate_outbound_http_target, OutboundAllowPolicy,
         };
         use std::io::Read;
@@ -546,7 +546,7 @@ fn parse_results_json(body: &str) -> Result<SparqlResult, String> {
     let mut solutions = Vec::new();
     if let Some(bindings) = j["results"]["bindings"].as_array() {
         for b in bindings {
-            let mut sol = eg_rdf::sparql::Solution::new();
+            let mut sol = medulla_rdf::sparql::Solution::new();
             if let Some(obj) = b.as_object() {
                 for (k, term) in obj {
                     if let Some(binding) = json_term_to_binding(term) {
@@ -618,7 +618,7 @@ fn term_json(b: &Binding) -> serde_json::Value {
     }
 }
 
-// ── hand-written SPARQL 1.1 Query Results serializers (CONCEPT:EG-KG.ontology.content-negotiation-serializers) ────────────
+// ── hand-written SPARQL 1.1 Query Results serializers (CONCEPT:MEDULLA-KG.ontology.content-negotiation-serializers) ────────────
 
 /// The ASK boolean rendered for the negotiated media type (JSON default, XML, or a bare
 /// `true`/`false` for CSV/TSV). The JSON form is byte-identical to the prior fixed output.
@@ -932,7 +932,7 @@ mod tests {
 
     #[test]
     fn select_json_shape() {
-        let mut sol = eg_rdf::sparql::Solution::new();
+        let mut sol = medulla_rdf::sparql::Solution::new();
         sol.insert("s".to_string(), Binding::Node("<http://x>".to_string()));
         let r = SparqlResult {
             vars: vec!["s".to_string()],
@@ -944,10 +944,10 @@ mod tests {
         assert_eq!(j["results"]["bindings"][0]["s"]["value"], "http://x");
     }
 
-    // ── CONCEPT:EG-KG.ontology.content-negotiation-serializers content negotiation + serializers ─────────────────────────
+    // ── CONCEPT:MEDULLA-KG.ontology.content-negotiation-serializers content negotiation + serializers ─────────────────────────
 
     fn sample_result() -> SparqlResult {
-        let mut sol = eg_rdf::sparql::Solution::new();
+        let mut sol = medulla_rdf::sparql::Solution::new();
         sol.insert("s".to_string(), Binding::Node("<http://x>".to_string()));
         sol.insert("n".to_string(), Binding::Literal("a,b".to_string()));
         SparqlResult {
@@ -985,7 +985,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-KG.ontology.eg-concrete-syntax-matrix/EG-137 — the concrete-syntax matrix is content-negotiable on the
+    /// CONCEPT:MEDULLA-KG.ontology.medulla-concrete-syntax-matrix/MEDULLA-137 — the concrete-syntax matrix is content-negotiable on the
     /// graph forms: N-Quads/TriG/JSON-LD (always) and RDF/XML (under `rdf-xml`), by both
     /// Accept header and the `output=`/`format=` short token, and each serializes.
     #[test]
@@ -1015,7 +1015,7 @@ mod tests {
         assert_eq!(negotiate("", GRAPH_FORMS), "application/n-triples");
 
         let triples =
-            eg_rdf::mapping::parse_turtle("@prefix ex: <http://example.org/> . ex:a ex:p ex:b .")
+            medulla_rdf::mapping::parse_turtle("@prefix ex: <http://example.org/> . ex:a ex:p ex:b .")
                 .unwrap();
         assert!(
             serialize_graph("application/n-quads", &triples)
@@ -1094,7 +1094,7 @@ mod tests {
         assert_eq!(boolean_body("text/csv", true), "true");
     }
 
-    // ── CONCEPT:EG-KG.query.sparql-service-federation-client — SPARQL SERVICE federation client ────────────────────────
+    // ── CONCEPT:MEDULLA-KG.query.sparql-service-federation-client — SPARQL SERVICE federation client ────────────────────────
 
     /// The results-JSON parse is the exact inverse of `term_json`'s uri/bnode/literal split.
     #[cfg(feature = "sparql-service")]
@@ -1119,7 +1119,7 @@ mod tests {
         assert_eq!(term_json(sol.get("l").unwrap())["type"], "literal");
     }
 
-    // ── CONCEPT:EG-KG.query.graph-store-http-protocol — Graph Store HTTP Protocol ──────────────────────────────
+    // ── CONCEPT:MEDULLA-KG.query.graph-store-http-protocol — Graph Store HTTP Protocol ──────────────────────────────
 
     /// Indirect (`/rdf-graphs/service?graph=` / `?default`) and direct (`/rdf-graphs/<name>`)
     /// naming both resolve to the target graph; a bare `/rdf-graphs` names nothing.
@@ -1172,14 +1172,14 @@ mod tests {
         let triples = parse_rdf_body("text/turtle", body).unwrap();
         // PUT = replace: clear then insert.
         core.clear();
-        eg_rdf::update::insert_triples(&core, &triples).unwrap();
+        medulla_rdf::update::insert_triples(&core, &triples).unwrap();
         // GET = export + serialize (default N-Triples), then re-parse to compare.
         let exported = export_graph(&core, "http://ex/g").unwrap();
-        let nt = eg_rdf::mapping::to_ntriples(&exported).unwrap();
-        let reparsed = eg_rdf::mapping::parse_ntriples(&nt).unwrap();
+        let nt = medulla_rdf::mapping::to_ntriples(&exported).unwrap();
+        let reparsed = medulla_rdf::mapping::parse_ntriples(&nt).unwrap();
         assert_eq!(
-            eg_rdf::mapping::triple_set_key(&reparsed),
-            eg_rdf::mapping::triple_set_key(&triples),
+            medulla_rdf::mapping::triple_set_key(&reparsed),
+            medulla_rdf::mapping::triple_set_key(&triples),
             "PUT→GET preserves the graph's triple set"
         );
     }
@@ -1191,11 +1191,11 @@ mod tests {
         let core = GraphCore::new();
         let seed =
             parse_rdf_body("text/turtle", "<http://ex/a> <http://ex/p> <http://ex/b> .").unwrap();
-        eg_rdf::update::insert_triples(&core, &seed).unwrap();
+        medulla_rdf::update::insert_triples(&core, &seed).unwrap();
         // POST = merge: no clear.
         let add =
             parse_rdf_body("text/turtle", "<http://ex/c> <http://ex/q> <http://ex/d> .").unwrap();
-        eg_rdf::update::insert_triples(&core, &add).unwrap();
+        medulla_rdf::update::insert_triples(&core, &add).unwrap();
         let exported = export_graph(&core, "http://ex/g").unwrap();
         assert_eq!(
             exported.len(),
@@ -1210,7 +1210,7 @@ mod tests {
         let core = GraphCore::new();
         let t =
             parse_rdf_body("text/turtle", "<http://ex/a> <http://ex/p> <http://ex/b> .").unwrap();
-        eg_rdf::update::insert_triples(&core, &t).unwrap();
+        medulla_rdf::update::insert_triples(&core, &t).unwrap();
         assert_eq!(export_graph(&core, "g").unwrap().len(), 1);
         core.clear();
         assert!(
@@ -1228,10 +1228,10 @@ mod tests {
         let core = GraphCore::new();
         let t =
             parse_rdf_body("text/turtle", "<http://ex/a> <http://ex/p> <http://ex/b> .").unwrap();
-        eg_rdf::update::insert_triples(&core, &t).unwrap();
+        medulla_rdf::update::insert_triples(&core, &t).unwrap();
         let exported = export_graph(&core, "g").unwrap();
-        let ttl = eg_rdf::mapping::to_turtle(&exported).unwrap();
-        let nt = eg_rdf::mapping::to_ntriples(&exported).unwrap();
+        let ttl = medulla_rdf::mapping::to_turtle(&exported).unwrap();
+        let nt = medulla_rdf::mapping::to_ntriples(&exported).unwrap();
         assert!(nt.contains("<http://ex/a> <http://ex/p> <http://ex/b> ."));
         assert!(
             ttl.contains("http://ex/a"),
@@ -1242,7 +1242,7 @@ mod tests {
     #[cfg(feature = "sparql-service")]
     #[test]
     fn service_destination_uses_single_federation_gate() {
-        use eg_plan::federation_ssrf::{validate_outbound_http_target, OutboundAllowPolicy};
+        use medulla_plan::federation_ssrf::{validate_outbound_http_target, OutboundAllowPolicy};
         let allow = vec!["127.0.0.1".to_string()];
         let accepted = validate_outbound_http_target(
             "http://127.0.0.1:8080/sparql",

@@ -1,6 +1,6 @@
 use super::*;
 
-use eg_types::result_contract::ingestion as ingestion_results;
+use medulla_types::result_contract::ingestion as ingestion_results;
 
 /// Source ingestion: parse a file or a batch of files, index a repository,
 /// observe a screen. All are stateless parses that never touch `state`.
@@ -72,7 +72,7 @@ async fn parse_files(ctx: DispatchCtx<'_>, files_msgpack: Vec<u8>) -> Response {
         // Parse on the blocking pool, NOT the async reactor: parse_files is
         // CPU-bound (rayon tree-sitter over every file) and a large batch
         // would otherwise stall the runtime thread, blocking unrelated
-        // requests until it finishes. (CONCEPT:EG-KG.compute.off-reactor-dispatch — work off-reactor, A4)
+        // requests until it finishes. (CONCEPT:MEDULLA-KG.compute.off-reactor-dispatch — work off-reactor, A4)
         let results = match compute_off_lock(req_id, move || {
             crate::parser::tree_sitter::parse_files(&owned)
         })
@@ -104,7 +104,7 @@ async fn index_repository(ctx: DispatchCtx<'_>, files_msgpack: Vec<u8>) -> Respo
             Err(error) => return Response::err(req_id, error),
         };
         // Off-reactor like ParseFiles: parse (rayon) + resolution are
-        // CPU-bound over the whole batch. (CONCEPT:EG-KG.compute.turn-each-project)
+        // CPU-bound over the whole batch. (CONCEPT:MEDULLA-KG.compute.turn-each-project)
         let result = match compute_off_lock(req_id, move || {
             crate::parser::resolve::index_repository(&owned)
         })

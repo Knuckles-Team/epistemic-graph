@@ -32,7 +32,7 @@
 //! sibling function `dispatch_inner`, so it falls outside this guard's bound;
 //! that remains a known, disclosed gap rather than coverage silently claimed.
 //!
-//! **Correction (eg-f3 burndown, 2026-09-11):** the guard used to read a single
+//! **Correction (medulla-f3 burndown, 2026-09-11):** the guard used to read a single
 //! hard-coded path (`src/server/dispatch.rs`) and to bound itself to the literal
 //! body of `dispatch_graph_op_inner`, asserting a byte-offset ordering between
 //! `check_graph_access(` and the two `try_handle(` calls INSIDE that one
@@ -410,7 +410,7 @@ fn assert_handler_reachable_only_through_gateway(
 /// path to a private helper that itself calls the handler.)
 ///
 /// Remove any one of those calls, or route before gating, and this test fails.
-// spec: EG-DURABLE-KERNEL-R048
+// spec: MEDULLA-DURABLE-KERNEL-R048
 #[test]
 fn check_graph_access_precedes_query_and_rdf_try_handle_in_dispatch() {
     let (path, source) = defining_source("async fn dispatch_graph_op_inner");

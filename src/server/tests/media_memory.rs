@@ -1,8 +1,8 @@
 //! `MediaRemember` / `MediaRecall` through the FULL served dispatch chain
-//! (EG-MEDIA-VOCAB-R650.3-R650.5).
+//! (MEDULLA-MEDIA-VOCAB-R650.3-R650.5).
 
 use super::*;
-use eg_types::media_memory::{MediaDerivation, MediaMemory, MediaRecall};
+use medulla_types::media_memory::{MediaDerivation, MediaMemory, MediaRecall};
 
 const PNG: &[u8] = &[0x89, b'P', b'N', b'G', 9, 8, 7, 6, 5];
 
@@ -68,7 +68,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 /// The served methods reach the durable substrates: the bytes are in the blob
 /// CAS under their digest, and the index row reads back through a recall.
-// spec: EG-MEDIA-VOCAB-R650.3
+// spec: MEDULLA-MEDIA-VOCAB-R650.3
 #[tokio::test]
 async fn served_media_methods_write_the_blob_cas_and_the_durable_index() {
     let state = durable_state();
@@ -98,7 +98,7 @@ async fn served_media_methods_write_the_blob_cas_and_the_durable_index() {
 /// at the production handler with two verified tenant contexts: the served
 /// test harness signs every request for the deployment's one tenant, so a
 /// full-dispatch request as a second tenant is refused at authentication.
-// spec: EG-MEDIA-VOCAB-R650.3
+// spec: MEDULLA-MEDIA-VOCAB-R650.3
 #[tokio::test]
 async fn one_tenant_cannot_recall_another_tenants_media() {
     let state = durable_state();
@@ -132,7 +132,7 @@ async fn one_tenant_cannot_recall_another_tenants_media() {
 }
 
 /// Each refusal carries its stable wire code and leaves the store unchanged.
-// spec: EG-MEDIA-VOCAB-R650.4
+// spec: MEDULLA-MEDIA-VOCAB-R650.4
 #[tokio::test]
 async fn oversize_and_mismatched_blobs_are_refused_without_state_change() {
     let state = durable_state();
@@ -140,7 +140,7 @@ async fn oversize_and_mismatched_blobs_are_refused_without_state_change() {
     assert_eq!(mismatch.error.as_deref(), Some("MEDIA_MEMORY_TYPE_MISMATCH"));
 
     let mut big = PNG.to_vec();
-    big.resize(eg_modality::media_memory::MEDIA_MEMORY_MAX_BYTES + 1, 0);
+    big.resize(medulla_modality::media_memory::MEDIA_MEMORY_MAX_BYTES + 1, 0);
     let oversize = send(&state, 11, remember(&big, "image/png", &[("d", "t")])).await;
     assert_eq!(oversize.error.as_deref(), Some("MEDIA_MEMORY_OVERSIZE_BLOB"));
 
@@ -159,7 +159,7 @@ async fn oversize_and_mismatched_blobs_are_refused_without_state_change() {
 
 /// The evidence (digest, size, type, derivation ids, citing memory) reads back
 /// through a separately signed `MediaRecall` request, by digest and by text.
-// spec: EG-MEDIA-VOCAB-R650.5
+// spec: MEDULLA-MEDIA-VOCAB-R650.5
 #[tokio::test]
 async fn evidence_reads_back_through_a_separate_recall() {
     let state = durable_state();
@@ -214,7 +214,7 @@ fn index_put(blob_id: &str) -> Method {
 /// A caller can never name the engine-internal `MediaIndexPut`: the public
 /// boundary refuses it exactly as it refuses `PolicyEvolutionStore`, and
 /// nothing is written.
-// spec: EG-MEDIA-VOCAB-R650.3
+// spec: MEDULLA-MEDIA-VOCAB-R650.3
 #[tokio::test]
 async fn public_boundary_refuses_the_internal_index_put() {
     let state = durable_state();
@@ -228,7 +228,7 @@ async fn public_boundary_refuses_the_internal_index_put() {
 /// Applying the replicated native KeyValue command (as a follower does after
 /// the log commits) writes the tenant-namespaced index row, and a served
 /// recall in that tenant finds it.
-// spec: EG-MEDIA-VOCAB-R650.3
+// spec: MEDULLA-MEDIA-VOCAB-R650.3
 #[cfg(feature = "raft")]
 #[tokio::test]
 async fn replicated_index_command_applies_and_recall_finds_it() {

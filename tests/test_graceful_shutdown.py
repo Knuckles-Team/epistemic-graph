@@ -1,4 +1,4 @@
-"""Reference-counted graceful shutdown proof (CONCEPT:EG-KG.backend.tiny-shared).
+"""Reference-counted graceful shutdown proof (CONCEPT:MEDULLA-KG.backend.tiny-shared).
 
 Two contracts, both proven against the actual compiled binary on a private socket
 + persist dir (self-contained, independent of the session-wide ``full`` fixture):
@@ -18,7 +18,7 @@ Two contracts, both proven against the actual compiled binary on a private socke
 
 Both use the stock ``full`` build, which is redb-authoritative by default
 (CONCEPT:AU-KG.backend.backend-modes) so every ``nodes.add`` is commit-before-ack.
-Prefers the shared ``EPISTEMIC_GRAPH_TEST_BINARY`` (conftest.py's
+Prefers the shared ``MEDULLA_TEST_BINARY`` (conftest.py's
 ``_prebuilt_test_binary()``) over its own ``cargo build`` when one is configured.
 """
 
@@ -38,14 +38,14 @@ from conftest import (
     strict_server_env,
 )
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
 RUST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 AUTH_SECRET = "test-graceful-shutdown-secret"
 
 
 def _build_full() -> str | None:
-    # Prefer the shared `EPISTEMIC_GRAPH_TEST_BINARY` (see conftest.py's
+    # Prefer the shared `MEDULLA_TEST_BINARY` (see conftest.py's
     # `_prebuilt_test_binary()`) before ever paying for a `cargo build` here.
     prebuilt = _prebuilt_test_binary()
     if prebuilt is not None:
@@ -101,7 +101,7 @@ def _launch(
 
 
 def _bootstrap(socket_path: str) -> None:
-    client = SyncEpistemicGraphClient.connect(
+    client = SyncMedullaClient.connect(
         socket_path=socket_path,
         auth_secret=AUTH_SECRET,
         verified_context=bootstrap_context(),
@@ -116,7 +116,7 @@ def _bootstrap(socket_path: str) -> None:
         client.close()
 
 
-@pytest.mark.concept("CONCEPT:EG-KG.backend.tiny-shared")
+@pytest.mark.concept("CONCEPT:MEDULLA-KG.backend.tiny-shared")
 def test_idle_shutdown_self_terminates_and_checkpoints(tmp_path):
     binary = _build_full()
     if binary is None:
@@ -131,12 +131,12 @@ def test_idle_shutdown_self_terminates_and_checkpoints(tmp_path):
         binary,
         socket_path,
         persist_dir,
-        {"EPISTEMIC_GRAPH_IDLE_SHUTDOWN_SECS": "1"},
+        {"MEDULLA_IDLE_SHUTDOWN_SECS": "1"},
     )
     _bootstrap(socket_path)
     try:
         # Connect, write an acked durable node, then disconnect.
-        client = SyncEpistemicGraphClient.connect(
+        client = SyncMedullaClient.connect(
             socket_path=socket_path,
             graph_name="idle:test",
             auth_secret=AUTH_SECRET,
@@ -164,7 +164,7 @@ def test_idle_shutdown_self_terminates_and_checkpoints(tmp_path):
     # Restart from the SAME persist dir (no idle flag): the committed node reloads.
     proc2 = _launch(binary, socket_path, persist_dir, {})
     try:
-        client = SyncEpistemicGraphClient.connect(
+        client = SyncMedullaClient.connect(
             socket_path=socket_path,
             graph_name="idle:test",
             auth_secret=AUTH_SECRET,
@@ -184,7 +184,7 @@ def test_idle_shutdown_self_terminates_and_checkpoints(tmp_path):
         os.remove(socket_path)
 
 
-@pytest.mark.concept("CONCEPT:EG-KG.backend.tiny-shared")
+@pytest.mark.concept("CONCEPT:MEDULLA-KG.backend.tiny-shared")
 def test_sigterm_is_graceful(tmp_path):
     binary = _build_full()
     if binary is None:
@@ -199,7 +199,7 @@ def test_sigterm_is_graceful(tmp_path):
     proc = _launch(binary, socket_path, persist_dir, {})
     _bootstrap(socket_path)
     try:
-        client = SyncEpistemicGraphClient.connect(
+        client = SyncMedullaClient.connect(
             socket_path=socket_path,
             graph_name="sigterm:test",
             auth_secret=AUTH_SECRET,
@@ -228,7 +228,7 @@ def test_sigterm_is_graceful(tmp_path):
     # The acked node survived graceful SIGTERM.
     proc2 = _launch(binary, socket_path, persist_dir, {})
     try:
-        client = SyncEpistemicGraphClient.connect(
+        client = SyncMedullaClient.connect(
             socket_path=socket_path,
             graph_name="sigterm:test",
             auth_secret=AUTH_SECRET,

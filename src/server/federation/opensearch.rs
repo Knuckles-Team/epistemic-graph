@@ -1,9 +1,9 @@
-//! CA-14 — OpenSearch federation-search adapter (CONCEPT:EG-KG.query.federation-opensearch-adapter,
+//! CA-14 — OpenSearch federation-search adapter (CONCEPT:MEDULLA-KG.query.federation-opensearch-adapter,
 //! feature `federation-opensearch`, off by default; implies `federation-search`).
 //!
 //! Adds OpenSearch as an additional, non-peer source in the SAME `/federated` fan-out
 //! [`super`] runs against peer eg engines (`DEC-CA-09`: "OpenSearch is the search tier").
-//! Lexical/full-text only — vector/semantic search stays on eg-vector/vector-mcp
+//! Lexical/full-text only — vector/semantic search stays on medulla-vector/vector-mcp
 //! (`INTERCONNECT-GAPS.md` E2, explicit non-goal here). OpenSearch is READ-ONLY from
 //! this adapter's perspective: it is a derived, rebuildable index (`DEC-CA-01`) fed by
 //! CA-24's CDC indexer; this module never writes to it.
@@ -22,7 +22,7 @@
 //! configured OpenSearch index (source label `"opensearch:<index>"`), and then runs the
 //! SAME [`super::merge_partials`]/[`super::merge_partials_typed`] pipeline — so RRF
 //! fusion, dedup, and the `partial`/`failed_peers` degrade contract apply uniformly
-//! across eg-native, peer, and OpenSearch rows.
+//! across medulla-native, peer, and OpenSearch rows.
 //!
 //! ## Query DSL subset (`DEC-CA-09`)
 //!
@@ -74,7 +74,7 @@ use super::{FedRow, FederatedResponse, PeerOutcome};
 /// returns `Err` and [`run_federated_with_opensearch`] with an empty `indices` list
 /// never contacts OpenSearch at all — existing peer-only federation behavior is
 /// unchanged, which is this lane's rollback path.
-pub const OPENSEARCH_URL_ENV: &str = "EPISTEMIC_GRAPH_FEDERATION_OPENSEARCH_URL";
+pub const OPENSEARCH_URL_ENV: &str = "MEDULLA_FEDERATION_OPENSEARCH_URL";
 
 /// The accepted top-level OpenSearch query-DSL clause kinds (`DEC-CA-09`).
 const ALLOWED_QUERY_KEYS: &[&str] = &["match", "term", "bool"];
@@ -138,7 +138,7 @@ pub fn build_search_body(query_dsl: &Value) -> Result<String, String> {
 // ── OpenSearch client (ureq, blocking) ────────────────────────────────────
 
 /// Query one OpenSearch index's `_search` endpoint and map its hits into [`FedRow`]s
-/// (CONCEPT:EG-KG.query.federation-opensearch-adapter, `DEC-CA-09`). Blocking (`ureq`) — call from `spawn_blocking`, mirroring
+/// (CONCEPT:MEDULLA-KG.query.federation-opensearch-adapter, `DEC-CA-09`). Blocking (`ureq`) — call from `spawn_blocking`, mirroring
 /// [`super::fetch_one_peer`]'s pattern, never from an async context directly. Reuses
 /// `super`'s connect/read timeout + response-size-cap constants; the caller's `bearer`,
 /// when `Some` and non-blank, is forwarded unmodified as `Authorization: Bearer <token>`
@@ -235,7 +235,7 @@ fn parse_hits(text: &str, index: &str) -> Result<Vec<FedRow>, String> {
 
 // ── Hook into the federated-search fan-out ────────────────────────────────
 
-/// The full federated read PLUS an OpenSearch leg (CONCEPT:EG-KG.query.federation-opensearch-adapter,
+/// The full federated read PLUS an OpenSearch leg (CONCEPT:MEDULLA-KG.query.federation-opensearch-adapter,
 /// CA-14's actual hook point — see
 /// module docs). Collects the SAME local + peer outcomes [`super::run_federated`] does
 /// (via [`super::collect_outcomes`]), then queries each of `indices` on its own

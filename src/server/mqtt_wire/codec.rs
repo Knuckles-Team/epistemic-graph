@@ -28,7 +28,7 @@ pub(super) const PKT_PINGREQ: u8 = 12;
 pub(super) const PKT_PINGRESP: u8 = 13;
 pub(super) const PKT_DISCONNECT: u8 = 14;
 
-// ── Topic ↔ routing-key translation (CONCEPT:EG-KG.query.mqtt-packet-codec) ──────────────────────
+// ── Topic ↔ routing-key translation (CONCEPT:MEDULLA-KG.query.mqtt-packet-codec) ──────────────────────
 
 /// An MQTT PUBLISH topic (`sport/tennis`) → broker routing key (`sport.tennis`). MQTT
 /// levels are `/`-delimited; the broker's topic matcher is `.`-delimited word lists.
@@ -42,7 +42,7 @@ pub(super) fn key_to_mqtt_topic(key: &str) -> String {
 }
 
 /// Scan an MQTT 5.0 PUBLISH property block for the idempotency User Properties
-/// `producer-id` + `producer-seq` (CONCEPT:EG-KG.ingest.mqtt-publish-property-block), returning `(producer_id,
+/// `producer-id` + `producer-seq` (CONCEPT:MEDULLA-KG.ingest.mqtt-publish-property-block), returning `(producer_id,
 /// producer_seq)`. Steps over the other PUBLISH properties by their known wire widths;
 /// an unrecognised property id ends the scan (its width is undeterminable) with whatever
 /// was found so far. `producer-seq` accepts a decimal string value.
@@ -193,7 +193,7 @@ pub(super) fn parse_publish(
         let mut c = Cursor::new(payload);
         let topic = c.mqtt_str();
         let packet_id = if qos > 0 { c.u16() } else { 0 };
-        // MQTT 5.0 property block → extract the EG-314 idempotency user
+        // MQTT 5.0 property block → extract the MEDULLA-314 idempotency user
         // properties (`producer-id` / `producer-seq`); MQTT 3.1.1 has none.
         let (producer_id, producer_seq) = if version >= 5 {
             let props = c.take_props();

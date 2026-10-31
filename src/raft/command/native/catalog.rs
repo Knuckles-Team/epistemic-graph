@@ -105,7 +105,7 @@ macro_rules! native_method_catalog {
             record KvDelete => KeyValue,
             #[cfg(feature = "kv")]
             record KvCas => KeyValue,
-            // EG-MEDIA-VOCAB-R650.3: the tenant-namespaced media index row in kv.redb.
+            // MEDULLA-MEDIA-VOCAB-R650.3: the tenant-namespaced media index row in kv.redb.
             #[cfg(all(feature = "kv", feature = "blob", feature = "modality-serving"))]
             record MediaIndexPut => KeyValue,
 
