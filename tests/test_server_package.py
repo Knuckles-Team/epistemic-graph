@@ -1,4 +1,4 @@
-"""The server package builds and publishes here (EG-CONTRACT-R053.9-12)."""
+"""The server package builds and publishes here (MEDULLA-CONTRACT-R053.9-12)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import yaml
 pytestmark = pytest.mark.no_engine
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = ROOT / "packaging/epistemic-graph-server"
+PACKAGE = ROOT / "packaging/medulla-server"
 RELEASE = ROOT / ".github/workflows/release.yml"
 CI = ROOT / ".github/workflows/ci.yml"
 ACTION = ROOT / ".github/actions/build-server-wheel/action.yml"
@@ -31,7 +31,7 @@ def _version() -> str:
     return tomllib.loads((ROOT / "Cargo.toml").read_text())["package"]["version"]
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.9")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.9")
 def test_package_wraps_the_root_server_bin_with_the_full_feature_set() -> None:
     project = tomllib.loads((PACKAGE / "pyproject.toml").read_text())
     maturin = project["tool"]["maturin"]
@@ -40,11 +40,11 @@ def test_package_wraps_the_root_server_bin_with_the_full_feature_set() -> None:
     assert maturin["manifest-path"] == "../../Cargo.toml"
     assert maturin["features"] == ["full", "ast-extended"]
     root = tomllib.loads((ROOT / "Cargo.toml").read_text())
-    assert "epistemic-graph-server" in {b["name"] for b in root["bin"]}
+    assert "medulla-server" in {b["name"] for b in root["bin"]}
     assert "--profile release-server" in ACTION.read_text()
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.9")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.9")
 def test_release_builds_every_platform_natively_and_uploads_each() -> None:
     jobs = _yaml(RELEASE)["jobs"]
     job = jobs["build-server"]
@@ -65,7 +65,7 @@ def test_release_builds_every_platform_natively_and_uploads_each() -> None:
     assert swap["if"] == "runner.os == 'Linux'"
     script = _script(job)
     assert '"$smoke/$exe" --help' in script
-    assert "Scripts" in script and "epistemic-graph-server.exe" in script
+    assert "Scripts" in script and "medulla-server.exe" in script
     assert "binary_path" in script
     upload = next(s for s in job["steps"] if s.get("name", "").startswith("Publish"))
     assert "twine upload --skip-existing" in upload["run"]
@@ -85,7 +85,7 @@ def test_release_builds_every_platform_natively_and_uploads_each() -> None:
         assert tag in verify
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.9")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.9")
 def test_compile_cache_is_saved_by_main_ci_and_only_restored_by_release() -> None:
     action = ACTION.read_text()
     assert "shared-key: egs-${{ steps.env.outputs.key }}" in action
@@ -104,23 +104,23 @@ def test_compile_cache_is_saved_by_main_ci_and_only_restored_by_release() -> Non
     assert "cache-save" not in build.get("with", {})
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.10")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.10")
 def test_package_ships_binary_path_and_its_tests() -> None:
-    init = (PACKAGE / "epistemic_graph_server/__init__.py").read_text()
+    init = (PACKAGE / "medulla_server/__init__.py").read_text()
     assert "def binary_path()" in init
     assert "class BinaryNotFoundError(FileNotFoundError)" in init
     assert (PACKAGE / "tests/test_binary_path.py").is_file()
-    server_binary = (ROOT / "epistemic_graph/server_binary.py").read_text()
-    assert "from epistemic_graph_server import binary_path" in server_binary
+    server_binary = (ROOT / "medulla/server_binary.py").read_text()
+    assert "from medulla_server import binary_path" in server_binary
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.11")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.11")
 def test_image_is_built_from_the_wheel_and_published_as_one_manifest() -> None:
     dockerfile = DOCKERFILE.read_text()
     assert "AS runtime" in dockerfile
     assert "docker/wheels/" in dockerfile
     assert "EGS_VERSION must be numeric" in dockerfile
-    assert 'ENTRYPOINT ["epistemic-graph-server"]' in dockerfile
+    assert 'ENTRYPOINT ["medulla-server"]' in dockerfile
     assert "EXPOSE 9100 9101" in dockerfile
     assert "USER 10001:10001" in dockerfile
     jobs = _yaml(RELEASE)["jobs"]
@@ -133,28 +133,28 @@ def test_image_is_built_from_the_wheel_and_published_as_one_manifest() -> None:
     assert manifest["needs"] == "server-image"
     script = _script(manifest)
     assert "docker buildx imagetools create" in script
-    assert "epistemic-graph-server" in str(manifest["steps"])
+    assert "medulla-server" in str(manifest["steps"])
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.12")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.12")
 def test_package_version_is_bumped_with_the_engine() -> None:
     version = _version()
     project = tomllib.loads((PACKAGE / "pyproject.toml").read_text())["project"]
     assert project["version"] == version
-    init = (PACKAGE / "epistemic_graph_server/__init__.py").read_text()
+    init = (PACKAGE / "medulla_server/__init__.py").read_text()
     assert f'__version__ = "{version}"' in init
     assert f"ARG EGS_VERSION={version}" in DOCKERFILE.read_text()
     cfg = (ROOT / ".config/bumpversion.cfg").read_text()
     for target in (
-        "packaging/epistemic-graph-server/pyproject.toml",
-        "packaging/epistemic-graph-server/epistemic_graph_server/__init__.py",
+        "packaging/medulla-server/pyproject.toml",
+        "packaging/medulla-server/medulla_server/__init__.py",
         "docker/Dockerfile",
     ):
         assert f"[bumpversion:file:{target}]" in cfg
     assert "ARG EGS_VERSION={current_version}" in cfg
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.12")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.12")
 def test_dispatch_can_package_a_tagged_version_behind_the_guard() -> None:
     doc = _yaml(RELEASE)
     triggers = doc[True] if True in doc else doc["on"]
@@ -187,7 +187,7 @@ def test_tag_release_creates_the_github_release_after_pypi() -> None:
     assert "--latest" in script
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.9")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.9")
 def test_server_sdist_is_built_proven_published_and_verified() -> None:
     jobs = _yaml(RELEASE)["jobs"]
     steps = jobs["build-server"]["steps"]
@@ -205,7 +205,7 @@ def test_server_sdist_is_built_proven_published_and_verified() -> None:
     assert "maturin sdist" in build["run"]
     assert "medulla_stem-${VERSION}.tar.gz" in build["run"]
     assert "pip wheel --isolated --no-deps" in proof["run"]
-    assert '"$work/venv/bin/epistemic-graph-server" --help' in proof["run"]
+    assert '"$work/venv/bin/medulla-server" --help' in proof["run"]
     assert (
         "twine upload --skip-existing source/dist-server-sdist/*.tar.gz"
         in publish["run"]
@@ -241,7 +241,7 @@ def _path_crates(manifest_dir: Path, seen: dict[Path, None]) -> None:
                         _path_crates(crate, seen)
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.9")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.9")
 def test_sdist_carries_every_path_crate_cargo_needs_to_load_the_manifest() -> None:
     """maturin drops path crates reached only through unselected optional features,
     but `cargo metadata` still loads their manifests, so the isolated rebuild fails
@@ -261,8 +261,8 @@ def test_sdist_carries_every_path_crate_cargo_needs_to_load_the_manifest() -> No
     vendor = PACKAGE / "vendor"
     assert vendor.is_symlink() and vendor.resolve() == ROOT / "vendor"
     assert expected - included == set(), "crates missing from the sdist include list"
-    assert "crates/eg-asr-whisper" in included
-    assert "crates/eg-tts-piper" in included
+    assert "crates/medulla-asr-whisper" in included
+    assert "crates/medulla-tts-piper" in included
     assert {
         "vendor/zstd-parent-patches",
         "vendor/security-patches",

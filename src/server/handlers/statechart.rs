@@ -1,6 +1,6 @@
 //! The native statechart engine's protocol surface (CONCEPT:INT-P2-2, feature
 //! `statechart`): `Method::Statechart { op }` — define/instantiate/send_event/
-//! get_state/list over `eg-statechart`'s redb-backed `StatechartDef` + `MachineInstance`
+//! get_state/list over `medulla-statechart`'s redb-backed `StatechartDef` + `MachineInstance`
 //! store.
 //!
 //! NOT graph-scoped: definitions and instances are keyed by `def_id`/`instance_id` in
@@ -21,7 +21,7 @@
 //! ## The transition boundary
 //!
 //! This handler is the *interpreter* half of the engine: the pure, side-effect-free
-//! `eg_statechart::transition` function DECIDES the next `(state, context)` + the
+//! `medulla_statechart::transition` function DECIDES the next `(state, context)` + the
 //! ordered actions inside the store's `send_event`, and this handler returns them to
 //! the caller. Context-mutating actions are already reflected in the persisted context;
 //! the non-context effects (`Emit`/`Log`/`Custom`) are surfaced in the response for a
@@ -32,8 +32,8 @@ use std::sync::{Arc, OnceLock};
 
 use tokio::sync::RwLock;
 
-use eg_statechart::{Context, EventInput, StatechartDef, StatechartError, StatechartStore};
-use eg_types::statechart::StatechartOp;
+use medulla_statechart::{Context, EventInput, StatechartDef, StatechartError, StatechartStore};
+use medulla_types::statechart::StatechartOp;
 
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
@@ -87,11 +87,11 @@ pub(crate) async fn handle(
 
     let result = match op {
         StatechartOp::Define { def_msgpack } => op_define(&store, &def_msgpack)
-            .and_then(declared::<eg_types::result_contract::coordination::StatechartDefine>),
+            .and_then(declared::<medulla_types::result_contract::coordination::StatechartDefine>),
         StatechartOp::Instantiate { def_id, context } => op_instantiate(
             &store, req_id, authority, &def_id, context,
         )
-        .and_then(declared::<eg_types::result_contract::coordination::StatechartInstantiate>),
+        .and_then(declared::<medulla_types::result_contract::coordination::StatechartInstantiate>),
         StatechartOp::SendEvent {
             instance_id,
             event,
@@ -106,11 +106,11 @@ pub(crate) async fn handle(
             payload,
             expected_version,
         )
-        .and_then(declared::<eg_types::result_contract::coordination::StatechartSendEvent>),
+        .and_then(declared::<medulla_types::result_contract::coordination::StatechartSendEvent>),
         StatechartOp::GetState { instance_id } => op_get_state(&store, tenant, actor, &instance_id)
-            .and_then(declared::<eg_types::result_contract::coordination::StatechartGetState>),
+            .and_then(declared::<medulla_types::result_contract::coordination::StatechartGetState>),
         StatechartOp::List { def_id } => op_list(&store, tenant, actor, def_id.as_deref())
-            .and_then(declared::<eg_types::result_contract::coordination::StatechartList>),
+            .and_then(declared::<medulla_types::result_contract::coordination::StatechartList>),
     };
 
     match result {
@@ -123,7 +123,7 @@ pub(crate) async fn handle(
 /// so an engine answer that drifts from the declared projection is refused.
 fn declared<M>(value: serde_json::Value) -> Result<ResultPayload, String>
 where
-    M: eg_types::result_contract::MethodResult,
+    M: medulla_types::result_contract::MethodResult,
     M::Body: serde::de::DeserializeOwned,
 {
     let body = serde_json::from_value::<M::Body>(value).map_err(|error| {
@@ -138,12 +138,12 @@ where
 // ── Per-op logic (pure of ServerState / async, so it is directly unit-testable) ──────
 
 fn op_define(store: &StatechartStore, def_msgpack: &[u8]) -> Result<serde_json::Value, String> {
-    let def: StatechartDef = eg_types::msgpack::decode_bounded(
+    let def: StatechartDef = medulla_types::msgpack::decode_bounded(
         def_msgpack,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_DEF_BYTES,
             MAX_DEF_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| "statechart definition failed bounded MessagePack decoding".to_string())?;
@@ -217,7 +217,7 @@ fn op_send_event(
     let outcome = store
         .send_event(instance_id, &event_input, expected_version, now_ms)
         .map_err(|e| e.to_string())?;
-    let effects: Vec<&eg_statechart::Action> = outcome.outcome.effects().collect();
+    let effects: Vec<&medulla_statechart::Action> = outcome.outcome.effects().collect();
     Ok(serde_json::json!({
         "instance": serde_json::to_value(&outcome.instance).map_err(|e| e.to_string())?,
         "fired": outcome.outcome.fired,
@@ -261,7 +261,7 @@ fn owned_instance(
     tenant: &str,
     actor: &str,
     instance_id: &str,
-) -> Result<eg_statechart::MachineInstance, String> {
+) -> Result<medulla_statechart::MachineInstance, String> {
     let not_found = || "statechart instance not found or not owned by caller".to_string();
     let instance = store
         .get_instance(instance_id)
@@ -280,7 +280,7 @@ fn owned_instance(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_statechart::model::{State, Transition};
+    use medulla_statechart::model::{State, Transition};
 
     fn tmp_store() -> (StatechartStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();

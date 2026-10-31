@@ -15,9 +15,9 @@ of `validate_layout_records`, `_layout_path`, `_paths_overlap`, or
 enumerate a directory anywhere. A file the registry never mentions is neither
 flagged nor even visible to it.
 
-`eg.binary-composition`'s `test_roots` in particular is an explicit
+`medulla.binary-composition`'s `test_roots` in particular is an explicit
 enumeration of the repository root `tests/` directory's entries (needed so
-carved-out per-component test files -- e.g. `eg.persistence`'s
+carved-out per-component test files -- e.g. `medulla.persistence`'s
 `tests/sharded_startup_open_timing_d_cdx_65.rs` -- do not overlap its
 blanket claim). That enumeration is a snapshot: the next NEW file added
 directly under `tests/` is not automatically covered by it or by anything
@@ -157,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
             "(or `owned_source_roots`, if it is not a test file) in "
             "architecture/component-registry.yml. If it belongs under the shared "
             "root and no more specific component owns it, add it to "
-            "eg.binary-composition's `test_roots` enumeration instead of widening "
+            "medulla.binary-composition's `test_roots` enumeration instead of widening "
             "that enumeration back into a directory glob (a glob would re-overlap "
             "every per-component carve-out the layout checker requires).",
             file=sys.stderr,

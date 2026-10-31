@@ -11,7 +11,7 @@ use super::super::readiness::{
 use super::super::swap::swap_ready_shards;
 use super::*;
 
-/// CONCEPT:EG-KG.sharding.atomic-shard-swap — the in-place migration swaps shard files atomically and leaves the
+/// CONCEPT:MEDULLA-KG.sharding.atomic-shard-swap — the in-place migration swaps shard files atomically and leaves the
 /// old files aside; reopening picks up the new K.
 #[tokio::test(flavor = "multi_thread")]
 async fn in_place_migration_swaps_and_backs_up() {
@@ -229,7 +229,7 @@ async fn in_place_fault_after_first_graft_keeps_live_source_and_backup() {
     assert!(backup.join("source").join("graph-0.redb").exists());
 
     // "Usable" is proved the way an operator actually recovers from this
-    // tree, not by opening it where it lies (eg-f3 burndown, 2026-09-11).
+    // tree, not by opening it where it lies (medulla-f3 burndown, 2026-09-11).
     //
     // A store's physical root is `(dev, ino)`-derived and checked on every
     // open, so a byte copy cannot be served at a new path until it is
@@ -269,7 +269,7 @@ async fn in_place_fault_after_first_graft_keeps_live_source_and_backup() {
         std::fs::copy(path, recovery.join(name)).unwrap();
         // The snapshot is a plain byte copy of the live source, so it still
         // carries that store's root -- which is what `copied_from` must name.
-        eg_storage::rebind_copied_store(&recovery.join(name), &dir.join(name))
+        medulla_storage::rebind_copied_store(&recovery.join(name), &dir.join(name))
             .expect("rebind the recovery copy of the immutable backup");
     }
     let backup_backend = RedbBackend::open(recovery.to_string_lossy().to_string(), 256)

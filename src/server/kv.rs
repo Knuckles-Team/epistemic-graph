@@ -1,4 +1,4 @@
-//! Generic namespaced Key→Value surface (CONCEPT:EG-KG.storage.namespaced-kv-surface).
+//! Generic namespaced Key→Value surface (CONCEPT:MEDULLA-KG.storage.namespaced-kv-surface).
 //!
 //! A drop-in KV store over the SAME durable substrate the rest of the engine uses. It is
 //! NOT graph-scoped — a pair is keyed by `(namespace, key)` and lives off the node/edge
@@ -9,7 +9,7 @@
 //! ## Durability
 //!
 //! With a persist dir the store owns `{persist_dir}/kv.redb` as ONE physical owner file
-//! under `eg_storage::OwnerLayout::Kv`, and EVERY mutation is an admitted transaction of
+//! under `medulla_storage::OwnerLayout::Kv`, and EVERY mutation is an admitted transaction of
 //! the mutation kernel — `*_batch` carrying the caller's identity, plain
 //! `put`/`delete`/`cas` as owner MAINTENANCE mutations (RF-RULING-005), all ledgered,
 //! fenced and version-bumping. Durability is the kernel's and is commit-before-ack, so a
@@ -24,9 +24,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
-use eg_storage::{KvOwner, OwnedStoreHandle, ScopedRead, StorageKernel};
-use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
-use eg_types::MutationScopeIdentity;
+use medulla_storage::{KvOwner, OwnedStoreHandle, ScopedRead, StorageKernel};
+use medulla_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
+use medulla_types::MutationScopeIdentity;
 use parking_lot::Mutex;
 use redb::{ReadableTable, ReadableTableMetadata, TableDefinition};
 use serde::{de::DeserializeOwned, Serialize};
@@ -37,12 +37,12 @@ use crate::mutation_batch::{DurabilityDomain, MutationBatch, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::mutation_batch::COMPILED_BATCH_INCARNATION;
-use eg_types::result_contract::storage as results;
+use medulla_types::result_contract::storage as results;
 
 /// The single KV table: `(namespace, key) -> value bytes`. Composite key so one file
-/// holds every namespace and a prefix scan of one is a contiguous range. `eg-storage`
+/// holds every namespace and a prefix scan of one is a contiguous range. `medulla-storage`
 /// declares it as an owner table of `OwnerLayout::Kv`; this module only names it
-/// (RF-RULING-004). That layout's OTHER owner table, `eg_kvcache_cold`, is eg-kvcache's.
+/// (RF-RULING-004). That layout's OTHER owner table, `medulla_kvcache_cold`, is medulla-kvcache's.
 const KV: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("kv");
 /// Operator-facing identity of the ONE physical `kv.redb` owner file — the physical
 /// authority boundary, independent of any logical serving scope.
@@ -89,7 +89,7 @@ fn validate_value(value: &[u8]) -> Result<(), String> {
     }
 }
 
-/// The store's bootstrap AND serving scope (CONCEPT:EG-KG.storage.namespaced-kv-surface):
+/// The store's bootstrap AND serving scope (CONCEPT:MEDULLA-KG.storage.namespaced-kv-surface):
 /// what cross-namespace reads (`get`/`scan`) and caller-less writes (`put`/`delete`/`cas`)
 /// run on. `KvStore` serves arbitrarily many DYNAMIC namespaces out of one physical file,
 /// each with its own identity from `kv_scope_identity` bound lazily via `mutation_version`;
@@ -110,9 +110,9 @@ fn kv_bootstrap_identity() -> Result<MutationScopeIdentity, String> {
 /// `OwnerLayout::Kv` accepts) and the SAME `COMPILED_BATCH_INCARNATION`. The kernel's
 /// binding validator rejects any mismatch, so drift on any of the three fails closed.
 fn kv_scope_identity(tenant: &str, resource: &str) -> Result<MutationScopeIdentity, String> {
-    let tenant = eg_types::ScopeTenantId::new(tenant)?;
-    let resource = eg_types::LogicalName::new(resource)?;
-    let incarnation_id = eg_types::IncarnationId::new(COMPILED_BATCH_INCARNATION)
+    let tenant = medulla_types::ScopeTenantId::new(tenant)?;
+    let resource = medulla_types::LogicalName::new(resource)?;
+    let incarnation_id = medulla_types::IncarnationId::new(COMPILED_BATCH_INCARNATION)
         .map_err(|e| format!("invalid KV scope incarnation id: {e}"))?;
     MutationScopeIdentity::native(tenant, DurabilityDomain::KvStore, resource, incarnation_id)
 }
@@ -201,7 +201,7 @@ pub struct KvStore {
 
 enum Backend {
     /// `{persist_dir}/kv.redb` — ONE physical owner file under
-    /// `eg_storage::OwnerLayout::Kv`, served through the two kernels. Boxed: far larger
+    /// `medulla_storage::OwnerLayout::Kv`, served through the two kernels. Boxed: far larger
     /// than the in-memory variant.
     Redb(Box<RedbBackend>),
     /// In-memory ordered map (no persist dir) — ephemeral scratch KV. The single mutex
@@ -318,7 +318,7 @@ impl RedbBackend {
     fn complete_write<T, F>(
         &self,
         owner: &OwnedStoreHandle<KvOwner>,
-        write: eg_transaction::AdmittedMutation<'_, KvOwner>,
+        write: medulla_transaction::AdmittedMutation<'_, KvOwner>,
         batch: &MutationBatch,
         begun: Begin,
         at_ms: u64,
@@ -530,7 +530,7 @@ impl KvStore {
         match &self.backend {
             Backend::Redb(store) => {
                 let owner = store.scope_handle(&kv_scope_identity(tenant, graph)?)?;
-                eg_transaction::version(&store.kernel.read_scope(&owner)?)
+                medulla_transaction::version(&store.kernel.read_scope(&owner)?)
             }
             Backend::Memory(_) => Ok(0),
         }
@@ -565,12 +565,12 @@ fn decode_batch_result<T: serde::de::DeserializeOwned>(
         .result_msgpack
         .as_deref()
         .ok_or_else(|| "committed native MutationBatch has no result".to_string())?;
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_KV_BATCH_RESULT_BYTES,
             1_024,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| "committed KV result is invalid or exceeds resource limits".to_string())
@@ -673,12 +673,12 @@ fn compile_kv_batch(
 /// payload-shaped variant match here.
 fn is_kv_method(method: &Method) -> bool {
     matches!(
-        eg_capabilities::policy(method).authz_action,
+        medulla_capabilities::policy(method).authz_action,
         "kv:read" | "kv:write" | "kv:shared:write"
     )
 }
 
-/// Bundle the durable namespaced KV surface (CONCEPT:EG-KG.backend.networked-shared-kv) into
+/// Bundle the durable namespaced KV surface (CONCEPT:MEDULLA-KG.backend.networked-shared-kv) into
 /// an online backup.
 ///
 /// `kv.redb` holds real acknowledged user writes (`KvPut`/`KvCas`) and the fleet-shared
@@ -707,7 +707,7 @@ impl crate::server::persistence::durable_stores::BundledStoreSource for KvStore 
         // `SCOPE_BINDINGS` for the destination's incarnation and creates the destination
         // file itself. Hand-listing those tables out here produced BUG-PE-054:
         // `VERSIONS` was copied while `STORE_ROOT`/`SCOPE_BINDINGS` were not.
-        let counts = eg_storage::backup_recovery_store(&source.kernel, destination)?;
+        let counts = medulla_storage::backup_recovery_store(&source.kernel, destination)?;
         Ok(rows
             .saturating_add(counts.batches)
             .saturating_add(counts.maintenance_claims)

@@ -6,12 +6,12 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import EpistemicGraphClient, QueryClient
+from medulla.client import MedullaClient, QueryClient
 
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient(EpistemicGraphClient):
+class _FakeClient(MedullaClient):
     def __init__(self) -> None:
         self.sent: list[tuple[str, dict[str, Any] | None]] = []
 

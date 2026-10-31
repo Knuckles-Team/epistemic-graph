@@ -4,7 +4,7 @@
 //! carries only `resolution`.  `CommunityDetectEphemeral` is the served,
 //! stateless community-detection request that carries the `quality` parameter
 //! and is the production query surface for this requirement.  Exercise that
-//! wire path rather than calling `eg_compute` directly.
+//! wire path rather than calling `medulla_compute` directly.
 
 #![cfg(all(feature = "server", feature = "security"))]
 
@@ -12,9 +12,9 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use epistemic_graph::protocol::{CommunityQualityFunction, GraphType, Method, ResultPayload};
+use medulla::protocol::{CommunityQualityFunction, GraphType, Method, ResultPayload};
 
-const SECRET: &str = "eg-fed-query-r060-served-secret";
+const SECRET: &str = "medulla-fed-query-r060-served-secret";
 
 fn ring_of_triangles(num_cliques: usize) -> (Vec<String>, Vec<(String, String, f64)>) {
     let mut nodes = Vec::with_capacity(num_cliques * 3);
@@ -79,11 +79,11 @@ async fn call_quality(
 }
 
 #[tokio::test]
-// spec: EG-FEDERATED-QUERY-R060
+// spec: MEDULLA-FEDERATED-QUERY-R060
 async fn served_cpm_differs_from_modularity_on_the_same_graph() {
     common::configure_authority();
     let state = test_support::durable_state(SECRET, common::current_isolation());
-    let graph = "eg-fed-query-r060-served";
+    let graph = "medulla-fed-query-r060-served";
     let created = test_support::dispatch(
         &state,
         test_support::request(

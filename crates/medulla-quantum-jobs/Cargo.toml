@@ -1,0 +1,63 @@
+[package]
+name = "medulla-quantum-jobs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Quantum-as-a-durable-job (lanes Q5/Q6, PROGRAM.md quantum-external-providers.md addendum): submits a QuantumProgram built from a candidate RowSet as an medulla-jobs AnalyticsJob (NOT a synchronous Op -- real QPU queues are minutes to hours), runs it against a registered medulla-quantum-sim/medulla-quantum-core backend through the SAME planner rules R0-R5, and bridges QuantumResult outcomes (expectations/distributions/bitstrings) into medulla-numeric arrays plus (id, score) RowSet rows. Reuses medulla-jobs' durable store/fenced-lease state machine as-is -- no parallel job abstraction."
+license = "MIT"
+
+[lib]
+name = "medulla_quantum_jobs"
+
+# ── Lane Q5/Q6 (register D-QN-1 family, `plans/au-medulla-program/program/quantum-native.md`
+# + `quantum-external-providers.md` addendum) ──
+#
+# A leaf crate ALONG the DAG, mirroring `medulla-quantum-sim`'s posture: depends directly on
+# `medulla-jobs` (the durable job plane this crate reuses, NOT forks -- see the addendum's
+# "REUSE, DO NOT FORK" directive) and on `medulla-quantum-core`/`medulla-quantum-sim` (the IR,
+# planner, and the two in-process backends), plus `medulla-numeric` for the Q6 numeric
+# bridge (expectation/probability-distribution arrays). NONE of these are new
+# crates.io dependencies -- every one is an existing workspace member already vendored
+# for the sibling quantum/jobs lanes.
+#
+# The optional `federation-bridge` feature additionally depends on `medulla-plan` (its
+# `ForeignSource`/`ForeignSourceRegistry` federation seam, `crates/medulla-plan/src/
+# federation.rs`) so a submitted quantum job's results can be registered as a named
+# FOREIGN source per the addendum's staging discipline step 2. It is optional and OFF
+# by default because `medulla-plan/federation` pulls DataFusion + a TLS stack (the existing
+# federation posture, unrelated to this crate) -- step 1 (the plain submit/run/join
+# functions below) needs none of that.
+[dependencies]
+medulla-types = { path = "../medulla-types" }
+medulla-jobs = { path = "../medulla-jobs" }
+medulla-quantum-core = { path = "../medulla-quantum-core" }
+medulla-quantum-sim = { path = "../medulla-quantum-sim" }
+medulla-numeric = { path = "../medulla-numeric", features = ["complex"] }
+medulla-plan = { path = "../medulla-plan", optional = true }
+# Already resolved workspace-wide via `medulla-numeric` (see its own Cargo.toml) --
+# declared directly here only so this crate can name `ndarray::Array1` in the Q6
+# numeric-bridge surface. Adds NO new crate to the resolved dependency tree.
+ndarray = "0.17"
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+[dev-dependencies]
+# The fixtures open a real `JobStore`, which under RF-RULING-004 needs the
+# composition root's `ScopeGrantVerifier`. medulla-jobs ships one for exactly this
+# behind its off-by-default `dev-scope-grant` feature; naming it here turns it on
+# for the TEST build only, so this crate's own build links no development
+# authority.
+medulla-jobs = { path = "../medulla-jobs", features = ["dev-scope-grant"] }
+tempfile = "3"
+
+[features]
+default = []
+# Step 2 (staging discipline, addendum §1.2): register a submitted-job's eventual
+# (id, score) rows as a named `ForeignSource` through medulla-plan's EXISTING federation
+# seam, so a UQL `FOREIGN "<name>"` clause composes a quantum result with local
+# graph/vector/SQL legs with NO change to medulla-types::wire::Op. Do not confuse this
+# with a native `Op::SubmitQuantum`/`Op::JoinQuantumResults` (step 3) -- deliberately
+# NOT implemented here; see `src/lib.rs` module doc for why.
+federation-bridge = ["dep:medulla-plan", "medulla-plan/federation"]

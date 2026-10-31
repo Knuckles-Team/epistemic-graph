@@ -1,5 +1,5 @@
-//! MySQL / MariaDB wire-protocol listener (CONCEPT:EG-KG.query.kg-2) — the SECOND `WireProtocol`
-//! adapter (CONCEPT:EG-KG.compute.subsystems-reference). A HAND-ROLLED MySQL client/server protocol that lets a
+//! MySQL / MariaDB wire-protocol listener (CONCEPT:MEDULLA-KG.query.kg-2) — the SECOND `WireProtocol`
+//! adapter (CONCEPT:MEDULLA-KG.compute.subsystems-reference). A HAND-ROLLED MySQL client/server protocol that lets a
 //! MySQL/MariaDB driver, ORM, or the `mysql` CLI connect and run SQL against a graph.
 //!
 //! ## What this is (and is NOT)
@@ -10,7 +10,7 @@
 //! [`WireProtocol`] impl). THIS module is purely the MySQL-SPECIFIC adapter:
 //!   * the TCP listener + the length-prefixed packet framing over `tokio::net`,
 //!   * the Handshake v10 + `mysql_native_password` auth (see `auth.rs`), bridged to the
-//!     engine secret / ACL identity exactly as pgwire's SCRAM path is (CONCEPT:EG-KG.query.concept-13),
+//!     engine secret / ACL identity exactly as pgwire's SCRAM path is (CONCEPT:MEDULLA-KG.query.concept-13),
 //!   * the command phase (`COM_QUERY` / `COM_PING` / `COM_QUIT` / `COM_INIT_DB`),
 //!   * the encoding of a wire-neutral [`WireOutcome`] / [`WireError`] into MySQL packets
 //!     (column-count + column-definition + text rows + a current OK terminator, or an
@@ -22,7 +22,7 @@
 //! SELECT takes the SAME DataFusion path `Method::Sql` uses and a write is routed through
 //! the engine's `GraphTxn` + durability path — no SQL grammar/planner/executor here.
 //!
-//! ## Protocol subset (CONCEPT:EG-KG.query.kg-2)
+//! ## Protocol subset (CONCEPT:MEDULLA-KG.query.kg-2)
 //! LANDED: connection phase (Handshake v10 + Handshake-Response-41), mandatory
 //! `mysql_native_password`, and the TEXT-protocol command
 //! phase — `COM_QUERY` (result-set OR OK/ERR), `COM_PING`, `COM_QUIT`, `COM_INIT_DB`
@@ -39,7 +39,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
-use eg_query::PgColType;
+use medulla_query::PgColType;
 
 use crate::server::wire::{WireError, WireOutcome, WireProtocol, WireSession};
 use crate::server::ServerState;
@@ -59,10 +59,10 @@ use packets::{
 
 /// Env var: when set (and the binary is built `--features mysql-wire`), the MySQL wire
 /// listener binds this address (documented loopback `127.0.0.1:3306`). Unset ⇒ no listener.
-pub const MYSQL_ADDR_ENV: &str = "EPISTEMIC_GRAPH_MYSQL_ADDR";
+pub const MYSQL_ADDR_ENV: &str = "MEDULLA_MYSQL_ADDR";
 /// Env var: the default graph a fresh connection runs against when the MySQL `database`
 /// (schema) is not supplied at connect / via `USE`. Defaults to `__commons__`.
-pub const MYSQL_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_MYSQL_GRAPH";
+pub const MYSQL_GRAPH_ENV: &str = "MEDULLA_MYSQL_GRAPH";
 
 /// Fail-closed startup policy for the direct MySQL listener. The adapter does
 /// not implement `CLIENT_SSL`, so it is a loopback backend only. Production
@@ -81,7 +81,7 @@ pub fn validate_startup_policy(
 }
 
 /// The advertised server version string (clients parse the leading `X.Y.Z`).
-const SERVER_VERSION: &str = "8.0.0-epistemic-graph";
+const SERVER_VERSION: &str = "8.0.0-medulla";
 
 // MySQL command bytes (the subset this adapter handles).
 const COM_QUIT: u8 = 0x01;
@@ -96,7 +96,7 @@ fn next_conn_id() -> u32 {
     CONN_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-/// The capability flags this server advertises (CONCEPT:EG-KG.query.kg-2). Protocol 4.1 with the
+/// The capability flags this server advertises (CONCEPT:MEDULLA-KG.query.kg-2). Protocol 4.1 with the
 /// secure-connection + plugin-auth handshake, connect-with-DB, transaction status
 /// tracking, and the current OK-based result-set terminator.
 fn server_capabilities() -> u32 {
@@ -317,7 +317,7 @@ where
 
 /// Validate a Handshake Response: protocol 4.1, the current result-set framing
 /// (`CLIENT_DEPRECATE_EOF`), and the native-password login
-/// (CONCEPT:EG-KG.query.concept-13). `Err` carries the ERR packet to send.
+/// (CONCEPT:MEDULLA-KG.query.concept-13). `Err` carries the ERR packet to send.
 fn accept_handshake_response(
     payload: &[u8],
     secret: &str,
@@ -421,7 +421,7 @@ where
 // ── the listener ────────────────────────────────────────────────────────────────
 
 /// Bind `addr` and serve MySQL-wire connections until the process exits. Spawned by
-/// `main.rs` only when built `--features mysql-wire` AND `EPISTEMIC_GRAPH_MYSQL_ADDR`
+/// `main.rs` only when built `--features mysql-wire` AND `MEDULLA_MYSQL_ADDR`
 /// is set. The auth mode is resolved once from the engine secret + env, mirroring pgwire.
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let auth_secret = state.read().await.auth_secret.clone();
@@ -429,7 +429,7 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
     serve_with_auth(addr, state, mode).await
 }
 
-/// `serve` with an EXPLICIT auth mode (CONCEPT:EG-KG.query.kg-2 / KG-2.202). `serve` resolves the
+/// `serve` with an EXPLICIT auth mode (CONCEPT:MEDULLA-KG.query.kg-2 / KG-2.202). `serve` resolves the
 /// mode from the env + engine secret and delegates here; tests call this directly to pin
 /// native auth deterministically without a process-global env toggle.
 pub async fn serve_with_auth(
@@ -474,14 +474,14 @@ mod tests {
     //! Encoder unit tests + an in-process listener smoke test that drives the real
     //! listener through a full handshake and hand-built `COM_QUERY` packets over a real
     //! TCP socket (no mysql client crate) — proving SELECT / CREATE TABLE / INSERT
-    //! end-to-end through the shared `WireSession` execution core (CONCEPT:EG-KG.query.kg-2).
+    //! end-to-end through the shared `WireSession` execution core (CONCEPT:MEDULLA-KG.query.kg-2).
     use super::*;
     use crate::isolation::IsolationLayer;
     use crate::server::handlers::query::current_auth_test_support::{
         grant_commons_user, register_commons_agent,
     };
     use crate::server::ServerState;
-    use eg_query::{TypedColumn, TypedQueryResult};
+    use medulla_query::{TypedColumn, TypedQueryResult};
     use tokio::net::TcpStream;
 
     #[test]

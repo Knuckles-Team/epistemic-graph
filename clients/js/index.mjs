@@ -1,20 +1,20 @@
-// CONCEPT:EG-328 — Thin JS/Node client for the Program-B engine Methods (B1.7).
+// CONCEPT:MEDULLA-328 — Thin JS/Node client for the Program-B engine Methods (B1.7).
 //
 // This is a DELIBERATELY THIN binding, NOT a full SDK. It covers ONLY the new wire
 // `Method`s that had no client surface — the broker + append-log streams
-// (EG-275..284/314), RBAC admin (EG-092), online backup/restore (EG-090), and
-// NL->query (EG-080) — over the SAME framed-MessagePack transport the Python client
+// (MEDULLA-275..284/314), RBAC admin (MEDULLA-092), online backup/restore (MEDULLA-090), and
+// NL->query (MEDULLA-080) — over the SAME framed-MessagePack transport the Python client
 // uses (4-byte big-endian length prefix + a msgpack `{id, graph, auth_token, method,
 // params}` request; responses demuxed by `id`; current signed request-context
 // envelopes bind canonical method bodies and replay controls).
 //
 // The method surface below is GENERATED-FROM-THE-Method-LIST: each function maps 1:1
-// to a Rust `Method` variant in crates/eg-types/src/protocol.rs (the exact param
+// to a Rust `Method` variant in crates/medulla-types/src/protocol.rs (the exact param
 // field names the serde-tagged enum destructures). The full graph/vector/RDF/SQL API
 // is intentionally NOT re-implemented here — use the Python client for that.
 //
 // The signed body is the engine's own canonical re-encoding of the request, computed
-// by the embedded WebAssembly build of crates/eg-method-codec (see codec.mjs).
+// by the embedded WebAssembly build of crates/medulla-method-codec (see codec.mjs).
 //
 // Deps (Pi-contract: thin): `@msgpack/msgpack` (pure-JS) for framing; Node built-ins
 // `net` (UDS/TCP), `crypto` (HMAC) and WebAssembly (the codec). No native addon, no
@@ -335,7 +335,7 @@ export class MedullaThinClient {
         .update(`${id}\0${graph}\0${method}\0${bodyHash}`)
         .digest("hex")}`;
     const parts = [];
-    appendText(parts, "eg-envelope-v2");
+    appendText(parts, "medulla-envelope-v2");
     const requestId = Buffer.allocUnsafe(8);
     requestId.writeBigUInt64BE(BigInt(id));
     parts.push(requestId);
@@ -459,7 +459,7 @@ export class MedullaThinClient {
       roles: validateExplicitStringList("roles", roles),
     };
     params.signature = this._signContextOperation({
-      domain: "eg-register-identity-v2",
+      domain: "medulla-register-identity-v2",
       method: "RegisterIdentity",
       params: { ...params, signature: "" },
       graph: "__commons__",
@@ -524,7 +524,7 @@ export class MedullaThinClient {
       .sort()
       .map((signerId) =>
         this._signContextOperation({
-          domain: "eg-multisig-mutation-v2",
+          domain: "medulla-multisig-mutation-v2",
           method: "ApplyMultisigMutation",
           params: unsigned,
           graph: "__commons__",
@@ -546,7 +546,7 @@ export class MedullaThinClient {
     if (this._sock) this._sock.end();
   }
 
-  // ── Broker: exchanges / queues / publish (EG-275..280) ──────────────────────
+  // ── Broker: exchanges / queues / publish (MEDULLA-275..280) ──────────────────────
   declareExchange(exchange, kind = "direct") {
     return this._send("DeclareExchange", { exchange, kind });
   }
@@ -608,7 +608,7 @@ export class MedullaThinClient {
       now_ms: o.nowMs ?? null,
     });
   }
-  // Consume / ack / reject (EG-280/276/284)
+  // Consume / ack / reject (MEDULLA-280/276/284)
   brokerConsume(queue, { group, consumer, nowMs, leaseMs = 0, prefetch = 0 }) {
     return this._send("BrokerConsume", {
       queue,
@@ -642,7 +642,7 @@ export class MedullaThinClient {
   sweepExpired(nowMs) {
     return this._send("SweepExpired", { now_ms: nowMs });
   }
-  // ── Replayable append-log streams (EG-283) ──────────────────────────────────
+  // ── Replayable append-log streams (MEDULLA-283) ──────────────────────────────────
   streamDeclare(stream, { maxMessages = null, maxAgeMs = null } = {}) {
     return this._send("StreamDeclare", {
       stream,
@@ -666,7 +666,7 @@ export class MedullaThinClient {
     return this._send("StreamCommittedOffset", { stream, group });
   }
 
-  // ── RBAC admin (EG-092) — externally-tagged RbacAdminOp / ResourceSelector ──
+  // ── RBAC admin (MEDULLA-092) — externally-tagged RbacAdminOp / ResourceSelector ──
   rbacAddRole(name, parents = []) {
     return this._send("RbacAdmin", { op: { AddRole: { name, parents } } });
   }
@@ -685,7 +685,7 @@ export class MedullaThinClient {
     return this._send("RbacAdmin", { op: "List" });
   }
 
-  // ── Ops: online backup / restore (EG-090) ───────────────────────────────────
+  // ── Ops: online backup / restore (MEDULLA-090) ───────────────────────────────────
   backup(destination, label = null) {
     return this._send("Backup", { destination, label });
   }
@@ -696,12 +696,12 @@ export class MedullaThinClient {
     return this._send("Restore", { source, target_shards: targetShards });
   }
 
-  // ── NL->query (EG-080) ──────────────────────────────────────────────────────
+  // ── NL->query (MEDULLA-080) ──────────────────────────────────────────────────────
   nlQuery(text, graph) {
     const targetGraph = graph || this.graph;
     return this._send("NlQuery", { text, graph: targetGraph }, targetGraph);
   }
-  // `{uql, rows}`: the executed UQL with the same rows as nlQuery (EG-FEDERATED-QUERY-R058.2.2.1).
+  // `{uql, rows}`: the executed UQL with the same rows as nlQuery (MEDULLA-FEDERATED-QUERY-R058.2.2.1).
   nlQueryExplain(text, graph) {
     const targetGraph = graph || this.graph;
     return this._send("NlQueryExplain", { text, graph: targetGraph }, targetGraph);
@@ -711,4 +711,4 @@ export class MedullaThinClient {
 export default MedullaThinClient;
 
 /** @deprecated The client is `MedullaThinClient`; this alias goes away in the next minor. */
-export { MedullaThinClient as EpistemicGraphThinClient };
+export { MedullaThinClient as MedullaThinClient };

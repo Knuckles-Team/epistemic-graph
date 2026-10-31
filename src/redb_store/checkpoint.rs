@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 
 use super::shard::{Shard, ShardWrite};
 use super::*;
@@ -250,7 +250,7 @@ fn apply_checkpoint_group(
     graph_names: &[String],
     members: &[(
         String,
-        std::sync::Arc<eg_storage::OwnedStoreHandle<eg_storage::GraphShardOwner>>,
+        std::sync::Arc<medulla_storage::OwnedStoreHandle<medulla_storage::GraphShardOwner>>,
     )],
     batches: &[MutationBatch],
     pending: &[(String, Method)],

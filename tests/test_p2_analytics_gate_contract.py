@@ -5,7 +5,7 @@ has" class:
 
 1. The publication-barrier assertion used to slice the job store between
    ``pub fn succeed`` and ``pub fn fail``. ``succeed`` has not existed since
-   eg-jobs was split, so ``str.find`` returned -1, the slice was EMPTY, and the
+   medulla-jobs was split, so ``str.find`` returned -1, the slice was EMPTY, and the
    assertion could never fire — a permissive ``Running -> Succeeded`` arm passed
    the gate. Every offset-based contract now treats an absent marker as fatal,
    and the tests below plant the exact known-bad that used to slip through.
@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _gate():
     path = ROOT / "scripts" / "check_p2_analytics_reasoning_architecture.py"
-    spec = importlib.util.spec_from_file_location("eg_p2_analytics_gate", path)
+    spec = importlib.util.spec_from_file_location("medulla_p2_analytics_gate", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -142,10 +142,10 @@ def test_required_marker_table_shape_is_pinned() -> None:
     assert sorted(table) == sorted(
         [
             "Cargo.toml",
-            "crates/eg-epistemic/src/incremental.rs",
-            "crates/eg-jobs/src/model.rs",
-            "crates/eg-jobs/src/store.rs",
-            "crates/eg-types/src/jobs.rs",
+            "crates/medulla-epistemic/src/incremental.rs",
+            "crates/medulla-jobs/src/model.rs",
+            "crates/medulla-jobs/src/store.rs",
+            "crates/medulla-types/src/jobs.rs",
             "src/raft/mod.rs",
             "src/server/authority_context.rs",
             "src/server/dispatch.rs",

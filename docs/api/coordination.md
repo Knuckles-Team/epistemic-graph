@@ -933,7 +933,7 @@ bounded tenant-bound WorkItem page; limit/scan/byte bounds each resume through a
 | `cursor` | string \| null | no |  |
 | `kind` | string \| null | no |  |
 | `limit` | integer (uint32) | yes |  |
-| `metadata_match` | object \| null | no | Keep only items whose top-level `metadata` holds every one of these key/value pairs exactly (at most 8 keys) -- e.g. a correlation id or an event subject (graph-os EG-5). Filters within the same bounded scan, so it never widens a page's cost. |
+| `metadata_match` | object \| null | no | Keep only items whose top-level `metadata` holds every one of these key/value pairs exactly (at most 8 keys) -- e.g. a correlation id or an event subject (graph-os MEDULLA-5). Filters within the same bounded scan, so it never widens a page's cost. |
 | `tenant` | string | yes |  |
 
 **Result**

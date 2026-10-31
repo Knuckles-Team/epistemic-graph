@@ -3,7 +3,7 @@
 
 Reads ONLY the committed, machine-generated contract artifacts under
 ``contract/`` (never hand-edited — see ``contract/receipt.json``'s own
-provenance and ``crates/eg-capabilities/src/domains/``, which is where the
+provenance and ``crates/medulla-capabilities/src/domains/``, which is where the
 409+ ``Method`` variants and their policy/schema facts actually originate)
 and renders two kinds of derived, byte-stable output:
 
@@ -13,7 +13,7 @@ and renders two kinds of derived, byte-stable output:
 * One OpenAPI 3.1 document (``docs/openapi.json``) describing every method's
   request/result JSON-Schema shape, its ``policy``/``authz_action``
   capability metadata, and its ``stability``, served through the
-  ``docs/swagger-ui.md`` page (CONCEPT:EG-P0-1 / RF-ADR-009 Phase D rows
+  ``docs/swagger-ui.md`` page (CONCEPT:MEDULLA-P0-1 / RF-ADR-009 Phase D rows
   D7-D8).
 
 Sources (all under ``contract/``, never written here):
@@ -311,7 +311,7 @@ def build_openapi(contract: Contract) -> dict[str, Any]:
     return {
         "openapi": "3.1.0",
         "info": {
-            "title": "Epistemic Graph API",
+            "title": "Medulla API",
             "version": str(contract.contract_version),
             "description": (
                 "Generated from contract/methods.json + contract/schemas/ "
@@ -330,7 +330,7 @@ def build_openapi(contract: Contract) -> dict[str, Any]:
             {
                 "url": "/",
                 "description": (
-                    "Placeholder -- Epistemic Graph is embedded/deployed "
+                    "Placeholder -- Medulla is embedded/deployed "
                     "per-installation; see docs/deployment.md for real endpoints."
                 ),
             }

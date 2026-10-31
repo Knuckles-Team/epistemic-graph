@@ -1,6 +1,6 @@
 # Cgroup-aware capacity resolution
 
-`eg-resource` is the single resource-capacity seam shared by the engine and
+`medulla-resource` is the single resource-capacity seam shared by the engine and
 lower workspace providers. It combines the process's host-visible CPU affinity
 and `MemTotal` observation with the cgroup controller hierarchy before any
 automatic queue, concurrency, runtime, memory, or ASR limit is derived.
@@ -34,6 +34,6 @@ automatic queue, concurrency, runtime, memory, or ASR limit is derived.
   the ASR thread budget.
 
 The parser and hierarchy fixtures live beside the implementation in
-`crates/eg-resource/src/lib.rs`. Consumer modules use the root compatibility
+`crates/medulla-resource/src/lib.rs`. Consumer modules use the root compatibility
 facade at `src/autosize.rs` or the leaf crate directly; they must not add a
 second `/proc` or cgroup parser.

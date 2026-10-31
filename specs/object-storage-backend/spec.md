@@ -1,4 +1,4 @@
-# EG-OBJECT-STORAGE-BACKEND — Object-Storage-Native Durable Store and Comparative Cost Gate
+# MEDULLA-OBJECT-STORAGE-BACKEND — Object-Storage-Native Durable Store and Comparative Cost Gate
 
 Owner: Medulla (`EG`). Sole owner.
 
@@ -19,7 +19,7 @@ A single-store harness cannot express those.
 ## Requirements
 
 Every requirement ID this spec owns lives in [requirements.md](requirements.md). The IDs are
-`EG-OBJECT-STORAGE-BACKEND-R001`–`R005`. Architecture and live wiring live in
+`MEDULLA-OBJECT-STORAGE-BACKEND-R001`–`R005`. Architecture and live wiring live in
 [plan.md](plan.md). The test contract lives in [test-spec.md](test-spec.md). Ordered work lives
 in [tasks.md](tasks.md). Machine-readable delivery state lives in [status.json](status.json).
 

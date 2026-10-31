@@ -1,6 +1,6 @@
 //! SPARQL result media negotiation and RDF graph serialization.
 
-use eg_rdf::sparql::{QueryOutcome, SparqlResult};
+use medulla_rdf::sparql::{QueryOutcome, SparqlResult};
 
 use super::{boolean_body, results_csv, results_tsv, results_xml, select_json};
 
@@ -34,16 +34,16 @@ pub(super) const GRAPH_FORMS: &[&str] = &[
 
 pub(super) fn serialize_graph(
     ct: &str,
-    triples: &[eg_rdf::oxrdf::Triple],
+    triples: &[medulla_rdf::oxrdf::Triple],
 ) -> Result<String, String> {
     match ct {
-        "text/turtle" => eg_rdf::mapping::to_turtle(triples),
-        "application/n-quads" => eg_rdf::mapping::to_nquads(triples, None),
-        "application/trig" => eg_rdf::mapping::to_trig(triples, None),
-        "application/ld+json" => eg_rdf::jsonld::to_jsonld(triples, None, None),
+        "text/turtle" => medulla_rdf::mapping::to_turtle(triples),
+        "application/n-quads" => medulla_rdf::mapping::to_nquads(triples, None),
+        "application/trig" => medulla_rdf::mapping::to_trig(triples, None),
+        "application/ld+json" => medulla_rdf::jsonld::to_jsonld(triples, None, None),
         #[cfg(feature = "rdf-xml")]
-        "application/rdf+xml" => eg_rdf::mapping::to_rdfxml(triples),
-        _ => eg_rdf::mapping::to_ntriples(triples),
+        "application/rdf+xml" => medulla_rdf::mapping::to_rdfxml(triples),
+        _ => medulla_rdf::mapping::to_ntriples(triples),
     }
 }
 

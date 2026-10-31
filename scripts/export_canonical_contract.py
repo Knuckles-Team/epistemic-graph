@@ -14,7 +14,7 @@ COMMAND = [
     "run",
     "--locked",
     "-p",
-    "eg-capabilities",
+    "medulla-capabilities",
     "--features",
     "contract",
     "--bin",
@@ -22,20 +22,20 @@ COMMAND = [
 ]
 EXTRAS = {
     "contract/receipt.json",
-    "epistemic_graph/contract/receipt.json",
-    "crates/eg-capabilities/generated/catalog_digest.rs",
+    "medulla/contract/receipt.json",
+    "crates/medulla-capabilities/generated/catalog_digest.rs",
 }
 EXACT = EXTRAS | {
     "contract/methods.json",
     "contract/errors.json",
     "contract/scopes.json",
-    "epistemic_graph/contract/methods.json",
-    "epistemic_graph/contract/errors.json",
-    "epistemic_graph/contract/scopes.json",
+    "medulla/contract/methods.json",
+    "medulla/contract/errors.json",
+    "medulla/contract/scopes.json",
     "docs/capabilities.generated.md",
-    "epistemic_graph/contract/__init__.py",
-    "epistemic_graph/contract_errors.py",
-    "crates/eg-capabilities/generated/method_catalog.rs",
+    "medulla/contract/__init__.py",
+    "medulla/contract_errors.py",
+    "crates/medulla-capabilities/generated/method_catalog.rs",
 }
 RECIPE = (
     "Cargo.lock",
@@ -54,8 +54,8 @@ def allowed(path: str) -> bool:
         for prefix, suffix in (
             ("contract/schemas/", ".json"),
             ("contract/fixtures/", ".json"),
-            ("epistemic_graph/contract/schemas/", ".json"),
-            ("epistemic_graph/generated/", ".py"),
+            ("medulla/contract/schemas/", ".json"),
+            ("medulla/generated/", ".py"),
         )
     )
 

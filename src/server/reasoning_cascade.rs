@@ -14,9 +14,9 @@
 //! ## Mechanism (wiring, not a new reasoner)
 //!
 //! This module does not reimplement reasoning — it wires the EXISTING
-//! `eg_rdf::owl::Reasoner` (the "delta re-seed" path: [`Reasoner::add_axioms`]
+//! `medulla_rdf::owl::Reasoner` (the "delta re-seed" path: [`Reasoner::add_axioms`]
 //! keeps the prior `S`/`R` closure and derives only the NEW consequences,
-//! CONCEPT:EG-KG.ontology.incremental-materialization) into the write path
+//! CONCEPT:MEDULLA-KG.ontology.incremental-materialization) into the write path
 //! via the SAME CDC choke point `matview`/`cep` already ride
 //! ([`CdcHub::emit`], the one place every committed mutation funnels through —
 //! see `src/server/mutation.rs`'s `commit_finalize` step 7).
@@ -41,7 +41,7 @@
 //!    incrementally without serving a stale (unsound) closure; on a detected
 //!    retraction this rebuilds the reasoner from scratch over the current
 //!    triple set instead (still just calling the reasoner's own two entry
-//!    points as designed, never touching `eg-rdf`).
+//!    points as designed, never touching `medulla-rdf`).
 //!
 //! The refreshed [`Classification`] is cached per graph (readable via
 //! [`ReasoningCascade::last_refresh`]) — this module owns no query/wire
@@ -54,8 +54,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
-use eg_rdf::owl::{parse_ontology, tbox_triples_from_view, Classification, Reasoner};
-use eg_rdf::oxrdf::Triple;
+use medulla_rdf::owl::{parse_ontology, tbox_triples_from_view, Classification, Reasoner};
+use medulla_rdf::oxrdf::Triple;
 use tokio::sync::RwLock;
 
 use crate::graph::GraphCore;
@@ -67,7 +67,7 @@ pub const REASON_ON_WRITE_ENV: &str = "REASON_ON_WRITE";
 
 /// Debounce-window override env var, milliseconds. Absent/invalid/zero ⇒
 /// [`DEFAULT_DEBOUNCE_MS`].
-pub const DEBOUNCE_ENV: &str = "EPISTEMIC_GRAPH_REASON_ON_WRITE_DEBOUNCE_MS";
+pub const DEBOUNCE_ENV: &str = "MEDULLA_REASON_ON_WRITE_DEBOUNCE_MS";
 
 /// Default debounce window when `DEBOUNCE_ENV` is unset/invalid.
 const DEFAULT_DEBOUNCE_MS: u64 = 500;

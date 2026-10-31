@@ -13,7 +13,7 @@ to the application layer, which must show the mathematical trigger first.
 
 ## Ontology (`finance-v1`)
 
-`crates/eg-core/ontology/finance-v1.ttl` is a thin core module in the style of
+`crates/medulla-core/ontology/finance-v1.ttl` is a thin core module in the style of
 the world-model modules. It sits under the BFO layer and maps (never imports)
 to FIBO and Wikidata. It declares ten market classes:
 
@@ -109,7 +109,7 @@ The trailing line follows the public TradingView `ta.supertrend` recurrence:
 - A flip needs the close to be strictly beyond the band. A close equal to the
   band holds the current direction.
 
-The fixture `crates/eg-compute/tests/fixtures/finance_market/reference.py` is an
+The fixture `crates/medulla-compute/tests/fixtures/finance_market/reference.py` is an
 independent Python implementation. It writes `golden.json`, and the Rust
 golden tests must reproduce every digest bit for bit on every build host.
 
@@ -153,7 +153,7 @@ It counts states against a stated denominator of one state per key, and orders
 rows by the most recent flip.
 
 `finance::market::events` turns each flip into a `finance.flip` event for
-eg-stream's CEP engine. This lets compound signals, such as weekly-then-daily
+medulla-stream's CEP engine. This lets compound signals, such as weekly-then-daily
 agreement, run on the same NFA as the live standing queries.
 
 ## Calibrated flip confidence (EH-417)
@@ -275,7 +275,7 @@ tool. It returns three parts:
   `criminal_suppresses` or `criminal_is_the_lever`.
 
 The validation outputs use only correctly rounded IEEE operations and the pinned
-soft-float kernel (`eg_numeric::detkernel::math`), never the platform `libm`,
+soft-float kernel (`medulla_numeric::detkernel::math`), never the platform `libm`,
 `powi` or `powf`. A sealed digest is therefore the same on every host, and the
 test `a_sealed_backtest_run_digest_is_pinned_across_hosts` pins one.
 

@@ -5,11 +5,11 @@
 //! verified context at the request boundary, before consensus routing; a
 //! replicated apply uses its leader's stamp and nothing else.
 
-use eg_types::governed_change::GovernedActor;
+use medulla_types::governed_change::GovernedActor;
 #[cfg(feature = "security")]
-use eg_types::governed_change::GovernedChangeOp;
+use medulla_types::governed_change::GovernedChangeOp;
 #[cfg(feature = "security")]
-use eg_types::result_contract::security::{
+use medulla_types::result_contract::security::{
     GovernedApprove, GovernedGet, GovernedList, GovernedPropose, GovernedRevoke,
 };
 
@@ -97,7 +97,7 @@ pub(crate) async fn dispatch_governed_change(
         Ok(Ok(payload)) => {
             if op.is_mutation() {
                 tracing::info!(
-                    target: "epistemic_graph::governance::audit",
+                    target: "medulla::governance::audit",
                     op = op.name(),
                     actor = %actor.agent_id,
                     "governed change transition committed"

@@ -129,13 +129,13 @@ fn preflight_batch_msgpack(method: &Method) -> Option<Result<(), &'static str>> 
 /// bounds its cardinality FIRST, then validates every bundle in order.
 #[cfg(feature = "modality-serving")]
 fn preflight_served_modality_msgpack(
-    op: &eg_types::modality::ServedModalityOp,
+    op: &medulla_types::modality::ServedModalityOp,
 ) -> Result<(), &'static str> {
     match op {
-        eg_types::modality::ServedModalityOp::Ingest { bundle_msgpack, .. } => {
+        medulla_types::modality::ServedModalityOp::Ingest { bundle_msgpack, .. } => {
             preflight_nested_msgpack(bundle_msgpack)
         }
-        eg_types::modality::ServedModalityOp::IngestStream { items, .. } => {
+        medulla_types::modality::ServedModalityOp::IngestStream { items, .. } => {
             if !(2..=64).contains(&items.len()) {
                 return Err("served modality ingest stream cardinality is outside bounds");
             }
@@ -173,7 +173,7 @@ fn preflight_feature_surface_msgpack(method: &Method) -> Option<Result<(), &'sta
         #[cfg(feature = "modality-serving")]
         Method::ServedModality { op } => Some(preflight_served_modality_msgpack(op)),
         // ChangeEnvelope validates every feature/evidence/outbox/mutation blob
-        // with the shared eg-types preflight as part of its schema validation.
+        // with the shared medulla-types preflight as part of its schema validation.
         Method::ApplyChangeEnvelope { envelope } => Some(preflight_caller_material(
             std::iter::once(envelope.as_ref()),
         )),
@@ -272,17 +272,17 @@ pub(crate) fn ast_input_limits() -> AstInputLimits {
     static LIMITS: OnceLock<AstInputLimits> = OnceLock::new();
     *LIMITS.get_or_init(|| AstInputLimits {
         max_files: bounded_ast_limit(
-            "EPISTEMIC_GRAPH_AST_MAX_FILES",
+            "MEDULLA_AST_MAX_FILES",
             DEFAULT_AST_MAX_FILES,
             HARD_AST_MAX_FILES,
         ),
         max_source_bytes: bounded_ast_limit(
-            "EPISTEMIC_GRAPH_AST_MAX_SOURCE_BYTES",
+            "MEDULLA_AST_MAX_SOURCE_BYTES",
             DEFAULT_AST_MAX_SOURCE_BYTES,
             HARD_AST_MAX_SOURCE_BYTES,
         ),
         max_total_bytes: bounded_ast_limit(
-            "EPISTEMIC_GRAPH_AST_MAX_TOTAL_BYTES",
+            "MEDULLA_AST_MAX_TOTAL_BYTES",
             DEFAULT_AST_MAX_TOTAL_BYTES,
             HARD_AST_MAX_TOTAL_BYTES,
         ),

@@ -3,7 +3,7 @@
 use super::*;
 
 pub(super) fn read_history(
-    read: &ScopedRead<'_, eg_storage::AgentLibraryOwner>,
+    read: &ScopedRead<'_, medulla_storage::AgentLibraryOwner>,
     tenant_id: &str,
     agent_id: &str,
 ) -> Result<(Option<u64>, Vec<AgentLibraryEntry>), String> {
@@ -14,22 +14,22 @@ pub(super) fn read_history(
 }
 
 fn read_history_head(
-    read: &ScopedRead<'_, eg_storage::AgentLibraryOwner>,
+    read: &ScopedRead<'_, medulla_storage::AgentLibraryOwner>,
     tenant_id: &str,
     agent_id: &str,
 ) -> Result<Option<u64>, String> {
-    read.open_owner_table(eg_storage::AGENT_LIBRARY_HEADS)?
+    read.open_owner_table(medulla_storage::AGENT_LIBRARY_HEADS)?
         .get((tenant_id, agent_id))
         .map_err(|error| error.to_string())
         .map(|value| value.map(|value| value.value()))
 }
 
 fn read_history_entries(
-    read: &ScopedRead<'_, eg_storage::AgentLibraryOwner>,
+    read: &ScopedRead<'_, medulla_storage::AgentLibraryOwner>,
     tenant_id: &str,
     agent_id: &str,
 ) -> Result<Vec<AgentLibraryEntry>, String> {
-    let table = read.open_owner_table(eg_storage::AGENT_LIBRARY_REVISIONS)?;
+    let table = read.open_owner_table(medulla_storage::AGENT_LIBRARY_REVISIONS)?;
     let mut entries = Vec::new();
     let mut bytes = 0usize;
     for row in table

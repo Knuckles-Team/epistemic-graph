@@ -20,12 +20,12 @@ pub(super) async fn execute_claim(
             .input_payload
             .clone()
             .ok_or_else(|| "analytics input payload is unavailable".to_string())?;
-        let kind: JobKind = eg_types::msgpack::decode_bounded(
+        let kind: JobKind = medulla_types::msgpack::decode_bounded(
             &payload,
-            eg_types::msgpack::MsgpackLimits::new(
+            medulla_types::msgpack::MsgpackLimits::new(
                 MAX_JOB_INPUT_BYTES,
                 MAX_JOB_INPUT_ITEMS,
-                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+                medulla_types::msgpack::DEFAULT_MAX_DEPTH,
             ),
         )
         .map_err(|_| "analytics input decoding failed".to_string())?;

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use eg_rdf::oxrdf::{NamedOrBlankNode, Term, Triple};
+use medulla_rdf::oxrdf::{NamedOrBlankNode, Term, Triple};
 
 use super::compose::{scope_blank_nodes, validate_and_compose};
 use crate::graph::GraphSchemaSources;
@@ -23,7 +23,7 @@ pub(super) fn kg(local: &str) -> String {
 }
 
 pub(super) fn parse_scoped(document: &str, scope: &str) -> Vec<Triple> {
-    eg_rdf::mapping::parse_turtle(document)
+    medulla_rdf::mapping::parse_turtle(document)
         .unwrap()
         .into_iter()
         .map(|triple| scope_blank_nodes(triple, scope).unwrap())
@@ -56,7 +56,7 @@ pub(super) fn object_iri(triple: &Triple) -> Option<&str> {
     }
 }
 
-pub(super) fn assert_core_catalog(modules: &[&str]) -> eg_rdf::owl::Classification {
+pub(super) fn assert_core_catalog(modules: &[&str]) -> medulla_rdf::owl::Classification {
     let sources = GraphSchemaSources::default();
     for module in modules {
         assert!(
@@ -66,7 +66,7 @@ pub(super) fn assert_core_catalog(modules: &[&str]) -> eg_rdf::owl::Classificati
     }
     assert!(sources.core.len() <= crate::graph::MAX_CORE_SCHEMA_SOURCES);
     let composed = validate_and_compose(&sources).unwrap();
-    let classification = eg_rdf::owl::Reasoner::from_triples(&composed.ontology).classify();
+    let classification = medulla_rdf::owl::Reasoner::from_triples(&composed.ontology).classify();
     assert!(classification.consistent);
     assert!(
         classification.unsatisfiable.is_empty(),
@@ -117,12 +117,12 @@ pub(super) fn assert_shape_targets(triples: &[Triple], expected: &[&str]) {
 /// Shared by every core-vocabulary SHACL fixture suite (`swarm_topology_tests`,
 /// `virtual_graph_tests`) -- jscpd's differential clone gate flagged the two
 /// modules' own byte-identical copies of this helper as a new duplicate pair
-/// when `virtual_graph_tests.rs` was added (EG-UNIFIED-DATA-PLANE-R037); extracted
+/// when `virtual_graph_tests.rs` was added (MEDULLA-UNIFIED-DATA-PLANE-R037); extracted
 /// here instead of copied again.
 pub(super) fn conforms(data: &str) -> bool {
     let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();
-    let data = eg_shacl::graph_from_turtle(data).unwrap();
-    eg_shacl::validate(&composed.shapes, &data)
+    let data = medulla_shacl::graph_from_turtle(data).unwrap();
+    medulla_shacl::validate(&composed.shapes, &data)
         .unwrap()
         .conforms
 }

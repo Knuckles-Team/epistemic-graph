@@ -6,7 +6,7 @@
 
 use std::collections::BTreeSet;
 
-use eg_rdf::oxrdf::Triple;
+use medulla_rdf::oxrdf::Triple;
 
 use super::compose::validate_and_compose;
 use super::test_support::{
@@ -15,8 +15,8 @@ use super::test_support::{
 };
 use crate::graph::GraphSchemaSources;
 
-const FINANCE: &str = include_str!("../../../crates/eg-core/ontology/finance-v1.ttl");
-const FINANCE_SHAPES: &str = include_str!("../../../crates/eg-core/ontology/finance-v1.shapes.ttl");
+const FINANCE: &str = include_str!("../../../crates/medulla-core/ontology/finance-v1.ttl");
+const FINANCE_SHAPES: &str = include_str!("../../../crates/medulla-core/ontology/finance-v1.shapes.ttl");
 const WIRED_MODULES: &[&str] = &[
     "core:foundation@1",
     "core:energy_geopolitics@1",
@@ -42,7 +42,7 @@ fn ex(local: &str) -> String {
     format!("<http://example.org/markets#{local}>")
 }
 
-// spec: EG-FINANCE-PRIMITIVES-R004.2.1, EG-FINANCE-PRIMITIVES-R004.2.2
+// spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.1, MEDULLA-FINANCE-PRIMITIVES-R004.2.2
 #[test]
 fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_coherent() {
     let classification = assert_core_catalog(&["finance", "finance-shapes"]);
@@ -84,10 +84,10 @@ fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_cohere
 }
 
 /// Every class is mapped and only the core foundation is imported.
-// spec: EG-FINANCE-PRIMITIVES-R014
+// spec: MEDULLA-FINANCE-PRIMITIVES-R014
 #[test]
 fn every_finance_class_is_mapped_and_nothing_external_is_imported() {
-    let triples = eg_rdf::mapping::parse_turtle(FINANCE).unwrap();
+    let triples = medulla_rdf::mapping::parse_turtle(FINANCE).unwrap();
     let declared = declared_classes(&triples);
     assert_eq!(declared.len(), 28);
     let unmapped = unmapped_classes(&triples);
@@ -105,8 +105,8 @@ fn every_finance_class_is_mapped_and_nothing_external_is_imported() {
 #[test]
 fn listing_signal_and_flip_wiring_entails_their_types() {
     let triples = wired_with_fixture(WIRED_MODULES, FIXTURE);
-    let ontology = eg_rdf::owl::parse_ontology(&triples);
-    let result = eg_rdf::rules::reason_triples(&triples, &ontology, &Default::default());
+    let ontology = medulla_rdf::owl::parse_ontology(&triples);
+    let result = medulla_rdf::rules::reason_triples(&triples, &ontology, &Default::default());
     let holds =
         |class: &str, individual: &str| result.holds(&kg(class), &[ex(individual).as_str()]);
     assert!(holds("Listing", "btcusdt"));
@@ -135,16 +135,16 @@ fn a_trend_flip_is_never_an_instrument() {
         "@prefix : <http://knuckles.team/kg#> . <http://example.org/markets#flip2> a :FinancialInstrument .",
         "clash",
     ));
-    let dl = eg_rdf::tableau::parse_dl_ontology(&triples);
-    assert!(!eg_rdf::tableau::is_consistent(&dl));
+    let dl = medulla_rdf::tableau::parse_dl_ontology(&triples);
+    assert!(!medulla_rdf::tableau::is_consistent(&dl));
 }
 
 /// EH-517: the trading classes live in finance only, under their unchanged IRIs.
-// spec: EG-FINANCE-PRIMITIVES-R001
+// spec: MEDULLA-FINANCE-PRIMITIVES-R001
 #[test]
 fn the_trading_classes_are_folded_out_of_company_infra() {
     const COMPANY_INFRA: &str =
-        include_str!("../../../crates/eg-core/ontology/company_infra-v1.ttl");
+        include_str!("../../../crates/medulla-core/ontology/company_infra-v1.ttl");
     const FOLDED: &[&str] = &[
         "TradingStrategy",
         "TradingSignal",
@@ -156,7 +156,7 @@ fn the_trading_classes_are_folded_out_of_company_infra() {
         "RiskSnapshot",
     ];
     let declared_in = |document: &str| -> BTreeSet<String> {
-        eg_rdf::mapping::parse_turtle(document)
+        medulla_rdf::mapping::parse_turtle(document)
             .unwrap()
             .iter()
             .filter(|t| t.predicate.as_str() == RDF_TYPE && object_iri(t) == Some(OWL_CLASS))
@@ -184,7 +184,7 @@ fn a_backtest_result_may_specialise_the_outcome_evaluation_record() {
          :BacktestResult rdfs:subClassOf :OutcomeEvaluation .",
         "pack",
     ));
-    let classification = eg_rdf::owl::Reasoner::from_triples(&triples).classify();
+    let classification = medulla_rdf::owl::Reasoner::from_triples(&triples).classify();
     assert!(classification.consistent);
     assert!(
         !classification.unsatisfiable.contains(&kg("BacktestResult")),
@@ -195,7 +195,7 @@ fn a_backtest_result_may_specialise_the_outcome_evaluation_record() {
 
 #[test]
 fn finance_shapes_are_their_own_document() {
-    let triples = eg_rdf::mapping::parse_turtle(FINANCE_SHAPES).unwrap();
+    let triples = medulla_rdf::mapping::parse_turtle(FINANCE_SHAPES).unwrap();
     assert_shape_targets(
         &triples,
         &[
@@ -229,14 +229,14 @@ mod shapes {
         @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n";
 
     fn conforms(data: &str) -> bool {
-        eg_shacl::validate_turtle(FINANCE_SHAPES, &format!("{PREFIXES}{data}"))
+        medulla_shacl::validate_turtle(FINANCE_SHAPES, &format!("{PREFIXES}{data}"))
             .unwrap()
             .conforms
     }
 
     const HASH: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
 
-    // spec: EG-FINANCE-PRIMITIVES-R014, EG-FINANCE-PRIMITIVES-R004.2.1, EG-FINANCE-PRIMITIVES-R004.2.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R014, MEDULLA-FINANCE-PRIMITIVES-R004.2.1, MEDULLA-FINANCE-PRIMITIVES-R004.2.2
     #[test]
     fn well_formed_finance_records_conform() {
         let data = format!(
@@ -266,7 +266,7 @@ mod shapes {
         assert!(conforms(&data));
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.2.1, EG-FINANCE-PRIMITIVES-R004.2.2
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.1, MEDULLA-FINANCE-PRIMITIVES-R004.2.2
     #[test]
     fn malformed_finance_records_are_violations() {
         let refused = [
@@ -303,9 +303,9 @@ mod shapes {
         }
     }
 
-    /// EG-FINANCE-PRIMITIVES-R004: the canonical asset-class vocabulary, plus the
+    /// MEDULLA-FINANCE-PRIMITIVES-R004: the canonical asset-class vocabulary, plus the
     /// deprecated migration aliases preserved for `stock`, `forex` and `commodity`.
-    // spec: EG-FINANCE-PRIMITIVES-R004.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.1
     #[test]
     fn asset_class_vocabulary_accepts_canonical_and_legacy_values() {
         for class in [
@@ -449,7 +449,7 @@ mod shapes {
         "\"finance-v2\"",
     );
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.2.1.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.1.1
     #[test]
     fn account_position_complete_schema_matrix() {
         assert_matrix(
@@ -494,7 +494,7 @@ mod shapes {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.2.2.1
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.2.1
     #[test]
     fn activity_lot_complete_schema_matrix() {
         assert_matrix(
@@ -550,7 +550,7 @@ mod shapes {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.2.3
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.3
     #[test]
     fn portfolio_group_schema_acceptance() {
         let mut member = field("portfolioMember", "ex:pos", "ex:pos2", IRI_WRONG);
@@ -592,7 +592,7 @@ mod shapes {
         assert!(conforms(&two));
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.2.4
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.4
     #[test]
     fn strategy_spec_schema_acceptance() {
         assert_matrix(
@@ -663,7 +663,7 @@ mod shapes {
         )
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.2.5
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.5
     #[test]
     fn strategy_run_schema_acceptance() {
         assert_matrix(
@@ -698,7 +698,7 @@ mod shapes {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.2.6
+    // spec: MEDULLA-FINANCE-PRIMITIVES-R004.2.6
     #[test]
     fn leverage_terms_schema_acceptance() {
         let fields = [

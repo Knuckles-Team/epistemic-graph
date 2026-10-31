@@ -7,16 +7,16 @@
 //! of its retained revisions must carry the pinned definition digest. The body
 //! is then re-hashed against the revision's content digest.
 
-use eg_numeric::decision::features::FeatureMatrix;
+use medulla_numeric::decision::features::FeatureMatrix;
 use serde::de::DeserializeOwned;
 use std::sync::Arc;
 
-use eg_types::agent_component::{AgentComponentEntry, AgentComponentKind, ComponentDependency};
-use eg_types::decision::digest::policy_digest;
-use eg_types::decision::policy::policy_from_attributes;
-use eg_types::decision::statistical::body::decode_body;
-use eg_types::decision::statistical::{QuestionKind, StatisticalErrorCode};
-use eg_types::decision::{
+use medulla_types::agent_component::{AgentComponentEntry, AgentComponentKind, ComponentDependency};
+use medulla_types::decision::digest::policy_digest;
+use medulla_types::decision::policy::policy_from_attributes;
+use medulla_types::decision::statistical::body::decode_body;
+use medulla_types::decision::statistical::{QuestionKind, StatisticalErrorCode};
+use medulla_types::decision::{
     DecisionPolicy, DecisionPolicyRef, QuantScaleTag, QuantisedValue, StatisticalPolicy,
     TraceFidelityLevel, UnitRationalWire,
 };
@@ -29,7 +29,7 @@ pub(super) async fn filtered_view(
     state: &Arc<tokio::sync::RwLock<crate::server::state::ServerState>>,
     agent_id: &str,
     graph: &str,
-) -> Result<eg_core::graph::GraphView, String> {
+) -> Result<medulla_core::graph::GraphView, String> {
     let (core, isolation) = readable_graph(
         state,
         agent_id,
@@ -57,7 +57,7 @@ pub(super) async fn readable_graph(
     missing_code: StatisticalErrorCode,
 ) -> Result<
     (
-        Arc<eg_core::graph::GraphCore>,
+        Arc<medulla_core::graph::GraphCore>,
         crate::isolation::IsolationLayer,
     ),
     String,
@@ -171,7 +171,7 @@ pub(super) fn default_statistical_policy() -> StatisticalPolicy {
         min_outcome_fidelity: TraceFidelityLevel::ToolCalls,
         tenant_public_features: false,
         audit_sample: rational(1, 20),
-        approved_commit_principals: eg_types::contract::BoundedVec::default(),
+        approved_commit_principals: medulla_types::contract::BoundedVec::default(),
         compact_after_ms: None,
         drop_blob_after_ms: None,
     }

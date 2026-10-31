@@ -1,6 +1,6 @@
 use super::*;
-use eg_query::Cell;
-use eg_types::storage_wire::SqlSourceCell;
+use medulla_query::Cell;
+use medulla_types::storage_wire::SqlSourceCell;
 
 mod served;
 mod support;
@@ -33,9 +33,9 @@ fn typed_rls_requires_explicit_matching_stamp_and_never_rewrites_cells() {
     let carrier = authority("bob", "tenant-a", "rls", true);
     let matching = fixture.request("bob");
     let omitted = change(&matching, |batch| {
-        batch.columns = eg_types::contract::BoundedVec::new(vec![id("id"), id("payload")]).unwrap();
+        batch.columns = medulla_types::contract::BoundedVec::new(vec![id("id"), id("payload")]).unwrap();
         batch.rows =
-            eg_types::contract::BoundedVec::new(vec![eg_types::contract::BoundedVec::new(vec![
+            medulla_types::contract::BoundedVec::new(vec![medulla_types::contract::BoundedVec::new(vec![
                 batch.rows.as_slice()[0].as_slice()[0].clone(),
                 batch.rows.as_slice()[0].as_slice()[2].clone(),
             ])
@@ -52,10 +52,10 @@ fn typed_rls_requires_explicit_matching_stamp_and_never_rewrites_cells() {
         let mut rows = batch.rows.as_slice().to_vec();
         let mut row = rows.remove(0).as_slice().to_vec();
         row[1] = SqlSourceCell::Json(
-            eg_types::storage_wire::SqlSourceJson::new(serde_json::json!("bob")).unwrap(),
+            medulla_types::storage_wire::SqlSourceJson::new(serde_json::json!("bob")).unwrap(),
         );
-        batch.rows = eg_types::contract::BoundedVec::new(vec![
-            eg_types::contract::BoundedVec::new(row).unwrap(),
+        batch.rows = medulla_types::contract::BoundedVec::new(vec![
+            medulla_types::contract::BoundedVec::new(row).unwrap(),
         ])
         .unwrap();
     });
@@ -89,7 +89,7 @@ fn tenant_and_grant_isolation_ignore_descriptor_claims() {
     fixture.evict_tenant(other_tenant.tenant_scope());
     let ungranted = authority("carol", "tenant-a", "descriptor-isolation", true);
     let claims = change(&request, |batch| {
-        batch.source_descriptor.metadata = eg_types::storage_wire::SqlSourceJson::new(
+        batch.source_descriptor.metadata = medulla_types::storage_wire::SqlSourceJson::new(
             serde_json::json!({"owner":"carol","permission":"insert","tenant":"tenant-a"}),
         )
         .unwrap();
@@ -112,7 +112,7 @@ fn fresh_nonce_replay_returns_original_typed_result_without_duplicate_publicatio
     assert!(submit(&fixture, &carrier, request.clone(), 2).is_err());
     let altered = change(&request, |batch| {
         batch.mapping_descriptor.content =
-            eg_types::contract::RecordBytes::new(b"different mapping".to_vec()).unwrap();
+            medulla_types::contract::RecordBytes::new(b"different mapping".to_vec()).unwrap();
     });
     assert!(submit(&fixture, &carrier, altered, 3)
         .unwrap_err()
@@ -130,9 +130,9 @@ fn append_preserves_sql_null_and_json_null_in_one_batch() {
         let mut second = first.clone();
         second[0] = SqlSourceCell::Int(2);
         second[2] = SqlSourceCell::Null;
-        batch.rows = eg_types::contract::BoundedVec::new(vec![
-            eg_types::contract::BoundedVec::new(first).unwrap(),
-            eg_types::contract::BoundedVec::new(second).unwrap(),
+        batch.rows = medulla_types::contract::BoundedVec::new(vec![
+            medulla_types::contract::BoundedVec::new(first).unwrap(),
+            medulla_types::contract::BoundedVec::new(second).unwrap(),
         ])
         .unwrap();
     });
@@ -163,7 +163,7 @@ async fn terminal_response_uses_raw_typed_result_and_verified_nonce() {
     let Some(ResultPayload::Raw(bytes)) = response.result else {
         panic!("result must be raw MessagePack")
     };
-    let result: SqlSourceBatchResult = eg_storage::decode_ledger_record(&bytes).unwrap();
+    let result: SqlSourceBatchResult = medulla_storage::decode_ledger_record(&bytes).unwrap();
     assert_eq!(
         result.canonical_digests,
         request.canonical_digests().unwrap()
@@ -173,7 +173,7 @@ async fn terminal_response_uses_raw_typed_result_and_verified_nonce() {
     assert_eq!(fixture.store().scan("issues").unwrap().len(), 1);
 }
 
-// spec: EG-DURABLE-KERNEL-R058
+// spec: MEDULLA-DURABLE-KERNEL-R058
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelling_publication_waiter_does_not_cancel_owned_commit() {
     let fixture = Fixture::new();
@@ -223,7 +223,7 @@ fn active_raft_refuses_local_sql_source_authority_before_publication() {
     let request = fixture.request("bob");
     let _environment_lock = crate::crypto::acquire_test_env_lock_blocking();
     let _environment =
-        crate::server::persistence::backup::EnvVarGuard::set("EPISTEMIC_GRAPH_RAFT_NODE_ID", "1");
+        crate::server::persistence::backup::EnvVarGuard::set("MEDULLA_RAFT_NODE_ID", "1");
     assert!(submit(&fixture, &carrier, request, 1)
         .unwrap_err()
         .contains("no replicated ordering"));

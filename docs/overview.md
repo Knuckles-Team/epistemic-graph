@@ -27,7 +27,7 @@ flowchart LR
         EMB["EmbeddedEngine (in-process, no socket)"]
     end
 
-    subgraph Server["epistemic-graph-server"]
+    subgraph Server["medulla-server"]
         DISP["dispatch + handlers"]
         CORE["GraphCore + GraphRegistry"]
         REDB[("redb authoritative store")]
@@ -54,24 +54,24 @@ will not compile, which is the enforcement.
 
 ```mermaid
 flowchart LR
-    EGT["eg-types<br/>protocol, wire DTOs, ACL"]
-    EGANN["eg-ann<br/>IVF-PQ + OPQ + SQ8 + exact/recall"]
-    EGGEO["eg-geo<br/>geometry · R-tree · CRS · routing (GIS)"]
-    EGSTREAM["eg-stream<br/>windowed events + CEP NFA"]
-    EGKV["eg-kvcache<br/>tiered hot/warm/cold KV-block cache"]
-    EGTEXT["eg-text<br/>Tantivy BM25"]
-    EGWASM["eg-wasm<br/>WASM UDF sandbox"]
-    EGCORE["eg-core<br/>GraphCore · registry · broker · agent-memory · task queue"]
-    EGCOMPUTE["eg-compute<br/>algorithms, finance, datascience, reasoning, ast"]
-    EGQUERY["eg-query<br/>DataFusion SQL + Cypher"]
-    EGTSDB["eg-tsdb<br/>time-series + VRL pipelines"]
-    EGTENSOR["eg-tensor<br/>N-D array store + ops"]
-    EGRDF["eg-rdf<br/>RDF / SPARQL / OWL / GeoSPARQL"]
-    EGSHACL["eg-shacl<br/>SHACL Core validation"]
-    EGSHEX["eg-shex<br/>ShEx shape validation"]
-    EGPLAN["eg-plan<br/>unified RowSet planner + ops"]
-    EGGQL["eg-graphql<br/>GraphQL + Apollo Federation"]
-    EGLAKE["eg-lake<br/>LTAP: Parquet · Delta · Iceberg · LSN as-of"]
+    EGT["medulla-types<br/>protocol, wire DTOs, ACL"]
+    EGANN["medulla-ann<br/>IVF-PQ + OPQ + SQ8 + exact/recall"]
+    EGGEO["medulla-geo<br/>geometry · R-tree · CRS · routing (GIS)"]
+    EGSTREAM["medulla-stream<br/>windowed events + CEP NFA"]
+    EGKV["medulla-kvcache<br/>tiered hot/warm/cold KV-block cache"]
+    EGTEXT["medulla-text<br/>Tantivy BM25"]
+    EGWASM["medulla-wasm<br/>WASM UDF sandbox"]
+    EGCORE["medulla-core<br/>GraphCore · registry · broker · agent-memory · task queue"]
+    EGCOMPUTE["medulla-compute<br/>algorithms, finance, datascience, reasoning, ast"]
+    EGQUERY["medulla-query<br/>DataFusion SQL + Cypher"]
+    EGTSDB["medulla-tsdb<br/>time-series + VRL pipelines"]
+    EGTENSOR["medulla-tensor<br/>N-D array store + ops"]
+    EGRDF["medulla-rdf<br/>RDF / SPARQL / OWL / GeoSPARQL"]
+    EGSHACL["medulla-shacl<br/>SHACL Core validation"]
+    EGSHEX["medulla-shex<br/>ShEx shape validation"]
+    EGPLAN["medulla-plan<br/>unified RowSet planner + ops"]
+    EGGQL["medulla-graphql<br/>GraphQL + Apollo Federation"]
+    EGLAKE["medulla-lake<br/>LTAP: Parquet · Delta · Iceberg · LSN as-of"]
     FACADE["Medulla<br/>facade + Tokio server + wire adapters + observability + LTAP egress + QoS scheduler + embedded"]
 
     EGT --> EGANN --> EGCORE
@@ -100,23 +100,23 @@ flowchart LR
     EGTSDB --> EGLAKE
 ```
 
-The facade re-exports `eg-{types,core,compute}` through the current public `crate::` paths and adds the
+The facade re-exports `medulla-{types,core,compute}` through the current public `crate::` paths and adds the
 server-side modules (dispatch, handlers, persistence, raft, embedded, **the multi-wire adapters**, and
 **the observability listener**). Server dispatch is a thin routing table: each `Method` routes to a
 `handlers::<domain>::try_handle` and the write side-effects (in-flight gauge, authoritative redb
 commit, CDC emit) stay centralized in the shell so every write handler gets durability + reactivity for free.
 
-Six leaf/modality crates were added in the 2.2.0 cycle: **eg-geo** (GIS — geometry, R-tree, CRS, routing;
-CONCEPT:EG-KG.ontology.singles-concept/255-267/155), **eg-tensor** (N-D arrays; CONCEPT:EG-KG.storage.content-addressed-dedup), **eg-stream** (windowed CEP;
-CONCEPT:EG-KG.query.pipelined-execution), **eg-shacl** / **eg-shex** (RDF shape validation; CONCEPT:EG-KG.ontology.concept-6/133), and
-**eg-kvcache** (LLM KV-block tiering; CONCEPT:EG-KG.memory.byte-bounded-tiers/186/187). The **message broker** (CONCEPT:EG-KG.compute.message-broker-exchanges
-family) and **agent-memory** primitives (CONCEPT:EG-KG.compute.discounted-return/220/221/222) live in `eg-core`; the
+Six leaf/modality crates were added in the 2.2.0 cycle: **medulla-geo** (GIS — geometry, R-tree, CRS, routing;
+CONCEPT:MEDULLA-KG.ontology.singles-concept/255-267/155), **medulla-tensor** (N-D arrays; CONCEPT:MEDULLA-KG.storage.content-addressed-dedup), **medulla-stream** (windowed CEP;
+CONCEPT:MEDULLA-KG.query.pipelined-execution), **medulla-shacl** / **medulla-shex** (RDF shape validation; CONCEPT:MEDULLA-KG.ontology.concept-6/133), and
+**medulla-kvcache** (LLM KV-block tiering; CONCEPT:MEDULLA-KG.memory.byte-bounded-tiers/186/187). The **message broker** (CONCEPT:MEDULLA-KG.compute.message-broker-exchanges
+family) and **agent-memory** primitives (CONCEPT:MEDULLA-KG.compute.discounted-return/220/221/222) live in `medulla-core`; the
 **observability** stack (logs/metrics/traces/VRL/federated-search; CONCEPT:AU-KG.ingest.self-ingest-165/172/243) lives in
-`eg-tsdb` + the facade's `obs` listener. **Program B** (waves B-1..B-6, CONCEPT:EG-KG.query.gds-call-procedures..320) then added a
-seventh leaf crate — **eg-lake** (LTAP lakehouse interop: Parquet + Delta + Iceberg + LSN as-of;
-CONCEPT:EG-KG.storage.lsn-as-snapshot-returns, see [lakehouse-ltap](architecture/lakehouse_ltap.md)) — plus the facade's **OTel egress**
-(OTLP export + Prometheus remote-write; EG-316) and **QoS/SLO scheduler** (EG-320), and exposed the
-agent-memory/scene/trajectory primitives over the wire (EG-KG.memory.eg-batch-decay-caller). See
+`medulla-tsdb` + the facade's `obs` listener. **Program B** (waves B-1..B-6, CONCEPT:MEDULLA-KG.query.gds-call-procedures..320) then added a
+seventh leaf crate — **medulla-lake** (LTAP lakehouse interop: Parquet + Delta + Iceberg + LSN as-of;
+CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns, see [lakehouse-ltap](architecture/lakehouse_ltap.md)) — plus the facade's **OTel egress**
+(OTLP export + Prometheus remote-write; MEDULLA-316) and **QoS/SLO scheduler** (MEDULLA-320), and exposed the
+agent-memory/scene/trajectory primitives over the wire (MEDULLA-KG.memory.medulla-batch-decay-caller). See
 [subsystems](architecture/subsystems.md) for how they compose on the one substrate.
 
 ---
@@ -160,7 +160,7 @@ flowchart LR
   and the time-context ops `AsOf` / `Window`.
 - The planner is **cost-reordered** (CONCEPT:AU-KG.compute.vector/2.209): a selective predicate runs before a broad
   one, so the most selective stage prunes the candidate set first. The result is served through the
-  version-keyed, **RLS-aware** result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence), so a repeated identical query on an
+  version-keyed, **RLS-aware** result cache (CONCEPT:MEDULLA-KG.coordination.distributed-cache-coherence), so a repeated identical query on an
   unchanged graph hits — and an agent never sees another agent's filtered result.
 
 A worked example in one plan: *"members the OWL reasoner infers for `Device`, that have a `partOf`
@@ -173,7 +173,7 @@ path to a `Rack`, re-ranked by similarity to a query vector, fused with a BM25 t
 
 Beyond the planner, the property-graph core exposes the classic algorithms directly (one round-trip
 each), computed off the per-graph lock on a structural snapshot so analytics never starves writers
-(CONCEPT:EG-KG.txn.per-graph-write-isolation):
+(CONCEPT:MEDULLA-KG.txn.per-graph-write-isolation):
 
 - **Topological sort** — Kahn's algorithm (`petgraph::algo::toposort`); raises on a cycle.
 - **Cycle detection** — DFS coloring; returns the precise cycle path, e.g. `["A","B","C","A"]`.

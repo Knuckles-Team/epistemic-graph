@@ -3,7 +3,7 @@
   "execution_head": "07b7fb74712f7296df51d275a5be815814a395a9",
   "base_commit": "e5190222b38d628b7d0f268ce4c46b184a170ee1",
   "source_note": "Only Python fixture, documentation and generated status updates since compilation started; native source unchanged.",
-  "binary": "target-isolated/debug/deps/epistemic_graph-1dea97f4f4aaa5cc",
+  "binary": "target-isolated/debug/deps/medulla_engine-1dea97f4f4aaa5cc",
   "binary_sha256": "e8b8fcf11c4b05a63aa3ed8b2ade5c6c8c0bd453d78917f7a85745a6969a64b3",
   "command": [
     "<binary>",

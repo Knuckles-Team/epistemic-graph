@@ -18,9 +18,9 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use eg_types::mutation_outbox::MutationOutboxOp;
+use medulla_types::mutation_outbox::MutationOutboxOp;
 #[cfg(feature = "redb")]
-use eg_types::mutation_outbox::{NativeOutboxScope, NativeOutboxStore, OutboxTarget};
+use medulla_types::mutation_outbox::{NativeOutboxScope, NativeOutboxStore, OutboxTarget};
 
 use crate::protocol::Response;
 use crate::server::auth::VerifiedRequestContext;
@@ -67,7 +67,7 @@ enum Answer {
 impl Answer {
     fn into_response(self, req_id: u64) -> Response {
         use crate::protocol::ResultPayload;
-        use eg_types::result_contract::transactions as results;
+        use medulla_types::result_contract::transactions as results;
 
         match self {
             Answer::View(OutboxViewAnswer::Status(view)) => Response::ok(
@@ -141,15 +141,15 @@ enum Owner {
     },
     #[cfg(feature = "jobs")]
     Jobs {
-        store: Arc<eg_jobs::store::JobStore>,
+        store: Arc<medulla_jobs::store::JobStore>,
     },
     #[cfg(feature = "ann-redb")]
     SemanticBinding {
-        service: Arc<eg_core::compute::semantic_index_service::SemanticIndexService>,
+        service: Arc<medulla_core::compute::semantic_index_service::SemanticIndexService>,
     },
     #[cfg(feature = "query")]
     SqlResource {
-        store: eg_query::TableStore,
+        store: medulla_query::TableStore,
         tenant_scope: String,
         resource: String,
     },

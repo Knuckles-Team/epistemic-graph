@@ -3,15 +3,15 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use eg_types::agent_component::{
+use medulla_types::agent_component::{
     AgentComponentDraft, AgentComponentEntry, AgentComponentFacts, AgentComponentKind,
     ComponentDependency, ComponentProvenance,
 };
-use eg_types::agent_library::AgentLibraryLifecycle;
-use eg_types::connector_pack::{
+use medulla_types::agent_library::AgentLibraryLifecycle;
+use medulla_types::connector_pack::{
     ConnectorPackImportRequest, PackEntry, PackEntryKind, PackViolation, PackViolationCode,
 };
-use eg_types::contract::Digest256;
+use medulla_types::contract::Digest256;
 
 use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::persistence::connector_pack::{
@@ -103,7 +103,7 @@ impl DesiredBuilder<'_> {
         let requires = self.dependencies(entry)?;
         self.visiting.remove(&entry.uri);
         let body = section_bytes(self.archive, &entry.body)?.to_vec();
-        let component_id = eg_types::connector_pack::pack_component_id(
+        let component_id = medulla_types::connector_pack::pack_component_id(
             self.request.index.connector.as_str(),
             entry.kind,
             &entry.name,
@@ -183,7 +183,7 @@ impl DesiredBuilder<'_> {
         _kind: AgentComponentKind,
         entry: &PackEntry,
     ) -> Result<String, String> {
-        let entry_digest = eg_types::connector_pack::digest::entry_digest(entry)?;
+        let entry_digest = medulla_types::connector_pack::digest::entry_digest(entry)?;
         if let Some(member) = self.prior.get(&entry.uri).filter(|member| {
             member.lifecycle == AgentLibraryLifecycle::Published
                 && member.entry_digest == entry_digest
@@ -244,7 +244,7 @@ impl DesiredBuilder<'_> {
         body: &[u8],
         requires: Vec<ComponentDependency>,
     ) -> Result<AgentComponentDraft, String> {
-        let digest = eg_types::connector_pack::digest::entry_digest(entry)?;
+        let digest = medulla_types::connector_pack::digest::entry_digest(entry)?;
         let facts = self.component_facts(entry, &digest);
         let mut attributes = component_attributes(self.request, entry, &digest);
         if entry.kind == PackEntryKind::Resource && entry.uri == CONNECTOR_DECLARATION_URI {

@@ -1,17 +1,17 @@
 {
-  "requirement": "EG-TYPED-PACKS-R048.5",
+  "requirement": "MEDULLA-TYPED-PACKS-R048.5",
   "scope": "Subsequent Go/JavaScript client parity and scanner repair; the original 124-pass native receipt remains unchanged.",
   "wasm": {
     "previous_sha256": "041dcbfea49809c322df105f6902c31570972ecd4ce31685520e019cdd384f09",
     "fresh_sha256": "f23bb0d91cc43a75aa1802cd55417c3359ad64692cde0577aa45ba3ee746b5b2",
     "bytes": 10275067,
     "client_copies": [
-      "clients/go/eg_method_codec.wasm",
-      "clients/js/eg_method_codec.wasm"
+      "clients/go/medulla_method_codec.wasm",
+      "clients/js/medulla_method_codec.wasm"
     ],
     "ledger": ".config/generated-artifacts.toml",
     "matches_hosted_fresh_build": true,
-    "hosted_job": "https://github.com/Knuckles-Team/epistemic-graph/actions/runs/38163343305/job/114540739356",
+    "hosted_job": "https://github.com/Knuckles-Team/medulla/actions/runs/38163343305/job/114540739356",
     "rustc": "1.96.0 (ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96)",
     "cargo": "1.96.0 (30a34c682 2026-05-25)",
     "target": "wasm32-unknown-unknown",
@@ -21,7 +21,7 @@
       "rust-toolchain.toml": "fb0a56ca2fc09db10159f6983e9d747f4afeb64e1d6d941dc36a3c20bf3a5749",
       "Cargo.lock": "2d5d511143a0e7f95212a354434d044c5870d4d2b2e33dee994453a1a3ef1213",
       "Cargo.toml": "b3d20267d563cb3c4d4508a96275ba22527bc87ca57c579f892c49898d1c5678",
-      "crates/eg-method-codec/Cargo.toml": "f0d3364d6aa24aef9686a140f151bc1366d143fe0862418c2772e11678d83451",
+      "crates/medulla-method-codec/Cargo.toml": "f0d3364d6aa24aef9686a140f151bc1366d143fe0862418c2772e11678d83451",
       "scripts/build_method_codec_wasm.py": "42635ef2dfe5586f0c35fbf39fcfa0847b12e3dbde5ca39739e7fe5ed59e7f75",
       "scripts/configure_rust_path_remap.py": "50fd112b35872d94d5e434b47af52a2428cb7c035ec08a7599ae37970bc0007a"
     },
@@ -138,7 +138,7 @@
     "new_clone_pairs": 0
   },
   "cccc": {
-    "job": "https://github.com/Knuckles-Team/epistemic-graph/actions/runs/38163343305/job/114540739382",
+    "job": "https://github.com/Knuckles-Team/medulla/actions/runs/38163343305/job/114540739382",
     "base": "2e44b8af87ec9681ab0f45d13b37fab38d45c7c2",
     "effective_pr_merge_tree": "89c9e04b9a5a932eb69e7dbe00989416b0cdcbb6",
     "real_backlog": 15,
@@ -147,7 +147,7 @@
     "basis": "Each finding file has the same Git blob in the hosted PR base and effective PR merge tree. The census is not clean.",
     "findings": [
       {
-        "path": "crates/eg-compute/src/finance/lot_accounting.rs",
+        "path": "crates/medulla-compute/src/finance/lot_accounting.rs",
         "function": "apply_activities",
         "line": 149,
         "cyclomatic": 15,
@@ -155,7 +155,7 @@
         "unchanged_base_blob": "7aa1d8087fb15cf6396d0d50064f3136a342085b"
       },
       {
-        "path": "crates/eg-plan/src/federation.rs",
+        "path": "crates/medulla-plan/src/federation.rs",
         "function": "fetch_columns",
         "line": 702,
         "cyclomatic": 15,
@@ -163,7 +163,7 @@
         "unchanged_base_blob": "dff44722dec628f0511457cbb2e591dfcb609ee0"
       },
       {
-        "path": "crates/eg-plan/src/federation_age.rs",
+        "path": "crates/medulla-plan/src/federation_age.rs",
         "function": "same_postgres_endpoint",
         "line": 182,
         "cyclomatic": 11,
@@ -171,7 +171,7 @@
         "unchanged_base_blob": "1e3b756ceb66c8616dba949bf28a64f99968132d"
       },
       {
-        "path": "crates/eg-plan/src/federation_opt/oq2.rs",
+        "path": "crates/medulla-plan/src/federation_opt/oq2.rs",
         "function": "kind",
         "line": 70,
         "cyclomatic": 11,
@@ -179,7 +179,7 @@
         "unchanged_base_blob": "2fc9d2f6f237e3c1038bd7d6def1a6f1271d5cd5"
       },
       {
-        "path": "crates/eg-plan/src/federation_trino.rs",
+        "path": "crates/medulla-plan/src/federation_trino.rs",
         "function": "new",
         "line": 54,
         "cyclomatic": 13,
@@ -187,7 +187,7 @@
         "unchanged_base_blob": "c58e28fe89abf0b322024e2ab40fb2bfaf4900dd"
       },
       {
-        "path": "crates/eg-plan/src/federation_trino.rs",
+        "path": "crates/medulla-plan/src/federation_trino.rs",
         "function": "execute",
         "line": 123,
         "cyclomatic": 20,
@@ -195,7 +195,7 @@
         "unchanged_base_blob": "c58e28fe89abf0b322024e2ab40fb2bfaf4900dd"
       },
       {
-        "path": "crates/eg-rdf/src/source_selection.rs",
+        "path": "crates/medulla-rdf/src/source_selection.rs",
         "function": "select_sources",
         "line": 172,
         "cyclomatic": 19,
@@ -203,7 +203,7 @@
         "unchanged_base_blob": "952db8301319ad0bb0b249f10a7636cd0f126920"
       },
       {
-        "path": "crates/eg-types/src/decision/statistical/harness_config.rs",
+        "path": "crates/medulla-types/src/decision/statistical/harness_config.rs",
         "function": "shell_only_needs_both_facts",
         "line": 411,
         "cyclomatic": 8,
@@ -269,8 +269,8 @@
     ]
   },
   "native_artifacts_unchanged": {
-    "target-isolated/debug/epistemic-graph-server": "1f82f41bf60cac83fdc33f9113f89be13ebedaeef84880af56ea04abdbb7575d",
-    "epistemic_graph/numeric.abi3.so": "6e136b5cac9470732bad7966ba8a274a3f1e1e94325a5620553c70292be43f5c"
+    "target-isolated/debug/medulla-server": "1f82f41bf60cac83fdc33f9113f89be13ebedaeef84880af56ea04abdbb7575d",
+    "medulla/numeric.abi3.so": "6e136b5cac9470732bad7966ba8a274a3f1e1e94325a5620553c70292be43f5c"
   },
   "native_tests_carried": 124,
   "raw_logs": "Retained locally; not published."

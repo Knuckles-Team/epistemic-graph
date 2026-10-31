@@ -1,0 +1,424 @@
+//! `Method::Decide`: a statistical decision over library or graph candidates,
+//! and the record version 2 it produces.
+//!
+//! This surface is EVALUATE-ONLY in 2.27.x. It reads candidates, scores them
+//! under a pinned feature schema and head, and returns a batch of records; it
+//! commits nothing. Whether a record is durable, and where, is a separate
+//! decision with its own method.
+
+pub mod belief;
+pub mod body;
+pub mod dataset;
+pub mod declared;
+pub mod enrichment_schedule;
+pub mod errors;
+pub mod execution_routing;
+pub mod features;
+pub mod harness_config;
+pub mod head;
+pub mod ingestion_lane;
+pub mod keyed;
+pub mod log;
+pub mod nl;
+pub mod outcome;
+pub mod placement;
+pub mod retrieval;
+pub mod retrieval_adapter;
+pub mod retrieval_generation;
+pub mod retrieval_plan;
+pub mod retrieval_pointer;
+pub mod scorer;
+pub mod tool_subset;
+
+use serde::{Deserialize, Serialize};
+
+use super::errors::DecisionErrorCode;
+use super::numeric::{QuantScaleTag, UnitRationalWire};
+use super::record::{
+    CandidateSourceRecord, EvidenceClass, PremiseRef, ResolutionKind, TraceFidelity,
+};
+use super::request::{DecisionPolicyRef, LibraryCandidateScope};
+use crate::agent_component::ComponentDependency;
+use crate::contract::BoundedVec;
+
+pub use errors::StatisticalErrorCode;
+pub use outcome::{
+    AuditDraw, CalibrationMethod, CalibrationStatement, LinearExplanation, RiskMethod,
+    RiskStatement, ScoredOption, StatisticalOutcome,
+};
+
+/// The largest record batch one `Decide` may return.
+pub const MAX_DECIDE_RECORDS: u16 = 256;
+
+/// What class of question this is. The kind selects the executor; it never
+/// selects the guarantee.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum QuestionKind {
+    Route,
+    Rank,
+    Classify,
+    ResolveEntity,
+    SchemaMapping,
+    TemplateChoice,
+    RetrievalPlan,
+    IngestionLane,
+    EnrichmentSchedule,
+    /// An advisory risk score for a candidate tool invocation, read before
+    /// the call (MEDULLA-DECISION-ENGINE-R038). `Decide` is evaluate-only for
+    /// every kind (see this module's own doc), so the score it returns can
+    /// only ever inform a caller's own authorization step -- it carries no
+    /// mechanism to itself gate or block the invocation.
+    PreToolRisk,
+    /// Inbound connector-event classification, evaluate-only
+    /// (MEDULLA-DECISION-ENGINE-R041): `Decide` returns a proposal and its
+    /// evidence class and takes no action on the connector's behalf -- the
+    /// same evaluate-only guarantee this module's own doc states for every
+    /// kind, named here for the connector-triage use case specifically.
+    ConnectorEventTriage,
+    /// Which internal tool a connector should use for a task, advisory only
+    /// (MEDULLA-DECISION-ENGINE-R042): `Decide` returns a proposal with evidence;
+    /// the connector's own deterministic authorization path, never `Decide`,
+    /// governs whether a resulting write-back actually occurs.
+    ConnectorToolChoice,
+    /// A write-back proposal for a connector action, with supporting
+    /// evidence (MEDULLA-DECISION-ENGINE-R043): the proposal never authorizes the
+    /// write itself. Any exploration or statistical head behind it stays
+    /// outside the connector's own deterministic authorization step, which
+    /// alone approves the write.
+    ConnectorWriteBack,
+    /// The smallest tool subset covering every required capability within a
+    /// context-token budget (MEDULLA-DECISION-ENGINE-R045). Candidates are
+    /// declared (`CandidateSource::Declared`); required capabilities and the
+    /// budget are typed request params (`required_capabilities`,
+    /// `context_budget_tokens`). See `stat_tool_subset`.
+    ToolSubset,
+    /// Evaluate-only harness configuration advice (MEDULLA-DECISION-ENGINE-R128).
+    /// Returns proposed context, scaffold and action-space choices; never runs them.
+    HarnessConfig,
+    /// Bounded explicit dependency planning; admission belongs to the host.
+    TaskPlan,
+    /// The contrastive harness composition decision (MEDULLA-DECISION-ENGINE-R803):
+    /// two to eight candidate component versions probed against the same
+    /// baseline under identical conditions; the engine adopts a candidate only
+    /// when its measured `eval_score_delta` is positive and unbeaten, with
+    /// cost as the tie-break, and abstains keeping the current harness when no
+    /// candidate improves. See `decision::harness_contrast`.
+    HarnessContrast,
+    /// Evaluate-only deployment placement over the fixed target registry
+    /// (MEDULLA-PLACEMENT-R001.2): `Decide` names the cheapest feasible target and
+    /// why every other target was not chosen; it acquires no capacity and
+    /// deploys nothing. See `statistical::placement`.
+    Placement,
+    /// Whether a prompt passes its window share and the bounded recursive
+    /// split that makes it fit (MEDULLA-DECISION-ENGINE-R137). Evaluate-only. See
+    /// `decision::context_budget`.
+    ContextBudget,
+    /// Whether an evolution round's observed flips verify or falsify its
+    /// declaration (MEDULLA-DECISION-ENGINE-R136). See `decision::evolution_round`.
+    RoundVerdict,
+    /// Which model each evolution stage runs on (MEDULLA-DECISION-ENGINE-R136).
+    StageAllocation,
+    /// The verdict of one red-team probe (MEDULLA-DECISION-ENGINE-R138). See
+    /// `decision::red_team`.
+    ProbeVerdict,
+    /// Catalog items for a query and a history (MEDULLA-DECISION-ENGINE-R175). See
+    /// `decision::recommend`.
+    ItemRecommendation,
+    /// The tools, skills and agents one job needs (MEDULLA-DECISION-ENGINE-R176).
+    /// See `decision::load_set`.
+    LoadSet,
+    /// How and when to use one connector for one job (MEDULLA-DECISION-ENGINE-R177).
+    /// See `decision::usage_guidance`.
+    UsageGuidance,
+    /// Branch outcome aggregation for planning decisions (MEDULLA-DECISION-ENGINE-R164).
+    BranchOutcome,
+    /// Edit concentration checks over a declared rolling round window (MEDULLA-DECISION-ENGINE-R173).
+    EditConcentration,
+}
+
+/// What is at stake. Exploration is permitted only for
+/// [`QuestionSafety::Ordinary`]; everything else must be decided on evidence
+/// already in hand or abstained.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum QuestionSafety {
+    Ordinary,
+    Security,
+    Policy,
+    WriteBack,
+    Irreversible,
+}
+
+/// One named, classified question.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct StatisticalQuestion {
+    pub question_id: String,
+    pub kind: QuestionKind,
+    pub safety: QuestionSafety,
+}
+
+/// Where the options come from.
+/// Not `Eq`: the cross-modal plan carries floats, so equality on a graph-sourced
+/// candidate scope is partial, exactly as it is on `Method` itself.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "source", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum CandidateSource {
+    /// A tenant-bound agent library scope.
+    AgentLibrary { scope: LibraryCandidateScope },
+    /// An RLS-filtered cross-modal plan over one named graph -- the same
+    /// public plan type `Method::UnifiedQuery` accepts, so there is one plan
+    /// vocabulary. The plan only names the candidate id set; it may not rank
+    /// or truncate before visibility, because a top-k taken over invisible
+    /// rows would move visible ones.
+    #[cfg(feature = "query")]
+    Graph {
+        graph: String,
+        plan: Box<crate::wire::Plan>,
+    },
+    /// The caller's own options, each fact a claim the caller makes
+    /// ([`declared`]). Visible to the declaring principal only.
+    Declared {
+        options: BoundedVec<declared::DeclaredOption, 64>,
+    },
+}
+
+/// A typed question parameter. Scalar values are never interpolated into queries.
+/// An explicit task proposal carries prompts as data for the host executor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum TypedValue {
+    Bool(bool),
+    Int(i64),
+    Text(String),
+    Iri(String),
+    IriList(BoundedVec<String, 64>),
+    Rational(UnitRationalWire),
+    /// Explicit task claims, never policy or authorization.
+    TaskPlan(Box<super::task_plan::TaskPlanProposal>),
+}
+
+/// One named parameter of a question.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct TypedParam {
+    pub name: String,
+    pub value: TypedValue,
+}
+
+/// One statistical decision request.
+/// Not `Eq`, for the same reason [`CandidateSource`] is not.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DecideRequest {
+    pub tenant_id: String,
+    pub question: StatisticalQuestion,
+    pub candidates: CandidateSource,
+    pub feature_schema: ComponentDependency,
+    /// Absent asks for the deterministic ladder only.
+    #[serde(default)]
+    pub head: Option<ComponentDependency>,
+    pub policy: DecisionPolicyRef,
+    /// Sorted by name and unique.
+    #[serde(default)]
+    pub params: BoundedVec<TypedParam, 64>,
+    /// At most [`MAX_DECIDE_RECORDS`].
+    #[serde(default)]
+    pub max_records: Option<u16>,
+    /// Times (strictly increasing, not after the decision's clock) at which
+    /// to report the head's belief over the same options (EH-297). Omitted
+    /// when empty.
+    #[serde(default, skip_serializing_if = "BoundedVec::is_empty")]
+    pub belief_as_of: BoundedVec<u64, 8>,
+}
+
+/// How the feature matrix the decision read is pinned.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "matrix", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum FeatureMatrixRef {
+    /// Small matrices travel inline, exactly, on a named fixed-point scale.
+    Inline {
+        candidate_ids: BoundedVec<String, 64>,
+        feature_names: BoundedVec<String, 32>,
+        scale: QuantScaleTag,
+        values: BoundedVec<i64, 2048>,
+    },
+    /// Larger ones are pinned by content digest.
+    Blob {
+        sha256: String,
+        length: u64,
+        rows: u32,
+        columns: u32,
+    },
+}
+
+/// How the shortlist the decision scored was produced.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ShortlistProvenance {
+    /// The approximate-nearest-neighbour recall mode, when one was used.
+    #[serde(default)]
+    pub ann_recall_mode: Option<String>,
+    /// The clock the shortlist's recency filters read, recorded so the
+    /// shortlist can be reproduced.
+    pub now_ms: u64,
+    #[serde(default)]
+    pub embedder_model_digest: Option<String>,
+}
+
+/// A committed exploration draw: the seed is committed before the draw and
+/// revealed after, so the draw cannot be chosen after the fact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ExplorationRecord {
+    pub seed_commitment: String,
+    #[serde(default)]
+    pub revealed_seed: Option<String>,
+    pub budget_digest: String,
+}
+
+/// The input set of one statistical decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct StatisticalInputs {
+    /// Optional exact harness evidence; omission preserves existing record bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness_evaluation: Option<harness_config::HarnessConfigEvaluationEvidence>,
+    /// The contrastive harness composition decision, present exactly when the
+    /// question kind is `HarnessContrast` (MEDULLA-DECISION-ENGINE-R803).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness_contrast: Option<super::harness_contrast::HarnessContrastDecision>,
+    pub feature_schema: ComponentDependency,
+    #[serde(default)]
+    pub head: Option<ComponentDependency>,
+    /// The policy the decision resolved, so a replay reads the same body.
+    pub policy: DecisionPolicyRef,
+    pub policy_digest: String,
+    /// The typed parameters the features and the keyed seed read.
+    #[serde(default)]
+    pub params: BoundedVec<TypedParam, 64>,
+    /// Identity of the rules (names, thresholds, ontology digest) the
+    /// candidates' derived classes came from (EH-200); a record replays only
+    /// under the same identity. `None` when no class was derived.
+    #[serde(default)]
+    pub classification_rules: Option<String>,
+    pub feature_matrix: FeatureMatrixRef,
+    pub shortlist: ShortlistProvenance,
+    #[serde(default)]
+    pub exploration: Option<ExplorationRecord>,
+    /// The belief slices' stored inputs (EH-297); omitted when none.
+    #[serde(default, skip_serializing_if = "BoundedVec::is_empty")]
+    pub belief_slices: BoundedVec<belief::BeliefSliceInputs, 8>,
+}
+
+/// One statistical decision, recorded. Record version 2.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct StatisticalDecisionRecord {
+    pub schema_version: u16,
+    pub record_id: String,
+    pub tenant_id: String,
+    pub caller_principal: String,
+    pub created_at_ms: u64,
+    pub question: StatisticalQuestion,
+    pub candidate_source: CandidateSourceRecord,
+    pub inputs: StatisticalInputs,
+    pub inputs_digest: String,
+    pub resolution_kind: ResolutionKind,
+    pub evidence_class: EvidenceClass,
+    pub trace_fidelity: TraceFidelity,
+    pub premises: BoundedVec<PremiseRef, 1024>,
+    pub outcome: StatisticalOutcome,
+    /// Evaluate-only explicit task DAG. Absent on every other question kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_plan: Option<super::task_plan::TaskPlan>,
+    #[serde(default)]
+    pub calibration: Option<CalibrationStatement>,
+    /// Per-feature logit contributions of the chosen or top option; exact for
+    /// a linear head's logit only.
+    #[serde(default)]
+    pub explanation: Option<LinearExplanation>,
+    /// The audit-sampling draw of an acted decision (EH-026).
+    #[serde(default)]
+    pub audit: Option<AuditDraw>,
+    /// The executed policy's full distribution over the options, aligned with
+    /// the feature matrix's candidate order and conditional on an option being
+    /// executed; empty when nothing was (advisory or abstained). Off-policy
+    /// evaluation over the decision log reads it.
+    #[serde(default)]
+    pub logging_propensities: BoundedVec<UnitRationalWire, 64>,
+    /// The routed template and slot values of a `TemplateChoice` question.
+    #[serde(default)]
+    pub nl_binding: Option<nl::NlBinding>,
+    /// The head's belief at each requested slice (EH-297); omitted when none.
+    #[serde(default, skip_serializing_if = "BoundedVec::is_empty")]
+    pub belief: BoundedVec<belief::BeliefPoint, 8>,
+    /// Synthetic evidence is labelled as such, always.
+    pub synthetic_evidence: bool,
+    pub record_digest: String,
+}
+
+impl StatisticalDecisionRecord {
+    /// The validating constructor; see [`super::DecisionRecord::checked`].
+    pub fn checked(self) -> Result<Self, DecisionErrorCode> {
+        if self.schema_version != super::STATISTICAL_DECISION_RECORD_SCHEMA_VERSION {
+            return Err(DecisionErrorCode::DecisionRecordVersionUnsupported);
+        }
+        Ok(self)
+    }
+}
+
+/// One evaluate-only answer: the records the decision produced, and the digest
+/// of the inputs they share.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DecisionBatch {
+    pub schema_version: u16,
+    pub inputs_digest: String,
+    pub records: BoundedVec<StatisticalDecisionRecord, 256>,
+}
+
+#[cfg(test)]
+mod question_kind_declared_tests {
+    use super::QuestionKind;
+
+    // spec: MEDULLA-DECISION-ENGINE-R128.1
+    #[test]
+    fn harness_config_kind_serialises_snake_case() {
+        let wire = serde_json::to_string(&QuestionKind::HarnessConfig).unwrap();
+        assert_eq!(wire, "\"harness_config\"");
+        assert_eq!(
+            serde_json::from_str::<QuestionKind>(&wire).unwrap(),
+            QuestionKind::HarnessConfig
+        );
+        assert!(serde_json::from_str::<QuestionKind>("\"HarnessConfig\"").is_err());
+    }
+
+    // spec: MEDULLA-DECISION-ENGINE-R032.1
+    #[test]
+    fn resolve_entity_is_declared() {
+        assert_eq!(QuestionKind::ResolveEntity, QuestionKind::ResolveEntity);
+        assert_ne!(QuestionKind::ResolveEntity, QuestionKind::Route);
+    }
+
+    // spec: MEDULLA-DECISION-ENGINE-R033.1
+    #[test]
+    fn schema_mapping_is_declared() {
+        assert_eq!(QuestionKind::SchemaMapping, QuestionKind::SchemaMapping);
+        assert_ne!(QuestionKind::SchemaMapping, QuestionKind::Route);
+    }
+}

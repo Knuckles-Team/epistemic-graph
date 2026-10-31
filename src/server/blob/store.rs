@@ -1,4 +1,4 @@
-//! Content-addressed chunk store (CAS) — CONCEPT:EG-KG.storage.bounded-blob-memory.
+//! Content-addressed chunk store (CAS) — CONCEPT:MEDULLA-KG.storage.bounded-blob-memory.
 //!
 //! The bytes tier under the `:Media`/`:Blob` graph shape. A media file is split into
 //! chunks; each chunk is stored ONCE keyed by its sha256 (intrinsic dedup), and a blob
@@ -8,7 +8,7 @@
 //! NEVER touch the inline node/edge KV.
 //!
 //! This is the DAG-low storage core: ONE physical owner file
-//! (`{persist_dir}/blob.redb`, `eg_storage::OwnerLayout::Blob`) SEPARATE from the
+//! (`{persist_dir}/blob.redb`, `medulla_storage::OwnerLayout::Blob`) SEPARATE from the
 //! authoritative graph shards, which keeps the manifest/chunk/refcount tables off
 //! the hot graph store. Every write is an admitted transaction of the mutation
 //! kernel, so durability is the kernel's — commit-before-ack, never a local
@@ -41,11 +41,11 @@ use crate::mutation_batch::{
     DurabilityDomain, IncarnationId, LogicalName, MutationBatch, MutationCommitPhase,
     MutationScopeIdentity, ScopeTenantId,
 };
-use eg_storage::{
+use medulla_storage::{
     BlobOwner, BlobSharedRead, BlobSharedServiceHandle, BlobSharedWrite, CasChunkRows,
     OwnedStoreHandle, PhysicalStoreIdentity, ScopedRead, StorageKernel, StoreOpenOptions,
 };
-use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
+use medulla_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
 use redb::{ReadableTableMetadata, TableDefinition};
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
@@ -79,8 +79,8 @@ pub use policy::{
 };
 
 /// Default chunk size: 2 MiB (in the 1–4 MB band the streaming protocol targets;
-/// matches the spike). The pre-EG-071 FIXED stride; content-defined chunking
-/// ([`crate::server::blob::cdc`], CONCEPT:EG-KG.storage.backward-manifest-read) now targets this as its AVERAGE.
+/// matches the spike). The pre-MEDULLA-071 FIXED stride; content-defined chunking
+/// ([`crate::server::blob::cdc`], CONCEPT:MEDULLA-KG.storage.backward-manifest-read) now targets this as its AVERAGE.
 /// Still the default chunk size of the wire upload cursor (`BlobBegin`).
 pub const DEFAULT_CHUNK_SIZE: usize = 2 * 1024 * 1024;
 
@@ -260,33 +260,33 @@ enum ChunkAuthority {
     External,
 }
 
-/// Chunks to flush per group commit (CONCEPT:EG-KG.storage.bounded-blob-memory — bounded memory). At the
+/// Chunks to flush per group commit (CONCEPT:MEDULLA-KG.storage.bounded-blob-memory — bounded memory). At the
 /// 2 MiB default chunk size this is a ~64 MiB window: at most this many chunk bodies
 /// are resident before ONE admitted mutation writes the whole group, so peak RSS is
 /// bounded by the GROUP WINDOW, NOT the blob size. (One admitted mutation per chunk
 /// bounds RAM too but collapses throughput with an fsync per chunk; group-commit is
 /// the cadence `redb_backend.rs` already uses.) Tunable via
-/// `EPISTEMIC_GRAPH_BLOB_GROUP_CHUNKS`.
+/// `MEDULLA_BLOB_GROUP_CHUNKS`.
 const DEFAULT_GROUP_CHUNKS: usize = 32;
 
-/// Default bound on this store's redb page cache (CONCEPT:EG-KG.storage.bounded-blob-memory).
+/// Default bound on this store's redb page cache (CONCEPT:MEDULLA-KG.storage.bounded-blob-memory).
 /// The group window bounds the STAGED chunk bodies, but the CAS stores multi-MB chunk
 /// VALUES, so redb's 1 GiB default page cache is what actually lets resident memory
 /// track the blob size. Evicting past this cap is the real bound. 128 MiB is about 2x
-/// the 64 MiB group window. Tunable via `EPISTEMIC_GRAPH_BLOB_CACHE_BYTES`, validated by
+/// the 64 MiB group window. Tunable via `MEDULLA_BLOB_CACHE_BYTES`, validated by
 /// [`StoreOpenOptions::with_cache_bytes`].
 const DEFAULT_CACHE_BYTES: usize = 128 * 1024 * 1024;
 
 /// The open options every `RedbChunkStore` handle runs under: the page-cache cap above,
-/// or the operator's `EPISTEMIC_GRAPH_BLOB_CACHE_BYTES`. A value that does not parse or
+/// or the operator's `MEDULLA_BLOB_CACHE_BYTES`. A value that does not parse or
 /// is outside the kernel's accepted range fails the open rather than silently running
 /// uncapped.
 fn blob_open_options() -> Result<StoreOpenOptions, String> {
-    let cache_bytes = match std::env::var("EPISTEMIC_GRAPH_BLOB_CACHE_BYTES") {
+    let cache_bytes = match std::env::var("MEDULLA_BLOB_CACHE_BYTES") {
         Ok(raw) => raw
             .trim()
             .parse::<usize>()
-            .map_err(|_| "EPISTEMIC_GRAPH_BLOB_CACHE_BYTES must be a byte count".to_string())?,
+            .map_err(|_| "MEDULLA_BLOB_CACHE_BYTES must be a byte count".to_string())?,
         Err(_) => DEFAULT_CACHE_BYTES,
     };
     StoreOpenOptions::default().with_cache_bytes(cache_bytes)
@@ -360,7 +360,7 @@ fn group_subject(group: &HashMap<String, Vec<u8>>) -> String {
 }
 
 /// Native content-addressed store over ONE physical owner file
-/// (`{persist_dir}/blob.redb`, `eg_storage::OwnerLayout::Blob`) served through the two
+/// (`{persist_dir}/blob.redb`, `medulla_storage::OwnerLayout::Blob`) served through the two
 /// kernels. Chunk writes accumulate in memory and flush every [`DEFAULT_GROUP_CHUNKS`]
 /// chunks as ONE admitted maintenance mutation, so an acked group survives a crash AND
 /// peak memory is bounded by the group window (not the file size). Durability is the
@@ -382,16 +382,16 @@ pub struct RedbChunkStore {
 }
 
 /// Open (creating if absent) `{persist_dir}/blob.redb` as ONE physical owner file
-/// under `eg_storage::OwnerLayout::Blob`. `create_owner` materializes the WHOLE
+/// under `medulla_storage::OwnerLayout::Blob`. `create_owner` materializes the WHOLE
 /// declared census plus the ledger, so CAS rows land in the SAME transaction as the
 /// ledger's idempotency/OCC/outbox rows, which is what `commit_native_batch` needs
 /// for atomicity. An existing file of the previous blob layout is refused by name
 /// inside the open, read-only, by the storage kernel's lineage registry
-/// (`eg_storage::BLOB_BEFORE_HOLDERS`).
+/// (`medulla_storage::BLOB_BEFORE_HOLDERS`).
 ///
 /// The handle runs under [`blob_open_options`]: a capped redb page cache. The
 /// kernel migration first opened this file with redb's 1 GiB default because
-/// `eg-storage` had no cache injection point then; `StoreOpenOptions` is that
+/// `medulla-storage` had no cache injection point then; `StoreOpenOptions` is that
 /// injection point, and without it resident memory tracked the blob size (a 256 MB
 /// blob grew peak RSS by ~546 MB) despite the group window.
 fn open_store(persist_dir: &str, chunks: ChunkAuthority) -> Result<RedbChunkStore, String> {
@@ -415,7 +415,7 @@ fn open_store(persist_dir: &str, chunks: ChunkAuthority) -> Result<RedbChunkStor
     let mutations = MutationKernel::new(authority);
     let bootstrap = bind_scope(&kernel, &ledger_bootstrap_identity()?)?;
     mutations.bootstrap_ledger(&bootstrap)?;
-    let group = std::env::var("EPISTEMIC_GRAPH_BLOB_GROUP_CHUNKS")
+    let group = std::env::var("MEDULLA_BLOB_GROUP_CHUNKS")
         .ok()
         .and_then(|v| v.parse().ok())
         .filter(|&n| n > 0)
@@ -489,7 +489,7 @@ impl RedbChunkStore {
     /// the OS temp reaper; callers that want cleanup pass their own dir to `open`.
     #[cfg(test)]
     pub fn open_temp() -> Result<Self, String> {
-        let dir = crate::server::unique_temp_dir("eg-blob-cas");
+        let dir = crate::server::unique_temp_dir("medulla-blob-cas");
         Self::open(&dir.to_string_lossy())
     }
 
@@ -639,7 +639,7 @@ impl RedbChunkStore {
     fn complete_write<T, F>(
         &self,
         owner: &OwnedStoreHandle<BlobOwner>,
-        write: eg_transaction::AdmittedMutation<'_, BlobOwner>,
+        write: medulla_transaction::AdmittedMutation<'_, BlobOwner>,
         batch: &MutationBatch,
         begun: Begin,
         at_ms: u64,
@@ -686,7 +686,7 @@ impl RedbChunkStore {
 /// outer error is the capability's; the inner one is the apply's refusal, which
 /// the caller answers by aborting the whole write.
 fn stage_owner_rows<T, F>(
-    write: &eg_transaction::AdmittedMutation<'_, BlobOwner>,
+    write: &medulla_transaction::AdmittedMutation<'_, BlobOwner>,
     owner: &OwnedStoreHandle<BlobOwner>,
     batch: &MutationBatch,
     apply: F,

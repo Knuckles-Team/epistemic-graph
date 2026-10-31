@@ -8,18 +8,18 @@ from typing import Any, cast
 import pytest
 from _client_send_stub import CapturingEngine
 
-from epistemic_graph.client import EpistemicGraphClient, WorkItemClient
+from medulla.client import MedullaClient, WorkItemClient
 
 pytestmark = pytest.mark.no_engine
 
 
 def client(answer: object) -> tuple[WorkItemClient, CapturingEngine]:
     engine = CapturingEngine(answer)
-    return WorkItemClient(cast(EpistemicGraphClient, engine)), engine
+    return WorkItemClient(cast(MedullaClient, engine)), engine
 
 
-# spec: EG-DURABLE-KERNEL-R028.1.3
-# spec: EG-DURABLE-KERNEL-R028.1.3.1
+# spec: MEDULLA-DURABLE-KERNEL-R028.1.3
+# spec: MEDULLA-DURABLE-KERNEL-R028.1.3.1
 def test_checkpoint_read_uses_only_native_read_operation() -> None:
     items, engine = client(None)
     assert (
@@ -46,8 +46,8 @@ def test_checkpoint_read_uses_only_native_read_operation() -> None:
     ]
 
 
-# spec: EG-DURABLE-KERNEL-R028.1.3
-# spec: EG-DURABLE-KERNEL-R028.1.3.1
+# spec: MEDULLA-DURABLE-KERNEL-R028.1.3
+# spec: MEDULLA-DURABLE-KERNEL-R028.1.3.1
 def test_checkpoint_publish_preserves_native_replayed_acknowledgement() -> None:
     receipt: dict[str, Any] = {
         "work_item_id": "wi",

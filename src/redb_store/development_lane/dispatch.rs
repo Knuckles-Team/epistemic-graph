@@ -22,7 +22,7 @@ use crate::epistemic_operations::{
 };
 use crate::protocol::Method;
 use crate::redb_store::shard::{Shard, ShardWrite};
-use eg_storage::{GraphShardOwner, ScopedOwnerTableMut, ScopedRead};
+use medulla_storage::{GraphShardOwner, ScopedOwnerTableMut, ScopedRead};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply_quota_update(

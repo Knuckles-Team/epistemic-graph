@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""CONCEPT:EG-KG.query.perf-recall-ci-gate — the perf/recall regression GATE for the
-eg-plan hybrid_queries bench.
+"""CONCEPT:MEDULLA-KG.query.perf-recall-ci-gate — the perf/recall regression GATE for the
+medulla-plan hybrid_queries bench.
 
-Runs AFTER `cargo bench -p eg-plan --features …` has produced its criterion output. It
+Runs AFTER `cargo bench -p medulla-plan --features …` has produced its criterion output. It
 reads two artifacts and fails (exit 1) on a regression:
 
-  1. **recall** — the `eg_plan_recall.json` the bench writes (measured recall@k of the
+  1. **recall** — the `medulla_plan_recall.json` the bench writes (measured recall@k of the
      vector leg vs the brute-force oracle). Must stay >= `recall_floor`. The bench ALSO
      asserts this internally, so a recall regression already fails the bench binary;
      this
@@ -21,9 +21,9 @@ reads two artifacts and fails (exit 1) on a regression:
 
 Usage:
   python3 scripts/bench_gate.py \
-      [--thresholds crates/eg-plan/benches/thresholds.json] \
+      [--thresholds crates/medulla-plan/benches/thresholds.json] \
       [--criterion-dir target/criterion] \
-      [--recall-json target/eg_plan_recall.json]
+      [--recall-json target/medulla_plan_recall.json]
 """
 
 from __future__ import annotations
@@ -45,11 +45,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--thresholds",
         type=Path,
-        default=repo / "crates" / "eg-plan" / "benches" / "thresholds.json",
+        default=repo / "crates" / "medulla-plan" / "benches" / "thresholds.json",
     )
     ap.add_argument("--criterion-dir", type=Path, default=repo / "target" / "criterion")
     ap.add_argument(
-        "--recall-json", type=Path, default=repo / "target" / "eg_plan_recall.json"
+        "--recall-json", type=Path, default=repo / "target" / "medulla_plan_recall.json"
     )
     return ap
 
@@ -112,7 +112,7 @@ def _check_latency(
 
 
 def _emit_result(reported: list[str], failures: list[str]) -> int:
-    print("eg-plan perf/recall gate (CONCEPT:EG-KG.query.perf-recall-ci-gate):")
+    print("medulla-plan perf/recall gate (CONCEPT:MEDULLA-KG.query.perf-recall-ci-gate):")
     print("\n".join(reported))
 
     if failures:

@@ -2,12 +2,12 @@
 
 ## Design decisions
 
-The implementation extends Medulla's current typed pack, component, schema, outbox and capability registry. It adds no separate pack database or dynamic response envelope. It adds no second contract generator or graph projection side channel. The public wire is generated from `eg-capabilities`; canonical receipt content must be compared byte for byte. Changes to a shared wire shape land as one coordinated revision across Rust, generated Python/Go/JS and the Graft SDK TCK.
+The implementation extends Medulla's current typed pack, component, schema, outbox and capability registry. It adds no separate pack database or dynamic response envelope. It adds no second contract generator or graph projection side channel. The public wire is generated from `medulla-capabilities`; canonical receipt content must be compared byte for byte. Changes to a shared wire shape land as one coordinated revision across Rust, generated Python/Go/JS and the Graft SDK TCK.
 
 The order below minimizes incompatible intermediate states. A step may be a verification or repair of existing code. The existence of a module is not proof that the step is accepted. Each step maps to `tasks.md` and `test-spec.md`.
 
 1. **Freeze contract and baseline.** Record the exact default-branch revision, current pack schema version and generated receipt. Run contract generation in check mode, full test inventory, CCCC, jscpd, Dupehound and KISS scans. Compare committed artifact *content* across all output directories. Classify findings as fixed, open or unrelated with exact evidence.
-2. **Type and encoding proof.** Audit `eg-types` bounds, kinds, digest framing, sorted lists, optionals and canonical fixture vectors. Make the Graft SDK's JSON serialization and deterministic idempotency key a shared TCK contract. Extend generated method/result descriptors rather than hand-writing client DTO copies.
+2. **Type and encoding proof.** Audit `medulla-types` bounds, kinds, digest framing, sorted lists, optionals and canonical fixture vectors. Make the Graft SDK's JSON serialization and deterministic idempotency key a shared TCK contract. Extend generated method/result descriptors rather than hand-writing client DTO copies.
 3. **Admission and atomicity proof.** Audit G1–G21, tenant/importer checks, reserved IDs, preflight size checks and stable codes. The import planner resolves staged pins and stages engine bodies with holder/refcount invariants. It commits all owner rows plus N outbox intents atomically. Test all crash windows and replay identities.
 4. **Lifecycle and catalog proof.** Verify carry-forward, changed pin cascade, reversible withdrawal, permanent retirement, content reads, no-op import and mass-withdrawal override. Confirm typed ServerRegistry owns liveness and component/pack owner owns content; remove any shadow catalog after consumer migration.
 5. **Schema and projection proof.** Reuse one G13–G16/K1–K7 validator for operator, pack and ingestion sources. Attach current pack schema in one graph commit. Mark visibility only after attach; use durable failure/retry and least-privilege row-scoped graph grant. Verify static `AttachPack` staleness and `GraphSchemaClasses` output. Preserve exact `IcvConfigure` behavior.
@@ -17,16 +17,16 @@ The order below minimizes incompatible intermediate states. A step may be a veri
 
 | Interface | Medulla owner | Caller/consumer contract |
 |---|---|---|
-| Pack wire and digest | `eg-types` connector-pack modules; generated fixtures | Graft SDK creates index/archive and uses exact golden vectors. |
+| Pack wire and digest | `medulla-types` connector-pack modules; generated fixtures | Graft SDK creates index/archive and uses exact golden vectors. |
 | Import and admin ops | `src/server/handlers/admin/connector_pack/` with typed method descriptor | Graft SDK uses `Status` then deterministic Import; admin calls Bind/Unbind/Retire/Reproject. |
 | Durable rows and body liveness | Agent Library owner tables plus `engine_bodies` | No client writes component rows or body holder state directly. |
 | Projection and graph schema | Outbox worker; `GraphSchema` graph commit; visibility gate | Typed catalog, assembly and search consume only visible head state. |
 | Fleet catalog | ServerRegistry liveness plus component content | Arbora joins typed reads and may cache by version, without becoming content authority. |
-| Contract receipt | `eg-capabilities` registry and `gen_contract` | Python/Go/JS senders and Graft SDK verify method/result/signing vectors. |
+| Contract receipt | `medulla-capabilities` registry and `gen_contract` | Python/Go/JS senders and Graft SDK verify method/result/signing vectors. |
 
 ## R016 digest v4: package version is provenance only
 
-EG-TYPED-PACKS-R016 requires equal server pins across package releases with equal content. The v3 definition digest mixes `SourcePackage.package_version` into every server component digest. Two independent stores that import the same content under different releases therefore mint different server pins.
+MEDULLA-TYPED-PACKS-R016 requires equal server pins across package releases with equal content. The v3 definition digest mixes `SourcePackage.package_version` into every server component digest. Two independent stores that import the same content under different releases therefore mint different server pins.
 
 - **Versioned digest.** New writes mint digest v4 under domain `au-eg/agent-component-definition/v4`. v4 omits `package_version` from the provenance input. The entry still stores the package version as provenance text.
 - **Read compatibility.** `AgentComponentEntry::validate` accepts a digest that matches v4 or v3. The v3 path keeps domain `au-eg/agent-component-definition/v3` and the old input set. No write mints v3.
@@ -45,14 +45,14 @@ For each PACK requirement, attach a PR/merged commit link and contract receipt d
 
 ### Turtle parse identity repair
 
-- EG-TYPED-PACKS-R093.1: Scope the public bounded/unbounded Turtle readers per invocation. Keep the existing label-preserving reader for catalogue composition, whose callers already apply document namespaces.
-- EG-TYPED-PACKS-R093.2: Validate the served connector-pack reproject path with colliding member labels and repeatable composed digests. Complete this before claiming parent acceptance.
+- MEDULLA-TYPED-PACKS-R093.1: Scope the public bounded/unbounded Turtle readers per invocation. Keep the existing label-preserving reader for catalogue composition, whose callers already apply document namespaces.
+- MEDULLA-TYPED-PACKS-R093.2: Validate the served connector-pack reproject path with colliding member labels and repeatable composed digests. Complete this before claiming parent acceptance.
 
 ## Architecture
 
 ### Existing path to extend
 
-`crates/eg-types/src/connector_pack/{index,digest,annotations,ops,result,record}.rs` defines the wire values and bounds. `crates/eg-capabilities/src/domains/` owns method descriptors; `gen_contract` emits the public contract, receipt and clients. `src/server/handlers/admin/connector_pack/import/` validates and plans; `src/server/persistence/connector_pack/` owns the head, membership, receipt, bindings, visibility and outbox; `src/server/blob/engine_bodies.rs` owns bodies; `src/server/connector_pack_projection.rs` and `src/server/graph_schema/attach_pack.rs` provide projection and schema attachment. `src/server/handlers/admin/component_content.rs` serves bodies. New code must enter through these paths, not create a second registry or a detached adapter.
+`crates/medulla-types/src/connector_pack/{index,digest,annotations,ops,result,record}.rs` defines the wire values and bounds. `crates/medulla-capabilities/src/domains/` owns method descriptors; `gen_contract` emits the public contract, receipt and clients. `src/server/handlers/admin/connector_pack/import/` validates and plans; `src/server/persistence/connector_pack/` owns the head, membership, receipt, bindings, visibility and outbox; `src/server/blob/engine_bodies.rs` owns bodies; `src/server/connector_pack_projection.rs` and `src/server/graph_schema/attach_pack.rs` provide projection and schema attachment. `src/server/handlers/admin/component_content.rs` serves bodies. New code must enter through these paths, not create a second registry or a detached adapter.
 
 ### Data flow and durable boundaries
 
@@ -127,7 +127,7 @@ The per-tenant lock serializes pack mutations but does not replace in-write head
 
 The core `metadata_catalog-v1` vocabulary and shapes are owned by EG and are
 verified by the native RDF/OWL and SHACL fixtures in
-`crates/eg-rdf/tests/metadata_catalog_classes.rs` (`R106.1`). Arbora onboarding
+`crates/medulla-rdf/tests/metadata_catalog_classes.rs` (`R106.1`). Arbora onboarding
 is the sole producer of catalog nodes in the tenant graph. EG validates the
 batch and serves graph queries. R106.2 through R106.7 retain the current-main
 behavior, wiring and competency-query rows, including the explicit Arbora
@@ -149,11 +149,11 @@ This removes repeated setup without changing typed refusals or before/after equa
 
 ### 2026-10-11: capability annotation acceptance
 
-EG-TYPED-PACKS-R042.1 tests the production G12 validator and claim partition for both annotation fields. The parser now requires an ASCII letter at the start of an absolute IRI scheme. Foreign terms retain their exact text in the declared partition. EG-TYPED-PACKS-R042.2 keeps signed dispatch, persisted claims, and refusal atomicity open. Native tests alone do not close the parent requirement.
+MEDULLA-TYPED-PACKS-R042.1 tests the production G12 validator and claim partition for both annotation fields. The parser now requires an ASCII letter at the start of an absolute IRI scheme. Foreign terms retain their exact text in the declared partition. MEDULLA-TYPED-PACKS-R042.2 keeps signed dispatch, persisted claims, and refusal atomicity open. Native tests alone do not close the parent requirement.
 
 ### 2026-10-11: modality annotation verification scope
 
-EG-TYPED-PACKS-R043 previously named validation and digest replay without naming direct modality regressions.
+MEDULLA-TYPED-PACKS-R043 previously named validation and digest replay without naming direct modality regressions.
 The requirement stays unchanged. Both fields need native validation, typed bounds, and digest replay.
 The tests below exercise existing production code. They do not replace PACK-09 served acceptance or release gates.
 R043 remains open until TP-10, TP-11, and applicable quality gates pass on the merged head.
@@ -164,7 +164,7 @@ R043 remains open until TP-10, TP-11, and applicable quality gates pass on the m
 
 Base: `ce34e41b7845fa220ec405508d392bc88a23b3f6`. No production behavior changed. R043 remains unverified.
 
-- Rust 1.96 compiled current `crates/eg-types/src/lib.rs` with `feature="test-support"` against cached real dependencies.
+- Rust 1.96 compiled current `crates/medulla-types/src/lib.rs` with `feature="test-support"` against cached real dependencies.
 - A native harness included current `src/server/handlers/admin/connector_pack/import/annotations.rs` by path. All 12 tests passed, exit 0.
 - Both independent modality-direction guard deletions made `modalities_refuse_foreign_roots_typos_and_wrong_kinds` fail, exit 101. Original source was restored.
 - `python -m pytest -q tests/test_connector_pack_client.py`: 9 passed, exit 0.
@@ -173,7 +173,7 @@ Base: `ce34e41b7845fa220ec405508d392bc88a23b3f6`. No production behavior changed
 - Fixture: `contract/fixtures/connector_pack_digest_vectors.json`, schema `eg-digest-vectors/v1`.
 - Fixture SHA-256: `b2d1e0410853004a6cd3db63f660fbd99adfa87fd3d5839b008590dbc35fd8d6`.
 
-The bounded Cargo attempt used `cargo test --offline -p epistemic-graph --lib --no-default-features --features server connector_pack::import::annotations --no-run`.
+The bounded Cargo attempt used `cargo test --offline -p medulla-engine --lib --no-default-features --features server connector_pack::import::annotations --no-run`.
 It exited 101 before compilation because the offline registry lacked `hex`.
 Served import, persisted modality facts, refusal atomicity, TP-10, TP-11, and release gates remain unverified.
 The native harness is evidence for the listed source tests only. It does not substitute for served acceptance.
@@ -190,18 +190,18 @@ the test specification links the native acceptance evidence.
 
 ## Measured model and task facts for harness configuration (R048, R066)
 
-Data flow: evaluation run (Meristem) → pack import of a `model_profile` entry → `AgentComponentFacts::ModelProfile` (`crates/eg-types/src/agent_component/facts.rs:169`) → `AgentLibraryStore` → `Decide(harness_config)` handler (EG-DECISION-ENGINE-R128.8) → premises.
+Data flow: evaluation run (Meristem) → pack import of a `model_profile` entry → `AgentComponentFacts::ModelProfile` (`crates/medulla-types/src/agent_component/facts.rs:169`) → `AgentLibraryStore` → `Decide(harness_config)` handler (MEDULLA-DECISION-ENGINE-R128.8) → premises.
 
 Types and fields:
 
 - `contextWindowTokens` is the existing `context_window_tokens` field (`facts.rs:171`). It is a declared fact and needs no run reference.
 - `shellProficiency` (`low`, `medium`, `high`) and `stoppingBehaviour` (`stops_early`, `balanced`, `over_verifies`) are new optional fields.
 - Each wraps its value in `MeasuredFact<T>`, which holds an `evaluation_run_ref: ObservationRef`. `ObservationRef` is defined at `facts.rs:142` and already backs `latency_observed_ref`.
-- `shellCentric` is a boolean on the task class `swarm:TaskShape` (`crates/eg-core/ontology/swarm_topology-v1.ttl:80`, the class that `swarm:DecomposableTask` extends).
+- `shellCentric` is a boolean on the task class `swarm:TaskShape` (`crates/medulla-core/ontology/swarm_topology-v1.ttl:80`, the class that `swarm:DecomposableTask` extends).
 
 Attach point: the digest function at `agent_component.rs:748` hashes the new fields only when present. An absent field must keep every existing digest vector.
 
-Failure behaviour: a measured value without a run reference fails validation (R048.2, R066.1). An absent measured fact is valid. It makes the decision abstain for the part that needs it (EG-DECISION-ENGINE-R128.5 to R128.7).
+Failure behaviour: a measured value without a run reference fails validation (R048.2, R066.1). An absent measured fact is valid. It makes the decision abstain for the part that needs it (MEDULLA-DECISION-ENGINE-R128.5 to R128.7).
 
 Reused: `ModelProfile` and `ObservationRef`, the pack import path, `agent_ontology::broader_chain` for task-class inheritance. New: `MeasuredFact<T>`, two enums, `harness-v1.shapes.ttl`, `swarm:shellCentric`.
 
@@ -211,11 +211,11 @@ Decisions:
 - An absent `shellCentric` stays absent. Rejected alternative: default `false`. A default `false` turns a missing fact into a `tool_set` answer without a typed abstention.
 - The shapes file is new because `harness-v1.ttl` has no shapes sibling. The `swarm:shellCentric` shape extends `swarm_topology-v1.shapes.ttl` because that file validates task shapes.
 
-Cross-repository rows: the `AU-HARNESS` row for the matched ablation runner writes `shellProficiency` and `stoppingBehaviour` with their run references. The `EG-DECISION-ENGINE` row R128 reads them.
+Cross-repository rows: the `MERISTEM-HARNESS` row for the matched ablation runner writes `shellProficiency` and `stoppingBehaviour` with their run references. The `MEDULLA-DECISION-ENGINE` row R128 reads them.
 
 ## Tool-contract facts on pack annotations (R045)
 
-Data flow: connector Graft SDK pack (`SDK-CONNECTOR-CONTROL-R045.1` to `.11`) → `PackAnnotations` (`crates/eg-types/src/connector_pack/annotations.rs:46`) → `check_annotations` (`src/server/handlers/admin/connector_pack/import/annotations.rs:34`) → `tool_facts` (`src/server/handlers/admin/connector_pack/import/facts.rs:21`) → `AgentComponentFacts::Tool` (`crates/eg-types/src/agent_component/facts.rs:198`) → `request_body` (`src/server/handlers/decide/stat_tool_subset.rs:99`) → `smallest_covering_subset` (`crates/eg-types/src/decision/statistical/tool_subset.rs:58`) → `HarnessConfig` action space (`EG-DECISION-ENGINE-R128.9`).
+Data flow: connector Graft SDK pack (`SCION-CONNECTOR-CONTROL-R045.1` to `.11`) → `PackAnnotations` (`crates/medulla-types/src/connector_pack/annotations.rs:46`) → `check_annotations` (`src/server/handlers/admin/connector_pack/import/annotations.rs:34`) → `tool_facts` (`src/server/handlers/admin/connector_pack/import/facts.rs:21`) → `AgentComponentFacts::Tool` (`crates/medulla-types/src/agent_component/facts.rs:198`) → `request_body` (`src/server/handlers/decide/stat_tool_subset.rs:99`) → `smallest_covering_subset` (`crates/medulla-types/src/decision/statistical/tool_subset.rs:58`) → `HarnessConfig` action space (`MEDULLA-DECISION-ENGINE-R128.9`).
 
 Types and fields: `side_effects` (`none`, `workspace_write`, `external_write`, `network`), `declared_by` (`connector`, `mcp_hint`, `certified`) and `schema_tokens` (positive integer) are new optional fields beside `read_only_hint` (`annotations.rs:58`). Safe defaults when absent: `read_only` false, `side_effects` external_write, `declared_by` connector, `schema_tokens` absent.
 
@@ -231,7 +231,7 @@ Decisions:
 - A missing size abstains. Rejected alternative: default 0, as `token_cost` does today. A free tool always wins the greedy density order and silently overruns the budget.
 - A `read_only` claim from `mcp_hint` stays unproven. Rejected alternative: trust all hints. An MCP hint is a server claim, so parallel execution of such a tool then rests on it.
 
-Cross-repository rows: the `SDK-CONNECTOR-CONTROL-R045` rows publish the facts. The `AU-HARNESS` row for parallel read-only execution consumes `read_only` and `declared_by`. The `EG-DECISION-ENGINE-R128` rows consume the size and read-only facts.
+Cross-repository rows: the `SCION-CONNECTOR-CONTROL-R045` rows publish the facts. The `MERISTEM-HARNESS` row for parallel read-only execution consumes `read_only` and `declared_by`. The `MEDULLA-DECISION-ENGINE-R128` rows consume the size and read-only facts.
 
 ### Capability warning acceptance (R042.2)
 
@@ -270,7 +270,7 @@ and check them. Producer tests do not substitute for that check.
 
 Data flow: fleet catalog list wire method → `skill_row` (`src/server/dispatch/consensus/fleet_catalog/project.rs:271`) → `render_skill_package` (new) → `FleetCatalogRow::Skill` with a `RenderedSkillPackage` → listing.
 
-Types: `RenderedSkillPackage { uri, digest, ontology_refs, graph_revision }` and `RenderRefusal::DanglingOntologyRef`. The row type `FleetSkillRow` (`crates/eg-types/src/fleet_catalog/row.rs:103`) gains an optional rendered package.
+Types: `RenderedSkillPackage { uri, digest, ontology_refs, graph_revision }` and `RenderRefusal::DanglingOntologyRef`. The row type `FleetSkillRow` (`crates/medulla-types/src/fleet_catalog/row.rs:103`) gains an optional rendered package.
 
 Attach point: `skill_row`, called by the catalog projection for each skill. Today the row carries only classification fields.
 
@@ -309,7 +309,7 @@ Test bindings alone do not establish served acceptance.
 
 Candidates EG:34 and EG:58 extend the existing core ontology and domain-pack owners. Schema.org and SKOS provide interoperability terms. They do not become ontology authorities. Medulla retains RDF/OWL semantics, upper-ontology disjointness, schema validation and activation decisions.
 
-Existing code: `VocabularyModule::to_turtle` in `crates/eg-core/src/ontology_codegen.rs:45` emits deterministic Turtle from typed declarations. Its current vocabulary model has no versioned crosswalk records. `crates/eg-types/src/domain_pack.rs` defines HR, legal, medical and government kinds with local consistency validation. Its own module documentation leaves import wiring to later requirements. Neither mechanism proves the new crosswalk contract.
+Existing code: `VocabularyModule::to_turtle` in `crates/medulla-core/src/ontology_codegen.rs:45` emits deterministic Turtle from typed declarations. Its current vocabulary model has no versioned crosswalk records. `crates/medulla-types/src/domain_pack.rs` defines HR, legal, medical and government kinds with local consistency validation. Its own module documentation leaves import wiring to later requirements. Neither mechanism proves the new crosswalk contract.
 
 Reuse `core-foundation-v1.ttl` person, event and document terms without changing their IRIs. Reuse `medical-v1.ttl`, `software-v1.ttl` and `hr-v1.ttl` as current domain vocabulary inputs. Extend the typed authority and generator under R090; never hand-edit generated artifacts as the authority. Existing `rdfs:seeAlso` statements provide candidate alignments, not automatic exact matches. Add the missing Technology domain kind. Labor coverage belongs to Hr.
 
@@ -337,7 +337,7 @@ Three native tests use the registered shape with Medulla's existing SHACL valida
 They cover absent values, booleans, incorrect datatypes and competing values.
 The reference validator passed nine cases. Five malformed cases passed the baseline but fail the updated shape.
 Native execution remains pending. Reference validation does not establish native acceptance.
-Run `cargo test --locked -p eg-shacl --test swarm_topology_shapes --offline` on an admitted build lane.
+Run `cargo test --locked -p medulla-shacl --test swarm_topology_shapes --offline` on an admitted build lane.
 
 
 ## Native prompt identity, rendering and blueprint round trips
@@ -373,8 +373,8 @@ Inspection base: `38cae80eb37eba97a273e2a6259e2eb0dfe46b02`.
 
 | Source | Observed role and required extension |
 |---|---|
-| `crates/eg-types/src/agent_component.rs:130` | Existing SystemPrompt/McpPrompt kinds, component identity, revisions and dependency pins. Reuse these types. |
-| `crates/eg-types/src/agent_component/facts.rs:395` | Existing static/dynamic variable validation. This does not establish full blueprint validation or rendering. |
+| `crates/medulla-types/src/agent_component.rs:130` | Existing SystemPrompt/McpPrompt kinds, component identity, revisions and dependency pins. Reuse these types. |
+| `crates/medulla-types/src/agent_component/facts.rs:395` | Existing static/dynamic variable validation. This does not establish full blueprint validation or rendering. |
 | `src/server/handlers/admin/agent.rs:142` | Authenticated component dispatch. Publish binds verified scope before the owner write at line 184. |
 | `src/server/persistence/agent_component/write.rs:39` | Existing component publication authority. Extend it for validated native prompt bodies and replay. |
 | `src/server/handlers/admin/component_content.rs:55` | Tenant-scoped content lookup uses connector_pack_content_pointer and verifies engine-owned body bytes. |
@@ -442,10 +442,10 @@ Reserved pack identities still use pack admission; native import cannot bypass i
 
 | Consumer obligation | Required producer or boundary | Evidence still required |
 |---|---|---|
-| R001.6-R001.9 | Existing component authority and generated contract; EG-CONTRACT-R005 remains a referenced producer. | New schema, supported rules, operations and rendered-result contract. |
+| R001.6-R001.9 | Existing component authority and generated contract; MEDULLA-CONTRACT-R005 remains a referenced producer. | New schema, supported rules, operations and rendered-result contract. |
 | R002.7-R002.9 | Existing owner write, body store and projection admission. | Native prompt holders, graph readiness and authenticated render dispatch. |
 | R002.10 | R002.9 render result and the actual Meristem model-dispatch consumer. | Name its owning requirement and production call site before delivery; observe zero invalid model requests. |
-| R094.7 | SDK-GOVERNED-WRITEBACK-R004.5 through R004.12 and ARBORA-FLEET-R003.4 through R003.10. | Actual served composition, approved conditional effect, independent readback and durable replay remain required. |
+| R094.7 | SCION-GOVERNED-WRITEBACK-R004.5 through R004.12 and ARBORA-FLEET-R003.4 through R003.10. | Actual served composition, approved conditional effect, independent readback and durable replay remain required. |
 
 R002.10 must bind the dispatched bytes and variable digest to the rendered result and authorized source revision.
 A production consumer must reject a substituted body, schema, scope or revision before model transport.
@@ -464,10 +464,10 @@ Its receipt must bind the approved request, actual repository revision and writt
 Medulla may retain that receipt as evidence; it must not grant approval or write repository files.
 The source-effect definitions now have exact merged producers:
 
-- [Graft SDK governed write-back](https://github.com/Knuckles-Team/agent-connector-sdk/tree/0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734/specs/SDK-GOVERNED-WRITEBACK) at `0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734`.
+- [Graft SDK governed write-back](https://github.com/Knuckles-Team/agent-connector-sdk/tree/0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734/specs/SCION-GOVERNED-WRITEBACK) at `0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734`.
 - [Arbora fleet composition](https://github.com/Knuckles-Team/graph-os/tree/86737b45aaceb2eebe29b3a98ada5a55f8b71955/specs/fleet-catalog-and-tools) at `86737b45aaceb2eebe29b3a98ada5a55f8b71955`.
 
-SDK-GOVERNED-WRITEBACK-R004.1 through R004.4 retain generic approval, replay, audit reservation and business-rule routing.
+SCION-GOVERNED-WRITEBACK-R004.1 through R004.4 retain generic approval, replay, audit reservation and business-rule routing.
 R004.5 through R004.8 bind the typed request, trusted path scope, exact approval and provider conditional mutation.
 R004.9 and R004.10 bind actual immutable revision, durable attempt and independent readback; R004.11 and R004.12 require recovery and served composition.
 Arbora ARBORA-FLEET-R003.4 retains original fleet-wide acceptance. R003.5 through R003.7 bind the full request, trusted configuration and commit confirmation.
@@ -510,19 +510,19 @@ Neither accepted input supplies a research citation; no research result is claim
 <!-- spec-definition-patch:owner-batch-20261012-typed-packs-and-catalog -->
 ## Owner implementation plan — 2026-10-12
 
-### `EG-TYPED-PACKS-R100.7` — AU:31
+### `MEDULLA-TYPED-PACKS-R100.7` — AU:31
 
 - Gate the existing `render_skill_package`/fleet `skill_row` output on `RecordedRunValidationV1`. Bind tenant, skill, candidate revision, exact package digest, graph revision and validation policy. Each sorted unique run ref carries its id, package digest, graph revision, policy revision, outcome and evidence digest. `run_set_digest` hashes this canonical list. `run_set_complete` must be true. Missing or non-passing/mismatched evidence refuses before publishable output. Preserve current R100 render/version behavior.
-- Producer/consumer: Meristem `record_outcome`/`SkillGraphPipeline` supplies candidates and must supply validation evidence; Medulla binds the receipt at `skill_row`. Preserve AU-HARNESS-R022.2/.5/.6, R004.1, EG-TYPED-PACKS-R100.1/.5/.6. Source hash `96ff38761f9e21d52f608ba593c902aff4c93ca7b1ed13088ad39efd3e968a3a`.
+- Producer/consumer: Meristem `record_outcome`/`SkillGraphPipeline` supplies candidates and must supply validation evidence; Medulla binds the receipt at `skill_row`. Preserve MERISTEM-HARNESS-R022.2/.5/.6, R004.1, MEDULLA-TYPED-PACKS-R100.1/.5/.6. Source hash `96ff38761f9e21d52f608ba593c902aff4c93ca7b1ed13088ad39efd3e968a3a`.
 - **Hold:** Meristem has not defined exact receipt fields/operation, run-set selection, or pass criterion. No positive served path until the Meristem owner publishes it.
 
-### `EG-TYPED-PACKS-R097.2.7` — EG:35
+### `MEDULLA-TYPED-PACKS-R097.2.7` — EG:35
 
 - Define the closed external term set: class, object/datatype/annotation property, and named individual. Define enum as class plus individuals. Define directional source-to-platform mapping records. Bind each record to schema, source and map revisions. Require kind-compatible targets and a server-stamped importer binding. Return revision-bound coverage for every term. Use `Mapped{platform_iri, provenance_digest}` or `Unmapped{reason: NoDeclaredMapping}`. Sort by source IRI and kind.
 - Wire precommit validation at `ConnectorPack.Import::validate_and_commit`, revalidate at `apply_pack_source`, and independently serve the report from `OntologyInspect`/`GraphSchemaClasses`. Unmapped terms remain visible in coverage but are not adopted; partial coverage can commit per R097.2. Invalid, stale, duplicate, unsupported or incompatible entries refuse atomically.
 - Keep R071.1 as Medulla-to-external vocabulary alignment. Preserve all R097.2 prior children and R051/UDF source requirements. Source hash `318723aee15c476039eca669a3230b206532c0c704b37efad5a7c49690bbb9c2`.
 
-### `EG-TYPED-PACKS-R100.8` — EG:56
+### `MEDULLA-TYPED-PACKS-R100.8` — EG:56
 
 - Define `ExportWorkflowRdfV1` and `ImportWorkflowRdfV1`. Bind their receipt to the workflow, committed workflow/graph revisions, byte/dataset digests and importer. Export canonical N-Quads workflow data. Return a byte/dataset-digest and revision-bound `WorkflowRdfDocumentV1` with `workflow_version` and `stored_version_ref`. Import the inverse document and restore an isomorphic dataset. Preserve unknown predicates, named graphs, typed/language-tagged literals and ontology refs. Keep the strict-newer comparison at export.
 - Attach to the existing R100 render/package owner and existing graph write boundary; preserve R051/R090/R100.1-.6. Source hash `620b1ae05d8e35696c7522f207672ef6f374525004d5488fe62fb4b27fc6cf5a`.
@@ -532,7 +532,7 @@ Neither accepted input supplies a research citation; no research result is claim
 <!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
 ## Mapped definition implementation plan — 2026-10-12
 
-### `EG-TYPED-PACKS-R069.100` / AU:69
+### `MEDULLA-TYPED-PACKS-R069.100` / AU:69
 
 - Extend existing parent `R069` without removing its existing behavior.
 - Specify `FingerprintIdentityV1`. Include repository, branch/ref, normalized path and commit/source revision. Also include blob/raw digest, language, parser implementation/version, normalization-policy revision and grammar digest. An identical full identity/profile is idempotent. The same blob at another branch/path/source revision always writes the new binding and provenance. Reuse parsed output only under an identical parser/profile key. Parser/profile changes force reparse and fingerprint recomputation before semantic graph effects are decided. Cosmetic or profile-only changes with identical canonical semantics update source binding/provenance without semantic graph mutation. Structural changes update both source binding and semantic graph. Unsupported languages compare raw digests only and are never called cosmetic. Graft SDK transports source identity and raw digest. Medulla classifies semantic changes.
@@ -540,7 +540,7 @@ Neither accepted input supplies a research citation; no research result is claim
 - Source record SHA-256: `8ca81dc16448fefc73440f2eb9ea07b2e433f7e38075563f86800071029846e9`.
 - Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
-### `EG-TYPED-PACKS-R100.100` / AU:90
+### `MEDULLA-TYPED-PACKS-R100.100` / AU:90
 
 - Extend existing parent `R100` without removing its existing behavior.
 - Specify: Define an edit representation bound to the original SKILL.md byte digest and source revision. Bind it to frontmatter field spans, step spans, line endings and unknown/custom-field spans. Apply edits as bounded source-range patches. Do not parse and reserialize the entire document. Preserve all untouched bytes, ordering, spacing, comments, line endings and unknown frontmatter fields. Emit a new content digest and source provenance. Continue to enforce R019 SKILL.md-only import and R029 restricted YAML validation.
@@ -548,7 +548,7 @@ Neither accepted input supplies a research citation; no research result is claim
 - Source record SHA-256: `1b717c4a284896dbf8c7b4fb1f00ebba80fa6a75e930a020c5bc01706634f582`.
 - Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
-### `EG-TYPED-PACKS-R100.101` / AU:98
+### `MEDULLA-TYPED-PACKS-R100.101` / AU:98
 
 - Extend existing parent `R100` without removing its existing behavior.
 - Specify: Define an admission record bound to prior/new skill content digests and consumer-declared input/output behavior contract revisions. Include the observed consumer cohort, compatibility verdict, migration id/digest and admission revision. Check compatibility against consuming-code behavior. Package version equality, contract-pin equality, endpoint certification or dependency digest alone do not establish compatibility. Refuse breaking changes before publication or invocation unless a declared migration binds the exact old/new digests and consumer contract. Require the migration receipt to pass.
@@ -556,7 +556,7 @@ Neither accepted input supplies a research citation; no research result is claim
 - Source record SHA-256: `531cb0ba1accd9e88833249fb253a9f5f7a3c1a911f653b3c9a5bfc42341f978`.
 - Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
-### `EG-TYPED-PACKS-R001.100` / AU:52
+### `MEDULLA-TYPED-PACKS-R001.100` / AU:52
 
 - Extend existing parent `R001` without removing its existing behavior.
 - Specify: Extend existing ConnectorPack prompt and tool definition entries. Include explicit schema version, nested field schema, required/optional status and compatibility revision. Incremental evolution records the base digest, changed paths and compatibility verdict. Admit additive optional fields only when consumer policy says they are compatible. Removed or changed required fields refuse before publication. Pack index/entry digest rules remain canonical. Graft SDK owns tool execution/schema compatibility authority. Medulla records and serves the versioned declaration and does not authorize Graft SDK calls.
@@ -564,16 +564,16 @@ Neither accepted input supplies a research citation; no research result is claim
 - Source record SHA-256: `e03b25156a4f84d27c4afba63d0cd9e526b549b5905994a53664d193416d048c`.
 - Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
-### `EG-TYPED-PACKS-R072.100` / AU:97
+### `MEDULLA-TYPED-PACKS-R072.100` / AU:97
 
 - Extend existing parent `R072` without removing its existing behavior.
 - Specify: Extend the typed fleet catalog with workflow registration identity, version/content digest, owner/tenant scope, schema and lifecycle state. Persist registration through the existing SourceIngest authority. Resolve invocation by registry id and exact admitted revision, not a caller-supplied body. Unknown, withdrawn, stale or unauthorized workflow ids refuse before execution. Keep engine/client initialization lazy at the Meristem first-use boundary. Do not initialize it at registration or process startup.
 - Producer/consumer boundary: Medulla typed registry and SourceIngest R002 own durable registration; Meristem owns lazy client initialization/execution; preserve ARBORA-HOST-R022 workflow-store semantics.
-- Owner prerequisite: AU-CONTROL-R037.5 only fills a requirement gap. It does not define initialization timing, the first-use operation, or the execution receipt. No exact Meristem companion requirement ID is identified. Keep that consumer as an explicit open dependency until its owner publishes the operation and receipt; no invocation evidence is claimed.
+- Owner prerequisite: MERISTEM-CONTROL-R037.5 only fills a requirement gap. It does not define initialization timing, the first-use operation, or the execution receipt. No exact Meristem companion requirement ID is identified. Keep that consumer as an explicit open dependency until its owner publishes the operation and receipt; no invocation evidence is claimed.
 - Source record SHA-256: `f73767d1a3fdba29a702254ed1db2c9904158b6136f6f4b38a3c9a0d3e4fcb03`.
 - Keep status SPECIFIED until the Medulla served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
-### `EG-TYPED-PACKS-R071.100` / EG:8
+### `MEDULLA-TYPED-PACKS-R071.100` / EG:8
 
 - Extend existing parent `R071` without removing its existing behavior.
 - Specify: Define one versioned concept-path grammar and canonicalization rule shared by Medulla vocabulary producers. Include stable segment identity, parent path and canonical concept IRI. Resolve the entire path against the pinned vocabulary revision during admission. Check repository-wide uniqueness and parent/child consistency. Refuse duplicate aliases, paths that contradict an existing parent/child relationship, or two IRIs for the same canonical path. Return the conflicting ids. Keep existing published ontology IRIs unchanged and crosswalk them rather than rewriting them.
@@ -587,7 +587,7 @@ Neither accepted input supplies a research citation; no research result is claim
 
 ### Vision
 
-Every connector ships one OWL/RDF ontology pack. The pack holds the connector's domain ontology and its ingest contract. It also holds the connector's features, tools, prompts and skills. The engine imports the pack and stores every element as native relationships in the pack graph. Selection is an engine decision. The engine answers which algorithm, tool or skill applies by SPARQL and `Decide` over that ontology. Connectors and agents ask; the engine decides and computes. The Graft SDK authors the pack from the connector's typed declarations (`SDK-CONNECTOR-CONTROL-R067`). The competency questions in `EG-CQ-CONN-R084` accept this design.
+Every connector ships one OWL/RDF ontology pack. The pack holds the connector's domain ontology and its ingest contract. It also holds the connector's features, tools, prompts and skills. The engine imports the pack and stores every element as native relationships in the pack graph. Selection is an engine decision. The engine answers which algorithm, tool or skill applies by SPARQL and `Decide` over that ontology. Connectors and agents ask; the engine decides and computes. The Graft SDK authors the pack from the connector's typed declarations (`SCION-CONNECTOR-CONTROL-R067`). The competency questions in `MEDULLA-CQ-CONN-R084` accept this design.
 
 ### Current state
 
@@ -601,22 +601,22 @@ A connector serves its data sources and mappings as JSON at `connector://resourc
 
 The `connector_pack-v1.ttl` vocabulary of R101.1 and R101.2 and the surface triples of R102 remain the planned direction for graph-resident contracts. Until they land, the declaration and the pack ontology are the only mapping authority.
 
-The outbox consumer runs `project` (`src/server/connector_pack_projection.rs:220`) and `project_head` (`reproject.rs:72`). Projection commit upserts the capability index (`EG-DECISION-ENGINE-R172.12.3`). `Decide` answers `CapabilityDesignation` questions at `src/server/handlers/decide/stat_decide.rs:137`. Reads use the SPARQL handler (`src/server/handlers/rdf/sparql.rs:30`) and `OntologyInspect` (R098).
+The outbox consumer runs `project` (`src/server/connector_pack_projection.rs:220`) and `project_head` (`reproject.rs:72`). Projection commit upserts the capability index (`MEDULLA-DECISION-ENGINE-R172.12.3`). `Decide` answers `CapabilityDesignation` questions at `src/server/handlers/decide/stat_decide.rs:137`. Reads use the SPARQL handler (`src/server/handlers/rdf/sparql.rs:30`) and `OntologyInspect` (R098).
 
 ### Runtime ontology import (R103)
 
 A connector imports or revises its domain ontology at runtime without a full pack import. The served `GraphSchema` method reaches the gateway route at `src/server/handlers/graph_ops/gateway_graph_routes.rs:656`. `handle_gateway` (`src/server/graph_schema.rs:191`) matches `ImportOntology`. The engine parses and validates the body. It commits one tenant-scoped schema source revision under `ontology:<connector>/<ontology IRI>`. The content digest makes a repeated import a no-op.
 
-## EG-TYPED-PACKS-R104 — connect-time seed graph import
+## MEDULLA-TYPED-PACKS-R104 — connect-time seed graph import
 
 Component: Connector packs
-References: EG-TYPED-PACKS-R101, EG-TYPED-PACKS-R103, [ARBORA-FLEET-R036](https://github.com/Knuckles-Team/graph-os/blob/main/specs/fleet-catalog-and-tools/spec.md), [SDK-CONNECTOR-CONTROL-R068](https://github.com/Knuckles-Team/agent-connector-sdk/blob/main/specs/SDK-CONNECTOR-CONTROL/spec.md)
+References: MEDULLA-TYPED-PACKS-R101, MEDULLA-TYPED-PACKS-R103, [ARBORA-FLEET-R036](https://github.com/Knuckles-Team/graph-os/blob/main/specs/fleet-catalog-and-tools/spec.md), [SCION-CONNECTOR-CONTROL-R068](https://github.com/Knuckles-Team/agent-connector-sdk/blob/main/specs/SCION-CONNECTOR-CONTROL/spec.md)
 
-A connector establishes its contract on first connect. It serves the manifest, the ontology pack and the seed graph as MCP resources (`SDK-CONNECTOR-CONTROL-R068`). The Arbora multiplexer reads them on first connect and on `resources/list_changed` (`ARBORA-FLEET-R036`). The engine owns validation, storage and idempotency.
+A connector establishes its contract on first connect. It serves the manifest, the ontology pack and the seed graph as MCP resources (`SCION-CONNECTOR-CONTROL-R068`). The Arbora multiplexer reads them on first connect and on `resources/list_changed` (`ARBORA-FLEET-R036`). The engine owns validation, storage and idempotency.
 
 Call path: Arbora `onboard` -> served `ConnectorPack.Import` -> `run_import` (`import.rs:63`) -> seed validation -> `project_head` (`reproject.rs:72`) -> one commit.
 
-Crates: `eg-types` for `SeedGraphImport`, `eg-core` for the seed vocabulary and shapes, `eg-shacl` for validation, the root server package for the handler.
+Crates: `medulla-types` for `SeedGraphImport`, `medulla-core` for the seed vocabulary and shapes, `medulla-shacl` for validation, the root server package for the handler.
 
 Data structures: one `BTreeMap<SeedPartKey, SeedPart>` per import. The stored part digests are keyed by tenant, connector and part. A digest compare decides each part before any parse.
 
@@ -624,7 +624,7 @@ Budget: 50,000 triples and 8 MiB per seed graph. Engine time stays under 200 ms 
 
 Tenant isolation: the seed graph resolves inside the importing tenant.
 
-No bulk data: the seed graph names objects and their references. Entity rows stay at the source and answer through virtual mappings (`EG-UNIFIED-DATA-PLANE-R038`).
+No bulk data: the seed graph names objects and their references. Entity rows stay at the source and answer through virtual mappings (`MEDULLA-UNIFIED-DATA-PLANE-R038`).
 
 ## 2026-10-18 amendment — R085.1 durable session facts
 
@@ -681,12 +681,12 @@ runtime behavior, Arbora admission or live host startup.
 |---|---|---|---|
 | R801 | Glossary terms in SKOS schemes | Glossary pack import, `GlossaryTermPut` | `ARBORA-OPS-R855` |
 | R802 | Stewardship roles, change requests, certification | R801, R805 changes | `ARBORA-OPS-R855` |
-| R803 | Sensitive data detections as R652 claims | EG-UNIFIED-DATA-PLANE-R761 profiling | claims of R652 |
+| R803 | Sensitive data detections as R652 claims | MEDULLA-UNIFIED-DATA-PLANE-R761 profiling | claims of R652 |
 | R804 | Ontology revision diff and change impact | R103 import | `OntologyDiff` |
 | R805 | Data products, contracts and access requests | Product registration | `ARBORA-OPS-R855` |
 
-Masking enforcement lives in EG-FEDERATED-QUERY-R706. Quality scores live in
-EG-UNIFIED-DATA-PLANE-R762. Approval admission lives in arbora; the record and the reviewer
+Masking enforcement lives in MEDULLA-FEDERATED-QUERY-R706. Quality scores live in
+MEDULLA-UNIFIED-DATA-PLANE-R762. Approval admission lives in arbora; the record and the reviewer
 choice stay here.
 
 ## 2026-10-20 amendment — R085.5 registered approval keys
@@ -715,7 +715,7 @@ checks remain pending the integrated native owner test.
 
 ## 2026-10-20 combined producer qualification update
 
-The final combined identity producer source passed 108 `eg-types`
+The final combined identity producer source passed 108 `medulla-types`
 `identity::tests` tests in 159.02 seconds. Canonical generation passed in
 219.05 seconds. These results supersede earlier pending statements only for
 the unit test run and canonical generation on this candidate. Historical
@@ -764,11 +764,11 @@ These files are stale for the identity union, not a qualified combined contract.
 Fresh hosted native generation and final-source parity must replace this draft baseline before merge.
 The earlier identity exports remain preserved with their original source receipts.
 ## Schema drift wiring (R710, R712)
-`EG-TYPED-PACKS-R710` stays VERIFIED by the unit tests in `crates/eg-types/src/graph_schema/drift.rs`. Its acceptance is unit tests of the typed model and the bound.
-`EG-TYPED-PACKS-R712` stays VERIFIED by the benchmark `benches/schema_drift_classify.rs` and the approval-lease served test.
+`MEDULLA-TYPED-PACKS-R710` stays VERIFIED by the unit tests in `crates/medulla-types/src/graph_schema/drift.rs`. Its acceptance is unit tests of the typed model and the bound.
+`MEDULLA-TYPED-PACKS-R712` stays VERIFIED by the benchmark `benches/schema_drift_classify.rs` and the approval-lease served test.
 Superseded evidence: `tests/packs/test_schema_drift_served.py` drives attach, validate and approval-lease operations only. It never classifies drift.
 No engine code outside `benches/` calls the classifier today.
-`EG-TYPED-PACKS-R714` owns the delivery-path wiring. `EG-TYPED-PACKS-R715` owns the served quarantine proof.
+`MEDULLA-TYPED-PACKS-R714` owns the delivery-path wiring. `MEDULLA-TYPED-PACKS-R715` owns the served quarantine proof.
 
 ## 2026-10-26 amendment — R105.3.1 central source-record bridge
 

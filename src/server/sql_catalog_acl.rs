@@ -1,5 +1,5 @@
 //! Tenant-scoped SQL table ownership, grants, and row-level security
-//! (CONCEPT:NE-003 — "EG-ACCESS": intra-tenant SQL catalog sharing).
+//! (CONCEPT:NE-003 — "MEDULLA-ACCESS": intra-tenant SQL catalog sharing).
 //!
 //! [`crate::server::sql_tables`] moved the PHYSICAL catalog boundary from
 //! `(tenant, agent_id)` to `tenant` alone (`tenant_table_store` /
@@ -49,8 +49,8 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use eg_query::{Cell, Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
-use eg_types::{CmpOp, RowPredicate};
+use medulla_query::{Cell, Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
+use medulla_types::{CmpOp, RowPredicate};
 use hmac::{Hmac, Mac};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -144,11 +144,11 @@ fn run_snapshot_before_read_lock_hook() {
 }
 
 /// The five independently grantable/revocable SQL privileges (item 2). Deliberately
-/// NOT `eg_types::acl::RbacAction` (Read/Write/Admin) — that three-way split would
+/// NOT `medulla_types::acl::RbacAction` (Read/Write/Admin) — that three-way split would
 /// collapse INSERT/UPDATE/DELETE into one bucket, making them impossible to grant
 /// or revoke independently, which the spec explicitly requires. The default-deny /
 /// owner-or-admin-bypass / generic-denial CONVENTIONS below still follow
-/// `eg-core::rbac`/`eg-types::acl`; only the action vocabulary is domain-specific.
+/// `medulla-core::rbac`/`medulla-types::acl`; only the action vocabulary is domain-specific.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum SqlPrivilege {
     Select,
@@ -159,7 +159,7 @@ pub(crate) enum SqlPrivilege {
 }
 
 /// Batch-local proof that `authority` may operate on exactly one table that an
-/// earlier `CREATE TABLE` in the same atomic [`eg_query::TableTxn`] will create.
+/// earlier `CREATE TABLE` in the same atomic [`medulla_query::TableTxn`] will create.
 ///
 /// The fields stay private so callers cannot manufacture or retarget this
 /// capability. It is issued only when the physical table and ACL owner are both
@@ -229,7 +229,7 @@ fn canonical_rows(acl: &TableStore, table: &str, width: usize) -> Result<Vec<Vec
 
 fn digest_acl_state(owners: &[Vec<String>], grants: &[Vec<String>], rls: &[Vec<String>]) -> String {
     let mut digest = Sha256::new();
-    update_len_prefixed(&mut digest, b"epistemic-graph/sql-source-acl-state");
+    update_len_prefixed(&mut digest, b"medulla/sql-source-acl-state");
     for (kind, rows) in [
         (b"owners".as_slice(), owners),
         (b"grants", grants),
@@ -295,7 +295,7 @@ fn digest_acl_decision(
         .collect::<Vec<_>>()
         .join(",");
     digest_fields(
-        b"epistemic-graph/sql-source-acl-decision",
+        b"medulla/sql-source-acl-decision",
         &[
             authority.tenant_scope(),
             authority.agent_id(),
@@ -443,7 +443,7 @@ impl SqlSourceAuthorityWrite<'_, '_> {
 }
 
 fn cluster_source_ordering_required() -> bool {
-    cfg!(feature = "raft") && std::env::var_os("EPISTEMIC_GRAPH_RAFT_NODE_ID").is_some()
+    cfg!(feature = "raft") && std::env::var_os("MEDULLA_RAFT_NODE_ID").is_some()
 }
 
 fn require_source_ordering(
@@ -484,7 +484,7 @@ fn commit_source_acl_mutation(
             .try_into()
             .expect("UUID prefix is eight bytes"),
     );
-    let operation_digest = digest_fields(b"epistemic-graph/sql-source-acl-operation", fields);
+    let operation_digest = digest_fields(b"medulla/sql-source-acl-operation", fields);
     // One caller operation may legitimately contain several ACL effects (for
     // example, a multi-table import registering each table owner). Bind the
     // durable child identity to the canonical effect as well as the stable
@@ -558,7 +558,7 @@ fn commit_source_acl_mutation(
 /// effect is disambiguated internally by [`commit_source_acl_mutation`].
 pub(crate) fn stable_source_operation_id(operation_key: &str) -> uuid::Uuid {
     let mut digest = Sha256::new();
-    update_len_prefixed(&mut digest, b"epistemic-graph/sql-source-operation-id");
+    update_len_prefixed(&mut digest, b"medulla/sql-source-operation-id");
     update_len_prefixed(&mut digest, operation_key.as_bytes());
     let digest = digest.finalize();
     let mut bytes = [0_u8; 16];
@@ -663,9 +663,9 @@ pub(crate) fn begin_provisional_create(
 }
 
 /// `true` only for the exact, deterministic message
-/// [`crate::server::sql_tables`]'s underlying `eg_query::TableStore` raises when
+/// [`crate::server::sql_tables`]'s underlying `medulla_query::TableStore` raises when
 /// an `INSERT` loses a UNIQUE-constraint race (`validate_uniqueness_in` in
-/// `eg-query/src/tables/store.rs`) — never for any other failure. Used to
+/// `medulla-query/src/tables/store.rs`) — never for any other failure. Used to
 /// narrowly distinguish "someone else's concurrent insert already won" (a
 /// real, expected outcome to treat as success) from every other `insert_rows`
 /// error (storage I/O, a corrupt catalog, …), which must still propagate
@@ -1141,7 +1141,7 @@ pub(crate) struct SemanticTextSnapshot {
 impl std::fmt::Debug for AuthorizedTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut digest = Sha256::new();
-        digest.update(b"epistemic-graph/sql-catalog-debug-principal\0");
+        digest.update(b"medulla/sql-catalog-debug-principal\0");
         digest.update(self.authority.agent_id().as_bytes());
         let full_digest = hex::encode(digest.finalize());
         let principal_digest = &full_digest[..12];
@@ -1187,8 +1187,8 @@ fn row_to_map(schema: &TableSchema, row: &[Cell]) -> serde_json::Map<String, Val
 /// AND `extra` (if any) with a `rls_column = principal` predicate (if `rls_column`
 /// is declared) — the ONE place this fold happens, shared by [`AuthorizedTable`]'s
 /// own methods (single-table open/select/update/delete) AND the wire-level
-/// pre-commit rewrite of a buffered multi-op [`eg_query::TxnOp::Update`]/`Delete`
-/// (CONCEPT:NE-046 — EG-WIRE-CATALOG), which cannot construct an [`AuthorizedTable`]
+/// pre-commit rewrite of a buffered multi-op [`medulla_query::TxnOp::Update`]/`Delete`
+/// (CONCEPT:NE-046 — MEDULLA-WIRE-CATALOG), which cannot construct an [`AuthorizedTable`]
 /// at all (a batched `TableTxn` commits as ONE atomic redb write via
 /// `TableStore::commit_txn_batch`, never through this type's own one-shot
 /// `TableStore` calls) but must still fold in the SAME RLS predicate before that
@@ -1219,7 +1219,7 @@ fn scoped_predicate(
 /// whatever value the caller DID supply otherwise (item 3: a caller can never
 /// insert a row visible to a different principal than themselves). Shared by
 /// the test-only authorized-table insert helper and the wire-level pre-commit rewrite of a
-/// buffered [`eg_query::TxnOp::Insert`] for the same reason [`scoped_predicate`]
+/// buffered [`medulla_query::TxnOp::Insert`] for the same reason [`scoped_predicate`]
 /// is shared.
 fn stamp_insert_rls(
     rls_column: Option<&str>,
@@ -1268,7 +1268,7 @@ fn primary_key_indexes(schema: &TableSchema) -> Result<Vec<usize>, String> {
         .filter_map(|(index, column)| column.primary_key.then_some(index))
         .collect();
     let table_primary_key = schema.constraints().iter().find_map(|constraint| {
-        if let eg_query::tables::schema::TableConstraint::PrimaryKey { columns, .. } = constraint {
+        if let medulla_query::tables::schema::TableConstraint::PrimaryKey { columns, .. } = constraint {
             Some(columns)
         } else {
             None
@@ -1291,7 +1291,7 @@ fn primary_key_indexes(schema: &TableSchema) -> Result<Vec<usize>, String> {
 
 fn semantic_record_identity_digest(
     tenant_scope: &str,
-    selector: &eg_types::semantic_index::SqlColumnRef,
+    selector: &medulla_types::semantic_index::SqlColumnRef,
     schema: &TableSchema,
     row: &[Cell],
     primary_key_indexes: &[usize],
@@ -1299,7 +1299,7 @@ fn semantic_record_identity_digest(
     let mut digest = Sha256::new();
     update_len_prefixed(
         &mut digest,
-        b"epistemic-graph/sql-semantic-record-identity-v1",
+        b"medulla/sql-semantic-record-identity-v1",
     );
     for field in [
         tenant_scope,
@@ -1341,7 +1341,7 @@ fn semantic_record_identity_digest(
 struct SemanticCursorBinding<'a> {
     cursor_auth_secret: &'a [u8; 32],
     authority: &'a CarrierAuthority,
-    selector: &'a eg_types::semantic_index::SqlColumnRef,
+    selector: &'a medulla_types::semantic_index::SqlColumnRef,
     acl: &'a SqlSourceAclSnapshot,
 }
 
@@ -1349,7 +1349,7 @@ fn semantic_cursor_base_mac(
     cursor_auth_secret: &[u8; 32],
     domain: &[u8],
     authority: &CarrierAuthority,
-    selector: &eg_types::semantic_index::SqlColumnRef,
+    selector: &medulla_types::semantic_index::SqlColumnRef,
     acl: &SqlSourceAclSnapshot,
 ) -> Result<SemanticCursorMac, String> {
     // The server authentication secret is supplied only to this semantic seam;
@@ -1396,13 +1396,13 @@ fn semantic_cursor_base_mac(
 fn semantic_cursor_position(
     cursor_auth_secret: &[u8; 32],
     authority: &CarrierAuthority,
-    selector: &eg_types::semantic_index::SqlColumnRef,
+    selector: &medulla_types::semantic_index::SqlColumnRef,
     acl: &SqlSourceAclSnapshot,
     cursor: &SemanticTextCursor,
 ) -> Result<u64, String> {
     let mut mask = semantic_cursor_base_mac(
         cursor_auth_secret,
-        b"epistemic-graph/sql-semantic-cursor-position-v1",
+        b"medulla/sql-semantic-cursor-position-v1",
         authority,
         selector,
         acl,
@@ -1422,14 +1422,14 @@ fn semantic_cursor_position(
 fn semantic_cursor_tag(
     cursor_auth_secret: &[u8; 32],
     authority: &CarrierAuthority,
-    selector: &eg_types::semantic_index::SqlColumnRef,
+    selector: &medulla_types::semantic_index::SqlColumnRef,
     acl: &SqlSourceAclSnapshot,
-    page: &eg_query::tables::store::TableRowSnapshot,
+    page: &medulla_query::tables::store::TableRowSnapshot,
     physical_position: &[u8; 8],
 ) -> Result<SemanticCursorMac, String> {
     let mut mac = semantic_cursor_base_mac(
         cursor_auth_secret,
-        b"epistemic-graph/sql-semantic-cursor-tag-v1",
+        b"medulla/sql-semantic-cursor-tag-v1",
         authority,
         selector,
         acl,
@@ -1445,7 +1445,7 @@ fn semantic_cursor_tag(
 
 fn semantic_complete_snapshot_receipt_digest(
     binding: SemanticCursorBinding<'_>,
-    page: &eg_query::tables::store::TableRowSnapshot,
+    page: &medulla_query::tables::store::TableRowSnapshot,
     input_cursor: Option<&SemanticTextCursor>,
     records: &[SemanticTextRecord],
     visible_null_count: usize,
@@ -1459,7 +1459,7 @@ fn semantic_complete_snapshot_receipt_digest(
     } = binding;
     let mut mac = semantic_cursor_base_mac(
         cursor_auth_secret,
-        b"epistemic-graph/sql-semantic-complete-snapshot-v1",
+        b"medulla/sql-semantic-complete-snapshot-v1",
         authority,
         selector,
         acl,
@@ -1511,9 +1511,9 @@ fn mac_len_prefixed(mac: &mut SemanticCursorMac, value: &[u8]) {
 fn semantic_cursor(
     cursor_auth_secret: &[u8; 32],
     authority: &CarrierAuthority,
-    selector: &eg_types::semantic_index::SqlColumnRef,
+    selector: &medulla_types::semantic_index::SqlColumnRef,
     acl: &SqlSourceAclSnapshot,
-    page: &eg_query::tables::store::TableRowSnapshot,
+    page: &medulla_query::tables::store::TableRowSnapshot,
     physical_after_row_id: u64,
 ) -> Result<SemanticTextCursor, String> {
     let physical_position = physical_after_row_id.to_be_bytes();
@@ -1529,7 +1529,7 @@ fn semantic_cursor(
     .into_bytes();
     let mut mask = semantic_cursor_base_mac(
         cursor_auth_secret,
-        b"epistemic-graph/sql-semantic-cursor-position-v1",
+        b"medulla/sql-semantic-cursor-position-v1",
         authority,
         selector,
         acl,
@@ -1551,9 +1551,9 @@ type SemanticRowProjection = (Vec<SemanticTextRecord>, usize, usize, Option<u64>
 
 fn project_semantic_text_rows(
     tenant_scope: &str,
-    selector: &eg_types::semantic_index::SqlColumnRef,
+    selector: &medulla_types::semantic_index::SqlColumnRef,
     schema: &TableSchema,
-    rows: &[eg_query::tables::store::TableSnapshotRow],
+    rows: &[medulla_query::tables::store::TableSnapshotRow],
     column_index: usize,
     primary_key_indexes: &[usize],
 ) -> Result<SemanticRowProjection, String> {
@@ -1571,12 +1571,12 @@ fn project_semantic_text_rows(
                     .len()
                     .checked_add(32)
                     .ok_or_else(|| "semantic SQL source payload is too large".to_string())?;
-                if record_bytes > eg_query::tables::store::ROW_SNAPSHOT_MAX_BYTES {
+                if record_bytes > medulla_query::tables::store::ROW_SNAPSHOT_MAX_BYTES {
                     return Err("semantic SQL source text exceeds snapshot byte limit".to_string());
                 }
                 if payload_bytes
                     .checked_add(record_bytes)
-                    .is_none_or(|bytes| bytes > eg_query::tables::store::ROW_SNAPSHOT_MAX_BYTES)
+                    .is_none_or(|bytes| bytes > medulla_query::tables::store::ROW_SNAPSHOT_MAX_BYTES)
                 {
                     payload_cursor = last_completed_row_id;
                     break;
@@ -1670,7 +1670,7 @@ impl AuthorizedTable {
     /// Raw primary keys and the executable RLS predicate never enter the result.
     pub(crate) fn semantic_text_snapshot(
         &self,
-        source_selector: &eg_types::semantic_index::SemanticSourceSelector,
+        source_selector: &medulla_types::semantic_index::SemanticSourceSelector,
         cursor_auth_secret: &[u8; 32],
         cursor: Option<&SemanticTextCursor>,
     ) -> Result<SemanticTextSnapshot, String> {
@@ -1854,7 +1854,7 @@ impl AuthorizedTable {
     }
 }
 
-// ── wire-layer entry points (CONCEPT:NE-046 — EG-WIRE-CATALOG) ─────────────
+// ── wire-layer entry points (CONCEPT:NE-046 — MEDULLA-WIRE-CATALOG) ─────────────
 //
 // The functions below are the ONLY surface this module adds specifically to be
 // callable from `src/server/wire/mod.rs`'s buffered, multi-op `TxnOp`/`TableTxn`
@@ -1974,7 +1974,7 @@ pub(crate) fn register_owner_after_create_in(
 /// [`SqlPrivilege::Select`] from — every table it owns, plus every table where it
 /// holds an explicit Select grant; every table in the catalog for an admin
 /// carrier. Used by the wire read path
-/// (CONCEPT:EG-KG.query.register-user-tables-alongside) to build an
+/// (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside) to build an
 /// authorized-only projection of the shared catalog for a free-form multi-table
 /// SQL read — the free-form SELECT/JOIN surface has no per-statement table list
 /// the way OBDA's `tables` param or a single-table DML op does, so gating happens
@@ -1998,7 +1998,7 @@ pub(crate) fn register_owner_after_create_in(
 pub(crate) fn authorized_graph_table_sql(
     authority: &CarrierAuthority,
     persist_dir: &Path,
-    query: &eg_query::GraphTableQuery,
+    query: &medulla_query::GraphTableQuery,
 ) -> Result<String, String> {
     require_source_authority()?;
     let tenant_scope = authority.tenant_scope();
@@ -2023,7 +2023,7 @@ pub(crate) fn authorized_graph_table_sql(
     // admitted graph; this re-checks the pinned schema digests at READ time so a
     // bypass fails closed instead of lowering against a schema that moved.
     store.verify_property_graph_dependencies(&record)?;
-    eg_query::sql::lower_graph_table(query, &record.accepted_definition, tenant_scope)
+    medulla_query::sql::lower_graph_table(query, &record.accepted_definition, tenant_scope)
         .map(|plan| plan.to_sql())
 }
 
@@ -2033,7 +2033,7 @@ pub(crate) fn authorized_graph_table_sql(
 pub(crate) fn authorized_property_graph_records(
     authority: &CarrierAuthority,
     persist_dir: &Path,
-) -> Result<Vec<eg_query::tables::PropertyGraphCatalogRecord>, String> {
+) -> Result<Vec<medulla_query::tables::PropertyGraphCatalogRecord>, String> {
     require_source_authority()?;
     let tenant_scope = authority.tenant_scope();
     let store = sql_tables::tenant_table_store(tenant_scope, persist_dir)?;
@@ -2097,7 +2097,7 @@ pub(crate) fn authorized_read_store(
 fn project_read_store(
     authority: &CarrierAuthority,
     persist_dir: &Path,
-    narrowing: Option<&eg_query::UserAnnPushdown>,
+    narrowing: Option<&medulla_query::UserAnnPushdown>,
     read_only: Option<&dyn ReadOnlyRelations>,
 ) -> Result<AuthorizedReadStore, String> {
     let names = selectable_tables(authority, persist_dir)?;
@@ -2128,7 +2128,7 @@ fn project_read_store(
     }
     let projection_scope = projection.store().index_scope().to_string();
     for record in property_graphs {
-        let definition = eg_query::tables::PropertyGraphDefinition::new(
+        let definition = medulla_query::tables::PropertyGraphDefinition::new(
             projection_scope.clone(),
             record.accepted_definition.name.clone(),
             false,
@@ -2218,7 +2218,7 @@ mod tests {
         store: &TableStore,
         resource: &str,
         batch_id: &str,
-    ) -> eg_types::mutation_batch::MutationBatch {
+    ) -> medulla_types::mutation_batch::MutationBatch {
         let expected_version = store
             .mutation_version(authority.tenant_scope(), resource)
             .unwrap();
@@ -3359,11 +3359,11 @@ mod tests {
     fn semantic_selector(
         table: &str,
         column: &str,
-    ) -> eg_types::semantic_index::SemanticSourceSelector {
-        eg_types::semantic_index::SemanticSourceSelector::SqlColumnRef(
-            eg_types::semantic_index::SqlColumnRef {
-                catalog_id: eg_types::semantic_index::SEMANTIC_SQL_CATALOG_ID.to_string(),
-                schema_id: eg_types::semantic_index::SEMANTIC_SQL_SCHEMA_ID.to_string(),
+    ) -> medulla_types::semantic_index::SemanticSourceSelector {
+        medulla_types::semantic_index::SemanticSourceSelector::SqlColumnRef(
+            medulla_types::semantic_index::SqlColumnRef {
+                catalog_id: medulla_types::semantic_index::SEMANTIC_SQL_CATALOG_ID.to_string(),
+                schema_id: medulla_types::semantic_index::SEMANTIC_SQL_SCHEMA_ID.to_string(),
                 table_id: table.to_string(),
                 column_id: column.to_string(),
             },
@@ -3593,7 +3593,7 @@ mod tests {
         );
 
         let mut wrong_schema = semantic_selector("notes", "body");
-        let eg_types::semantic_index::SemanticSourceSelector::SqlColumnRef(selector) =
+        let medulla_types::semantic_index::SemanticSourceSelector::SqlColumnRef(selector) =
             &mut wrong_schema
         else {
             unreachable!()
@@ -3607,7 +3607,7 @@ mod tests {
         );
 
         let mut wrong_catalog = semantic_selector("notes", "body");
-        let eg_types::semantic_index::SemanticSourceSelector::SqlColumnRef(selector) =
+        let medulla_types::semantic_index::SemanticSourceSelector::SqlColumnRef(selector) =
             &mut wrong_catalog
         else {
             unreachable!()
@@ -3697,7 +3697,7 @@ mod tests {
 
     #[test]
     fn semantic_record_identity_respects_composite_primary_key_order() {
-        use eg_query::tables::schema::TableConstraint;
+        use medulla_query::tables::schema::TableConstraint;
 
         let columns = vec![
             Column::new("left", ColumnType::Text, false, false),
@@ -3716,7 +3716,7 @@ mod tests {
                 columns: vec!["right".to_string(), "left".to_string()],
             }]);
         let row = vec![Cell::Text("key".to_string()), Cell::Int(7), Cell::Null];
-        let eg_types::semantic_index::SemanticSourceSelector::SqlColumnRef(selector) =
+        let medulla_types::semantic_index::SemanticSourceSelector::SqlColumnRef(selector) =
             semantic_selector("documents", "body")
         else {
             unreachable!()
@@ -3811,7 +3811,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             first.records.len(),
-            eg_query::tables::store::ROW_SNAPSHOT_MAX_RECORDS
+            medulla_query::tables::store::ROW_SNAPSHOT_MAX_RECORDS
         );
         assert!(first.complete_snapshot_receipt_digest.is_none());
         let cursor = first.next_cursor.unwrap();
@@ -3909,13 +3909,13 @@ mod tests {
         );
 
         let current_schema = reopened.store.get_schema("documents").unwrap().unwrap();
-        let migration = eg_query::tables::migration::SchemaMigration::for_schema(
+        let migration = medulla_query::tables::migration::SchemaMigration::for_schema(
             "semantic-cursor-schema-change",
             alice.tenant_scope(),
             0,
             &current_schema,
             vec![
-                eg_query::tables::migration::SchemaMigrationOperation::AddColumn {
+                medulla_query::tables::migration::SchemaMigrationOperation::AddColumn {
                     column: Column::new("label", ColumnType::Text, true, false),
                 },
             ],
@@ -3968,7 +3968,7 @@ mod tests {
         .unwrap();
         let bob_insert =
             open_authorized_table(&bob, &dir, "documents", SqlPrivilege::Insert).unwrap();
-        let hidden = (0..eg_query::tables::store::ROW_SNAPSHOT_MAX_RECORDS)
+        let hidden = (0..medulla_query::tables::store::ROW_SNAPSHOT_MAX_RECORDS)
             .map(|id| vec![Value::from(id as i64), Value::from("hidden")])
             .collect::<Vec<_>>();
         bob_insert
@@ -4066,7 +4066,7 @@ mod tests {
                 &["id".to_string(), "body".to_string()],
                 &[vec![
                     Value::from(1),
-                    Value::from("x".repeat(eg_query::tables::store::ROW_SNAPSHOT_MAX_BYTES + 1)),
+                    Value::from("x".repeat(medulla_query::tables::store::ROW_SNAPSHOT_MAX_BYTES + 1)),
                 ]],
             )
             .unwrap();
@@ -4138,8 +4138,8 @@ mod tests {
         let ddl = "CREATE PROPERTY GRAPH shop VERTEX TABLES (\
                    customers KEY (customer_id) LABEL customer PROPERTIES (name), \
                    orders KEY (order_id) LABEL \"order\" PROPERTIES (ordered_when))";
-        let eg_query::tables::PropertyGraphStatement::Create(definition) =
-            eg_query::sql::parse_property_graph_ddl(ddl, owner.tenant_scope()).unwrap()
+        let medulla_query::tables::PropertyGraphStatement::Create(definition) =
+            medulla_query::sql::parse_property_graph_ddl(ddl, owner.tenant_scope()).unwrap()
         else {
             panic!("expected CREATE PROPERTY GRAPH");
         };
@@ -4150,12 +4150,12 @@ mod tests {
     }
 
     #[cfg(feature = "query")]
-    fn graph_table_query(graph: &str) -> eg_query::GraphTableQuery {
+    fn graph_table_query(graph: &str) -> medulla_query::GraphTableQuery {
         let sql = format!(
             "SELECT * FROM GRAPH_TABLE ({graph} MATCH (c:customer) COLUMNS (c.name AS customer_name))"
         );
-        match eg_query::classify(&sql).unwrap() {
-            eg_query::StatementKind::GraphTableReadRequiresCatalogAdmission(query) => query,
+        match medulla_query::classify(&sql).unwrap() {
+            medulla_query::StatementKind::GraphTableReadRequiresCatalogAdmission(query) => query,
             _ => panic!("expected a GRAPH_TABLE read"),
         }
     }
@@ -4217,9 +4217,9 @@ mod tests {
             .property_graph(alice.tenant_scope(), &graph_table_query("shop").graph)
             .unwrap()
             .unwrap();
-        let mut txn = eg_query::TableTxn::new();
-        txn.push(eg_query::TxnOp::PropertyGraphDdl(
-            eg_query::PropertyGraphTxnOp::GrantSelect {
+        let mut txn = medulla_query::TableTxn::new();
+        txn.push(medulla_query::TxnOp::PropertyGraphDdl(
+            medulla_query::PropertyGraphTxnOp::GrantSelect {
                 tenant_scope: alice.tenant_scope().to_string(),
                 name: graph_table_query("shop").graph,
                 expected_object_id: record.object_id,
@@ -4273,9 +4273,9 @@ mod tests {
             .property_graph(alice.tenant_scope(), &query.graph)
             .unwrap()
             .unwrap();
-        let mut txn = eg_query::TableTxn::new();
-        txn.push(eg_query::TxnOp::PropertyGraphDdl(
-            eg_query::PropertyGraphTxnOp::GrantSelect {
+        let mut txn = medulla_query::TableTxn::new();
+        txn.push(medulla_query::TxnOp::PropertyGraphDdl(
+            medulla_query::PropertyGraphTxnOp::GrantSelect {
                 tenant_scope: alice.tenant_scope().to_string(),
                 name: query.graph,
                 expected_object_id: record.object_id,

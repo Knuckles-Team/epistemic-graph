@@ -100,21 +100,21 @@ pub(crate) fn signed_request(
         security_state: security_state_label,
     } = labels;
     for (key, value) in [
-        ("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test"),
-        ("EPISTEMIC_GRAPH_TENANT", "tenant-shared"),
-        ("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test"),
+        ("MEDULLA_AUDIENCE", "medulla-test"),
+        ("MEDULLA_TENANT", "tenant-shared"),
+        ("MEDULLA_POLICY_VERSION", "policy-test"),
     ] {
         std::env::set_var(key, value);
     }
     let security_state_dir =
         std::env::temp_dir().join(format!("{security_state_label}-{}", std::process::id()));
-    std::env::set_var("EPISTEMIC_GRAPH_SECURITY_STATE_DIR", security_state_dir);
+    std::env::set_var("MEDULLA_SECURITY_STATE_DIR", security_state_dir);
 
     let principal = agent_id.to_owned();
     let context = RequestContextClaims {
         principal: principal.clone(),
         tenant: "tenant-shared".to_string(),
-        audience: "epistemic-graph-test".to_string(),
+        audience: "medulla-test".to_string(),
         agent_id: principal.clone(),
         scopes: vec!["*".to_string()],
         policy_version: "policy-test".to_string(),
@@ -167,7 +167,7 @@ async fn wait_for_leader(multi: &Arc<MultiRaft>, gid: GroupId, node_id: NodeId) 
 /// [`start_single_node_groups`], but RECOVERING the durable graph image into the
 /// serving projection first -- the order a restarting process uses.
 ///
-/// `EgStore::open`'s own doc states the contract: "the graph DATA is recovered
+/// `MedullaStore::open`'s own doc states the contract: "the graph DATA is recovered
 /// separately by the M2 `load_all` path BEFORE Raft starts, so on boot the
 /// applied pointers and the on-disk graph data agree." A harness that brings the
 /// groups up and only then calls `load_all` inverts that, and is not simulating

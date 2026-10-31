@@ -12,12 +12,12 @@ ORM driver — connects to it **unmodified** and runs real SQL: `CREATE TABLE`,
 ## 1. Start the server with the wire listener on
 
 The Postgres wire listener is opt-in: it starts only when
-`EPISTEMIC_GRAPH_PGWIRE_ADDR` is set.
+`MEDULLA_PGWIRE_ADDR` is set.
 
 ```bash
 export GRAPH_SERVICE_AUTH_SECRET="$(openssl rand -hex 32)"   # keep this — clients need it
-export EPISTEMIC_GRAPH_PGWIRE_ADDR=127.0.0.1:5433
-epistemic-graph-server --persist-dir ~/eg-data --metrics-addr 127.0.0.1:9101
+export MEDULLA_PGWIRE_ADDR=127.0.0.1:5433
+medulla-server --persist-dir ~/medulla-data --metrics-addr 127.0.0.1:9101
 ```
 
 (Or `docker compose -f docker/compose.standalone.yml up -d`, which publishes `5433`.)
@@ -29,7 +29,7 @@ Postgres on the same host.
 
 ## 2. Derive the mandatory SCRAM password
 
-`EPISTEMIC_GRAPH_PGWIRE_AUTH` accepts only `scram`. A non-empty
+`MEDULLA_PGWIRE_AUTH` accepts only `scram`. A non-empty
 `GRAPH_SERVICE_AUTH_SECRET` is required; missing key material or any other mode fails
 startup.
 
@@ -66,7 +66,7 @@ psql "host=127.0.0.1 port=5433 user=agent dbname=__commons__"
 ```
 
 - `dbname` maps to the **graph** the connection binds. `__commons__` is the default
-  (override with `EPISTEMIC_GRAPH_PGWIRE_GRAPH`); the operator can switch per-session with
+  (override with `MEDULLA_PGWIRE_GRAPH`); the operator can switch per-session with
   `SET graph = '<name>'`.
 - Introspection works: `\l`, `\dt`, `\d <table>` resolve against the synthetic
   `pg_catalog` + `information_schema` the engine serves.
@@ -154,7 +154,7 @@ Notes (checked against [`docs/interfaces/sql.md`](interfaces/sql.md)):
 
 | Symptom | Fix |
 |---------|-----|
-| `Connection refused` on 5433 | The listener is opt-in — confirm `EPISTEMIC_GRAPH_PGWIRE_ADDR` is set and (Docker) the port is published. Check the server log for `pgwire: serving Postgres wire protocol on …`. |
+| `Connection refused` on 5433 | The listener is opt-in — confirm `MEDULLA_PGWIRE_ADDR` is set and (Docker) the port is published. Check the server log for `pgwire: serving Postgres wire protocol on …`. |
 | `password authentication failed` | The operator is in `scram` mode. Recompute `hex(HMAC-SHA256(secret, "pgwire:"+user))` with the **exact** `user` the operator connects as and the **exact** running secret. |
 | Want no password for local dev | Use the embedded engine API; the direct pgwire listener always requires SCRAM. |
 | DBeaver metadata errors on connect | The `pg_catalog` is a read-only shim, not a full Postgres catalog. Point at a single database and disable "show all databases". |

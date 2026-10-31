@@ -4,15 +4,15 @@
 
 use std::sync::Arc;
 
-use epistemic_graph::isolation::IsolationLayer;
-use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
-use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::persistence::PersistenceBackend;
-use epistemic_graph::server::ServerState;
+use medulla::isolation::IsolationLayer;
+use medulla::protocol::{Method, Request, Response, ResultPayload};
+use medulla::registry::GraphRegistry;
+use medulla::server::persistence::PersistenceBackend;
+use medulla::server::ServerState;
 use tokio::sync::RwLock;
 
 #[cfg(feature = "redb")]
-use epistemic_graph::server::persistence::redb_backend::RedbBackend;
+use medulla::server::persistence::redb_backend::RedbBackend;
 
 pub type SharedPersistence = Arc<dyn PersistenceBackend>;
 pub type SharedState = Arc<RwLock<ServerState>>;
@@ -116,7 +116,7 @@ where
 pub fn provision_encryption_key_once(encryption_key: &str) {
     static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
     ENCRYPTION_KEY.call_once(|| {
-        std::env::set_var(epistemic_graph::crypto::ENCRYPTION_KEY_ENV, encryption_key);
+        std::env::set_var(medulla::crypto::ENCRYPTION_KEY_ENV, encryption_key);
     });
 }
 
@@ -155,12 +155,12 @@ pub async fn wait_for_listener_ready(addr: &str) {
 #[cfg(feature = "pgwire")]
 pub async fn spawn_pgwire_listener(
     state: SharedState,
-    mode: epistemic_graph::server::pgwire::PgWireAuthMode,
+    mode: medulla::server::pgwire::PgWireAuthMode,
 ) -> String {
     let addr_s = ephemeral_listener_addr().await;
     let serve_addr = addr_s.clone();
     tokio::spawn(async move {
-        let _ = epistemic_graph::server::pgwire::serve_with_auth(&serve_addr, state, mode).await;
+        let _ = medulla::server::pgwire::serve_with_auth(&serve_addr, state, mode).await;
     });
     wait_for_listener_ready(&addr_s).await;
     addr_s
@@ -173,7 +173,7 @@ pub async fn connect_pgwire(
     user: &str,
     dbname: &str,
 ) -> Result<tokio_postgres::Client, tokio_postgres::Error> {
-    let password = epistemic_graph::server::pgwire::derive_pg_password(secret, user);
+    let password = medulla::server::pgwire::derive_pg_password(secret, user);
     connect_pgwire_with_password(addr, &password, user, dbname).await
 }
 
@@ -212,7 +212,7 @@ pub fn simple_ids(msgs: Vec<tokio_postgres::SimpleQueryMessage>) -> Vec<String> 
 /// that built its state from its own directory (pgwire's two durability tests) passed
 /// only when a sibling had called that helper first in the same process, and failed
 /// alone (nextest, or a filtered `cargo test`) with "secure request context requires
-/// EPISTEMIC_GRAPH_AUDIENCE". The state constructors now provision it, so no test
+/// MEDULLA_AUDIENCE". The state constructors now provision it, so no test
 /// depends on another having run.
 pub fn provision_request_context_policy() {
     crate::common::configure_authority();
@@ -289,7 +289,7 @@ pub fn state_with_tsdb(
     isolation: IsolationLayer,
     persist_dir: Option<String>,
     persistence: Option<SharedPersistence>,
-    tsdb_store: Option<Arc<eg_tsdb::store::SeriesStore>>,
+    tsdb_store: Option<Arc<medulla_tsdb::store::SeriesStore>>,
 ) -> SharedState {
     let mut state = make_state(auth_secret, isolation, persist_dir, persistence);
     state.tsdb_store = tsdb_store;
@@ -297,21 +297,21 @@ pub fn state_with_tsdb(
 }
 
 #[cfg(feature = "tsdb")]
-pub fn temporary_series(label: &str) -> Arc<eg_tsdb::store::SeriesStore> {
+pub fn temporary_series(label: &str) -> Arc<medulla_tsdb::store::SeriesStore> {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT: AtomicU64 = AtomicU64::new(1);
     let path = std::env::temp_dir().join(format!(
-        "eg-{label}-series-{}-{}.redb",
+        "medulla-{label}-series-{}-{}.redb",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
     Arc::new(
-        eg_tsdb::store::SeriesStore::open(
+        medulla_tsdb::store::SeriesStore::open(
             &path,
-            epistemic_graph::store_authority::process_verifier(),
-            epistemic_graph::store_authority::process_authority().principal(),
-            &epistemic_graph::store_authority::process_authority().proof(),
+            medulla::store_authority::process_verifier(),
+            medulla::store_authority::process_authority().principal(),
+            &medulla::store_authority::process_authority().proof(),
         )
         .expect("open temporary series store"),
     )
@@ -345,7 +345,7 @@ pub fn sql_test_persist_dir(label: &str) -> String {
     provision_request_context_policy();
     std::env::temp_dir()
         .join(format!(
-            "epistemic-graph-{label}-test-{}-{}",
+            "medulla-{label}-test-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ))
@@ -355,8 +355,8 @@ pub fn sql_test_persist_dir(label: &str) -> String {
 
 #[cfg(feature = "security")]
 pub fn wire_isolation(users: &[&str]) -> IsolationLayer {
-    use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
-    use epistemic_graph::isolation::{AgentIdentity, AgentRole};
+    use medulla::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+    use medulla::isolation::{AgentIdentity, AgentRole};
 
     let mut isolation = IsolationLayer::new();
     isolation.add_role(Role::new("commons-user"));
@@ -423,8 +423,8 @@ pub fn seed_wire_nodes(registry: &GraphRegistry, user: &str) {
 pub async fn dispatch(
     state: &SharedState,
     request: Request,
-) -> epistemic_graph::protocol::Response {
-    Box::pin(epistemic_graph::server::dispatch(state, request)).await
+) -> medulla::protocol::Response {
+    Box::pin(medulla::server::dispatch(state, request)).await
 }
 
 pub async fn begin_txn(
@@ -461,13 +461,13 @@ pub async fn assert_ok(state: &SharedState, auth_secret: &str, id: u64, method: 
 }
 
 pub fn unified_ids(response: &Response) -> Vec<String> {
-    epistemic_graph::server::decode_unified_ids(response)
+    medulla::server::decode_unified_ids(response)
 }
 
 /// The row ids of a `Method::Uql` response (EH-434).
 #[cfg(feature = "query")]
 pub fn uql_ids(response: &Response) -> Vec<String> {
-    epistemic_graph::server::decode_uql_ids(response)
+    medulla::server::decode_uql_ids(response)
 }
 
 /// A parameterless UQL statement.
@@ -485,14 +485,14 @@ pub async fn unified_query(
     state: &SharedState,
     auth_secret: &str,
     id: u64,
-    plan: eg_plan::Plan,
-) -> epistemic_graph::protocol::Response {
+    plan: medulla_plan::Plan,
+) -> medulla::protocol::Response {
     dispatch(
         state,
         commons_request(
             auth_secret,
             id,
-            epistemic_graph::protocol::Method::UnifiedQuery {
+            medulla::protocol::Method::UnifiedQuery {
                 plan,
                 foreign_execution: None,
 
@@ -558,14 +558,14 @@ pub fn json_bytes(value: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&value).expect("encode JSON test value")
 }
 
-pub fn raw_rows(response: &epistemic_graph::protocol::Response) -> Vec<(String, Option<f32>)> {
+pub fn raw_rows(response: &medulla::protocol::Response) -> Vec<(String, Option<f32>)> {
     assert!(
         response.error.is_none(),
         "dispatch error: {:?}",
         response.error
     );
     match &response.result {
-        Some(epistemic_graph::protocol::ResultPayload::Raw(bytes)) => {
+        Some(medulla::protocol::ResultPayload::Raw(bytes)) => {
             rmp_serde::from_slice(bytes).expect("row decode")
         }
         other => panic!("expected Raw result, got {other:?}"),
@@ -580,17 +580,17 @@ pub fn edge_properties(tag: &str) -> Vec<u8> {
 /// at `ENGINE_WORKER_STACK_BYTES`), exactly as production serves a request,
 /// and propagate its failure.
 pub fn on_engine<F: std::future::Future<Output = ()> + 'static>(test: fn() -> F) {
-    let driver = epistemic_graph::server::spawn_engine_driver(move || {
+    let driver = medulla::server::spawn_engine_driver(move || {
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
-            .thread_stack_size(epistemic_graph::server::ENGINE_WORKER_STACK_BYTES)
+            .thread_stack_size(medulla::server::ENGINE_WORKER_STACK_BYTES)
             .enable_all()
             .build()
             .expect("build engine runtime")
             .block_on(test());
     })
     .expect("spawn engine driver");
-    epistemic_graph::server::join_engine_driver(driver).expect("engine test body failed");
+    medulla::server::join_engine_driver(driver).expect("engine test body failed");
 }
 
 /// Dispatch `method` against `graph` and require that it succeeds.
@@ -630,7 +630,7 @@ pub async fn durable_graph_state(
         graph,
         Method::CreateGraph {
             graph_name: graph.to_string(),
-            graph_type: epistemic_graph::protocol::GraphType::Global,
+            graph_type: medulla::protocol::GraphType::Global,
         },
     )
     .await;

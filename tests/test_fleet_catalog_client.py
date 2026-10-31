@@ -6,9 +6,9 @@ from typing import Any, cast
 import pytest
 from _client_fixtures import RecordingTransport, SentCall
 
-import epistemic_graph
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.fleet_catalog import (
+import medulla
+from medulla.client import MedullaClient
+from medulla.fleet_catalog import (
     FleetCatalogClient,
     FleetCatalogSnapshotError,
     fleet_row_id,
@@ -79,7 +79,7 @@ class _Transport(RecordingTransport):
 
 def _client(pages: list[dict[str, Any]]) -> tuple[FleetCatalogClient, _Transport]:
     transport = _Transport(pages)
-    return FleetCatalogClient(cast(EpistemicGraphClient, transport)), transport
+    return FleetCatalogClient(cast(MedullaClient, transport)), transport
 
 
 def _cursor(after: str) -> dict[str, Any]:
@@ -135,7 +135,7 @@ def test_writes_use_their_own_typed_operations() -> None:
     client, transport = _client([receipt, receipt])
     written = asyncio.run(
         client.record_discovery(
-            epistemic_graph.FleetDiscoveryRecordRequest.model_validate(
+            medulla.FleetDiscoveryRecordRequest.model_validate(
                 {
                     "server_name": "github",
                     "scope": {"authority": "tenant_local"},
@@ -150,7 +150,7 @@ def test_writes_use_their_own_typed_operations() -> None:
     assert transport.sent[0][1]["op"]["op"] == "record_discovery"
     asyncio.run(
         client.set_override(
-            epistemic_graph.FleetOverrideSetRequest.model_validate(
+            medulla.FleetOverrideSetRequest.model_validate(
                 {
                     "component_id": "mcp:skills/skill/triage",
                     "value": {"field": "skill_type", "skill_type": "workflow"},
@@ -173,5 +173,5 @@ def test_fleet_catalog_surface_is_a_wheel_root_export() -> None:
         "FleetDiscoveryRecordRequest",
         "FleetWriteReceipt",
     ):
-        assert name in epistemic_graph.__all__
-        assert getattr(epistemic_graph, name) is not None
+        assert name in medulla.__all__
+        assert getattr(medulla, name) is not None

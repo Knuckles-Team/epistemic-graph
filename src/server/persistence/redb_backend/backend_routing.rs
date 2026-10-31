@@ -1,8 +1,8 @@
 use super::*;
 
 impl RedbBackend {
-    /// Attach a tenant catalog to OVERRIDE graph→shard routing (CONCEPT:EG-KG.sharding.empty-catalog-routing, M3).
-    /// Builder-style so the open path stays untouched; default (no call) = pure EG-026.
+    /// Attach a tenant catalog to OVERRIDE graph→shard routing (CONCEPT:MEDULLA-KG.sharding.empty-catalog-routing, M3).
+    /// Builder-style so the open path stays untouched; default (no call) = pure MEDULLA-026.
     pub fn with_catalog(
         mut self,
         catalog: Arc<crate::server::persistence::tenant_catalog::TenantCatalog>,
@@ -11,7 +11,7 @@ impl RedbBackend {
         self
     }
 
-    /// The attached tenant catalog, if any (CONCEPT:EG-KG.sharding.r5-feature). `None` ⇒ pure EG-026. The
+    /// The attached tenant catalog, if any (CONCEPT:MEDULLA-KG.sharding.r5-feature). `None` ⇒ pure MEDULLA-026. The
     /// admin/API surface uses this to populate/persist placements (`assign`/`reassign`/
     /// `remove`); a placement change that must also MOVE the graph's rows goes through
     /// [`Self::reshard_graph`] instead (which flips the route AND migrates the data).
@@ -22,7 +22,7 @@ impl RedbBackend {
     }
 
     /// One scoped read over the admin-mutations ledger — the capability every
-    /// `eg_transaction::read_*` / `version` call over this store is a function of.
+    /// `medulla_transaction::read_*` / `version` call over this store is a function of.
     pub(crate) fn admin_mutations_read(&self) -> Result<AdminScopedRead<'_>, String> {
         self.admin_mutations.read()
     }
@@ -31,10 +31,10 @@ impl RedbBackend {
     /// a durable `Prepared` receipt, no owner rows yet.
     pub(crate) fn admin_saga_step(
         &self,
-        batch: &eg_types::MutationBatch,
+        batch: &medulla_types::MutationBatch,
         prepared_at_ms: u64,
         private_payload: Option<&[u8]>,
-    ) -> Result<eg_transaction::SagaBegin, String> {
+    ) -> Result<medulla_transaction::SagaBegin, String> {
         let store = &self.admin_mutations;
         store
             .mutations()
@@ -45,17 +45,17 @@ impl RedbBackend {
     /// already committed and this call only replayed its receipt.
     pub(crate) fn admin_saga_end(
         &self,
-        batch: &eg_types::MutationBatch,
+        batch: &medulla_types::MutationBatch,
         result_msgpack: Vec<u8>,
         committed_at_ms: u64,
-    ) -> Result<(eg_types::MutationBatchRecord, bool), String> {
+    ) -> Result<(medulla_types::MutationBatchRecord, bool), String> {
         let store = &self.admin_mutations;
         store
             .mutations()
             .saga_end(store.owner(), batch, result_msgpack, committed_at_ms)
     }
 
-    /// The durable cluster-topology self-report store (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1).
+    /// The durable cluster-topology self-report store (CONCEPT:MEDULLA-KG.sharding.cluster-topology, ADR-1 / W1.1).
     /// Always present (see the field doc); empty on a single-node deployment that
     /// never ran a clustered startup.
     pub(crate) fn node_info(&self) -> Arc<super::super::node_info_store::NodeInfoStore> {
@@ -84,8 +84,8 @@ impl RedbBackend {
     }
 
     /// Move ONE graph's rows from its current shard to `dst_shard` while the engine RUNS,
-    /// then flip the catalog route (CONCEPT:EG-KG.backend.catalog-shard-resolve — the M3 keystone). Requires an attached
-    /// tenant catalog (CONCEPT:EG-KG.sharding.r5-feature / R5). No data loss, single-writer-per-shard
+    /// then flip the catalog route (CONCEPT:MEDULLA-KG.backend.catalog-shard-resolve — the M3 keystone). Requires an attached
+    /// tenant catalog (CONCEPT:MEDULLA-KG.sharding.r5-feature / R5). No data loss, single-writer-per-shard
     /// correctness, and audit-chain validity all hold across the move; other graphs are
     /// never touched. See [`super::super::online_reshard`] for the verbatim copy + crash-ordering.
     ///
@@ -98,7 +98,7 @@ impl RedbBackend {
     ) -> Result<super::super::online_reshard::ReshardReport, String> {
         let catalog = self.catalog.clone().ok_or_else(|| {
             "online reshard requires an attached tenant catalog \
-             (set EPISTEMIC_GRAPH_TENANT_CATALOG=1)"
+             (set MEDULLA_TENANT_CATALOG=1)"
                 .to_string()
         })?;
         let k = self.shards.len().max(1);
@@ -114,7 +114,7 @@ impl RedbBackend {
         let dst_tx = self.shards[dst_idx].tx.clone();
         let graph = graph_fname.to_string();
 
-        // CONCEPT:EG-KG.backend.flush-pending-first (R1 delta-copy) — SNAPSHOT + DELTA to shrink the moved graph's
+        // CONCEPT:MEDULLA-KG.backend.flush-pending-first (R1 delta-copy) — SNAPSHOT + DELTA to shrink the moved graph's
         // write-pause. PHASE 1 copies the BULK verbatim off a src read snapshot WITHOUT
         // the exclusive routing quiesce, so writes keep flowing to `src` while the (large)
         // copy runs — the graph is NOT paused. PHASE 2 takes the exclusive `routing_epoch`
@@ -177,7 +177,7 @@ impl RedbBackend {
         .map_err(|e| format!("reshard delta join error: {e}"))?
     }
 
-    /// Execute a rebalance PLAN move-by-move via online resharding (CONCEPT:EG-KG.backend.r3-plan-execution, R3
+    /// Execute a rebalance PLAN move-by-move via online resharding (CONCEPT:MEDULLA-KG.backend.r3-plan-execution, R3
     /// plan execution). Each move is one [`Self::reshard_graph`] — online, ONE graph at a
     /// time, every other graph unaffected. The plan's `from_shard` is informational: each
     /// move resolves its source from the catalog's CURRENT state, so applying the moves in

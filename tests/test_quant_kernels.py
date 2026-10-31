@@ -1,5 +1,5 @@
 """Round-trip tests for the market-microstructure, sizing, validation, and
-forensic-accounting kernels (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest
+forensic-accounting kernels (CONCEPT:MEDULLA-KG.domains.market-microstructure-sizing-backtest
 / KG-2.20g).
 
 Full path: Python client -> UDS -> Rust dispatch -> result. Uses the

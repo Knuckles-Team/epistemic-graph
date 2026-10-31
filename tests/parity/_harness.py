@@ -7,7 +7,7 @@ file(s) (plan §5.0's file-disjointness rule).
 Two functions, plus one small decode helper both share:
 
   * `assert_parity` -- runs one operation through both transports (a socket
-    `EpistemicGraphClient` and an `EmbeddedTransport`) and asserts equal
+    `MedullaClient` and an `EmbeddedTransport`) and asserts equal
     DECODED results.
   * `assert_rls_isolation` -- reads the same thing as two different
     principals, through both transports, and asserts they see the same
@@ -48,9 +48,9 @@ class BoundEmbeddedTransport:
     embedded `Engine`: the Rust lane's `src/persist_lock.rs` advisory flock
     is scoped to the OS open-file-description, not the process, so a SECOND
     same-process open of one `persist_dir` (what building a separate
-    `EmbeddedTransport` per principal used to do, `EG-PYENGINE-PLAN.md`'s
+    `EmbeddedTransport` per principal used to do, `MEDULLA-PYENGINE-PLAN.md`'s
     BUG-PE-022) is denied outright -- it can never reach the point of
-    comparing what two principals see. `crates/eg-pyengine` closed the
+    comparing what two principals see. `crates/medulla-pyengine` closed the
     actual gap this exists to bridge by adding a per-call `agent_id`
     override to the RLS-relevant `PyEngine` methods (commit `b48ee56c`,
     `authority::EmbeddedAuthority::can_see_properties`); `tests/parity/
@@ -129,7 +129,7 @@ async def assert_parity(
     `principal=` keyword on this function. It is intentionally NOT
     implemented here, even though `EmbeddedTransport`/`PyEngine` gained a
     per-call `agent_id` override since this was first written (BUG-PE-022,
-    `crates/eg-pyengine` commit `b48ee56c`): `assert_parity` compares ONE
+    `crates/medulla-pyengine` commit `b48ee56c`): `assert_parity` compares ONE
     identity's view across two transports, and `pair.socket`/`pair.embedded`
     are already bound to that one identity (a `BoundEmbeddedTransport` for
     the embedded side, see `TransportPair`'s doc) -- a `principal=` keyword

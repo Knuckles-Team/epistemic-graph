@@ -25,13 +25,13 @@
 //! bookkeeping cost. This cache instead keys on content the render actually
 //! depends on:
 //!
-//! - [`eg_viz_columnstore::ColumnStore::content_fingerprint`] — a hash over
+//! - [`medulla_viz_columnstore::ColumnStore::content_fingerprint`] — a hash over
 //!   the dataset's chunk `content_id`s (already computed at ingest, content-
 //!   addressed, no rescan). Writing an UNRELATED dataset never changes this
 //!   one's fingerprint; re-ingesting byte-identical data still fingerprints
 //!   identically (a genuine cache HIT a version counter could never give).
 //! - width_px/height_px/format/budget, folded in by [`render_cache_key`]
-//!   because [`eg_viz_core::job::query_hash`] itself does not cover them (a
+//!   because [`medulla_viz_core::job::query_hash`] itself does not cover them (a
 //!   caller can request the same spec+dataset at a different canvas size and
 //!   legitimately get different pixel-space geometry back).
 
@@ -41,16 +41,16 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use sha2::{Digest, Sha256};
 
-use eg_types::viz::VizFormat;
-use eg_viz_columnstore::ColumnStore;
-use eg_viz_core::{FrameBudget, ViewResult};
+use medulla_types::viz::VizFormat;
+use medulla_viz_columnstore::ColumnStore;
+use medulla_viz_core::{FrameBudget, ViewResult};
 
 use super::viz_provenance::VizProvenanceStore;
 
 /// Bounded so a deployment serving many distinct (spec, dataset, canvas,
 /// format) combinations cannot grow this unboundedly — a capacity miss costs
 /// exactly what every render cost before this cache existed, never worse.
-/// Mirrors `crates/eg-core/src/rls_projection_cache.rs`'s `CAPACITY` constant
+/// Mirrors `crates/medulla-core/src/rls_projection_cache.rs`'s `CAPACITY` constant
 /// in spirit (same bounded-LRU shape), sized larger because a render cache
 /// entry is typically much smaller than a full RLS-projected graph.
 const RENDER_CACHE_CAPACITY: usize = 512;
@@ -127,7 +127,7 @@ pub(crate) fn render_cache_key(
     budget: FrameBudget,
 ) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"epistemic-graph.viz_render_cache_key.v1\0");
+    hasher.update(b"medulla.viz_render_cache_key.v1\0");
     hasher.update(query_hash.as_bytes());
     hasher.update([0u8]);
     hasher.update(width_px.to_le_bytes());
@@ -148,9 +148,9 @@ pub(crate) fn render_cache_key(
 pub struct VizEngineState {
     /// The persistent ColumnStore every `Method::Viz` render now shares,
     /// instead of building and discarding a fresh one per request. Datasets
-    /// are content-addressed at the chunk level (`eg-viz-columnstore`), so
+    /// are content-addressed at the chunk level (`medulla-viz-columnstore`), so
     /// re-ingesting identical bytes is cheap and does not defeat the render
-    /// cache above (see [`eg_viz_columnstore::ColumnStore::content_fingerprint`]).
+    /// cache above (see [`medulla_viz_columnstore::ColumnStore::content_fingerprint`]).
     pub(crate) store: RwLock<ColumnStore>,
     cache: RenderCache,
     pub(crate) provenance: VizProvenanceStore,
@@ -206,7 +206,7 @@ impl VizEngineState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_viz_core::FrameBudget;
+    use medulla_viz_core::FrameBudget;
 
     #[test]
     fn render_cache_key_is_deterministic() {

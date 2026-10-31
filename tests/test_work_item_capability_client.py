@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import (
-    EpistemicGraphClient,
+from medulla.client import (
+    MedullaClient,
     WorkItemClient,
     _work_item_capability_result,
 )
@@ -15,7 +15,7 @@ from epistemic_graph.client import (
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeGraphClient(EpistemicGraphClient):
+class _FakeGraphClient(MedullaClient):
     def __init__(self, result: dict[str, object]) -> None:
         self.result = result
         self.calls: list[tuple[str, dict[str, Any]]] = []

@@ -37,7 +37,7 @@ _BASE_SOURCES = (
     "rust-toolchain.toml",
     "README.md",
 )
-_SOURCE_DIRECTORIES = ("crates", "epistemic_graph")
+_SOURCE_DIRECTORIES = ("crates", "medulla")
 # The root crate (`src/`, `build.rs`, `benches/`, `.cargo/`) only belongs in the
 # archive when maturin builds it. Since the extensions-only wheel (#587) maturin
 # builds `[tool.maturin] manifest-path`, a member crate; the server binary ships

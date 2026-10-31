@@ -1,0 +1,47 @@
+[package]
+name = "medulla-viz-columnstore"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Native visualization ColumnStore (D-VZ-1 / lane V1): canonical typed columns, fixed-size zone maps, content-addressed chunks, validity bitmaps, and dictionary-encoded categoricals. Implements medulla-viz-core's ColumnStoreIngest trait plus a real value-carrying ingest surface for RowSet, medulla-numeric-shaped arrays, and (optional feature) Arrow IPC streams. Pure Rust on the hot path -- no Python."
+license = "MIT"
+
+[lib]
+name = "medulla_viz_columnstore"
+
+# V1 sits directly right of V0 in the DAG (`medulla-viz-core -> medulla-viz-columnstore`): it
+# implements the `ColumnStoreIngest` trait boundary V0 defined and otherwise depends
+# on nothing else in the workspace. It does NOT depend on medulla-plan/medulla-numeric/medulla-core
+# themselves -- RowSet/medulla-numeric ingestion is bridged through plain slices/iterators
+# shaped exactly like those crates' own materialized output (`RowSet::rows()`,
+# `ArrayD<f64>::as_slice()`), so this crate never links petgraph/ndarray/nalgebra.
+[dependencies]
+medulla-viz-core = { path = "../medulla-viz-core" }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+hex = "0.4"
+# Validity bitmaps. Already resolved in the workspace lockfile as a transitive
+# dependency (e.g. of medulla-image's decode stack) at 1.1.1 -- declaring it here pins
+# the SAME already-resolved version, adding zero new crates.io packages.
+bitvec = "1.1"
+
+# Real Arrow IPC stream ingestion (the third source the charter names alongside
+# RowSet/medulla-numeric). Kept behind its own feature, additive to `viz-columnstore`,
+# so a caller who only needs RowSet/medulla-numeric ingest never links arrow's decode
+# stack. `default-features = false` + the narrow `ipc` feature keeps the pulled
+# subset to the arrow-{array,buffer,schema,data,ipc} family, not the full arrow
+# umbrella (no arrow-flight/arrow-csv/arrow-json/parquet).
+# Pinned to the SAME "58.3" constraint medulla-plan/medulla-query/medulla-tsdb/the facade already
+# declare, so this resolves to their already-locked `arrow` 58.3.x rather than
+# adding a second arrow version family to the lockfile.
+[dependencies.arrow]
+version = "58.4"
+default-features = false
+features = ["ipc"]
+optional = true
+
+[features]
+default = []
+arrow-ipc = ["dep:arrow"]

@@ -7,7 +7,7 @@
 //! [`lineage::build_run_event`] already constructs a complete, spec-shaped
 //! OpenLineage `RunEvent` for every `LakeManager` materialize/compact/delete
 //! run; [`lineage::maybe_push_http`] already best-effort POSTs it to
-//! `EPISTEMIC_GRAPH_OPENLINEAGE_URL` when set (`DEC-CA-05`'s W0 review note:
+//! `MEDULLA_OPENLINEAGE_URL` when set (`DEC-CA-05`'s W0 review note:
 //! *"CA-15 wires and extends `maybe_push_http`; it does not reimplement"*).
 //! This module does not touch either — it ADDS a second transport (Kafka, on
 //! `openlineage.events` per `DEC-CA-03`) and a small composition layer
@@ -20,13 +20,13 @@
 //!
 //! ## Kafka producer: reused, not duplicated (`FO-CA-026`)
 //!
-//! `file-ownership.yaml`'s `FO-CA-026` makes `crates/eg-stream/Cargo.toml`'s
+//! `file-ownership.yaml`'s `FO-CA-026` makes `crates/medulla-stream/Cargo.toml`'s
 //! `rdkafka` dependency CA-11-exclusive: this lane must not add a second
 //! Kafka dependency anywhere in the workspace. [`KafkaTransport`] is built on
-//! `eg_stream::sink::RawKafkaProducer` — a small, schema-agnostic producer
-//! CA-15 added to CA-11's `eg-stream::sink` module (feature `cdc-kafka`,
+//! `medulla_stream::sink::RawKafkaProducer` — a small, schema-agnostic producer
+//! CA-15 added to CA-11's `medulla-stream::sink` module (feature `cdc-kafka`,
 //! unchanged), sharing the exact same delivery-tracked construction
-//! [`eg_stream::sink::KafkaCdcSink`] uses (see that module's doc for why a
+//! [`medulla_stream::sink::KafkaCdcSink`] uses (see that module's doc for why a
 //! literal `KafkaCdcSink` reuse doesn't fit: it always wraps a message in
 //! DEC-CA-03's CDC `Envelope` shape and targets `{topic_prefix}{graph}` on
 //! explicit partition 0, neither of which is right for an OpenLineage
@@ -51,7 +51,7 @@
 //! reading directly from every producer** (eg, Spark, Trino) — dataset
 //! identity correlation (`iceberg://<catalog>/<ns>/<table>@<snapshot>`)
 //! happens by CA-25 matching that string across independently-published
-//! events, not via any eg-side relay. Building an inbound surface here would
+//! events, not via any medulla-side relay. Building an inbound surface here would
 //! be new, unrequired attack surface (this module's own "Security and
 //! privacy" analysis in the lane brief says as much) with no consumer -- so,
 //! per the lane's own "Refusal rule" ("if `DEC-CA-05` contradicts this
@@ -78,7 +78,7 @@ pub trait LineageTransport: Send + Sync {
 
 /// Wraps the existing, unchanged [`lineage::maybe_push_http`] as a
 /// [`LineageTransport`] — no new HTTP logic, no behavior change. Its `push`
-/// no-ops exactly as `maybe_push_http` does when `EPISTEMIC_GRAPH_OPENLINEAGE_URL`
+/// no-ops exactly as `maybe_push_http` does when `MEDULLA_OPENLINEAGE_URL`
 /// is unset, so `HttpTransport` is always present in
 /// [`configured_transports`]'s list regardless of configuration.
 pub struct HttpTransport;
@@ -95,19 +95,19 @@ impl LineageTransport for HttpTransport {
 
 /// Fixed topic name for the OpenLineage transport, per `DEC-CA-03`'s topic
 /// taxonomy (`openlineage.events`, producers include "eg `src/server/lake/
-/// lineage.rs`", key: run id). Unlike `eg.cdc.<graph>`, this is NOT
-/// per-graph/templated — every eg-originated `RunEvent`, from any table,
+/// lineage.rs`", key: run id). Unlike `medulla.cdc.<graph>`, this is NOT
+/// per-graph/templated — every medulla-originated `RunEvent`, from any table,
 /// lands on this one topic, same as the Spark/Trino listeners DEC-CA-05
 /// names as the other (unverified-live) producers.
 pub const OPENLINEAGE_TOPIC: &str = "openlineage.events";
 
 /// `rdkafka`-backed [`LineageTransport`] (feature `lineage-transport-kafka`).
 /// See the module doc's "Kafka producer: reused, not duplicated" section for
-/// why this wraps `eg_stream::sink::RawKafkaProducer` rather than
+/// why this wraps `medulla_stream::sink::RawKafkaProducer` rather than
 /// `KafkaCdcSink`.
 #[cfg(feature = "lineage-transport-kafka")]
 pub struct KafkaTransport {
-    producer: eg_stream::sink::RawKafkaProducer,
+    producer: medulla_stream::sink::RawKafkaProducer,
 }
 
 #[cfg(feature = "lineage-transport-kafka")]
@@ -116,15 +116,15 @@ impl KafkaTransport {
     /// returns `None` — mirrors [`lineage::OPENLINEAGE_URL_ENV`]'s
     /// unset-is-a-no-op convention and `src/server/cdc_sink`'s
     /// `ENV_BROKERS` precedent. A SEPARATE env namespace from CDC's
-    /// (`EPISTEMIC_GRAPH_CDC_KAFKA_*`): the two are independently
+    /// (`MEDULLA_CDC_KAFKA_*`): the two are independently
     /// configured producers to (possibly) the same broker but different
     /// topics, so one can be armed without the other.
-    pub const ENV_BROKERS: &'static str = "EPISTEMIC_GRAPH_LINEAGE_KAFKA_BROKERS";
+    pub const ENV_BROKERS: &'static str = "MEDULLA_LINEAGE_KAFKA_BROKERS";
     pub const ENV_SECURITY_PROTOCOL: &'static str =
-        "EPISTEMIC_GRAPH_LINEAGE_KAFKA_SECURITY_PROTOCOL";
-    pub const ENV_SASL_MECHANISM: &'static str = "EPISTEMIC_GRAPH_LINEAGE_KAFKA_SASL_MECHANISM";
-    pub const ENV_SASL_USERNAME: &'static str = "EPISTEMIC_GRAPH_LINEAGE_KAFKA_SASL_USERNAME";
-    pub const ENV_SASL_PASSWORD: &'static str = "EPISTEMIC_GRAPH_LINEAGE_KAFKA_SASL_PASSWORD";
+        "MEDULLA_LINEAGE_KAFKA_SECURITY_PROTOCOL";
+    pub const ENV_SASL_MECHANISM: &'static str = "MEDULLA_LINEAGE_KAFKA_SASL_MECHANISM";
+    pub const ENV_SASL_USERNAME: &'static str = "MEDULLA_LINEAGE_KAFKA_SASL_USERNAME";
+    pub const ENV_SASL_PASSWORD: &'static str = "MEDULLA_LINEAGE_KAFKA_SASL_PASSWORD";
 
     /// Build from process environment. Never panics: a missing broker var is
     /// a documented no-op (`None`); a producer-construction failure (bad
@@ -138,7 +138,7 @@ impl KafkaTransport {
         if brokers.trim().is_empty() {
             return None;
         }
-        let config = eg_stream::sink::KafkaConfig {
+        let config = medulla_stream::sink::KafkaConfig {
             brokers,
             // Unread by `RawKafkaProducer` -- see its doc. Left empty
             // rather than `OPENLINEAGE_TOPIC` to make that explicit at a
@@ -149,7 +149,7 @@ impl KafkaTransport {
             sasl_username: std::env::var(Self::ENV_SASL_USERNAME).ok(),
             sasl_password: std::env::var(Self::ENV_SASL_PASSWORD).ok(),
         };
-        match eg_stream::sink::RawKafkaProducer::new(&config) {
+        match medulla_stream::sink::RawKafkaProducer::new(&config) {
             Ok(producer) => Some(KafkaTransport { producer }),
             Err(e) => {
                 eprintln!(
@@ -243,7 +243,7 @@ fn build_from_env() -> LineageTransports {
 /// must live for the process's life, exactly `KafkaCdcSink`'s own precedent
 /// (`cdc_sink::install_from_env` installs one sink onto one process-wide
 /// `CdcHub`) -- a per-`LakeManager` instance would reconnect on every test
-/// `LakeManager::new()` for no benefit, since `EPISTEMIC_GRAPH_LINEAGE_KAFKA_BROKERS`
+/// `LakeManager::new()` for no benefit, since `MEDULLA_LINEAGE_KAFKA_BROKERS`
 /// is itself process-wide configuration.
 pub fn configured_transports() -> &'static LineageTransports {
     static TRANSPORTS: std::sync::OnceLock<LineageTransports> = std::sync::OnceLock::new();

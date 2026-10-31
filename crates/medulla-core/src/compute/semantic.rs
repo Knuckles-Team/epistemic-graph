@@ -1,0 +1,499 @@
+// CONCEPT:MEDULLA-KG.compute.rust-native-ml-estimators / KG-2.207 — SemanticStore backend selector.
+//
+// `compute::semantic::SemanticStore` is the embedding store the graph holds. Two
+// interchangeable backends share one public API and one on-disk serde shape:
+//   * DEFAULT — `semantic_hnsw`: the native medulla-ann HNSW index (rebuilt from raw vectors on
+//     first search after load).
+//   * feature `ann` — `semantic_store_ann`: the native medulla-ann IVF-PQ+OPQ+SQ8
+//     index that reopens a persisted index WITHOUT rebuilding from raw vectors.
+//
+// Consumers `use crate::compute::semantic::SemanticStore` and never see which
+// backend is active.
+
+#[cfg(not(feature = "ann"))]
+#[path = "semantic_hnsw.rs"]
+mod backend;
+
+#[cfg(feature = "ann")]
+#[path = "semantic_store_ann.rs"]
+mod backend;
+
+pub use backend::SemanticStore;
+
+/// The content stamp of one [`SemanticStore`] (CONCEPT:MEDULLA-KG.coordination.dependency-scoped-cache-invalidation,
+/// EH-393 — the `EmbeddingGeneration` dependency dimension). Every constructor, content mutation
+/// (add / remove / space declaration) and ANN-generation adoption draws a fresh value from one
+/// process-wide counter, so a stamp is never reused: two equal stamps mean the same vectors. A
+/// clone keeps its source's stamp because it holds its source's content; its next mutation draws
+/// a new one. Rebuilding or warming an index over UNCHANGED vectors does not restamp.
+#[derive(Debug)]
+pub struct GenerationStamp(std::sync::atomic::AtomicU64);
+
+static NEXT_EMBEDDING_GENERATION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(1);
+
+impl GenerationStamp {
+    /// A stamp no other store state has carried.
+    pub fn fresh() -> Self {
+        Self(std::sync::atomic::AtomicU64::new(
+            next_embedding_generation(),
+        ))
+    }
+
+    /// The current stamp.
+    pub fn get(&self) -> u64 {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// A stamp for a copy of the store: the copy holds the same content, so it carries the same
+    /// value (its next mutation draws a new one).
+    pub fn carry(&self) -> Self {
+        Self(std::sync::atomic::AtomicU64::new(self.get()))
+    }
+
+    /// Restamp after a content change. Called while the store is being mutated (under its
+    /// write lock), so a reader that starts after the mutation completes sees the new stamp.
+    pub fn bump(&self) {
+        self.0.store(
+            next_embedding_generation(),
+            std::sync::atomic::Ordering::Release,
+        );
+    }
+}
+
+fn next_embedding_generation() -> u64 {
+    NEXT_EMBEDDING_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+impl SemanticStore {
+    /// Equal stamps mean the same vectors, declared space and active index generation.
+    pub fn generation(&self) -> u64 {
+        self.generation.get()
+    }
+
+    /// Create an empty store pinned to one exact model/preprocessing space.
+    pub fn new_in_space(space: medulla_types::EmbeddingSpaceRef) -> Result<Self, String> {
+        let mut store = Self::new();
+        store.declare_space(space)?;
+        Ok(store)
+    }
+
+    /// Declared model/preprocessing space, if this is not a legacy raw store.
+    pub fn space(&self) -> Option<&medulla_types::EmbeddingSpaceRef> {
+        self.space.as_ref()
+    }
+
+    /// Declare the immutable space used by model-produced queries. Existing raw
+    /// rows may be adopted only when their width matches the declaration.
+    pub fn declare_space(&mut self, space: medulla_types::EmbeddingSpaceRef) -> Result<(), String> {
+        if validate_space_declaration(self.space.as_ref(), &space)? {
+            return Ok(());
+        }
+        if let Some(dim) = self.mismatched_row_dim(space.dimensions) {
+            return Err(format!(
+                "semantic store rows carry {dim} dimensions; declared space `{}` requires {}",
+                space.digest, space.dimensions
+            ));
+        }
+        commit_space_declaration(&mut self.space, &self.generation, space);
+        Ok(())
+    }
+
+    /// EXACT cosine top-`n_results` over exactly the `candidates` that hold an embedding
+    /// (EH-564/EH-565, CONCEPT:MEDULLA-KG.query.filtered-vector-rank), best first, ties by id.
+    /// Cost is O(|candidates| · dim): each candidate's row is looked up by id, never an
+    /// ANN walk and never a scan of the whole store. Empty for a zero-length,
+    /// non-finite, zero-norm or wrong-width query.
+    pub fn exact_rank_candidates<'c>(
+        &self,
+        query: &[f32],
+        candidates: impl IntoIterator<Item = &'c str>,
+        n_results: usize,
+    ) -> Vec<(String, f32)> {
+        let width_ok = self.dim() == 0 || self.dim() == query.len();
+        let query_norm = l2(query);
+        if !width_ok || !query_norm.is_normal() {
+            return Vec::new();
+        }
+        let mut scored: Vec<(String, f32)> = candidates
+            .into_iter()
+            .filter_map(|id| {
+                let row = self.get_embedding(id)?;
+                let row_norm = l2(&row);
+                let dot: f32 = row.iter().zip(query).map(|(a, b)| a * b).sum();
+                row_norm
+                    .is_normal()
+                    .then(|| (id.to_string(), dot / (query_norm * row_norm)))
+            })
+            .collect();
+        scored.sort_unstable_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        scored.truncate(n_results);
+        scored
+    }
+}
+
+/// Return true when this exact space was already declared; refuse replacing a
+/// different model space before either backend inspects its row layout.
+fn validate_space_declaration(
+    current: Option<&medulla_types::EmbeddingSpaceRef>,
+    requested: &medulla_types::EmbeddingSpaceRef,
+) -> Result<bool, String> {
+    requested.validate()?;
+    match current {
+        Some(existing) if existing.digest == requested.digest => Ok(true),
+        Some(existing) => Err(format!(
+            "semantic store already declares embedding space `{}`; cannot replace it with `{}`",
+            existing.digest, requested.digest
+        )),
+        None => Ok(false),
+    }
+}
+
+/// Apply a validated declaration once the backend has checked its own row layout.
+fn commit_space_declaration(
+    slot: &mut Option<medulla_types::EmbeddingSpaceRef>,
+    generation: &GenerationStamp,
+    space: medulla_types::EmbeddingSpaceRef,
+) {
+    *slot = Some(space);
+    generation.bump();
+}
+
+/// A clone keeps both its declared coordinate space and content stamp. Its
+/// backend index is reconstructed separately and does not define identity.
+fn carry_space_identity(
+    space: &Option<medulla_types::EmbeddingSpaceRef>,
+    generation: &GenerationStamp,
+) -> (Option<medulla_types::EmbeddingSpaceRef>, GenerationStamp) {
+    (space.clone(), generation.carry())
+}
+
+/// Euclidean norm; NaN for a non-finite vector, 0 for an empty one.
+fn l2(values: &[f32]) -> f32 {
+    values.iter().map(|v| v * v).sum::<f32>().sqrt()
+}
+
+/// The durable image of one IVF-PQ index generation. Only the `ann` backend
+/// maintains a persisted artifact; the default HNSW backend rebuilds from raw
+/// vectors and has none.
+#[cfg(feature = "ann")]
+pub use backend::SemanticGenerationImage;
+
+/// Upper bound on a single embedding's dimensionality (CONCEPT:MEDULLA-KG.compute.rank-dim-mismatch-guard,
+/// BUG-007). Shared by both `SemanticStore` backends' `add_embedding` chokepoint and
+/// every batch-decode/validation layer above it, so an "oversized dimension" hostile
+/// input is rejected at ONE authoritative bound rather than N independently-chosen
+/// ones. 65_536 comfortably exceeds every real embedding model in use (the largest
+/// production embedders top out in the low thousands of dimensions) while still
+/// bounding a single vector's RAM/CPU cost.
+pub const MAX_EMBEDDING_DIMENSION: usize = 65_536;
+
+/// Typed rejection for `SemanticStore::add_embedding` (CONCEPT:MEDULLA-KG.compute.rank-dim-mismatch-guard,
+/// BUG-007; GOC-08 adds [`Self::NonFinite`]). A caller receiving this error is
+/// guaranteed the store was NOT mutated — neither backend touches its arena/map
+/// until every hostile-input check below has passed. Shared by both backends
+/// (`semantic_hnsw`/`semantic_store_ann`) so a consumer written against
+/// `compute::semantic::SemanticStore` sees the identical error type regardless of
+/// which backend the `ann` feature selects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmbeddingDimensionError {
+    /// A zero-length embedding vector.
+    Empty,
+    /// An embedding vector longer than [`MAX_EMBEDDING_DIMENSION`].
+    Oversized { received: usize, max: usize },
+    /// An embedding vector whose length doesn't match the store's already
+    /// established dimension (the historical erase-the-corpus defect, BUG-007).
+    Mismatch { expected: usize, received: usize },
+    /// An embedding vector containing a NaN or +/-infinite component (CONCEPT:MEDULLA-KG.compute.rank-dim-mismatch-guard,
+    /// GOC-08). Unlike a mismatched length, a non-finite component passes every
+    /// length check and would previously reach the arena/index intact: its cached L2
+    /// norm ([`super::semantic_store_ann`]'s `norms` row) and every downstream cosine
+    /// score become `NaN`, and — because the brute-force/HNSW/IVF-PQ comparators
+    /// already total-order `NaN` as "worst" — the poisoned row would silently sink to
+    /// the bottom of every ranking rather than error, so a single malformed write
+    /// degrades retrieval quality invisibly instead of failing loudly. Index-building
+    /// paths (k-means/SVD, used past `ANN_BUILD_THRESHOLD`) are more fragile still: a
+    /// single NaN/Inf row can NaN-poison a shared centroid or singular vector, which
+    /// would corrupt search quality for the WHOLE resident index, not just the one
+    /// row — the same "one malformed write, broad blast radius" failure class as
+    /// BUG-007's corpus erasure. `index` is the first offending component's position.
+    NonFinite { index: usize },
+}
+
+impl std::fmt::Display for EmbeddingDimensionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => write!(f, "embedding must not be empty (dimension 0)"),
+            Self::Oversized { received, max } => write!(
+                f,
+                "embedding dimension {received} exceeds the maximum of {max}"
+            ),
+            Self::Mismatch { expected, received } => write!(
+                f,
+                "embedding dimension mismatch: store expects {expected}, received {received}"
+            ),
+            Self::NonFinite { index } => write!(
+                f,
+                "embedding component at index {index} is NaN or infinite (must be finite)"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for EmbeddingDimensionError {}
+
+/// Typed rejection for `SemanticStore::semantic_search_stamped_filtered` — the
+/// space-checked query path built on `medulla_types::StampedVector`/`EmbeddingSpaceRef`
+/// (CONCEPT:MEDULLA-KG.sharding.semantic-embedding-store-backed). Shared by both backends
+/// (`semantic_hnsw`/`semantic_store_ann`) for the same reason
+/// [`EmbeddingDimensionError`] is: a consumer written against
+/// `compute::semantic::SemanticStore` sees the identical error type regardless of
+/// which backend the `ann` feature selects.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SemanticQueryError {
+    /// The query's own `StampedVector` failed structural validation (see
+    /// `StampedVector::validate`) — a malformed space or a non-finite component.
+    InvalidVector(String),
+    /// The store has no declared `EmbeddingSpaceRef` (a legacy raw-vector store),
+    /// so a space-checked query has nothing to compare the stamp against.
+    StoreSpaceUnbound,
+    /// The store's OWN declared space failed structural validation — a corrupt or
+    /// hostile persisted manifest, caught before it can gate a comparison.
+    InvalidStoreSpace(String),
+    /// The query vector's stamped space digest does not match the store's
+    /// declared space digest — comparing vectors from two different embedding
+    /// spaces would yield confident nonsense, so the query is refused rather
+    /// than silently answered.
+    SpaceMismatch { expected: String, received: String },
+    /// The query vector's width does not match the store's resident row width.
+    DimensionMismatch { expected: usize, received: usize },
+}
+
+impl std::fmt::Display for SemanticQueryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidVector(reason) => write!(f, "invalid stamped query vector: {reason}"),
+            Self::StoreSpaceUnbound => write!(
+                f,
+                "semantic store has no declared embedding space; a stamped query cannot be checked against it"
+            ),
+            Self::InvalidStoreSpace(reason) => {
+                write!(f, "semantic store's declared embedding space is invalid: {reason}")
+            }
+            Self::SpaceMismatch { expected, received } => write!(
+                f,
+                "embedding space mismatch: query was stamped with space `{received}` but the \
+                 store declares space `{expected}`; refusing to compare vectors from different \
+                 embedding spaces"
+            ),
+            Self::DimensionMismatch { expected, received } => write!(
+                f,
+                "embedding dimension mismatch: store expects {expected}, received {received}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SemanticQueryError {}
+
+#[path = "semantic_regeneration.rs"]
+mod semantic_regeneration;
+pub use semantic_regeneration::{
+    EmbeddingChunkRef, EmbeddingProvider, EmbeddingRegenerationCandidate,
+    EmbeddingRegenerationError, EmbeddingRegenerationReport,
+};
+
+#[path = "semantic_embedding_batch.rs"]
+mod semantic_embedding_batch;
+pub use semantic_embedding_batch::{BoundedCachingEmbeddingProvider, CacheNamespace};
+
+/// Shared entry-point validation every `add_embedding` implementation runs BEFORE
+/// touching any state (CONCEPT:MEDULLA-KG.compute.rank-dim-mismatch-guard, BUG-007 + GOC-08). `store_dim == 0`
+/// means the store has no established dimension yet (empty store — the first vector
+/// establishes it). Returns the dimension the caller should now treat as established
+/// (unchanged from `store_dim` unless it was `0`).
+///
+/// Check order: length-only bounds (`Empty`/`Oversized`) first since they are `O(1)`;
+/// then a full scan for non-finite components (`NonFinite`) — absolute validity of
+/// `embedding` on its own, independent of any store; then `Mismatch`, which is
+/// relative to `store_dim` and therefore only meaningful once `embedding` is already
+/// known to be independently valid.
+#[inline]
+pub fn check_embedding_dimension(
+    embedding: &[f32],
+    store_dim: usize,
+) -> Result<usize, EmbeddingDimensionError> {
+    let embedding_len = embedding.len();
+    if embedding_len == 0 {
+        return Err(EmbeddingDimensionError::Empty);
+    }
+    if embedding_len > MAX_EMBEDDING_DIMENSION {
+        return Err(EmbeddingDimensionError::Oversized {
+            received: embedding_len,
+            max: MAX_EMBEDDING_DIMENSION,
+        });
+    }
+    if let Some(index) = embedding
+        .iter()
+        .position(|component| !component.is_finite())
+    {
+        return Err(EmbeddingDimensionError::NonFinite { index });
+    }
+    if store_dim == 0 {
+        return Ok(embedding_len);
+    }
+    if embedding_len != store_dim {
+        return Err(EmbeddingDimensionError::Mismatch {
+            expected: store_dim,
+            received: embedding_len,
+        });
+    }
+    Ok(store_dim)
+}
+
+/// Build an OVERLAY embedding store for in-txn cross-modal read-your-own-writes
+/// (CONCEPT:MEDULLA-KG.query.txn-cross-modal-ryow). Clones the committed `SemanticStore` (a point-in-time copy;
+/// the live store is never touched) and folds each staged `(node_id, embedding)`
+/// vector in via `add_embedding`, so the Rank/kNN leg of an in-txn unified query
+/// ranks over the txn's own uncommitted embeddings alongside the committed ones.
+/// A later `add_embedding` for a `node_id` overwrites an earlier vector for the
+/// same node, matching upsert semantics. Off-txn queries clone the committed store
+/// WITHOUT this overlay, so a staged vector stays invisible until commit.
+///
+/// A staged vector should already be dimension-valid — `stage_vector` records it
+/// unconditionally, but the authoritative commit path (`commit_crossmodal`) rejects a
+/// mismatched dimension before it can ever land durably, so reaching a mismatch here
+/// means the txn is about to fail at commit anyway. This is a best-effort READ-time
+/// overlay, not the authoritative write: a mismatched staged vector is skipped (never
+/// silently merged into the wrong-dimension arena) and logged, so this query's other,
+/// valid results are still served rather than failing the whole read.
+pub fn semantic_overlay(committed: SemanticStore, staged: &[(String, Vec<f32>)]) -> SemanticStore {
+    let mut store = committed;
+    for (node_id, embedding) in staged {
+        if let Err(error) = store.add_embedding(node_id.clone(), embedding.clone()) {
+            tracing::warn!(
+                node_id,
+                %error,
+                "skipping staged vector from the read-your-own-writes overlay (CONCEPT:MEDULLA-KG.compute.rank-dim-mismatch-guard) — \
+                 the txn's commit will reject it authoritatively"
+            );
+        }
+    }
+    store
+}
+
+#[cfg(test)]
+mod check_embedding_dimension_tests {
+    use super::*;
+
+    #[test]
+    fn semantic_store_validation_is_read_only_and_matches_write_admission() {
+        let mut store = SemanticStore::new();
+        store
+            .add_embedding("known".into(), vec![1.0, 0.0, 0.0])
+            .unwrap();
+        let before = store.embeddings_snapshot();
+
+        assert_eq!(
+            store.validate_embedding(&[1.0, 0.0]),
+            Err(EmbeddingDimensionError::Mismatch {
+                expected: 3,
+                received: 2,
+            })
+        );
+        assert_eq!(
+            store.validate_embedding(&[1.0, f32::NAN, 0.0]),
+            Err(EmbeddingDimensionError::NonFinite { index: 1 })
+        );
+        assert_eq!(store.validate_embedding(&[0.0, 0.0, 1.0]), Ok(()));
+        assert_eq!(store.embeddings_snapshot(), before);
+    }
+
+    #[test]
+    fn establishes_dimension_on_first_finite_vector() {
+        assert_eq!(check_embedding_dimension(&[1.0, 2.0, 3.0], 0), Ok(3));
+    }
+
+    #[test]
+    fn empty_vector_rejected_regardless_of_store_dim() {
+        assert_eq!(
+            check_embedding_dimension(&[], 0),
+            Err(EmbeddingDimensionError::Empty)
+        );
+        assert_eq!(
+            check_embedding_dimension(&[], 5),
+            Err(EmbeddingDimensionError::Empty)
+        );
+    }
+
+    #[test]
+    fn oversized_vector_rejected() {
+        let oversized = vec![0.0f32; MAX_EMBEDDING_DIMENSION + 1];
+        assert_eq!(
+            check_embedding_dimension(&oversized, 0),
+            Err(EmbeddingDimensionError::Oversized {
+                received: MAX_EMBEDDING_DIMENSION + 1,
+                max: MAX_EMBEDDING_DIMENSION,
+            })
+        );
+    }
+
+    #[test]
+    fn nan_component_rejected_with_its_index() {
+        assert_eq!(
+            check_embedding_dimension(&[1.0, f32::NAN, 3.0], 0),
+            Err(EmbeddingDimensionError::NonFinite { index: 1 })
+        );
+    }
+
+    #[test]
+    fn positive_and_negative_infinity_rejected() {
+        assert_eq!(
+            check_embedding_dimension(&[f32::INFINITY, 0.0], 0),
+            Err(EmbeddingDimensionError::NonFinite { index: 0 })
+        );
+        assert_eq!(
+            check_embedding_dimension(&[0.0, f32::NEG_INFINITY], 0),
+            Err(EmbeddingDimensionError::NonFinite { index: 1 })
+        );
+    }
+
+    #[test]
+    fn first_non_finite_index_reported_when_several_present() {
+        assert_eq!(
+            check_embedding_dimension(&[0.0, f32::NAN, f32::NAN, f32::INFINITY], 0),
+            Err(EmbeddingDimensionError::NonFinite { index: 1 }),
+            "must report the FIRST offending index, not the last or a count"
+        );
+    }
+
+    #[test]
+    fn mismatch_still_detected_for_an_otherwise_finite_vector() {
+        assert_eq!(
+            check_embedding_dimension(&[1.0, 2.0, 3.0], 4),
+            Err(EmbeddingDimensionError::Mismatch {
+                expected: 4,
+                received: 3
+            })
+        );
+    }
+
+    /// Precedence: a vector that is BOTH the wrong length AND contains a NaN
+    /// reports `NonFinite`, not `Mismatch` — documented check order is
+    /// length-bounds, then finite-content, then store-relative mismatch, so
+    /// content validity is established before comparing against the store at all.
+    #[test]
+    fn non_finite_takes_precedence_over_mismatch() {
+        assert_eq!(
+            check_embedding_dimension(&[1.0, f32::NAN], 8),
+            Err(EmbeddingDimensionError::NonFinite { index: 1 }),
+            "a non-finite component must be caught before the length is even \
+             compared against the store's established dimension"
+        );
+    }
+
+    #[test]
+    fn valid_vector_matching_store_dim_is_accepted() {
+        assert_eq!(check_embedding_dimension(&[1.0, 2.0, 3.0], 3), Ok(3));
+    }
+}

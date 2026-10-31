@@ -1,0 +1,854 @@
+//! LTAP lakehouse-interop tests (CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns).
+//!
+//! Covers the four seams: Parquet materialize→read-back (behind `lake`), the Delta
+//! `_delta_log` + Iceberg `metadata.json` written & parsed back, the LSN as-of
+//! snapshot, and the Iceberg-REST catalog listing.
+
+use medulla_lake::catalog::IcebergRestCatalog;
+use medulla_lake::schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
+use medulla_lake::snapshot::Lsn;
+use medulla_lake::{delta, iceberg, LakeTable};
+
+/// A 3-column schema exercising every LakeType (CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns).
+fn sample_schema() -> LakeSchema {
+    LakeSchema::new(vec![
+        LakeField::required("id", LakeType::Long),
+        LakeField::new("price", LakeType::Double),
+        LakeField::new("symbol", LakeType::String),
+        LakeField::new("active", LakeType::Bool),
+        LakeField::new("ts", LakeType::Timestamp),
+    ])
+}
+
+fn current_snapshot(metadata: &serde_json::Value) -> &serde_json::Value {
+    let current_id = &metadata["current-snapshot-id"];
+    metadata["snapshots"]
+        .as_array()
+        .expect("Iceberg snapshots array")
+        .iter()
+        .find(|snapshot| &snapshot["snapshot-id"] == current_id)
+        .expect("current-snapshot-id references an emitted snapshot")
+}
+
+#[cfg(feature = "lake")]
+fn sample_batch() -> LakeBatch {
+    let rows = vec![
+        vec![
+            CellValue::Long(1),
+            CellValue::Double(101.5),
+            CellValue::String("AAPL".into()),
+            CellValue::Bool(true),
+            CellValue::Timestamp(1_700_000_000_000_000),
+        ],
+        vec![
+            CellValue::Long(2),
+            CellValue::Null, // null price — exercises the null bitmap
+            CellValue::String("MSFT".into()),
+            CellValue::Bool(false),
+            CellValue::Timestamp(1_700_000_060_000_000),
+        ],
+        vec![
+            CellValue::Long(3),
+            CellValue::Double(-3.25),
+            CellValue::Null, // null string
+            CellValue::Bool(true),
+            CellValue::Timestamp(1_700_000_120_000_000),
+        ],
+    ];
+    LakeBatch::new(sample_schema(), rows).expect("valid batch")
+}
+
+/// CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns — a wrong-arity row is rejected.
+#[test]
+fn medulla_317_batch_arity_is_validated() {
+    let bad = LakeBatch::new(sample_schema(), vec![vec![CellValue::Long(1)]]);
+    assert!(bad.is_err(), "short row must be rejected");
+}
+
+/// CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns — rows materialize to Parquet and read back byte-for-cell correct,
+/// nulls included.
+#[cfg(feature = "lake")]
+#[test]
+fn medulla_317_parquet_materialize_roundtrip_is_correct() {
+    use medulla_lake::parquet_io::{materialize_batch, read_parquet};
+
+    let batch = sample_batch();
+    let bytes = materialize_batch(&batch).expect("materialize");
+    // A real Parquet file starts and ends with the "PAR1" magic.
+    assert_eq!(&bytes[..4], b"PAR1", "not a parquet file");
+    assert_eq!(&bytes[bytes.len() - 4..], b"PAR1");
+
+    let back = read_parquet(&bytes).expect("read back");
+    assert_eq!(back.schema, batch.schema, "schema must round-trip");
+    assert_eq!(back.rows, batch.rows, "rows must round-trip incl. nulls");
+}
+
+/// CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns — Parquet stats (size + row count) are surfaced for the table log.
+#[cfg(feature = "lake")]
+#[test]
+fn medulla_317_parquet_stats_report_rows() {
+    use medulla_lake::parquet_io::materialize_with_stats;
+    let (bytes, stats) = materialize_with_stats(&sample_batch()).expect("materialize");
+    assert_eq!(stats.num_rows, 3);
+    assert_eq!(stats.size_bytes, bytes.len() as u64);
+    assert!(stats.size_bytes > 4);
+}
+
+/// CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns — the Delta `_delta_log` is written and replays to the live files.
+#[test]
+fn medulla_317_delta_log_written_and_parseable() {
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    table.record_file("data/part-0.parquet", 512, 3, Lsn(10));
+    table.record_file("data/part-1.parquet", 640, 4, Lsn(20));
+
+    let log = table.delta_log(1_700_000_000_000);
+    // Two distinct LSNs → two contiguous Delta versions, 0-padded to 20 digits.
+    assert_eq!(log.len(), 2);
+    assert_eq!(log[0].path, "_delta_log/00000000000000000000.json");
+    assert_eq!(log[1].path, "_delta_log/00000000000000000001.json");
+
+    // Version 0 carries protocol + metaData + one add.
+    let v0 = delta::parse_delta_actions(&log[0].content).expect("parse v0");
+    assert!(v0.iter().any(|a| a.get("protocol").is_some()));
+    let meta = v0
+        .iter()
+        .find_map(|a| a.get("metaData"))
+        .expect("metaData present");
+    // schemaString is a JSON-encoded struct with our 5 fields.
+    let schema_str = meta["schemaString"].as_str().unwrap();
+    let sv: serde_json::Value = serde_json::from_str(schema_str).unwrap();
+    assert_eq!(sv["type"], "struct");
+    assert_eq!(sv["fields"].as_array().unwrap().len(), 5);
+    assert_eq!(sv["fields"][0]["type"], "long");
+
+    // Replaying both commits yields both live files.
+    let live = delta::live_paths(&log).expect("replay");
+    assert_eq!(live.len(), 2);
+    assert!(live.contains(&"data/part-0.parquet".to_string()));
+    assert!(live.contains(&"data/part-1.parquet".to_string()));
+}
+
+/// CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns — a Delta `remove` tombstone drops a file from the replayed live set.
+#[test]
+fn medulla_317_delta_remove_tombstones_file() {
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    table.record_file("data/part-0.parquet", 512, 3, Lsn(10));
+    table.snapshot.remove_file("data/part-0.parquet", Lsn(30));
+    table.record_file("data/part-1.parquet", 640, 4, Lsn(30));
+
+    let log = table.delta_log(1);
+    let live = delta::live_paths(&log).expect("replay");
+    assert_eq!(live, vec!["data/part-1.parquet".to_string()]);
+}
+
+/// CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns — the LSN as-of snapshot returns a consistent point-in-time file set.
+#[test]
+fn medulla_317_lsn_as_of_snapshot_is_consistent() {
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    table.record_file("data/part-0.parquet", 100, 1, Lsn(10));
+    medulla_lake::record_iceberg_commit(&mut table, 1_000);
+    table.record_file("data/part-1.parquet", 200, 2, Lsn(20));
+    medulla_lake::record_iceberg_commit(&mut table, 2_000);
+    table.snapshot.remove_file("data/part-0.parquet", Lsn(20));
+
+    assert_eq!(table.current_lsn(), Lsn(20));
+    // As of LSN 10: only part-0 is live.
+    let at10 = table.snapshot.files_as_of(Lsn(10));
+    assert_eq!(at10.len(), 1);
+    assert_eq!(at10[0].path, "data/part-0.parquet");
+    // As of LSN 20 (now): only part-1 (part-0 tombstoned).
+    let at20 = table.snapshot.files_as_of(Lsn(20));
+    assert_eq!(at20.len(), 1);
+    assert_eq!(at20[0].path, "data/part-1.parquet");
+    // Earlier than any commit: empty.
+    assert!(table.snapshot.files_as_of(Lsn(0)).is_empty());
+}
+
+#[test]
+fn public_iceberg_builders_project_populated_snapshot_logs() {
+    let schema = sample_schema();
+    let schemas = vec![(0, schema)];
+    let mut snapshot = medulla_lake::snapshot::SnapshotLog::new();
+    snapshot.add_file("data/part-0.parquet", 100, 1, Lsn(10), 0);
+    snapshot.add_file("data/part-1.parquet", 200, 2, Lsn(20), 0);
+
+    let current = iceberg::build_iceberg(
+        &schemas,
+        0,
+        &snapshot,
+        "public-builder-table",
+        "s3://lake/public-builder",
+        2_000,
+    );
+    let current_meta = iceberg::parse_metadata(&current.metadata_json).unwrap();
+    assert_eq!(current_meta["current-snapshot-id"], 20);
+    assert_eq!(
+        current_snapshot(&current_meta)["summary"]["total-data-files"],
+        "2"
+    );
+
+    let historical = iceberg::build_iceberg_as_of(
+        &schemas,
+        0,
+        &snapshot,
+        Lsn(15),
+        "public-builder-table",
+        "s3://lake/public-builder",
+        1_500,
+    );
+    let historical_meta = iceberg::parse_metadata(&historical.metadata_json).unwrap();
+    assert_eq!(historical_meta["current-snapshot-id"], 15);
+    assert_eq!(
+        current_snapshot(&historical_meta)["summary"]["total-data-files"],
+        "1"
+    );
+    assert_eq!(
+        historical.metadata_location,
+        "s3://lake/public-builder/metadata/v15.metadata.json"
+    );
+}
+
+/// BUG-224 — the `Op::AsOf -> Lsn` query-time closure (CA-19, GOC-77-W05):
+/// [`LakeTable::iceberg_as_of_ts`] resolves a caller-supplied timestamp through a
+/// [`medulla_lake::AsOfLsnResolver`] closure to the exact historical snapshot committed at
+/// or before it — the CALLER this seam previously had none of (`iceberg_as_of` itself
+/// existed and was tested, but nothing in the engine tree invoked it).
+#[test]
+fn bug_224_iceberg_as_of_ts_resolves_through_the_caller_closure() {
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    table.record_file("data/part-0.parquet", 100, 1, Lsn(10));
+    medulla_lake::record_iceberg_commit(&mut table, 1_000);
+    table.record_file("data/part-1.parquet", 200, 2, Lsn(20));
+    medulla_lake::record_iceberg_commit(&mut table, 2_000);
+
+    // A resolver standing in for the engine's real timestamp<->LSN correlation: any
+    // ts >= 1000 resolves to LSN 10 (the "first commit" point in this fixture).
+    let resolver = |ts_ms: i64| if ts_ms >= 1_000 { Some(Lsn(10)) } else { None };
+
+    let historical = table.iceberg_as_of_ts(1_500, &resolver);
+    let meta = iceberg::parse_metadata(&historical.metadata_json).expect("parse metadata");
+    assert_eq!(
+        meta["current-snapshot-id"], 10,
+        "the resolver's LSN pins the historical projection, not \"now\""
+    );
+
+    // A resolver that cannot correlate the timestamp (returns None) degrades to the
+    // CURRENT snapshot — the same "absent as_of => current" contract the REST
+    // `LoadTable` route's `?as_of=<LSN>` extension already uses, never an error.
+    let no_correlation = |_ts_ms: i64| None;
+    let current = table.iceberg_as_of_ts(999, &no_correlation);
+    let meta_current = iceberg::parse_metadata(&current.metadata_json).expect("parse metadata");
+    assert_eq!(
+        meta_current["current-snapshot-id"], 20,
+        "no resolver correlation falls back to the CURRENT committed LSN"
+    );
+}
+
+/// CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns — the Iceberg metadata.json is real & parseable and references the
+/// real Avro manifest paths (the Avro itself is round-tripped in the MEDULLA-333 test).
+#[test]
+fn medulla_317_iceberg_metadata_written_and_parseable() {
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    table.record_file("data/part-0.parquet", 512, 3, Lsn(42));
+    medulla_lake::record_iceberg_commit(&mut table, 1_700_000_000_000);
+
+    let ib = table.iceberg(1_700_000_000_000);
+    let meta = iceberg::parse_metadata(&ib.metadata_json).expect("parse metadata");
+    assert_eq!(meta["format-version"], 2);
+    assert_eq!(meta["current-snapshot-id"], 42);
+    assert_eq!(meta["schemas"][0]["fields"].as_array().unwrap().len(), 5);
+    assert_eq!(current_snapshot(&meta)["summary"]["total-records"], "3");
+    // The metadata references the real Avro manifest-list path; the JSON preview mirrors
+    // the entries (the real Avro is asserted in medulla_333_iceberg_avro_manifest_roundtrip).
+    let man: serde_json::Value = serde_json::from_str(&ib.manifest_json).unwrap();
+    assert!(man["manifest_list"]
+        .as_str()
+        .unwrap()
+        .ends_with("-manifest-list.avro"));
+    assert!(man["manifest_file"].as_str().unwrap().ends_with("-m0.avro"));
+    assert_eq!(man["entries"].as_array().unwrap().len(), 1);
+}
+
+/// A committed Iceberg generation remains in the next metadata file's snapshot,
+/// snapshot-log, and metadata-log histories with its original wall-clock timestamp.
+/// Merely recording a file is insufficient: callers mark a generation committed only
+/// after its metadata and manifest artifacts are durable.
+#[test]
+fn medulla_317_iceberg_metadata_retains_emitted_snapshot_history() {
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    table.record_file("data/part-0.parquet", 512, 3, Lsn(1));
+
+    let uncommitted = table.iceberg(1_700_000_000_000);
+    let uncommitted_meta =
+        iceberg::parse_metadata(&uncommitted.metadata_json).expect("parse uncommitted metadata");
+    assert_eq!(uncommitted_meta["current-snapshot-id"], -1);
+    assert!(uncommitted_meta["snapshots"].as_array().unwrap().is_empty());
+    let uncommitted_preview: serde_json::Value =
+        serde_json::from_str(&uncommitted.manifest_json).unwrap();
+    assert!(uncommitted_preview["manifest_list"].is_null());
+    assert!(uncommitted_preview["manifest_file"].is_null());
+    medulla_lake::record_iceberg_commit(&mut table, 1_700_000_000_000);
+    let first = table.iceberg(1_700_000_000_000);
+    let first_meta = iceberg::parse_metadata(&first.metadata_json).expect("parse first metadata");
+    assert_eq!(first_meta["snapshots"].as_array().unwrap().len(), 1);
+
+    table.record_file("data/part-1.parquet", 640, 4, Lsn(2));
+    let before_second_emit = table.iceberg_as_of(Lsn(2), 1_700_000_300_000);
+    let before_second_meta = iceberg::parse_metadata(&before_second_emit.metadata_json)
+        .expect("parse metadata before second emit");
+    assert_eq!(before_second_meta["current-snapshot-id"], 1);
+    assert_eq!(before_second_meta["snapshots"].as_array().unwrap().len(), 1);
+    assert!(before_second_meta["snapshots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|snapshot| snapshot["manifest-list"]
+            .as_str()
+            .is_some_and(|path| !path.contains("snap-2-"))));
+    medulla_lake::record_iceberg_commit(&mut table, 1_700_000_300_000);
+    let second = table.iceberg(1_700_000_300_000);
+    let second_meta =
+        iceberg::parse_metadata(&second.metadata_json).expect("parse second metadata");
+    let snapshots = second_meta["snapshots"].as_array().unwrap();
+    let snapshot_history: Vec<serde_json::Value> = snapshots
+        .iter()
+        .map(|snapshot| {
+            serde_json::json!({
+                "id": snapshot["snapshot-id"],
+                "timestamp": snapshot["timestamp-ms"],
+                "rows": snapshot["summary"]["total-records"],
+                "parent": snapshot["parent-snapshot-id"],
+                "sequence": snapshot["sequence-number"],
+            })
+        })
+        .collect();
+    let metadata_files: Vec<serde_json::Value> = second_meta["metadata-log"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["metadata-file"].clone())
+        .collect();
+    assert_eq!(
+        serde_json::json!({
+            "snapshots": snapshot_history,
+            "snapshot_log_count": second_meta["snapshot-log"].as_array().unwrap().len(),
+            "metadata_files": metadata_files,
+        }),
+        serde_json::json!({
+            "snapshots": [
+                {
+                    "id": 1,
+                    "timestamp": 1_700_000_000_000_i64,
+                    "rows": "3",
+                    "parent": null,
+                    "sequence": 1,
+                },
+                {
+                    "id": 2,
+                    "timestamp": 1_700_000_300_000_i64,
+                    "rows": "7",
+                    "parent": 1,
+                    "sequence": 2,
+                },
+            ],
+            "snapshot_log_count": 2,
+            "metadata_files": ["s3://lake/quotes/metadata/v1.metadata.json"],
+        })
+    );
+}
+
+#[test]
+fn iceberg_history_never_records_zero_or_a_tombstone_only_lsn() {
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    medulla_lake::record_iceberg_commit(&mut table, 100);
+    table.record_file("data/part-0.parquet", 512, 3, Lsn(1));
+    medulla_lake::record_iceberg_commit(&mut table, 200);
+    table.snapshot.remove_file("data/part-0.parquet", Lsn(2));
+    medulla_lake::record_iceberg_commit(&mut table, 300);
+
+    let metadata = iceberg::parse_metadata(&table.iceberg(300).metadata_json).unwrap();
+    let ids: Vec<u64> = metadata["snapshots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|snapshot| snapshot["snapshot-id"].as_u64().unwrap())
+        .collect();
+    assert_eq!(ids, vec![1]);
+    assert_eq!(metadata["current-snapshot-id"], 1);
+}
+
+/// CONCEPT:MEDULLA-KG.storage.iceberg-per-file-schema-id (INT-P2-4) — each committed snapshot's `metadata.json` records the
+/// schema-id ACTUALLY in effect when it was written, across an additive schema
+/// evolution: `schemas[]` accumulates every version, `current-schema-id` tracks the
+/// latest, and a data file recorded BEFORE the evolution keeps its OLDER schema-id
+/// on its manifest-preview entry even after the table's current schema moves on —
+/// the per-file schema-id tracking across a rewrite the module docs used to flag as
+/// an honest gap.
+#[test]
+fn int_p2_4_iceberg_schema_id_tracked_per_file_across_evolution() {
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    assert_eq!(table.schema_id(), 0, "starts at schema-id 0");
+
+    // A file written under the ORIGINAL (5-column) schema.
+    table.record_file("data/part-0.parquet", 512, 3, Lsn(10));
+    medulla_lake::record_iceberg_commit(&mut table, 1_700_000_000_000);
+
+    // Evolve: add a nullable column. Bumps the schema-id for FUTURE writes.
+    let added = table.evolve_add_column(LakeField::new("venue", LakeType::String));
+    assert!(added, "a genuinely new column must be added");
+    assert_eq!(
+        table.schema_id(),
+        1,
+        "evolution bumps the current schema-id"
+    );
+    assert_eq!(
+        table.schema_versions().len(),
+        2,
+        "both the original and evolved schema versions are retained"
+    );
+
+    // A SECOND file, written AFTER the evolution, under the NEW (6-column) schema.
+    table.record_file("data/part-1.parquet", 640, 4, Lsn(20));
+
+    // Adding the SAME column name again is a no-op (already exists) — no second bump.
+    assert!(!table.evolve_add_column(LakeField::new("venue", LakeType::String)));
+    assert_eq!(
+        table.schema_id(),
+        1,
+        "re-adding an existing column doesn't bump again"
+    );
+
+    medulla_lake::record_iceberg_commit(&mut table, 1_700_000_300_000);
+    let ib = table.iceberg(1_700_000_300_000);
+    let meta = iceberg::parse_metadata(&ib.metadata_json).expect("parse metadata");
+
+    // `schemas[]` carries BOTH versions, each correctly tagged with its OWN id.
+    let schemas = meta["schemas"].as_array().unwrap();
+    assert_eq!(
+        schemas.len(),
+        2,
+        "both schema versions appear in the history"
+    );
+    assert_eq!(schemas[0]["schema-id"], 0);
+    assert_eq!(schemas[0]["fields"].as_array().unwrap().len(), 5);
+    assert_eq!(schemas[1]["schema-id"], 1);
+    assert_eq!(schemas[1]["fields"].as_array().unwrap().len(), 6);
+    assert_eq!(
+        meta["current-schema-id"], 1,
+        "current-schema-id tracks the LATEST version"
+    );
+    // Only metadata generations that were actually emitted become snapshots. The
+    // current generation was emitted after evolution and uses the current schema.
+    assert_eq!(current_snapshot(&meta)["schema-id"], 1);
+
+    // A historical load reuses only the schema history valid at that emitted
+    // generation. It must not leak the future schema into v10 metadata.
+    let historical = table.iceberg_as_of(Lsn(10), 1_700_000_000_000);
+    let historical_meta =
+        iceberg::parse_metadata(&historical.metadata_json).expect("parse historical metadata");
+    assert_eq!(
+        historical.metadata_location,
+        "s3://lake/quotes/metadata/v10.metadata.json"
+    );
+    assert_eq!(historical_meta["current-snapshot-id"], 10);
+    assert_eq!(historical_meta["current-schema-id"], 0);
+    let historical_schemas = historical_meta["schemas"].as_array().unwrap();
+    assert_eq!(historical_schemas.len(), 1);
+    assert_eq!(historical_schemas[0]["schema-id"], 0);
+    assert_eq!(historical_schemas[0]["fields"].as_array().unwrap().len(), 5);
+
+    // The manifest-preview entries: the file recorded BEFORE the evolution keeps its
+    // OLDER schema-id; the one recorded AFTER carries the newer one. Order matches
+    // `live_files()` (insertion order for two never-tombstoned files).
+    let man: serde_json::Value = serde_json::from_str(&ib.manifest_json).unwrap();
+    let entries = man["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 2);
+    let by_path = |p: &str| {
+        entries
+            .iter()
+            .find(|e| e["data_file"]["file_path"].as_str().unwrap().ends_with(p))
+            .unwrap_or_else(|| panic!("no manifest entry for {p}"))
+    };
+    assert_eq!(
+        by_path("part-0.parquet")["data_file"]["schema-id"],
+        0,
+        "the pre-evolution file keeps its OLDER schema-id, not the table's current one"
+    );
+    assert_eq!(
+        by_path("part-1.parquet")["data_file"]["schema-id"],
+        1,
+        "the post-evolution file carries the newer schema-id"
+    );
+}
+
+/// CONCEPT:MEDULLA-KG.storage.medulla-iceberg-avro-manifest/MEDULLA-334 — the Iceberg **Avro** manifest + manifest-list are written as
+/// real Avro containers, parse back, reference each other, and the manifest entries
+/// match the live data files. Also asserts the `metadata.json` snapshot's `manifest-list`
+/// points at the exact manifest-list path we materialized.
+#[cfg(feature = "lake")]
+#[test]
+fn medulla_333_iceberg_avro_manifest_roundtrip() {
+    use apache_avro::types::Value as AvroValue;
+    use medulla_lake::iceberg_avro::read_avro_records;
+
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    table.record_file("data/part-0.parquet", 512, 3, Lsn(41));
+    table.record_file("data/part-1.parquet", 640, 4, Lsn(42));
+
+    let m = table.iceberg_manifests().expect("build avro manifests");
+    assert_eq!(m.snapshot_id, 42);
+    assert_eq!(m.added_files, 2);
+    assert_eq!(m.added_rows, 7);
+    assert!(m.manifest_path.ends_with("-m0.avro"));
+    assert!(m.manifest_list_path.ends_with("-manifest-list.avro"));
+
+    // Both blobs are real Avro containers (magic "Obj\x01").
+    assert_eq!(&m.manifest_avro[..4], b"Obj\x01", "not an avro manifest");
+    assert_eq!(
+        &m.manifest_list_avro[..4],
+        b"Obj\x01",
+        "not an avro manifest-list"
+    );
+
+    // metadata.json's snapshot references the exact manifest-list path we wrote.
+    medulla_lake::record_iceberg_commit(&mut table, 1_700_000_000_000);
+    let ib = table.iceberg(1_700_000_000_000);
+    let meta = iceberg::parse_metadata(&ib.metadata_json).expect("parse metadata");
+    assert_eq!(
+        current_snapshot(&meta)["manifest-list"].as_str().unwrap(),
+        m.manifest_list_path
+    );
+
+    // Manifest list parses to one manifest_file record pointing at our manifest.
+    let list = read_avro_records(&m.manifest_list_avro).expect("read manifest list");
+    assert_eq!(list.len(), 1);
+    let fields = match &list[0] {
+        AvroValue::Record(f) => f,
+        other => panic!("expected record, got {other:?}"),
+    };
+    let get = |name: &str| fields.iter().find(|(k, _)| k == name).map(|(_, v)| v);
+    match get("manifest_path").unwrap() {
+        AvroValue::String(s) => assert_eq!(s, &m.manifest_path),
+        other => panic!("manifest_path not a string: {other:?}"),
+    }
+    assert!(matches!(
+        get("added_files_count").unwrap(),
+        AvroValue::Int(2)
+    ));
+    assert!(matches!(
+        get("added_rows_count").unwrap(),
+        AvroValue::Long(7)
+    ));
+    assert!(matches!(get("content").unwrap(), AvroValue::Int(0)));
+
+    // Manifest parses to one entry per live data file, matching path/rows/size.
+    let entries = read_avro_records(&m.manifest_avro).expect("read manifest");
+    assert_eq!(entries.len(), 2);
+    let mut seen: Vec<(String, i64, i64)> = Vec::new();
+    for e in &entries {
+        let ef = match e {
+            AvroValue::Record(f) => f,
+            other => panic!("entry not a record: {other:?}"),
+        };
+        // status == ADDED (1)
+        let status = ef
+            .iter()
+            .find(|(k, _)| k == "status")
+            .map(|(_, v)| v)
+            .unwrap();
+        assert!(matches!(status, AvroValue::Int(1)), "status must be ADDED");
+        let data_file = ef
+            .iter()
+            .find(|(k, _)| k == "data_file")
+            .map(|(_, v)| v)
+            .unwrap();
+        let dff = match data_file {
+            AvroValue::Record(f) => f,
+            other => panic!("data_file not a record: {other:?}"),
+        };
+        let dget = |name: &str| dff.iter().find(|(k, _)| k == name).map(|(_, v)| v).unwrap();
+        // content == DATA (0), format PARQUET
+        assert!(matches!(dget("content"), AvroValue::Int(0)));
+        match dget("file_format") {
+            AvroValue::String(s) => assert_eq!(s, "PARQUET"),
+            other => panic!("file_format: {other:?}"),
+        }
+        let path = match dget("file_path") {
+            AvroValue::String(s) => s.clone(),
+            other => panic!("file_path: {other:?}"),
+        };
+        let rows = match dget("record_count") {
+            AvroValue::Long(n) => *n,
+            other => panic!("record_count: {other:?}"),
+        };
+        let size = match dget("file_size_in_bytes") {
+            AvroValue::Long(n) => *n,
+            other => panic!("file_size_in_bytes: {other:?}"),
+        };
+        seen.push((path, rows, size));
+    }
+    seen.sort();
+    assert_eq!(
+        seen,
+        vec![
+            ("s3://lake/quotes/data/part-0.parquet".to_string(), 3, 512),
+            ("s3://lake/quotes/data/part-1.parquet".to_string(), 4, 640),
+        ]
+    );
+
+    // The manifest embeds the required Iceberg metadata (format-version 2, data content).
+    let reader = apache_avro::Reader::new(&m.manifest_avro[..]).expect("open manifest");
+    let md = reader.user_metadata();
+    assert_eq!(
+        md.get("format-version").map(|v| v.as_slice()),
+        Some(&b"2"[..])
+    );
+    assert_eq!(md.get("content").map(|v| v.as_slice()), Some(&b"data"[..]));
+    assert!(
+        md.contains_key("schema"),
+        "manifest must embed the iceberg schema"
+    );
+}
+
+/// CONCEPT:MEDULLA-KG.storage.iceberg-avro-manifest-carries — the Iceberg Avro manifest carries per-column stats (value/null/nan
+/// counts, column sizes, and typed lower/upper bounds) gathered as the file is
+/// materialized, so an external reader can skip files by predicate. Asserts the stats
+/// maps are present and correct (min/max/null-count) for the known `sample_batch`.
+#[cfg(feature = "lake")]
+#[test]
+fn medulla_350_iceberg_manifest_carries_column_stats() {
+    use apache_avro::types::Value as AvroValue;
+    use medulla_lake::iceberg_avro::read_avro_records;
+
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    // Materialize the known 3-row batch — this is the path that gathers column stats.
+    table
+        .materialize(&sample_batch(), Lsn(77))
+        .expect("materialize");
+
+    let m = table.iceberg_manifests().expect("build avro manifests");
+    let entries = read_avro_records(&m.manifest_avro).expect("read manifest");
+    assert_eq!(entries.len(), 1, "one data file");
+
+    // Drill into the single data_file record.
+    let ef = match &entries[0] {
+        AvroValue::Record(f) => f,
+        other => panic!("entry not a record: {other:?}"),
+    };
+    let data_file = ef
+        .iter()
+        .find(|(k, _)| k == "data_file")
+        .map(|(_, v)| v)
+        .unwrap();
+    let dff = match data_file {
+        AvroValue::Record(f) => f,
+        other => panic!("data_file not a record: {other:?}"),
+    };
+    let dget = |name: &str| dff.iter().find(|(k, _)| k == name).map(|(_, v)| v).unwrap();
+
+    // A stats map field is `["null", array<{key:int, value:X}>]`. Decode it into a
+    // field-id → value map. Panics if the union is null (stat absent).
+    let as_map = |field: &str| -> std::collections::HashMap<i32, AvroValue> {
+        let arr = match dget(field) {
+            AvroValue::Union(_, boxed) => match boxed.as_ref() {
+                AvroValue::Array(items) => items.clone(),
+                other => panic!("{field} not an array: {other:?}"),
+            },
+            other => panic!("{field} not a union: {other:?}"),
+        };
+        let mut out = std::collections::HashMap::new();
+        for it in arr {
+            let kv = match it {
+                AvroValue::Record(f) => f,
+                other => panic!("map entry not a record: {other:?}"),
+            };
+            let key = match kv.iter().find(|(k, _)| k == "key").map(|(_, v)| v).unwrap() {
+                AvroValue::Int(n) => *n,
+                other => panic!("key not int: {other:?}"),
+            };
+            let val = kv
+                .iter()
+                .find(|(k, _)| k == "value")
+                .map(|(_, v)| v.clone())
+                .unwrap();
+            out.insert(key, val);
+        }
+        out
+    };
+    let long_of = |v: &AvroValue| match v {
+        AvroValue::Long(n) => *n,
+        other => panic!("expected long: {other:?}"),
+    };
+    let bytes_of = |v: &AvroValue| match v {
+        AvroValue::Bytes(b) => b.clone(),
+        other => panic!("expected bytes: {other:?}"),
+    };
+
+    // value_counts: every column has 3 values (rows), keyed by 1-based field-id.
+    let values = as_map("value_counts");
+    for fid in 1..=5 {
+        assert_eq!(long_of(&values[&fid]), 3, "value_count for field {fid}");
+    }
+
+    // null_value_counts: price (field 2) and symbol (field 3) each have one null; the
+    // rest zero. (Iceberg only needs the columns it tracks; we list all 5.)
+    let nulls = as_map("null_value_counts");
+    assert_eq!(long_of(&nulls[&1]), 0, "id nulls");
+    assert_eq!(long_of(&nulls[&2]), 1, "price null");
+    assert_eq!(long_of(&nulls[&3]), 1, "symbol null");
+    assert_eq!(long_of(&nulls[&4]), 0, "active nulls");
+    assert_eq!(long_of(&nulls[&5]), 0, "ts nulls");
+
+    // nan_value_counts: no NaNs anywhere.
+    let nans = as_map("nan_value_counts");
+    assert_eq!(long_of(&nans[&2]), 0, "price nans");
+
+    // column_sizes: present for every column, each a positive on-disk byte size.
+    let sizes = as_map("column_sizes");
+    for fid in 1..=5 {
+        assert!(long_of(&sizes[&fid]) > 0, "column_size for field {fid}");
+    }
+
+    // lower/upper bounds are Iceberg single-value binary. Decode + assert the known
+    // min/max of the sample batch.
+    let lowers = as_map("lower_bounds");
+    let uppers = as_map("upper_bounds");
+
+    // id (field 1, Long): min 1, max 3.
+    assert_eq!(
+        i64::from_le_bytes(bytes_of(&lowers[&1]).try_into().unwrap()),
+        1
+    );
+    assert_eq!(
+        i64::from_le_bytes(bytes_of(&uppers[&1]).try_into().unwrap()),
+        3
+    );
+    // price (field 2, Double): min -3.25, max 101.5 (the null is excluded).
+    assert_eq!(
+        f64::from_le_bytes(bytes_of(&lowers[&2]).try_into().unwrap()),
+        -3.25
+    );
+    assert_eq!(
+        f64::from_le_bytes(bytes_of(&uppers[&2]).try_into().unwrap()),
+        101.5
+    );
+    // symbol (field 3, String): min "AAPL", max "MSFT" (the null is excluded).
+    assert_eq!(
+        String::from_utf8(bytes_of(&lowers[&3])).unwrap(),
+        "AAPL".to_string()
+    );
+    assert_eq!(
+        String::from_utf8(bytes_of(&uppers[&3])).unwrap(),
+        "MSFT".to_string()
+    );
+    // active (field 4, Bool): min false (0x00), max true (0x01).
+    assert_eq!(bytes_of(&lowers[&4]), vec![0u8]);
+    assert_eq!(bytes_of(&uppers[&4]), vec![1u8]);
+    // ts (field 5, Timestamp): min/max of the three micros values.
+    assert_eq!(
+        i64::from_le_bytes(bytes_of(&lowers[&5]).try_into().unwrap()),
+        1_700_000_000_000_000
+    );
+    assert_eq!(
+        i64::from_le_bytes(bytes_of(&uppers[&5]).try_into().unwrap()),
+        1_700_000_120_000_000
+    );
+}
+
+/// CONCEPT:MEDULLA-KG.storage.iceberg-avro-manifest-carries — a file recorded WITHOUT stats (the bare `record_file` seam) emits
+/// the stats maps as null unions, not garbage — the maps are genuinely optional.
+#[cfg(feature = "lake")]
+#[test]
+fn medulla_350_stats_absent_when_not_gathered() {
+    use apache_avro::types::Value as AvroValue;
+    use medulla_lake::iceberg_avro::read_avro_records;
+
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    table.record_file("data/part-0.parquet", 512, 3, Lsn(9)); // no stats path
+
+    let m = table.iceberg_manifests().expect("build avro manifests");
+    let entries = read_avro_records(&m.manifest_avro).expect("read manifest");
+    let ef = match &entries[0] {
+        AvroValue::Record(f) => f,
+        other => panic!("{other:?}"),
+    };
+    let dff = match ef.iter().find(|(k, _)| k == "data_file").map(|(_, v)| v) {
+        Some(AvroValue::Record(f)) => f,
+        other => panic!("{other:?}"),
+    };
+    for field in [
+        "column_sizes",
+        "value_counts",
+        "null_value_counts",
+        "nan_value_counts",
+        "lower_bounds",
+        "upper_bounds",
+    ] {
+        let v = dff
+            .iter()
+            .find(|(k, _)| k == field)
+            .map(|(_, v)| v)
+            .unwrap();
+        assert!(
+            matches!(v, AvroValue::Union(0, b) if matches!(b.as_ref(), AvroValue::Null)),
+            "{field} must be a null union when no stats were gathered"
+        );
+    }
+}
+
+/// CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns — the Iceberg-REST catalog lists and loads a registered table.
+#[test]
+fn medulla_317_catalog_lists_and_loads_table() {
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    table.record_file("data/part-0.parquet", 512, 3, Lsn(7));
+    medulla_lake::record_iceberg_commit(&mut table, 1_700_000_000_000);
+
+    let mut cat = IcebergRestCatalog::new();
+    table.register_in(&mut cat, 1_700_000_000_000);
+    assert_eq!(cat.len(), 1);
+
+    // list_namespaces → [["market"]]
+    let ns = cat.list_namespaces();
+    assert_eq!(ns["namespaces"][0][0], "market");
+
+    // list_tables → identifiers with our table.
+    let tables = cat.list_tables("market");
+    let ids = tables["identifiers"].as_array().unwrap();
+    assert_eq!(ids.len(), 1);
+    assert_eq!(ids[0]["name"], "quotes");
+
+    // load_table → metadata-location present, inline metadata parses.
+    let loaded = cat.load_table("market", "quotes").expect("load");
+    let loc = loaded["metadata-location"].as_str().unwrap();
+    assert!(loc.ends_with(".metadata.json"));
+    assert_eq!(loaded["metadata"]["current-snapshot-id"], 7);
+
+    // Unknown table → None.
+    assert!(cat.load_table("market", "nope").is_none());
+}
+
+/// CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns — the full materialize path: rows → Parquet bytes recorded → Delta +
+/// Iceberg + catalog all describe the same file, under one LSN.
+#[cfg(feature = "lake")]
+#[test]
+fn medulla_317_end_to_end_materialize_and_export() {
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    let (path, bytes) = table
+        .materialize(&sample_batch(), Lsn(100))
+        .expect("materialize");
+    assert_eq!(&bytes[..4], b"PAR1");
+    assert!(path.ends_with(".parquet"));
+    assert_eq!(table.current_lsn(), Lsn(100));
+    medulla_lake::record_iceberg_commit(&mut table, 1);
+
+    // Delta references the materialized part.
+    let log = table.delta_log(1);
+    let live = delta::live_paths(&log).expect("replay");
+    assert_eq!(live, vec![path.clone()]);
+
+    // Iceberg + catalog agree on the same snapshot.
+    let mut cat = IcebergRestCatalog::new();
+    table.register_in(&mut cat, 1);
+    let loaded = cat.load_table("market", "quotes").expect("load");
+    assert_eq!(loaded["metadata"]["current-snapshot-id"], 100);
+}

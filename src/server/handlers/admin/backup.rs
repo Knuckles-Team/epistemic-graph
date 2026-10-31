@@ -2,7 +2,7 @@
 
 use sha2::{Digest, Sha256};
 
-const BACKUP_ROOT_ENV: &str = "EPISTEMIC_GRAPH_BACKUP_ROOT";
+const BACKUP_ROOT_ENV: &str = "MEDULLA_BACKUP_ROOT";
 
 #[cfg(feature = "redb")]
 fn backup_root() -> Result<std::path::PathBuf, String> {

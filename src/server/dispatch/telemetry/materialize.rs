@@ -7,7 +7,7 @@
 //! tenant and is private to the deriving agent (`_owner` / `_visibility`), the
 //! same row-level contract every other engine-written record carries.
 
-use eg_stream::telemetry::FactGraph;
+use medulla_stream::telemetry::FactGraph;
 use serde_json::{json, Map, Value};
 
 /// `BatchUpdate`'s own operation bound: a larger derivation is refused, not split.

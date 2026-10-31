@@ -1,4 +1,4 @@
-//! Authenticated cluster topology discovery (CONCEPT:EG-KG.sharding.cluster-topology,
+//! Authenticated cluster topology discovery (CONCEPT:MEDULLA-KG.sharding.cluster-topology,
 //! ADR-1 / W1.1, `reports/wave1/ADR-scale-trio.md` §ADR-1).
 //!
 //! `Method::ClusterMembers` is a bounded read, gated by
@@ -26,7 +26,7 @@ use crate::server::state::ServerState;
 type HmacSha256 = Hmac<Sha256>;
 
 const DISCOVERY_SCHEMA_VERSION: u64 = 1;
-const DISCOVERY_DOMAIN: &[u8] = b"epistemic-graph/cluster-discovery/v1\0";
+const DISCOVERY_DOMAIN: &[u8] = b"medulla-engine/cluster-discovery/v1\0";
 const MAX_DISCOVERY_GROUPS: usize = 1_024;
 const MAX_DISCOVERY_MEMBERS: usize = 4_096;
 const MAX_DISCOVERY_FIELD_BYTES: usize = 4 * 1024;
@@ -45,8 +45,8 @@ fn sha256_ref(value: &str) -> String {
 
 fn context_binding(
     context: &VerifiedRequestContext,
-) -> eg_types::result_contract::cluster::DiscoveryAuthBinding {
-    eg_types::result_contract::cluster::DiscoveryAuthBinding {
+) -> medulla_types::result_contract::cluster::DiscoveryAuthBinding {
+    medulla_types::result_contract::cluster::DiscoveryAuthBinding {
         tenant_digest: sha256_ref(context.tenant()),
         principal_digest: sha256_ref(context.principal()),
         agent_digest: sha256_ref(context.agent_id()),
@@ -57,9 +57,9 @@ fn context_binding(
 /// the signing function keeps a readable arity (clippy::too_many_arguments) and
 /// so the three can never be passed in the wrong order.
 struct SnapshotProjections {
-    groups: Vec<eg_types::result_contract::cluster::ClusterGroup>,
+    groups: Vec<medulla_types::result_contract::cluster::ClusterGroup>,
     canonical_groups: Vec<Value>,
-    leaders: Vec<eg_types::result_contract::cluster::ClusterLeader>,
+    leaders: Vec<medulla_types::result_contract::cluster::ClusterLeader>,
 }
 
 fn signed_snapshot(
@@ -69,7 +69,7 @@ fn signed_snapshot(
     placement_epoch: u64,
     context: &VerifiedRequestContext,
     projections: SnapshotProjections,
-) -> Result<eg_types::result_contract::cluster::ClusterDiscoverySnapshot, String> {
+) -> Result<medulla_types::result_contract::cluster::ClusterDiscoverySnapshot, String> {
     let SnapshotProjections {
         groups,
         canonical_groups,
@@ -102,7 +102,7 @@ fn signed_snapshot(
     mac.update(DISCOVERY_DOMAIN);
     mac.update(payload.as_bytes());
     let signature = format!("hmac-sha256:{}", hex::encode(mac.finalize().into_bytes()));
-    let snapshot = eg_types::result_contract::cluster::ClusterDiscoverySnapshot {
+    let snapshot = medulla_types::result_contract::cluster::ClusterDiscoverySnapshot {
         schema_version: DISCOVERY_SCHEMA_VERSION,
         cluster_id: cluster_id.to_string(),
         membership_epoch,
@@ -113,10 +113,10 @@ fn signed_snapshot(
         auth_binding: context_binding(context),
         signature,
     };
-    // EG-PLACEMENT-R611.1: the engine never serves a snapshot its own clients
+    // MEDULLA-PLACEMENT-R611.1: the engine never serves a snapshot its own clients
     // would refuse; every member identifier is validated before signing leaves.
-    eg_types::placement_directory::ClusterSnapshot::new(snapshot)
-        .map(eg_types::placement_directory::ClusterSnapshot::into_inner)
+    medulla_types::placement_directory::ClusterSnapshot::new(snapshot)
+        .map(medulla_types::placement_directory::ClusterSnapshot::into_inner)
         .map_err(|error| format!("cluster discovery snapshot is invalid: {error}"))
 }
 
@@ -179,8 +179,8 @@ fn member_role(
 #[cfg(feature = "raft")]
 fn certificate_value(
     info: &crate::server::persistence::node_info_store::NodeInfo,
-) -> eg_types::result_contract::cluster::ClusterMemberCertificate {
-    eg_types::result_contract::cluster::ClusterMemberCertificate {
+) -> medulla_types::result_contract::cluster::ClusterMemberCertificate {
+    medulla_types::result_contract::cluster::ClusterMemberCertificate {
         id: info.certificate_id.clone(),
         rotation_epoch: info.certificate_rotation_epoch,
         not_before_ms: info.certificate_not_before_ms,
@@ -203,15 +203,15 @@ fn member_health(leader_id: Option<crate::raft::NodeId>) -> &'static str {
 
 #[cfg(feature = "raft")]
 struct GroupProjection {
-    group: eg_types::result_contract::cluster::ClusterGroup,
+    group: medulla_types::result_contract::cluster::ClusterGroup,
     canonical: Value,
-    leader: Option<eg_types::result_contract::cluster::ClusterLeader>,
+    leader: Option<medulla_types::result_contract::cluster::ClusterLeader>,
     member_count: usize,
 }
 
 #[cfg(feature = "raft")]
 struct MemberProjection {
-    members: Vec<eg_types::result_contract::cluster::ClusterMember>,
+    members: Vec<medulla_types::result_contract::cluster::ClusterMember>,
     canonical_members: Vec<Value>,
 }
 
@@ -254,7 +254,7 @@ fn project_group_members(
             info.certificate_not_before_ms,
             info.certificate_not_after_ms,
         ]));
-        members.push(eg_types::result_contract::cluster::ClusterMember {
+        members.push(medulla_types::result_contract::cluster::ClusterMember {
             node_id,
             member_identity: info.member_identity.clone(),
             role: role.to_string(),
@@ -321,14 +321,14 @@ async fn collect_group_projection(
     let projected_members =
         project_group_members(store, cluster_id, &ids, &voters, leader_id, health)?;
     Ok(GroupProjection {
-        group: eg_types::result_contract::cluster::ClusterGroup {
+        group: medulla_types::result_contract::cluster::ClusterGroup {
             group_id,
             leader_id,
             members: projected_members.members,
         },
         canonical: serde_json::json!([group_id, leader_id, projected_members.canonical_members,]),
         leader: leader_id
-            .map(|node_id| eg_types::result_contract::cluster::ClusterLeader { group_id, node_id }),
+            .map(|node_id| medulla_types::result_contract::cluster::ClusterLeader { group_id, node_id }),
         member_count: voters.len() + learners.len(),
     })
 }
@@ -378,7 +378,7 @@ async fn handle_cluster_members(
         ) {
             Ok(snapshot) => Response::ok(
                 req_id,
-                ResultPayload::of::<eg_types::result_contract::cluster::ClusterMembers>(snapshot),
+                ResultPayload::of::<medulla_types::result_contract::cluster::ClusterMembers>(snapshot),
             ),
             Err(error) => Response::err(req_id, error),
         };
@@ -424,7 +424,7 @@ async fn handle_cluster_members(
     ) {
         Ok(snapshot) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::cluster::ClusterMembers>(snapshot),
+            ResultPayload::of::<medulla_types::result_contract::cluster::ClusterMembers>(snapshot),
         ),
         Err(error) => Response::err(req_id, error),
     }
@@ -455,7 +455,7 @@ pub(crate) async fn try_handle(
             let secret = { state.read().await.auth_secret.clone() };
             let snapshot = signed_snapshot(
                 &secret,
-                &sha256_ref("epistemic-graph/single-node-cluster/v1"),
+                &sha256_ref("medulla/single-node-cluster/v1"),
                 0,
                 0,
                 verified_context,
@@ -468,7 +468,7 @@ pub(crate) async fn try_handle(
             Ok(match snapshot {
                 Ok(snapshot) => Response::ok(
                     req_id,
-                    ResultPayload::of::<eg_types::result_contract::cluster::ClusterMembers>(
+                    ResultPayload::of::<medulla_types::result_contract::cluster::ClusterMembers>(
                         snapshot,
                     ),
                 ),

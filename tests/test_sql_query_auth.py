@@ -4,7 +4,7 @@ plain node reads fine.
 
 ROOT CAUSE: the server's HMAC verification recomputes the signed body hash
 from the fully DESERIALIZED `Method` (`Method::canonical_body_bytes`,
-`crates/eg-types/src/protocol.rs`) — `rmp_serde::to_vec_named(self)` always
+`crates/medulla-types/src/protocol.rs`) — `rmp_serde::to_vec_named(self)` always
 serializes every declared struct field, including `Method::Sql`'s
 `params_msgpack: Vec<u8>` (its `#[serde(default, with = "serde_bytes")]`
 attribute only relaxes what a DEcode may omit; it does not skip the field on
@@ -28,7 +28,7 @@ import pytest
 from conftest import request_context
 
 
-@pytest.mark.concept("CONCEPT:EG-KG.query.read-only-sql-query")
+@pytest.mark.concept("CONCEPT:MEDULLA-KG.query.read-only-sql-query")
 def test_sql_query_authenticates_under_the_same_session_as_cypher(clean_graph):
     clean_graph.nodes.add("A", {"label": "sql-fixture"})
 
@@ -44,14 +44,14 @@ def test_sql_query_authenticates_under_the_same_session_as_cypher(clean_graph):
     assert clean_graph.nodes.has("A") is True
 
 
-@pytest.mark.concept("CONCEPT:EG-KG.query.read-only-sql-query")
+@pytest.mark.concept("CONCEPT:MEDULLA-KG.query.read-only-sql-query")
 def test_sql_query_omitting_params_msgpack_signs_the_server_canonical_body(
     clean_graph,
 ):
     """The U-144 wire shape -- a `Sql` params map with no `params_msgpack` --
     now authenticates. The client signs `Method::canonical_body_bytes()` of the
     request the engine will DECODE (5e64e9715: serde defaults materialized by
-    the same eg-types codec), so an omitted defaulted field can no longer split
+    the same medulla-types codec), so an omitted defaulted field can no longer split
     the signed body from the one the server re-derives. Before that fix this
     exact send failed closed with "Authentication failed"; it must now return
     the same rows as `QueryClient.sql()`.
@@ -59,7 +59,7 @@ def test_sql_query_omitting_params_msgpack_signs_the_server_canonical_body(
     import asyncio
     import os
 
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import MedullaClient
 
     clean_graph.nodes.add("A", {"label": "sql-fixture"})
     query = "SELECT count(*) AS n FROM nodes"
@@ -68,7 +68,7 @@ def test_sql_query_omitting_params_msgpack_signs_the_server_canonical_body(
     assert socket_path is not None
 
     async def _run():
-        client = await EpistemicGraphClient.connect(
+        client = await MedullaClient.connect(
             socket_path=socket_path,
             verified_context=request_context(),
         )

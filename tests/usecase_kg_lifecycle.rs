@@ -1,11 +1,11 @@
-//! HIGH-VALUE USE-CASE SUITE #5 — KG lifecycle with validation & inference (CONCEPT:EG-KG.query.usecase-kg-lifecycle).
+//! HIGH-VALUE USE-CASE SUITE #5 — KG lifecycle with validation & inference (CONCEPT:MEDULLA-KG.query.usecase-kg-lifecycle).
 //!
 //! The full write-path lifecycle of a knowledge graph, proven end-to-end over the REAL
 //! server `dispatch`:
 //!   1. VALIDATE — SHACL validation gates the write: a data graph that violates the shape
 //!      is REJECTED (`conforms=false`), a conformant one PASSES.
 //!   2. MUTATE (ACID) — a new instance node + its edge + its vector embedding + an OWL TBox
-//!      axiom are staged in ONE transaction and committed ATOMICALLY (the EG-359..390 in-txn
+//!      axiom are staged in ONE transaction and committed ATOMICALLY (the MEDULLA-359..390 in-txn
 //!      cross-modal seam), so graph mutation AND vector-index maintenance AND the ontology
 //!      change land together or not at all.
 //!   3. INFER — after commit the OWL reasoner's inference CLOSURE reflects the new axiom:
@@ -33,14 +33,14 @@ mod test_support;
 
 use serde_json::json;
 
-use epistemic_graph::protocol::{Method, Response, ResultPayload};
+use medulla::protocol::{Method, Response, ResultPayload};
 
 const SECRET: &str = "usecase-lifecycle-secret";
 
 /// A fully-featured state with a real redb persistence backend. The multi-op
 /// `BeginTxn`..`Commit` path in this test seals its transaction recovery plan
 /// (`server::handlers::txn::seal_txn_recovery_plan`), which fail-closed REQUIRES
-/// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` at the backend's `open()` call -- the same
+/// `MEDULLA_ENCRYPTION_KEY` at the backend's `open()` call -- the same
 /// requirement `redb_backend::tests::cm_dir` / `advanced_crossmodal_roundtrip.rs::state`
 /// provision. Encryption is symmetric and transparent to this test's assertions;
 /// provision it ONCE, before the first backend opens.
@@ -111,7 +111,7 @@ async fn rdf_snapshot(state: &test_support::SharedState, id: u64) -> serde_json:
 
 #[tokio::test]
 async fn inline_typed_validation_never_writes_to_the_request_graph() {
-    use eg_types::ontology_inspection::{RdfObject, RdfTriple};
+    use medulla_types::ontology_inspection::{RdfObject, RdfTriple};
 
     let state = state();
     ok(
@@ -251,7 +251,7 @@ async fn ontology_inspection_dispatch_reads_inline_and_filtered_composed_sources
     }
 }
 
-/// THE KG-lifecycle proof (CONCEPT:EG-KG.query.usecase-kg-lifecycle): validate → atomic cross-modal commit → inference
+/// THE KG-lifecycle proof (CONCEPT:MEDULLA-KG.query.usecase-kg-lifecycle): validate → atomic cross-modal commit → inference
 /// closure → vector re-index → consistent concurrent reads.
 #[tokio::test]
 async fn validate_commit_infer_reindex_under_concurrency_eg438() {
@@ -354,11 +354,11 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
 
     // ── 3. INFERENCE CLOSURE: the committed axiom makes s1 an inferred Device ──
     // REASON with an EMPTY ontology reads the axiom from the committed TBox.
-    let reason = eg_plan::Plan::new(vec![
-        eg_plan::Op::Scan {
+    let reason = medulla_plan::Plan::new(vec![
+        medulla_plan::Op::Scan {
             label: "Sensor".into(),
         },
-        eg_plan::Op::Reason {
+        medulla_plan::Op::Reason {
             target_class: "<http://ex/Device>".into(),
             ontology: String::new(),
         },

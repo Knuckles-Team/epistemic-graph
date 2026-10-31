@@ -44,7 +44,7 @@ def _registry(components: list[dict]) -> dict:
 
 def _component(**overrides) -> dict:
     base = {
-        "component_id": "eg.example",
+        "component_id": "medulla.example",
         "component_kind": "implementation_component",
         "owned_source_roots": [],
         "public_contract_roots": [],
@@ -91,7 +91,7 @@ def test_parse_claimed_paths_collects_every_path_field_from_impl_components_only
 ):
     document = _registry(
         [
-            {"component_id": "eg.seam", "component_kind": "layer_boundary_root_seam"},
+            {"component_id": "medulla.seam", "component_kind": "layer_boundary_root_seam"},
             _component(
                 owned_source_roots=["src/a.rs"],
                 public_contract_roots=["src/lib.rs"],
@@ -145,7 +145,7 @@ def test_all_files_owned_reports_no_gap(repo: Path) -> None:
 
 
 def test_owned_source_roots_omission_counts_as_owned(repo: Path) -> None:
-    # Mirrors eg.speech-providers' real `model.rs` omission: a file the
+    # Mirrors medulla.speech-providers' real `model.rs` omission: a file the
     # checker's token rule forbids listing directly must still count as
     # owned here, or this gate would falsely flag a file this pass already
     # verified is real and owned.

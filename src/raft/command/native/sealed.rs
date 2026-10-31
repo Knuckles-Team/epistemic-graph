@@ -62,12 +62,12 @@ impl SealedNativeMethod {
         if observed != self.plaintext_sha256 {
             return Err("native Raft command digest mismatch".to_string());
         }
-        eg_types::msgpack::decode_bounded(
+        medulla_types::msgpack::decode_bounded(
             &plaintext,
-            eg_types::msgpack::MsgpackLimits::new(
+            medulla_types::msgpack::MsgpackLimits::new(
                 MAX_REPLICATED_COMMAND_PAYLOAD_BYTES,
                 4_000_000,
-                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+                medulla_types::msgpack::DEFAULT_MAX_DEPTH,
             ),
         )
         .map_err(|_| "native Raft command payload is invalid".to_string())
@@ -188,7 +188,7 @@ struct GraphCommandAuthority {
     group_id: GroupId,
     batch_id: String,
     request_id: u64,
-    attempt_nonce: Option<eg_types::contract::Nonce>,
+    attempt_nonce: Option<medulla_types::contract::Nonce>,
     tenant_scope: String,
     principal_fingerprint: String,
     identity_bootstrap: bool,
@@ -272,7 +272,7 @@ pub(super) fn native_envelope_shape_is_valid(
 fn native_method_key(server_secret: &str) -> [u8; 32] {
     use sha2::{Digest, Sha256};
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph-native-raft-v1\0");
+    digest.update(b"medulla-native-raft-v1\0");
     digest.update(server_secret.as_bytes());
     digest.finalize().into()
 }

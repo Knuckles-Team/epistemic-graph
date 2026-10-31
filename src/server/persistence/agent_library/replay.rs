@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
-use eg_transaction::{MutationKernel, ReplayResolution};
-use eg_types::mutation::{MutationReceipt, MutationResult};
-use eg_types::mutation_batch::{MutationBatchStatus, MutationOutboxIntent};
-use eg_types::{
+use medulla_transaction::{MutationKernel, ReplayResolution};
+use medulla_types::mutation::{MutationReceipt, MutationResult};
+use medulla_types::mutation_batch::{MutationBatchStatus, MutationOutboxIntent};
+use medulla_types::{
     AgentLibraryCommittedResult, AgentLibraryEntryDraft, AgentLibraryLifecycle,
     AgentLibraryMutationContext, AgentLibraryMutationKind, AgentLibraryOutboxEvent,
     AgentLibraryWriteResult,
@@ -44,9 +44,9 @@ struct ClaimedReplay<'r> {
 
 pub(super) fn replayed_receipt(
     mutations: &MutationKernel,
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+    txn: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
     replay: ReplayResolution,
-    operation: &eg_types::authority::OperationReplayIdentity,
+    operation: &medulla_types::authority::OperationReplayIdentity,
     context: &AgentLibraryMutationContext,
     expected: ExpectedAgentLibraryMutation<'_>,
 ) -> Result<Option<(AgentLibraryWriteResult, MutationReceipt)>, String> {
@@ -76,7 +76,7 @@ pub(super) fn replayed_receipt(
 
 fn validate_replay_receipt_identity(
     receipt: &MutationReceipt,
-    operation: &eg_types::authority::OperationReplayIdentity,
+    operation: &medulla_types::authority::OperationReplayIdentity,
 ) -> Result<(), String> {
     receipt.validate()?;
     let operation_digest = operation.digest()?;
@@ -130,7 +130,7 @@ fn build_replay_effect(
     kind: AgentLibraryMutationKind,
 ) -> Result<ReplayEffect, String> {
     let event = AgentLibraryOutboxEvent::new(kind, stable_result.entry.clone(), context)?;
-    let event_bytes = eg_storage::encode_bounded(&event, "agent library replay event")?;
+    let event_bytes = medulla_storage::encode_bounded(&event, "agent library replay event")?;
     let expected_key = format!(
         "{}:{}:{}",
         stable_result.entry.tenant_id,
@@ -167,8 +167,8 @@ fn validate_replay_effect_digest(
 
 fn validate_replay_evidence(
     mutations: &MutationKernel,
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
-    operation: &eg_types::authority::OperationReplayIdentity,
+    txn: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
+    operation: &medulla_types::authority::OperationReplayIdentity,
     context: &AgentLibraryMutationContext,
     claimed: &ClaimedReplay<'_>,
 ) -> Result<(), String> {
@@ -200,9 +200,9 @@ fn validate_replay_evidence(
 }
 
 fn validate_replay_batch(
-    record: &eg_types::MutationBatchRecord,
-    class: eg_storage::MutationClass,
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+    record: &medulla_types::MutationBatchRecord,
+    class: medulla_storage::MutationClass,
+    txn: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
     context: &AgentLibraryMutationContext,
     stable_result: &AgentLibraryCommittedResult,
 ) -> Result<(), String> {
@@ -220,13 +220,13 @@ fn validate_replay_batch(
 }
 
 fn replay_batch_identity_matches(
-    record: &eg_types::MutationBatchRecord,
-    class: eg_storage::MutationClass,
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+    record: &medulla_types::MutationBatchRecord,
+    class: medulla_storage::MutationClass,
+    txn: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
     stable_result: &AgentLibraryCommittedResult,
 ) -> bool {
     record.status == MutationBatchStatus::Committed
-        && class == eg_storage::MutationClass::Operation
+        && class == medulla_storage::MutationClass::Operation
         && record.identity == *txn.scope()
         && record.batch.identity == *txn.scope()
         && record.batch.batch_id == stable_result.batch_id
@@ -236,7 +236,7 @@ fn replay_batch_identity_matches(
 }
 
 fn replay_batch_context_matches(
-    record: &eg_types::MutationBatchRecord,
+    record: &medulla_types::MutationBatchRecord,
     context: &AgentLibraryMutationContext,
 ) -> Result<bool, String> {
     Ok(
@@ -247,9 +247,9 @@ fn replay_batch_context_matches(
 }
 
 fn validate_replay_operation(
-    record: &eg_types::MutationBatchRecord,
+    record: &medulla_types::MutationBatchRecord,
     receipt: &MutationReceipt,
-    operation: &eg_types::authority::OperationReplayIdentity,
+    operation: &medulla_types::authority::OperationReplayIdentity,
     stable_result: &AgentLibraryCommittedResult,
     kind: AgentLibraryMutationKind,
 ) -> Result<(), String> {
@@ -259,12 +259,12 @@ fn validate_replay_operation(
         .ok_or_else(|| {
             "CORRUPT_MUTATION_LEDGER: Agent Library replay operation is missing".to_string()
         })?;
-    let actual_operation_bytes = eg_storage::encode_bounded(
+    let actual_operation_bytes = medulla_storage::encode_bounded(
         &record.batch.operations[0],
         "Agent Library replay operation",
     )?;
     let expected_operation_bytes =
-        eg_storage::encode_bounded(&expected_operation, "Agent Library expected operation")?;
+        medulla_storage::encode_bounded(&expected_operation, "Agent Library expected operation")?;
     if actual_operation_bytes != expected_operation_bytes {
         return Err(
             "CORRUPT_MUTATION_LEDGER: Agent Library replay operation differs from its receipt"
@@ -272,7 +272,7 @@ fn validate_replay_operation(
         );
     }
     let receipt_result_bytes =
-        eg_storage::encode_bounded(&receipt.result, "mutation receipt result")?;
+        medulla_storage::encode_bounded(&receipt.result, "mutation receipt result")?;
     if record.result_msgpack.as_deref() != Some(receipt_result_bytes.as_slice()) {
         return Err(
             "CORRUPT_MUTATION_LEDGER: Agent Library replay result bytes differ from its receipt"
@@ -283,9 +283,9 @@ fn validate_replay_operation(
 }
 
 fn validate_replay_operation_identity(
-    record: &eg_types::MutationBatchRecord,
+    record: &medulla_types::MutationBatchRecord,
     receipt: &MutationReceipt,
-    operation: &eg_types::authority::OperationReplayIdentity,
+    operation: &medulla_types::authority::OperationReplayIdentity,
 ) -> Result<(), String> {
     let physical_envelope = record.batch.envelope.operation().ok_or_else(|| {
         "CORRUPT_MUTATION_LEDGER: Agent Library replay batch is not an operation".to_string()
@@ -305,7 +305,7 @@ fn validate_replay_operation_identity(
 }
 
 fn validate_replay_intent(
-    record: &eg_types::MutationBatchRecord,
+    record: &medulla_types::MutationBatchRecord,
     effect: &ReplayEffect,
 ) -> Result<(), String> {
     let intent = &record.batch.outbox[0];
@@ -322,9 +322,9 @@ fn validate_replay_intent(
 }
 
 fn validate_replay_outbox(
-    record: &eg_types::MutationBatchRecord,
-    physical_outbox: &[eg_types::MutationOutboxRecord],
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+    record: &medulla_types::MutationBatchRecord,
+    physical_outbox: &[medulla_types::MutationOutboxRecord],
+    txn: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
 ) -> Result<(), String> {
     if physical_outbox.len() != 1 {
         return Err(
@@ -378,7 +378,7 @@ struct ReplayRecordExpectation<'a> {
 }
 
 pub(super) fn replay_record(
-    record: &eg_types::MutationBatchRecord,
+    record: &medulla_types::MutationBatchRecord,
     context: &AgentLibraryMutationContext,
     kind: AgentLibraryMutationKind,
     agent_id: &str,
@@ -424,7 +424,7 @@ pub(super) fn replay_record(
 }
 
 fn replay_record_batch_matches(
-    record: &eg_types::MutationBatchRecord,
+    record: &medulla_types::MutationBatchRecord,
     intent: &MutationOutboxIntent,
     stable_result: &AgentLibraryCommittedResult,
     expected: &ReplayRecordExpectation<'_>,
@@ -435,7 +435,7 @@ fn replay_record_batch_matches(
 }
 
 fn replay_record_batch_identity_matches(
-    record: &eg_types::MutationBatchRecord,
+    record: &medulla_types::MutationBatchRecord,
     expected: &ReplayRecordExpectation<'_>,
 ) -> Result<bool, String> {
     Ok(record.status == MutationBatchStatus::Committed
@@ -460,7 +460,7 @@ fn replay_record_intent_matches(
 }
 
 fn replay_record_result_matches(
-    record: &eg_types::MutationBatchRecord,
+    record: &medulla_types::MutationBatchRecord,
     stable_result: &AgentLibraryCommittedResult,
     expected: &ReplayRecordExpectation<'_>,
 ) -> bool {
@@ -521,7 +521,7 @@ pub(super) fn expected_headers_from_event(
 }
 
 pub(super) fn record_result(
-    record: &eg_types::MutationBatchRecord,
+    record: &medulla_types::MutationBatchRecord,
 ) -> Result<AgentLibraryCommittedResult, String> {
     let bytes = record
         .result_msgpack
@@ -566,7 +566,7 @@ pub(super) fn record_result(
 }
 
 pub(super) fn record_event(
-    record: &eg_types::MutationBatchRecord,
+    record: &medulla_types::MutationBatchRecord,
 ) -> Result<AgentLibraryOutboxEvent, String> {
     if record.batch.outbox.len() != 1 {
         return Err("Agent Library receipt must contain exactly one outbox event".to_string());

@@ -2,10 +2,10 @@
 
 use std::collections::BTreeSet;
 
-use eg_types::agent_component::AgentComponentOutboxEvent;
-use eg_types::connector_pack::{PackImportResult, CONNECTOR_PACK_IMPORT_TOPIC};
-use eg_types::contract::ResourceId;
-use eg_types::mutation_batch::MutationOutboxRecord;
+use medulla_types::agent_component::AgentComponentOutboxEvent;
+use medulla_types::connector_pack::{PackImportResult, CONNECTOR_PACK_IMPORT_TOPIC};
+use medulla_types::contract::ResourceId;
+use medulla_types::mutation_batch::MutationOutboxRecord;
 
 use super::{
     bind, build_pack, head_of, import, import_uploaded, imported, ok, refused, tool, Served, ADMIN,
@@ -26,7 +26,7 @@ async fn snapshot(served: &Served) -> serde_json::Value {
         .connector_pack_refusal_snapshot(TENANT)
 }
 
-// spec: EG-DECISION-ENGINE-R073.1
+// spec: MEDULLA-DECISION-ENGINE-R073.1
 #[tokio::test]
 async fn multi_component_import_emits_one_durable_event_per_component() {
     let served = Served::new();
@@ -46,9 +46,9 @@ async fn multi_component_import_emits_one_durable_event_per_component() {
     let mut component_ids = BTreeSet::new();
     for (ordinal, row) in rows[..3].iter().enumerate() {
         assert_eq!(row.ordinal, ordinal as u32);
-        assert_eq!(row.intent.topic, "eg.agent-component.revision.v1");
+        assert_eq!(row.intent.topic, "medulla.agent-component.revision.v1");
         let event: AgentComponentOutboxEvent =
-            eg_storage::decode_ledger_record(&row.intent.payload).unwrap();
+            medulla_storage::decode_ledger_record(&row.intent.payload).unwrap();
         event.validate().unwrap();
         assert_eq!(event.component.tenant_id, TENANT);
         assert_eq!(event.component.entry_revision, 1);
@@ -71,7 +71,7 @@ async fn multi_component_import_emits_one_durable_event_per_component() {
     assert_eq!(snapshot(&served).await, before);
 }
 
-// spec: EG-DECISION-ENGINE-R073.2
+// spec: MEDULLA-DECISION-ENGINE-R073.2
 #[tokio::test]
 async fn competing_imports_have_one_head_winner_without_loser_effects() {
     let served = Served::new();

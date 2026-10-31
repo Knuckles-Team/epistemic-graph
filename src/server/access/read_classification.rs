@@ -18,7 +18,7 @@
 /// `GraphCore` through [`GraphReadAuthority::filter_view`]/
 /// [`GraphReadAuthority::project_core`] (which call
 /// `crate::isolation::IsolationLayer::can_see_row`,
-/// `crates/eg-core/src/isolation.rs`) before any row reaches the caller. Every
+/// `crates/medulla-core/src/isolation.rs`) before any row reaches the caller. Every
 /// entry was confirmed by reading its owning handler's actual `project_core`/
 /// `filter_view` call site, not assumed from the method's name — see
 /// `every_read_method_routes_through_rls_or_is_a_documented_exception`'s own
@@ -51,7 +51,7 @@
 /// **Blind spot this method-level ratchet cannot see, and where its coverage
 /// continues (W1b / L-RLS-2):** `AnalyticsJob` never appears in `RLS_ROUTED`/
 /// `NON_ROW_SCOPED`/`NOT_YET_AUDITED` below at all, because
-/// `eg_capabilities`'s static policy table classifies the WHOLE method
+/// `medulla_capabilities`'s static policy table classifies the WHOLE method
 /// `mutates: true` (a conservative upper bound — one wire method carries
 /// `Submit`/`Status`/`Cancel`/`Resume` `op`s of different shapes, and `Status`
 /// is genuinely a read), so it never reaches this file's `!p.mutates` read
@@ -195,7 +195,7 @@ pub(super) const REASON_AUDIT_CHAIN_ADMIN_GATED: &str =
 // audit/debug trail of every committed mutation string), never row-visible node/edge
 // data, so RLS's per-row `_owner`/`_visibility`/`_grants` model does not apply to it
 // at all. It is instead authorized by its own dedicated `ledger:read` RBAC action
-// (`eg_capabilities::policy`), enforced in `dispatch.rs` (`verified_context.
+// (`medulla_capabilities::policy`), enforced in `dispatch.rs` (`verified_context.
 // allows_method`) BEFORE any handler runs -- routing it through row-level
 // `project_core` as well was a redundant SECOND gate that, instead of narrowing
 // visibility, silently destroyed the data: `project_core`'s detached copy is built
@@ -204,7 +204,7 @@ pub(super) const REASON_AUDIT_CHAIN_ADMIN_GATED: &str =
 // request in the default (`security`-compiled) build regardless of how many
 // mutations had committed.
 pub(super) const REASON_LEDGER_ADMIN_OBSERVABILITY: &str =
-    "src/server/handlers/graph_ops.rs's GetLedger arm reads raw_core.get_ledger() (captured before project_core shadows core, same pattern as raw_ledger_len for Metrics.total_mutations) -- the mutation ledger is process-observability, not row-visible data, and is gated by its own ledger:read RBAC authz_action (eg_capabilities::policy) enforced in dispatch.rs before any handler runs, not by per-row RLS";
+    "src/server/handlers/graph_ops.rs's GetLedger arm reads raw_core.get_ledger() (captured before project_core shadows core, same pattern as raw_ledger_len for Metrics.total_mutations) -- the mutation ledger is process-observability, not row-visible data, and is gated by its own ledger:read RBAC authz_action (medulla_capabilities::policy) enforced in dispatch.rs before any handler runs, not by per-row RLS";
 pub(super) const REASON_VERIFIED_TENANT_CLAIM: &str =
     "dispatch.rs compares the request's tenant against verified_context.claims().tenant before serving it (GetChangeEnvelope/GetContentVersion/GetChangeCursor) -- an explicit verified-tenant-claim check, not a graph row";
 pub(super) const REASON_NATIVE_CAPACITY_TENANT_GATED: &str =
@@ -238,7 +238,7 @@ pub(super) const REASON_ADMIN_ONLY_CEP: &str =
 // snapshot first -- see those arms' own doc comments). The other three below never touch
 // `core`/`state`/`GraphView` at all.
 pub(super) const REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE: &str =
-    "src/server/handlers/query.rs's causal_estimate_wire/causal_counterfactual_wire/rank_by_provenance_wire (Method::CausalEstimate/CausalCounterfactual/RankByProvenance) build an ephemeral eg_epistemic::CausalGraph, or rank eg_epistemic::RetrievalCandidates, purely from the REQUEST's own variables/do_values/actual/candidates/weights fields -- these three handler arms never call core.analysis_snapshot() or reference state/core/GraphView at all (confirmed by reading each arm and its wire fn body), so there is no tenant-owned graph row in play to RLS-scope; the same posture as REASON_PURE_COMPUTE's finance/datascience primitives, just epistemic-causal's own request-scoped SCM/ranking inputs instead";
+    "src/server/handlers/query.rs's causal_estimate_wire/causal_counterfactual_wire/rank_by_provenance_wire (Method::CausalEstimate/CausalCounterfactual/RankByProvenance) build an ephemeral medulla_epistemic::CausalGraph, or rank medulla_epistemic::RetrievalCandidates, purely from the REQUEST's own variables/do_values/actual/candidates/weights fields -- these three handler arms never call core.analysis_snapshot() or reference state/core/GraphView at all (confirmed by reading each arm and its wire fn body), so there is no tenant-owned graph row in play to RLS-scope; the same posture as REASON_PURE_COMPUTE's finance/datascience primitives, just epistemic-causal's own request-scoped SCM/ranking inputs instead";
 // t1-grounding-0802 follow-up audit: `ClusterMembers` was added (ADR-1/W1.1
 // engine-authoritative cluster-topology discovery) without a classification here.
 // Auth-unification wave 1 (Workstream C): `GetIdentity` is the identity READ-BACK that
@@ -247,12 +247,12 @@ pub(super) const REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE: &str =
 // first (the production graph-os scheduler logged `existing_roles is unknown (None)` at every
 // boot precisely because no such RPC existed).
 pub(super) const REASON_IDENTITY_STORE_ADMIN_GATED: &str =
-    "src/server/dispatch.rs's GetIdentity arm answers from IsolationLayer::get_identity -- a point read of the in-memory RBAC identity map (`agents: HashMap<String, AgentIdentity>`, crates/eg-core/src/isolation.rs), the SAME store RegisterIdentity writes and RbacAdmin governs. It is control-plane principal metadata (agent_id/role/teams/roles), not one resolved graph's rows: it never constructs a GraphView/GraphCore and never calls project_core/filter_view, so there is no per-node `_owner`/`_visibility`/`_grants` for RLS to filter on. Authority is the same `security:admin` authz_action the rest of the Zero-Trust Consensus family carries (crates/eg-capabilities/src/lib.rs), so it grants no visibility to any caller who could not already call RegisterIdentity/RbacAdmin against that identical store";
+    "src/server/dispatch.rs's GetIdentity arm answers from IsolationLayer::get_identity -- a point read of the in-memory RBAC identity map (`agents: HashMap<String, AgentIdentity>`, crates/medulla-core/src/isolation.rs), the SAME store RegisterIdentity writes and RbacAdmin governs. It is control-plane principal metadata (agent_id/role/teams/roles), not one resolved graph's rows: it never constructs a GraphView/GraphCore and never calls project_core/filter_view, so there is no per-node `_owner`/`_visibility`/`_grants` for RLS to filter on. Authority is the same `security:admin` authz_action the rest of the Zero-Trust Consensus family carries (crates/medulla-capabilities/src/lib.rs), so it grants no visibility to any caller who could not already call RegisterIdentity/RbacAdmin against that identical store";
 pub(super) const REASON_IDENTITY_ACCESS_CHECK: &str =
     "src/server/dispatch/router/identity_access.rs's CheckAccess arm answers IsolationLayer::check_access (the same decision check_graph_access applies to a principal's own requests) for one named principal on the REQUEST graph, after first requiring the CALLER's own Read access to that graph. It returns one boolean, never a GraphView row, identity or policy, so there is nothing for RLS to filter; its own authz_action is security:check (not security:admin), which reveals no more than whether that principal's request would be admitted";
 pub(super) const REASON_CLUSTER_TOPOLOGY_READ: &str =
-    "src/server/handlers/topology.rs::handle_cluster_members answers from the durable NodeInfoStore + live MultiRaft membership (self-reported node/raft-group topology) -- not one resolved graph's rows, never touches core/GraphView/project_core. Gated by its own authz_action `cluster:topology-read` (crates/eg-capabilities/src/lib.rs), deliberately NOT kg:admin (REASON_CLUSTER_ADMIN_GATED) so ordinary service roles can re-resolve after a failover -- a distinct, weaker gate than the admin-only cluster methods above, so it gets its own reason rather than being folded into theirs";
-// BUG-044-class facade audit (push/eg-merge-artifacts): `QueryWorkItemReservation`/
+    "src/server/handlers/topology.rs::handle_cluster_members answers from the durable NodeInfoStore + live MultiRaft membership (self-reported node/raft-group topology) -- not one resolved graph's rows, never touches core/GraphView/project_core. Gated by its own authz_action `cluster:topology-read` (crates/medulla-capabilities/src/lib.rs), deliberately NOT kg:admin (REASON_CLUSTER_ADMIN_GATED) so ordinary service roles can re-resolve after a failover -- a distinct, weaker gate than the admin-only cluster methods above, so it gets its own reason rather than being folded into theirs";
+// BUG-044-class facade audit (push/medulla-merge-artifacts): `QueryWorkItemReservation`/
 // `ResourceReservationStatus` route in `dispatch.rs` (the `is_resource_reservation_query_method`
 // guard, just above the WorkItem claim-capability block) straight to
 // `PersistenceBackend::read_resource_reservation`/`read_resource_reservation_status` against the
@@ -272,7 +272,7 @@ pub(super) const REASON_NATIVE_RESERVATION_READ: &str =
 // never a `GraphView`.
 pub(super) const REASON_NATIVE_CAPABILITY_LEDGER: &str =
     "dispatch.rs's dedicated WorkItem-claim-capability block routes VerifyWorkItemClaimCapability to redb_store::work_item_capability::verify_work_item_claim_capability against its own private ledger, keyed by an AuthenticatedAuthority derived from the verified request context -- never enters MutationBatch/result/outbox/CDC projections or a GraphView, same posture as MintWorkItemClaimCapability's write-side native ledger";
-// RMDD-28 dispatch wiring (fix/eg-devlane-dispatch): `DevelopmentLaneStatus`/
+// RMDD-28 dispatch wiring (fix/medulla-devlane-dispatch): `DevelopmentLaneStatus`/
 // `QueryDevelopmentLane` now route through `handlers::development_lane::try_handle` to
 // `PersistenceBackend::read_development_lane[_status]`, which call
 // `redb_store::development_lane::read_development_lane[_status]` directly against the native
@@ -386,7 +386,7 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("FreshnessFeed", REASON_FRESHNESS_METADATA),
     // REASON_AGENT_LIBRARY_TENANT_SNAPSHOT
     ("AgentAssemble", REASON_AGENT_LIBRARY_TENANT_SNAPSHOT),
-    // REASON_AGENT_LIBRARY_TENANT_SNAPSHOT (EG-DECISION-ENGINE-R126.2.1)
+    // REASON_AGENT_LIBRARY_TENANT_SNAPSHOT (MEDULLA-DECISION-ENGINE-R126.2.1)
     ("CapabilityCoverage", REASON_AGENT_LIBRARY_TENANT_SNAPSHOT),
     ("GuardrailEntailment", REASON_AGENT_LIBRARY_TENANT_SNAPSHOT),
     // REASON_SOLVE_PURE_COMPUTE
@@ -581,8 +581,8 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
 // list. Empty is the intended end state, not an initial one -- a future audit pass adds a
 // new entry here ONLY as a flagged, visible TODO, never silently.
 //
-// fix/eg-devlane-dispatch: `DevelopmentLaneStatus`/`QueryDevelopmentLane` were parked here as
-// NOT_YET_AUDITED by the push/eg-merge-artifacts facade audit (commit 174c381) because they had
+// fix/medulla-devlane-dispatch: `DevelopmentLaneStatus`/`QueryDevelopmentLane` were parked here as
+// NOT_YET_AUDITED by the push/medulla-merge-artifacts facade audit (commit 174c381) because they had
 // no dispatch.rs routing arm at all. They are now genuinely dispatch-routed (see
 // `REASON_NATIVE_DEVELOPMENT_LANE_READ` in `NON_ROW_SCOPED` above), so this list returns to its
 // intended empty end state.

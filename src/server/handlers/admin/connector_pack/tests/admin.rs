@@ -1,12 +1,12 @@
 //! PB3 (ruling D7): the admin binding decides who may import, retirement is
 //! permanent, and the reconciler releases only what nothing holds.
 
-use eg_types::connector_pack::{
+use medulla_types::connector_pack::{
     ConnectorPackOp, ConnectorPackReconcileRequest, ConnectorPackRetireRequest,
     ConnectorPackUnbindRequest, PackBodyReconcileReport, PackImportResult, PackRetireResult,
     PackViolationCode,
 };
-use eg_types::contract::{BoundedVec, Digest256, ResourceId};
+use medulla_types::contract::{BoundedVec, Digest256, ResourceId};
 use sha2::{Digest, Sha256};
 
 use super::{
@@ -19,7 +19,7 @@ const CONNECTOR: &str = "pack-admin";
 async fn catalog_status(
     served: &Served,
     connector: &str,
-) -> eg_types::connector_pack::ConnectorPackStatus {
+) -> medulla_types::connector_pack::ConnectorPackStatus {
     served
         .state
         .write()
@@ -44,10 +44,10 @@ fn rejected_codes(result: PackImportResult) -> Vec<PackViolationCode> {
 /// `Bind` names a different importer, the binding governs even though the
 /// environment value is still configured and still names the principal that
 /// imported successfully a moment ago.
-// spec: EG-TYPED-PACKS-R015
+// spec: MEDULLA-TYPED-PACKS-R015
 #[tokio::test]
 async fn an_environment_importer_is_a_bootstrap_default_superseded_by_an_admin_bind() {
-    const ENV_VAR: &str = "EPISTEMIC_GRAPH_CONNECTOR_PACK_IMPORTERS";
+    const ENV_VAR: &str = "MEDULLA_CONNECTOR_PACK_IMPORTERS";
     const ENV_CONNECTOR: &str = "pack-admin-env-bootstrap";
 
     struct RestoreEnv(Option<std::ffi::OsString>);
@@ -214,14 +214,14 @@ async fn the_reconciler_releases_an_orphan_body_and_keeps_every_held_one() {
     );
     assert_eq!(report.orphaned, 1, "exactly the orphan is released");
     assert_eq!(report.scanned, 2, "the server and the tool body stay held");
-    let content: eg_types::agent_component::AgentComponentContentResult = ok(
+    let content: medulla_types::agent_component::AgentComponentContentResult = ok(
         "Content",
         served
             .call(
                 "content:pack-admin:a",
                 crate::protocol::Method::AgentComponent {
-                    op: eg_types::agent_component::AgentComponentOp::Content {
-                        request: eg_types::agent_component::AgentComponentContentRequest {
+                    op: medulla_types::agent_component::AgentComponentOp::Content {
+                        request: medulla_types::agent_component::AgentComponentContentRequest {
                             tenant_id: TENANT.to_string(),
                             component_id: "mcp:pack-admin/tool/a".to_string(),
                             entry_revision: None,
@@ -238,8 +238,8 @@ async fn the_reconciler_releases_an_orphan_body_and_keeps_every_held_one() {
     );
 }
 
-// spec: EG-TYPED-PACKS-R018
-// spec: EG-TYPED-PACKS-R002
+// spec: MEDULLA-TYPED-PACKS-R018
+// spec: MEDULLA-TYPED-PACKS-R002
 #[tokio::test]
 async fn holder_refcounts_transition_across_unchanged_revised_and_withdrawn_entries() {
     let served = Served::new();
@@ -298,14 +298,14 @@ async fn holder_refcounts_transition_across_unchanged_revised_and_withdrawn_entr
         ("c", Some(1), &c.body),
         ("b", None, &b_revised.body),
     ] {
-        let content: eg_types::agent_component::AgentComponentContentResult = ok(
+        let content: medulla_types::agent_component::AgentComponentContentResult = ok(
             "Content",
             served
                 .call(
                     &format!("content:pack-admin-transitions:{name}:{revision:?}"),
                     crate::protocol::Method::AgentComponent {
-                        op: eg_types::agent_component::AgentComponentOp::Content {
-                            request: eg_types::agent_component::AgentComponentContentRequest {
+                        op: medulla_types::agent_component::AgentComponentOp::Content {
+                            request: medulla_types::agent_component::AgentComponentContentRequest {
                                 tenant_id: TENANT.to_string(),
                                 component_id: format!("mcp:pack-admin/tool/{name}"),
                                 entry_revision: revision,
@@ -319,7 +319,7 @@ async fn holder_refcounts_transition_across_unchanged_revised_and_withdrawn_entr
     }
 }
 
-// spec: EG-TYPED-PACKS-R007
+// spec: MEDULLA-TYPED-PACKS-R007
 #[tokio::test]
 async fn bind_unbind_and_retire_require_admin_connector_pack_and_the_head_survives_a_retired_reimport(
 ) {
@@ -333,7 +333,7 @@ async fn bind_unbind_and_retire_require_admin_connector_pack_and_the_head_surviv
             &key,
             crate::protocol::Method::ConnectorPack {
                 op: Box::new(ConnectorPackOp::Bind {
-                    request: eg_types::connector_pack::ConnectorPackBindRequest {
+                    request: medulla_types::connector_pack::ConnectorPackBindRequest {
                         context: context(&key),
                         connector: ResourceId::new(connector).unwrap(),
                         importer: persistence_id(ADMIN),
@@ -438,7 +438,7 @@ async fn refusal_snapshot(served: &Served, connector: &str) -> serde_json::Value
     serde_json::json!({"owner": store.connector_pack_refusal_snapshot(TENANT), "bodies": bodies})
 }
 
-// spec: EG-TYPED-PACKS-R003, EG-TYPED-PACKS-R042.2
+// spec: MEDULLA-TYPED-PACKS-R003, MEDULLA-TYPED-PACKS-R042.2
 #[tokio::test]
 async fn a_rejected_import_mutates_nothing_in_the_catalog() {
     let served = Served::new();
@@ -470,7 +470,7 @@ async fn a_rejected_import_mutates_nothing_in_the_catalog() {
         .pack(
             key,
             ConnectorPackOp::Import {
-                request: Box::new(eg_types::connector_pack::ConnectorPackImportRequest {
+                request: Box::new(medulla_types::connector_pack::ConnectorPackImportRequest {
                     context: context(key),
                     index: index.clone(),
                     expected_head: Some(head_of(&first)),
@@ -540,7 +540,7 @@ async fn a_rejected_import_mutates_nothing_in_the_catalog() {
     }
 }
 
-// spec: EG-TYPED-PACKS-R005
+// spec: MEDULLA-TYPED-PACKS-R005
 #[tokio::test]
 async fn an_end_to_end_connector_fixture_imports_through_to_a_served_read() {
     let served = Served::new();
@@ -553,14 +553,14 @@ async fn an_end_to_end_connector_fixture_imports_through_to_a_served_read() {
         None,
     )
     .await;
-    let content: eg_types::agent_component::AgentComponentContentResult = ok(
+    let content: medulla_types::agent_component::AgentComponentContentResult = ok(
         "Content",
         served
             .call(
                 "content:pack-admin-e2e:fixture",
                 crate::protocol::Method::AgentComponent {
-                    op: eg_types::agent_component::AgentComponentOp::Content {
-                        request: eg_types::agent_component::AgentComponentContentRequest {
+                    op: medulla_types::agent_component::AgentComponentOp::Content {
+                        request: medulla_types::agent_component::AgentComponentContentRequest {
                             tenant_id: TENANT.to_string(),
                             component_id: "mcp:pack-admin-e2e/tool/fixture".to_string(),
                             entry_revision: None,

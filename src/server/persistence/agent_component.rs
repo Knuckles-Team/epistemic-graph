@@ -21,14 +21,14 @@
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
-use eg_storage::ScopedRead;
+use medulla_storage::ScopedRead;
 
-use eg_types::agent_component::{
+use medulla_types::agent_component::{
     AgentComponentCommittedResult, AgentComponentEntry, AgentComponentMutationKind,
     AgentComponentOutboxEvent, AgentComponentPublishRequest, AgentComponentRetireRequest,
     AgentComponentStatusRequest, AGENT_COMPONENT_SCHEMA_VERSION,
 };
-use eg_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
+use medulla_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
 
 use super::agent_library::AgentLibraryStore;
 use super::agent_revision::{
@@ -38,7 +38,7 @@ use super::agent_revision::{
 mod pins;
 mod write;
 
-const AGENT_COMPONENT_OUTBOX_TOPIC: &str = "eg.agent-component.revision.v1";
+const AGENT_COMPONENT_OUTBOX_TOPIC: &str = "medulla.agent-component.revision.v1";
 const AGENT_COMPONENT_RESULT_SCHEMA_ID: &str = "agent-component-result.v1";
 const MAX_AGENT_COMPONENT_REVISIONS: usize = 16_384;
 const MAX_AGENT_COMPONENT_HISTORY_BYTES: usize = 256 * 1024 * 1024;
@@ -168,14 +168,14 @@ impl AgentLibraryStore {
     /// `next_cursor` is `None`.
     pub fn search_components(
         &self,
-        request: &eg_types::agent_component::AgentComponentSearchRequest,
-    ) -> Result<eg_types::agent_component::AgentComponentSearchPage, String> {
+        request: &medulla_types::agent_component::AgentComponentSearchRequest,
+    ) -> Result<medulla_types::agent_component::AgentComponentSearchPage, String> {
         request.validate()?;
         let resume_after = request
             .cursor
             .as_deref()
             .map(|cursor| {
-                eg_types::agent_component::decode_search_cursor(&request.tenant_id, cursor)
+                medulla_types::agent_component::decode_search_cursor(&request.tenant_id, cursor)
             })
             .transpose()?;
         let read = self.read()?;
@@ -184,14 +184,14 @@ impl AgentLibraryStore {
 }
 
 fn scan_component_search_page(
-    read: &ScopedRead<'_, eg_storage::AgentLibraryOwner>,
-    request: &eg_types::agent_component::AgentComponentSearchRequest,
+    read: &ScopedRead<'_, medulla_storage::AgentLibraryOwner>,
+    request: &medulla_types::agent_component::AgentComponentSearchRequest,
     resume_after: Option<&str>,
-) -> Result<eg_types::agent_component::AgentComponentSearchPage, String> {
+) -> Result<medulla_types::agent_component::AgentComponentSearchPage, String> {
     let limit = request.page_limit();
-    let heads = read.open_owner_table(eg_storage::AGENT_COMPONENT_HEADS)?;
-    let revisions = read.open_owner_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
-    let pack_heads = read.open_owner_table(eg_storage::CONNECTOR_PACK_HEADS)?;
+    let heads = read.open_owner_table(medulla_storage::AGENT_COMPONENT_HEADS)?;
+    let revisions = read.open_owner_table(medulla_storage::AGENT_COMPONENT_REVISIONS)?;
+    let pack_heads = read.open_owner_table(medulla_storage::CONNECTOR_PACK_HEADS)?;
     let visible = |component_id: &str| {
         super::connector_pack::visibility::pack_component_visible(component_id, |connector| {
             Ok(pack_heads
@@ -243,13 +243,13 @@ fn scan_component_search_page(
         },
     )?;
     let next_cursor = match (truncated, last_consumed) {
-        (true, Some(component_id)) => Some(eg_types::agent_component::encode_search_cursor(
+        (true, Some(component_id)) => Some(medulla_types::agent_component::encode_search_cursor(
             &request.tenant_id,
             &component_id,
         )),
         _ => None,
     };
-    Ok(eg_types::agent_component::AgentComponentSearchPage {
+    Ok(medulla_types::agent_component::AgentComponentSearchPage {
         entries: matched,
         next_cursor,
     })
@@ -315,8 +315,8 @@ pub(super) struct ComponentLayer;
 /// The component layer's head and revision tables.
 pub(super) fn component_tables() -> RevisionTables {
     RevisionTables {
-        heads: eg_storage::AGENT_COMPONENT_HEADS,
-        revisions: eg_storage::AGENT_COMPONENT_REVISIONS,
+        heads: medulla_storage::AGENT_COMPONENT_HEADS,
+        revisions: medulla_storage::AGENT_COMPONENT_REVISIONS,
     }
 }
 
@@ -374,7 +374,7 @@ impl RevisionLayer for ComponentLayer {
             action_actor_scope: context.actor_scope.clone(),
         };
         event.validate()?;
-        eg_storage::encode_bounded(&event, "agent component outbox event")
+        medulla_storage::encode_bounded(&event, "agent component outbox event")
     }
 
     fn retired_revision(
@@ -431,8 +431,8 @@ pub type AgentComponentStoreRef = Arc<AgentLibraryStore>;
 pub(crate) fn test_component_draft(
     tenant_id: &str,
     component_id: &str,
-) -> eg_types::agent_component::AgentComponentDraft {
-    use eg_types::agent_component::{
+) -> medulla_types::agent_component::AgentComponentDraft {
+    use medulla_types::agent_component::{
         AgentComponentDraft, AgentComponentKind, DraftPublication, DraftSubject,
     };
     AgentComponentDraft::bare(
@@ -461,9 +461,9 @@ pub(crate) fn test_component_draft(
 /// `test_component_draft` exists.
 #[cfg(test)]
 pub(crate) fn test_tool_facts(
-    effect: eg_types::agent_component::ToolEffect,
-) -> eg_types::agent_component::AgentComponentFacts {
-    eg_types::agent_component::AgentComponentFacts::Tool {
+    effect: medulla_types::agent_component::ToolEffect,
+) -> medulla_types::agent_component::AgentComponentFacts {
+    medulla_types::agent_component::AgentComponentFacts::Tool {
         effect,
         required_scopes: Vec::new(),
         input_schema_digest: None,
@@ -497,10 +497,10 @@ pub(crate) fn seed_component_for_test(
     store: &AgentLibraryStore,
     tenant_id: &str,
     component_id: &str,
-    kind: eg_types::agent_component::AgentComponentKind,
+    kind: medulla_types::agent_component::AgentComponentKind,
     nonce_index: u8,
-) -> eg_types::agent_component::ComponentDependency {
-    use eg_types::agent_component::{
+) -> medulla_types::agent_component::ComponentDependency {
+    use medulla_types::agent_component::{
         AgentComponentDraft, AgentComponentFacts, AgentComponentKind, PromptMode, ToolEffect,
     };
     let definition_digest = match store
@@ -517,7 +517,7 @@ pub(crate) fn seed_component_for_test(
                 },
                 AgentComponentKind::Tool => test_tool_facts(ToolEffect::Read),
                 AgentComponentKind::Toolset => AgentComponentFacts::Toolset {
-                    transport: eg_types::agent_component::ToolsetTransport::Function,
+                    transport: medulla_types::agent_component::ToolsetTransport::Function,
                 },
                 AgentComponentKind::ModelProfile => AgentComponentFacts::ModelProfile {
                     provider: "seed-provider".to_string(),
@@ -549,7 +549,7 @@ pub(crate) fn seed_component_for_test(
                         request_id: 80_000 + u64::from(nonce_index),
                         principal: store.owner_principal().to_string(),
                         caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
-                        attempt_nonce: eg_types::contract::Nonce::from_bytes(nonce_bytes),
+                        attempt_nonce: medulla_types::contract::Nonce::from_bytes(nonce_bytes),
                         tenant_id: tenant_id.to_string(),
                         actor_scope: "action-scope:component-seed".to_string(),
                         purpose_id: "agent-component:publish".to_string(),
@@ -578,7 +578,7 @@ pub(crate) fn seed_component_for_test(
                 .definition_digest
         }
     };
-    eg_types::agent_component::ComponentDependency {
+    medulla_types::agent_component::ComponentDependency {
         component_id: component_id.to_string(),
         kind,
         definition_digest,
@@ -590,11 +590,11 @@ pub(crate) fn seed_component_for_test(
 #[cfg(test)]
 pub(crate) fn seed_draft_components_for_test(
     store: &AgentLibraryStore,
-    draft: &mut eg_types::agent_library::AgentLibraryEntryDraft,
+    draft: &mut medulla_types::agent_library::AgentLibraryEntryDraft,
     nonce_base: u8,
 ) {
     let tenant_id = draft.tenant_id.clone();
-    let mut pins: Vec<&mut eg_types::agent_component::ComponentDependency> =
+    let mut pins: Vec<&mut medulla_types::agent_component::ComponentDependency> =
         vec![&mut draft.system_prompt, &mut draft.model_profile];
     pins.extend(draft.tools.iter_mut());
     pins.extend(draft.skills.iter_mut());
@@ -628,7 +628,7 @@ pub(crate) fn seed_draft_components_for_test(
 mod tests {
     use super::super::agent_fixtures::mutation_context;
     use super::*;
-    use eg_types::agent_component::{
+    use medulla_types::agent_component::{
         AgentComponentDraft, AgentComponentKind, AgentComponentSearchRequest, ComponentDependency,
         ComponentProvenance, ToolEffect,
     };
@@ -882,12 +882,12 @@ mod tests {
             .is_some());
     }
 
-    // spec: EG-DECISION-ENGINE-R050.1
+    // spec: MEDULLA-DECISION-ENGINE-R050.1
     #[test]
     fn model_input_capabilities_survive_owner_restart_and_tenant_reads() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().to_str().unwrap();
-        let expected_facts: eg_types::agent_component::AgentComponentFacts =
+        let expected_facts: medulla_types::agent_component::AgentComponentFacts =
             serde_json::from_value(serde_json::json!({
                 "facts":"model_profile", "provider":"fixture", "model_identity":"fixture/model",
                 "context_window_tokens":8192, "max_output_tokens":1024,
@@ -1147,7 +1147,7 @@ mod tests {
         assert!(unfiltered.iter().any(|c| c.is_side_effecting()));
     }
 
-    // spec: EG-DECISION-ENGINE-R013
+    // spec: MEDULLA-DECISION-ENGINE-R013
     #[test]
     fn a_search_is_scoped_to_its_tenant() {
         // Searching the HIGHER-sorting tenant proves nothing: the scan is
@@ -1447,7 +1447,7 @@ mod tests {
         let (_dir, store) = open_store();
         for limit in [
             0,
-            eg_types::agent_component::MAX_AGENT_COMPONENT_SEARCH_LIMIT + 1,
+            medulla_types::agent_component::MAX_AGENT_COMPONENT_SEARCH_LIMIT + 1,
         ] {
             let error = store
                 .search_components(&paged("tenant-a", Some("eg:task/research"), limit, None))

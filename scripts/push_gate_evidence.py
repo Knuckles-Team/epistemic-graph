@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Same-invocation evidence for the epistemic-graph push gate.
+"""Same-invocation evidence for the medulla push gate.
 
 The pre-push hook and the workflow replica are separate processes.  This module
 gives them one short-lived, per-pre-commit-invocation execution ledger so an
@@ -47,8 +47,8 @@ else:
         from scripts._git_subprocess_env import sanitized_git_env
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = "epistemic-graph.push-gate-evidence/v1"
-CACHE_DIRECTORY = "eg-push-gate"
+SCHEMA = "medulla.push-gate-evidence/v1"
+CACHE_DIRECTORY = "medulla-push-gate"
 MAX_UNTRACKED_FILE_BYTES = 64 * 1024 * 1024
 MAX_UNTRACKED_TOTAL_BYTES = 256 * 1024 * 1024
 MAX_EVIDENCE_BYTES = 32 * 1024 * 1024
@@ -93,7 +93,7 @@ ENVIRONMENT_KEYS = frozenset(
         "RUST_LOG",
         "RUST_TEST_THREADS",
         "TOKIO_WORKER_THREADS",
-        "EPISTEMIC_GRAPH_ENCRYPTION_KEY",
+        "MEDULLA_ENCRYPTION_KEY",
         "MATURIN_FEATURES",
         "MATURIN_PEP517_ARGS",
         "CC",
@@ -117,9 +117,9 @@ ENVIRONMENT_KEYS = frozenset(
         "CI_GATE_CARGO_BUILD_JOBS",
         "CI_GATE_CARGO_TARGET_DIR",
         "CI_GATE_TMPDIR",
-        "EG_CONSTRAINED_CORES",
-        "EG_CONSTRAINED_EXTRA_TESTS",
-        "EG_CONSTRAINED_TIMEOUT",
+        "MEDULLA_CONSTRAINED_CORES",
+        "MEDULLA_CONSTRAINED_EXTRA_TESTS",
+        "MEDULLA_CONSTRAINED_TIMEOUT",
     }
 )
 
@@ -316,10 +316,10 @@ def local_build_environment(
     values = dict(os.environ if environment is None else environment)
     values["CARGO_TARGET_DIR"] = values.get(
         "CI_GATE_CARGO_TARGET_DIR",
-        os.path.join(tempfile.gettempdir(), "eg-ci-gate-target"),
+        os.path.join(tempfile.gettempdir(), "medulla-ci-gate-target"),
     )
     values["TMPDIR"] = values.get(
-        "CI_GATE_TMPDIR", os.path.join(tempfile.gettempdir(), "eg-ci-gate-tmp")
+        "CI_GATE_TMPDIR", os.path.join(tempfile.gettempdir(), "medulla-ci-gate-tmp")
     )
     override = values.get("CI_GATE_CARGO_BUILD_JOBS")
     if override is not None:
@@ -593,7 +593,7 @@ def _atomic_json(path: Path, value: object) -> None:
         os.chmod(path.parent, 0o700)
     except OSError:
         pass
-    fd, temporary = tempfile.mkstemp(prefix=".eg-push-gate-", dir=path.parent)
+    fd, temporary = tempfile.mkstemp(prefix=".medulla-push-gate-", dir=path.parent)
     try:
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:

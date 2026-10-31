@@ -6,9 +6,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use eg_rdf::oxrdf::{NamedOrBlankNode, Term, Triple};
-use eg_types::contract::Digest256;
-use eg_types::ontology_inspection::{
+use medulla_rdf::oxrdf::{NamedOrBlankNode, Term, Triple};
+use medulla_types::contract::Digest256;
+use medulla_types::ontology_inspection::{
     OntologyClassView, OntologyInspection, OntologyPropertyView, MAX_INSPECT_DOCUMENTS,
 };
 
@@ -46,7 +46,7 @@ pub(super) fn handle_ontology_inspect(
     match inspect(core, documents, source_ids) {
         Ok(view) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::reasoning::OntologyInspect>(view),
+            ResultPayload::of::<medulla_types::result_contract::reasoning::OntologyInspect>(view),
         ),
         Err(error) => Response::err(req_id, format!("OntologyInspect: {error}")),
     }
@@ -75,13 +75,13 @@ fn inspect(
 }
 
 /// The composed GraphSchema's ontology properties, reduced to what NL grounding
-/// links onto stored keys (EG-FEDERATED-QUERY-R058.4.8). The same composed
+/// links onto stored keys (MEDULLA-FEDERATED-QUERY-R058.4.8). The same composed
 /// documents and vocabulary view `OntologyInspect` serves; an unreadable
 /// composition links nothing.
 #[cfg(feature = "nl-query")]
 pub(crate) fn composed_ontology_properties(
     sources: &GraphSchemaSources,
-) -> Vec<eg_plan::nl::context::OntologyProperty> {
+) -> Vec<medulla_plan::nl::context::OntologyProperty> {
     let Ok(inspected) = composed_documents(sources, &[]) else {
         return Vec::new();
     };
@@ -89,7 +89,7 @@ pub(crate) fn composed_ontology_properties(
     view.object_properties
         .into_iter()
         .chain(view.datatype_properties)
-        .map(|property| eg_plan::nl::context::OntologyProperty {
+        .map(|property| medulla_plan::nl::context::OntologyProperty {
             name: iri_local_name(&property.iri).to_string(),
             label: property.label,
             domains: property
@@ -150,13 +150,13 @@ fn parsed(
     let mut triples = Vec::new();
     let mut digests = BTreeSet::new();
     for (name, document) in documents {
-        if document.len() > eg_types::graph_schema::MAX_SCHEMA_DOCUMENT_BYTES {
+        if document.len() > medulla_types::graph_schema::MAX_SCHEMA_DOCUMENT_BYTES {
             return Err(format!(
                 "{name} exceeds the maximum of {} bytes",
-                eg_types::graph_schema::MAX_SCHEMA_DOCUMENT_BYTES
+                medulla_types::graph_schema::MAX_SCHEMA_DOCUMENT_BYTES
             ));
         }
-        let document_triples = eg_rdf::mapping::parse_turtle_bounded(
+        let document_triples = medulla_rdf::mapping::parse_turtle_bounded(
             document,
             crate::graph::MAX_SCHEMA_DOCUMENT_TRIPLES,
         )

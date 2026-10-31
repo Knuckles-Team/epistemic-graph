@@ -41,7 +41,7 @@ def test_cargo_deny_cache_is_versioned_verified_and_main_only():
     assert restore["uses"] == (
         "actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
     )
-    assert restore["with"]["path"] == ("${{ runner.temp }}/epistemic-graph-cargo-deny")
+    assert restore["with"]["path"] == ("${{ runner.temp }}/medulla-cargo-deny")
     assert restore["with"]["key"] == ("${{ steps.cargo-deny-cache-key.outputs.key }}")
 
     install_run = install["run"]

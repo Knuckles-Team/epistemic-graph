@@ -7,7 +7,7 @@ use tokio::sync::oneshot;
 // ── Durable materialized-view records ─────────────────────────────────────
 #[cfg(any(feature = "raft", feature = "matview"))]
 impl RedbBackend {
-    /// Durably upsert a named materialized view's serialized blob (CONCEPT:EG-KG.storage.feature).
+    /// Durably upsert a named materialized view's serialized blob (CONCEPT:MEDULLA-KG.storage.feature).
     /// Awaits the fsync so a `CreateMatView`/`RefreshMatView` ack means it is on disk.
     #[cfg(feature = "compute-dist")]
     pub async fn matview_put(&self, name: &str, blob: Vec<u8>) -> Result<(), String> {
@@ -36,7 +36,7 @@ impl RedbBackend {
         await_writer_reply(&rx, "matview_scan")?
     }
 
-    /// Durably upsert a PLAN-BACKED matview definition (CONCEPT:EG-KG.storage.plan-backed-matview).
+    /// Durably upsert a PLAN-BACKED matview definition (CONCEPT:MEDULLA-KG.storage.plan-backed-matview).
     /// Awaits the fsync so a `PlanMatViewDefine` ack means the definition is on disk.
     #[cfg(feature = "matview")]
     pub async fn plan_matview_put(&self, name: &str, blob: Vec<u8>) -> Result<(), String> {
@@ -83,7 +83,7 @@ impl RedbBackend {
     }
 
     /// Durably upsert an incremental matview's operator-state snapshot
-    /// (CONCEPT:EG-KG.storage.incremental-matview). Awaits the fsync.
+    /// (CONCEPT:MEDULLA-KG.storage.incremental-matview). Awaits the fsync.
     #[cfg(feature = "matview")]
     pub async fn matview_operator_state_put(
         &self,

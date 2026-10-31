@@ -1,4 +1,4 @@
-//! NE-071 (EG-OCC-SWEEP) regression guard: a wire multi-statement `BEGIN
+//! NE-071 (MEDULLA-OCC-SWEEP) regression guard: a wire multi-statement `BEGIN
 //! ISOLATION LEVEL SERIALIZABLE … COMMIT` transaction MUST reject a commit
 //! whose captured predicate read-set was invalidated by a concurrent phantom
 //! insert, landed WHILE the transaction was open.
@@ -48,9 +48,9 @@ mod test_support;
 
 use std::sync::Arc;
 
-use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::pgwire;
-use epistemic_graph::server::ServerState;
+use medulla::registry::GraphRegistry;
+use medulla::server::pgwire;
+use medulla::server::ServerState;
 use tokio::sync::RwLock;
 
 const AUTH_SECRET: &str = "occ-begin-version-secret";
@@ -59,11 +59,11 @@ const AGENT: &str = "occtester";
 fn ensure_env() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-        std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-occ-sweep");
-        std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-occ-sweep");
+        std::env::set_var("MEDULLA_AUDIENCE", "medulla-test");
+        std::env::set_var("MEDULLA_TENANT", "tenant-occ-sweep");
+        std::env::set_var("MEDULLA_POLICY_VERSION", "policy-occ-sweep");
         std::env::set_var(
-            epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
+            medulla::crypto::ENCRYPTION_KEY_ENV,
             "occ-begin-version-recovery-key",
         );
     });
@@ -71,7 +71,7 @@ fn ensure_env() {
 
 /// Build a `ServerState` with one seeded `Sensor` node. `AGENT` is registered
 /// `AgentRole::System` — every graph-ACL and row-visibility check trivially
-/// passes (`crates/eg-core/src/isolation.rs::can_see_row` / `check_access`),
+/// passes (`crates/medulla-core/src/isolation.rs::can_see_row` / `check_access`),
 /// so this test proves transaction OCC semantics, never RBAC/RLS (covered
 /// elsewhere).
 fn state_with_sensor_seed() -> test_support::SharedState {
@@ -181,7 +181,7 @@ async fn wire_serializable_commit_rejects_concurrent_phantom() {
 }
 
 /// This test's bug-catching power was PROVEN, not just asserted, before this
-/// track closed (NE-071 / EG-OCC-SWEEP definition-of-done requires watching
+/// track closed (NE-071 / MEDULLA-OCC-SWEEP definition-of-done requires watching
 /// the guard actually fail against a reintroduced bug, then reverting):
 ///
 ///   1. In `src/server/wire/mod.rs`, the `has_node_ops` branch of `run_commit`

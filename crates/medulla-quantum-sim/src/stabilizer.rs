@@ -1,0 +1,768 @@
+//! [`StabilizerSimulator`] -- an Aaronson-Gottesman CHP tableau backend
+//! (Aaronson & Gottesman, "Improved Simulation of Stabilizer Circuits", 2004).
+//! O(n^2) space and O(n^2) time per gate/measurement, versus O(2^n) for
+//! [`crate::statevector::StateVectorSimulator`] -- the exponential-vs-polynomial
+//! gap that makes planner rule R1 (route a Clifford circuit here, never to
+//! statevector) the highest-value routing decision in the whole quantum program.
+//!
+//! This is a clean-room implementation of the published algorithm against
+//! `medulla-quantum-core`'s IR, not a port of QuantRS2's `sim/src/stabilizer/{types,
+//! functions}.rs` -- those files are coupled to `scirs2_core::{ndarray, random}`
+//! (see `crate` module doc for the fuller numeric-stack rationale) and the
+//! Aaronson-Gottesman tableau is public, well-specified algorithm content, not
+//! QuantRS2-original expression to vendor.
+//!
+//! # Tableau representation
+//!
+//! `2n` rows over `n` qubits: rows `0..n` are the destabilizer generators, rows
+//! `n..2n` are the stabilizer generators. Each row is a Pauli string, stored as an
+//! `n`-bit `x` vector, an `n`-bit `z` vector (qubit `j`'s Pauli is `I` if
+//! `x[j]=z[j]=0`, `X` if `x[j]=1,z[j]=0`, `Z` if `x[j]=0,z[j]=1`, `Y` if
+//! `x[j]=z[j]=1`), and a phase bit `r` (`true` = the generator's overall sign is
+//! `-1`). The initial state `|0...0>` has destabilizer `i` = `X_i` and stabilizer
+//! `i` = `Z_i`.
+
+use medulla_quantum_core::backend::{
+    BackendCapabilities, BackendError, BackendFamily, BackendId, RunOptions,
+};
+use medulla_quantum_core::ir::{
+    CliffordGenerator, ControlQubit, ControlState, Instruction, QuantumProgram,
+};
+use medulla_quantum_core::result::{Formalism, QuantumResult};
+use std::collections::BTreeMap;
+
+use crate::statevector::simulation::{SimulationBackend, SimulationKind, StabilizerKind};
+use crate::{resolve_params, ClassicalMemory, SimError};
+
+/// The CHP tableau. `pub` (appears in `evolve`'s public signature) but every field
+/// is private -- callers observe it only through [`Tableau::measure`] and the
+/// backend's `Outcome`, never the raw bits, which is deliberately NOT a stable
+/// public wire format at Q1.
+#[derive(Debug, Clone)]
+pub struct Tableau {
+    n: usize,
+    x: Vec<Vec<bool>>,
+    z: Vec<Vec<bool>>,
+    r: Vec<bool>,
+}
+
+impl Tableau {
+    /// The `|0...0>` state: destabilizer `i` = `X_i`, stabilizer `i` = `Z_i`.
+    pub fn zero_state(n: usize) -> Self {
+        let mut x = vec![vec![false; n]; 2 * n];
+        let mut z = vec![vec![false; n]; 2 * n];
+        for i in 0..n {
+            x[i][i] = true; // destabilizer i = X_i
+            z[n + i][i] = true; // stabilizer i = Z_i
+        }
+        Tableau {
+            n,
+            x,
+            z,
+            r: vec![false; 2 * n],
+        }
+    }
+
+    /// Borrow the tableau as a gate-domain object.
+    pub fn clifford(&mut self) -> CliffordEvolution<'_> {
+        CliffordEvolution { tableau: self }
+    }
+
+    /// `rowsum(h, i)`: row `h` becomes `row(h) * row(i)` (Pauli-string
+    /// multiplication, phases combined via [`PauliBits::phase_exponent`]).
+    fn rowsum(&mut self, h: usize, i: usize) {
+        let mut sum: i32 = 2 * (self.r[h] as i32) + 2 * (self.r[i] as i32);
+        for j in 0..self.n {
+            sum += PauliBits::phase_exponent(
+                PauliBits {
+                    x: self.x[i][j],
+                    z: self.z[i][j],
+                },
+                PauliBits {
+                    x: self.x[h][j],
+                    z: self.z[h][j],
+                },
+            );
+        }
+        let sum_mod4 = sum.rem_euclid(4);
+        debug_assert!(
+            sum_mod4 == 0 || sum_mod4 == 2,
+            "rowsum phase sum {sum} (mod4={sum_mod4}) is neither 0 nor 2 -- tableau invariant violated"
+        );
+        self.r[h] = sum_mod4 == 2;
+        for j in 0..self.n {
+            self.x[h][j] ^= self.x[i][j];
+            self.z[h][j] ^= self.z[i][j];
+        }
+    }
+
+    /// Measure qubit `a` in the computational (Z) basis, collapsing the tableau in
+    /// place, using `sample01()` to resolve a genuinely random outcome. Returns the
+    /// classical bit.
+    pub fn measure(&mut self, a: u32, sample01: impl FnOnce() -> bool) -> bool {
+        let a = a as usize;
+        // Is there a stabilizer row (n..2n) that anticommutes with Z_a (x[p][a] ==
+        // true)? If so the outcome is genuinely random; take the FIRST such p, per
+        // the published algorithm.
+        let p = (self.n..2 * self.n).find(|&i| self.x[i][a]);
+        match p {
+            Some(p) => {
+                for i in 0..2 * self.n {
+                    if i != p && self.x[i][a] {
+                        self.rowsum_pair(i, p);
+                    }
+                }
+                // Move the about-to-be-overwritten stabilizer down into its
+                // destabilizer slot before overwriting row p.
+                let dest = p - self.n;
+                self.x[dest] = self.x[p].clone();
+                self.z[dest] = self.z[p].clone();
+                self.r[dest] = self.r[p];
+                // Row p becomes the new stabilizer Z_a with a fresh random sign.
+                for j in 0..self.n {
+                    self.x[p][j] = false;
+                    self.z[p][j] = j == a;
+                }
+                let outcome = sample01();
+                self.r[p] = outcome;
+                outcome
+            }
+            None => {
+                // Deterministic outcome: accumulate into a scratch row (index n,
+                // reusing a temporary outside the real 2n rows) the product of every
+                // stabilizer row whose CORRESPONDING destabilizer anticommutes with
+                // Z_a.
+                let mut scratch_x = vec![false; self.n];
+                let mut scratch_z = vec![false; self.n];
+                let mut scratch_r = false;
+                for i in 0..self.n {
+                    if self.x[i][a] {
+                        Self::rowsum_into_scratch(
+                            &mut scratch_x,
+                            &mut scratch_z,
+                            &mut scratch_r,
+                            &self.x[self.n + i],
+                            &self.z[self.n + i],
+                            self.r[self.n + i],
+                            self.n,
+                        );
+                    }
+                }
+                scratch_r
+            }
+        }
+    }
+
+    /// `rowsum(h, i)` where both `h` and `i` are real row indices (used by the
+    /// random-outcome branch of `measure`).
+    fn rowsum_pair(&mut self, h: usize, i: usize) {
+        self.rowsum(h, i);
+    }
+
+    /// The same phase/bit combination `rowsum` performs, applied to an external
+    /// scratch accumulator instead of a real tableau row (used by the deterministic
+    /// branch of `measure`, which per the algorithm never mutates the tableau
+    /// itself).
+    #[allow(clippy::too_many_arguments)]
+    fn rowsum_into_scratch(
+        scratch_x: &mut [bool],
+        scratch_z: &mut [bool],
+        scratch_r: &mut bool,
+        row_x: &[bool],
+        row_z: &[bool],
+        row_r: bool,
+        n: usize,
+    ) {
+        let mut sum: i32 = 2 * (*scratch_r as i32) + 2 * (row_r as i32);
+        for j in 0..n {
+            sum += PauliBits::phase_exponent(
+                PauliBits {
+                    x: row_x[j],
+                    z: row_z[j],
+                },
+                PauliBits {
+                    x: scratch_x[j],
+                    z: scratch_z[j],
+                },
+            );
+        }
+        let sum_mod4 = sum.rem_euclid(4);
+        *scratch_r = sum_mod4 == 2;
+        for j in 0..n {
+            scratch_x[j] ^= row_x[j];
+            scratch_z[j] ^= row_z[j];
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PauliBits {
+    x: bool,
+    z: bool,
+}
+
+impl PauliBits {
+    /// The `g` phase-exponent function from Aaronson-Gottesman Section III: for two
+    /// single-qubit Paulis `P1=(x1,z1)`, `P2=(x2,z2)`, `P1 . P2 = i^g .
+    /// P(x1^x2, z1^z2)`. All four branches independently verified by hand against
+    /// the six nontrivial Pauli products (XY=iZ, YX=-iZ, YZ=iX, ZY=-iX, ZX=iY,
+    /// XZ=-iY) in this lane's own derivation notes.
+    fn phase_exponent(left: Self, right: Self) -> i32 {
+        let (x2, z2) = (right.x as i32, right.z as i32);
+        if !left.x && !left.z {
+            0
+        } else if left.x && left.z {
+            z2 - x2
+        } else if left.x {
+            z2 * (2 * x2 - 1)
+        } else {
+            // !left.x && left.z
+            x2 * (1 - 2 * z2)
+        }
+    }
+}
+
+/// A scoped gate-domain view over one stabilizer tableau.
+///
+/// `CliffordEvolution` owns a mutable view for the duration of a gate sequence,
+/// so gate updates have an explicit state owner without exposing tableau storage.
+pub struct CliffordEvolution<'a> {
+    tableau: &'a mut Tableau,
+}
+
+impl<'a> CliffordEvolution<'a> {
+    pub fn h(&mut self, a: u32) {
+        let a = a as usize;
+        for i in 0..2 * self.tableau.n {
+            self.tableau.r[i] ^= self.tableau.x[i][a] && self.tableau.z[i][a];
+            std::mem::swap(&mut self.tableau.x[i][a], &mut self.tableau.z[i][a]);
+        }
+    }
+
+    pub fn s(&mut self, a: u32) {
+        let a = a as usize;
+        for i in 0..2 * self.tableau.n {
+            self.tableau.r[i] ^= self.tableau.x[i][a] && self.tableau.z[i][a];
+            self.tableau.z[i][a] ^= self.tableau.x[i][a];
+        }
+    }
+
+    pub fn sdg(&mut self, a: u32) {
+        // S^-1 == S^3 (S^4 == I); three applications is simple and unambiguously
+        // correct against the single `s` primitive above, no separate formula to
+        // get wrong.
+        self.s(a);
+        self.s(a);
+        self.s(a);
+    }
+
+    /// Pauli-X conjugation: flips the phase of every row whose Pauli at qubit `a`
+    /// anticommutes with X (i.e. has a Z component: Z or Y).
+    pub fn x_gate(&mut self, a: u32) {
+        let a = a as usize;
+        for i in 0..2 * self.tableau.n {
+            self.tableau.r[i] ^= self.tableau.z[i][a];
+        }
+    }
+
+    /// Pauli-Z conjugation: flips the phase of every row whose Pauli at qubit `a`
+    /// anticommutes with Z (i.e. has an X component: X or Y).
+    pub fn z_gate(&mut self, a: u32) {
+        let a = a as usize;
+        for i in 0..2 * self.tableau.n {
+            self.tableau.r[i] ^= self.tableau.x[i][a];
+        }
+    }
+
+    /// Pauli-Y conjugation: flips the phase of every row whose Pauli at qubit `a`
+    /// anticommutes with Y (i.e. is X or Z, but not I or Y itself) -- exactly the
+    /// rows where `x XOR z` is true.
+    pub fn y_gate(&mut self, a: u32) {
+        let a = a as usize;
+        for i in 0..2 * self.tableau.n {
+            self.tableau.r[i] ^= self.tableau.x[i][a] ^ self.tableau.z[i][a];
+        }
+    }
+
+    pub fn swap(&mut self, a: u32, b: u32) {
+        let (a, b) = (a as usize, b as usize);
+        for i in 0..2 * self.tableau.n {
+            self.tableau.x[i].swap(a, b);
+            self.tableau.z[i].swap(a, b);
+        }
+    }
+
+    /// CNOT: control `a`, target `b`. The standard Aaronson-Gottesman update rule.
+    pub fn cnot(&mut self, a: u32, b: u32) {
+        let (a, b) = (a as usize, b as usize);
+        for i in 0..2 * self.tableau.n {
+            let (xa, za, xb, zb) = (
+                self.tableau.x[i][a],
+                self.tableau.z[i][a],
+                self.tableau.x[i][b],
+                self.tableau.z[i][b],
+            );
+            self.tableau.r[i] ^= xa && zb && (xb ^ za ^ true);
+            self.tableau.x[i][b] ^= xa;
+            self.tableau.z[i][a] ^= zb;
+        }
+    }
+
+    /// CZ(a,b) = H(b) . CNOT(a,b) . H(b) -- standard decomposition, symmetric in a/b.
+    pub fn cz(&mut self, a: u32, b: u32) {
+        self.h(b);
+        self.cnot(a, b);
+        self.h(b);
+    }
+
+    /// CY(a,b) = S(b) . CNOT(a,b) . S†(b), since `S X S† = Y` exactly (verified by
+    /// direct 2x2 matrix multiplication: S=diag(1,i), S X S† = [[0,-i],[i,0]] = Y).
+    pub fn cy(&mut self, a: u32, b: u32) {
+        self.sdg(b);
+        self.cnot(a, b);
+        self.s(b);
+    }
+}
+
+/// Apply one Clifford [`GateInstruction`] to the tableau. Rejects (returns
+/// [`SimError::NotClifford`]) anything `GateInstruction::is_clifford()` would call
+/// non-Clifford -- this function is the enforcement point for "a stabilizer backend
+/// can only ever represent a Clifford circuit," mirrored by the crate-level
+/// `program.is_clifford()` check `evolve` performs up front.
+fn apply_clifford_gate(
+    tab: &mut Tableau,
+    g: &medulla_quantum_core::ir::GateInstruction,
+) -> Result<(), SimError> {
+    if !g.is_clifford() {
+        return Err(not_clifford(g));
+    }
+    match g.controls.as_slice() {
+        [] => apply_uncontrolled_clifford(tab, g),
+        [ControlQubit { qubit: ctrl, state }] => {
+            apply_single_controlled_clifford(tab, *ctrl, *state, g)
+        }
+        // is_clifford() already rejected two or more controls; unreachable in
+        // practice, but fail loudly rather than silently no-op.
+        [_, _, ..] => Err(not_clifford(g)),
+    }
+}
+
+fn not_clifford(g: &medulla_quantum_core::ir::GateInstruction) -> SimError {
+    SimError::NotClifford(Box::new(g.clone()))
+}
+
+/// Zero controls: the single-qubit Clifford generators plus `Swap`.
+fn apply_uncontrolled_clifford(
+    tab: &mut Tableau,
+    g: &medulla_quantum_core::ir::GateInstruction,
+) -> Result<(), SimError> {
+    // `is_clifford()` already rejected non-generators; still fail loudly rather than
+    // silently no-op if the generator set ever grows without this dispatch.
+    match g.gate.clifford_generator() {
+        Some(CliffordGenerator::Id) => {}
+        Some(CliffordGenerator::X) => tab.clifford().x_gate(g.qubits[0]),
+        Some(CliffordGenerator::Y) => tab.clifford().y_gate(g.qubits[0]),
+        Some(CliffordGenerator::Z) => tab.clifford().z_gate(g.qubits[0]),
+        Some(CliffordGenerator::H) => tab.clifford().h(g.qubits[0]),
+        Some(CliffordGenerator::S) => tab.clifford().s(g.qubits[0]),
+        Some(CliffordGenerator::Sdg) => tab.clifford().sdg(g.qubits[0]),
+        Some(CliffordGenerator::Swap) => tab.clifford().swap(g.qubits[0], g.qubits[1]),
+        None => return Err(not_clifford(g)),
+    }
+    Ok(())
+}
+
+/// Exactly one control: only the controlled Paulis (CNOT/CY/CZ) are Clifford.
+fn apply_single_controlled_clifford(
+    tab: &mut Tableau,
+    ctrl: u32,
+    state: ControlState,
+    g: &medulla_quantum_core::ir::GateInstruction,
+) -> Result<(), SimError> {
+    let op = match g.gate.clifford_generator() {
+        Some(CliffordGenerator::X) => ControlledOperation::Cnot,
+        Some(CliffordGenerator::Y) => ControlledOperation::Cy,
+        Some(CliffordGenerator::Z) => ControlledOperation::Cz,
+        Some(
+            CliffordGenerator::Id
+            | CliffordGenerator::H
+            | CliffordGenerator::S
+            | CliffordGenerator::Sdg
+            | CliffordGenerator::Swap,
+        )
+        | None => return Err(not_clifford(g)),
+    };
+    apply_single_controlled(tab, ctrl, state, g.qubits[0], op);
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum ControlledOperation {
+    Cnot,
+    Cy,
+    Cz,
+}
+
+/// A negative control (ControlState::Zero) is X-conjugated on the control qubit
+/// before and after the positive-control primitive -- the standard trick (fire on
+/// |0> == fire an X-sandwiched version of the |1>-firing gate).
+fn apply_single_controlled(
+    tab: &mut Tableau,
+    ctrl: u32,
+    state: ControlState,
+    target: u32,
+    op: ControlledOperation,
+) {
+    let negate = matches!(state, ControlState::Zero);
+    let mut evolution = tab.clifford();
+    if negate {
+        evolution.x_gate(ctrl);
+    }
+    match op {
+        ControlledOperation::Cnot => evolution.cnot(ctrl, target),
+        ControlledOperation::Cy => evolution.cy(ctrl, target),
+        ControlledOperation::Cz => evolution.cz(ctrl, target),
+    }
+    if negate {
+        evolution.x_gate(ctrl);
+    }
+}
+
+/// One coherent evolution of a Clifford [`QuantumProgram`] through the tableau,
+/// recording classical-bit outcomes for every `Measure` instruction. Mirrors
+/// `statevector::evolve`'s shape so both backends are drop-in equivalent for a
+/// caller that only wants classical outcomes.
+pub fn evolve(
+    program: &QuantumProgram,
+    rng: &mut medulla_numeric::random::Generator,
+) -> Result<(Tableau, ClassicalMemory), SimError> {
+    let mut tab = Tableau::zero_state(program.n_qubits as usize);
+    let mut classical = ClassicalMemory::default();
+    // No continuous parameters exist on a Clifford instruction (see
+    // `GateInstruction::is_clifford`'s own doc: any nonzero `params` is
+    // non-Clifford), so an empty binding map is correct here; the stabilizer path
+    // never needs `RunOptions.parameter_bindings`.
+    let empty_bindings = BTreeMap::new();
+    for instr in &program.instructions {
+        match instr {
+            Instruction::Gate(g) => {
+                // resolve_params is called only to surface a consistent
+                // UnboundParameter/arity error shape if a future IR change ever
+                // lets a Clifford gate carry a param; today `is_clifford()` already
+                // guarantees `g.params.is_empty()`.
+                let _ = resolve_params(g, &empty_bindings)?;
+                apply_clifford_gate(&mut tab, g)?;
+            }
+            Instruction::Measure {
+                qubit,
+                classical_bit,
+            } => {
+                let outcome = tab.measure(*qubit, || rng.uniform(0.0, 1.0, 1)[0] < 0.5);
+                classical.set(&classical_bit.register, classical_bit.index, outcome);
+            }
+            Instruction::Reset { qubit } => {
+                let outcome = tab.measure(*qubit, || rng.uniform(0.0, 1.0, 1)[0] < 0.5);
+                if outcome {
+                    tab.clifford().x_gate(*qubit);
+                }
+            }
+            Instruction::Barrier { .. } => {}
+        }
+    }
+    Ok((tab, classical))
+}
+
+/// An Aaronson-Gottesman tableau [`medulla_quantum_core::backend::QuantumBackend`]. Same in-process/synchronous
+/// job-store shape as [`crate::statevector::StateVectorSimulator`]; the only
+/// difference in `execute` is that it rejects a non-Clifford circuit up front
+/// (`program.is_clifford()`) rather than the qubit-count ceiling statevector uses --
+/// a stabilizer circuit's O(n^2) footprint makes qubit count nearly irrelevant at
+/// smoke-test scale, but REPRESENTABILITY (Clifford-only) is the hard constraint.
+pub type StabilizerSimulator = SimulationBackend<StabilizerKind>;
+
+const STABILIZER_MAX_QUBITS: u32 = 512;
+
+impl SimulationKind for StabilizerKind {
+    fn backend_id() -> BackendId {
+        BackendId::from("stabilizer")
+    }
+
+    fn family() -> BackendFamily {
+        BackendFamily::Stabilizer
+    }
+
+    fn capabilities() -> BackendCapabilities {
+        crate::statevector::simulation::exact_capabilities(true, None)
+    }
+
+    fn execute(program: &QuantumProgram, opts: &RunOptions) -> Result<QuantumResult, BackendError> {
+        crate::statevector::simulation::validate_program(program, opts, Self::backend_id())?;
+        if !program.is_clifford() {
+            return Err(BackendError::InvalidProgram(
+                "circuit is not Clifford; the stabilizer backend cannot represent it".to_string(),
+            ));
+        }
+        if program.n_qubits > STABILIZER_MAX_QUBITS {
+            return Err(BackendError::ResourceLimit(format!(
+                "n_qubits={} exceeds this backend's placeholder max_qubits={}",
+                program.n_qubits, STABILIZER_MAX_QUBITS
+            )));
+        }
+        crate::statevector::simulation::execute_exact(
+            program,
+            opts,
+            Self::backend_id(),
+            Formalism::Stabilizer,
+            |shot| {
+                let seed = opts.seed.unwrap_or(0).wrapping_add(shot);
+                let mut rng = medulla_numeric::random::Generator::new(seed);
+                let (_tab, classical) = evolve(program, &mut rng)
+                    .map_err(|e| BackendError::Execution(e.to_string()))?;
+                let n = program.n_qubits as u64;
+                let memory_bytes = 2 * n * n * 2 + 2 * n;
+                Ok((
+                    classical.bitstring(&program.classical_registers),
+                    memory_bytes,
+                ))
+            },
+        )
+    }
+}
+
+#[cfg(test)]
+mod tableau_tests {
+    use super::*;
+
+    fn measure_pair(tab: &mut Tableau, rng: &mut medulla_numeric::random::Generator) -> (bool, bool) {
+        let first = tab.measure(0, || rng.uniform(0.0, 1.0, 1)[0] < 0.5);
+        let second = tab.measure(1, || rng.uniform(0.0, 1.0, 1)[0] < 0.5);
+        (first, second)
+    }
+
+    #[test]
+    fn bell_pair_measurement_is_perfectly_correlated() {
+        // H(0); CNOT(0,1); measure both. Across many seeds, qubit0's outcome must
+        // equal qubit1's outcome EVERY time (the deterministic half of the
+        // algorithm), and both 0 and 1 must occur (the random half).
+        let mut saw_00 = false;
+        let mut saw_11 = false;
+        for seed in 0..64u64 {
+            let mut tab = Tableau::zero_state(2);
+            let mut evolution = tab.clifford();
+            evolution.h(0);
+            evolution.cnot(0, 1);
+            let mut rng = medulla_numeric::random::Generator::new(seed);
+            let (o0, o1) = measure_pair(&mut tab, &mut rng);
+            assert_eq!(o0, o1, "Bell pair outcomes diverged at seed {seed}");
+            saw_00 |= !o0;
+            saw_11 |= o0;
+        }
+        assert!(saw_00 && saw_11, "expected both outcomes across 64 seeds");
+    }
+
+    #[test]
+    fn ghz_three_qubit_all_outcomes_equal() {
+        for seed in 0..32u64 {
+            let mut tab = Tableau::zero_state(3);
+            let mut evolution = tab.clifford();
+            evolution.h(0);
+            evolution.cnot(0, 1);
+            evolution.cnot(0, 2);
+            let mut rng = medulla_numeric::random::Generator::new(seed);
+            let (o0, o1) = measure_pair(&mut tab, &mut rng);
+            let o2 = tab.measure(2, || rng.uniform(0.0, 1.0, 1)[0] < 0.5);
+            assert_eq!(o0, o1);
+            assert_eq!(o1, o2);
+        }
+    }
+
+    #[test]
+    fn cz_and_cy_decompositions_are_involutions_up_to_bookkeeping() {
+        // Applying the same controlled gate twice returns the tableau to the
+        // initial |0> stabilizer generators (every one of these gates is a Clifford
+        // involution up to global phase tracked in `r`, and starting from |0..0>
+        // the whole state is a +1 eigenstate for all of them, so two applications
+        // must return exactly to X_i/Z_i generators with r all false).
+        let base = Tableau::zero_state(2);
+        let mut tab = base.clone();
+        let mut evolution = tab.clifford();
+        evolution.cz(0, 1);
+        evolution.cz(0, 1);
+        assert_eq!(tab.x, base.x);
+        assert_eq!(tab.z, base.z);
+        assert_eq!(tab.r, base.r);
+
+        let mut tab2 = base.clone();
+        let mut evolution = tab2.clifford();
+        evolution.cy(0, 1);
+        evolution.cy(0, 1);
+        assert_eq!(tab2.x, base.x);
+        assert_eq!(tab2.z, base.z);
+        assert_eq!(tab2.r, base.r);
+    }
+
+    #[test]
+    fn swap_then_swap_is_identity() {
+        let base = Tableau::zero_state(2);
+        let mut tab = base.clone();
+        let mut evolution = tab.clifford();
+        evolution.h(0); // break the symmetry so swap is actually observable
+        let after_h = tab.clone();
+        let mut evolution = tab.clifford();
+        evolution.swap(0, 1);
+        evolution.swap(0, 1);
+        assert_eq!(tab.x, after_h.x);
+        assert_eq!(tab.z, after_h.z);
+        assert_eq!(tab.r, after_h.r);
+    }
+}
+
+#[cfg(test)]
+mod apply_gate_tests {
+    use super::*;
+    use medulla_quantum_core::ir::{GateInstruction, GateKind, ParamValue};
+
+    /// A 3-qubit state on which every Clifford primitive is observable in the raw
+    /// tableau bits (unlike `|000>`, where e.g. `Z` or `CZ` leave it unchanged).
+    fn scrambled() -> Tableau {
+        let mut tab = Tableau::zero_state(3);
+        let mut evolution = tab.clifford();
+        evolution.h(0);
+        evolution.s(1);
+        evolution.h(2);
+        evolution.cnot(2, 1);
+        tab
+    }
+
+    fn instruction(
+        gate: GateKind,
+        qubits: &[u32],
+        controls: &[(u32, ControlState)],
+        params: Vec<ParamValue>,
+    ) -> GateInstruction {
+        GateInstruction {
+            gate,
+            qubits: qubits.to_vec(),
+            controls: controls
+                .iter()
+                .map(|&(qubit, state)| ControlQubit { qubit, state })
+                .collect(),
+            params,
+        }
+    }
+
+    fn via_dispatch(g: &GateInstruction) -> Tableau {
+        let mut tab = scrambled();
+        apply_clifford_gate(&mut tab, g).expect("Clifford gate must apply");
+        tab
+    }
+
+    fn via_primitive(apply: impl FnOnce(&mut CliffordEvolution<'_>)) -> Tableau {
+        let mut tab = scrambled();
+        apply(&mut tab.clifford());
+        tab
+    }
+
+    fn assert_same(label: &str, got: &Tableau, want: &Tableau) {
+        assert_eq!(got.x, want.x, "{label}: x bits");
+        assert_eq!(got.z, want.z, "{label}: z bits");
+        assert_eq!(got.r, want.r, "{label}: phase bits");
+    }
+
+    #[test]
+    fn uncontrolled_clifford_gates_dispatch_to_their_primitive() {
+        let one = |gate: GateKind| instruction(gate, &[1], &[], vec![]);
+        assert_same("id", &via_dispatch(&one(GateKind::Id)), &scrambled());
+        assert_same(
+            "x",
+            &via_dispatch(&one(GateKind::X)),
+            &via_primitive(|e| e.x_gate(1)),
+        );
+        assert_same(
+            "y",
+            &via_dispatch(&one(GateKind::Y)),
+            &via_primitive(|e| e.y_gate(1)),
+        );
+        assert_same(
+            "z",
+            &via_dispatch(&one(GateKind::Z)),
+            &via_primitive(|e| e.z_gate(1)),
+        );
+        assert_same(
+            "h",
+            &via_dispatch(&one(GateKind::H)),
+            &via_primitive(|e| e.h(1)),
+        );
+        assert_same(
+            "s",
+            &via_dispatch(&one(GateKind::S)),
+            &via_primitive(|e| e.s(1)),
+        );
+        assert_same(
+            "sdg",
+            &via_dispatch(&one(GateKind::Sdg)),
+            &via_primitive(|e| e.sdg(1)),
+        );
+        let swap = instruction(GateKind::Swap, &[0, 2], &[], vec![]);
+        assert_same(
+            "swap",
+            &via_dispatch(&swap),
+            &via_primitive(|e| e.swap(0, 2)),
+        );
+    }
+
+    #[test]
+    fn single_controlled_paulis_dispatch_with_control_polarity() {
+        let positive = |gate: GateKind| instruction(gate, &[2], &[(0, ControlState::One)], vec![]);
+        assert_same(
+            "cx",
+            &via_dispatch(&positive(GateKind::X)),
+            &via_primitive(|e| e.cnot(0, 2)),
+        );
+        assert_same(
+            "cy",
+            &via_dispatch(&positive(GateKind::Y)),
+            &via_primitive(|e| e.cy(0, 2)),
+        );
+        assert_same(
+            "cz",
+            &via_dispatch(&positive(GateKind::Z)),
+            &via_primitive(|e| e.cz(0, 2)),
+        );
+        let negative = instruction(GateKind::X, &[2], &[(0, ControlState::Zero)], vec![]);
+        let sandwiched = via_primitive(|e| {
+            e.x_gate(0);
+            e.cnot(0, 2);
+            e.x_gate(0);
+        });
+        assert_same("negative cx", &via_dispatch(&negative), &sandwiched);
+    }
+
+    #[test]
+    fn non_clifford_shapes_are_rejected_without_touching_the_tableau() {
+        let rejected = [
+            instruction(GateKind::T, &[0], &[], vec![]),
+            instruction(GateKind::Tdg, &[0], &[], vec![]),
+            instruction(GateKind::Rx, &[0], &[], vec![ParamValue::Literal(0.5)]),
+            instruction(GateKind::X, &[0], &[], vec![ParamValue::Literal(0.5)]),
+            instruction(GateKind::Custom("u".to_string()), &[0], &[], vec![]),
+            instruction(GateKind::H, &[2], &[(0, ControlState::One)], vec![]),
+            instruction(GateKind::Swap, &[1, 2], &[(0, ControlState::One)], vec![]),
+            instruction(
+                GateKind::X,
+                &[2],
+                &[(0, ControlState::One), (1, ControlState::One)],
+                vec![],
+            ),
+        ];
+        for g in rejected {
+            let mut tab = scrambled();
+            let err = apply_clifford_gate(&mut tab, &g).expect_err("must reject");
+            assert!(
+                matches!(&err, SimError::NotClifford(boxed) if **boxed == g),
+                "unexpected error for {g:?}: {err:?}"
+            );
+            assert_same("rejected", &tab, &scrambled());
+        }
+    }
+}

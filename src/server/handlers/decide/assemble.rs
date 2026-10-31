@@ -2,7 +2,7 @@
 //!
 //! Reads the tenant-bound candidate scope from one Agent Library snapshot
 //! (step 1a), hands the complete inputs to the pure decision function
-//! (`eg_compute::assemble`), and answers the sealed record plus -- only when
+//! (`medulla_compute::assemble`), and answers the sealed record plus -- only when
 //! it is `Solved` -- the one-agent graph, the agent it runs and the model the
 //! certificate covers. Nothing here commits; the record becomes durable only
 //! through `DecisionCommit`.
@@ -10,7 +10,7 @@
 use super::SharedState;
 use crate::protocol::Response;
 use crate::server::auth::VerifiedRequestContext;
-use eg_types::decision::AssemblyRequest;
+use medulla_types::decision::AssemblyRequest;
 
 /// The audit target every Decide-layer decision line is written under.
 #[cfg(feature = "decide")]
@@ -31,7 +31,7 @@ pub(crate) async fn handle_agent_assemble(
             Response::ok(
                 req_id,
                 crate::protocol::ResultPayload::of_ref::<
-                    eg_types::result_contract::storage::AgentAssemble,
+                    medulla_types::result_contract::storage::AgentAssemble,
                 >(&result),
             )
         }
@@ -45,8 +45,8 @@ async fn assemble_for(
     graph: &str,
     verified: &VerifiedRequestContext,
     request: AssemblyRequest,
-) -> Result<eg_types::decision::AssemblyResult, String> {
-    use eg_compute::assemble::{assemble, inputs, RecordIdentity};
+) -> Result<medulla_types::decision::AssemblyResult, String> {
+    use medulla_compute::assemble::{assemble, inputs, RecordIdentity};
 
     if request.tenant_id != verified.tenant() {
         return Err("ACCESS_DENIED: assembly tenant must match the verified request tenant".into());
@@ -74,11 +74,11 @@ async fn assemble_for(
         .await
         .map_err(|error| format!("assembly task failed: {error}"))?
         .map_err(|error| error.to_string())?;
-    Ok(eg_types::decision::AssemblyResult {
-        schema_version: eg_types::decision::ASSEMBLY_RESULT_SCHEMA_VERSION,
+    Ok(medulla_types::decision::AssemblyResult {
+        schema_version: medulla_types::decision::ASSEMBLY_RESULT_SCHEMA_VERSION,
         record: assembly.record,
         graph: assembly.graph,
-        agents: eg_types::contract::BoundedVec::new(assembly.agents)
+        agents: medulla_types::contract::BoundedVec::new(assembly.agents)
             .map_err(|error| error.to_string())?,
         model: assembly.model,
     })
@@ -90,8 +90,8 @@ async fn assemble_for(
 fn resolve_policy(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     request: &AssemblyRequest,
-) -> Result<eg_types::decision::DecisionPolicy, String> {
-    use eg_types::decision::{DecisionPolicy, DecisionPolicyRef};
+) -> Result<medulla_types::decision::DecisionPolicy, String> {
+    use medulla_types::decision::{DecisionPolicy, DecisionPolicyRef};
     match &request.policy {
         DecisionPolicyRef::Default => Ok(DecisionPolicy::engine_default()),
         DecisionPolicyRef::Pinned { component } => {
@@ -105,12 +105,12 @@ fn resolve_policy(
 #[cfg(feature = "decide")]
 pub(crate) fn audit_line(
     action: &'static str,
-    record: &eg_types::decision::DecisionRecord,
+    record: &medulla_types::decision::DecisionRecord,
     verified: &VerifiedRequestContext,
 ) {
     let outcome = match &record.outcome {
-        eg_types::decision::DecisionOutcome::Solved { .. } => "solved",
-        eg_types::decision::DecisionOutcome::Abstained { .. } => "abstained",
+        medulla_types::decision::DecisionOutcome::Solved { .. } => "solved",
+        medulla_types::decision::DecisionOutcome::Abstained { .. } => "abstained",
     };
     tracing::info!(
         target: DECIDE_AUDIT_TARGET,
