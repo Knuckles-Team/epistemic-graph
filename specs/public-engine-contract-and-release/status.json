@@ -1051,7 +1051,7 @@
         "323a909b78f0",
         "42376299456f",
         "701e8e498e07",
-        "805fce6204d9"
+        "7fa3430e56fc"
       ],
       "verified_by": [
         "tests/test_build_backend.py:138",
@@ -1149,8 +1149,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "323a909b78f0",
-        "805fce6204d9",
-        "95fee24a0604"
+        "7fa3430e56fc",
+        "805fce6204d9"
       ],
       "verified_by": [
         "tests/test_ci_affected_crates.py:44",
