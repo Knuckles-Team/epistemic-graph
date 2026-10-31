@@ -1,10 +1,10 @@
-//! CONCEPT:EG-OS.observability.trace-assembly — the distributed-trace HTTP facade: OTLP-JSON span ingest plus a
+//! CONCEPT:MEDULLA-OS.observability.trace-assembly — the distributed-trace HTTP facade: OTLP-JSON span ingest plus a
 //! Jaeger/OpenObserve-compatible trace-search / assembly / service-dependency API,
 //! served on the SAME hand-rolled obs listener that ingests logs and answers PromQL.
 //!
-//! This is the FACADE half of EG-163; the span model + indexed store + trace
+//! This is the FACADE half of MEDULLA-163; the span model + indexed store + trace
 //! assembly + dependency-graph derivation live in the dependency-free
-//! [`eg_tsdb::traces`] crate module. Together with EG-160/161 (logs) and EG-172
+//! [`medulla_tsdb::traces`] crate module. Together with MEDULLA-160/161 (logs) and MEDULLA-172
 //! (metrics/PromQL) this completes the observability trilogy.
 //!
 //! ## Routes (all on the obs listener)
@@ -23,7 +23,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use eg_tsdb::traces::{AssembledTrace, ServiceEdge, Span, SpanEvent, SpanNode, TraceQuery};
+use medulla_tsdb::traces::{AssembledTrace, ServiceEdge, Span, SpanEvent, SpanNode, TraceQuery};
 
 use crate::server::obs::ObsState;
 
@@ -556,7 +556,7 @@ fn dependencies_response(edges: &[ServiceEdge]) -> String {
 mod tests {
     use super::*;
 
-    /// CONCEPT:EG-OS.observability.trace-assembly — OTLP-JSON parses resourceSpans→scopeSpans→spans, derives the
+    /// CONCEPT:MEDULLA-OS.observability.trace-assembly — OTLP-JSON parses resourceSpans→scopeSpans→spans, derives the
     /// service from the resource `service.name`, and computes duration = end - start.
     #[test]
     fn eg163_otlp_json_parse_derives_service_and_duration() {
@@ -588,7 +588,7 @@ mod tests {
         assert_eq!(spans[1].parent_span_id, "s1");
     }
 
-    /// CONCEPT:EG-OS.observability.trace-assembly — Go-style durations parse into nanoseconds.
+    /// CONCEPT:MEDULLA-OS.observability.trace-assembly — Go-style durations parse into nanoseconds.
     #[test]
     fn eg163_parse_duration_ns() {
         assert_eq!(parse_duration_ns("500ms"), Some(500_000_000));
@@ -598,7 +598,7 @@ mod tests {
         assert_eq!(parse_duration_ns("1m"), Some(60_000_000_000));
     }
 
-    /// CONCEPT:EG-OS.observability.trace-assembly — a query string parses into a [`TraceQuery`] (service, duration,
+    /// CONCEPT:MEDULLA-OS.observability.trace-assembly — a query string parses into a [`TraceQuery`] (service, duration,
     /// tag, limit), tolerating percent/`+` encoding.
     #[test]
     fn eg163_trace_query_from_query_string() {
@@ -636,7 +636,7 @@ mod tests {
             .starts_with("parse trace query JSON: "));
     }
 
-    /// CONCEPT:EG-OS.observability.trace-assembly — the full HTTP surface end-to-end over the SAME obs listener:
+    /// CONCEPT:MEDULLA-OS.observability.trace-assembly — the full HTTP surface end-to-end over the SAME obs listener:
     /// OTLP-JSON ingest (`POST /v1/traces`), trace search (`GET /api/traces`), single
     /// trace assembly (`GET /api/traces/<id>`) and the service-dependency graph
     /// (`GET /api/dependencies`).

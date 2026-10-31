@@ -1,0 +1,19 @@
+[package]
+name = "medulla-quantum-sim"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Pure-Rust statevector + stabilizer QuantumBackend implementations (register D-QN-1, lane Q1). Consumes medulla-quantum-core's QuantumProgram IR + QuantumBackend trait directly; no vendored QuantRS2 circuit/simulator scaffolding -- statevector amplitude application is built on medulla-numeric's Complex64 block-apply primitives and medulla-quantum-gates' matrix catalog, and the stabilizer backend is a clean-room Aaronson-Gottesman tableau (not portable from QuantRS2's scirs2-coupled sim/src/stabilizer/*, which this crate's numeric-stack decision deliberately does not import)."
+license = "MIT"
+
+[lib]
+name = "medulla_quantum_sim"
+
+[dependencies]
+medulla-quantum-core = { path = "../medulla-quantum-core" }
+medulla-quantum-gates = { path = "../medulla-quantum-gates" }
+medulla-numeric = { path = "../medulla-numeric", features = ["complex"] }
+thiserror = "2.0"
+
+[features]
+default = []

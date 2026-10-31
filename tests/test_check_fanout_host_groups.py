@@ -1,4 +1,4 @@
-"""EG-CONTRACT-R011.1: the land-gate fan-out host-group manifest must be
+"""MEDULLA-CONTRACT-R011.1: the land-gate fan-out host-group manifest must be
 structurally valid -- one warm target and a headroom reservation per group,
 no host claimed by more than one group -- before any fan-out work is
 dispatched.
@@ -22,7 +22,7 @@ def _write_manifest(tmp_path: Path, groups: list[dict]) -> Path:
     return path
 
 
-@pytest.mark.spec("EG-CONTRACT-R011.1")
+@pytest.mark.spec("MEDULLA-CONTRACT-R011.1")
 def test_disjoint_fully_specified_manifest_is_valid(tmp_path: Path) -> None:
     manifest = _write_manifest(
         tmp_path,
@@ -45,7 +45,7 @@ def test_disjoint_fully_specified_manifest_is_valid(tmp_path: Path) -> None:
     assert validate_groups(document["groups"]) == []
 
 
-@pytest.mark.spec("EG-CONTRACT-R011.1")
+@pytest.mark.spec("MEDULLA-CONTRACT-R011.1")
 def test_overlapping_host_assignment_is_rejected(tmp_path: Path) -> None:
     manifest = _write_manifest(
         tmp_path,
@@ -72,7 +72,7 @@ def test_overlapping_host_assignment_is_rejected(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.spec("EG-CONTRACT-R011.1")
+@pytest.mark.spec("MEDULLA-CONTRACT-R011.1")
 def test_missing_headroom_reservation_is_rejected(tmp_path: Path) -> None:
     manifest = _write_manifest(
         tmp_path,
@@ -89,14 +89,14 @@ def test_missing_headroom_reservation_is_rejected(tmp_path: Path) -> None:
     assert any("headroom_reservation" in problem for problem in problems)
 
 
-@pytest.mark.spec("EG-CONTRACT-R011.1")
+@pytest.mark.spec("MEDULLA-CONTRACT-R011.1")
 def test_repository_default_manifest_is_valid() -> None:
     default = ROOT / ".config" / "fanout-host-groups.yml"
     document = load_manifest(default)
     assert validate_groups(document["groups"]) == []
 
 
-@pytest.mark.spec("EG-CONTRACT-R011.1")
+@pytest.mark.spec("MEDULLA-CONTRACT-R011.1")
 @pytest.mark.parametrize(
     "headroom", [None, True, False, "0.1", 0, 1, -0.1, float("nan"), float("inf")]
 )
@@ -115,7 +115,7 @@ def test_invalid_headroom_values_remain_rejected(headroom: object) -> None:
     ]
 
 
-@pytest.mark.spec("EG-CONTRACT-R011.1")
+@pytest.mark.spec("MEDULLA-CONTRACT-R011.1")
 def test_all_group_problems_remain_ordered_and_host_ownership_preserved() -> None:
     groups = [
         None,

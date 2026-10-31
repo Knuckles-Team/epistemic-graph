@@ -12,14 +12,14 @@
 
 use std::collections::BTreeSet;
 
-use eg_core::graph::GraphView;
-use eg_plan::{impact_cone, ImpactEdges};
-use eg_types::compute_result::mining::{ImpactOptions, RiskModel};
-use eg_types::wire::EdgeDir;
+use medulla_core::graph::GraphView;
+use medulla_plan::{impact_cone, ImpactEdges};
+use medulla_types::compute_result::mining::{ImpactOptions, RiskModel};
+use medulla_types::wire::EdgeDir;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-pub use eg_plan::exec::propagate::node_props;
+pub use medulla_plan::exec::propagate::node_props;
 
 use crate::protocol::Method;
 

@@ -18,9 +18,9 @@
 
 use std::path::Path;
 
-use eg_storage::{OwnedStoreHandle, OwnerDomain, PhysicalStoreIdentity, ScopedRead, StorageKernel};
-use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
-use eg_types::MutationScopeIdentity;
+use medulla_storage::{OwnedStoreHandle, OwnerDomain, PhysicalStoreIdentity, ScopedRead, StorageKernel};
+use medulla_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
+use medulla_types::MutationScopeIdentity;
 
 use crate::store_authority::EngineScopeAuthority;
 
@@ -57,7 +57,7 @@ impl<D: OwnerDomain> SidecarStore<D> {
     ) -> Result<Self, String> {
         let identity = MutationScopeIdentity::fixed_native(
             SIDECAR_TENANT,
-            eg_types::mutation_batch::DurabilityDomain::ControlPlane,
+            medulla_types::mutation_batch::DurabilityDomain::ControlPlane,
             resource,
             incarnation,
         )?;
@@ -76,7 +76,7 @@ impl<D: OwnerDomain> SidecarStore<D> {
         path: &Path,
         physical_name: &str,
         identity: MutationScopeIdentity,
-        private_integrity: Option<std::sync::Arc<dyn eg_storage::PrivatePayloadIntegrity>>,
+        private_integrity: Option<std::sync::Arc<dyn medulla_storage::PrivatePayloadIntegrity>>,
         authority: &EngineScopeAuthority,
     ) -> Result<Self, String> {
         let started = std::time::Instant::now();
@@ -163,7 +163,7 @@ impl<D: OwnerDomain> SidecarStore<D> {
     }
 
     /// The storage kernel that owns this file, for the recovery, backup and
-    /// fingerprint operations `eg_storage` defines over a whole store rather
+    /// fingerprint operations `medulla_storage` defines over a whole store rather
     /// than over one scope.
     pub fn kernel(&self) -> &StorageKernel {
         &self.kernel
@@ -184,9 +184,9 @@ impl<D: OwnerDomain> SidecarStore<D> {
     where
         F: FnOnce(&AdmittedOwnerWrite<'_, D>) -> Result<(), String>,
     {
-        let subject = eg_storage::ledger_scope_key(self.owner.identity());
+        let subject = medulla_storage::ledger_scope_key(self.owner.identity());
         let write = MaintenanceBatch::new(
-            eg_types::mutation_batch::DurabilityDomain::ControlPlane,
+            medulla_types::mutation_batch::DurabilityDomain::ControlPlane,
             event,
             &subject,
         );

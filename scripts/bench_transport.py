@@ -18,11 +18,11 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-SERVER = REPO / "target" / "release" / "epistemic-graph-server"
+SERVER = REPO / "target" / "release" / "medulla-server"
 
 
 async def _run(ops: int) -> dict[str, float]:
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import MedullaClient
 
     sock = os.path.join(tempfile.mkdtemp(), "bench.sock")
     proc = subprocess.Popen(
@@ -32,7 +32,7 @@ async def _run(ops: int) -> dict[str, float]:
             # Benchmarks measure pure transport: run unauthenticated,
             # which now requires the explicit insecure opt-out.
             "GRAPH_SERVICE_AUTH_SECRET": "",
-            "EPISTEMIC_GRAPH_ALLOW_INSECURE": "1",
+            "MEDULLA_ALLOW_INSECURE": "1",
         },
     )
     try:
@@ -42,13 +42,13 @@ async def _run(ops: int) -> dict[str, float]:
                 break
             await asyncio.sleep(0.05)
 
-        client = await EpistemicGraphClient.connect(
+        client = await MedullaClient.connect(
             socket_path=sock,
             graph_name="bench",
             verified_context={
                 "principal": "bench-agent",
                 "tenant": "bench",
-                "audience": "epistemic-graph-bench",
+                "audience": "medulla-bench",
                 "agent_id": "bench-agent",
                 "roles": ["bench-agent"],
                 "scopes": ["*"],
@@ -102,7 +102,7 @@ def main() -> None:
             "`cargo build --release --features server`"
         )
     res = asyncio.run(_run(args.ops))
-    print("epistemic-graph UDS transport benchmark")
+    print("medulla UDS transport benchmark")
     print(f"  ops:        {res['ops']}")
     print(f"  AddNode     p50={res['add_p50_ms']:.3f}ms  p99={res['add_p99_ms']:.3f}ms")
     print(

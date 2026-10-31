@@ -5,12 +5,12 @@ use super::super::agent_fixtures::{
 };
 use super::super::agent_revision::{decode_status_result, validate_status_record};
 use super::*;
-use eg_types::agent_component::{AgentComponentKind, ComponentDependency};
-use eg_types::agent_library::AgentLibraryEntryDraft;
-use eg_types::agent_template::{
+use medulla_types::agent_component::{AgentComponentKind, ComponentDependency};
+use medulla_types::agent_library::AgentLibraryEntryDraft;
+use medulla_types::agent_template::{
     AgentTemplateDraft, AgentTemplateInstantiateRequest, TemplateParam,
 };
-use eg_types::mutation_batch::MutationBatchStatus;
+use medulla_types::mutation_batch::MutationBatchStatus;
 use std::collections::BTreeMap;
 
 fn digest(byte: char) -> String {
@@ -265,7 +265,7 @@ fn template_status_rejects_an_unwrapped_result() {
         template("tenant-a", "template:invalid"),
     );
     let raw_result =
-        eg_storage::encode_bounded(&published.result, "unwrapped agent template status result")
+        medulla_storage::encode_bounded(&published.result, "unwrapped agent template status result")
             .unwrap();
     let error = decode_status_result::<TemplateLayer>(&raw_result).unwrap_err();
     assert!(!error.is_empty(), "an unwrapped result must fail closed");
@@ -291,7 +291,7 @@ fn template_status_rejects_redirected_identity_state_version_and_kind() {
     );
     let owner_a = store.scope_handle("tenant-a").unwrap();
     let record = ledger_record(&store, "tenant-a", "status-bindings");
-    let refused = |record: &eg_types::MutationBatchRecord,
+    let refused = |record: &medulla_types::MutationBatchRecord,
                    template_id: &str,
                    kind: AgentTemplateMutationKind,
                    committed: &AgentTemplateCommittedResult| {
@@ -470,7 +470,7 @@ fn an_instance_is_an_ordinary_library_entry_and_publishes_like_one() {
 
     // And it publishes through the ordinary library path, unchanged.
     let published = store
-        .publish(eg_types::agent_library::AgentLibraryPublishRequest {
+        .publish(medulla_types::agent_library::AgentLibraryPublishRequest {
             context: context(
                 &store,
                 "tenant-a",

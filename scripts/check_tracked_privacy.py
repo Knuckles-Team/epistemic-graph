@@ -313,7 +313,7 @@ def _is_reserved_hostname(host: str) -> bool:
 
 _PERSISTED_FIELD_RE = re.compile(
     r"[\"']?(?P<field>workspace_path|source_path|skill_path|local_path|source_file|"
-    r"eg_ledger_path)[\"']?\s*[:=]\s*(?P<value>.+)",
+    r"medulla_ledger_path)[\"']?\s*[:=]\s*(?P<value>.+)",
     re.IGNORECASE,
 )
 _NEUTRAL_URI_RE = re.compile(
@@ -424,15 +424,15 @@ _CREDENTIAL_PLACEHOLDER_TOKENS = frozenset(
     }
 )
 _HOST_IDENTITY_RE = re.compile(r"(?i)\bssh://(?!\$\{)[^\s/@]+@")
-# D-EG-PRIVACY-R001-FALSEPOS (2026-10-09): this pattern's job is a bare host
+# D-MEDULLA-PRIVACY-R001-FALSEPOS (2026-10-09): this pattern's job is a bare host
 # alias (`r710`, `r820`, `host123`), but with no lookbehind on `-` it ALSO
 # matched the tail of this fleet's own hyphen-joined requirement-ID
-# convention (`EG-UNIFIED-DATA-PLANE-R001`, `EG-DECISION-ENGINE-R118`,
-# `AU-SEMANTIC-R004`, ...) whenever the "R" + 3-or-more-digit requirement
+# convention (`MEDULLA-UNIFIED-DATA-PLANE-R001`, `MEDULLA-DECISION-ENGINE-R118`,
+# `MERISTEM-SEMANTIC-R004`, ...) whenever the "R" + 3-or-more-digit requirement
 # number happened to follow a hyphen -- a false-positive flood from ordinary
 # spec/ADR prose (docs/architecture/unified_data_plane_adr.md's own seven
 # genuine requirement-ID citations), not a leak. Every verified host-alias
-# occurrence in this repo (scripts/eg_coverage_report.sh,
+# occurrence in this repo (scripts/medulla_coverage_report.sh,
 # tests/test_bounded_test_runner_contract.py, ...) is preceded by
 # whitespace, an arrow or a backtick, never a hyphen, so excluding a
 # hyphen-preceded match keeps every real host alias caught while letting the
@@ -442,14 +442,14 @@ _HOST_IDENTITY_RE = re.compile(r"(?i)\bssh://(?!\$\{)[^\s/@]+@")
 _MACHINE_HOST_ID_RE = re.compile(r"(?i)(?<![a-z0-9-])(?:rw?|host)[0-9]{3,}(?![a-z0-9])")
 
 # EH-312 (2026-09-19): this workspace's own standing convention (CLAUDE.md /
-# eg-publish-lane-rules.md) bans a small set of literal scratch/build-host
+# medulla-publish-lane-rules.md) bans a small set of literal scratch/build-host
 # path roots from every EG tracked file -- this repo publishes to a PUBLIC
 # GitHub org, and none of these roots exist, or mean anything, outside this
 # one internal workspace. No pattern here enforced that convention in code;
 # found only by a hand review of 28 entropy-scan candidates that turned up
 # several unretrievable evidence citations pointing at this workspace's own
 # internal scratch-script location in architecture/component-registry.yml, a
-# live functional default in scripts/eg_coverage_report.sh, and dangling
+# live functional default in scripts/medulla_coverage_report.sh, and dangling
 # fixture provenance in tests/test_check_complexity_staged.py -- all fixed
 # by hand (see those files' own history), none of them by this gate. This
 # pattern exists so the next one is caught automatically.
@@ -1152,7 +1152,7 @@ def _self_check() -> tuple[int, dict]:
         # outside this throwaway directory -- same convention
         # check_secret_history.py's fixtures use for the same reason.
         bad_root = "/" + "var" + "/" + "tmp"
-        bad_line = f"see {bad_root}/eg-selfcheck-leak/output.log for details\n"
+        bad_line = f"see {bad_root}/medulla-selfcheck-leak/output.log for details\n"
         clean_line = "see /tmp/ordinary/output.log for details\n"
 
         docs_dir = tmp / "docs"

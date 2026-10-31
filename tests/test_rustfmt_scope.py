@@ -16,7 +16,7 @@ from scripts.check_rustfmt_scope import (
 )
 
 # Pure/static test -- never needs the shared native engine (see
-# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# conftest.py's session-scoped `start_medulla_server` fixture,
 # which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
@@ -41,7 +41,7 @@ def test_guard_uses_pinned_check_only_rustfmt_without_cargo_workspace_sweep() ->
 
 def test_formatting_configuration_change_widens_only_the_read_only_check() -> None:
     assert _scope_requires_full_check(["rust-toolchain.toml"])
-    assert _scope_requires_full_check(["crates/eg-core/Cargo.toml"])
+    assert _scope_requires_full_check(["crates/medulla-core/Cargo.toml"])
     assert _scope_requires_full_check(["scripts/check_rustfmt_scope.py"])
     assert not _scope_requires_full_check(["src/server/mod.rs"])
 

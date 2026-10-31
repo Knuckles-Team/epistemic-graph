@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use eg_types::contract::ResourceId;
+use medulla_types::contract::ResourceId;
 use tokio::sync::RwLock;
 
 use crate::server::state::ServerState;
@@ -65,8 +65,8 @@ pub(super) async fn resolve(
                 )
             })?;
             let documents = match body.kind {
-                eg_types::connector_pack::PackEntryKind::Shapes => &mut shapes,
-                eg_types::connector_pack::PackEntryKind::Ontology => &mut ontologies,
+                medulla_types::connector_pack::PackEntryKind::Shapes => &mut shapes,
+                medulla_types::connector_pack::PackEntryKind::Ontology => &mut ontologies,
                 _ => unreachable!("resolver selected only semantic pack members"),
             };
             documents.push(super::PackSchemaDocument {

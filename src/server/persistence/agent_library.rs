@@ -14,16 +14,16 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use redb::{ReadableTable, ReadableTableMetadata};
 
-use eg_storage::{
+use medulla_storage::{
     OwnedStoreHandle, PhysicalStoreIdentity, RecordedOperation, ScopedRead, StorageKernel,
 };
-use eg_transaction::{AdmittedOwnerWrite, MutationKernel};
-use eg_types::mutation::{MutationReceipt, MutationResult};
-use eg_types::mutation_batch::{
+use medulla_transaction::{AdmittedOwnerWrite, MutationKernel};
+use medulla_types::mutation::{MutationReceipt, MutationResult};
+use medulla_types::mutation_batch::{
     BatchContent, CompiledEnvelope, CompiledOperation, CompiledScope, DurabilityDomain,
     MutationEnvelope, MutationOperation, MutationOutboxIntent,
 };
-use eg_types::{
+use medulla_types::{
     AgentLibraryCommittedResult, AgentLibraryEntry, AgentLibraryEntryDraft,
     AgentLibraryMutationContext, AgentLibraryMutationKind, AgentLibraryOutboxEvent,
     AgentLibraryPublishRequest, AgentLibraryRetireRequest, AgentLibraryStatusRequest,
@@ -54,7 +54,7 @@ const AGENT_LIBRARY_SCOPE_RESOURCE: &str = "agent-library";
 const AGENT_LIBRARY_SCOPE_INCARNATION: &str = "agent-library:v1";
 const AGENT_LIBRARY_BOOTSTRAP_TENANT: &str = "agent-library-bootstrap";
 const AGENT_LIBRARY_BOOTSTRAP_RESOURCE: &str = "agent-library-bootstrap";
-const AGENT_LIBRARY_OUTBOX_TOPIC: &str = "eg.agent-library.entry.v1";
+const AGENT_LIBRARY_OUTBOX_TOPIC: &str = "medulla.agent-library.entry.v1";
 /// `pub(super)` for [`super::agent_pin_resolution`]: the bound on how deep one
 /// pin lookup may scan this layer's history is this layer's own.
 pub(super) const MAX_AGENT_LIBRARY_REVISIONS: usize = 16_384;
@@ -65,8 +65,8 @@ const MAX_AGENT_LIBRARY_HISTORY_BYTES: usize = 256 * 1024 * 1024;
 pub struct AgentLibraryStore {
     pub(super) kernel: StorageKernel,
     pub(super) mutations: MutationKernel,
-    bootstrap: Arc<OwnedStoreHandle<eg_storage::AgentLibraryOwner>>,
-    scopes: Mutex<HashMap<String, Arc<OwnedStoreHandle<eg_storage::AgentLibraryOwner>>>>,
+    bootstrap: Arc<OwnedStoreHandle<medulla_storage::AgentLibraryOwner>>,
+    scopes: Mutex<HashMap<String, Arc<OwnedStoreHandle<medulla_storage::AgentLibraryOwner>>>>,
     serving_principal: String,
 }
 
@@ -89,13 +89,13 @@ impl AgentLibraryStore {
         // A predecessor file is refused by name inside the open: the storage
         // kernel's lineage registry declares it (X11).
         let kernel = if path.exists() {
-            StorageKernel::open_owner::<eg_storage::AgentLibraryOwner>(&path, physical, None)
+            StorageKernel::open_owner::<medulla_storage::AgentLibraryOwner>(&path, physical, None)
         } else {
-            StorageKernel::create_owner::<eg_storage::AgentLibraryOwner>(&path, physical, None)
+            StorageKernel::create_owner::<medulla_storage::AgentLibraryOwner>(&path, physical, None)
         }?;
         let (kernel, authority) = kernel.into_read_and_mutation_authority()?;
         let mutations = MutationKernel::new(authority);
-        let bootstrap_identity = eg_types::MutationScopeIdentity::fixed_native(
+        let bootstrap_identity = medulla_types::MutationScopeIdentity::fixed_native(
             AGENT_LIBRARY_BOOTSTRAP_TENANT,
             DurabilityDomain::ControlPlane,
             AGENT_LIBRARY_BOOTSTRAP_RESOURCE,
@@ -122,12 +122,12 @@ impl AgentLibraryStore {
     pub(super) fn scope_handle(
         &self,
         tenant_id: &str,
-    ) -> Result<Arc<OwnedStoreHandle<eg_storage::AgentLibraryOwner>>, String> {
-        eg_types::agent_library::validate_key(tenant_id, "agent-library")?;
+    ) -> Result<Arc<OwnedStoreHandle<medulla_storage::AgentLibraryOwner>>, String> {
+        medulla_types::agent_library::validate_key(tenant_id, "agent-library")?;
         if let Some(handle) = self.scopes.lock().get(tenant_id) {
             return Ok(Arc::clone(handle));
         }
-        let identity = eg_types::MutationScopeIdentity::fixed_native(
+        let identity = medulla_types::MutationScopeIdentity::fixed_native(
             tenant_id,
             DurabilityDomain::ControlPlane,
             AGENT_LIBRARY_SCOPE_RESOURCE,
@@ -146,7 +146,7 @@ impl AgentLibraryStore {
         Ok(handle)
     }
 
-    pub(super) fn read(&self) -> Result<ScopedRead<'_, eg_storage::AgentLibraryOwner>, String> {
+    pub(super) fn read(&self) -> Result<ScopedRead<'_, medulla_storage::AgentLibraryOwner>, String> {
         self.kernel.read_scope(&self.bootstrap)
     }
 
@@ -156,7 +156,7 @@ impl AgentLibraryStore {
         tenant_id: &str,
         agent_id: &str,
     ) -> Result<Option<AgentLibraryEntry>, String> {
-        eg_types::agent_library::validate_key(tenant_id, agent_id)?;
+        medulla_types::agent_library::validate_key(tenant_id, agent_id)?;
         let read = self.read()?;
         let (_, entries) = read_history(&read, tenant_id, agent_id)?;
         Ok(entries.into_iter().last())
@@ -169,7 +169,7 @@ impl AgentLibraryStore {
         tenant_id: &str,
         agent_id: &str,
     ) -> Result<Vec<AgentLibraryEntry>, String> {
-        eg_types::agent_library::validate_key(tenant_id, agent_id)?;
+        medulla_types::agent_library::validate_key(tenant_id, agent_id)?;
         let read = self.read()?;
         let (_, entries) = read_history(&read, tenant_id, agent_id)?;
         Ok(entries)
@@ -197,7 +197,7 @@ impl AgentLibraryStore {
         request: AgentLibraryStatusRequest,
     ) -> Result<Option<AgentLibraryWriteResult>, String> {
         validate_context(self, &request.context)?;
-        eg_types::agent_library::validate_key(&request.context.tenant_id, &request.agent_id)?;
+        medulla_types::agent_library::validate_key(&request.context.tenant_id, &request.agent_id)?;
         let owner = self.scope_handle(&request.context.tenant_id)?;
         let batch_id = batch_id(&request.context.idempotency_key)?;
         let Some(evidence) = read_status_evidence(self, &owner, &request.context, &batch_id)?
@@ -230,19 +230,19 @@ impl AgentLibraryStore {
 }
 
 struct AgentLibraryStatusEvidence {
-    record: eg_types::MutationBatchRecord,
+    record: medulla_types::MutationBatchRecord,
     receipt: MutationReceipt,
 }
 
 fn read_status_evidence(
     store: &AgentLibraryStore,
-    owner: &Arc<OwnedStoreHandle<eg_storage::AgentLibraryOwner>>,
+    owner: &Arc<OwnedStoreHandle<medulla_storage::AgentLibraryOwner>>,
     context: &AgentLibraryMutationContext,
     batch_id: &str,
 ) -> Result<Option<AgentLibraryStatusEvidence>, String> {
     let read = store.kernel.read_scope(owner)?;
-    let record = eg_transaction::read_ledger(&read, batch_id)?;
-    let replay_row = eg_transaction::read_replay_operation(&read, &context.idempotency_key)?;
+    let record = medulla_transaction::read_ledger(&read, batch_id)?;
+    let replay_row = medulla_transaction::read_replay_operation(&read, &context.idempotency_key)?;
     let (record, replay_row) =
         match (record, replay_row) {
             (None, None) => return Ok(None),
@@ -283,14 +283,14 @@ fn read_status_evidence(
 }
 
 fn validate_status_identity(
-    owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
+    owner: &OwnedStoreHandle<medulla_storage::AgentLibraryOwner>,
     context: &AgentLibraryMutationContext,
     batch_id: &str,
-    record: &eg_types::MutationBatchRecord,
-    replay_row: &eg_storage::OperationReplayRow,
+    record: &medulla_types::MutationBatchRecord,
+    replay_row: &medulla_storage::OperationReplayRow,
     receipt: &MutationReceipt,
 ) -> Result<(), String> {
-    let expected_scope = eg_types::mutation_batch::authority_scope_for(owner.identity())?;
+    let expected_scope = medulla_types::mutation_batch::authority_scope_for(owner.identity())?;
     if replay_row.identity != *owner.identity()
         || replay_row.idempotency_key != context.idempotency_key
         || replay_row.batch_id != batch_id
@@ -309,10 +309,10 @@ fn validate_status_identity(
 
 fn bind_scope(
     kernel: &StorageKernel,
-    identity: &eg_types::MutationScopeIdentity,
-) -> Result<Arc<OwnedStoreHandle<eg_storage::AgentLibraryOwner>>, String> {
+    identity: &medulla_types::MutationScopeIdentity,
+) -> Result<Arc<OwnedStoreHandle<medulla_storage::AgentLibraryOwner>>, String> {
     let authority = crate::store_authority::process_authority();
-    let grant = kernel.authenticate_scope::<eg_storage::AgentLibraryOwner>(
+    let grant = kernel.authenticate_scope::<medulla_storage::AgentLibraryOwner>(
         authority.as_ref(),
         identity.clone(),
         authority.principal().to_string(),
@@ -327,19 +327,19 @@ fn bind_scope(
 /// afterwards, still before any owner rows or current version are read.
 pub(super) fn resolve_nonce_first(
     mutations: &MutationKernel,
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+    txn: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
     context: &AgentLibraryMutationContext,
-) -> Result<eg_types::authority::NonceReplayKey, String> {
-    let nonce = eg_types::authority::NonceReplayKey {
-        protocol_id: eg_types::contract::ProtocolId::new(
-            eg_types::authority::AUTHORITY_PROTOCOL_V1,
+) -> Result<medulla_types::authority::NonceReplayKey, String> {
+    let nonce = medulla_types::authority::NonceReplayKey {
+        protocol_id: medulla_types::contract::ProtocolId::new(
+            medulla_types::authority::AUTHORITY_PROTOCOL_V1,
         )?,
-        catalog_digest: eg_types::contract::Digest256::parse(
-            eg_capabilities::CONTRACT_CATALOG_DIGEST,
+        catalog_digest: medulla_types::contract::Digest256::parse(
+            medulla_capabilities::CONTRACT_CATALOG_DIGEST,
         )?,
-        audience: eg_types::contract::AudienceId::new(eg_types::mutation_batch::ENGINE_AUDIENCE)?,
-        actor: eg_types::contract::ActorId::new(context.caller_principal.clone())?,
-        tenant: eg_types::contract::TenantId::new(context.tenant_id.clone())?,
+        audience: medulla_types::contract::AudienceId::new(medulla_types::mutation_batch::ENGINE_AUDIENCE)?,
+        actor: medulla_types::contract::ActorId::new(context.caller_principal.clone())?,
+        tenant: medulla_types::contract::TenantId::new(context.tenant_id.clone())?,
         nonce: context.attempt_nonce,
     };
     if let Some(idempotency_key) = mutations.resolve_nonce(txn, &nonce)? {
@@ -376,23 +376,23 @@ pub(super) fn admitted_context(
 /// digest, so an entry operation and a graph operation on the same id and
 /// revision can never resolve to the same replay identity.
 pub(super) fn agent_library_operation_identity(
-    owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
+    owner: &OwnedStoreHandle<medulla_storage::AgentLibraryOwner>,
     context: &AgentLibraryMutationContext,
     kind_name: &str,
     agent_id: &str,
     expected_revision: u64,
     definition_digest: Option<&str>,
-) -> Result<eg_types::authority::OperationReplayIdentity, String> {
-    use eg_types::authority::AUTHORITY_PROTOCOL_V1;
-    use eg_types::contract::{
+) -> Result<medulla_types::authority::OperationReplayIdentity, String> {
+    use medulla_types::authority::AUTHORITY_PROTOCOL_V1;
+    use medulla_types::contract::{
         ActorId, AudienceId, Digest256, IdempotencyKey, MethodId, Operation, PolicyRevision,
         ProtocolId, PurposeKind, ResourceId, SchemaId, TenantId,
     };
 
-    let scope = eg_types::mutation_batch::authority_scope_for(owner.identity())?;
-    let catalog_digest = Digest256::parse(eg_capabilities::CONTRACT_CATALOG_DIGEST)?;
+    let scope = medulla_types::mutation_batch::authority_scope_for(owner.identity())?;
+    let catalog_digest = Digest256::parse(medulla_capabilities::CONTRACT_CATALOG_DIGEST)?;
     let method = MethodId::new("ApplyMutation")?;
-    let (method_schema_id, method_schema_digest) = eg_capabilities::method_schema("ApplyMutation")
+    let (method_schema_id, method_schema_digest) = medulla_capabilities::method_schema("ApplyMutation")
         .map(|(schema, digest)| (SchemaId::new(schema), Digest256::from_bytes(digest)))
         .ok_or_else(|| "ApplyMutation is missing from the contract catalog".to_string())?;
     let method_schema_id = method_schema_id?;
@@ -412,13 +412,13 @@ pub(super) fn agent_library_operation_identity(
             context.policy_decision_id.as_bytes(),
         ],
     )?;
-    let operation = eg_types::authority::OperationReplayIdentity {
+    let operation = medulla_types::authority::OperationReplayIdentity {
         schema_version: ResourceId::new("operation-replay-identity.v1")?,
         protocol_id: ProtocolId::new(AUTHORITY_PROTOCOL_V1)?,
         catalog_digest,
         tenant: TenantId::new(context.tenant_id.clone())?,
         actor: ActorId::new(context.caller_principal.clone())?,
-        audience: AudienceId::new(eg_types::mutation_batch::ENGINE_AUDIENCE)?,
+        audience: AudienceId::new(medulla_types::mutation_batch::ENGINE_AUDIENCE)?,
         authority_scope: scope.clone(),
         operation: Operation::new("mutation")?,
         purpose_kind: PurposeKind::new("graph_write")?,
@@ -428,7 +428,7 @@ pub(super) fn agent_library_operation_identity(
         method_schema_digest,
         canonical_payload_digest,
         policy_revision: PolicyRevision::new(context.policy_revision.clone())?,
-        policy_epoch: eg_types::mutation_batch::POLICY_EPOCH,
+        policy_epoch: medulla_types::mutation_batch::POLICY_EPOCH,
         policy_digest: parse_prefixed_digest(&context.policy_digest)?,
         idempotency_key: IdempotencyKey::new(context.idempotency_key.clone())?,
     };
@@ -494,9 +494,9 @@ fn agent_library_operations(
 
 pub(super) fn effective_agent_library_policy_digest(
     operations: &[MutationOperation],
-) -> Result<eg_types::contract::Digest256, String> {
+) -> Result<medulla_types::contract::Digest256, String> {
     crate::server::mutation_batch::effective_policy_digest(
-        &eg_types::contract::MethodId::new("ApplyMutation")?,
+        &medulla_types::contract::MethodId::new("ApplyMutation")?,
         operations,
     )
 }
@@ -512,21 +512,21 @@ pub(crate) fn current_agent_library_policy_digest() -> Result<String, String> {
     ))
 }
 
-pub(super) fn parse_prefixed_digest(value: &str) -> Result<eg_types::contract::Digest256, String> {
+pub(super) fn parse_prefixed_digest(value: &str) -> Result<medulla_types::contract::Digest256, String> {
     value
         .strip_prefix("sha256:")
         .ok_or_else(|| "agent library policy digest is not canonical".to_string())
-        .and_then(eg_types::contract::Digest256::parse)
+        .and_then(medulla_types::contract::Digest256::parse)
 }
 
 fn apply_entry_rows(
-    owner_write: &AdmittedOwnerWrite<'_, eg_storage::AgentLibraryOwner>,
+    owner_write: &AdmittedOwnerWrite<'_, medulla_storage::AgentLibraryOwner>,
     context: &AgentLibraryMutationContext,
     expected_revision: u64,
     entry: &AgentLibraryEntry,
     entry_bytes: &[u8],
 ) -> Result<(), String> {
-    let mut heads = owner_write.open_table(eg_storage::AGENT_LIBRARY_HEADS)?;
+    let mut heads = owner_write.open_table(medulla_storage::AGENT_LIBRARY_HEADS)?;
     let actual_revision = heads
         .get((context.tenant_id.as_str(), entry.agent_id.as_str()))
         .map_err(|error| error.to_string())?
@@ -536,7 +536,7 @@ fn apply_entry_rows(
     if entry.entry_revision != next_revision(expected_revision)? {
         return Err("agent library entry revision does not follow its expected head".to_string());
     }
-    let mut revisions = owner_write.open_table(eg_storage::AGENT_LIBRARY_REVISIONS)?;
+    let mut revisions = owner_write.open_table(medulla_storage::AGENT_LIBRARY_REVISIONS)?;
     if actual_revision > 0 {
         let current = revisions
             .get((
@@ -588,15 +588,15 @@ fn apply_entry_rows(
 /// this exact `MutationResult` directly in the typed receipt.
 fn encode_domain_result(result: &AgentLibraryCommittedResult) -> Result<Vec<u8>, String> {
     let mutation_result = domain_result_for(result)?;
-    eg_storage::encode_bounded(&mutation_result, "agent library domain result")
+    medulla_storage::encode_bounded(&mutation_result, "agent library domain result")
 }
 
 fn domain_result_for(result: &AgentLibraryCommittedResult) -> Result<MutationResult, String> {
     result.validate()?;
-    let payload = eg_storage::encode_bounded(result, "agent library domain result payload")?;
-    let payload = eg_types::contract::RecordBytes::new(payload)?;
+    let payload = medulla_storage::encode_bounded(result, "agent library domain result payload")?;
+    let payload = medulla_types::contract::RecordBytes::new(payload)?;
     Ok(MutationResult::DomainResult {
-        schema_id: eg_types::contract::SchemaId::new(AGENT_LIBRARY_RESULT_SCHEMA_ID)?,
+        schema_id: medulla_types::contract::SchemaId::new(AGENT_LIBRARY_RESULT_SCHEMA_ID)?,
         payload_digest: payload.digest()?,
         payload,
     })
@@ -644,16 +644,16 @@ impl BundledStoreSource for AgentLibraryStore {
         let (revisions, heads) = {
             let read = self.read()?;
             let revisions = read
-                .open_owner_table(eg_storage::AGENT_LIBRARY_REVISIONS)?
+                .open_owner_table(medulla_storage::AGENT_LIBRARY_REVISIONS)?
                 .len()
                 .map_err(|error| error.to_string())?;
             let heads = read
-                .open_owner_table(eg_storage::AGENT_LIBRARY_HEADS)?
+                .open_owner_table(medulla_storage::AGENT_LIBRARY_HEADS)?
                 .len()
                 .map_err(|error| error.to_string())?;
             (revisions, heads)
         };
-        let counts = eg_storage::backup_recovery_store(&self.kernel, destination)?;
+        let counts = medulla_storage::backup_recovery_store(&self.kernel, destination)?;
         Ok(revisions
             .saturating_add(heads)
             .saturating_add(counts.batches))
@@ -702,7 +702,7 @@ pub(crate) fn seed_agent_for_test(
                 request_id: 90_000 + u64::from(nonce_index),
                 principal: store.owner_principal().to_string(),
                 caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
-                attempt_nonce: eg_types::contract::Nonce::from_bytes(nonce_bytes),
+                attempt_nonce: medulla_types::contract::Nonce::from_bytes(nonce_bytes),
                 tenant_id: tenant_id.to_string(),
                 actor_scope: "action-scope:agent-seed".to_string(),
                 purpose_id: "agent-library:publish".to_string(),
@@ -730,7 +730,7 @@ pub(crate) fn seed_agent_draft_for_test(
     agent_id: &str,
     nonce_index: u8,
 ) -> AgentLibraryEntryDraft {
-    use eg_types::agent_component::{AgentComponentKind, ComponentDependency};
+    use medulla_types::agent_component::{AgentComponentKind, ComponentDependency};
     let placeholder = format!("sha256:{}", "0".repeat(64));
     let pin = |component_id: &str, kind: AgentComponentKind| ComponentDependency {
         component_id: component_id.to_string(),
@@ -767,8 +767,8 @@ mod tests {
     use super::replay::record_event;
     use super::*;
     use crate::server::persistence::durable_stores::BundledStoreSource;
-    use eg_types::contract::Nonce;
-    use eg_types::mutation_batch::MutationBatchStatus;
+    use medulla_types::contract::Nonce;
+    use medulla_types::mutation_batch::MutationBatchStatus;
 
     const LEDGER_BATCHES: redb::TableDefinition<'static, (&str, &str), &[u8]> =
         redb::TableDefinition::new("ledger_batches");
@@ -791,9 +791,9 @@ mod tests {
         store: &AgentLibraryStore,
         tenant_id: &str,
         component_id: &str,
-        kind: eg_types::agent_component::AgentComponentKind,
+        kind: medulla_types::agent_component::AgentComponentKind,
         seed: u8,
-    ) -> eg_types::agent_component::ComponentDependency {
+    ) -> medulla_types::agent_component::ComponentDependency {
         super::super::agent_component::seed_component_for_test(
             store,
             tenant_id,
@@ -904,12 +904,12 @@ mod tests {
         let owner_a = store.scope_handle("tenant-a").unwrap();
         let read_a = store.kernel.read_scope(&owner_a).unwrap();
         let first_batch_id = batch_id("shared-key").unwrap();
-        let first_record = eg_transaction::read_ledger(&read_a, &first_batch_id)
+        let first_record = medulla_transaction::read_ledger(&read_a, &first_batch_id)
             .unwrap()
             .expect("first publish receipt");
         assert_eq!(first_record.status, MutationBatchStatus::Committed);
         assert_eq!(first_record.batch.outbox.len(), 1);
-        let first_outbox = eg_transaction::read_outbox(&read_a, &first_batch_id).unwrap();
+        let first_outbox = medulla_transaction::read_outbox(&read_a, &first_batch_id).unwrap();
         assert_eq!(first_outbox.len(), 1);
         let first_result = record_result(&first_record).unwrap();
         assert_eq!(first_result.entry, published.entry);
@@ -936,11 +936,11 @@ mod tests {
         );
         assert_eq!(
             first_outbox[0].intent.payload,
-            eg_storage::encode_bounded(&first_event, "agent library test outbox event").unwrap()
+            medulla_storage::encode_bounded(&first_event, "agent library test outbox event").unwrap()
         );
         let mut legacy_record = first_record.clone();
         legacy_record.result_msgpack = Some(
-            eg_storage::encode_bounded(&first_event, "legacy agent library test result").unwrap(),
+            medulla_storage::encode_bounded(&first_event, "legacy agent library test result").unwrap(),
         );
         assert_eq!(record_result(&legacy_record).unwrap(), first_result);
         let mut misdirected = first_record.clone();
@@ -1088,11 +1088,11 @@ mod tests {
         // so the seeds are part of this owner's ledger. Still discriminating --
         // a second agent batch would make it SEEDED_COMPONENT_BATCHES + 2.
         assert_eq!(
-            eg_transaction::read_batches(&read_a).unwrap().len(),
+            medulla_transaction::read_batches(&read_a).unwrap().len(),
             SEEDED_COMPONENT_BATCHES + 1
         );
         assert_eq!(
-            eg_transaction::read_outbox(&read_a, &first_batch_id)
+            medulla_transaction::read_outbox(&read_a, &first_batch_id)
                 .unwrap()
                 .len(),
             1
@@ -1239,13 +1239,13 @@ mod tests {
         // unchanged.
         let read_before_old_publish_replay = store.kernel.read_scope(&owner_a).unwrap();
         let batches_before_old_publish_replay =
-            eg_transaction::read_batches(&read_before_old_publish_replay).unwrap();
+            medulla_transaction::read_batches(&read_before_old_publish_replay).unwrap();
         let version_before_old_publish_replay =
-            eg_transaction::version(&read_before_old_publish_replay).unwrap();
+            medulla_transaction::version(&read_before_old_publish_replay).unwrap();
         let outbox_before_old_publish_replay: usize = batches_before_old_publish_replay
             .iter()
             .map(|record| {
-                eg_transaction::read_outbox(&read_before_old_publish_replay, &record.batch.batch_id)
+                medulla_transaction::read_outbox(&read_before_old_publish_replay, &record.batch.batch_id)
                     .unwrap()
                     .len()
             })
@@ -1275,17 +1275,17 @@ mod tests {
         assert_eq!(old_publish_retry.entry, published.entry);
         let read_after_old_publish_replay = store.kernel.read_scope(&owner_a).unwrap();
         let batches_after_old_publish_replay =
-            eg_transaction::read_batches(&read_after_old_publish_replay).unwrap();
+            medulla_transaction::read_batches(&read_after_old_publish_replay).unwrap();
         let outbox_after_old_publish_replay: usize = batches_after_old_publish_replay
             .iter()
             .map(|record| {
-                eg_transaction::read_outbox(&read_after_old_publish_replay, &record.batch.batch_id)
+                medulla_transaction::read_outbox(&read_after_old_publish_replay, &record.batch.batch_id)
                     .unwrap()
                     .len()
             })
             .sum();
         assert_eq!(
-            eg_transaction::version(&read_after_old_publish_replay).unwrap(),
+            medulla_transaction::version(&read_after_old_publish_replay).unwrap(),
             version_before_old_publish_replay
         );
         assert_eq!(
@@ -1372,12 +1372,12 @@ mod tests {
         // local cache or pre-reopen handle may participate in the answer.
         let reopened_owner_a = reopened.scope_handle("tenant-a").unwrap();
         let reopened_read_before = reopened.kernel.read_scope(&reopened_owner_a).unwrap();
-        let reopened_batches_before = eg_transaction::read_batches(&reopened_read_before).unwrap();
-        let reopened_version_before = eg_transaction::version(&reopened_read_before).unwrap();
+        let reopened_batches_before = medulla_transaction::read_batches(&reopened_read_before).unwrap();
+        let reopened_version_before = medulla_transaction::version(&reopened_read_before).unwrap();
         let reopened_outbox_before: usize = reopened_batches_before
             .iter()
             .map(|record| {
-                eg_transaction::read_outbox(&reopened_read_before, &record.batch.batch_id)
+                medulla_transaction::read_outbox(&reopened_read_before, &record.batch.batch_id)
                     .unwrap()
                     .len()
             })
@@ -1430,17 +1430,17 @@ mod tests {
         assert!(reopened_status.replayed);
         assert_eq!(reopened_status.entry, published.entry);
         let reopened_read_after = reopened.kernel.read_scope(&reopened_owner_a).unwrap();
-        let reopened_batches_after = eg_transaction::read_batches(&reopened_read_after).unwrap();
+        let reopened_batches_after = medulla_transaction::read_batches(&reopened_read_after).unwrap();
         let reopened_outbox_after: usize = reopened_batches_after
             .iter()
             .map(|record| {
-                eg_transaction::read_outbox(&reopened_read_after, &record.batch.batch_id)
+                medulla_transaction::read_outbox(&reopened_read_after, &record.batch.batch_id)
                     .unwrap()
                     .len()
             })
             .sum();
         assert_eq!(
-            eg_transaction::version(&reopened_read_after).unwrap(),
+            medulla_transaction::version(&reopened_read_after).unwrap(),
             reopened_version_before
         );
         assert_eq!(reopened_batches_after.len(), reopened_batches_before.len());
@@ -1535,9 +1535,9 @@ mod tests {
         let store = AgentLibraryStore::open(dir.path().to_str().unwrap()).unwrap();
         let mut entry = draft(&store, "tenant-a", "agent-a");
         let prompt = entry.system_prompt.clone();
-        entry.tools[0] = eg_types::agent_component::ComponentDependency {
+        entry.tools[0] = medulla_types::agent_component::ComponentDependency {
             component_id: prompt.component_id.clone(),
-            kind: eg_types::agent_component::AgentComponentKind::Tool,
+            kind: medulla_types::agent_component::AgentComponentKind::Tool,
             definition_digest: prompt.definition_digest.clone(),
         };
         let error = publish_draft(&store, entry, "key-1", 1)
@@ -1556,7 +1556,7 @@ mod tests {
             &store,
             "tenant-b",
             "tool:theirs",
-            eg_types::agent_component::AgentComponentKind::Tool,
+            medulla_types::agent_component::AgentComponentKind::Tool,
             9,
         );
         let mut entry = draft(&store, "tenant-a", "agent-a");
@@ -1596,7 +1596,7 @@ mod tests {
             created_at_ms: 20,
         };
         store
-            .retire_component(eg_types::agent_component::AgentComponentRetireRequest {
+            .retire_component(medulla_types::agent_component::AgentComponentRetireRequest {
                 context: retire_context,
                 component_id: "tool:search".to_string(),
             })
@@ -1634,22 +1634,22 @@ mod tests {
             created_at_ms: 5,
         };
         let error = store
-            .publish_component(eg_types::agent_component::AgentComponentPublishRequest {
+            .publish_component(medulla_types::agent_component::AgentComponentPublishRequest {
                 context,
                 evaluation_receipt_digest: None,
-                component: eg_types::agent_component::AgentComponentDraft {
+                component: medulla_types::agent_component::AgentComponentDraft {
                     component_id: "skill:depends".to_string(),
-                    kind: eg_types::agent_component::AgentComponentKind::Skill,
+                    kind: medulla_types::agent_component::AgentComponentKind::Skill,
                     version: "1.0.0".to_string(),
                     content_digest: digest('1'),
                     content_ref: None,
-                    facts: eg_types::agent_component::AgentComponentFacts::Opaque,
-                    provenance: eg_types::agent_component::ComponentProvenance::Native,
+                    facts: medulla_types::agent_component::AgentComponentFacts::Opaque,
+                    provenance: medulla_types::agent_component::ComponentProvenance::Native,
                     summary: "a skill with a dependency".to_string(),
                     classification: Vec::new(),
-                    requires: vec![eg_types::agent_component::ComponentDependency {
+                    requires: vec![medulla_types::agent_component::ComponentDependency {
                         component_id: "tool:never-published".to_string(),
-                        kind: eg_types::agent_component::AgentComponentKind::Tool,
+                        kind: medulla_types::agent_component::AgentComponentKind::Tool,
                         definition_digest: digest('9'),
                     }],
                     declared_capabilities: Vec::new(),
@@ -1709,7 +1709,7 @@ mod tests {
             })
             .unwrap();
         let owner = store.scope_handle("tenant-a").unwrap();
-        let scope_key = eg_storage::ledger_scope_key(owner.identity());
+        let scope_key = medulla_storage::ledger_scope_key(owner.identity());
         let persisted_batch_id = batch_id("persisted-status-tamper").unwrap();
         let path = source_dir.path().join(AGENT_LIBRARY_FILE);
         drop(owner);
@@ -1727,9 +1727,9 @@ mod tests {
             .expect("persisted Agent Library batch")
             .value()
             .to_vec();
-        let mut record = eg_storage::decode_batch_record(&bytes).unwrap();
+        let mut record = medulla_storage::decode_batch_record(&bytes).unwrap();
         record.result_msgpack = Some(vec![0]);
-        let encoded = eg_storage::encode_bounded(&record, "tampered Agent Library batch").unwrap();
+        let encoded = medulla_storage::encode_bounded(&record, "tampered Agent Library batch").unwrap();
         batches
             .insert(
                 (scope_key.as_str(), persisted_batch_id.as_str()),
@@ -1777,7 +1777,7 @@ mod tests {
             .unwrap();
 
         let owner = store.scope_handle("tenant-a").unwrap();
-        let scope_key = eg_storage::ledger_scope_key(owner.identity());
+        let scope_key = medulla_storage::ledger_scope_key(owner.identity());
         let path = source_dir.path().join(AGENT_LIBRARY_FILE);
         drop(owner);
         drop(store);
@@ -1791,10 +1791,10 @@ mod tests {
             .expect("persisted replay row")
             .value()
             .to_vec();
-        let mut row: eg_storage::OperationReplayRow =
-            eg_storage::decode_ledger_record(&row_bytes).unwrap();
+        let mut row: medulla_storage::OperationReplayRow =
+            medulla_storage::decode_ledger_record(&row_bytes).unwrap();
         row.batch_id = "redirected-status-batch".to_string();
-        let encoded = eg_storage::encode_bounded(&row, "redirected replay row").unwrap();
+        let encoded = medulla_storage::encode_bounded(&row, "redirected replay row").unwrap();
         operations
             .insert(
                 (scope_key.as_str(), "redirected-status-link"),

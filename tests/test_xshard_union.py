@@ -12,11 +12,11 @@ from typing import Any
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import EpistemicGraphClient, NodeClient
-from epistemic_graph.pool import ShardRouter
+from medulla.client import MedullaClient, NodeClient
+from medulla.pool import ShardRouter
 
 # Fake-client unit tests only -- never needs the shared native engine (see
-# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# conftest.py's session-scoped `start_medulla_server` fixture,
 # which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
@@ -43,7 +43,7 @@ class _FakeNodes(NodeClient):
 
     Subclasses the real ``NodeClient`` (never calling its ``__init__``, which
     mypy does not require to match) purely so it satisfies
-    ``EpistemicGraphClient.nodes: NodeClient`` below -- only the three union
+    ``MedullaClient.nodes: NodeClient`` below -- only the three union
     methods this fixture drives are overridden; nothing else on ``NodeClient``
     is ever called here."""
 
@@ -85,7 +85,7 @@ class _FakeNodes(NodeClient):
         return out
 
 
-class _FakeShardClient(EpistemicGraphClient):
+class _FakeShardClient(MedullaClient):
     def __init__(self) -> None:
         self._graph_name = ""
         self.calls: list[tuple[str, str, list[str]]] = []
@@ -115,7 +115,7 @@ class _FakePool:
         self.acquired += 1
         return self.client
 
-    def release(self, client: EpistemicGraphClient) -> None:
+    def release(self, client: MedullaClient) -> None:
         self.released += 1
 
     @contextlib.asynccontextmanager

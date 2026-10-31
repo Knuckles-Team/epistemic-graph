@@ -48,11 +48,11 @@ Run the adapter from a clean EG checkout with an already-installed binary:
 python3 scripts/check_dupehound_census.py \
   --repository agent-packages/medulla \
   --commit HEAD \
-  --profile dupehound-full-tree-v1:epistemic-graph \
-  --raw-output /tmp/eg-dupehound.raw.json \
-  --stderr-output /tmp/eg-dupehound.stderr.txt \
-  --normalized-output /tmp/eg-dupehound.scanner-evidence.json \
-  --manifest-output /tmp/eg-dupehound.manifest.json
+  --profile dupehound-full-tree-v1:medulla \
+  --raw-output /tmp/medulla-dupehound.raw.json \
+  --stderr-output /tmp/medulla-dupehound.stderr.txt \
+  --normalized-output /tmp/medulla-dupehound.scanner-evidence.json \
+  --manifest-output /tmp/medulla-dupehound.manifest.json
 ```
 
 Exit `0` means that the immutable manifest and native report joined

@@ -2,8 +2,8 @@
 //! from a broker's arbitrary principal lookup. No delegation authority is
 //! implemented here: a chain or broker scope cannot establish a subject login.
 
-use eg_types::acl::RequestContextClaims;
-use eg_types::identity::{
+use medulla_types::acl::RequestContextClaims;
+use medulla_types::identity::{
     IdentityOp, IdentityRefusal, IdentityReply, IdentityStamp, IdentityStore, PrincipalResolution,
     SessionOp, TokenOp, UserOp,
 };
@@ -49,7 +49,7 @@ pub(super) fn apply_and_compose(
     };
     let reply = state
         .isolation
-        .try_apply_identity(op, stamp, now_ms, &eg_capabilities::scopes::ScopeRegistry)
+        .try_apply_identity(op, stamp, now_ms, &medulla_capabilities::scopes::ScopeRegistry)
         .map_err(|error| error.to_string())?;
     reply.try_with_request_context(|resolution| {
         // Only a SUCCESSFUL Session::Resolve / Token::VerifyApiKey above can
@@ -113,7 +113,7 @@ fn authorize_resolution(
     }
     validate_policy(claims, policy)?;
     store
-        .authorize(op, stamp, &eg_capabilities::scopes::ScopeRegistry)
+        .authorize(op, stamp, &medulla_capabilities::scopes::ScopeRegistry)
         .map_err(|error| error.to_string())
 }
 

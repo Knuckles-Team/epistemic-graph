@@ -1,8 +1,8 @@
 //! VIZ-1/VIZ-2 bridge: [`RealClusterSource`], the real `GraphCore`-backed
-//! `eg_viz_graph_tiles::contract::GraphSource` VIZ-2's `graph_tile_server`
+//! `medulla_viz_graph_tiles::contract::GraphSource` VIZ-2's `graph_tile_server`
 //! serves once a graph has a cached cluster hierarchy
 //! (`Method::ClusterHierarchyRefresh`) — replacing the `DemoGraph` placeholder
-//! VIZ-2 shipped with pending this lane. See `eg_viz_graph_tiles::contract`'s
+//! VIZ-2 shipped with pending this lane. See `medulla_viz_graph_tiles::contract`'s
 //! own module doc: "Swapping in the real implementation later changes only
 //! which `GraphSource` this crate's callers construct — neither the contract
 //! types nor the wire encoding change." This is that swap; the contract types
@@ -21,7 +21,7 @@
 //!
 //! The contract's `ClusterSummary.id`/`expand(cluster_id)` are `u64`, but this
 //! lane's own `Method::ClusterHierarchy*` RPC surface (`handlers::graph_ops.rs`,
-//! `eg_compute::algorithms::ClusterMeta::id`) already has a stable STRING id,
+//! `medulla_compute::algorithms::ClusterMeta::id`) already has a stable STRING id,
 //! `"L{level}-{local_index}"` (`crate::algorithms::format_cluster_id`/
 //! `parse_cluster_id` — the single source of truth for that shape). Rather
 //! than inventing a second identity scheme, this module packs the SAME
@@ -52,7 +52,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use eg_viz_graph_tiles::contract::{
+use medulla_viz_graph_tiles::contract::{
     ChildClusterRef, ClusterExpansion, ClusterLevel, ClusterSummary, GraphSource, InterClusterEdge,
     TileEdge, TileNode,
 };
@@ -61,11 +61,11 @@ use crate::algorithms::{format_cluster_id, ClusterHierarchyResult};
 use crate::graph::GraphCore;
 
 /// Cap on `top_node_types` handed to the wire encoder — the CONTRACT's own
-/// bound (`eg_viz_graph_tiles::wire::MAX_TOP_TYPES_PER_CLUSTER`), enforced
+/// bound (`medulla_viz_graph_tiles::wire::MAX_TOP_TYPES_PER_CLUSTER`), enforced
 /// here rather than assumed: `cluster_hierarchy` already caps at 5 (well
 /// under this), but this is the wire's actual limit, not an assumption about
 /// the compute side staying under it forever.
-const MAX_TOP_TYPES: usize = eg_viz_graph_tiles::wire::MAX_TOP_TYPES_PER_CLUSTER;
+const MAX_TOP_TYPES: usize = medulla_viz_graph_tiles::wire::MAX_TOP_TYPES_PER_CLUSTER;
 
 /// Pack `(level, local_index)` into the contract's `u64` cluster id — see the
 /// module doc's "Cluster id encoding" section.
@@ -230,7 +230,7 @@ impl GraphSource for RealClusterSource {
             let mut node_index: HashMap<String, u32> = HashMap::new();
             let mut nodes = Vec::with_capacity(sub.node_properties.len());
             for (id, blob) in &sub.node_properties {
-                let props = eg_types::msgpack::decode_property_value(blob).ok();
+                let props = medulla_types::msgpack::decode_property_value(blob).ok();
                 let node_type = props
                     .as_ref()
                     .and_then(|v| {
@@ -256,7 +256,7 @@ impl GraphSource for RealClusterSource {
                     continue;
                 };
                 for blob in blobs {
-                    let props = eg_types::msgpack::decode_property_value(blob).ok();
+                    let props = medulla_types::msgpack::decode_property_value(blob).ok();
                     let edge_type = props
                         .as_ref()
                         .and_then(|v| v.get("relationship").and_then(|t| t.as_str()))
@@ -310,7 +310,7 @@ mod tests {
     }
 
     /// Build a real `GraphCore` with two bridged 4-cliques (the same fixture
-    /// `eg-compute`'s own `cluster_hierarchy` tests use), refresh a hierarchy
+    /// `medulla-compute`'s own `cluster_hierarchy` tests use), refresh a hierarchy
     /// over it, and wrap both in a `RealClusterSource` — the round-trip this
     /// whole module exists for.
     fn two_bridged_cliques_source() -> (RealClusterSource, Vec<String>) {

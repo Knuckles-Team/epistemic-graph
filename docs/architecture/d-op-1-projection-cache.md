@@ -1,7 +1,7 @@
 # D-OP-1: cache `project_core()`'s RLS projection per (actor, graph version)
 
-Status: **IMPLEMENTED** (D-OB-20, eg-perf lane, 2026-08-01) — option (a) below,
-exactly as designed: `crates/eg-core/src/rls_projection_cache.rs` (new, bounded
+Status: **IMPLEMENTED** (D-OB-20, medulla-perf lane, 2026-08-01) — option (a) below,
+exactly as designed: `crates/medulla-core/src/rls_projection_cache.rs` (new, bounded
 per-actor cache on `GraphCore`) + `GraphReadAuthority::project_core` in
 `src/server/access.rs` split into a cache-checking wrapper and the original
 (expensive) materialization, now named `build_projection`. Option (b)
@@ -160,7 +160,7 @@ Add a bounded cache alongside them:
 
 ```rust
 /// Cached RLS projection per actor, invalidated by GraphCore::version()
-/// advancing (CONCEPT:EG-KG.sharding.row-level-security, D-OP-1). A small
+/// advancing (CONCEPT:MEDULLA-KG.sharding.row-level-security, D-OP-1). A small
 /// bounded map, not a single slot: unlike ontology_index (shared across all
 /// actors, no row filtering), a projection is PER-ACTOR, so concurrent
 /// distinct callers must not evict each other's cache. Capped (LRU) to bound
@@ -259,12 +259,12 @@ more broadly; it is not blocked by adopting (a) now.
    unmodified — must still pass (proves no RLS weakening).
 4. Live re-measurement (same method the orchestrator lane used): hit
    `/metrics` before/after on a real deployment, compare
-   `epistemic_graph_request_duration_seconds` for `HasNode`/`GetNodes` mean
+   `medulla_request_duration_seconds` for `HasNode`/`GetNodes` mean
    and p100 against the 2.7-3.0s / zero-under-1s baseline recorded
    2026-07-31. Target: cached calls should land near `CypherQuery`'s
    existing <0.0001s fast-path order of magnitude for a cache hit, with only
    the first call after a mutation paying the full rebuild.
-5. `EPISTEMIC_GRAPH_SLOW_QUERY_MS` is unset live today (D-OE-2, separately
+5. `MEDULLA_SLOW_QUERY_MS` is unset live today (D-OE-2, separately
    filed) — the slow-query log never fires. Set it as part of rolling this
    out so a REGRESSION in the cache (e.g. a key bug that never hits) is
    caught by the existing slow-query logging, not only by the next perf
@@ -290,7 +290,7 @@ so a whole-image transition landing while a build is in flight can still
 publish a now-stale result microseconds after a bare "clear the map"
 invalidation ran.
 
-Fix (`crates/eg-core/src/rls_projection_cache.rs`): a monotonic `generation`
+Fix (`crates/medulla-core/src/rls_projection_cache.rs`): a monotonic `generation`
 counter lives inside the SAME mutex as the cache entries. A caller captures
 `generation()` immediately before starting its unlocked rebuild and passes it
 back to `put`, which only stores if that captured value is still current —

@@ -15,7 +15,7 @@ use crate::server::persistence::agent_revision::{
     revision_scope, stage_batch, within_write, RevisionVerb, StagedBatch,
 };
 
-type Write<'a> = eg_transaction::AdmittedMutation<'a, eg_storage::AgentLibraryOwner>;
+type Write<'a> = medulla_transaction::AdmittedMutation<'a, medulla_storage::AgentLibraryOwner>;
 
 /// How refusals shared with the other layers name this one.
 const LIBRARY_NOUN: &str = "agent library";
@@ -27,8 +27,8 @@ const LIBRARY_NOUN: &str = "agent library";
 /// last one already as an inline tuple) -- so they are threaded as one value
 /// rather than as two positional arguments that could drift apart.
 struct ReplayIdentity<'a> {
-    operation: &'a eg_types::authority::OperationReplayIdentity,
-    nonce: &'a eg_types::authority::NonceReplayKey,
+    operation: &'a medulla_types::authority::OperationReplayIdentity,
+    nonce: &'a medulla_types::authority::NonceReplayKey,
 }
 
 /// One append-only revision transition to commit: the entry as it will be
@@ -48,14 +48,14 @@ struct AgentLibraryRevisionCommit {
 /// boxed; the enum itself stays small whichever path is taken.
 enum PreparedLibraryWrite {
     Replay {
-        operation: eg_types::authority::OperationReplayIdentity,
-        nonce: eg_types::authority::NonceReplayKey,
+        operation: medulla_types::authority::OperationReplayIdentity,
+        nonce: medulla_types::authority::NonceReplayKey,
         result: Box<AgentLibraryWriteResult>,
         receipt: Box<MutationReceipt>,
     },
     Fresh {
-        operation: eg_types::authority::OperationReplayIdentity,
-        nonce: eg_types::authority::NonceReplayKey,
+        operation: medulla_types::authority::OperationReplayIdentity,
+        nonce: medulla_types::authority::NonceReplayKey,
         context: Box<AgentLibraryMutationContext>,
         entry: Box<AgentLibraryEntry>,
     },
@@ -103,7 +103,7 @@ pub(super) fn library_verb(kind: AgentLibraryMutationKind) -> RevisionVerb {
 fn prepare_library_write(
     store: &AgentLibraryStore,
     txn: &Write<'_>,
-    owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
+    owner: &OwnedStoreHandle<medulla_storage::AgentLibraryOwner>,
     request: LibraryRequest<'_>,
     expected_revision: u64,
 ) -> Result<PreparedLibraryWrite, String> {
@@ -213,7 +213,7 @@ fn write_library_entry(
 
 fn prepare_publish_entry(
     store: &AgentLibraryStore,
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+    txn: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
     request: &AgentLibraryPublishRequest,
     expected_revision: u64,
     next_revision: u64,
@@ -267,7 +267,7 @@ fn prepare_publish_entry(
 
 fn prepare_retire_entry(
     store: &AgentLibraryStore,
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+    txn: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
     request: &AgentLibraryRetireRequest,
     expected_revision: u64,
     next_revision: u64,
@@ -322,7 +322,7 @@ struct EntryCommitPlan {
 fn build_entry_commit_plan(
     store: &AgentLibraryStore,
     txn: &Write<'_>,
-    owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
+    owner: &OwnedStoreHandle<medulla_storage::AgentLibraryOwner>,
     context: &AgentLibraryMutationContext,
     commit: AgentLibraryRevisionCommit,
     replay: &ReplayIdentity<'_>,
@@ -335,8 +335,8 @@ fn build_entry_commit_plan(
     let admitted_context =
         policy_admitted_context(context, &agent_library_operations(kind, &entry))?;
     let event = AgentLibraryOutboxEvent::new(kind, entry.clone(), &admitted_context)?;
-    let event_bytes = eg_storage::encode_bounded(&event, "agent library outbox event")?;
-    let entry_bytes = eg_storage::encode_bounded(&entry, "agent library revision")?;
+    let event_bytes = medulla_storage::encode_bounded(&event, "agent library outbox event")?;
+    let entry_bytes = medulla_storage::encode_bounded(&entry, "agent library revision")?;
     let (batch_id, staged) = stage_batch(
         store,
         txn,
@@ -374,8 +374,8 @@ fn build_entry_commit_plan(
 
 fn build_entry_receipt(
     plan: &EntryCommitPlan,
-    operation: &eg_types::authority::OperationReplayIdentity,
-    nonce: &eg_types::authority::NonceReplayKey,
+    operation: &medulla_types::authority::OperationReplayIdentity,
+    nonce: &medulla_types::authority::NonceReplayKey,
 ) -> Result<MutationReceipt, String> {
     let key = format!(
         "{}:{}:{}",
@@ -404,7 +404,7 @@ fn build_entry_receipt(
 fn commit_entry_in_write(
     store: &AgentLibraryStore,
     txn: Write<'_>,
-    owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
+    owner: &OwnedStoreHandle<medulla_storage::AgentLibraryOwner>,
     context: &AgentLibraryMutationContext,
     commit: AgentLibraryRevisionCommit,
     replay: ReplayIdentity<'_>,
@@ -438,7 +438,7 @@ fn commit_entry_in_write(
 impl AgentLibraryStore {
     fn entry_at_revision_in_write(
         &self,
-        write: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+        write: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
         tenant_id: &str,
         agent_id: &str,
         revision: u64,
@@ -446,7 +446,7 @@ impl AgentLibraryStore {
         if revision == 0 {
             return Ok(None);
         }
-        let revisions = write.open_read_table(eg_storage::AGENT_LIBRARY_REVISIONS)?;
+        let revisions = write.open_read_table(medulla_storage::AGENT_LIBRARY_REVISIONS)?;
         let Some(value) = revisions.get((tenant_id, agent_id, revision))? else {
             return Ok(None);
         };
@@ -529,7 +529,7 @@ impl AgentLibraryStore {
         request: AgentLibraryRetireRequest,
     ) -> Result<AgentLibraryWriteResult, String> {
         validate_context(self, &request.context)?;
-        eg_types::agent_library::validate_key(&request.context.tenant_id, &request.agent_id)?;
+        medulla_types::agent_library::validate_key(&request.context.tenant_id, &request.agent_id)?;
         write_library_entry(self, LibraryRequest::Retire(&request))
     }
 }

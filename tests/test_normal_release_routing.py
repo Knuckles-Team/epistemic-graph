@@ -10,7 +10,7 @@ from unittest.mock import patch
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = ROOT / ".github/workflows/eg-release-x86.yml"
+WORKFLOW = ROOT / ".github/workflows/medulla-release-x86.yml"
 SHA = "a" * 40
 
 
@@ -130,7 +130,7 @@ class NormalReleaseTrust(unittest.TestCase):
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
         job = self.workflow["jobs"]["wheel"]
         self.assertEqual(job["needs"], "authorize")
-        self.assertEqual(job["runs-on"]["group"], "eg-release-recovery")
+        self.assertEqual(job["runs-on"]["group"], "medulla-release-recovery")
         for expected in (
             "needs.authorize.outputs.source == github.sha",
             "github.actor_id == '8661571'",
@@ -157,7 +157,7 @@ class NormalReleaseTrust(unittest.TestCase):
             steps[2]["name"], "Verify exact event source before repository scripts"
         )
         self.assertEqual(jobs["wheel"]["env"]["MATURIN_FEATURES"], "full,ast-extended")
-        self.assertEqual(jobs["wheel"]["env"]["EG_WHEEL_JOBS_ARG"], "--jobs 2")
+        self.assertEqual(jobs["wheel"]["env"]["MEDULLA_WHEEL_JOBS_ARG"], "--jobs 2")
         upload = next(
             step
             for step in steps

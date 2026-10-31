@@ -4,7 +4,7 @@
 # thread inside one shared test-binary process), which gives us three things
 # `cargo test` structurally cannot:
 #   1. Process isolation for tests that mutate process-global state (the
-#      `EPISTEMIC_GRAPH_ENCRYPTION_KEY` env-var race documented in AGENTS.md
+#      `MEDULLA_ENCRYPTION_KEY` env-var race documented in AGENTS.md
 #      under "all six gates verified green on a 64-core host, and CI (2-core)
 #      failed anyway" — `advanced_crossmodal_roundtrip.rs`'s
 #      `ENC_ENV_LOCK`-guarded tests raced another test's transient mutation of

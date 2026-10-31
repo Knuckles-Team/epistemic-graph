@@ -8,11 +8,11 @@ use crate::protocol::{Response, ResultPayload};
 #[cfg(feature = "shacl")]
 pub(super) struct ShaclData<'a> {
     pub(super) turtle: &'a str,
-    pub(super) triples: Option<&'a [eg_types::ontology_inspection::RdfTriple]>,
+    pub(super) triples: Option<&'a [medulla_types::ontology_inspection::RdfTriple]>,
 }
 
 /// Validate the request graph (or an inline `data_graph` Turtle document, or typed
-/// `data_triples`) against SHACL constraints (CONCEPT:EG-KG.ontology.concept-6),
+/// `data_triples`) against SHACL constraints (CONCEPT:MEDULLA-KG.ontology.concept-6),
 /// returning a `Json` `sh:ValidationReport`. Omitted/empty `shapes` means the
 /// request graph's composed GraphSchema shapes. Read-only: with no data given it
 /// exports the LIVE graph's RDF (the same triples `GetRdf` serializes) and
@@ -33,19 +33,19 @@ pub(super) async fn handle_shacl_validate(
         Ok(graph) => graph,
         Err(error) => return Response::err(req_id, error),
     };
-    let report = match eg_shacl::validate(&shapes.graph, &data) {
+    let report = match medulla_shacl::validate(&shapes.graph, &data) {
         Ok(report) => report,
         Err(error) => return Response::err(req_id, format!("ShaclValidate: {error}")),
     };
     Response::ok(
         req_id,
-        ResultPayload::of::<eg_types::result_contract::reasoning::ShaclValidate>(
+        ResultPayload::of::<medulla_types::result_contract::reasoning::ShaclValidate>(
             shacl_report_wire(report, shapes.schema_digests, shapes.composed_digest),
         ),
     )
 }
 
-/// The graph's composed GraphSchema SHACL shapes as a plan [`eg_plan::exec::ShapeSource`]
+/// The graph's composed GraphSchema SHACL shapes as a plan [`medulla_plan::exec::ShapeSource`]
 /// (EH-196): a served `VALIDATE SHAPE` stage without its own `USING` document validates
 /// against exactly the shapes `ShaclValidate` uses when its `shapes` is omitted — one
 /// composition path ([`load_shacl_shapes`]), resolved only when a stage asks.
@@ -62,15 +62,15 @@ impl<'a> ServedShapes<'a> {
 }
 
 #[cfg(all(feature = "shacl", feature = "owl-plan"))]
-impl eg_plan::exec::ShapeSource for ServedShapes<'_> {
-    fn shapes(&self) -> Result<eg_shacl::Graph, String> {
+impl medulla_plan::exec::ShapeSource for ServedShapes<'_> {
+    fn shapes(&self) -> Result<medulla_shacl::Graph, String> {
         load_shacl_shapes(self.core, None).map(|loaded| loaded.graph)
     }
 }
 
 #[cfg(feature = "shacl")]
 struct LoadedShaclShapes {
-    graph: eg_shacl::Graph,
+    graph: medulla_shacl::Graph,
     schema_digests: Vec<String>,
     composed_digest: Option<String>,
 }
@@ -78,7 +78,7 @@ struct LoadedShaclShapes {
 #[cfg(feature = "shacl")]
 fn load_shacl_shapes(core: &GraphCore, shapes: Option<&str>) -> Result<LoadedShaclShapes, String> {
     if let Some(shapes) = shapes.filter(|document| !document.trim().is_empty()) {
-        return eg_shacl::graph_from_turtle(shapes)
+        return medulla_shacl::graph_from_turtle(shapes)
             .map(|graph| LoadedShaclShapes {
                 graph,
                 schema_digests: Vec::new(),
@@ -113,7 +113,7 @@ fn load_shacl_data(
     graph_name: &str,
     core: &Arc<GraphCore>,
     data: &ShaclData<'_>,
-) -> Result<eg_shacl::Graph, String> {
+) -> Result<medulla_shacl::Graph, String> {
     let has_turtle = !data.turtle.trim().is_empty();
     if has_turtle && data.triples.is_some() {
         return Err("ShaclValidate: give data_graph or data_triples, not both".to_string());
@@ -123,12 +123,12 @@ fn load_shacl_data(
             .map_err(|error| format!("ShaclValidate: bad data_triples: {error}"));
     }
     if has_turtle {
-        return eg_shacl::graph_from_turtle(data.turtle)
+        return medulla_shacl::graph_from_turtle(data.turtle)
             .map_err(|error| format!("ShaclValidate: bad data graph: {error}"));
     }
-    let triples = eg_rdf::mapping::export_triples(core, graph_name)
+    let triples = medulla_rdf::mapping::export_triples(core, graph_name)
         .map_err(|error| format!("ShaclValidate: export live graph: {error}"))?;
-    let mut graph = eg_shacl::Graph::new();
+    let mut graph = medulla_shacl::Graph::new();
     for triple in &triples {
         graph.insert(triple);
     }
@@ -138,11 +138,11 @@ fn load_shacl_data(
 /// The `ShaclValidate` wire body of an engine SHACL report.
 #[cfg(feature = "shacl")]
 fn shacl_report_wire(
-    report: eg_shacl::ValidationReport,
+    report: medulla_shacl::ValidationReport,
     schema_digests: Vec<String>,
     composed_digest: Option<String>,
-) -> eg_types::rdf_report::ShaclValidationReport {
-    use eg_types::rdf_report::{ShaclSeverity, ShaclValidationReport, ShaclValidationResult};
+) -> medulla_types::rdf_report::ShaclValidationReport {
+    use medulla_types::rdf_report::{ShaclSeverity, ShaclValidationReport, ShaclValidationResult};
     let results = report
         .results
         .into_iter()
@@ -154,9 +154,9 @@ fn shacl_report_wire(
             constraint_component: result.constraint_component,
             message: result.message,
             severity: match result.severity {
-                eg_shacl::Severity::Violation => ShaclSeverity::Violation,
-                eg_shacl::Severity::Warning => ShaclSeverity::Warning,
-                eg_shacl::Severity::Info => ShaclSeverity::Info,
+                medulla_shacl::Severity::Violation => ShaclSeverity::Violation,
+                medulla_shacl::Severity::Warning => ShaclSeverity::Warning,
+                medulla_shacl::Severity::Info => ShaclSeverity::Info,
             },
         })
         .collect();
@@ -169,7 +169,7 @@ fn shacl_report_wire(
 }
 
 /// Validate the request graph (or an inline `data_graph` Turtle document) against a
-/// **ShExJ** `schema` for a `shape_map` (`[node_iri, shape_label]` pairs) (CONCEPT:EG-KG.compute.concept-2),
+/// **ShExJ** `schema` for a `shape_map` (`[node_iri, shape_label]` pairs) (CONCEPT:MEDULLA-KG.compute.concept-2),
 /// returning a `Json` `ShexReport`. Read-only: an empty `data_graph` exports the LIVE
 /// graph's RDF (the same triples `GetRdf` serializes) and validates that.
 #[cfg(feature = "shex")]
@@ -181,16 +181,16 @@ pub(super) async fn handle_shex_validate(
     data_graph: String,
     shape_map: Vec<[String; 2]>,
 ) -> Response {
-    let schema = match eg_shex::Schema::from_shexj(&schema) {
+    let schema = match medulla_shex::Schema::from_shexj(&schema) {
         Ok(s) => s,
         Err(e) => return Response::err(req_id, format!("ShexValidate: bad schema: {e}")),
     };
     // Data graph: an inline Turtle document, else the live graph's exported RDF.
     let data = if data_graph.trim().is_empty() {
-        let exported = eg_rdf::mapping::export_triples(core, graph_name);
+        let exported = medulla_rdf::mapping::export_triples(core, graph_name);
         match exported {
             Ok(triples) => {
-                let mut g = eg_shex::Graph::new();
+                let mut g = medulla_shex::Graph::new();
                 for t in &triples {
                     g.insert(t);
                 }
@@ -201,7 +201,7 @@ pub(super) async fn handle_shex_validate(
             }
         }
     } else {
-        match eg_shex::graph_from_turtle(&data_graph) {
+        match medulla_shex::graph_from_turtle(&data_graph) {
             Ok(g) => g,
             Err(e) => return Response::err(req_id, format!("ShexValidate: bad data graph: {e}")),
         }
@@ -210,11 +210,11 @@ pub(super) async fn handle_shex_validate(
         .iter()
         .map(|p| (p[0].as_str(), p[1].as_str()))
         .collect();
-    let map = eg_shex::ShapeMap::from_iri_pairs(&pairs);
-    let report = eg_shex::validate(&schema, &data, &map);
+    let map = medulla_shex::ShapeMap::from_iri_pairs(&pairs);
+    let report = medulla_shex::validate(&schema, &data, &map);
     Response::ok(
         req_id,
-        ResultPayload::of::<eg_types::result_contract::reasoning::ShexValidate>(shex_report_wire(
+        ResultPayload::of::<medulla_types::result_contract::reasoning::ShexValidate>(shex_report_wire(
             report,
         )),
     )
@@ -222,8 +222,8 @@ pub(super) async fn handle_shex_validate(
 
 /// The `ShexValidate` wire body of an engine ShEx report.
 #[cfg(feature = "shex")]
-fn shex_report_wire(report: eg_shex::ShexReport) -> eg_types::rdf_report::ShexValidationReport {
-    use eg_types::rdf_report::{ShexNodeResult, ShexValidationReport};
+fn shex_report_wire(report: medulla_shex::ShexReport) -> medulla_types::rdf_report::ShexValidationReport {
+    use medulla_types::rdf_report::{ShexNodeResult, ShexValidationReport};
     let results = report
         .results
         .into_iter()
@@ -310,7 +310,7 @@ mod graph_schema_shapes_tests {
         live.install_schema_sources(Arc::new(updated));
         let later_digest = live.schema_sources().composed_digest().to_hex();
 
-        let report = eg_shacl::validate(&loaded.graph, &eg_shacl::Graph::new()).unwrap();
+        let report = medulla_shacl::validate(&loaded.graph, &medulla_shacl::Graph::new()).unwrap();
         let receipt = shacl_report_wire(report, loaded.schema_digests, loaded.composed_digest);
         assert_ne!(used_digest, later_digest);
         assert_eq!(
@@ -331,7 +331,7 @@ mod graph_schema_shapes_tests {
 mod served_shapes_tests {
     use std::sync::Arc;
 
-    use eg_types::wire::{Op, Plan, ShapeKeep};
+    use medulla_types::wire::{Op, Plan, ShapeKeep};
 
     use super::*;
     use crate::graph::{GraphSchemaSource, SchemaSourceOrigin};
@@ -346,12 +346,12 @@ mod served_shapes_tests {
         let data = "@prefix ex: <http://example/> .\n\
                     ex:alice a ex:Person ; ex:name \"Alice\" .\n\
                     ex:bob a ex:Person ; ex:age \"3\" .\n";
-        let mut iris = eg_rdf::mapping::IriStore::default();
-        eg_rdf::mapping::load_triples(
+        let mut iris = medulla_rdf::mapping::IriStore::default();
+        medulla_rdf::mapping::load_triples(
             &core,
             &mut iris,
             "g",
-            eg_rdf::mapping::parse_turtle(data).unwrap(),
+            medulla_rdf::mapping::parse_turtle(data).unwrap(),
         )
         .unwrap();
         let mut sources = (*core.schema_sources()).clone();
@@ -373,14 +373,14 @@ mod served_shapes_tests {
         core
     }
 
-    // spec: EG-FEDERATED-QUERY-R005
+    // spec: MEDULLA-FEDERATED-QUERY-R005
     #[test]
     fn a_stage_without_using_validates_against_the_graph_schema_shapes() {
         let core = people_with_schema();
         let view = core.analysis_snapshot();
-        let semantic = eg_core::compute::semantic::SemanticStore::new();
+        let semantic = medulla_core::compute::semantic::SemanticStore::new();
         let shapes = ServedShapes::new(&core);
-        let ctx = eg_plan::PlanCtx::new(&view, &semantic).with_shape_source(&shapes);
+        let ctx = medulla_plan::PlanCtx::new(&view, &semantic).with_shape_source(&shapes);
         let plan = Plan::new(vec![
             Op::SparqlBgp {
                 query: "SELECT ?p WHERE { ?p a <http://example/Person> }".into(),
@@ -393,7 +393,7 @@ mod served_shapes_tests {
                 keep: ShapeKeep::Violating,
             },
         ]);
-        let rows = eg_plan::execute(&plan, &ctx).unwrap();
+        let rows = medulla_plan::execute(&plan, &ctx).unwrap();
         let ids: Vec<&str> = rows.rows().iter().map(|row| row.id.as_str()).collect();
         assert_eq!(ids, vec!["<http://example/bob>"]);
     }

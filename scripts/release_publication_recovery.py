@@ -95,7 +95,7 @@ def check_job(job: dict, pins: dict, wheel: bool = False) -> None:
     if wheel:
         steps = {s["name"]: s["conclusion"] for s in job["steps"]}
         for name in (
-            "Smoke test (server --help + import epistemic_graph.{numeric,engine})",
+            "Smoke test (server --help + import medulla.{numeric,engine})",
             "Upload wheel artifact",
         ):
             require(steps.get(name) == "success", "wheel smoke/upload proof missing")
@@ -142,7 +142,7 @@ def unpack(archive: Path, destination: Path, expected: dict) -> Path:
         receipts = [
             i
             for i in wheel.infolist()
-            if i.filename == "epistemic_graph/contract/receipt.json"
+            if i.filename == "medulla/contract/receipt.json"
         ]
         require(len(receipts) == 1, "missing/duplicate contract receipt")
         require(

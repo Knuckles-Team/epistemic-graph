@@ -432,7 +432,7 @@
       "type": "object"
     },
     "OwlExplainResult": {
-      "description": "Materialized result of a `Method::OwlExplain` run (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation). Returned\nvia `ResultPayload::raw`. `tree` is `None` when `sub ⊑ sup` does not hold (nothing\nto explain) — `found` mirrors that as a convenience boolean for callers that only\njson-decode the top level.",
+      "description": "Materialized result of a `Method::OwlExplain` run (CONCEPT:MEDULLA-KG.ontology.owl-proof-tree-explanation). Returned\nvia `ResultPayload::raw`. `tree` is `None` when `sub ⊑ sup` does not hold (nothing\nto explain) — `found` mirrors that as a convenience boolean for callers that only\njson-decode the top level.",
       "properties": {
         "consistent": {
           "description": "`true` iff the classified ontology is consistent.",
@@ -477,7 +477,7 @@
       "type": "object"
     },
     "OwlPropertyFact": {
-      "description": "Materialized result of a `Method::OwlReason` run (CONCEPT:EG-KG.ontology.incremental-materialization). Returned via\n`ResultPayload::raw`. The reasoner lives in eg-rdf; this is the wire projection.",
+      "description": "Materialized result of a `Method::OwlReason` run (CONCEPT:MEDULLA-KG.ontology.incremental-materialization). Returned via\n`ResultPayload::raw`. The reasoner lives in medulla-rdf; this is the wire projection.",
       "properties": {
         "asserted": {
           "type": "boolean"
@@ -533,7 +533,7 @@
       "type": "object"
     },
     "OwlReasonResult": {
-      "description": "Materialized result of a `Method::OwlReason` run (CONCEPT:EG-KG.ontology.incremental-materialization). Returned via\n`ResultPayload::raw`. The reasoner lives in eg-rdf; this is the wire projection.",
+      "description": "Materialized result of a `Method::OwlReason` run (CONCEPT:MEDULLA-KG.ontology.incremental-materialization). Returned via\n`ResultPayload::raw`. The reasoner lives in medulla-rdf; this is the wire projection.",
       "properties": {
         "consistent": {
           "description": "`true` iff the ontology is consistent (no class forced to subsume `owl:Nothing`).",
@@ -557,7 +557,7 @@
           "type": "array"
         },
         "instance_conf": {
-          "description": "Per-membership confidence in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13), ALIGNED index-for-index\nwith `instances`: the type fact's confidence (per-node confidence × Ebbinghaus\ndecay) × the subsumption confidence — so an old/decayed or weakly-asserted fact\nyields a lower-confidence membership.",
+          "description": "Per-membership confidence in `[0,1]` (CONCEPT:MEDULLA-KG.ontology.concept-13), ALIGNED index-for-index\nwith `instances`: the type fact's confidence (per-node confidence × Ebbinghaus\ndecay) × the subsumption confidence — so an old/decayed or weakly-asserted fact\nyields a lower-confidence membership.",
           "items": {
             "format": "double",
             "type": "number"
@@ -596,7 +596,7 @@
           "type": "array"
         },
         "subclass_conf": {
-          "description": "Per-subsumption confidence in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13), ALIGNED index-for-index\nwith `subclasses`. `1.0` for a hard/asserted subsumption; the propagated\n`axiom_conf × ∏ premise_conf` (max over alternative derivations) for an uncertain\none. A fully-hard ontology yields all `1.0`.",
+          "description": "Per-subsumption confidence in `[0,1]` (CONCEPT:MEDULLA-KG.ontology.concept-13), ALIGNED index-for-index\nwith `subclasses`. `1.0` for a hard/asserted subsumption; the propagated\n`axiom_conf × ∏ premise_conf` (max over alternative derivations) for an uncertain\none. A fully-hard ontology yields all `1.0`.",
           "items": {
             "format": "double",
             "type": "number"
@@ -642,7 +642,7 @@
       "type": "object"
     },
     "ProofNodeWire": {
-      "description": "One node of a reconstructed OWL proof tree (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation) — the wire\nprojection of `eg_rdf::owl::ProofNode`. `rule == \"asserted\"` marks a LEAF (a\nreflexive seed or a base fact with no recorded justification — the proof bottoms\nout there); any other `rule` is a completion rule name (`\"CR-sub\"`, `\"CR-some⁺\"`,\n`\"CR-instance\"`, …) that consumed `premises` (each itself a full sub-proof) plus the\ncited `axioms`. Recursive — `premises` nests to the tree's actual depth (never\nflattened), so a client walks it exactly like the reasoner derived it.",
+      "description": "One node of a reconstructed OWL proof tree (CONCEPT:MEDULLA-KG.ontology.owl-proof-tree-explanation) — the wire\nprojection of `medulla_rdf::owl::ProofNode`. `rule == \"asserted\"` marks a LEAF (a\nreflexive seed or a base fact with no recorded justification — the proof bottoms\nout there); any other `rule` is a completion rule name (`\"CR-sub\"`, `\"CR-some⁺\"`,\n`\"CR-instance\"`, …) that consumed `premises` (each itself a full sub-proof) plus the\ncited `axioms`. Recursive — `premises` nests to the tree's actual depth (never\nflattened), so a client walks it exactly like the reasoner derived it.",
       "properties": {
         "axioms": {
           "items": {
@@ -1105,7 +1105,7 @@
       ]
     },
     "SparqlResult": {
-      "description": "Materialized result of a `Method::Sparql` SELECT (CONCEPT:EG-KG.ontology.concept-11). Returned via\n`ResultPayload::raw`. `vars` is the projected variable order; each row is aligned\nto `vars` with `None` for an unbound (OPTIONAL) variable. Lives in eg-types (the\nwire-DTO crate) so the protocol can embed it; the evaluator lives in eg-rdf.",
+      "description": "Materialized result of a `Method::Sparql` SELECT (CONCEPT:MEDULLA-KG.ontology.concept-11). Returned via\n`ResultPayload::raw`. `vars` is the projected variable order; each row is aligned\nto `vars` with `None` for an unbound (OPTIONAL) variable. Lives in medulla-types (the\nwire-DTO crate) so the protocol can embed it; the evaluator lives in medulla-rdf.",
       "properties": {
         "proofs": {
           "description": "One witness proof per row, in row order, when the request asked to `explain`\n(EH-197); empty otherwise.",

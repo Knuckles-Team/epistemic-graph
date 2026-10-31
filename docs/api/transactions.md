@@ -304,7 +304,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Mult
 
 ## `MutationOutbox`
 
-X10, runtime-conditional: status and dead_letters are reads. Rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Targets a graph's outbox, or a native store of the checked tenant through a typed scope selector (tenant for Agent Library and jobs, binding for a semantic index, resource for the shared SQL catalog). Local-only authority, refused in clustered mode
+X10, runtime-conditional: status and dead_letters are reads. Rewind resets one consumer's durable cursor through bounded medulla-transaction transactions, so it is a saga rather than one atomic write. Targets a graph's outbox, or a native store of the checked tenant through a typed scope selector (tenant for Agent Library and jobs, binding for a semantic index, resource for the shared SQL catalog). Local-only authority, refused in clustered mode
 
 | Property | Value |
 |---|---|
@@ -504,7 +504,7 @@ encrypted Raft-native staging; Commit owns graph publication
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `graph` | string \| null | no | Optional target graph for THIS staged op (CONCEPT:EG-KG.txn.routes-cross-shard-txn — multi-graph txn). An explicit `None` selects the txn's default graph. A staged op naming a graph that resolves to a DIFFERENT Raft group makes the txn CROSS-SHARD, routed through 2PC at commit. |
+| `graph` | string \| null | no | Optional target graph for THIS staged op (CONCEPT:MEDULLA-KG.txn.routes-cross-shard-txn — multi-graph txn). An explicit `None` selects the txn's default graph. A staged op naming a graph that resolves to a DIFFERENT Raft group makes the txn CROSS-SHARD, routed through 2PC at commit. |
 | `node_id` | string | yes |  |
 | `properties_msgpack` | array of integer (uint8) | yes |  |
 | `txn_id` | string | yes |  |

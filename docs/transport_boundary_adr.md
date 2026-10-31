@@ -19,7 +19,7 @@ authenticated with **HMAC-SHA256**. There is **no PyO3 / in-process extension**;
 enforces the absence of PyO3 in source and built wheels.
 
 - Server framing: `src/server.rs` (`handle_connection`).
-- Client framing: `epistemic_graph/client.py` (`_send`).
+- Client framing: `medulla/client.py` (`_send`).
 - The "boundary contract" is therefore the **wire protocol** — the `Method`
   enum in `src/protocol.rs` (externally tagged: `{"method": ..., "params": ...}`)
   and `ResultPayload`. Contract changes are cut over atomically across every
@@ -35,11 +35,11 @@ enforces the absence of PyO3 in source and built wheels.
   process; multiple clients (MCP server, CLI, UIs, ingestion) share one engine,
   eliminating embedded-DB file-lock contention.
 - There is still no PyO3/FFI, but the Python client no longer hand-mirrors the
-  `Method` enum: RF-RULING-003 made `crates/eg-capabilities` the single contract
-  registry and `gen_contract` emits `epistemic_graph/generated/*.py` from it, so a
+  `Method` enum: RF-RULING-003 made `crates/medulla-capabilities` the single contract
+  registry and `gen_contract` emits `medulla/generated/*.py` from it, so a
   method id is spelled in generated code only. `gen_contract --check` (run in
   `release.yml` and on pre-push) byte-diffs the regenerated artifacts against the
-  tree, and the eg-capabilities bijection test proves every wire variant has exactly
+  tree, and the medulla-capabilities bijection test proves every wire variant has exactly
   one descriptor. This is the FFI-free equivalent of a generated binding's
   compile-time check, with no ratchet file in the loop.
 
@@ -59,8 +59,8 @@ Served mode has one persistence contract: authoritative redb with
 commit-before-ack and a mandatory durable directory.
 
 SPARQL is no longer rudimentary: the engine ships a native **SPARQL 1.1 SELECT** surface
-(spargebra → GraphView scans, CONCEPT:EG-KG.ontology.concept-11) plus an **OWL 2 EL⁺/RL reasoner**
-(CONCEPT:EG-KG.ontology.incremental-materialization), both composable into the unified planner. Trust scoring and
+(spargebra → GraphView scans, CONCEPT:MEDULLA-KG.ontology.concept-11) plus an **OWL 2 EL⁺/RL reasoner**
+(CONCEPT:MEDULLA-KG.ontology.incremental-materialization), both composable into the unified planner. Trust scoring and
 human-in-the-loop gating remain **not** engine features — they live in the
 agent-utilities orchestration layer (request/grant-approval, risk-veto, blast-radius).
 See [the master-of-all engine](architecture/engine.md) for the durable + reasoning

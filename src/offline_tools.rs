@@ -1,6 +1,6 @@
-//! Offline tools folded into the single `epistemic-graph-server` executable.
+//! Offline tools folded into the single `medulla-server` executable.
 //!
-//! `epistemic-graph-server <tool> ...` runs the tool instead of the service and
+//! `medulla-server <tool> ...` runs the tool instead of the service and
 //! exits. With no tool name the process serves, so existing invocations keep
 //! working. The tool is recognised by the first argument only; the server's own
 //! flags never collide with these names.
@@ -20,12 +20,12 @@ mod rf019_observe;
 const TOOLS: &[&str] = &[
     "restore",
     "migrate-shards",
-    "epistemic-graph-rf019-observe",
+    "medulla-rf019-observe",
     "lake-fixture-export",
 ];
 
 fn missing_feature(tool: &str, feature: &str) -> ! {
-    eprintln!("epistemic-graph-server {tool}: this build lacks the `{feature}` feature");
+    eprintln!("medulla-server {tool}: this build lacks the `{feature}` feature");
     std::process::exit(2);
 }
 
@@ -51,9 +51,9 @@ pub(crate) fn run_if_requested() {
         #[cfg(not(feature = "redb"))]
         "migrate-shards" => missing_feature("migrate-shards", "redb"),
         #[cfg(feature = "ann-redb")]
-        "epistemic-graph-rf019-observe" => rf019_observe::run(argv),
+        "medulla-rf019-observe" => rf019_observe::run(argv),
         #[cfg(not(feature = "ann-redb"))]
-        "epistemic-graph-rf019-observe" => missing_feature(&name, "ann-redb"),
+        "medulla-rf019-observe" => missing_feature(&name, "ann-redb"),
         #[cfg(feature = "lake")]
         "lake-fixture-export" => lake_fixture_export::run(argv),
         #[cfg(not(feature = "lake"))]

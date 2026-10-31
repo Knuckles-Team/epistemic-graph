@@ -1,14 +1,14 @@
-//! EG-FEDERATED-QUERY-R065: prove the DAG EXPLAIN/PROFILE contract through
-//! the served `Method::Uql` path, rather than only through `eg-plan`.
-// spec: EG-FEDERATED-QUERY-R065
+//! MEDULLA-FEDERATED-QUERY-R065: prove the DAG EXPLAIN/PROFILE contract through
+//! the served `Method::Uql` path, rather than only through `medulla-plan`.
+// spec: MEDULLA-FEDERATED-QUERY-R065
 #![cfg(all(feature = "query", feature = "redb", feature = "security"))]
 
 mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use eg_types::wire::UqlResult;
-use epistemic_graph::protocol::{Method, Response, ResultPayload};
+use medulla_types::wire::UqlResult;
+use medulla::protocol::{Method, Response, ResultPayload};
 
 const SECRET: &str = "uql-dag-served-test-secret";
 

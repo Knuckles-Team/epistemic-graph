@@ -13,11 +13,11 @@ macro_rules! persistence_mutations {
             // rather than dropping. Off the reactor via spawn_blocking so a saturated
             // writer can't stall the Tokio worker pool. Routed to the graph's shard.
             //
-            // CONCEPT:EG-KG.backend.catalog-shard-resolve — when a tenant catalog is attached, resolve the shard AND enqueue
+            // CONCEPT:MEDULLA-KG.backend.catalog-shard-resolve — when a tenant catalog is attached, resolve the shard AND enqueue
             // the op while holding a SHARED `routing_epoch` READ guard, so an online reshard's
             // exclusive flip cannot interleave (no lost / misrouted write). The guard is moved
             // INTO the blocking send so it is held exactly until the op is enqueued, then
-            // dropped. With NO catalog (the default) this is byte-for-byte the EG-026 path.
+            // dropped. With NO catalog (the default) this is byte-for-byte the MEDULLA-026 path.
             if self.catalog.is_some() {
                 let guard = self.routing_epoch.clone().read_owned().await;
                 let tx = self.shard_for(graph_fname).tx.clone();

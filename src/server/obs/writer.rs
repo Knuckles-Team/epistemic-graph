@@ -8,10 +8,10 @@
 //! exact scope [`TELEMETRY_WRITE_SCOPE`] and a tenant claim. Reads stay denied.
 //!
 //! The verified tenant is then stamped onto everything the request writes, the
-//! convention `TelemetryDerive` reads by (`eg_tenant`):
+//! convention `TelemetryDerive` reads by (`medulla_tenant`):
 //!
-//! * spans: the `eg_tenant` attribute;
-//! * remote-write series: the `eg_tenant` label;
+//! * spans: the `medulla_tenant` attribute;
+//! * remote-write series: the `medulla_tenant` label;
 //! * log records: the stream, moved under `<tenant>/`.
 //!
 //! A record that already names ANOTHER tenant refuses the whole request -- a
@@ -22,7 +22,7 @@ use super::LogRecord;
 /// The exact scope a telemetry collector's token must carry.
 pub(crate) const TELEMETRY_WRITE_SCOPE: &str = "telemetry:write";
 /// The attribute/label `TelemetryDerive` selects a tenant's telemetry by.
-pub(crate) const TENANT_ATTRIBUTE: &str = "eg_tenant";
+pub(crate) const TENANT_ATTRIBUTE: &str = "medulla_tenant";
 
 /// A verified collector, bound to one tenant.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,9 +100,9 @@ pub(crate) fn stamp_logs(records: &mut [LogRecord], tenant: &str) {
     }
 }
 
-/// Stamp `eg_tenant` on every span; a span naming another tenant refuses all.
+/// Stamp `medulla_tenant` on every span; a span naming another tenant refuses all.
 #[cfg(feature = "traces")]
-pub(crate) fn stamp_spans(spans: &mut [eg_tsdb::traces::Span], tenant: &str) -> Result<(), String> {
+pub(crate) fn stamp_spans(spans: &mut [medulla_tsdb::traces::Span], tenant: &str) -> Result<(), String> {
     if let Some(claimed) = spans
         .iter()
         .filter_map(|span| span.attributes.get(TENANT_ATTRIBUTE))
@@ -117,7 +117,7 @@ pub(crate) fn stamp_spans(spans: &mut [eg_tsdb::traces::Span], tenant: &str) -> 
     Ok(())
 }
 
-/// Stamp the `eg_tenant` label on every series; one naming another tenant
+/// Stamp the `medulla_tenant` label on every series; one naming another tenant
 /// refuses all.
 #[cfg(feature = "otel-export")]
 pub(crate) fn stamp_series(

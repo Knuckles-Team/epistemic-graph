@@ -1,23 +1,23 @@
-# Medulla — thin JS/Node client (CONCEPT:EG-KG.ingest.broker-streams-namespaces)
+# Medulla — thin JS/Node client (CONCEPT:MEDULLA-KG.ingest.broker-streams-namespaces)
 
 A **deliberately thin** Node client for the Program-B engine `Method`s that had no
 client surface. It is **not a full SDK** — the canonical, full-featured client is the
-Python one in [`epistemic_graph/client.py`](../../epistemic_graph/client.py). This
+Python one in [`medulla/client.py`](../../medulla/client.py). This
 binding covers only the new wire ops from B1.7:
 
 | Domain | Methods | Engine concept |
 |--------|---------|----------------|
-| Broker admin | `declareExchange` `deleteExchange` `declareQueue` `bindQueue` `unbindQueue` | EG-275/276/277/278 |
-| Broker publish | `publish` `publishEx` `publishConfirmed` `publishIdempotent` | EG-275/279/284/314 |
-| Broker consume | `brokerConsume` `brokerAck` `brokerReject` `brokerAckTag` `brokerNackTag` `brokerRenewTag` `sweepExpired` | EG-KG.compute.groups-qos-prefetch-honoring/276/284 |
-| Streams | `streamDeclare` `streamPublish` `streamRead` `streamTrim` `streamCommitOffset` `streamCommittedOffset` | EG-283 |
-| RBAC admin | `rbacAddRole` `rbacRemoveRole` `rbacAddGrant` `rbacRemoveGrant` `rbacList` | EG-KG.compute.feature |
+| Broker admin | `declareExchange` `deleteExchange` `declareQueue` `bindQueue` `unbindQueue` | MEDULLA-275/276/277/278 |
+| Broker publish | `publish` `publishEx` `publishConfirmed` `publishIdempotent` | MEDULLA-275/279/284/314 |
+| Broker consume | `brokerConsume` `brokerAck` `brokerReject` `brokerAckTag` `brokerNackTag` `brokerRenewTag` `sweepExpired` | MEDULLA-KG.compute.groups-qos-prefetch-honoring/276/284 |
+| Streams | `streamDeclare` `streamPublish` `streamRead` `streamTrim` `streamCommitOffset` `streamCommittedOffset` | MEDULLA-283 |
+| RBAC admin | `rbacAddRole` `rbacRemoveRole` `rbacAddGrant` `rbacRemoveGrant` `rbacList` | MEDULLA-KG.compute.feature |
 | Identity security | `registerIdentity` `bootstrapSystemIdentity` `applyMultisigMutation` | Signed current-context operations |
-| Ops | `backup(destination, label)` `restore(source, targetShards)` | EG-090 |
-| NL→query | `nlQuery` | EG-080 |
+| Ops | `backup(destination, label)` `restore(source, targetShards)` | MEDULLA-090 |
+| NL→query | `nlQuery` | MEDULLA-080 |
 
 > **Generated-from-the-Method-list.** Every method maps 1:1 to a Rust `Method`
-> variant in [`crates/eg-types/src/protocol.rs`](../../crates/eg-types/src/protocol.rs),
+> variant in [`crates/medulla-types/src/protocol.rs`](../../crates/medulla-types/src/protocol.rs),
 > using the exact serde field names that enum destructures. The full graph / vector /
 > RDF / SQL API is intentionally omitted — use the Python client for that.
 
@@ -35,7 +35,7 @@ PyO3/FFI, so the wire is the API):
   secret, missing claims, unknown fields, empty or duplicate list entries, and a
   malformed delegation chain.
 - **Canonical body:** the MAC covers the engine's canonical re-derivation of the
-  body, computed by the embedded `eg_method_codec.wasm` run by Node's WebAssembly (see
+  body, computed by the embedded `medulla_method_codec.wasm` run by Node's WebAssembly (see
   the [wire contract](https://github.com/Knuckles-Team/medulla/blob/main/docs/interfaces/clients.md#wire-contract-all-three)). `vectors.test.mjs` replays every contract method-body
   vector through the signer.
 - **Compact results:** a top-level msgpack `bin` result is a second `Raw` layer and is
@@ -60,7 +60,7 @@ const c = new MedullaThinClient({
   verifiedContext: {
     principal: "service:graph-client",
     tenant: "tenant:default",
-    audience: "epistemic-graph"  # OIDC audience value, unchanged by the rename,
+    audience: "medulla"  # OIDC audience value, unchanged by the rename,
     agent_id: "service:graph-client",
     roles: ["graph-client"],
     scopes: ["graph:read", "graph:write"],

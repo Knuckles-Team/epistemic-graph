@@ -1,7 +1,7 @@
 use super::*;
 
-impl EgStore {
-    /// Native-mutation-command fast path of `apply_request` (CX WB1-EG-01 CCN
+impl MedullaStore {
+    /// Native-mutation-command fast path of `apply_request` (CX WB1-MEDULLA-01 CCN
     /// reduction). `Ok(Some(response))` means "return this from `apply_request`
     /// immediately" (mirrors every `return Ok(RaftResponse{..})` this block used
     /// to perform directly); `Ok(None)` means "fall through to the ordinary
@@ -268,7 +268,7 @@ impl EgStore {
     /// `Ok(value) => RaftResponse{native_result: Some(Bool(value))}` /
     /// `Err(error) => RaftResponse{native_error: Some(error)}`, shared by every
     /// `NativeMutationCommand` arm whose outcome is a bare `Result<bool, String>`
-    /// (CX WB1-EG-01 CCN reduction). Pure extract-method, byte-identical
+    /// (CX WB1-MEDULLA-01 CCN reduction). Pure extract-method, byte-identical
     /// behaviour.
     pub(super) fn native_bool_outcome_to_response(outcome: Result<bool, String>) -> RaftResponse {
         match outcome {
@@ -335,7 +335,7 @@ impl EgStore {
     }
 
     /// The `open_public_method` branch of `try_apply_native_command` (CX
-    /// WB1-EG-01 CCN reduction): a replicated `Method` opaque-scoped as a native
+    /// WB1-MEDULLA-01 CCN reduction): a replicated `Method` opaque-scoped as a native
     /// command (the `Commit`/transaction-prepare special case, or the ordinary
     /// native-apply path). Pure extract-method, byte-identical behaviour, no
     /// signature change.
@@ -392,12 +392,12 @@ impl EgStore {
         })
     }
 
-    /// Resolve the target graph's RESIDENT core (CX WB1-EG-01 CCN reduction).
+    /// Resolve the target graph's RESIDENT core (CX WB1-MEDULLA-01 CCN reduction).
     /// Pure extract-method from `apply_request`'s preamble, byte-identical
     /// behaviour, no signature change. See the call site's doc comment for the
     /// lazy-open / fast-read-lock-then-escalate rationale.
     /// Validate the complete sanitized modality envelope BEFORE lazy graph
-    /// materialization or graph creation (CX WB1-EG-01 CCN reduction). A
+    /// materialization or graph creation (CX WB1-MEDULLA-01 CCN reduction). A
     /// malformed/forged replicated command must be a pure rejected log entry,
     /// never an opportunity to create a catalog row or touch a serving
     /// projection. This is the single replica-side gate for the versioned typed
@@ -425,7 +425,7 @@ impl EgStore {
     }
 
     /// A replicated graph command must be a deterministic, non-work-item
-    /// durable mutation (CX WB1-EG-01 CCN reduction). Pure extract-method,
+    /// durable mutation (CX WB1-MEDULLA-01 CCN reduction). Pure extract-method,
     /// byte-identical behaviour.
     pub(super) fn require_durable_graph_method(
         graph_method: Option<&Method>,
@@ -474,7 +474,7 @@ impl EgStore {
         // Steady-state fast path: the overwhelming majority of applies land on a
         // graph that already exists (created by an earlier entry, possibly in a
         // DIFFERENT Raft group — `ctx.state` is the ONE `ServerState` shared by
-        // every group's `EgStore` on this node, see `MultiRaft::create_group`).
+        // every group's `MedullaStore` on this node, see `MultiRaft::create_group`).
         // Resolving `core`/`persistence` under a WRITE lock unconditionally would
         // force every group's apply loop through one exclusive lock for every
         // entry, serializing N groups down to the throughput of one regardless of

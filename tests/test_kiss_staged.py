@@ -287,7 +287,7 @@ def test_hook_resolves_a_tests_rs_crate_roots_mod_declaration(
     (`tests/support.rs`), not a same-named subdirectory the walker otherwise expects
     an ordinary module file to own. Plant a real violation in exactly this shape and
     prove the hook still reports it, instead of fail-closed on a module closure it
-    resolved against the wrong directory -- the regression behind the eg-tts-piper
+    resolved against the wrong directory -- the regression behind the medulla-tts-piper
     `#[path = "support/mod.rs"]` workaround."""
     repo, kiss, log = repository
     (repo / "crates/dummy/tests").mkdir(parents=True)

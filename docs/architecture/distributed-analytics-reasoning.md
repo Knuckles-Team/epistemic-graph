@@ -21,7 +21,7 @@ retain the native command history needed to recover it. Submission ids derive fr
 the committed batch identity rather than a process counter, so replay and follower
 apply converge. There is no pod-number or singleton-coordinator election.
 
-A bounded colocated pool (`EG_ANALYTICS_WORKERS`, default `1`) may run jobs in a
+A bounded colocated pool (`MEDULLA_ANALYTICS_WORKERS`, default `1`) may run jobs in a
 single-node deployment; clustered authorities disable colocated execution and use
 remote workers so a scheduler leader change never strands an in-process kernel.
 Remote workers atomically lease the highest-priority eligible job through Raft. The
@@ -57,9 +57,9 @@ The companion `agent-utilities` distribution exposes the standalone entry point
 `GRAPH_SERVICE_TCP_ADDR`), `GRAPH_SERVICE_AUTH_SECRET`,
 `GRAPH_OS_ANALYTICS_PRINCIPAL`, `GRAPH_OS_ANALYTICS_TENANT`,
 `AUTH_JWT_AUDIENCE`, and `KG_POLICY_VERSION`. Slot, lease and poll bounds can be
-set with `EG_ANALYTICS_WORKER_SLOTS`, `EG_ANALYTICS_WORKER_LEASE_MS`, and
-`EG_ANALYTICS_WORKER_POLL_SECONDS`; optional placement advertisements use the
-comma-separated `EG_ANALYTICS_WORKER_CAPABILITIES` (default
+set with `MEDULLA_ANALYTICS_WORKER_SLOTS`, `MEDULLA_ANALYTICS_WORKER_LEASE_MS`, and
+`MEDULLA_ANALYTICS_WORKER_POLL_SECONDS`; optional placement advertisements use the
+comma-separated `MEDULLA_ANALYTICS_WORKER_CAPABILITIES` (default
 `mining.association,pool:default`). These values are runtime configuration and
 secrets, never persisted in a job or result. The native TCP protocol is signed
 with the shared HMAC secret; a deployment that requires transport mTLS must
@@ -179,9 +179,9 @@ control placement never silently changes the transaction target.
 
 | Setting | Default | Meaning |
 |---|---:|---|
-| `EG_ANALYTICS_WORKERS` | `1` | Colocated executor concurrency (`0` = remote-only, maximum `32`) |
-| `EG_ANALYTICS_TENANT_ACTIVE` | `2` | Maximum active leases per opaque tenant reference |
-| `EG_ANALYTICS_TENANT_CPU_MS` | unlimited | Maximum reserved CPU budget per tenant |
+| `MEDULLA_ANALYTICS_WORKERS` | `1` | Colocated executor concurrency (`0` = remote-only, maximum `32`) |
+| `MEDULLA_ANALYTICS_TENANT_ACTIVE` | `2` | Maximum active leases per opaque tenant reference |
+| `MEDULLA_ANALYTICS_TENANT_CPU_MS` | unlimited | Maximum reserved CPU budget per tenant |
 
 Per-job policy carries CPU, memory, IO and output budgets, priority, deadline,
 retry/backoff and placement constraints. Authenticated caller/purpose/tenant and
@@ -193,8 +193,8 @@ The source architecture gate is
 `python scripts/check_p2_analytics_reasoning_architecture.py`; the current persisted
 watermark shape is also covered by
 `python scripts/check_persisted_mutation_contract.py`. Focused tests are
-in the `eg-jobs` store/claim modules, association-mining cancellation tests, and
-`eg-epistemic::incremental` tests. Suggested targeted commands are documented in
+in the `medulla-jobs` store/claim modules, association-mining cancellation tests, and
+`medulla-epistemic::incremental` tests. Suggested targeted commands are documented in
 the implementation report; do not run multiple Rust builds concurrently on a
 resource-constrained host.
 
@@ -213,10 +213,10 @@ repo and `agent-utilities` is empty — those exact names were never coined here
 gates 2/4/6:**
 
 - Full state machine with checkpoint/lease/fence/retry/idempotent
-  `result_ref` (`crates/eg-jobs/src/model.rs`, `store.rs`), including
+  `result_ref` (`crates/medulla-jobs/src/model.rs`, `store.rs`), including
   `resume_from_checkpoint_after_simulated_crash` and
   `job_store_survives_a_restart` tests (`store.rs`).
-- `TypedJobResult` (`crates/eg-jobs/src/result.rs`) already carries schema,
+- `TypedJobResult` (`crates/medulla-jobs/src/result.rs`) already carries schema,
   per-row confidence, evidence/source/proof/contradiction refs, uncertainty,
   calibration, and a `ReproducibilityManifest` (input dataset/content
   digest/version, algorithm ref, params digest, implementation/environment
@@ -225,7 +225,7 @@ gates 2/4/6:**
   enforcement, cooperative cancellation checked inside kernel recursion, and an
   exact closed result schema for the shipped `mining.association` kernel are all
   documented above and covered by the association-mining cancellation tests.
-- `crates/eg-jobs/src/claim.rs` commits an `unvalidated` `:Claim`/`:Evidence`/
+- `crates/medulla-jobs/src/claim.rs` commits an `unvalidated` `:Claim`/`:Evidence`/
   `:Activity` writeback, idempotent on `result_ref` (`duplicate_result_commit_is_a_no_op`).
 - AU-side consumers already match the lane's design section verbatim:
   `agent_utilities/knowledge_graph/research/trace_pattern_miner.py` mines via a
@@ -239,7 +239,7 @@ gates 2/4/6:**
   explicit `retract()`, and never re-proposes a retracted claim (its `is_retracted`
   guard). `agent_utilities/knowledge_graph/retrieval/analytics_job_registry.py`
   (CONCEPT:INT-P2-1b) is the AU-side feature/model/experiment registry that
-  `eg-jobs`' own module docs named as the deliberate follow-up — it indexes
+  `medulla-jobs`' own module docs named as the deliberate follow-up — it indexes
   committed claims by `AlgoVersion` lineage, read-only, never a second
   persistence layer.
 
@@ -248,25 +248,25 @@ work around the block by inventing a parallel shape:**
 
 - **GOC-03 tie-in.** `AnalyticsJob`/`TypedJobResult` register no
   `CommitDescriptor` participant under `CommitParticipantDomain::AnalyticsOutcome`
-  (`crates/eg-types/src/commit_descriptor.rs`, branch `goc/goc-03-commit-currency`,
+  (`crates/medulla-types/src/commit_descriptor.rs`, branch `goc/goc-03-commit-currency`,
   not on `main`, unverified to compile). Wiring this needs GOC-03's descriptor type
   merged first; `AnalyticsJob` has no `commit_seq`/`fencing_token`/
   `participant_digests` fields today.
 - **GOC-10 tie-in.** `InputSnapshotHandle` (`model.rs`) pins a single
   `(graph, version)` plus an opaque `dataset_ref`/`content_digest` — it has no
-  shape for pinning a GOC-10 `LakeSnapshot` (`crates/eg-types/src/lake_catalog.rs`,
+  shape for pinning a GOC-10 `LakeSnapshot` (`crates/medulla-types/src/lake_catalog.rs`,
   branch `goc/goc-10-lake-authority`, not on `main`) or multiple simultaneous
   cross-domain snapshots (lake/table, trace/series, vector-index namespace) for a
   job that reads across domains. Blocked the same way.
 - **`promotion_state` is a design split, not a missing field.** The lane doc asks
   for write-back to be gated `Proposal -> Approved | Rejected | Retracted` inside
-  the job/result record. What exists instead: `eg-jobs::claim` writes an
+  the job/result record. What exists instead: `medulla-jobs::claim` writes an
   `unvalidated` Claim/Evidence pair (the KG-native "proposal" artifact) on every
   succeeded job, and AU's `claim_flywheel.py` + `artifact_promotion.py` own the
   actual proposed/validated/accepted/deprecated/retracted governance over that
-  Claim from the AU side — the same authority split `eg-jobs::claim`'s own module
-  docs describe for `eg-epistemic` ("no new persistence... it writes the SAME
-  convention"). Adding a redundant `promotion_state` enum inside `eg-jobs` will
+  Claim from the AU side — the same authority split `medulla-jobs::claim`'s own module
+  docs describe for `medulla-epistemic` ("no new persistence... it writes the SAME
+  convention"). Adding a redundant `promotion_state` enum inside `medulla-jobs` will
   duplicate that AU-side state machine rather than close a real gap; if a future
   lane needs the promotion decision itself to be queryable FROM the job record,
   it should reference the AU claim id/state, not re-host the state machine.

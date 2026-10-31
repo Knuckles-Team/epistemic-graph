@@ -8,23 +8,23 @@ use crate::server::sql_catalog_acl::{
     create_owned_table, grant, revoke, with_source_authority_write,
 };
 use crate::server::sql_tables::{tenant_table_store, test_persist_dir};
-use eg_query::{Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
-// `CmpOp` exists in BOTH eg_query and eg_types and they are distinct types.
-// `TxnOp::Update`'s selector is an `eg_types::RowPredicate`, so this is the
-// one that belongs here; importing eg_query's next to it is the mistake that
+use medulla_query::{Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
+// `CmpOp` exists in BOTH medulla_query and medulla_types and they are distinct types.
+// `TxnOp::Update`'s selector is an `medulla_types::RowPredicate`, so this is the
+// one that belongs here; importing medulla_query's next to it is the mistake that
 // kept this module's tests from compiling.
-use eg_storage::{OwnerLayout, PhysicalStoreIdentity, ScopeGrantVerifier};
-use eg_types::contract::Nonce;
-use eg_types::mutation_batch::{DurabilityDomain, MutationSurface};
-use eg_types::semantic_index::{
+use medulla_storage::{OwnerLayout, PhysicalStoreIdentity, ScopeGrantVerifier};
+use medulla_types::contract::Nonce;
+use medulla_types::mutation_batch::{DurabilityDomain, MutationSurface};
+use medulla_types::semantic_index::{
     SemanticAnnIndexMethod, SemanticAnnIndexSpec, SemanticBindingDraft, SemanticDeadLetter,
     SemanticDeadLetterDraft, SemanticLexicalIndexSpec, SemanticModelIdentity,
     SemanticPolicyComponents, SemanticSourceSelector, SemanticStage, SemanticStageArtifact,
     SemanticStageOutcome, SemanticStagePredecessor, SemanticStageReceipt, SemanticVectorMetric,
     SqlColumnRef, SEMANTIC_SOURCE_DIRTY_TOPIC, SEMANTIC_SQL_CATALOG_ID, SEMANTIC_SQL_SCHEMA_ID,
 };
-use eg_types::CmpOp;
-use eg_types::RowPredicate;
+use medulla_types::CmpOp;
+use medulla_types::RowPredicate;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
@@ -40,7 +40,7 @@ impl ScopeGrantVerifier for ExactSemanticScopeVerifier {
         &self,
         _physical: &PhysicalStoreIdentity,
         layout: OwnerLayout,
-        identity: &eg_types::MutationScopeIdentity,
+        identity: &medulla_types::MutationScopeIdentity,
         _principal: &str,
         proof: &[u8],
     ) -> Result<(), String> {
@@ -468,7 +468,7 @@ async fn leased_sql_source_completion_replays_after_reopen_and_acl_change() {
     service
         .transition_binding_operation(
             binding.generation,
-            eg_types::semantic_index::SemanticBindingState::Building,
+            medulla_types::semantic_index::SemanticBindingState::Building,
             3,
             worker.agent_id(),
             "semantic-stage-build",
@@ -780,7 +780,7 @@ async fn leased_sql_source_completion_replays_after_reopen_and_acl_change() {
     // Each queue class is its own consumer (`<worker>#<class>`); S1 and
     // S2 run in different classes, so the worker's totals are the sum.
     let per_class = service.worker_stage_status(worker.agent_id(), 12).unwrap();
-    let total = |field: fn(&eg_transaction::OutboxStatus) -> u64| -> u64 {
+    let total = |field: fn(&medulla_transaction::OutboxStatus) -> u64| -> u64 {
         per_class.iter().map(field).sum()
     };
     // Three resolved rows, not two: the present source's S1, the S2 it

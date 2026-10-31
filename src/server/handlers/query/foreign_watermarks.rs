@@ -1,5 +1,5 @@
 //! Foreign-source freshness in the served result cache
-//! (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation, EH-400).
+//! (CONCEPT:MEDULLA-KG.coordination.dependency-scoped-cache-invalidation, EH-400).
 //!
 //! A foreign source changes outside this engine, where no graph write can announce it. The
 //! owner-scoped registry salt (EH-373, [`ServedPlanLegs::salt_cache_key`]) keys a cached answer
@@ -7,7 +7,7 @@
 //! foreign answer is stale by construction. This leg closes that:
 //!   * a plan reading a NAMED foreign source is cacheable only while every source it names has a
 //!     fresh watermark node in the queried graph (the connector's checkpoint, see
-//!     `eg_types::freshness`), and each `name\0watermark\0` joins the cache key, so a checkpoint
+//!     `medulla_types::freshness`), and each `name\0watermark\0` joins the cache key, so a checkpoint
 //!     advance retires the entry;
 //!   * a plan reading an inline (unnamed) foreign spec, or a named source that is stale or has
 //!     never reported a watermark, is never cached: a stale hit is a correctness bug.
@@ -32,7 +32,7 @@ pub(crate) enum ForeignWatermarks {
 
 impl ForeignWatermarks {
     /// Decide for the foreign sources `ops` read, against the watermark nodes in `core`.
-    pub(crate) fn for_ops(core: &GraphCore, ops: &[eg_plan::Op]) -> Self {
+    pub(crate) fn for_ops(core: &GraphCore, ops: &[medulla_plan::Op]) -> Self {
         let mut sources = BTreeSet::new();
         if !ops.iter().all(|op| collect_foreign(op, &mut sources)) {
             return Self::Unfresh;
@@ -49,8 +49,8 @@ impl ForeignWatermarks {
     #[cfg(feature = "federation")]
     pub(crate) fn fragment_sources(
         core: &GraphCore,
-        ops: &[eg_plan::Op],
-    ) -> Option<HashMap<String, eg_plan::federation_opt::SourceWatermark>> {
+        ops: &[medulla_plan::Op],
+    ) -> Option<HashMap<String, medulla_plan::federation_opt::SourceWatermark>> {
         let mut sources = BTreeSet::new();
         if !ops.iter().all(|op| collect_foreign(op, &mut sources)) || sources.is_empty() {
             return None;
@@ -59,7 +59,7 @@ impl ForeignWatermarks {
         sources
             .into_iter()
             .map(|name| {
-                let status = eg_core::freshness::foreign_source_freshness(core, &name, now_ms);
+                let status = medulla_core::freshness::foreign_source_freshness(core, &name, now_ms);
                 let watermark = status.watermark.filter(|_| !status.stale)?;
                 // An unbounded EH-400 watermark is still fresh, but keep resident
                 // fragments for at most a minute before requiring a new query proof.
@@ -69,7 +69,7 @@ impl ForeignWatermarks {
                     .unwrap_or(60_000);
                 Some((
                     name,
-                    eg_plan::federation_opt::SourceWatermark {
+                    medulla_plan::federation_opt::SourceWatermark {
                         watermark,
                         valid_through_ms: now_ms.saturating_add(remaining),
                     },
@@ -92,22 +92,22 @@ impl ForeignWatermarks {
 }
 
 /// Record the named foreign sources `op` reads; `false` when it reads an unnamed inline spec.
-fn collect_foreign(op: &eg_plan::Op, sources: &mut BTreeSet<String>) -> bool {
+fn collect_foreign(op: &medulla_plan::Op, sources: &mut BTreeSet<String>) -> bool {
     match op {
-        eg_plan::Op::Foreign { name } => {
+        medulla_plan::Op::Foreign { name } => {
             sources.insert(name.clone());
             true
         }
         #[cfg(feature = "federation")]
-        eg_plan::Op::ForeignScan { source, .. } => match &**source {
-            eg_types::wire::ForeignSourceSpec::Named { name } => {
+        medulla_plan::Op::ForeignScan { source, .. } => match &**source {
+            medulla_types::wire::ForeignSourceSpec::Named { name } => {
                 sources.insert(name.clone());
                 true
             }
             _ => false,
         },
         #[cfg(feature = "text")]
-        eg_plan::Op::FuseRrf { branches, .. } => branches
+        medulla_plan::Op::FuseRrf { branches, .. } => branches
             .iter()
             .flatten()
             .all(|op| collect_foreign(op, sources)),
@@ -121,7 +121,7 @@ fn watermark_salt(core: &GraphCore, sources: &BTreeSet<String>) -> Option<Vec<u8
     let now_ms = crate::server::dispatch::authoritative_now_ms();
     let mut salt = Vec::new();
     for source in sources {
-        let status = eg_core::freshness::foreign_source_freshness(core, source, now_ms);
+        let status = medulla_core::freshness::foreign_source_freshness(core, source, now_ms);
         let watermark = status.watermark.filter(|_| !status.stale)?;
         for part in [source.as_bytes(), watermark.as_bytes()] {
             salt.extend_from_slice(part);
@@ -134,13 +134,13 @@ fn watermark_salt(core: &GraphCore, sources: &BTreeSet<String>) -> Option<Vec<u8
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_types::freshness::{
+    use medulla_types::freshness::{
         foreign_watermark_node_id, FOREIGN_SOURCE_KEY, FOREIGN_WATERMARK_LABEL, MAX_STALENESS_KEY,
         WATERMARK_AT_KEY, WATERMARK_KEY,
     };
 
-    fn foreign(name: &str) -> eg_plan::Op {
-        eg_plan::Op::Foreign { name: name.into() }
+    fn foreign(name: &str) -> medulla_plan::Op {
+        medulla_plan::Op::Foreign { name: name.into() }
     }
 
     fn watermark(core: &GraphCore, source: &str, mark: &str, at_ms: u64) {
@@ -157,7 +157,7 @@ mod tests {
         );
     }
 
-    // spec: EG-FEDERATED-QUERY-R018
+    // spec: MEDULLA-FEDERATED-QUERY-R018
     #[test]
     fn a_foreign_plan_without_a_watermark_is_never_cached() {
         let core = GraphCore::new();
@@ -192,7 +192,7 @@ mod tests {
         assert_ne!(a, b, "a new checkpoint must mint a new key");
     }
 
-    // spec: EG-FEDERATED-QUERY-R018
+    // spec: MEDULLA-FEDERATED-QUERY-R018
     #[test]
     fn a_stale_watermark_refuses_caching() {
         let core = GraphCore::new();
@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn a_graph_only_plan_is_not_affected() {
         let core = GraphCore::new();
-        let ops = [eg_plan::Op::Scan { label: "A".into() }];
+        let ops = [medulla_plan::Op::Scan { label: "A".into() }];
         assert_eq!(
             ForeignWatermarks::for_ops(&core, &ops),
             ForeignWatermarks::NotRead

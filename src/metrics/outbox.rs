@@ -14,17 +14,17 @@ mod imp {
 
     lazy_static! {
         static ref DEAD_LETTERED_TOTAL: IntCounterVec = counter_vec(
-            "eg_outbox_dead_lettered_total",
+            "medulla_outbox_dead_lettered_total",
             "Outbox rows a consumer's stream dead-lettered, by consumer, topic and cause",
             &["consumer", "topic", "cause"],
         );
         static ref HEAD_AGE_MS: IntGaugeVec = gauge_vec(
-            "eg_outbox_head_age_ms",
+            "medulla_outbox_head_age_ms",
             "Age of the oldest unresolved row at the head of a consumer's stream (0 when idle)",
             &["consumer", "topic"],
         );
         static ref HEAD_ATTEMPT: IntGaugeVec = gauge_vec(
-            "eg_outbox_head_attempt",
+            "medulla_outbox_head_attempt",
             "Delivery attempts the head row of a consumer's stream has spent (0 when idle)",
             &["consumer", "topic"],
         );

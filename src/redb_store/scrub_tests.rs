@@ -27,7 +27,7 @@ fn payload(id: &str) -> Vec<u8> {
 
 /// A shard holding `GRAPH` with five nodes, one of them unreadable.
 fn planted_shard(tag: &str) -> (Shard, std::path::PathBuf) {
-    let path = temp_path("eg-scrub", tag);
+    let path = temp_path("medulla-scrub", tag);
     let shard = Shard::open(&path).expect("open scrub shard");
     let mut ops: Vec<(String, Method)> = NODE_IDS
         .iter()
@@ -111,7 +111,7 @@ fn bounded_passes_resume_from_the_cursor_and_skip_nothing() {
 
 #[test]
 fn an_empty_store_completes_a_cycle_with_nothing_scanned() {
-    let path = temp_path("eg-scrub", "empty");
+    let path = temp_path("medulla-scrub", "empty");
     let shard = Shard::open(&path).expect("open scrub shard");
     let pass = scrub_pass(
         &shard,

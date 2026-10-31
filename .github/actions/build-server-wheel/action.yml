@@ -7,7 +7,7 @@ description: >-
   cache key `egs-<arch>` and the build cannot drift apart.
 inputs:
   source-dir:
-    description: Checkout holding the engine source and packaging/epistemic-graph-server.
+    description: Checkout holding the engine source and packaging/medulla-server.
     required: false
     default: '.'
   cache-save:
@@ -112,7 +112,7 @@ runs:
           -e "CARGO_PROFILE_RELEASE_SERVER_LTO=$lto" -e "CARGO_PROFILE_RELEASE_SERVER_CODEGEN_UNITS=$cgu" \
           -v "$src:$src" -v "$HOME/.cargo:$HOME/.cargo" -v "$HOME/.rustup:$HOME/.rustup" \
           -v "$RUNNER_TEMP/egs-build.sh:/egs-build.sh:ro" \
-          -w "$src/packaging/epistemic-graph-server" "$image" bash /egs-build.sh
+          -w "$src/packaging/medulla-server" "$image" bash /egs-build.sh
         ls -l "$src/dist-server"
         echo "wheel-dir=$src/dist-server" >> "$GITHUB_OUTPUT"
     # macOS arm64 and Windows x64 build natively: no manylinux container applies.
@@ -131,6 +131,6 @@ runs:
         rm -rf -- "$SOURCE_DIR/dist-server"
         mkdir -p "$SOURCE_DIR/dist-server"
         out="$(cd "$SOURCE_DIR/dist-server" && if [ "$RUNNER_OS" = Windows ]; then pwd -W; else pwd; fi)"
-        (cd "$SOURCE_DIR/packaging/epistemic-graph-server" && maturin build --profile release-server --jobs 2 --out "$out")
+        (cd "$SOURCE_DIR/packaging/medulla-server" && maturin build --profile release-server --jobs 2 --out "$out")
         ls -l "$SOURCE_DIR/dist-server"
         echo "wheel-dir=$out" >> "$GITHUB_OUTPUT"

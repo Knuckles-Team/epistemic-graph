@@ -5,8 +5,8 @@ import asyncio
 import pytest
 from _client_fixtures import PayloadTransport
 
-from epistemic_graph.generated import reasoning
-from epistemic_graph.generated.graph_schema import (
+from medulla.generated import reasoning
+from medulla.generated.graph_schema import (
     GraphSchemaCommitted,
     GraphSchemaOpAttach,
     GraphSchemaOpDetach,
@@ -99,7 +99,7 @@ def test_generated_graph_schema_detach_preserves_the_discriminator() -> None:
 
 
 def test_generated_graph_schema_classes_page_is_typed() -> None:
-    from epistemic_graph.generated.graph_schema import (
+    from medulla.generated.graph_schema import (
         GraphSchemaClassesView,
         GraphSchemaTermKind,
     )

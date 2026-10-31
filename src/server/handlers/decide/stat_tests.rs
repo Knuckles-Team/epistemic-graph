@@ -11,34 +11,34 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::protocol::ResultPayload;
-use eg_types::agent_component::{
+use medulla_types::agent_component::{
     AgentComponentKind, AgentComponentPublishRequest, ComponentDependency,
 };
-use eg_types::contract::BoundedVec;
-use eg_types::decision::jobs::{
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::jobs::{
     DatasetSource, DecisionJobOutput, DecisionJobState, EvalCandidate, LabelRegime,
     OpeEstimatorKind, OptimiserSpec, RecordWindow,
 };
-use eg_types::decision::statistical::body::encode_body;
-use eg_types::decision::statistical::dataset::OutcomeFidelity;
-use eg_types::decision::statistical::dataset::{
+use medulla_types::decision::statistical::body::encode_body;
+use medulla_types::decision::statistical::dataset::OutcomeFidelity;
+use medulla_types::decision::statistical::dataset::{
     ItemLabel, LabelSource, LabelledDataset, LabelledItem, LABELLED_DATASET_SCHEMA_VERSION,
 };
-use eg_types::decision::statistical::features::{
+use medulla_types::decision::statistical::features::{
     FeatureKind, FeatureSchemaBody, FeatureSpec, MissingValue, FEATURE_SCHEMA_VERSION,
 };
-use eg_types::decision::statistical::log::{
+use medulla_types::decision::statistical::log::{
     DecisionLogCommitted, DecisionLogEntry, DecisionLogOp, DecisionOutcomeEvaluation, EntryInputs,
     OutcomeAggregate, OutcomeAggregateRequest, StoredEvaluation,
 };
-use eg_types::decision::statistical::FeatureMatrixRef;
-use eg_types::decision::statistical::StatisticalDecisionRecord;
-use eg_types::decision::statistical::{
+use medulla_types::decision::statistical::FeatureMatrixRef;
+use medulla_types::decision::statistical::StatisticalDecisionRecord;
+use medulla_types::decision::statistical::{
     CandidateSource, DecideRequest, DecisionBatch, QuestionKind, QuestionSafety,
     StatisticalOutcome, StatisticalQuestion, TypedParam, TypedValue,
 };
-use eg_types::decision::EvidenceClass;
-use eg_types::decision::{
+use medulla_types::decision::EvidenceClass;
+use medulla_types::decision::{
     ColdStart, DecisionEvalOp, DecisionEvalRequest, DecisionFitOp, DecisionFitRequest,
     DecisionJobRecord, DecisionPolicyRef, ExplorationBudget, HeadKind, LibraryCandidateScope,
     QuantScaleTag, QuantisedValue, UnitRationalWire,
@@ -89,7 +89,7 @@ impl Harness {
 
     fn commit(
         &self,
-        draft: eg_types::agent_component::AgentComponentDraft,
+        draft: medulla_types::agent_component::AgentComponentDraft,
         receipt: Option<String>,
     ) -> Result<ComponentDependency, String> {
         let nonce = self.nonce.get();
@@ -140,13 +140,13 @@ impl Harness {
     fn publish_policy(
         &self,
         id: &str,
-        policy: &eg_types::decision::DecisionPolicy,
+        policy: &medulla_types::decision::DecisionPolicy,
     ) -> ComponentDependency {
         let mut draft = test_component_draft(TENANT, id);
         draft.kind = AgentComponentKind::DecisionPolicy;
-        draft.content_digest = eg_types::decision::digest::policy_digest(policy);
+        draft.content_digest = medulla_types::decision::digest::policy_digest(policy);
         draft.attributes.insert(
-            eg_types::decision::policy::DECISION_POLICY_ATTRIBUTE.to_string(),
+            medulla_types::decision::policy::DECISION_POLICY_ATTRIBUTE.to_string(),
             serde_json::to_string(policy).unwrap(),
         );
         self.commit(draft, None).unwrap()
@@ -173,8 +173,8 @@ fn rational(n: u64, d: u64) -> UnitRationalWire {
     UnitRationalWire::new(n, d).unwrap()
 }
 
-fn ordinary_exploration_policy() -> eg_types::decision::DecisionPolicy {
-    let mut policy = eg_types::decision::DecisionPolicy::engine_default();
+fn ordinary_exploration_policy() -> medulla_types::decision::DecisionPolicy {
+    let mut policy = medulla_types::decision::DecisionPolicy::engine_default();
     policy.cold_start = ColdStart::Explore {
         budget: ExplorationBudget {
             fraction: rational(1, 1),
@@ -200,7 +200,7 @@ fn schema() -> FeatureSchemaBody {
     FeatureSchemaBody {
         schema_version: FEATURE_SCHEMA_VERSION,
         features: BoundedVec::new(vec![
-            eg_types::test_support::decision::summary_text_feature(),
+            medulla_types::test_support::decision::summary_text_feature(),
             FeatureSpec {
                 name: "coverage".to_string(),
                 kind: FeatureKind::CoverageFraction {
@@ -308,14 +308,14 @@ async fn decide_and_assert_abstains(
 async fn receipt_timeline_first_page(
     h: &Harness,
     req_id: u64,
-) -> eg_types::decision::DecisionReceiptTimelinePage {
+) -> medulla_types::decision::DecisionReceiptTimelinePage {
     decode(
         super::jobs::handle_decision_eval(
             &h.state,
             req_id,
             &verified(),
             DecisionEvalOp::Timeline {
-                request: eg_types::decision::DecisionReceiptTimelineRequest {
+                request: medulla_types::decision::DecisionReceiptTimelineRequest {
                     tenant_id: TENANT.to_string(),
                     after: None,
                     limit: 1,
@@ -457,7 +457,7 @@ async fn inline_human_labels_cannot_publish_threshold(
                     source: DatasetSource::Inline {
                         dataset: Box::new(heldout),
                     },
-                    mode: eg_types::decision::EvalMode::OffPolicy,
+                    mode: medulla_types::decision::EvalMode::OffPolicy,
                 }),
             },
         )
@@ -469,15 +469,15 @@ async fn inline_human_labels_cannot_publish_threshold(
     };
     assert!(receipt.synthetic);
     assert!(receipt.calibration.as_ref().is_some_and(|cal| {
-        cal.synthetic && cal.method == eg_types::decision::CalibrationMethod::Conformal
+        cal.synthetic && cal.method == medulla_types::decision::CalibrationMethod::Conformal
     }));
-    let timeline: eg_types::decision::DecisionReceiptTimelinePage = decode(
+    let timeline: medulla_types::decision::DecisionReceiptTimelinePage = decode(
         super::jobs::handle_decision_eval(
             &h.state,
             59,
             &verified(),
             DecisionEvalOp::Timeline {
-                request: eg_types::decision::DecisionReceiptTimelineRequest {
+                request: medulla_types::decision::DecisionReceiptTimelineRequest {
                     tenant_id: TENANT.to_string(),
                     after: None,
                     limit: 10,
@@ -544,10 +544,10 @@ async fn route_fixture(h: &Harness) -> RouteFixture {
     let batch = decide_and_assert_abstains(h, &schema_pin, None).await;
     let record = &batch.records.as_slice()[0];
     assert_eq!(
-        eg_types::decision::digest::statistical_record_digest(record),
+        medulla_types::decision::digest::statistical_record_digest(record),
         record.record_digest
     );
-    let eg_types::decision::statistical::FeatureMatrixRef::Inline {
+    let medulla_types::decision::statistical::FeatureMatrixRef::Inline {
         candidate_ids,
         values,
         ..
@@ -566,7 +566,7 @@ async fn route_fixture(h: &Harness) -> RouteFixture {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R122
+// spec: MEDULLA-DECISION-ENGINE-R122
 #[tokio::test]
 async fn fit_evaluate_publish_and_decide_end_to_end() {
     let h = Harness::new().await;
@@ -652,7 +652,7 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         source: DatasetSource::Inline {
             dataset: Box::new(data),
         },
-        mode: eg_types::decision::EvalMode::OffPolicy,
+        mode: medulla_types::decision::EvalMode::OffPolicy,
     };
     let job: DecisionJobRecord = decode(
         super::jobs::handle_decision_eval(
@@ -675,13 +675,13 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         "gates: {:?}",
         receipt.failed_gates.as_slice()
     );
-    let read: Option<eg_types::decision::DecisionEvalReceipt> = decode(
+    let read: Option<medulla_types::decision::DecisionEvalReceipt> = decode(
         super::jobs::handle_decision_eval(
             &h.state,
             51,
             &verified(),
             DecisionEvalOp::Receipt {
-                request: eg_types::decision::DecisionReceiptGetRequest {
+                request: medulla_types::decision::DecisionReceiptGetRequest {
                     tenant_id: TENANT.to_string(),
                     receipt_digest: receipt.receipt_digest.clone(),
                 },
@@ -691,13 +691,13 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     )
     .unwrap();
     assert_eq!(read.as_ref(), Some(&receipt));
-    let page: eg_types::decision::DecisionReceiptPage = decode(
+    let page: medulla_types::decision::DecisionReceiptPage = decode(
         super::jobs::handle_decision_eval(
             &h.state,
             52,
             &verified(),
             DecisionEvalOp::Receipts {
-                request: eg_types::decision::DecisionReceiptListRequest {
+                request: medulla_types::decision::DecisionReceiptListRequest {
                     tenant_id: TENANT.to_string(),
                     after: None,
                     limit: 1,
@@ -750,7 +750,7 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         source: DatasetSource::Inline {
             dataset: Box::new(human_data),
         },
-        mode: eg_types::decision::EvalMode::OffPolicy,
+        mode: medulla_types::decision::EvalMode::OffPolicy,
     };
     let human_job: DecisionJobRecord = decode(
         super::jobs::handle_decision_eval(
@@ -797,13 +797,13 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         .unwrap()
         .is_none());
     inline_human_labels_cannot_publish_threshold(&h, &schema_pin, heldout_data).await;
-    let foreign = decode::<Option<eg_types::decision::DecisionEvalReceipt>>(
+    let foreign = decode::<Option<medulla_types::decision::DecisionEvalReceipt>>(
         super::jobs::handle_decision_eval(
             &h.state,
             53,
             &verified(),
             DecisionEvalOp::Receipt {
-                request: eg_types::decision::DecisionReceiptGetRequest {
+                request: medulla_types::decision::DecisionReceiptGetRequest {
                     tenant_id: "foreign".into(),
                     receipt_digest: receipt.receipt_digest.clone(),
                 },
@@ -865,7 +865,7 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     log_tests::mixed_origin_aggregates_exclude_synthetic(&h, &schema_pin, record).await;
 }
 
-// spec: EG-DECISION-ENGINE-R020
+// spec: MEDULLA-DECISION-ENGINE-R020
 #[tokio::test]
 async fn exploration_on_a_security_question_is_refused_by_the_served_path() {
     let h = Harness::new().await;
@@ -886,7 +886,7 @@ async fn exploration_on_a_security_question_is_refused_by_the_served_path() {
             None,
         )
         .unwrap();
-    let mut policy = eg_types::decision::DecisionPolicy::engine_default();
+    let mut policy = medulla_types::decision::DecisionPolicy::engine_default();
     policy.cold_start = ColdStart::Explore {
         budget: ExplorationBudget {
             fraction: rational(1, 2),
@@ -952,7 +952,7 @@ async fn foreign_tenants_and_graph_candidates_are_refused() {
     );
     graph.candidates = CandidateSource::Graph {
         graph: "kg".to_string(),
-        plan: Box::new(eg_types::wire::Plan::new(Vec::new())),
+        plan: Box::new(medulla_types::wire::Plan::new(Vec::new())),
     };
     assert!(decide(&h, graph)
         .await
@@ -976,7 +976,7 @@ async fn foreign_tenants_and_graph_candidates_are_refused() {
 /// its `CandidateSource` is the agent library or an RLS-filtered graph plan --
 /// a foreign tenant never reaches the graph ACL that would otherwise refuse
 /// the plan itself.
-// spec: EG-DECISION-ENGINE-R057
+// spec: MEDULLA-DECISION-ENGINE-R057
 #[tokio::test]
 async fn graph_sourced_candidates_from_a_foreign_tenant_are_refused() {
     let h = Harness::new().await;
@@ -998,7 +998,7 @@ async fn graph_sourced_candidates_from_a_foreign_tenant_are_refused() {
     foreign_graph.tenant_id = "tenant-other".to_string();
     foreign_graph.candidates = CandidateSource::Graph {
         graph: "kg".to_string(),
-        plan: Box::new(eg_types::wire::Plan::new(Vec::new())),
+        plan: Box::new(medulla_types::wire::Plan::new(Vec::new())),
     };
     let error = decide(&h, foreign_graph).await.unwrap_err();
     assert!(
@@ -1034,7 +1034,7 @@ async fn graph_candidates_are_read_through_acl_rls_and_a_select_only_plan() {
         schema_version: FEATURE_SCHEMA_VERSION,
         features: BoundedVec::new(vec![
             number_feature("score"),
-            eg_types::test_support::decision::summary_text_feature(),
+            medulla_types::test_support::decision::summary_text_feature(),
         ])
         .unwrap(),
     };
@@ -1047,7 +1047,7 @@ async fn graph_candidates_are_read_through_acl_rls_and_a_select_only_plan() {
             None,
         )
         .unwrap();
-    let graph_request = |plan: eg_types::wire::Plan| {
+    let graph_request = |plan: medulla_types::wire::Plan| {
         let mut request = request(
             &schema_pin,
             None,
@@ -1060,7 +1060,7 @@ async fn graph_candidates_are_read_through_acl_rls_and_a_select_only_plan() {
         };
         request
     };
-    let select = eg_types::wire::Plan::new(vec![eg_types::wire::Op::Scan {
+    let select = medulla_types::wire::Plan::new(vec![medulla_types::wire::Op::Scan {
         label: "Tool".to_string(),
     }]);
     let batch = decide(&h, graph_request(select.clone())).await.unwrap();
@@ -1080,14 +1080,14 @@ async fn graph_candidates_are_read_through_acl_rls_and_a_select_only_plan() {
     assert_eq!(values.len(), 4, "two visible rows, two features");
     assert!(matches!(
         record.candidate_source,
-        eg_types::decision::CandidateSourceRecord::Graph { .. }
+        medulla_types::decision::CandidateSourceRecord::Graph { .. }
     ));
 
-    let ranked = eg_types::wire::Plan::new(vec![
-        eg_types::wire::Op::Scan {
+    let ranked = medulla_types::wire::Plan::new(vec![
+        medulla_types::wire::Op::Scan {
             label: "Tool".to_string(),
         },
-        eg_types::wire::Op::RankText {
+        medulla_types::wire::Op::RankText {
             query: "web".to_string(),
         },
     ]);
@@ -1108,14 +1108,14 @@ async fn graph_candidates_are_read_through_acl_rls_and_a_select_only_plan() {
 /// own `DecisionLog.get` sees it; a different reader in the SAME tenant does
 /// not -- proving the row's RLS-routed read is finer than tenant scope.
 #[cfg(feature = "query")]
-// spec: EG-DECISION-ENGINE-R058
+// spec: MEDULLA-DECISION-ENGINE-R058
 #[tokio::test]
 async fn graph_sourced_records_are_principal_scoped_not_tenant_scoped_on_log_read() {
     let h = Harness::with_isolation(ServerState::test_isolation("decider")).await;
     let record = graph_log_record(&h).await;
     assert!(matches!(
         record.candidate_source,
-        eg_types::decision::CandidateSourceRecord::Graph { .. }
+        medulla_types::decision::CandidateSourceRecord::Graph { .. }
     ));
     let commit = DecisionLogOp::Commit {
         record: Box::new(record.clone()),
@@ -1164,7 +1164,7 @@ async fn graph_log_record(h: &Harness) -> StatisticalDecisionRecord {
         schema_version: FEATURE_SCHEMA_VERSION,
         features: BoundedVec::new(vec![
             number_feature("score"),
-            eg_types::test_support::decision::summary_text_feature(),
+            medulla_types::test_support::decision::summary_text_feature(),
         ])
         .unwrap(),
     };
@@ -1185,7 +1185,7 @@ async fn graph_log_record(h: &Harness) -> StatisticalDecisionRecord {
     );
     graph_request.candidates = CandidateSource::Graph {
         graph: "kg-decide-log".to_string(),
-        plan: Box::new(eg_types::wire::Plan::new(vec![eg_types::wire::Op::Scan {
+        plan: Box::new(medulla_types::wire::Plan::new(vec![medulla_types::wire::Op::Scan {
             label: "Tool".to_string(),
         }])),
     };

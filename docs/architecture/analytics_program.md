@@ -1,7 +1,7 @@
 # Analytics Program — "one kernel, two surfaces"
 
 > The program that turns Medulla into an **analytical system embedded in the data**:
-> a slim, BLAS/LAPACK-free Rust numeric kernel (`crates/eg-numeric`) that serves **both**
+> a slim, BLAS/LAPACK-free Rust numeric kernel (`crates/medulla-numeric`) that serves **both**
 > Python-side array math without a Python numeric runtime dependency **and**
 > in-database analytics over engine-resident data. This page is the map; the kernel
 > is documented in full at **[numeric-kernel](numeric_kernel.md)**.
@@ -12,7 +12,7 @@ Medulla already does **compute-near-data** for vectors (`semantic_search` and
 `batch_l2_normalize` run server-side in Rust, without a Python numeric runtime). The Analytics Program generalizes that
 proven pattern into **one numeric kernel exposed on two surfaces**:
 
-- **Surface A — in-process Python.** `epistemic_graph.numeric` (a pyo3 extension) + the
+- **Surface A — in-process Python.** `medulla.numeric` (a pyo3 extension) + the
   kernel-required agent-utilities `xp` surface (`CONCEPT:AU-KG.compute.surface-analytics-program`). For
   **transient** data (finance dataframes, ad-hoc KG math) computed in-process.
 - **Surface B — engine operators.** The *same* rlib exposed as DataFusion SQL UDFs/UDAFs +
@@ -26,11 +26,11 @@ in Python → Surface A. Never round-trip transient data into the DB just to com
 
 | Surface | Scope |
 |---------|-------|
-| Rust kernel | `eg-numeric` reductions, statistics, element-wise operations, faer linear algebra, seedable random operations, and 847 parity checks against an isolated NumPy reference (`CONCEPT:AU-KG.compute.numeric-kernel`) |
-| Python | `epistemic_graph.numeric` plus `from agent_utilities.numeric import xp as np`; the compiled kernel is required. Surface A accepts bounded built-in scalars/rectangular sequences and returns scalars/nested lists |
+| Rust kernel | `medulla-numeric` reductions, statistics, element-wise operations, faer linear algebra, seedable random operations, and 847 parity checks against an isolated NumPy reference (`CONCEPT:AU-KG.compute.numeric-kernel`) |
+| Python | `medulla.numeric` plus `from agent_utilities.numeric import xp as np`; the compiled kernel is required. Surface A accepts bounded built-in scalars/rectangular sequences and returns scalars/nested lists |
 | SQL analytics | DataFusion `cosine_sim`, `l2_normalize`, `zscore`, `covariance`, `svd`, `pca`, and `kmeans` operators over resident data |
 | Native method | `BatchL2Normalize` through the engine client |
-| Cross-modal analytics | Graph ⋈ vector ⋈ time-series joins followed by PCA, clustering, or covariance in the shared query path (`CONCEPT:EG-KG.query.eg-3`) |
+| Cross-modal analytics | Graph ⋈ vector ⋈ time-series joins followed by PCA, clustering, or covariance in the shared query path (`CONCEPT:MEDULLA-KG.query.medulla-3`) |
 | Agent Utilities dependency | `medulla[full]`; `[full]` is a compatibility alias with no numeric runtime dependency. The `xp` surface is kernel-live over the bounded built-in scalar/sequence contract; unsupported shapes fail explicitly |
 
 > **Release policy.** Agent Utilities installs the approved
@@ -55,9 +55,9 @@ pyo3 sits behind the kernel crate's `python` feature and remains off in the serv
 
 ## Synergies
 
-- **LTAP / lakehouse (EG-KG.storage.lsn-as-snapshot-returns)** exposes engine data as Parquet/Delta; Surface B adds native
+- **LTAP / lakehouse (MEDULLA-KG.storage.lsn-as-snapshot-returns)** exposes engine data as Parquet/Delta; Surface B adds native
   in-engine analytics over that same columnar data → the engine is the OLAP **store AND compute**.
-- **GPU extras (`gpu-cuda`, EG-KG.backend.real-cuda-tensor-backend)** accelerate exactly the kernel's hot ops
+- **GPU extras (`gpu-cuda`, MEDULLA-KG.backend.real-cuda-tensor-backend)** accelerate exactly the kernel's hot ops
   (distance/matmul/SVD) behind the same optional `full-extras` flag —
   see [distribution-robotics-gpu](distribution_robotics_gpu.md).
 
@@ -66,7 +66,7 @@ pyo3 sits behind the kernel crate's `python` feature and remains off in the serv
 - Rust kernel and operation surface: **[numeric-kernel](numeric_kernel.md)** (`CONCEPT:AU-KG.compute.numeric-kernel`).
 - Agent Utilities `xp` surface: `agent_utilities/numeric/` (`CONCEPT:AU-KG.compute.surface-analytics-program`) and the
   agent-utilities KV-cache-layering / numeric docs.
-- Full end-to-end program tracker: `plans/epistemic-graph-analytics_program.md` (workspace).
+- Full end-to-end program tracker: `plans/medulla-analytics_program.md` (workspace).
 
 ---
 

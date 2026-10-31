@@ -1,4 +1,4 @@
-//! MQTT 3.1.1 (+ basic 5.0) wire-protocol listener (CONCEPT:EG-KG.query.mqtt-packet-codec) — a HAND-ROLLED
+//! MQTT 3.1.1 (+ basic 5.0) wire-protocol listener (CONCEPT:MEDULLA-KG.query.mqtt-packet-codec) — a HAND-ROLLED
 //! MQTT broker front-end that lets a standard MQTT client (paho, mosquitto_pub/sub,
 //! MQTT.js) speak to the native message broker built on the KG-2.303 work-queue.
 //!
@@ -7,7 +7,7 @@
 //! broker. Every exchange/binding/queue/message lives as graph nodes on a control graph
 //! (`crate::broker`); this module only frames MQTT control packets on the wire and maps
 //! each onto the SAME broker primitives THROUGH the engine dispatch
-//! (`crate::server::dispatch::dispatch`) the AMQP wire (CONCEPT:EG-KG.compute.message-broker-exchanges/276..280) uses —
+//! (`crate::server::dispatch::dispatch`) the AMQP wire (CONCEPT:MEDULLA-KG.compute.message-broker-exchanges/276..280) uses —
 //! no parallel mechanism, no new broker method.
 //!
 //! MQTT topics map naturally onto a broker TOPIC exchange + bindings: a client PUBLISH
@@ -20,7 +20,7 @@
 //! 3.1.1 spec (the Pi-contract idiom pgwire / amqp-wire / redis-wire use), so a
 //! default/pi build carries zero MQTT dependency.
 //!
-//! ## Protocol subset (CONCEPT:EG-KG.query.mqtt-packet-codec)
+//! ## Protocol subset (CONCEPT:MEDULLA-KG.query.mqtt-packet-codec)
 //! LANDED: CONNECT/CONNACK, PUBLISH (QoS 0 + QoS 1 with PUBACK), SUBSCRIBE/SUBACK
 //! (topic filters incl. `+`/`#` wildcards → broker topic bindings), UNSUBSCRIBE/
 //! UNSUBACK, PINGREQ/PINGRESP, DISCONNECT. CONNECT username/password authentication is
@@ -30,15 +30,15 @@
 //! loopback-only; remote access must traverse a TLS/mTLS identity-binding gateway.
 //! Unsupported CONNECT/PUBLISH options and packet types fail closed.
 //!
-//! ## Publisher confirms + idempotent publish (CONCEPT:EG-KG.ingest.mqtt-publish-property-block / EG-284)
+//! ## Publisher confirms + idempotent publish (CONCEPT:MEDULLA-KG.ingest.mqtt-publish-property-block / MEDULLA-284)
 //! MQTT's QoS-1 PUBLISH → PUBACK already IS the publisher-confirm surface (the broker
 //! durably enqueues, then the PUBACK acknowledges), so no extra frame is needed. Every
-//! PUBLISH is routed through `Method::PublishIdempotent` (CONCEPT:EG-KG.ingest.mqtt-publish-property-block): an MQTT 5.0
+//! PUBLISH is routed through `Method::PublishIdempotent` (CONCEPT:MEDULLA-KG.ingest.mqtt-publish-property-block): an MQTT 5.0
 //! client MAY attach the User Properties `producer-id` + `producer-seq`, and the broker
 //! dedups a re-published `(producer-id, seq)` against that producer's durable
 //! high-water mark for effectively-once delivery — the QoS-1 PUBACK is still returned
 //! for the (dropped) duplicate. A PUBLISH with no producer properties (or an MQTT 3.1.1
-//! client) is unchanged (at-least-once). EG-283 stream reads have no MQTT frame and are
+//! client) is unchanged (at-least-once). MEDULLA-283 stream reads have no MQTT frame and are
 //! reached through the RPC surface (`Method::StreamRead`), as on the AMQP wire.
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -53,13 +53,13 @@ use crate::server::ServerState;
 /// Env var: when set (and the binary is built `--features mqtt-wire`), the MQTT wire
 /// listener binds this address (documented loopback default `127.0.0.1:1883`). Unset ⇒
 /// no listener.
-pub const MQTT_ADDR_ENV: &str = "EPISTEMIC_GRAPH_MQTT_ADDR";
+pub const MQTT_ADDR_ENV: &str = "MEDULLA_MQTT_ADDR";
 /// Env var: the control graph broker state lives on. Defaults to `__commons__`
 /// (mirrors amqp-wire's default-graph idiom).
-pub const MQTT_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_MQTT_GRAPH";
+pub const MQTT_GRAPH_ENV: &str = "MEDULLA_MQTT_GRAPH";
 /// Env var: the broker TOPIC exchange MQTT publish/subscribe routes through. Defaults
 /// to `amq.topic` (the conventional topic-exchange name).
-pub const MQTT_EXCHANGE_ENV: &str = "EPISTEMIC_GRAPH_MQTT_EXCHANGE";
+pub const MQTT_EXCHANGE_ENV: &str = "MEDULLA_MQTT_EXCHANGE";
 
 const WIRE: BrokerProtocol = BrokerProtocol::Mqtt;
 
@@ -101,7 +101,7 @@ pub fn validate_startup_policy(addr: &str, secret: &str) -> std::io::Result<()> 
     crate::server::validate_direct_wire_security(addr, "mqtt-wire", !secret.is_empty())
 }
 
-/// Serve the MQTT wire protocol on `addr` until the listener errors (CONCEPT:EG-KG.query.mqtt-packet-codec).
+/// Serve the MQTT wire protocol on `addr` until the listener errors (CONCEPT:MEDULLA-KG.query.mqtt-packet-codec).
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let graph = std::env::var(MQTT_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
     let exchange =
@@ -126,7 +126,7 @@ async fn accept_loop(
     exchange: String,
     auth_secret: String,
 ) -> std::io::Result<()> {
-    // GOC-70 (EG-281): one broker exchange per listener (fixed for its whole
+    // GOC-70 (MEDULLA-281): one broker exchange per listener (fixed for its whole
     // lifetime, cloned per connection above), so a single listener-wide
     // `Notify` is a valid fast-path wakeup for "a PUBLISH just landed on this
     // exchange" — shared by every session on this listener, subscriber and
@@ -280,7 +280,7 @@ impl MqttSession {
             return Ok(NextPacket::Packet(read_packet(socket).await?));
         }
 
-        // GOC-70 (EG-281): race the read against BOTH the listener-wide publish
+        // GOC-70 (MEDULLA-281): race the read against BOTH the listener-wide publish
         // notify and the unchanged 200ms fallback tick. `read_packet` was
         // already raced against a timer here pre-fix, so this carries the same
         // read-cancellation profile while keeping the delivery pump bounded.
@@ -495,7 +495,7 @@ async fn unbind_pattern(session: &MqttSession, pattern: &str) {
 }
 
 /// Deliver a bounded batch of pending messages from the session queue as QoS-0 PUBLISH
-/// packets (ack'd immediately). CONCEPT:EG-KG.query.mqtt-packet-codec — the poll-driven push pump.
+/// packets (ack'd immediately). CONCEPT:MEDULLA-KG.query.mqtt-packet-codec — the poll-driven push pump.
 async fn pump_subscription(
     socket: &mut TcpStream,
     state: &Arc<RwLock<ServerState>>,
@@ -622,7 +622,7 @@ fn read_credentials<'a>(c: &mut Cursor<'a>) -> (String, &'a [u8]) {
 
 #[cfg(test)]
 mod tests {
-    //! CONCEPT:EG-KG.query.mqtt-packet-codec — MQTT packet-codec unit tests (the byte layouts the hand-rolled
+    //! CONCEPT:MEDULLA-KG.query.mqtt-packet-codec — MQTT packet-codec unit tests (the byte layouts the hand-rolled
     //! framing depends on) + a served listener round-trip (CONNECT/SUBSCRIBE/PUBLISH/
     //! deliver) that proves the mapping onto the broker end-to-end.
     use super::*;
@@ -721,7 +721,7 @@ mod tests {
         assert_eq!(mqtt_filter_to_pattern(&filters[0]), "sport.*.score");
     }
 
-    // ── CONCEPT:EG-KG.ingest.mqtt-publish-property-block idempotent publish over MQTT 5.0 user properties ───
+    // ── CONCEPT:MEDULLA-KG.ingest.mqtt-publish-property-block idempotent publish over MQTT 5.0 user properties ───
 
     #[test]
     fn eg314_parse_publish_properties_extracts_producer_user_props() {
@@ -807,10 +807,10 @@ mod tests {
         assert!(validate_startup_policy("127.0.0.1:1883", "test").is_ok());
     }
 
-    // ── Served listener round-trip (CONCEPT:EG-KG.query.mqtt-packet-codec) ───────────────────────
+    // ── Served listener round-trip (CONCEPT:MEDULLA-KG.query.mqtt-packet-codec) ───────────────────────
 
     async fn spawn_listener() -> String {
-        broker_wire::spawn_broker_test_listener("eg-mqtt-wire-test", |listener, state| async move {
+        broker_wire::spawn_broker_test_listener("medulla-mqtt-wire-test", |listener, state| async move {
             accept_loop(
                 listener,
                 state,

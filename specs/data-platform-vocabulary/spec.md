@@ -1,7 +1,7 @@
-# EG-DATAPLAT-VOCAB — Data-platform vocabulary
+# MEDULLA-DATAPLAT-VOCAB — Data-platform vocabulary
 
 Owner: Medulla. Cross-repo IDs: CONN-OBJECTSTORE-MCP-DATA-PLATFORM-OPERATIONS-R001, CONN-VECTOR-MCP-DATA-PLATFORM-OPERATIONS-R001, CONN-OPENBAO-MCP-DATA-PLATFORM-OPERATIONS-R001, CONN-CLARITY-API-DATA-PLATFORM-OPERATIONS-R001, CONN-DATA-SCIENCE-MCP-DATA-PLATFORM-OPERATIONS-R001.
-Public provenance: gap found by `specs/connector-competency` (EG-CQ-CONN-001), rows R012, R014, R016, R029, R041, R044, R058, R065.
+Public provenance: gap found by `specs/connector-competency` (MEDULLA-CQ-CONN-001), rows R012, R014, R016, R029, R041, R044, R058, R065.
 
 ## Purpose and user stories
 

@@ -39,7 +39,7 @@ from certify_exact_fault_restart import (
     _write_evidence,
 )
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
 SCHEMA_VERSION = 1
 AUTH_GRAPH = "authorization-matrix"
@@ -82,15 +82,15 @@ WIRE_FEATURES = {
     "stomp": "stomp-wire",
 }
 LISTENER_ENV = {
-    "postgresql": "EPISTEMIC_GRAPH_PGWIRE_ADDR",
-    "mysql": "EPISTEMIC_GRAPH_MYSQL_ADDR",
-    "mssql": "EPISTEMIC_GRAPH_MSSQL_ADDR",
-    "sqlite": "EPISTEMIC_GRAPH_SQLITE_ADDR",
-    "bolt": "EPISTEMIC_GRAPH_BOLT_ADDR",
-    "redis": "EPISTEMIC_GRAPH_REDIS_ADDR",
-    "amqp": "EPISTEMIC_GRAPH_AMQP_ADDR",
-    "mqtt": "EPISTEMIC_GRAPH_MQTT_ADDR",
-    "stomp": "EPISTEMIC_GRAPH_STOMP_ADDR",
+    "postgresql": "MEDULLA_PGWIRE_ADDR",
+    "mysql": "MEDULLA_MYSQL_ADDR",
+    "mssql": "MEDULLA_MSSQL_ADDR",
+    "sqlite": "MEDULLA_SQLITE_ADDR",
+    "bolt": "MEDULLA_BOLT_ADDR",
+    "redis": "MEDULLA_REDIS_ADDR",
+    "amqp": "MEDULLA_AMQP_ADDR",
+    "mqtt": "MEDULLA_MQTT_ADDR",
+    "stomp": "MEDULLA_STOMP_ADDR",
 }
 DATA_PATHS = (
     "graph",
@@ -123,8 +123,8 @@ def _peer_context(tenant: str) -> dict[str, object]:
     }
 
 
-def _peer_client(engine: ExactEngine, tenant: str = TENANT) -> SyncEpistemicGraphClient:
-    return SyncEpistemicGraphClient.connect(
+def _peer_client(engine: ExactEngine, tenant: str = TENANT) -> SyncMedullaClient:
+    return SyncMedullaClient.connect(
         socket_path=str(engine.socket_path),
         auth_secret=engine.authority.auth_secret,
         graph_name=AUTH_GRAPH,
@@ -194,7 +194,7 @@ def _closed_without_payload(client: socket.socket) -> bool:
 
 
 def _probe_native(engine: ExactEngine) -> bool:
-    client = SyncEpistemicGraphClient.connect(
+    client = SyncMedullaClient.connect(
         socket_path=str(engine.socket_path),
         auth_secret="synthetic-invalid-authority",
         graph_name=AUTH_GRAPH,
@@ -576,7 +576,7 @@ def _cross_tenant_probe(engine: ExactEngine) -> dict[str, object]:
 def _run(binary: ExactBinary, binary_digest: str) -> dict[str, object]:
     authority = _new_ephemeral_authority()
     addresses, listener_env = _listener_configuration()
-    with tempfile.TemporaryDirectory(prefix="eg-exact-protocol-auth-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="medulla-exact-protocol-auth-") as scratch:
         root = Path(scratch)
         engine = ExactEngine(binary, root, authority)
         try:
@@ -624,7 +624,7 @@ def _run(binary: ExactBinary, binary_digest: str) -> dict[str, object]:
         _fail("enabled_wire_protocol_inventory_mismatch")
     evidence = {
         "binary": {"sha256": binary_digest},
-        "certification": "epistemic-graph-exact-protocol-authorization",
+        "certification": "medulla-exact-protocol-authorization",
         "cross_tenant": cross_tenant,
         "data_path_matrix": data_matrix,
         "data_paths": list(DATA_PATHS),

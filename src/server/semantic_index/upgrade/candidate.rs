@@ -39,7 +39,7 @@ pub(crate) fn copy_single_binding_tenant_candidate(
     if expected.sources.len() != 1 {
         return Err("semantic tenant copy requires exactly one v2 binding".to_string());
     }
-    let _lease = eg_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
+    let _lease = medulla_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
     let current = inspect_unchanged_sources_under_lease(
         persist_dir,
         expected,
@@ -51,7 +51,7 @@ pub(crate) fn copy_single_binding_tenant_candidate(
     require_candidate_headroom(persist_dir, current.total_bytes)?;
     let mut cleanup = CandidateCleanup::new(candidate.clone());
     let mut output =
-        eg_core::fs::create_private_new_file(&candidate).map_err(|error| error.to_string())?;
+        medulla_core::fs::create_private_new_file(&candidate).map_err(|error| error.to_string())?;
     cleanup.armed = true;
     copy_file_contents(&source.source_file, &mut output, source.bytes)?;
     drop(output);
@@ -93,7 +93,7 @@ pub(crate) fn abort_single_binding_tenant_candidate(
     {
         return Err("semantic tenant abort does not match the inspected source".to_string());
     }
-    let _lease = eg_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
+    let _lease = medulla_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
     let current = inspect_expected_sources_under_lease(persist_dir, inspected, max_total_bytes)?;
     if current.source_census_digest != inspected.source_census_digest
         || file_sha256(&current.sources[0].source_file)? != candidate.source_file_sha256
@@ -127,7 +127,7 @@ pub(crate) fn merge_multi_binding_tenant_candidate(
     if expected.sources.len() < 2 {
         return Err("semantic multi-owner merge requires at least two bindings".to_string());
     }
-    let _lease = eg_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
+    let _lease = medulla_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
     let current = inspect_unchanged_sources_under_lease(
         persist_dir,
         expected,
@@ -259,7 +259,7 @@ pub(crate) fn abort_multi_binding_tenant_candidate(
     {
         return Err("semantic tenant merge abort has a mismatched receipt".to_string());
     }
-    let _lease = eg_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
+    let _lease = medulla_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
     let current = inspect_expected_sources_under_lease(persist_dir, inspected, max_total_bytes)?;
     if current.source_census_digest != inspected.source_census_digest {
         return Err("semantic tenant sources changed before merge abort".to_string());
@@ -342,7 +342,7 @@ fn promote_checked_candidate(
     {
         return Err("semantic promotion candidate does not match its source set".to_string());
     }
-    let _lease = eg_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
+    let _lease = medulla_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
     let current = inspect_unchanged_sources_under_lease(
         persist_dir,
         inspected,

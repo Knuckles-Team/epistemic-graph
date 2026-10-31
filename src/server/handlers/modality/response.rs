@@ -1,8 +1,8 @@
-use eg_modality::{
+use medulla_modality::{
     ApplyDisposition, ApplyOutcome, Classification, ServedEvent, ServedEventKind, ServedPage,
     ServedRuntimeStats,
 };
-use eg_types::result_contract::ingestion as results;
+use medulla_types::result_contract::ingestion as results;
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::ModalityAuthority;
@@ -102,7 +102,7 @@ pub(super) fn encode_capability_report(
 
 fn apply_outcome<M>(outcome: ApplyOutcome) -> Result<ResultPayload, String>
 where
-    M: eg_types::result_contract::MethodResult<Body = results::ServedModalityApplyOutcome>,
+    M: medulla_types::result_contract::MethodResult<Body = results::ServedModalityApplyOutcome>,
 {
     ResultPayload::of::<M>(apply_outcome_body(outcome))
 }
@@ -152,8 +152,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_audio::{AudioData, AudioFeatureWindow};
-    use eg_modality::{
+    use medulla_audio::{AudioData, AudioFeatureWindow};
+    use medulla_modality::{
         ArtifactBundle, LifecycleState, OccurrenceId, OpaqueRef, PrivacyAttestation, ServedRecord,
         ARTIFACT_PROTOCOL_VERSION,
     };

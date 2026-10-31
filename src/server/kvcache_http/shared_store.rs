@@ -1,10 +1,10 @@
-//! Networked (mutation-store-backed) shared KV-cache backend (CONCEPT:EG-KG.backend.networked-shared-kv).
+//! Networked (mutation-store-backed) shared KV-cache backend (CONCEPT:MEDULLA-KG.backend.networked-shared-kv).
 //!
-//! Where [`eg_kvcache::SharedKvIndex`] (EG-186) is an **in-process, ephemeral**
+//! Where [`medulla_kvcache::SharedKvIndex`] (MEDULLA-186) is an **in-process, ephemeral**
 //! content-addressed index, [`SharedKvStoreBackend`] is the same
-//! [`eg_kvcache::SharedKvBackend`] seam over the engine's **durable, mutation-store-backed
+//! [`medulla_kvcache::SharedKvBackend`] seam over the engine's **durable, mutation-store-backed
 //! KV store** ([`crate::server::kv::KvStore`], the `kv.redb` the `Method::KvGet`/`KvPut`
-//! wire surface owns). This is the documented follow-up the `eg-kvcache` crate report and
+//! wire surface owns). This is the documented follow-up the `medulla-kvcache` crate report and
 //! the HTTP surface both point at ("A follow-up networked backend would swap this for an
 //! RPC / object-store client implementing the SAME `SharedKvBackend` trait").
 //!
@@ -26,7 +26,7 @@
 //!   block, framed with the [`DataVersion`] it was derived at (`tag 0` = `Agnostic`
 //!   pure content-addressed page; `tag 1` = `At(v)` derived context).
 //! * `kvcache-meta / data_version -> <u64 BE>` — the store's current data version
-//!   (CONCEPT:EG-KG.storage.content-addressed-put). Absent ⇒ version-tracking inactive
+//!   (CONCEPT:MEDULLA-KG.storage.content-addressed-put). Absent ⇒ version-tracking inactive
 //!   (`Agnostic`). Persisted so EVERY instance agrees on freshness across the fleet — a
 //!   graph write on one node invalidates stale derived-context for all of them.
 //!
@@ -44,7 +44,7 @@
 //!
 //! Atomic `get_hits` / `get_misses` / `dedup_hits` / `put_new` / `stale_missed` counters
 //! feed [`SharedKvStoreBackend::stats`] and a periodic `tracing` hit-rate line in the SAME
-//! shape as `eg-core`'s `result_cache` (`target: "epistemic_graph::kvcache"`, fields
+//! shape as `medulla-core`'s `result_cache` (`target: "medulla::kvcache"`, fields
 //! `hits`/`misses`/`hit_rate`), plus a per-op `trace` carrying the block hash, hit/miss,
 //! and the instance id (so cross-instance reuse is visible in logs).
 
@@ -52,7 +52,7 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use eg_kvcache::{Block, DataVersion, SharedKvBackend};
+use medulla_kvcache::{Block, DataVersion, SharedKvBackend};
 
 use crate::server::kv::KvStore;
 
@@ -69,7 +69,7 @@ const FRAME_HEADER: usize = 9;
 const HIT_RATE_LOG_EVERY: u64 = 1024;
 
 /// Occupancy + hit-rate counters for a [`SharedKvStoreBackend`], shaped like
-/// [`eg_kvcache::SharedStats`] / the `/kv/stats` JSON so a dashboard consumes either
+/// [`medulla_kvcache::SharedStats`] / the `/kv/stats` JSON so a dashboard consumes either
 /// backend identically (the W3.7 Seam-6 hit-rate export shape).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SharedKvStoreStats {
@@ -100,7 +100,7 @@ impl SharedKvStoreStats {
 }
 
 /// A content-addressed shared KV-cache backend over the engine's durable,
-/// mutation-store-backed [`KvStore`] (CONCEPT:EG-KG.backend.networked-shared-kv).
+/// mutation-store-backed [`KvStore`] (CONCEPT:MEDULLA-KG.backend.networked-shared-kv).
 ///
 /// The canonical NETWORKED [`SharedKvBackend`]: identical blocks are stored ONCE in
 /// `kv.redb` and shared by every serving instance that reaches this engine. Holds an
@@ -154,7 +154,7 @@ impl SharedKvStoreBackend {
                 // A store read error is a cache MISS (never crash token generation), but
                 // surface it — it is not a normal absent-key outcome.
                 tracing::warn!(
-                    target: "epistemic_graph::kvcache",
+                    target: "medulla::kvcache",
                     instance = %self.instance_id,
                     hash = %hash,
                     error = %error,
@@ -165,14 +165,14 @@ impl SharedKvStoreBackend {
         };
         let Some((version, block)) = decode_frame(&raw) else {
             tracing::warn!(
-                target: "epistemic_graph::kvcache",
+                target: "medulla::kvcache",
                 instance = %self.instance_id,
                 hash = %hash,
                 "kvcache stored block frame is malformed, treating as miss"
             );
             return self.miss(hash, false);
         };
-        // Freshness gate (CONCEPT:EG-KG.storage.content-addressed-put): an Agnostic pure
+        // Freshness gate (CONCEPT:MEDULLA-KG.storage.content-addressed-put): an Agnostic pure
         // KV page is fresh forever and never reads the epoch (the dedup hot path); a
         // versioned derived-context entry is fresh only at the store's current version.
         let fresh = match version {
@@ -268,7 +268,7 @@ impl SharedKvStoreBackend {
         }
     }
 
-    /// Advance the store's current data version (CONCEPT:EG-KG.storage.content-addressed-put),
+    /// Advance the store's current data version (CONCEPT:MEDULLA-KG.storage.content-addressed-put),
     /// persisting it so the WHOLE fleet gates freshness against the same epoch. Stale
     /// entries are then read-gated lazily (see [`retire_stale`](Self::retire_stale) for
     /// bounded disk reclamation). Passing `Agnostic` clears tracking. Public so the HTTP
@@ -317,7 +317,7 @@ impl SharedKvStoreBackend {
         }
         if retired > 0 {
             tracing::debug!(
-                target: "epistemic_graph::kvcache",
+                target: "medulla::kvcache",
                 instance = %self.instance_id,
                 retired,
                 "kvcache retired stale derived-context blocks"
@@ -326,10 +326,10 @@ impl SharedKvStoreBackend {
         Ok(retired)
     }
 
-    /// Graph-topology-aware paging (CONCEPT:EG-KG.memory.graph-guided-paging): page the
+    /// Graph-topology-aware paging (CONCEPT:MEDULLA-KG.memory.graph-guided-paging): page the
     /// top-`budget` PRESENT blocks from the shared durable store into RAM, in the caller's
     /// graph-locality order. `ranked_keys` is a block-key ranking a caller derives from the
-    /// resident graph's own topology (e.g. `eg_kvcache::graph_importance::pagerank_importance`
+    /// resident graph's own topology (e.g. `medulla_kvcache::graph_importance::pagerank_importance`
     /// over a `GraphView`, mapped node-id → block-key) — so the KV blocks of the most
     /// graph-central nodes are the ones paged into the fast tier first, exactly like
     /// `TieredCache::apply_importance_scores` shapes eviction by centrality. Returns the
@@ -367,7 +367,7 @@ impl SharedKvStoreBackend {
 
     fn trace_access(&self, hash: &str, hit: bool) {
         tracing::trace!(
-            target: "epistemic_graph::kvcache",
+            target: "medulla::kvcache",
             instance = %self.instance_id,
             hash = %hash,
             hit,
@@ -377,7 +377,7 @@ impl SharedKvStoreBackend {
 
     fn trace_put(&self, hash: &str, created: bool) {
         tracing::trace!(
-            target: "epistemic_graph::kvcache",
+            target: "medulla::kvcache",
             instance = %self.instance_id,
             hash = %hash,
             created,
@@ -387,7 +387,7 @@ impl SharedKvStoreBackend {
 
     /// Periodic hit-rate metric, once every [`HIT_RATE_LOG_EVERY`] accesses — the SAME
     /// shape as `result_cache::maybe_log_rate` (W3.7 Seam-6): `hits`/`misses`/`hit_rate`
-    /// under `target: "epistemic_graph::kvcache"`.
+    /// under `target: "medulla::kvcache"`.
     fn maybe_log_rate(&self) {
         let n = self.accesses.fetch_add(1, Ordering::Relaxed) + 1;
         if !n.is_multiple_of(HIT_RATE_LOG_EVERY) {
@@ -395,7 +395,7 @@ impl SharedKvStoreBackend {
         }
         let stats = self.stats();
         tracing::debug!(
-            target: "epistemic_graph::kvcache",
+            target: "medulla::kvcache",
             instance = %self.instance_id,
             hits = stats.get_hits,
             misses = stats.get_misses,
@@ -453,7 +453,7 @@ impl SharedKvBackend for SharedKvStoreBackend {
             Ok(created) => created,
             Err(error) => {
                 tracing::warn!(
-                    target: "epistemic_graph::kvcache",
+                    target: "medulla::kvcache",
                     instance = %self.instance_id,
                     hash = %hash,
                     error = %error,
@@ -471,7 +471,7 @@ impl SharedKvBackend for SharedKvStoreBackend {
     fn set_data_version(&mut self, version: DataVersion) {
         if let Err(error) = self.set_version(version) {
             tracing::warn!(
-                target: "epistemic_graph::kvcache",
+                target: "medulla::kvcache",
                 instance = %self.instance_id,
                 error = %error,
                 "kvcache set_data_version failed"
@@ -480,12 +480,12 @@ impl SharedKvBackend for SharedKvStoreBackend {
     }
 }
 
-/// Order block keys by a graph-locality importance ranking (CONCEPT:EG-KG.memory.graph-guided-paging),
+/// Order block keys by a graph-locality importance ranking (CONCEPT:MEDULLA-KG.memory.graph-guided-paging),
 /// highest-importance first, dropping any key that has no mapping. The convenience the
 /// snapshot/page-in path uses to page graph-central blocks in first: hand it a
 /// `node-id → score` ranking (`pagerank_importance`/`degree_centrality_importance`) plus a
 /// `node-id → block-key` map. Kept here (not in the leaf crate) because the ranking is
-/// produced by the facade's already-linked `eg-compute` graph algorithms.
+/// produced by the facade's already-linked `medulla-compute` graph algorithms.
 pub fn rank_keys_by_importance<F>(scores: &[(String, f64)], key_of: F) -> Vec<String>
 where
     F: Fn(&str) -> Option<String>,
@@ -510,7 +510,7 @@ mod tests {
 
     fn store_path(tag: &str) -> std::path::PathBuf {
         let unique = format!(
-            "eg-kvcache-{tag}-{}-{}",
+            "medulla-kvcache-{tag}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -527,7 +527,7 @@ mod tests {
         Arc::new(KvStore::open(Some(dir.to_str().unwrap())).unwrap())
     }
 
-    /// CONCEPT:EG-KG.backend.networked-shared-kv — THE acceptance proof: two serving
+    /// CONCEPT:MEDULLA-KG.backend.networked-shared-kv — THE acceptance proof: two serving
     /// instances (A and B) over ONE durable engine store. A block A PUTs is a cache HIT
     /// for B — cross-instance prefix reuse through the engine — and B's get is measured.
     #[test]
@@ -569,7 +569,7 @@ mod tests {
         assert_eq!(instance_a.stats().put_new, 1);
     }
 
-    /// CONCEPT:EG-KG.backend.networked-shared-kv — a second instance PUTting the SAME
+    /// CONCEPT:MEDULLA-KG.backend.networked-shared-kv — a second instance PUTting the SAME
     /// content-addressed block dedups (the shared store already has it) rather than
     /// re-storing, and the dedup is counted (the cross-instance store-once win).
     #[test]
@@ -592,7 +592,7 @@ mod tests {
         assert_eq!(b.stats().put_new, 0);
     }
 
-    /// CONCEPT:EG-KG.storage.content-addressed-put — a versioned derived-context entry is
+    /// CONCEPT:MEDULLA-KG.storage.content-addressed-put — a versioned derived-context entry is
     /// served, then a `set_data_version` bump (a graph write, PERSISTED so all instances
     /// agree) makes it a stale MISS on ANOTHER instance; a re-publish at the new version
     /// serves fresh. Agnostic pages are immune.
@@ -637,7 +637,7 @@ mod tests {
         assert!(writer.contains("pure-page"));
     }
 
-    /// CONCEPT:EG-KG.storage.content-addressed-put — `retire_stale` reclaims stale
+    /// CONCEPT:MEDULLA-KG.storage.content-addressed-put — `retire_stale` reclaims stale
     /// derived-context blocks from disk (the bounded, out-of-band sweep) while leaving
     /// fresh + agnostic entries.
     #[test]
@@ -657,14 +657,14 @@ mod tests {
         assert_eq!(b.get_block("stale-a"), None);
     }
 
-    /// CONCEPT:EG-KG.memory.graph-guided-paging — graph topology decides paging over the
+    /// CONCEPT:MEDULLA-KG.memory.graph-guided-paging — graph topology decides paging over the
     /// SHARED backend: PageRank over a star graph ranks the hub above the leaves, so
     /// `page_in_ranked` with a budget of 1 pages in the hub's KV block (the graph-central
     /// one), NOT a peripheral leaf's.
     #[test]
     fn graph_topology_pages_central_blocks_in_first() {
-        use eg_compute::algorithms::pagerank;
-        use eg_compute::graph::GraphCore;
+        use medulla_compute::algorithms::pagerank;
+        use medulla_compute::graph::GraphCore;
 
         // A star graph: every leaf cites the hub.
         let g = GraphCore::new();

@@ -11,7 +11,7 @@ pub(super) async fn fit_from_the_engine_log(
     schema_pin: &ComponentDependency,
     record: &StatisticalDecisionRecord,
 ) {
-    let mut policy = eg_types::decision::DecisionPolicy::engine_default();
+    let mut policy = medulla_types::decision::DecisionPolicy::engine_default();
     let mut statistical = super::super::stat_support::default_statistical_policy();
     statistical.approved_commit_principals =
         BoundedVec::new(vec![record.caller_principal.clone()]).unwrap();
@@ -70,7 +70,7 @@ pub(super) async fn log_op(h: &Harness, who: &str, op: DecisionLogOp) -> crate::
 pub(super) async fn decision_log_round_trip(h: &Harness, record: StatisticalDecisionRecord) {
     let mut tampered = record.clone();
     tampered.logging_propensities = BoundedVec::default();
-    tampered.record_digest = eg_types::decision::digest::statistical_record_digest(&tampered);
+    tampered.record_digest = medulla_types::decision::digest::statistical_record_digest(&tampered);
     let commit = |r: StatisticalDecisionRecord| DecisionLogOp::Commit {
         record: Box::new(r),
         evaluator: None,
@@ -132,8 +132,8 @@ pub(super) async fn decision_log_round_trip(h: &Harness, record: StatisticalDeci
 pub(super) fn retention_policy(
     compact_after_ms: u64,
     drop_blob_after_ms: Option<u64>,
-) -> eg_types::decision::DecisionPolicy {
-    let mut policy = eg_types::decision::DecisionPolicy::engine_default();
+) -> medulla_types::decision::DecisionPolicy {
+    let mut policy = medulla_types::decision::DecisionPolicy::engine_default();
     let mut statistical = super::super::stat_support::default_statistical_policy();
     statistical.compact_after_ms = Some(compact_after_ms);
     statistical.drop_blob_after_ms = drop_blob_after_ms;
@@ -146,7 +146,7 @@ async fn compact_with(
     h: &Harness,
     policy_id: &str,
     drop_after: Option<u64>,
-) -> eg_types::decision::statistical::log::DecisionLogCompacted {
+) -> medulla_types::decision::statistical::log::DecisionLogCompacted {
     let pin = h.publish_policy(policy_id, &retention_policy(0, drop_after));
     let op = DecisionLogOp::Compact {
         tenant_id: TENANT.to_string(),
@@ -160,7 +160,7 @@ async fn compact_with(
 pub(super) async fn verify_log(
     h: &Harness,
     record_id: &str,
-) -> Result<eg_types::decision::statistical::log::DecisionLogVerification, String> {
+) -> Result<medulla_types::decision::statistical::log::DecisionLogVerification, String> {
     let op = DecisionLogOp::Verify {
         tenant_id: TENANT.to_string(),
         record_id: record_id.to_string(),
@@ -194,7 +194,7 @@ fn tampered_blob(
     h: &Harness,
     entry: &DecisionLogEntry,
     original: &StatisticalDecisionRecord,
-) -> eg_types::decision::statistical::log::InputsBlob {
+) -> medulla_types::decision::statistical::log::InputsBlob {
     use sha2::{Digest, Sha256};
     let FeatureMatrixRef::Inline {
         candidate_ids,
@@ -214,7 +214,7 @@ fn tampered_blob(
         values: BoundedVec::new(forged).unwrap(),
     };
     let body = serde_json::to_vec(&matrix).unwrap();
-    let sha256 = eg_types::contract::Digest256::from_bytes(Sha256::digest(&body).into());
+    let sha256 = medulla_types::contract::Digest256::from_bytes(Sha256::digest(&body).into());
     let blob = h.state.try_read().unwrap().blob.clone().unwrap();
     let stored = blob
         .store
@@ -226,7 +226,7 @@ fn tampered_blob(
         .unwrap();
     let stored = &stored[0];
     assert!(matches!(entry.inputs, EntryInputs::Compacted { .. }));
-    eg_types::decision::statistical::log::InputsBlob {
+    medulla_types::decision::statistical::log::InputsBlob {
         sha256: format!("sha256:{}", stored.sha256.to_hex()),
         manifest_digest: stored.manifest_digest.clone(),
         holder_id: stored.holder_id.clone(),
@@ -241,7 +241,7 @@ pub(super) async fn retention_compacts_and_verifies(
     h: &Harness,
     record: &StatisticalDecisionRecord,
 ) {
-    use eg_types::decision::statistical::log::DecisionLogVerification;
+    use medulla_types::decision::statistical::log::DecisionLogVerification;
     let first = compact_with(h, "policy-compact", None).await;
     assert_eq!((first.compacted, first.retired), (1, 0));
     let again = compact_with(h, "policy-compact-again", None).await;
@@ -281,7 +281,7 @@ pub(super) async fn retention_compacts_and_verifies(
 /// INPUTS_RETIRED with the attested digest -- neither a pass nor a failure.
 #[cfg(feature = "blob")]
 pub(super) async fn retention_retires(h: &Harness, record: &StatisticalDecisionRecord) {
-    use eg_types::decision::statistical::log::DecisionLogVerification;
+    use medulla_types::decision::statistical::log::DecisionLogVerification;
     let entry = log_entry(h, &record.record_id);
     let dropped = compact_with(h, "policy-drop", Some(0)).await;
     assert_eq!(dropped.retired, 1);
@@ -465,7 +465,7 @@ async fn assert_reputation_origin(
     real: Option<&StatisticalDecisionRecord>,
     support: u64,
 ) {
-    use eg_plan::exec::DecisionSource;
+    use medulla_plan::exec::DecisionSource;
     use serde_json::json;
     let metrics = super::retrieval_tests::sql(
         h,
@@ -538,7 +538,7 @@ fn assert_forecast_is_available(h: &Harness, record: &StatisticalDecisionRecord)
         panic!("executed exploration")
     };
     assert!(
-        eg_numeric::decision::track_record::executed_forecast(&head, &matrix, option_id)
+        medulla_numeric::decision::track_record::executed_forecast(&head, &matrix, option_id)
             .unwrap()
             .is_some(),
         "fixture must supply a scoreable synthetic forecast"

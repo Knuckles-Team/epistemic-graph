@@ -1,12 +1,12 @@
-//! Remote KV-cache HTTP surface (CONCEPT:EG-KG.backend.is-configured-so-co) — exposes the `eg-kvcache` shared,
-//! content-addressed backend ([`eg_kvcache::SharedKvIndex`], CONCEPT:EG-KG.enrichment.content-address-separation) over
+//! Remote KV-cache HTTP surface (CONCEPT:MEDULLA-KG.backend.is-configured-so-co) — exposes the `medulla-kvcache` shared,
+//! content-addressed backend ([`medulla_kvcache::SharedKvIndex`], CONCEPT:MEDULLA-KG.enrichment.content-address-separation) over
 //! HTTP so parallel **vLLM / LMCache** instances SHARE KV-cache blocks by token-hash.
 //!
 //! ## What this is (and is NOT)
 //!
 //! A thin HTTP ADAPTER in front of the engine's in-process shared KV backend — NOT a
 //! new store. Blocks land in a ref-counted, content-addressed
-//! [`eg_kvcache::SharedKvIndex`]: two workers that PUT the same token-hash store the
+//! [`medulla_kvcache::SharedKvIndex`]: two workers that PUT the same token-hash store the
 //! bytes ONCE (the LMCache dedup / prefix-cache win) and a cold worker GETs a page a
 //! warm worker already computed.
 //!
@@ -15,13 +15,13 @@
 //! (NO axum/hyper/warp, so the Pi contract holds). Its parser keeps the body as raw
 //! BYTES (KV pages are binary) and captures headers for the bearer-token guard.
 //!
-//! ## API (CONCEPT:EG-KG.backend.is-configured-so-co)
+//! ## API (CONCEPT:MEDULLA-KG.backend.is-configured-so-co)
 //!
 //! * `GET  /kv/<hash>`          → the block bytes (`200`) or `404` if absent (or STALE,
-//!   CONCEPT:EG-KG.storage.content-addressed-put — a stale entry reads as absent).
+//!   CONCEPT:MEDULLA-KG.storage.content-addressed-put — a stale entry reads as absent).
 //! * `PUT  /kv/<hash>` (binary) → store the block under `<hash>` (`201 Created` on a
 //!   new block, `200 OK` on a dedup hit against an existing block). An optional
-//!   `X-EG-Data-Version: <n>` header (CONCEPT:EG-KG.storage.content-addressed-put) version-tags the entry so it goes
+//!   `X-MEDULLA-Data-Version: <n>` header (CONCEPT:MEDULLA-KG.storage.content-addressed-put) version-tags the entry so it goes
 //!   stale on a later graph write; absent ⇒ a pure content-addressed page (never
 //!   version-invalidated).
 //! * `HEAD /kv/<hash>`          → `200` if present + fresh, `404` if absent/stale.
@@ -29,11 +29,11 @@
 //!   HTTP-method-agnostic existence probe for clients that cannot issue `HEAD`).
 //! * `GET  /kv/stats`           → `200` JSON occupancy + dedup + `stale_retired` stats.
 //! * `GET  /kv/version`         → `200` JSON `{"tracking":bool,"version":n|null}` (the
-//!   current data version, CONCEPT:EG-KG.storage.content-addressed-put).
+//!   current data version, CONCEPT:MEDULLA-KG.storage.content-addressed-put).
 //! * `PUT  /kv/version/<n>`     → advance the data version to `<n>`, retiring every
-//!   now-stale versioned entry (the hook a graph write drives, CONCEPT:EG-KG.storage.content-addressed-put).
+//!   now-stale versioned entry (the hook a graph write drives, CONCEPT:MEDULLA-KG.storage.content-addressed-put).
 //!
-//! ### Zero-copy snapshot-fork (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork)
+//! ### Zero-copy snapshot-fork (CONCEPT:MEDULLA-KG.memory.zero-copy-snapshot-fork)
 //!
 //! The "LMCacheMPConnector snapshot → branch" primitive over HTTP — pin a candidate set of
 //! pages, then fan out N branches that share ONE physical copy (zero-copy), copy-on-write
@@ -56,15 +56,15 @@
 //!   these, a caller that snapshots/forks (the AU `fan_out` copy-on-write default) has no
 //!   way to give the pages back, so sustained fan-out only grows the resident set.
 //!
-//! ## Data-version invalidation (CONCEPT:EG-KG.storage.content-addressed-put)
+//! ## Data-version invalidation (CONCEPT:MEDULLA-KG.storage.content-addressed-put)
 //!
 //! A cached *derived context* (an assembled prompt / retrieved subgraph a connector
 //! stored under a token-hash) goes STALE when the underlying graph data changes. The
-//! surface mirrors `eg-core`'s version-keyed result cache (KG-2.233): a PUT may carry the
-//! `GraphCore::version()` it was derived at (`X-EG-Data-Version`), and a graph write
+//! surface mirrors `medulla-core`'s version-keyed result cache (KG-2.233): a PUT may carry the
+//! `GraphCore::version()` it was derived at (`X-MEDULLA-Data-Version`), and a graph write
 //! drives `PUT /kv/version/<n>` to advance the surface's data version — atomically
 //! retiring every entry derived at an older version, so a stale entry is never served.
-//! Pure KV pages (no version header) are `Agnostic` and untouched — the EG-186 dedup path
+//! Pure KV pages (no version header) are `Agnostic` and untouched — the MEDULLA-186 dedup path
 //! is unchanged.
 //!
 //! ## The address is the caller's token-hash (NOT a byte-hash)
@@ -72,7 +72,7 @@
 //! `<hash>` is the address the LMCache/vLLM connector computed over the *token ids* of
 //! the block (a stable content key for that KV page), NOT a hash of the KV bytes. So
 //! the server stores the body verbatim under `<hash>` via
-//! [`eg_kvcache::SharedKvBackend::put_block`] and does NOT re-hash the body — dedup is
+//! [`medulla_kvcache::SharedKvBackend::put_block`] and does NOT re-hash the body — dedup is
 //! by the connector-supplied address, exactly as `SharedKvIndex` is designed for. See
 //! the `docs/` note referenced in the crate report for the full connector contract.
 //!
@@ -91,7 +91,7 @@ use tokio::sync::RwLock;
 
 use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::ServerState;
-use eg_kvcache::{
+use medulla_kvcache::{
     BranchId, DataVersion, ReleaseOutcome, SharedKvBackend, SharedKvIndex, SnapshotId,
 };
 
@@ -105,16 +105,16 @@ mod shared_store;
 #[cfg(feature = "kv")]
 pub use shared_store::{rank_keys_by_importance, SharedKvStoreBackend, SharedKvStoreStats};
 
-/// Env var selecting the KV-cache backend (CONCEPT:EG-KG.backend.networked-shared-kv):
+/// Env var selecting the KV-cache backend (CONCEPT:MEDULLA-KG.backend.networked-shared-kv):
 /// `durable` (aliases `shared`/`store`) ⇒ the mutation-store-backed, FLEET-SHARED,
 /// restart-surviving [`SharedKvStoreBackend`] over the engine's live `kv.redb` — the SAME
 /// store the `KvGet`/`KvPut` wire methods use, so a prefix block one serving instance PUTs
 /// is a cache HIT for every other; requires the `kv` feature + a persist dir. Anything
 /// else / unset ⇒ the in-process ephemeral [`SharedKvIndex`] (unchanged default).
-pub const KVCACHE_BACKEND_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_BACKEND";
+pub const KVCACHE_BACKEND_ENV: &str = "MEDULLA_KVCACHE_BACKEND";
 /// Env var labeling this serving instance in the KV-cache metrics/logs (so cross-instance
-/// prefix reuse is attributable). Defaults to `EPISTEMIC_GRAPH_NODE_ID`, else `"kvcache"`.
-pub const KVCACHE_INSTANCE_ID_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_INSTANCE_ID";
+/// prefix reuse is attributable). Defaults to `MEDULLA_NODE_ID`, else `"kvcache"`.
+pub const KVCACHE_INSTANCE_ID_ENV: &str = "MEDULLA_KVCACHE_INSTANCE_ID";
 /// Upper bound on blocks paged in from the durable store for one `snapshot` (bounds the
 /// read fan-in behind the LMCacheMPConnector snapshot→branch primitive).
 #[cfg(feature = "kv")]
@@ -123,17 +123,17 @@ const DURABLE_SNAPSHOT_PAGE_IN_CAP: usize = 4096;
 /// Env var: when set (and built `--features kvcache-server`) the KV-cache HTTP listener
 /// binds this address (documented loopback default `127.0.0.1:9130`). Unset ⇒ no
 /// listener.
-pub const KVCACHE_ADDR_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_ADDR";
+pub const KVCACHE_ADDR_ENV: &str = "MEDULLA_KVCACHE_ADDR";
 /// Env var: the runtime-injected bearer token used when JWT validation is not
 /// configured. One of those two authentication modes is mandatory.
-pub const KVCACHE_TOKEN_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_TOKEN";
-/// Request header (CONCEPT:EG-KG.storage.content-addressed-put): the `GraphCore::version()` (KG-2.180) the PUT body was
+pub const KVCACHE_TOKEN_ENV: &str = "MEDULLA_KVCACHE_TOKEN";
+/// Request header (CONCEPT:MEDULLA-KG.storage.content-addressed-put): the `GraphCore::version()` (KG-2.180) the PUT body was
 /// DERIVED at. When present, the stored entry is version-tagged and goes stale once the
 /// surface's current data version advances past it (a graph write drives
 /// `PUT /kv/version/<n>`). Absent ⇒ a pure content-addressed KV page
 /// ([`DataVersion::Agnostic`], never version-invalidated) — so existing connectors are
 /// unaffected.
-pub const KVCACHE_DATA_VERSION_HEADER: &str = "x-eg-data-version";
+pub const KVCACHE_DATA_VERSION_HEADER: &str = "x-medulla-data-version";
 const MAX_KVCACHE_BODY_BYTES: usize = 64 * 1024 * 1024;
 const HTTP_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
@@ -142,14 +142,14 @@ const HTTP_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15
 /// duration of one op). The networked, fleet-shared alternative — the durable,
 /// mutation-store-backed `SharedKvStoreBackend` implementing the SAME [`SharedKvBackend`]
 /// trait — is selectable via `KvCacheStore::with_durable` (env
-/// `EPISTEMIC_GRAPH_KVCACHE_BACKEND=durable`).
+/// `MEDULLA_KVCACHE_BACKEND=durable`).
 pub struct KvCacheStore {
     /// The in-process shared index. When `durable` is `None` this IS the block store; when
     /// `durable` is `Some` it is only the zero-copy snapshot-fork working layer (pages are
     /// paged in from the durable store on `snapshot`).
     index: Mutex<SharedKvIndex>,
     /// When set, blocks live in the durable, mutation-store-backed, FLEET-SHARED backend
-    /// over the engine's live `kv.redb` (CONCEPT:EG-KG.backend.networked-shared-kv) instead
+    /// over the engine's live `kv.redb` (CONCEPT:MEDULLA-KG.backend.networked-shared-kv) instead
     /// of the ephemeral in-process index — so the cache is shared across serving instances
     /// and survives an engine restart.
     #[cfg(feature = "kv")]
@@ -173,7 +173,7 @@ impl KvCacheStore {
     }
 
     /// A store whose blocks live in the durable, fleet-shared [`SharedKvStoreBackend`]
-    /// (CONCEPT:EG-KG.backend.networked-shared-kv). The in-process index remains the
+    /// (CONCEPT:MEDULLA-KG.backend.networked-shared-kv). The in-process index remains the
     /// zero-copy snapshot-fork working layer (pages are paged in from the durable store).
     #[cfg(feature = "kv")]
     pub fn with_durable(backend: SharedKvStoreBackend) -> Self {
@@ -192,7 +192,7 @@ impl KvCacheStore {
     }
 
     /// Store `block` under `hash`, stamped with the [`DataVersion`] it was `derived_at`
-    /// (CONCEPT:EG-KG.storage.content-addressed-put). `Ok(true)` iff a NEW block was created
+    /// (CONCEPT:MEDULLA-KG.storage.content-addressed-put). `Ok(true)` iff a NEW block was created
     /// (`Ok(false)` on a dedup hit against an already-present block); `Err` on a durable
     /// store failure (so the surface can 500 rather than silently claim it cached).
     fn put(&self, hash: &str, block: Vec<u8>, derived_at: DataVersion) -> Result<bool, String> {
@@ -215,7 +215,7 @@ impl KvCacheStore {
         self.index.lock().unwrap().contains(hash)
     }
 
-    /// Advance the surface's current data version (CONCEPT:EG-KG.storage.content-addressed-put) — driven by a graph
+    /// Advance the surface's current data version (CONCEPT:MEDULLA-KG.storage.content-addressed-put) — driven by a graph
     /// write (`PUT /kv/version/<n>`). The durable backend persists the epoch so the WHOLE
     /// fleet gates freshness against it (stale entries read as absent); the in-process
     /// index retires stale entries eagerly.
@@ -224,7 +224,7 @@ impl KvCacheStore {
         if let Some(durable) = &self.durable {
             if let Err(error) = durable.set_version(version) {
                 tracing::warn!(
-                    target: "epistemic_graph::kvcache",
+                    target: "medulla::kvcache",
                     error = %error,
                     "kvcache set_data_version failed"
                 );
@@ -234,7 +234,7 @@ impl KvCacheStore {
         self.index.lock().unwrap().set_data_version(version);
     }
 
-    /// The surface's current data version as connector-friendly JSON (CONCEPT:EG-KG.storage.content-addressed-put).
+    /// The surface's current data version as connector-friendly JSON (CONCEPT:MEDULLA-KG.storage.content-addressed-put).
     fn version_json(&self) -> String {
         let current = self.current_version();
         let (tracking, version) = match current {
@@ -252,7 +252,7 @@ impl KvCacheStore {
         self.index.lock().unwrap().current_version()
     }
 
-    // ── zero-copy snapshot-fork surface (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork) ─────────────
+    // ── zero-copy snapshot-fork surface (CONCEPT:MEDULLA-KG.memory.zero-copy-snapshot-fork) ─────────────
     //
     // The "LMCacheMPConnector snapshot → branch" primitive over HTTP: a connector pins a
     // candidate set of pages into a SNAPSHOT, forks N BRANCHES that all read those SAME
@@ -301,10 +301,10 @@ impl KvCacheStore {
             .map(|b| b.0)
     }
 
-    /// Release a snapshot (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork) — the fork-layer
+    /// Release a snapshot (CONCEPT:MEDULLA-KG.memory.zero-copy-snapshot-fork) — the fork-layer
     /// leak fix: without this, forking under the AU `fan_out` copy-on-write default has no
     /// way to give back a snapshot's pinned pages, so sustained branch fan-out only grows
-    /// the resident set. See [`eg_kvcache::ReleaseOutcome`] for the typed not-found /
+    /// the resident set. See [`medulla_kvcache::ReleaseOutcome`] for the typed not-found /
     /// still-referenced (live-branch) outcomes; this call never panics and never mutates
     /// state on a rejected attempt.
     fn release_snapshot(&self, snapshot: u64) -> ReleaseOutcome {
@@ -314,7 +314,7 @@ impl KvCacheStore {
             .release_snapshot(SnapshotId(snapshot))
     }
 
-    /// Drop a branch (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork), freeing its
+    /// Drop a branch (CONCEPT:MEDULLA-KG.memory.zero-copy-snapshot-fork), freeing its
     /// copy-on-write overlay and decrementing its parent snapshot's branch count so a
     /// subsequent [`release_snapshot`](Self::release_snapshot) can succeed.
     fn drop_branch(&self, branch: u64) -> ReleaseOutcome {
@@ -391,7 +391,7 @@ impl KvCacheStore {
     }
 }
 
-// ── bearer-token auth guard (CONCEPT:EG-KG.backend.is-configured-so-co) ──────────────────────────────────────
+// ── bearer-token auth guard (CONCEPT:MEDULLA-KG.backend.is-configured-so-co) ──────────────────────────────────────
 //
 // The credential type + its JWT/static verification core now live in
 // `crate::server::auth::BearerCredential` (A18) — extracted so the `/sparql`
@@ -410,7 +410,7 @@ fn authorized(auth: &KvAuth, headers: &HashMap<String, String>) -> bool {
         .is_some_and(|header| auth.verify(header))
 }
 
-/// Parse the `X-EG-Data-Version` header (CONCEPT:EG-KG.storage.content-addressed-put) into a [`DataVersion`]. A valid
+/// Parse the `X-MEDULLA-Data-Version` header (CONCEPT:MEDULLA-KG.storage.content-addressed-put) into a [`DataVersion`]. A valid
 /// unsigned integer ⇒ [`DataVersion::At`]; absent or unparseable ⇒
 /// [`DataVersion::Agnostic`] (a pure content-addressed KV page outside version
 /// invalidation).
@@ -463,7 +463,7 @@ impl KvResponse {
     }
 }
 
-/// Map a [`ReleaseOutcome`] (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork) to this
+/// Map a [`ReleaseOutcome`] (CONCEPT:MEDULLA-KG.memory.zero-copy-snapshot-fork) to this
 /// surface's typed HTTP response. `204` on an actual release; `404` for an unknown id
 /// (never existed, or already released — double-release is rejected, not idempotent, see
 /// [`ReleaseOutcome::NotFound`]); `409` when a snapshot release is blocked by a still-live
@@ -487,7 +487,7 @@ fn release_outcome_response(outcome: ReleaseOutcome) -> KvResponse {
 }
 
 /// Route + execute one request → a [`KvResponse`]. Pure (sync) so it is fully
-/// unit-testable without a socket (CONCEPT:EG-KG.backend.is-configured-so-co).
+/// unit-testable without a socket (CONCEPT:MEDULLA-KG.backend.is-configured-so-co).
 fn handle(store: &KvCacheStore, auth: &KvAuth, req: &HttpMessage) -> KvResponse {
     let credential_verified = authorized(auth, &req.headers);
     if !credential_verified {
@@ -582,7 +582,7 @@ enum BlockRoute<'a> {
     /// `GET /kv/version`.
     Version,
     /// `PUT /kv/version/<n>` — the hook a graph write drives to invalidate
-    /// stale context (CONCEPT:EG-KG.storage.content-addressed-put).
+    /// stale context (CONCEPT:MEDULLA-KG.storage.content-addressed-put).
     SetVersion(&'a str),
     /// `/kv/<hash>/exists` — a JSON existence probe, on any method.
     Exists(&'a str),
@@ -670,8 +670,8 @@ fn head(store: &KvCacheStore, hash: &str) -> KvResponse {
     response
 }
 
-/// `PUT /kv/<hash>` — store the page, version-tagged with `X-EG-Data-Version`
-/// when the connector supplied one (CONCEPT:EG-KG.storage.content-addressed-put);
+/// `PUT /kv/<hash>` — store the page, version-tagged with `X-MEDULLA-Data-Version`
+/// when the connector supplied one (CONCEPT:MEDULLA-KG.storage.content-addressed-put);
 /// absent ⇒ a pure content-addressed page, never version-invalidated. `201` on a
 /// brand-new block, `200` on a dedup hit, `500` on a durable-store write failure
 /// — never a silent success.
@@ -682,7 +682,7 @@ fn put_block(store: &KvCacheStore, req: &HttpMessage, hash: &str) -> KvResponse 
         Ok(false) => KvResponse::empty("200 OK"),
         Err(error) => {
             tracing::warn!(
-                target: "epistemic_graph::kvcache",
+                target: "medulla::kvcache",
                 hash = %hash,
                 error = %error,
                 "kvcache PUT failed"
@@ -716,8 +716,8 @@ pub async fn serve_with_security(
     serve_with_store_inner(addr, store, auth).await
 }
 
-/// Select the KV-cache backend from `EPISTEMIC_GRAPH_KVCACHE_BACKEND`
-/// (CONCEPT:EG-KG.backend.networked-shared-kv): `durable` (aliases `shared`/`store`) ⇒ the
+/// Select the KV-cache backend from `MEDULLA_KVCACHE_BACKEND`
+/// (CONCEPT:MEDULLA-KG.backend.networked-shared-kv): `durable` (aliases `shared`/`store`) ⇒ the
 /// mutation-store-backed, FLEET-SHARED backend over the engine's live `kv.redb` (the SAME
 /// store the `KvGet`/`KvPut` wire methods use, so blocks are shared across every serving
 /// instance + survive a restart); anything else / unset ⇒ the in-process ephemeral index
@@ -737,26 +737,26 @@ async fn resolve_store(state: &Arc<RwLock<ServerState>>) -> std::io::Result<KvCa
         let Some(kv) = kv else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "EPISTEMIC_GRAPH_KVCACHE_BACKEND=durable requires the kv store (set GRAPH_SERVICE_PERSIST_DIR)",
+                "MEDULLA_KVCACHE_BACKEND=durable requires the kv store (set GRAPH_SERVICE_PERSIST_DIR)",
             ));
         };
         let instance_id = std::env::var(KVCACHE_INSTANCE_ID_ENV)
             .ok()
             .filter(|value| !value.is_empty())
             .or_else(|| {
-                std::env::var("EPISTEMIC_GRAPH_NODE_ID")
+                std::env::var("MEDULLA_NODE_ID")
                     .ok()
                     .filter(|value| !value.is_empty())
             })
             .unwrap_or_else(|| "kvcache".to_string());
         if !kv.is_durable() {
             tracing::warn!(
-                target: "epistemic_graph::kvcache",
+                target: "medulla::kvcache",
                 "kvcache durable backend selected but the kv store is in-memory (no persist dir) — shared only across connections of THIS process, NOT restart-surviving"
             );
         }
         tracing::info!(
-            target: "epistemic_graph::kvcache",
+            target: "medulla::kvcache",
             instance = %instance_id,
             "kvcache: using the durable, fleet-shared mutation-store-backed backend"
         );
@@ -770,7 +770,7 @@ async fn resolve_store(state: &Arc<RwLock<ServerState>>) -> std::io::Result<KvCa
         let _ = state;
         Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            "EPISTEMIC_GRAPH_KVCACHE_BACKEND=durable requires the `kv` feature",
+            "MEDULLA_KVCACHE_BACKEND=durable requires the `kv` feature",
         ))
     }
 }
@@ -843,7 +843,7 @@ async fn serve_with_store_inner(
 
 #[cfg(test)]
 mod tests {
-    //! CONCEPT:EG-KG.backend.is-configured-so-co — PUT→GET round-trip of a binary block, HEAD/exists probes, 404
+    //! CONCEPT:MEDULLA-KG.backend.is-configured-so-co — PUT→GET round-trip of a binary block, HEAD/exists probes, 404
     //! on a missing block, stats JSON, dedup reflected in stats, the bearer-token
     //! guard accept/reject, and a live TCP listener round-trip.
     use super::*;
@@ -1067,7 +1067,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-KG.storage.content-addressed-put — a version-tagged PUT is served while the data version holds, then
+    /// CONCEPT:MEDULLA-KG.storage.content-addressed-put — a version-tagged PUT is served while the data version holds, then
     /// a `PUT /kv/version/<n>` (a graph write) makes the stale entry a 404 MISS; a
     /// re-PUT at the new version serves fresh bytes. The stale context is never returned.
     #[test]
@@ -1080,7 +1080,7 @@ mod tests {
         );
         let put = handle_authorized(
             &s,
-            &req("PUT", "/kv/ctx", b"ctx-v5", &[("x-eg-data-version", "5")]),
+            &req("PUT", "/kv/ctx", b"ctx-v5", &[("x-medulla-data-version", "5")]),
         );
         assert_eq!(put.status, "201 Created");
         let get = handle_authorized(&s, &req("GET", "/kv/ctx", b"", &[]));
@@ -1107,14 +1107,14 @@ mod tests {
         // Re-cache the freshly-derived context at v6 ⇒ served again.
         let put = handle_authorized(
             &s,
-            &req("PUT", "/kv/ctx", b"ctx-v6", &[("x-eg-data-version", "6")]),
+            &req("PUT", "/kv/ctx", b"ctx-v6", &[("x-medulla-data-version", "6")]),
         );
         assert_eq!(put.status, "201 Created");
         let get = handle_authorized(&s, &req("GET", "/kv/ctx", b"", &[]));
         assert_eq!(get.body, b"ctx-v6", "fresh context served");
     }
 
-    /// CONCEPT:EG-KG.storage.content-addressed-put — a PUT WITHOUT the version header is a pure content-addressed page
+    /// CONCEPT:MEDULLA-KG.storage.content-addressed-put — a PUT WITHOUT the version header is a pure content-addressed page
     /// (Agnostic) that survives version bumps, so existing connectors are unaffected.
     #[test]
     fn eg359_unversioned_put_is_agnostic_and_survives_bumps() {
@@ -1133,7 +1133,7 @@ mod tests {
         assert_eq!(get.body, b"kv-bytes");
     }
 
-    /// CONCEPT:EG-KG.storage.content-addressed-put — `GET /kv/version` reports tracking state, and a bad version path
+    /// CONCEPT:MEDULLA-KG.storage.content-addressed-put — `GET /kv/version` reports tracking state, and a bad version path
     /// is a 400.
     #[test]
     fn eg359_version_endpoint_reports_and_validates() {
@@ -1154,7 +1154,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-KG.memory.zero-copy-snapshot-fork — snapshot a set of pages, fork two branches over HTTP,
+    /// CONCEPT:MEDULLA-KG.memory.zero-copy-snapshot-fork — snapshot a set of pages, fork two branches over HTTP,
     /// prove both read the shared page and a CoW write on one is isolated from the other,
     /// and that `/kv/fork/stats` reports resident bytes flat (ONE shared page + one CoW page).
     #[test]

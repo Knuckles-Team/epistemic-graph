@@ -6,7 +6,7 @@
 //! mutation nonces are carried into the durable MutationBatch replay ledger,
 //! while read-only nonces are accepted by the transport replay ledger before
 //! dispatch. Unknown envelope formats fail closed in authenticated mode.
-//! EG-IDENTITY-R003.1 separately permits explicit anonymous authority only for
+//! MEDULLA-IDENTITY-R003.1 separately permits explicit anonymous authority only for
 //! an isolated local anonymous store; it never passes through this verifier.
 //!
 //!    Transport TLS/mTLS are a separate layer: this module is the
@@ -24,13 +24,13 @@
 //! remains channel integrity (replay/tamper/downgrade); the OIDC token is the
 //! independent proof of claimed identity.
 //!
-//! **SECURE BY DEFAULT since 2026-07-22** (`EPISTEMIC_GRAPH_REQUIRE_OIDC`,
+//! **SECURE BY DEFAULT since 2026-07-22** (`MEDULLA_REQUIRE_OIDC`,
 //! see [`require_oidc`] — closes the Identity boundary seam, the highest-
 //! priority finding of `reports/seam-closure-audit-2026-07-22.md`): a
-//! deployment that has NOT configured `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` (plus
+//! deployment that has NOT configured `MEDULLA_OIDC_JWT_ISSUER` (plus
 //! its audience/JWKS URL) now fails closed rather than silently accepting
 //! HMAC-only identity. The one deliberate, explicit opt-out — for local/dev
-//! use only — is `EPISTEMIC_GRAPH_REQUIRE_OIDC=false` (or `0`/`no`/`off`),
+//! use only — is `MEDULLA_REQUIRE_OIDC=false` (or `0`/`no`/`off`),
 //! which restores the pre-2026-07-22 HMAC-only-permitted posture. Nothing
 //! defaults into that downgrade; an operator must type it.
 
@@ -41,7 +41,7 @@ use crate::protocol::{
 };
 pub(crate) use crate::server::authority_context::VerifiedRequestContext;
 use crate::server::request_replay::{durable_replay_ledger, PresentedNonce, ReplayLedger};
-use eg_types::contract::Nonce;
+use medulla_types::contract::Nonce;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -243,9 +243,9 @@ impl RequestContextPolicy {
                 .ok_or_else(|| format!("secure request context requires {name}"))
         }
         Ok(RequestContextPolicy {
-            expected_audience: configured("EPISTEMIC_GRAPH_AUDIENCE")?,
-            expected_tenant: configured("EPISTEMIC_GRAPH_TENANT")?,
-            expected_policy_version: configured("EPISTEMIC_GRAPH_POLICY_VERSION")?,
+            expected_audience: configured("MEDULLA_AUDIENCE")?,
+            expected_tenant: configured("MEDULLA_TENANT")?,
+            expected_policy_version: configured("MEDULLA_POLICY_VERSION")?,
         })
     }
 }
@@ -263,21 +263,21 @@ pub(crate) fn request_context_policy() -> Result<&'static RequestContextPolicy, 
 pub(crate) fn request_context_policy() -> Result<&'static RequestContextPolicy, String> {
     static POLICY: OnceLock<RequestContextPolicy> = OnceLock::new();
     Ok(POLICY.get_or_init(|| RequestContextPolicy {
-        expected_audience: "epistemic-graph-test".to_string(),
+        expected_audience: "medulla-test".to_string(),
         expected_tenant: "tenant-shared".to_string(),
         expected_policy_version: "policy-test".to_string(),
     }))
 }
 
 /// Allowed clock-skew window (seconds) for an envelope's `timestamp`, read
-/// ONCE from `EPISTEMIC_GRAPH_ENVELOPE_SKEW_SECS`. Also doubles as the replay
+/// ONCE from `MEDULLA_ENVELOPE_SKEW_SECS`. Also doubles as the replay
 /// cache's nonce-retention horizon (a nonce older than `2 * skew` can never
 /// pass the timestamp check anyway, so it is safe to forget). Default 300s
 /// (5 minutes).
 pub fn envelope_skew_secs() -> u64 {
     static SKEW: OnceLock<u64> = OnceLock::new();
     *SKEW.get_or_init(|| {
-        std::env::var("EPISTEMIC_GRAPH_ENVELOPE_SKEW_SECS")
+        std::env::var("MEDULLA_ENVELOPE_SKEW_SECS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
             .filter(|&n| n > 0)
@@ -306,14 +306,14 @@ fn now_secs() -> u64 {
 
 /// This node's own stable identity for envelope node-binding.
 ///
-/// Clustered (built `--features raft` AND `EPISTEMIC_GRAPH_RAFT_NODE_ID`
+/// Clustered (built `--features raft` AND `MEDULLA_RAFT_NODE_ID`
 /// set): the raft node id -- the SAME integer identifying this node in
-/// `EPISTEMIC_GRAPH_RAFT_PEERS`, and (once ADR-1 lands) in
+/// `MEDULLA_RAFT_PEERS`, and (once ADR-1 lands) in
 /// `ClusterMembers`/`PlacementRoute` endpoints, so a client that learns its
 /// target node id from either of those mints a claim this function matches.
 ///
 /// Otherwise (single-node, or a build without the `raft` feature): the
-/// explicit `EPISTEMIC_GRAPH_NODE_ID` override, defaulting to the stable
+/// explicit `MEDULLA_NODE_ID` override, defaulting to the stable
 /// literal `"single"` -- so a single-node deployment's node claim, if a
 /// client ever bothers to mint one, always matches with zero operator
 /// configuration (ADR-3: "claim optional forever... zero friction for the
@@ -325,14 +325,14 @@ fn node_identity() -> &'static str {
         .get_or_init(|| {
             #[cfg(feature = "raft")]
             {
-                if let Ok(raft_id) = std::env::var("EPISTEMIC_GRAPH_RAFT_NODE_ID") {
+                if let Ok(raft_id) = std::env::var("MEDULLA_RAFT_NODE_ID") {
                     let trimmed = raft_id.trim();
                     if !trimmed.is_empty() {
                         return trimmed.to_string();
                     }
                 }
             }
-            std::env::var("EPISTEMIC_GRAPH_NODE_ID")
+            std::env::var("MEDULLA_NODE_ID")
                 .ok()
                 .map(|v| v.trim().to_string())
                 .filter(|v| !v.is_empty())
@@ -352,7 +352,7 @@ fn node_identity() -> &'static str {
 }
 
 /// Rollout posture for the node-binding claim
-/// (`EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING`). Tri-state, unlike the boolean
+/// (`MEDULLA_REQUIRE_NODE_BINDING`). Tri-state, unlike the boolean
 /// [`env_flag_explicit`] flags elsewhere in this module, because the safe
 /// migration path needs a distinguishable "accept but log" middle state
 /// between "ignore" and "enforce": a deployment can watch its `warn`-mode
@@ -373,7 +373,7 @@ enum NodeBindingMode {
     On,
 }
 
-/// Parse `EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING` (`off`/`warn`/`on`, case
+/// Parse `MEDULLA_REQUIRE_NODE_BINDING` (`off`/`warn`/`on`, case
 /// insensitive, trimmed). Unset or unrecognized ⇒ `Warn` -- permissive
 /// enough that an un-migrated client keeps working, but visible enough that
 /// an operator preparing for the W5.2 cluster cutover can see it coming.
@@ -381,7 +381,7 @@ enum NodeBindingMode {
 fn require_node_binding_mode() -> NodeBindingMode {
     static MODE: OnceLock<NodeBindingMode> = OnceLock::new();
     *MODE.get_or_init(|| {
-        std::env::var("EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING")
+        std::env::var("MEDULLA_REQUIRE_NODE_BINDING")
             .ok()
             .map(|v| v.trim().to_ascii_lowercase())
             .and_then(|v| match v.as_str() {
@@ -428,7 +428,7 @@ fn warn_absent_node_claim_once(principal: &str) {
         tracing::warn!(
             principal,
             "eg2. request context is missing the node-binding claim \
-             (EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING=warn); accepted for \
+             (MEDULLA_REQUIRE_NODE_BINDING=warn); accepted for \
              compatibility, but this principal's client should be upgraded \
              before the deployment flips to `on`"
         );
@@ -511,12 +511,12 @@ fn legacy_query_body(method: &Method) -> Option<Vec<u8>> {
     enum LegacyQuery<'a> {
         Uql {
             text: &'a str,
-            params: &'a std::collections::BTreeMap<String, eg_types::wire::UqlParam>,
+            params: &'a std::collections::BTreeMap<String, medulla_types::wire::UqlParam>,
             #[serde(skip_serializing_if = "std::ops::Not::not")]
             prepare: bool,
         },
         UnifiedQuery {
-            plan: &'a eg_types::wire::Plan,
+            plan: &'a medulla_types::wire::Plan,
         },
     }
     let legacy = match method {
@@ -615,7 +615,7 @@ pub(crate) fn scoped_test_request_on(
         principal: caller.principal.to_string(),
         agent_id: caller.principal.to_string(),
         tenant: caller.tenant.to_string(),
-        audience: "epistemic-graph-test".to_string(),
+        audience: "medulla-test".to_string(),
         policy_version: "policy-test".to_string(),
         scopes: caller
             .scopes
@@ -728,7 +728,7 @@ fn sign_test_request_with_context(
     let context = RequestContextClaims {
         principal: agent_id.clone(),
         tenant: tenant.to_string(),
-        audience: "epistemic-graph-test".to_string(),
+        audience: "medulla-test".to_string(),
         agent_id,
         roles,
         scopes: vec![if identity_bootstrap {
@@ -814,7 +814,7 @@ fn env_flag_enabled(name: &str) -> bool {
 /// is unset, empty, OR carries an unrecognized value. Unlike
 /// [`env_flag_enabled`] (whose safe default is "off"), this is the primitive
 /// for flags whose safe default is "on" — [`require_oidc`] uses it so a
-/// mistyped opt-out (e.g. `EPISTEMIC_GRAPH_REQUIRE_OIDC=fals`) can never
+/// mistyped opt-out (e.g. `MEDULLA_REQUIRE_OIDC=fals`) can never
 /// silently disable a security gate by falling through to `false`; only a
 /// clearly-recognized falsy spelling opts out.
 fn env_flag_explicit(name: &str) -> Option<bool> {
@@ -846,7 +846,7 @@ thread_local! {
 
 /// Resolve the primary protocol's configured OIDC validator, if any.
 ///
-/// `Ok(None)` ⇒ `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` is not set: identity
+/// `Ok(None)` ⇒ `MEDULLA_OIDC_JWT_ISSUER` is not set: identity
 /// binding is disabled and today's HMAC-only behavior is preserved.
 /// `Err` ⇒ an issuer is set but audience/JWKS URL are missing (fails closed,
 /// also surfaced eagerly by `validate_verified_context_startup`).
@@ -866,7 +866,7 @@ fn primary_oidc_validator() -> Result<Option<&'static crate::server::oidc::JwtVa
     }
 }
 
-/// Config-gated MANDATORY-OIDC posture (`EPISTEMIC_GRAPH_REQUIRE_OIDC`).
+/// Config-gated MANDATORY-OIDC posture (`MEDULLA_REQUIRE_OIDC`).
 /// Shared by both [`bind_verified_identity`] variants below (the `oidc`-
 /// feature verifier path AND the no-`oidc`-feature fallback), so the default
 /// posture is identical regardless of which server binary is running.
@@ -887,7 +887,7 @@ fn primary_oidc_validator() -> Result<Option<&'static crate::server::oidc::JwtVa
 /// security.
 #[cfg(not(test))]
 fn require_oidc() -> bool {
-    env_flag_explicit("EPISTEMIC_GRAPH_REQUIRE_OIDC").unwrap_or(true)
+    env_flag_explicit("MEDULLA_REQUIRE_OIDC").unwrap_or(true)
 }
 
 // Test-only override for `require_oidc()`. Env vars are process-global and
@@ -929,7 +929,7 @@ fn require_oidc() -> bool {
 ///
 /// Fail-closed and config-gated:
 /// - No issuer configured (`primary_oidc_validator` returns `Ok(None)`) ⇒
-///   `Ok(())` ONLY when the MANDATORY-OIDC posture (`EPISTEMIC_GRAPH_REQUIRE_OIDC`,
+///   `Ok(())` ONLY when the MANDATORY-OIDC posture (`MEDULLA_REQUIRE_OIDC`,
 ///   see [`require_oidc`]) has been explicitly opted out of — the pre-
 ///   2026-07-22 HMAC-only behavior for unauthenticated local/dev deployments.
 ///   Since 2026-07-22 the posture defaults ON, so the common case (no issuer,
@@ -965,7 +965,7 @@ fn bind_verified_identity(
         // HMAC just because a verifier was not (or could not be) configured.
         if require_oidc() {
             return Err(
-                "EPISTEMIC_GRAPH_REQUIRE_OIDC is set but no OIDC issuer/JWKS is \
+                "MEDULLA_REQUIRE_OIDC is set but no OIDC issuer/JWKS is \
                  configured; refusing HMAC-only identity (fail-closed)"
                     .to_string(),
             );
@@ -1019,7 +1019,7 @@ fn bind_verified_identity(
     // actual IdP — carries that same family in `realm_access.roles`. Without
     // this, the two independent loops below would never agree with each
     // other's IdP-shape assumption and every `kg:*`-scoped request would fail
-    // closed the instant `EPISTEMIC_GRAPH_REQUIRE_OIDC` is enabled, even
+    // closed the instant `MEDULLA_REQUIRE_OIDC` is enabled, even
     // though the token cryptographically proves the caller holds the
     // capability.
     //
@@ -1071,12 +1071,12 @@ fn bind_verified_identity(
     // identity, unless an operator has explicitly opted out.
     if require_oidc() {
         return Err(
-            "EPISTEMIC_GRAPH_REQUIRE_OIDC requires OIDC identity binding (the \
+            "MEDULLA_REQUIRE_OIDC requires OIDC identity binding (the \
              secure-by-default posture) but this build lacks the `oidc` \
              feature; refusing HMAC-only identity (fail-closed). Either \
              deploy a build with the `oidc` feature (part of the default \
-             `full` build) and configure EPISTEMIC_GRAPH_OIDC_JWT_ISSUER, or \
-             set EPISTEMIC_GRAPH_REQUIRE_OIDC=false to explicitly opt out."
+             `full` build) and configure MEDULLA_OIDC_JWT_ISSUER, or \
+             set MEDULLA_REQUIRE_OIDC=false to explicitly opt out."
                 .to_string(),
         );
     }
@@ -1148,7 +1148,7 @@ fn verify_envelope_v2_with(
         now,
         window: skew,
     };
-    if !eg_capabilities::policy(&req.method).mutates && !replay.check_and_record(presented)? {
+    if !medulla_capabilities::policy(&req.method).mutates && !replay.check_and_record(presented)? {
         return Err("nonce already used (replay rejected)".to_string());
     }
 
@@ -1253,19 +1253,19 @@ pub(super) fn validate_verified_context_startup(
     let validator: Option<()> = None;
     // MANDATORY-OIDC posture (secure by default since 2026-07-22): if the
     // deployment has not explicitly opted out via
-    // `EPISTEMIC_GRAPH_REQUIRE_OIDC=false`, an unconfigured (or unbuildable —
+    // `MEDULLA_REQUIRE_OIDC=false`, an unconfigured (or unbuildable —
     // no `oidc` feature) OIDC verifier must fail server STARTUP, not merely
     // the first request. This turns a silently-inert production deployment
     // into an immediate, loud boot failure — the same operator experience as
     // the missing-auth-secret / missing-persist-dir gates above it.
     if require_oidc() && validator.is_none() {
         return Err(
-            "EPISTEMIC_GRAPH_REQUIRE_OIDC requires OIDC identity binding (the \
+            "MEDULLA_REQUIRE_OIDC requires OIDC identity binding (the \
              secure-by-default posture) but no usable OIDC verifier is \
-             configured — set EPISTEMIC_GRAPH_OIDC_JWT_ISSUER (plus its \
+             configured — set MEDULLA_OIDC_JWT_ISSUER (plus its \
              audience and JWKS URL, or the shared OIDC_ISSUER/OIDC_AUDIENCE) \
              pointing at your Keycloak realm, or set \
-             EPISTEMIC_GRAPH_REQUIRE_OIDC=false to explicitly opt out for \
+             MEDULLA_REQUIRE_OIDC=false to explicitly opt out for \
              local/dev use"
                 .to_string(),
         );
@@ -1418,7 +1418,7 @@ impl SignerEntry {
     }
 }
 
-/// Wire shape of one JSON value in `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON`.
+/// Wire shape of one JSON value in `MEDULLA_SIGNER_KEYS_JSON`.
 /// `#[serde(untagged)]` tries the bare-string `Legacy` shape before the
 /// object `Scoped` shape, so a single registry can hold a MIX of both while
 /// a deployment migrates one signer at a time.
@@ -1459,18 +1459,18 @@ struct SignerKeyRegistry {
 impl SignerKeyRegistry {
     fn from_json(raw: &str) -> Result<Self, String> {
         let specs: BTreeMap<String, SignerKeySpec> = serde_json::from_str(raw).map_err(|_| {
-            "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON is not a valid signer registry".to_string()
+            "MEDULLA_SIGNER_KEYS_JSON is not a valid signer registry".to_string()
         })?;
         if specs.is_empty() {
             return Err(
-                "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON must contain at least one signer".to_string(),
+                "MEDULLA_SIGNER_KEYS_JSON must contain at least one signer".to_string(),
             );
         }
         let mut signers = BTreeMap::new();
         for (signer_id, spec) in specs {
             if signer_id.trim().is_empty() {
                 return Err(
-                    "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON signer id must not be empty".to_string(),
+                    "MEDULLA_SIGNER_KEYS_JSON signer id must not be empty".to_string(),
                 );
             }
             let entry = match spec {
@@ -1670,8 +1670,8 @@ impl SignerRegistryStore {
 fn global_signer_registry_store() -> Result<&'static SignerRegistryStore, String> {
     static STORE: OnceLock<Result<SignerRegistryStore, String>> = OnceLock::new();
     match STORE.get_or_init(|| {
-        let raw = std::env::var("EPISTEMIC_GRAPH_SIGNER_KEYS_JSON").map_err(|_| {
-            "verified identity operations require EPISTEMIC_GRAPH_SIGNER_KEYS_JSON".to_string()
+        let raw = std::env::var("MEDULLA_SIGNER_KEYS_JSON").map_err(|_| {
+            "verified identity operations require MEDULLA_SIGNER_KEYS_JSON".to_string()
         })?;
         Ok(SignerRegistryStore::new(SignerKeyRegistry::from_json(
             &raw,
@@ -1700,13 +1700,13 @@ pub(crate) fn reload_signer_registry_from_json(raw: &str) -> Result<(), String> 
 }
 
 /// Convenience wrapper: reload from the CURRENT value of
-/// `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` (an operator updates the env/secret
+/// `MEDULLA_SIGNER_KEYS_JSON` (an operator updates the env/secret
 /// source the deployment mounts it from, then triggers this).
 #[cfg(not(test))]
 #[allow(dead_code)] // unwired pending a dispatch-side rotation trigger (see doc comment)
 pub(crate) fn reload_signer_registry_from_env() -> Result<(), String> {
-    let raw = std::env::var("EPISTEMIC_GRAPH_SIGNER_KEYS_JSON").map_err(|_| {
-        "verified identity operations require EPISTEMIC_GRAPH_SIGNER_KEYS_JSON".to_string()
+    let raw = std::env::var("MEDULLA_SIGNER_KEYS_JSON").map_err(|_| {
+        "verified identity operations require MEDULLA_SIGNER_KEYS_JSON".to_string()
     })?;
     reload_signer_registry_from_json(&raw)
 }
@@ -1785,7 +1785,7 @@ fn register_identity_digest(
         roles: roles.to_vec(),
     };
     digest_operation(
-        "eg-register-identity-v2",
+        "medulla-register-identity-v2",
         context,
         graph,
         &method.canonical_body_bytes(),
@@ -1806,7 +1806,7 @@ fn multisig_mutation_digest(
         query: query.to_string(),
     };
     digest_operation(
-        "eg-multisig-mutation-v2",
+        "medulla-multisig-mutation-v2",
         context,
         graph,
         &method.canonical_body_bytes(),
@@ -1877,7 +1877,7 @@ mod tests {
         }
     }
 
-    /// Turn the `EPISTEMIC_GRAPH_REQUIRE_OIDC` posture ON for this test —
+    /// Turn the `MEDULLA_REQUIRE_OIDC` posture ON for this test —
     /// simulates a deployment that either left it at its real (secure)
     /// default or explicitly set it truthy.
     fn require_oidc_on() -> RequireOidcGuard {
@@ -1885,9 +1885,9 @@ mod tests {
         RequireOidcGuard
     }
 
-    /// Turn the `EPISTEMIC_GRAPH_REQUIRE_OIDC` posture OFF for this test —
+    /// Turn the `MEDULLA_REQUIRE_OIDC` posture OFF for this test —
     /// the explicit, deliberate, documented opt-out
-    /// (`EPISTEMIC_GRAPH_REQUIRE_OIDC=false`) a real local/dev deployment
+    /// (`MEDULLA_REQUIRE_OIDC=false`) a real local/dev deployment
     /// must type to restore pre-2026-07-22 HMAC-only-permitted behavior. A
     /// no-op against `TEST_REQUIRE_OIDC`'s own default, kept for tests that
     /// want to state the opt-out explicitly rather than rely on the harness
@@ -1983,7 +1983,7 @@ mod tests {
                 foreign_execution: None,
             },
             Method::UnifiedQuery {
-                plan: eg_plan::Plan::new(vec![]),
+                plan: medulla_plan::Plan::new(vec![]),
                 foreign_execution: None,
                 foreign_executions: Default::default(),
             },
@@ -2021,9 +2021,9 @@ mod tests {
             );
             verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap();
 
-            let execution = eg_types::foreign_read::ForeignReadExecutionRef {
+            let execution = medulla_types::foreign_read::ForeignReadExecutionRef {
                 execution_id: 42,
-                query_digest: eg_types::contract::Digest256::sha256(b"legacy-query"),
+                query_digest: medulla_types::contract::Digest256::sha256(b"legacy-query"),
             };
             match &mut req.method {
                 Method::Uql {
@@ -2033,7 +2033,7 @@ mod tests {
                     foreign_executions, ..
                 } => {
                     *foreign_executions =
-                        eg_types::contract::BoundedVec::new(vec![execution]).unwrap();
+                        medulla_types::contract::BoundedVec::new(vec![execution]).unwrap();
                 }
                 _ => unreachable!(),
             }
@@ -2142,7 +2142,7 @@ mod tests {
         wrong_tenant.tenant = "tenant-b".into();
         let request = ping_request(599, "tenant-a-graph", String::new());
 
-        for (method, policy, _) in eg_capabilities::method_policy_entries() {
+        for (method, policy, _) in medulla_capabilities::method_policy_entries() {
             assert!(
                 !denied.allows_method(policy.authz_action, policy.mutates),
                 "{method}: a verified context with no scopes must be denied before row access"
@@ -2155,7 +2155,7 @@ mod tests {
             );
         }
         assert!(
-            eg_capabilities::method_policy_entries().count() >= 350,
+            medulla_capabilities::method_policy_entries().count() >= 350,
             "negative matrix must track the exhaustive protocol inventory"
         );
     }
@@ -2181,7 +2181,7 @@ mod tests {
 
     /// Each verification failure with a published cause class keeps its typed
     /// code on the wire; everything else stays the redacted generic refusal.
-    // spec: EG-CONTRACT-R014.1
+    // spec: MEDULLA-CONTRACT-R014.1
     #[test]
     fn verification_failures_carry_a_typed_safe_cause_class() {
         let _opt_out = require_oidc_off();
@@ -2279,7 +2279,7 @@ mod tests {
         assert!(error.contains("policy version"));
     }
 
-    // spec: EG-DECISION-ENGINE-R097
+    // spec: MEDULLA-DECISION-ENGINE-R097
     #[test]
     fn current_envelope_replay_is_rejected() {
         // Not an identity-binding test: exercises nonce/replay rejection over
@@ -2574,7 +2574,7 @@ mod tests {
         // Uses a private probe name (never read by production code) so this
         // can never race with another parallel test or a real deployment
         // env var of the same name.
-        const PROBE: &str = "EPISTEMIC_GRAPH_REQUIRE_OIDC_TEST_PROBE_env_flag_explicit";
+        const PROBE: &str = "MEDULLA_REQUIRE_OIDC_TEST_PROBE_env_flag_explicit";
 
         std::env::remove_var(PROBE);
         assert_eq!(
@@ -3012,7 +3012,7 @@ mod tests {
     /// `AgentRole::System`, empty `roles` -- must still be admitted once
     /// `may_grant_system` is explicitly granted, through the SAME
     /// `authorize_grant` gate every other signer now goes through. This is
-    /// the auth-layer half of genesis; `crates::eg_core::isolation`'s own
+    /// the auth-layer half of genesis; `crates::medulla_core::isolation`'s own
     /// `try_bootstrap_system_identity` enforces the "exactly once" half
     /// independently (see that module's tests).
     #[test]
@@ -3087,7 +3087,7 @@ mod tests {
         const TEST_RSA_EXPONENT_HEX: &str = "010001";
 
         const OIDC_ISSUER: &str = "https://identity.example.test/realms/eg";
-        const OIDC_AUDIENCE: &str = "epistemic-graph";
+        const OIDC_AUDIENCE: &str = "medulla";
         const OIDC_KID: &str = "auth-test-kid";
 
         /// Resets `TEST_OIDC_VALIDATOR` when dropped — including on an early
@@ -3412,7 +3412,7 @@ mod tests {
         #[test]
         fn explicit_opt_out_preserves_pre_2026_07_22_hmac_only_behavior() {
             // No validator installed AND the deliberate, documented opt-out
-            // (`EPISTEMIC_GRAPH_REQUIRE_OIDC=false`) is set — mirrors a real
+            // (`MEDULLA_REQUIRE_OIDC=false`) is set — mirrors a real
             // local/dev deployment that has consciously typed the escape
             // hatch. An envelope with NO oidc_token must verify exactly as it
             // did before the 2026-07-22 secure-by-default flip. This proves
@@ -3430,7 +3430,7 @@ mod tests {
             assert!(result.is_ok(), "{:?}", result.err());
         }
 
-        // ── MANDATORY-OIDC posture (EPISTEMIC_GRAPH_REQUIRE_OIDC) ─────────
+        // ── MANDATORY-OIDC posture (MEDULLA_REQUIRE_OIDC) ─────────
         //
         // With the posture ON, an unconfigured verifier must fail closed
         // rather than fall back to HMAC-only, and a configured verifier must
@@ -3452,7 +3452,7 @@ mod tests {
             let req = envelope_request(710, "oidc-require-unconfigured", matching_claims(), None);
             let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
                 .unwrap_err();
-            assert!(error.contains("EPISTEMIC_GRAPH_REQUIRE_OIDC"), "{error}");
+            assert!(error.contains("MEDULLA_REQUIRE_OIDC"), "{error}");
         }
 
         #[test]
@@ -3475,7 +3475,7 @@ mod tests {
             );
             let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
                 .unwrap_err();
-            assert!(error.contains("EPISTEMIC_GRAPH_REQUIRE_OIDC"), "{error}");
+            assert!(error.contains("MEDULLA_REQUIRE_OIDC"), "{error}");
         }
 
         #[test]
@@ -3704,8 +3704,8 @@ mod tests {
         const ICEBERG_TEST_RSA_MODULUS_HEX: &str = "BE4725FD791744D873C4C82CC04BA74DB85707A72581E4773E3F9041531B15EA57DCCCDA092ADECBFA818521F10DE4F849DE2F6B359A20AD4EEEC7DA6AA550BAF49A8F471089348B5C677A4C3D9B7F027395D3A08FA87345E4F842D3F5E6D9846F139883CB9ED94E1A868F85A741A5CB1262BEAA4B395C6F9BC82FC46E65267CD50D7D752D2194B69A03CA41F3C135A9862F48D7697F74E8DA8DCA840CDF4F2CDA9ADDC48EA6445574FFBC79F23144A520BA9AAA3EA8B549C25A89188A869A8EE7F05A096A66BFA4F49D4B5900F49579E88DA8C25DA9BAEA53F93CB69E744E5D80B55A41E0DE41449BB437B53B57F6EF179EAE0B3815A20B1DF65FBDF28FC3B7";
         const ICEBERG_TEST_RSA_EXPONENT_HEX: &str = "010001";
         const ICEBERG_TEST_KID: &str = "iceberg-test-kid";
-        const ICEBERG_TEST_ISSUER: &str = "https://identity.example.test/realms/eg-iceberg";
-        const ICEBERG_TEST_AUDIENCE: &str = "epistemic-graph-iceberg";
+        const ICEBERG_TEST_ISSUER: &str = "https://identity.example.test/realms/medulla-iceberg";
+        const ICEBERG_TEST_AUDIENCE: &str = "medulla-iceberg";
 
         #[test]
         fn unparseable_scope_claim_fails_verification_before_scope_projection_even_runs() {

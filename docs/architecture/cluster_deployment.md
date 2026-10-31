@@ -25,22 +25,22 @@
 | 3         | `NODE_3_HOST`         | `NODE_3_ADDR`            | learner → voter |
 | 4         | `NODE_4_HOST`         | `NODE_4_ADDR`            | learner → voter (deployment manager when applicable) |
 
-* **Raft RPC** binds `:9100` on every node (the `EPISTEMIC_GRAPH_RAFT_PEERS` port).
+* **Raft RPC** binds `:9100` on every node (the `MEDULLA_RAFT_PEERS` port).
   Peers dial the runtime-injected `NODE_<N>_ADDR` values on `:9100`.
 * The engine's **client TCP** must therefore move OFF `:9100` (collision) — the
   `cluster.env` flavor sets `ENGINE_TCP_ADDR=0.0.0.0:9101`; a **co-located arbora**
   should prefer the **local UDS**. Remote clients dial a member's `:9101` and follow
   the `ForwardToLeader` redirect.
-* `EPISTEMIC_GRAPH_RAFT_BIND_ADDR=0.0.0.0:9100` lets a containerized member bind all
+* `MEDULLA_RAFT_BIND_ADDR=0.0.0.0:9100` lets a containerized member bind all
   interfaces while still **advertising** its runtime-injected routable address (from
   `PEERS`) to peers.
 * Every member receives the same runtime-mounted key through
-  `EPISTEMIC_GRAPH_RAFT_AUTH_SECRET_FILE`. The Raft transport authenticates both peer
+  `MEDULLA_RAFT_AUTH_SECRET_FILE`. The Raft transport authenticates both peer
   ids with a fresh nonce exchange, derives a per-connection key, encrypts frames with
   XChaCha20-Poly1305, and rejects replayed/out-of-order sequence numbers. A routable
   or multi-member cluster refuses to start without key material; plaintext is limited
   to one-member loopback development.
-* `EPISTEMIC_GRAPH_RAFT_FAILURE_DOMAINS` is an optional complete map such as
+* `MEDULLA_RAFT_FAILURE_DOMAINS` is an optional complete map such as
   `1=az-a,2=az-b,3=az-b,4=az-c`. It defines the failure boundary used by the
   automatic leader balancer. If omitted, the host portion of each advertised Raft
   endpoint is used. Equal or unknown domains fail closed: the balancer will not
@@ -51,7 +51,7 @@
 With Raft active, **all durable writes for a graph route through that graph's group
 LEADER** before they are acked (consensus is the replication barrier). The configured
 multi-Raft groups own matching redb shards (`K=N`), so the cluster retains HA while
-independent graph ranges can write in parallel. `EPISTEMIC_GRAPH_RAFT_GROUPS` controls
+independent graph ranges can write in parallel. `MEDULLA_RAFT_GROUPS` controls
 N and defaults from effective cgroup-aware CPU capacity for a fresh store. On restart,
 the existing on-disk shard count is authoritative: node startup adopts that durable K
 before creating the default group or tenant ring, and changing K requires the offline
@@ -99,7 +99,7 @@ the cluster.
 
 ### 2a. Restart node 1 as a single-member Raft cluster (still authoritative, now HA-ready)
 
-Node 1 boots with `EPISTEMIC_GRAPH_RAFT_NODE_ID=1` and a `PEERS` list. Because node 1 is
+Node 1 boots with `MEDULLA_RAFT_NODE_ID=1` and a `PEERS` list. Because node 1 is
 the **lowest id**, it is the bootstrap candidate; it `initialize`s the cluster as a
 single voter `{1}` over **its existing redb** (the Raft log lives in the SAME
 the authoritative shard, keyed by group id — the graph data is untouched). At this
@@ -108,18 +108,18 @@ as before.
 
 ```bash
 # On the runtime-selected deployment manager:
-set -a; source services/epistemic-graph/flavors/cluster.env; set +a
-export EPISTEMIC_GRAPH_RAFT_NODE_ID=1
-export EPISTEMIC_GRAPH_RAFT_AUTH_SECRET_FILE="${RAFT_AUTH_SECRET_FILE:?set a runtime secret-file reference}"
-# CONCEPT:EG-KG.sharding.cluster-topology (ADR-1 / W1.1): required once Raft peers are
+set -a; source services/medulla/flavors/cluster.env; set +a
+export MEDULLA_RAFT_NODE_ID=1
+export MEDULLA_RAFT_AUTH_SECRET_FILE="${RAFT_AUTH_SECRET_FILE:?set a runtime secret-file reference}"
+# CONCEPT:MEDULLA-KG.sharding.cluster-topology (ADR-1 / W1.1): required once Raft peers are
 # configured -- the address this node self-reports so ClusterMembers/
 # PlacementRoute.endpoints can hand it to a discovering client, replacing
 # the static GRAPH_RAFT_GROUP_ENDPOINTS map. Fails closed (refuses to
-# start) without it once EPISTEMIC_GRAPH_RAFT_NODE_ID/_PEERS are set.
-export EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR="${NODE_1_CLIENT_ADDR:?e.g. tcp://192.0.2.10:8765 (RFC 5737 documentation address -- substitute the real one at runtime)}"
+# start) without it once MEDULLA_RAFT_NODE_ID/_PEERS are set.
+export MEDULLA_ADVERTISED_CLIENT_ADDR="${NODE_1_CLIENT_ADDR:?e.g. tcp://192.0.2.10:8765 (RFC 5737 documentation address -- substitute the real one at runtime)}"
 export SERVER="${NODE_1_HOST:?set the node 1 host alias at runtime}"
 export ENGINE_PERSIST="${ENGINE_PERSIST:?set to node 1's existing data directory}"
-docker stack deploy -c services/epistemic-graph/compose.dev.yml epistemic-graph-1
+docker stack deploy -c services/medulla/compose.dev.yml medulla-1
 ```
 
 **Verify** before going further: the engine is up, it is the leader of the single-member
@@ -137,12 +137,12 @@ they stand up, then wait to be added by the leader.
 
 ```bash
 # Node 2:
-set -a; source services/epistemic-graph/flavors/cluster.env; set +a
-export EPISTEMIC_GRAPH_RAFT_NODE_ID=2
-export EPISTEMIC_GRAPH_RAFT_AUTH_SECRET_FILE="${RAFT_AUTH_SECRET_FILE:?set the shared runtime secret-file reference}"
+set -a; source services/medulla/flavors/cluster.env; set +a
+export MEDULLA_RAFT_NODE_ID=2
+export MEDULLA_RAFT_AUTH_SECRET_FILE="${RAFT_AUTH_SECRET_FILE:?set the shared runtime secret-file reference}"
 export SERVER="${NODE_2_HOST:?set the node 2 host alias at runtime}"
 export ENGINE_PERSIST="${ENGINE_PERSIST:?set to node 2's empty data directory}"
-docker stack deploy -c services/epistemic-graph/compose.dev.yml epistemic-graph-2
+docker stack deploy -c services/medulla/compose.dev.yml medulla-2
 # Repeat for node 3 and node 4, using `NODE_3_HOST` and `NODE_4_HOST`; each gets its own
 # empty directory.
 ```
@@ -169,7 +169,7 @@ so quorum is never at risk:
 > `MultiRaft::add_group_learner`/`change_group_voters` path the lib tests
 > `multi_node_group_join_then_leader_rebalance` (voter promotion) and
 > `raft_add_learner_wire_method_attaches_non_voting_learner` (wire method, non-voting)
-> exercise — over `epistemic_graph.client`'s `raft_admin` namespace (§5 item 2). Each
+> exercise — over `medulla.client`'s `raft_admin` namespace (§5 item 2). Each
 > step is idempotent and refuses to produce an empty voter set.
 
 ### 2d. Verify replication, then (optionally) rebalance leadership
@@ -192,10 +192,10 @@ no node was wiped.**
 
 At any point before the operator trusts the cluster, the operator can return to the single-node engine:
 
-1. **Tear down nodes 2–4** (`docker stack rm epistemic-graph-2/3/4`). With them gone the
+1. **Tear down nodes 2–4** (`docker stack rm medulla-2/3/4`). With them gone the
    cluster loses quorum — that is fine for rollback because node 1 still holds the
    authoritative data on disk.
-2. **Restart node 1 WITHOUT the Raft env** (unset `EPISTEMIC_GRAPH_RAFT_NODE_ID`/`PEERS`):
+2. **Restart node 1 WITHOUT the Raft env** (unset `MEDULLA_RAFT_NODE_ID`/`PEERS`):
    redeploy the single-node default `compose.dev.yml`. The engine runs single-node over
    the SAME redb exactly as before the migration (the Raft log rows are inert when Raft
    is off).
@@ -249,10 +249,10 @@ confirm there before declaring the cluster production-live:
    a dedicated remove entrypoint — flag for a follow-up).
 
    §2c is now drivable end-to-end without a bespoke binary: bring node 2 up on
-   the SAME `EPISTEMIC_GRAPH_RAFT_NODE_ID`/`EPISTEMIC_GRAPH_RAFT_PEERS`/
-   `EPISTEMIC_GRAPH_RAFT_AUTH_SECRET_FILE` boot env this doc already documents in
+   the SAME `MEDULLA_RAFT_NODE_ID`/`MEDULLA_RAFT_PEERS`/
+   `MEDULLA_RAFT_AUTH_SECRET_FILE` boot env this doc already documents in
    §2b (its `is_bootstrap` resolves to `false` because its id isn't the lowest in
-   `EPISTEMIC_GRAPH_RAFT_PEERS`, so it opens the group WITHOUT `initialize` — i.e.
+   `MEDULLA_RAFT_PEERS`, so it opens the group WITHOUT `initialize` — i.e.
    it boots straight into "empty, non-bootstrapping, learner-ready" — no new env
    var needed), then from the LEADER:
 

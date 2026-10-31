@@ -1,7 +1,7 @@
 # Native program optimization
 
 Medulla has one graph-native plane for typed LM programs and governed
-self-improvement: `eg-program`, enabled by `program-optimization` and included in
+self-improvement: `medulla-program`, enabled by `program-optimization` and included in
 `full`. It replaces a separate Python DSPy/LiteLLM optimizer and provider plane.
 
 ## Authority and data flow
@@ -177,6 +177,6 @@ and MutationBatch publication. The server injects `program.optimization` so an
 unqualified worker cannot claim the job. Request budgets separately cap candidates,
 demonstrations, model calls, evaluator calls, and trainer steps.
 
-`eg-program` has no network client, provider SDK, disk cache, dynamic code execution,
+`medulla-program` has no network client, provider SDK, disk cache, dynamic code execution,
 or direct graph-write path. `ModelTransport` is a provider-neutral engine injection
 point and is the only model-call boundary.

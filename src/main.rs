@@ -1,7 +1,7 @@
 #![recursion_limit = "256"]
 #![allow(dead_code)]
 #![deny(unsafe_code)]
-// CONCEPT:EG-KG.query.wire-protocol — Epistemic Graph Service Binary
+// CONCEPT:MEDULLA-KG.query.wire-protocol — Medulla Service Binary
 //
 // Entry point for the long-running Tokio service process.
 // Parses CLI args, initializes the GraphRegistry, and starts
@@ -19,8 +19,8 @@ use tokio::sync::RwLock;
 // narrowly than its uses).
 use tracing::info;
 
-use epistemic_graph::server;
-use epistemic_graph::server::ServerState;
+use medulla::server;
+use medulla::server::ServerState;
 mod offline_tools;
 
 #[cfg(feature = "security")]
@@ -31,7 +31,7 @@ mod server_startup;
 use server_startup::run_fuseki_startup_health_check;
 
 #[derive(Parser, Debug)]
-#[command(name = "epistemic-graph-server")]
+#[command(name = "medulla-server")]
 #[command(about = "Tokio-native epistemic graph service")]
 struct Args {
     /// Offline operator command, run instead of the service.
@@ -53,8 +53,8 @@ struct Args {
     exact_performance_probe_root: Option<std::path::PathBuf>,
 
     /// Unix Domain Socket path.
-    /// Falls back to $GRAPH_SERVICE_SOCKET, then $XDG_RUNTIME_DIR/epistemic-graph.sock,
-    /// then /tmp/epistemic-graph.sock.
+    /// Falls back to $GRAPH_SERVICE_SOCKET, then $XDG_RUNTIME_DIR/medulla.sock,
+    /// then /tmp/medulla.sock.
     #[arg(long, env = "GRAPH_SERVICE_SOCKET")]
     socket_path: Option<String>,
 
@@ -123,7 +123,7 @@ struct Args {
     /// W3C SPARQL 1.1 Protocol HTTP listener address (e.g. 127.0.0.1:7878), feature
     /// `sparql-http`. Disabled when unset. Lets existing Stardog/Jena/rdflib SPARQL
     /// clients query + update the engine unchanged. Separate from the RPC transports.
-    #[arg(long, env = "EPISTEMIC_GRAPH_SPARQL_ADDR")]
+    #[arg(long, env = "MEDULLA_SPARQL_ADDR")]
     sparql_addr: Option<String>,
 
     /// CA-16 (DEC-CA-04) `/policy/export` HTTP listener address (e.g.
@@ -132,20 +132,20 @@ struct Args {
     /// token (`kg:admin`/`policy:export`) via the SAME primary-protocol OIDC
     /// validator as the `eg2.` RPC surface (`oidc::JwtValidator::from_env_primary`)
     /// -- no separate credential shape. Separate from the RPC transports.
-    #[arg(long, env = "EPISTEMIC_GRAPH_POLICY_EXPORT_ADDR")]
+    #[arg(long, env = "MEDULLA_POLICY_EXPORT_ADDR")]
     policy_export_addr: Option<String>,
 
     /// Loopback address for the authenticated GraphQL subscription SSE carrier
     /// (e.g. 127.0.0.1:7879), feature `graphql`. Non-loopback binds are refused;
     /// remote access must use a same-host TLS reverse proxy. Every subscription
     /// requires a current eg2 envelope, graph ACL, and RLS projection.
-    #[arg(long, env = "EPISTEMIC_GRAPH_GRAPHQL_ADDR")]
+    #[arg(long, env = "MEDULLA_GRAPHQL_ADDR")]
     graphql_addr: Option<String>,
 
     /// Maximum concurrent GraphQL SSE handshakes and sessions.
     #[arg(
         long,
-        env = "EPISTEMIC_GRAPH_GRAPHQL_MAX_CONNECTIONS",
+        env = "MEDULLA_GRAPHQL_MAX_CONNECTIONS",
         default_value_t = 128
     )]
     graphql_max_connections: usize,
@@ -153,7 +153,7 @@ struct Args {
     /// Maximum GraphQL SSE session lifetime before a fresh eg2 envelope is required.
     #[arg(
         long,
-        env = "EPISTEMIC_GRAPH_GRAPHQL_MAX_SESSION_SECS",
+        env = "MEDULLA_GRAPHQL_MAX_SESSION_SECS",
         default_value_t = 300
     )]
     graphql_max_session_secs: u64,
@@ -161,9 +161,9 @@ struct Args {
     /// Observability log-ingestion HTTP listener address (e.g. 127.0.0.1:5080),
     /// feature `obs` (CONCEPT:AU-KG.ingest.self-ingest/161). Disabled when unset. Accepts OTLP/HTTP
     /// (`/v1/logs`), Elasticsearch `_bulk`/`_doc`, and JSON-lines log records, landing
-    /// them in eg-tsdb series + eg-text full-text indices and rolling Parquet segments
+    /// them in medulla-tsdb series + medulla-text full-text indices and rolling Parquet segments
     /// into the blob CAS. Separate from the RPC transports.
-    #[arg(long, env = "EPISTEMIC_GRAPH_OBS_ADDR")]
+    #[arg(long, env = "MEDULLA_OBS_ADDR")]
     obs_addr: Option<String>,
 
     /// Interactive native-visualization HTTP listener address (e.g.
@@ -174,7 +174,7 @@ struct Args {
     /// from every other auxiliary HTTP surface. Loopback-only, like every
     /// auxiliary listener; a remote client goes through a same-host reverse
     /// proxy (this fleet's `edge-ingress`), never a direct non-loopback bind.
-    #[arg(long, env = "EPISTEMIC_GRAPH_VIZ_INTERACTIVE_ADDR")]
+    #[arg(long, env = "MEDULLA_VIZ_INTERACTIVE_ADDR")]
     viz_interactive_addr: Option<String>,
 
     /// Iceberg-REST catalog HTTP listener address (e.g. 127.0.0.1:8181), feature
@@ -183,16 +183,16 @@ struct Args {
     /// `lake` materialization tier writes, so a standard Iceberg REST client (PyIceberg/
     /// Spark/Trino) can list + load them. Separate from the RPC transports and the
     /// `/sparql`/`/obs` surfaces.
-    #[arg(long, env = "EPISTEMIC_GRAPH_ICEBERG_ADDR")]
+    #[arg(long, env = "MEDULLA_ICEBERG_ADDR")]
     iceberg_addr: Option<String>,
 
     /// Super-cluster federated-search HTTP listener address (e.g. 127.0.0.1:7900),
-    /// feature `federation-search` (CONCEPT:EG-KG.ontology.federation-client). Disabled when unset. Serves a
+    /// feature `federation-search` (CONCEPT:MEDULLA-KG.ontology.federation-client). Disabled when unset. Serves a
     /// `/federated` POST (`{query, lang}`) that fans the read query across the peers in
-    /// `EPISTEMIC_GRAPH_FEDERATION_PEERS` AND the local store, then unions/de-dups +
+    /// `MEDULLA_FEDERATION_PEERS` AND the local store, then unions/de-dups +
     /// RRF-re-ranks the partials (a slow/dead peer degrades to `partial: true`). Separate
     /// from the RPC transports and the `/sparql` surface.
-    #[arg(long, env = "EPISTEMIC_GRAPH_FEDERATED_ADDR")]
+    #[arg(long, env = "MEDULLA_FEDERATED_ADDR")]
     federated_addr: Option<String>,
 
     /// Self-terminate after N seconds with ZERO active connections (reference-
@@ -203,18 +203,18 @@ struct Args {
     /// grace period cancels the timer. SIGTERM/SIGINT graceful shutdown works in
     /// BOTH modes. agent-utilities' EngineResolver passes this to its autostarted
     /// tiny daemon.
-    #[arg(long, default_value = "0", env = "EPISTEMIC_GRAPH_IDLE_SHUTDOWN_SECS")]
+    #[arg(long, default_value = "0", env = "MEDULLA_IDLE_SHUTDOWN_SECS")]
     idle_shutdown_secs: u64,
 }
 
 /// Resolve the default UDS path per-platform. Explicit > $GRAPH_SERVICE_SOCKET
 /// (handled by clap's `env`) > per-OS runtime dir > temp dir fallback.
 ///
-/// - **Unix:** `$XDG_RUNTIME_DIR/epistemic-graph.sock` (when the dir exists),
-///   else `/tmp/epistemic-graph.sock`.
-/// - **Windows:** `%LOCALAPPDATA%\epistemic-graph\engine.sock` (its parent is
-///   prepared during validated startup), else `%TEMP%\epistemic-graph.sock`, else
-///   `C:\Windows\Temp\epistemic-graph.sock`. NOTE: Tokio has no `UnixListener` on
+/// - **Unix:** `$XDG_RUNTIME_DIR/medulla.sock` (when the dir exists),
+///   else `/tmp/medulla.sock`.
+/// - **Windows:** `%LOCALAPPDATA%\medulla\engine.sock` (its parent is
+///   prepared during validated startup), else `%TEMP%\medulla.sock`, else
+///   `C:\Windows\Temp\medulla.sock`. NOTE: Tokio has no `UnixListener` on
 ///   Windows, so this path is only a stable *identifier* / lock anchor — the
 ///   actual default transport on Windows is TCP loopback (see the transport
 ///   section). Keeping the value defined preserves parity for config/logging.
@@ -225,13 +225,13 @@ fn resolve_socket_path(explicit: Option<String>) -> (String, Option<std::path::P
     #[cfg(unix)]
     {
         if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
-            let xdg_sock = format!("{}/epistemic-graph.sock", xdg);
+            let xdg_sock = format!("{}/medulla.sock", xdg);
             // Prefer XDG if the directory exists
             if std::path::Path::new(&xdg).exists() {
                 return (xdg_sock, None);
             }
         }
-        ("/tmp/epistemic-graph.sock".to_string(), None)
+        ("/tmp/medulla.sock".to_string(), None)
     }
     #[cfg(windows)]
     {
@@ -244,7 +244,7 @@ fn resolve_socket_path(explicit: Option<String>) -> (String, Option<std::path::P
     {
         (
             std::env::temp_dir()
-                .join("epistemic-graph.sock")
+                .join("medulla.sock")
                 .to_string_lossy()
                 .into_owned(),
             None,
@@ -258,7 +258,7 @@ fn resolve_windows_socket_path(
     temp: Option<std::ffi::OsString>,
 ) -> (String, Option<std::path::PathBuf>) {
     if let Some(local) = local_app_data {
-        let parent = std::path::PathBuf::from(local).join("epistemic-graph");
+        let parent = std::path::PathBuf::from(local).join("medulla");
         return (
             parent.join("engine.sock").to_string_lossy().into_owned(),
             Some(parent),
@@ -267,13 +267,13 @@ fn resolve_windows_socket_path(
     if let Some(temp) = temp {
         return (
             std::path::PathBuf::from(temp)
-                .join("epistemic-graph.sock")
+                .join("medulla.sock")
                 .to_string_lossy()
                 .into_owned(),
             None,
         );
     }
-    (r"C:\Windows\Temp\epistemic-graph.sock".to_string(), None)
+    (r"C:\Windows\Temp\medulla.sock".to_string(), None)
 }
 
 #[cfg(any(windows, test))]
@@ -310,7 +310,7 @@ fn native_tcp_addr_is_loopback(addr: &str) -> bool {
 }
 
 /// Resolve an optional listener bind address from a deploy-supplied value
-/// (CONCEPT:EG-OS.config.configurable-listeners — deploy-configurable listeners). The auxiliary HTTP listeners
+/// (CONCEPT:MEDULLA-OS.config.configurable-listeners — deploy-configurable listeners). The auxiliary HTTP listeners
 /// (Prometheus metrics, SPARQL, pgwire) are all opt-in; this lets a deploy turn one
 /// on WITHOUT a full `host:port` and WITHOUT a code change:
 ///   * `None` / empty / `0`|`off`|`false`|`no`|`disabled` ⇒ `None` (listener off).
@@ -338,7 +338,7 @@ fn parse_listener_addr(value: Option<&str>, default_addr: &str) -> Option<String
 /// other auxiliary listener.
 #[cfg(feature = "obs")]
 fn resolve_obs_listener_addr(value: Option<&str>) -> Option<String> {
-    if epistemic_graph::server::obs::writer_auth_configured() {
+    if medulla::server::obs::writer_auth_configured() {
         return parse_listener_addr(value, "127.0.0.1:5080");
     }
     resolve_listener_addr(value, "127.0.0.1:5080")
@@ -369,13 +369,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     offline_tools::run_if_requested();
     #[cfg(feature = "security")]
     operator_command::exit_if_requested(Args::parse().command);
-    // Explicit, hardware-sized multi-thread runtime (CONCEPT:EG-KG.storage.nonblocking-checkpoint — A4). The
+    // Explicit, hardware-sized multi-thread runtime (CONCEPT:MEDULLA-KG.storage.nonblocking-checkpoint — A4). The
     // The runtime itself is an automatic capacity consumer. Resolve through the
     // shared cgroup-aware seam before building it; a CPU-limited pod must not
     // inherit the host's affinity count or a two-thread floor that exceeds its
     // measured budget. The resolver already reserves CPU headroom and keeps a
     // one-thread progress floor.
-    let cores = epistemic_graph::autosize::detect_capacity().reserved_cpus();
+    let cores = medulla::autosize::detect_capacity().reserved_cpus();
     let worker_threads = cores.max(1);
     let max_blocking = cores.max(1);
     let driver = server::spawn_engine_driver(move || {
@@ -436,11 +436,11 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // CONCEPT:EG-OS.observability.tracing-subscriber-init — install the tracing subscriber. This is the fmt-only
+    // CONCEPT:MEDULLA-OS.observability.tracing-subscriber-init — install the tracing subscriber. This is the fmt-only
     // subscriber (INFO, no target) UNLESS built with `otel` AND
-    // EPISTEMIC_GRAPH_OTLP_ENDPOINT is set, in which case an OTLP batch span
+    // MEDULLA_OTLP_ENDPOINT is set, in which case an OTLP batch span
     // exporter is layered on top. Off/unset ⇒ byte-for-byte the prior behavior.
-    epistemic_graph::otel::init_tracing()?;
+    medulla::otel::init_tracing()?;
 
     let (socket_path, socket_parent) = resolve_socket_path(args.socket_path.take());
     let socket_mode = server_startup::socket_mode_or_exit(&args.socket_mode);
@@ -493,8 +493,8 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     .map_err(std::io::Error::other)?;
 
     let limits = server_startup::admission_limits(&host_capacity);
-    // OCC ACID transaction limits (CONCEPT:EG-KG.txn.multi-op-occ-acid).
-    let txn_limits = epistemic_graph::server::txn_limits_from_env();
+    // OCC ACID transaction limits (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid).
+    let txn_limits = medulla::server::txn_limits_from_env();
     // Every store is opened BEFORE `persist_dir` is moved into the state; each
     // open failure is fatal at boot (loud + early).
     let stores = server_startup::open_durable_stores(args.persist_dir.as_deref(), &host_capacity);
@@ -605,21 +605,21 @@ async fn spawn_optional_service_listeners(
     spawn_s3_listener(state).await?;
     spawn_kvcache_listener(state).await?;
     recover_durable_catalog(state).await?;
-    epistemic_graph::server::connector_pack_projection::spawn(state.clone());
-    epistemic_graph::server::repository_enrichment_worker::spawn(state.clone());
+    medulla::server::connector_pack_projection::spawn(state.clone());
+    medulla::server::repository_enrichment_worker::spawn(state.clone());
     #[cfg(feature = "epistemic-tms")]
-    epistemic_graph::server::reasoning_projection::spawn(state.clone());
+    medulla::server::reasoning_projection::spawn(state.clone());
     // Sampled authorization denials reach the identity audit trail.
     #[cfg(feature = "security")]
-    epistemic_graph::server::spawn_denial_sample_flusher(state.clone());
+    medulla::server::spawn_denial_sample_flusher(state.clone());
     Ok(())
 }
 
 async fn spawn_metrics_listener(
     metrics_addr_arg: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // ── Prometheus metrics endpoint (CONCEPT:EG-KG.txn.per-graph-write-isolation) ────────────────────
-    // Opt-in + deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): bound only when
+    // ── Prometheus metrics endpoint (CONCEPT:MEDULLA-KG.txn.per-graph-write-isolation) ────────────────────
+    // Opt-in + deploy-configurable (CONCEPT:MEDULLA-OS.config.configurable-listeners): bound only when
     // --metrics-addr / GRAPH_SERVICE_METRICS_ADDR is set. A bare enable token
     // (`1`/`on`/…) binds the safe localhost default `127.0.0.1:9101`; a bare port
     // binds loopback:port. A non-loopback address additionally requires the
@@ -634,7 +634,7 @@ async fn spawn_metrics_listener(
                 metrics_addr
             );
             tokio::spawn(async move {
-                epistemic_graph::metrics::serve(listener).await;
+                medulla::metrics::serve(listener).await;
             });
         }
         #[cfg(not(feature = "metrics"))]
@@ -651,11 +651,11 @@ async fn spawn_sparql_listener(
 ) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "sparql-http")]
     let state = _state;
-    // ── W3C SPARQL 1.1 HTTP endpoint (CONCEPT:EG-KG.query.named-graph-support) ────────────────────
+    // ── W3C SPARQL 1.1 HTTP endpoint (CONCEPT:MEDULLA-KG.query.named-graph-support) ────────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features
-    // sparql-http` AND --sparql-addr / EPISTEMIC_GRAPH_SPARQL_ADDR is set. With the
+    // sparql-http` AND --sparql-addr / MEDULLA_SPARQL_ADDR is set. With the
     // feature off, or unset, this is a no-op and the engine runs exactly as before.
-    // Deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe
+    // Deploy-configurable (CONCEPT:MEDULLA-OS.config.configurable-listeners): a bare enable token binds the safe
     // localhost default `127.0.0.1:7878`; a bare port binds loopback:port. A
     // non-loopback address additionally requires the protected-ingress policy.
     let sparql_addr = resolve_listener_addr(sparql_addr_arg, "127.0.0.1:7878");
@@ -668,7 +668,7 @@ async fn spawn_sparql_listener(
         );
         let sparql_state = state.clone();
         tokio::spawn(async move {
-            epistemic_graph::server::sparql_http::serve(listener, sparql_state).await;
+            medulla::server::sparql_http::serve(listener, sparql_state).await;
         });
     }
     #[cfg(not(feature = "sparql-http"))]
@@ -683,7 +683,7 @@ async fn spawn_policy_export_listener(
     // ── CA-16 (DEC-CA-04) `/policy/export` HTTP listener ────────────────────────
     // Opt-in AND feature-gated, exactly like the SPARQL/metrics listeners above:
     // starts only when built `--features policy_export` AND
-    // --policy-export-addr / EPISTEMIC_GRAPH_POLICY_EXPORT_ADDR is set.
+    // --policy-export-addr / MEDULLA_POLICY_EXPORT_ADDR is set.
     let policy_export_addr = resolve_listener_addr(policy_export_addr_arg, "127.0.0.1:7879");
     #[cfg(feature = "policy_export")]
     if let Some(ref policy_export_addr) = policy_export_addr {
@@ -693,7 +693,7 @@ async fn spawn_policy_export_listener(
             policy_export_addr
         );
         tokio::spawn(async move {
-            epistemic_graph::server::policy_export::serve(listener).await;
+            medulla::server::policy_export::serve(listener).await;
         });
     }
     #[cfg(not(feature = "policy_export"))]
@@ -710,12 +710,12 @@ async fn spawn_federated_listener(
 ) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "federation-search")]
     let state = _state;
-    // ── Super-cluster federated search (CONCEPT:EG-KG.ontology.federation-client) ──────────────────
+    // ── Super-cluster federated search (CONCEPT:MEDULLA-KG.ontology.federation-client) ──────────────────
     // Opt-in AND feature-gated: the `/federated` listener starts ONLY when built
-    // `--features federation-search` AND --federated-addr / EPISTEMIC_GRAPH_FEDERATED_ADDR
+    // `--features federation-search` AND --federated-addr / MEDULLA_FEDERATED_ADDR
     // is set. With the feature off, or unset, this is a no-op. Fans a read query across the
-    // peers in EPISTEMIC_GRAPH_FEDERATION_PEERS AND the local store, then merges the
-    // partials. Deploy-configurable (EG-022): a bare enable token binds the safe localhost
+    // peers in MEDULLA_FEDERATION_PEERS AND the local store, then merges the
+    // partials. Deploy-configurable (MEDULLA-022): a bare enable token binds the safe localhost
     // default `127.0.0.1:7900`.
     let federated_addr = resolve_listener_addr(federated_addr_arg, "127.0.0.1:7900");
     #[cfg(feature = "federation-search")]
@@ -727,7 +727,7 @@ async fn spawn_federated_listener(
         );
         let fed_state = state.clone();
         tokio::spawn(async move {
-            epistemic_graph::server::federation::serve(listener, fed_state).await;
+            medulla::server::federation::serve(listener, fed_state).await;
         });
     }
     #[cfg(not(feature = "federation-search"))]
@@ -750,9 +750,9 @@ async fn spawn_graphql_listener(
     let graphql_max_connections = _graphql_max_connections;
     #[cfg(feature = "graphql")]
     let graphql_max_session_secs = _graphql_max_session_secs;
-    // ── GraphQL subscription SSE carrier (CONCEPT:EG-KG.compute.cdc-event-emit) ────────────────
+    // ── GraphQL subscription SSE carrier (CONCEPT:MEDULLA-KG.compute.cdc-event-emit) ────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features graphql`
-    // AND --graphql-addr / EPISTEMIC_GRAPH_GRAPHQL_ADDR is set. With the feature off, or
+    // AND --graphql-addr / MEDULLA_GRAPHQL_ADDR is set. With the feature off, or
     // unset, this is a no-op. The listener is loopback-only because its HTTP framing
     // does not terminate TLS; a same-host TLS reverse proxy is the sole remote exposure
     // path. Every accepted request carries an eg2 envelope signed over the exact graph,
@@ -776,7 +776,7 @@ async fn spawn_graphql_listener(
     }
     #[cfg(feature = "graphql")]
     if let Some(ref graphql_addr) = graphql_addr {
-        let graphql_config = epistemic_graph::server::graphql_sub::GraphQlSubscriptionConfig::new(
+        let graphql_config = medulla::server::graphql_sub::GraphQlSubscriptionConfig::new(
             graphql_max_connections,
             graphql_max_session_secs,
         )
@@ -795,7 +795,7 @@ async fn spawn_graphql_listener(
         );
         let gql_state = state.clone();
         tokio::spawn(async move {
-            epistemic_graph::server::graphql_sub::serve(listener, gql_state, graphql_config).await;
+            medulla::server::graphql_sub::serve(listener, gql_state, graphql_config).await;
         });
     }
     #[cfg(not(feature = "graphql"))]
@@ -812,11 +812,11 @@ async fn spawn_obs_listener(
     let state = _state;
     // ── Observability log ingestion (CONCEPT:AU-KG.ingest.self-ingest/161) ─────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features obs`
-    // AND --obs-addr / EPISTEMIC_GRAPH_OBS_ADDR is set. With the feature off, or
+    // AND --obs-addr / MEDULLA_OBS_ADDR is set. With the feature off, or
     // unset, this is a no-op. Ingests logs (OTLP/HTTP, Elasticsearch `_bulk`/`_doc`,
-    // JSON-lines) into eg-tsdb series + eg-text full-text indices and rolls Parquet
+    // JSON-lines) into medulla-tsdb series + medulla-text full-text indices and rolls Parquet
     // segments into the blob CAS. Self-contained (its own ObsState under the persist
-    // dir). Deploy-configurable (EG-022): a bare enable token binds the safe localhost
+    // dir). Deploy-configurable (MEDULLA-022): a bare enable token binds the safe localhost
     // default `127.0.0.1:5080` (O2's log-ingest port); a bare port binds loopback:port.
     #[cfg(feature = "obs")]
     let obs_addr = resolve_obs_listener_addr(obs_addr_arg);
@@ -824,7 +824,7 @@ async fn spawn_obs_listener(
     let obs_addr = resolve_listener_addr(obs_addr_arg, "127.0.0.1:5080");
     #[cfg(feature = "obs")]
     if let Some(ref obs_addr) = obs_addr {
-        use epistemic_graph::server::obs::{
+        use medulla::server::obs::{
             ObsState, DEFAULT_FLUSH_RECORDS, OBS_FLUSH_RECORDS_ENV,
         };
         let flush = std::env::var(OBS_FLUSH_RECORDS_ENV)
@@ -854,7 +854,7 @@ async fn spawn_obs_listener(
 
                 let obs_security_state = state.clone();
                 tokio::spawn(async move {
-                    epistemic_graph::server::obs::serve_with_security(
+                    medulla::server::obs::serve_with_security(
                         listener,
                         obs_state,
                         obs_security_state,
@@ -883,13 +883,13 @@ async fn wait_for_periodic_tick(ticker: &mut tokio::time::Interval) {
 /// the observability listener is on (RUM is on by default, so its retention is too).
 #[cfg(feature = "obs")]
 fn spawn_obs_rum_retention_sweep(
-    obs_state: &std::sync::Arc<epistemic_graph::server::obs::ObsState>,
+    obs_state: &std::sync::Arc<medulla::server::obs::ObsState>,
 ) {
     let rum_obs_state = obs_state.clone();
     spawn_periodic_sweep(3600, "obs_rum_retention", move || {
         let obs = rum_obs_state.clone();
         async move {
-            let now_ns = i64::try_from(epistemic_graph::server::txn::now_ms())
+            let now_ns = i64::try_from(medulla::server::txn::now_ms())
                 .unwrap_or(i64::MAX)
                 .saturating_mul(1_000_000);
             let swept =
@@ -903,7 +903,7 @@ fn spawn_obs_rum_retention_sweep(
 
 #[cfg(feature = "traces")]
 async fn persist_traces_tick(
-    traces_obs_state: std::sync::Arc<epistemic_graph::server::obs::ObsState>,
+    traces_obs_state: std::sync::Arc<medulla::server::obs::ObsState>,
 ) {
     if let Err(error) = traces_obs_state.persist_traces().await {
         tracing::warn!(
@@ -928,16 +928,16 @@ where
             wait_for_periodic_tick(&mut ticker).await;
             let loop_started = std::time::Instant::now();
             sweep().await;
-            epistemic_graph::metrics::loop_tick(metric_name, loop_started.elapsed().as_secs_f64());
+            medulla::metrics::loop_tick(metric_name, loop_started.elapsed().as_secs_f64());
         }
     });
 }
 
 #[cfg(feature = "traces")]
 fn spawn_obs_trace_persist_sweep(
-    obs_state: &std::sync::Arc<epistemic_graph::server::obs::ObsState>,
+    obs_state: &std::sync::Arc<medulla::server::obs::ObsState>,
 ) {
-    // ── Trace durable-tier sweep (BUG-016, CONCEPT:EG-OS.observability.trace-assembly) ─────
+    // ── Trace durable-tier sweep (BUG-016, CONCEPT:MEDULLA-OS.observability.trace-assembly) ─────
     // Periodically snapshot the native span store to durable storage
     // (`ObsState::persist_traces`) so a restart does not silently drop
     // every span the in-memory hot tier holds -- the in-RAM store stays
@@ -945,10 +945,10 @@ fn spawn_obs_trace_persist_sweep(
     // shaped durable cold tier BUG-016's frozen design calls for.
     // Reuses the SAME interval-task cadence shape the provenance-
     // anchoring sweep above establishes -- NO new scheduler. OFF by
-    // default: arm with `EPISTEMIC_GRAPH_OBS_TRACES_PERSIST_SECS=N`.
+    // default: arm with `MEDULLA_OBS_TRACES_PERSIST_SECS=N`.
     #[cfg(feature = "traces")]
     {
-        let interval_secs = std::env::var("EPISTEMIC_GRAPH_OBS_TRACES_PERSIST_SECS")
+        let interval_secs = std::env::var("MEDULLA_OBS_TRACES_PERSIST_SECS")
             .ok()
             .and_then(|s| s.trim().parse::<u64>().ok())
             .unwrap_or(0);
@@ -956,7 +956,7 @@ fn spawn_obs_trace_persist_sweep(
             let traces_obs_state = obs_state.clone();
             info!(
                 "Observability: durably snapshotting native trace spans every {}s \
-                 (BUG-016, CONCEPT:EG-OS.observability.trace-assembly)",
+                 (BUG-016, CONCEPT:MEDULLA-OS.observability.trace-assembly)",
                 interval_secs
             );
             spawn_periodic_sweep(interval_secs, "obs_traces_persist", move || {
@@ -974,7 +974,7 @@ async fn spawn_viz_interactive_listener(
     // ── Interactive native-visualization surface (D-VZ-1 lane V3b) ─────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features
     // viz-interactive` AND --viz-interactive-addr /
-    // EPISTEMIC_GRAPH_VIZ_INTERACTIVE_ADDR is set. Eagerly constructs the
+    // MEDULLA_VIZ_INTERACTIVE_ADDR is set. Eagerly constructs the
     // shared `VizEngineState` (rather than leaving it to lazy-init on the
     // first `Method::Viz` RPC call, `handlers::viz::engine_state`) and installs
     // it on `ServerState` BEFORE spawning the listener, so the RPC render path
@@ -984,7 +984,7 @@ async fn spawn_viz_interactive_listener(
     #[cfg(feature = "viz-interactive")]
     if let Some(ref viz_interactive_addr) = viz_interactive_addr {
         let viz_persist_dir = state.read().await.persist_dir.clone();
-        let engine = std::sync::Arc::new(epistemic_graph::server::viz_engine::VizEngineState::new(
+        let engine = std::sync::Arc::new(medulla::server::viz_engine::VizEngineState::new(
             viz_persist_dir.as_deref(),
         ));
         state.write().await.viz_engine = Some(engine.clone());
@@ -997,7 +997,7 @@ async fn spawn_viz_interactive_listener(
                 );
                 let viz_state = state.clone();
                 tokio::spawn(async move {
-                    epistemic_graph::server::viz_interactive::serve(
+                    medulla::server::viz_interactive::serve(
                         listener,
                         engine,
                         Some(viz_state),
@@ -1026,12 +1026,12 @@ async fn spawn_iceberg_listener(
 ) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "lake-rest")]
     let state = _state;
-    // ── Iceberg-REST catalog (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns, INT-P2-3) ────────────────────────────
+    // ── Iceberg-REST catalog (CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns, INT-P2-3) ────────────────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features
-    // lake-rest` AND --iceberg-addr / EPISTEMIC_GRAPH_ICEBERG_ADDR is set. With the
+    // lake-rest` AND --iceberg-addr / MEDULLA_ICEBERG_ADDR is set. With the
     // feature off, or unset, this is a no-op. Serves the standards Iceberg-REST
     // catalog surface (config/namespaces/tables/load-table/commit-table) over the
-    // tables the `lake` materialization tier writes. Deploy-configurable (EG-022): a
+    // tables the `lake` materialization tier writes. Deploy-configurable (MEDULLA-022): a
     // bare enable token binds the safe localhost default `127.0.0.1:8181`.
     let iceberg_addr = resolve_listener_addr(iceberg_addr_arg, "127.0.0.1:8181");
     #[cfg(feature = "lake-rest")]
@@ -1051,7 +1051,7 @@ async fn spawn_iceberg_listener(
                 );
                 let lake_security_state = state.clone();
                 tokio::spawn(async move {
-                    epistemic_graph::server::lake::rest::serve_with_security(
+                    medulla::server::lake::rest::serve_with_security(
                         listener,
                         lake_handle,
                         store,
@@ -1075,19 +1075,19 @@ async fn spawn_iceberg_listener(
 async fn spawn_lake_materialize_sweep(_state: &Arc<tokio::sync::RwLock<ServerState>>) {
     #[cfg(feature = "lake")]
     let state = _state;
-    // ── WAL/series → lakehouse materialization sweep (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns, INT-P2-3) ────
+    // ── WAL/series → lakehouse materialization sweep (CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns, INT-P2-3) ────
     // Opt-in AND feature-gated: only runs when built `--features lake` AND a positive
-    // interval is configured via EPISTEMIC_GRAPH_LAKE_MATERIALIZE_INTERVAL_SECS
+    // interval is configured via MEDULLA_LAKE_MATERIALIZE_INTERVAL_SECS
     // (0/unset ⇒ disabled — the standing sweep never starts; a caller can still drive
     // `LakeManager` directly). Each tick lists every tsdb series and incrementally
     // drains any new points into its lake table (the WAL-drain engine-side seam
-    // `eg-lake`'s own docs describe as a documented follow-up this closes). Runs on
+    // `medulla-lake`'s own docs describe as a documented follow-up this closes). Runs on
     // the blocking pool (redb + Parquet encode + the optional OpenLineage HTTP push
     // are all synchronous work).
     #[cfg(feature = "lake")]
     {
         let interval_secs: u64 =
-            std::env::var(epistemic_graph::server::lake::LAKE_MATERIALIZE_INTERVAL_ENV)
+            std::env::var(medulla::server::lake::LAKE_MATERIALIZE_INTERVAL_ENV)
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0);
@@ -1162,24 +1162,24 @@ async fn spawn_pgwire_listener(
     let state = _state;
     // ── Postgres wire-protocol shim (CONCEPT:AU-KG.query.raw-python) ───────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when the binary is built
-    // `--features pgwire` AND EPISTEMIC_GRAPH_PGWIRE_ADDR is set. With the feature
+    // `--features pgwire` AND MEDULLA_PGWIRE_ADDR is set. With the feature
     // off, or on but unset, this is a no-op and the engine runs exactly as today.
-    // Deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): the addr is env-driven
-    // (EPISTEMIC_GRAPH_PGWIRE_ADDR); a bare enable token binds the safe localhost
+    // Deploy-configurable (CONCEPT:MEDULLA-OS.config.configurable-listeners): the addr is env-driven
+    // (MEDULLA_PGWIRE_ADDR); a bare enable token binds the safe localhost
     // default `127.0.0.1:5433`; explicit non-loopback addresses are admitted only
     // when pgwire's own startup policy proves native TLS is configured. The other
     // auxiliary listeners continue using the loopback-only resolver below.
     #[cfg(feature = "pgwire")]
-    if let Some(addr) = epistemic_graph::server::pgwire::resolve_listener_addr(
-        std::env::var(epistemic_graph::server::pgwire::PGWIRE_ADDR_ENV)
+    if let Some(addr) = medulla::server::pgwire::resolve_listener_addr(
+        std::env::var(medulla::server::pgwire::PGWIRE_ADDR_ENV)
             .ok()
             .as_deref(),
         "127.0.0.1:5433",
     ) {
         let pg_auth_secret = state.read().await.auth_secret.clone();
         let pg_auth_mode =
-            epistemic_graph::server::pgwire::PgWireAuthMode::resolve(&pg_auth_secret)?;
-        let prepared_pgwire = epistemic_graph::server::pgwire::prepare_startup_policy(
+            medulla::server::pgwire::PgWireAuthMode::resolve(&pg_auth_secret)?;
+        let prepared_pgwire = medulla::server::pgwire::prepare_startup_policy(
             &addr,
             pg_auth_secret,
             pg_auth_mode,
@@ -1189,7 +1189,7 @@ async fn spawn_pgwire_listener(
         info!("pgwire: enabling the configured listener (TLS policy applies)");
         tokio::spawn(async move {
             if let Err(e) =
-                epistemic_graph::server::pgwire::serve_prepared(pg_state, prepared_pgwire).await
+                medulla::server::pgwire::serve_prepared(pg_state, prepared_pgwire).await
             {
                 tracing::error!("pgwire server error: {}", e);
             }
@@ -1202,17 +1202,17 @@ async fn spawn_sqlite_listener(
 ) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "sqlite-wire")]
     let state = _state;
-    // ── SQLite-compatible served surface (CONCEPT:EG-KG.query.concept-3) ────────────────
+    // ── SQLite-compatible served surface (CONCEPT:MEDULLA-KG.query.concept-3) ────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features
-    // sqlite-wire` AND EPISTEMIC_GRAPH_SQLITE_ADDR is set. With the feature off, or on
+    // sqlite-wire` AND MEDULLA_SQLITE_ADDR is set. With the feature off, or on
     // but unset, this is a no-op. SQLite has no wire protocol, so this speaks a tiny
     // NDJSON-over-TCP request/response line protocol, translating SQLite-dialect SQL and
-    // running it through the SAME shared `WireSession` the pgwire shim uses (EG-074).
-    // Deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost
+    // running it through the SAME shared `WireSession` the pgwire shim uses (MEDULLA-074).
+    // Deploy-configurable (CONCEPT:MEDULLA-OS.config.configurable-listeners): a bare enable token binds the safe localhost
     // default `127.0.0.1:5461`; non-loopback requires the protected-ingress policy.
     #[cfg(feature = "sqlite-wire")]
     if let Some(addr) = resolve_listener_addr(
-        std::env::var(epistemic_graph::server::sqlite_wire::SQLITE_ADDR_ENV)
+        std::env::var(medulla::server::sqlite_wire::SQLITE_ADDR_ENV)
             .ok()
             .as_deref(),
         "127.0.0.1:5461",
@@ -1225,7 +1225,7 @@ async fn spawn_sqlite_listener(
                 );
                 let sq_state = state.clone();
                 tokio::spawn(async move {
-                    epistemic_graph::server::sqlite_wire::serve(listener, sq_state).await;
+                    medulla::server::sqlite_wire::serve(listener, sq_state).await;
                 });
             }
             Err(e) => tracing::error!("sqlite-wire bind {} failed: {}", addr, e),
@@ -1238,25 +1238,25 @@ async fn spawn_mysql_listener(
 ) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "mysql-wire")]
     let state = _state;
-    // ── MySQL / MariaDB wire-protocol listener (CONCEPT:EG-KG.query.kg-2) ──────────
+    // ── MySQL / MariaDB wire-protocol listener (CONCEPT:MEDULLA-KG.query.kg-2) ──────────
     // Opt-in AND feature-gated: the listener starts ONLY when the binary is built
-    // `--features mysql-wire` AND EPISTEMIC_GRAPH_MYSQL_ADDR is set. With the feature
+    // `--features mysql-wire` AND MEDULLA_MYSQL_ADDR is set. With the feature
     // off, or on but unset, this is a no-op and the engine runs exactly as today.
-    // Deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost
+    // Deploy-configurable (CONCEPT:MEDULLA-OS.config.configurable-listeners): a bare enable token binds the safe localhost
     // default `127.0.0.1:3306`; non-loopback requires the protected-ingress policy.
     // The hand-rolled MySQL protocol reuses the SAME `WireSession` execute→classify→exec
-    // core as pgwire (CONCEPT:EG-KG.compute.subsystems-reference), so a MySQL driver/ORM runs SQL over `nodes`/`edges`.
+    // core as pgwire (CONCEPT:MEDULLA-KG.compute.subsystems-reference), so a MySQL driver/ORM runs SQL over `nodes`/`edges`.
     #[cfg(feature = "mysql-wire")]
     if let Some(addr) = resolve_listener_addr(
-        std::env::var(epistemic_graph::server::mysql_wire::MYSQL_ADDR_ENV)
+        std::env::var(medulla::server::mysql_wire::MYSQL_ADDR_ENV)
             .ok()
             .as_deref(),
         "127.0.0.1:3306",
     ) {
         let mysql_auth_secret = state.read().await.auth_secret.clone();
         let mysql_auth_mode =
-            epistemic_graph::server::mysql_wire::MysqlAuthMode::resolve(&mysql_auth_secret)?;
-        epistemic_graph::server::mysql_wire::validate_startup_policy(
+            medulla::server::mysql_wire::MysqlAuthMode::resolve(&mysql_auth_secret)?;
+        medulla::server::mysql_wire::validate_startup_policy(
             &addr,
             &mysql_auth_secret,
             mysql_auth_mode,
@@ -1264,7 +1264,7 @@ async fn spawn_mysql_listener(
         let my_state = state.clone();
         info!("mysql-wire: enabling the configured loopback listener");
         tokio::spawn(async move {
-            if let Err(e) = epistemic_graph::server::mysql_wire::serve_with_auth(
+            if let Err(e) = medulla::server::mysql_wire::serve_with_auth(
                 &addr,
                 my_state,
                 mysql_auth_mode,
@@ -1320,16 +1320,16 @@ macro_rules! define_authenticated_wire_listener {
                 spawn_authenticated_wire_listener(
                     _state,
                     resolve_listener_addr(
-                        std::env::var(epistemic_graph::server::$module::$addr_env)
+                        std::env::var(medulla::server::$module::$addr_env)
                             .ok()
                             .as_deref(),
                         $default_addr,
                     ),
                     $service_name,
                     $enable_message,
-                    epistemic_graph::server::$module::validate_startup_policy,
+                    medulla::server::$module::validate_startup_policy,
                     |addr, state| async move {
-                        epistemic_graph::server::$module::serve(&addr, state).await
+                        medulla::server::$module::serve(&addr, state).await
                     },
                 )
                 .await?;
@@ -1339,11 +1339,11 @@ macro_rules! define_authenticated_wire_listener {
     };
 }
 
-// ── MSSQL TDS wire-protocol listener (CONCEPT:EG-KG.query.hand-rolled-tds-server) ─────────────────
+// ── MSSQL TDS wire-protocol listener (CONCEPT:MEDULLA-KG.query.hand-rolled-tds-server) ─────────────────
 // Opt-in AND feature-gated, mirroring pgwire: the listener starts ONLY when the
-// binary is built `--features mssql-wire` AND EPISTEMIC_GRAPH_MSSQL_ADDR is set.
+// binary is built `--features mssql-wire` AND MEDULLA_MSSQL_ADDR is set.
 // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-// (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
+// (CONCEPT:MEDULLA-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
 // `127.0.0.1:1433`. Direct TDS is authenticated loopback-only; remote clients
 // terminate TLS/mTLS at an identity-binding gateway that forwards to loopback.
 define_authenticated_wire_listener!(
@@ -1356,11 +1356,11 @@ define_authenticated_wire_listener!(
     "mssql-wire: enabling the configured authenticated loopback listener",
 );
 
-// ── AMQP 0.9.1 wire-protocol listener (CONCEPT:EG-KG.compute.message-broker-exchanges) ────────────────
+// ── AMQP 0.9.1 wire-protocol listener (CONCEPT:MEDULLA-KG.compute.message-broker-exchanges) ────────────────
 // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
-// the binary is built `--features amqp-wire` AND EPISTEMIC_GRAPH_AMQP_ADDR is set.
+// the binary is built `--features amqp-wire` AND MEDULLA_AMQP_ADDR is set.
 // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-// (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
+// (CONCEPT:MEDULLA-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
 // `127.0.0.1:5672`. Direct AMQP is authenticated loopback-only; remote clients
 // terminate TLS/mTLS at an identity-binding gateway. Maps AMQP
 // exchange/queue/basic.* onto the `broker` primitives (KG-2.303 queue) via dispatch.
@@ -1374,14 +1374,14 @@ define_authenticated_wire_listener!(
     "amqp-wire: enabling the configured authenticated loopback listener",
 );
 
-// ── Neo4j Bolt wire-protocol listener (CONCEPT:EG-KG.query.bolt-wire-protocol) ─────────────────
+// ── Neo4j Bolt wire-protocol listener (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol) ─────────────────
 // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
-// the binary is built `--features bolt-wire` AND EPISTEMIC_GRAPH_BOLT_ADDR is set.
+// the binary is built `--features bolt-wire` AND MEDULLA_BOLT_ADDR is set.
 // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-// (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
+// (CONCEPT:MEDULLA-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
 // `127.0.0.1:7687` (the Neo4j default); non-loopback requires the protected-ingress
 // policy. A native hand-rolled Bolt v4.4 server (PackStream v2 + chunked framing)
-// that routes RUN's Cypher straight to the eg-query cypher engine, so a Neo4j driver
+// that routes RUN's Cypher straight to the medulla-query cypher engine, so a Neo4j driver
 // runs Cypher over a graph directly.
 define_authenticated_wire_listener!(
     spawn_bolt_listener,
@@ -1397,17 +1397,17 @@ async fn spawn_redis_listener(
 ) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "redis-wire")]
     let state = _state;
-    // ── Redis RESP wire-protocol listener (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) ────────────────
+    // ── Redis RESP wire-protocol listener (CONCEPT:MEDULLA-KG.ontology.resp2-resp3-codec-round) ────────────────
     // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
-    // the binary is built `--features redis-wire` AND EPISTEMIC_GRAPH_REDIS_ADDR is set.
+    // the binary is built `--features redis-wire` AND MEDULLA_REDIS_ADDR is set.
     // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-    // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
+    // (CONCEPT:MEDULLA-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
     // `127.0.0.1:6379` (the Redis default). Direct Redis is authenticated
     // loopback-only; remote clients terminate TLS/mTLS at an identity-binding
     // gateway. Each verified principal receives a pseudonymous isolated keyspace.
     #[cfg(feature = "redis-wire")]
     if let Some(addr) = resolve_listener_addr(
-        std::env::var(epistemic_graph::server::redis_wire::REDIS_ADDR_ENV)
+        std::env::var(medulla::server::redis_wire::REDIS_ADDR_ENV)
             .ok()
             .as_deref(),
         "127.0.0.1:6379",
@@ -1415,18 +1415,18 @@ async fn spawn_redis_listener(
         let redis_state = state.clone();
         info!("redis-wire: serving Redis RESP protocol on {}", addr);
         tokio::spawn(async move {
-            if let Err(e) = epistemic_graph::server::redis_wire::serve(&addr, redis_state).await {
+            if let Err(e) = medulla::server::redis_wire::serve(&addr, redis_state).await {
                 tracing::error!("redis-wire server error: {}", e);
             }
         });
     }
     Ok(())
 }
-// ── MQTT 3.1.1 wire-protocol listener (CONCEPT:EG-KG.query.mqtt-packet-codec) ────────────────
+// ── MQTT 3.1.1 wire-protocol listener (CONCEPT:MEDULLA-KG.query.mqtt-packet-codec) ────────────────
 // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
-// the binary is built `--features mqtt-wire` AND EPISTEMIC_GRAPH_MQTT_ADDR is set.
+// the binary is built `--features mqtt-wire` AND MEDULLA_MQTT_ADDR is set.
 // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-// (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
+// (CONCEPT:MEDULLA-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
 // `127.0.0.1:1883` (the MQTT default). Direct MQTT is authenticated loopback-only;
 // remote clients terminate TLS/mTLS at an identity-binding gateway. A native
 // hand-rolled MQTT server mapping CONNECT/PUBLISH/SUBSCRIBE onto
@@ -1442,11 +1442,11 @@ define_authenticated_wire_listener!(
     "mqtt-wire: enabling the configured authenticated loopback listener",
 );
 
-// ── STOMP 1.2 wire-protocol listener (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit) ─────────────────
+// ── STOMP 1.2 wire-protocol listener (CONCEPT:MEDULLA-KG.ontology.stomp-frame-codec-unit) ─────────────────
 // Opt-in AND feature-gated, mirroring the SQL wires: the listener starts ONLY when
-// the binary is built `--features stomp-wire` AND EPISTEMIC_GRAPH_STOMP_ADDR is set.
+// the binary is built `--features stomp-wire` AND MEDULLA_STOMP_ADDR is set.
 // With the feature off, or on but unset, this is a no-op. Deploy-configurable
-// (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
+// (CONCEPT:MEDULLA-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
 // `127.0.0.1:61613` (the STOMP default). Direct STOMP is authenticated
 // loopback-only; remote clients terminate TLS/mTLS at an identity-binding gateway.
 // A native hand-rolled STOMP text-frame server mapping SEND/SUBSCRIBE onto
@@ -1466,18 +1466,18 @@ async fn spawn_s3_listener(
 ) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "s3-api")]
     let state = _state;
-    // ── S3-compatible object-storage REST surface (CONCEPT:EG-KG.ontology.object-put-get-head) ────────
+    // ── S3-compatible object-storage REST surface (CONCEPT:MEDULLA-KG.ontology.object-put-get-head) ────────
     // Opt-in AND feature-gated, mirroring the obs listener: it starts ONLY when the
-    // binary is built `--features s3-api` AND EPISTEMIC_GRAPH_S3_ADDR is set. With the
+    // binary is built `--features s3-api` AND MEDULLA_S3_ADDR is set. With the
     // feature off, or on but unset, this is a no-op. Deploy-configurable
-    // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
+    // (CONCEPT:MEDULLA-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
     // `127.0.0.1:9000` (the MinIO default); non-loopback requires the protected-ingress
     // policy. A hand-rolled S3 REST API over the content-addressed BLOB CAS + the
     // durable KV listing index, with mandatory SigV4 authentication. Startup fails
     // closed unless both access and secret credentials are runtime-injected.
     #[cfg(feature = "s3-api")]
     if let Some(addr) = resolve_listener_addr(
-        std::env::var(epistemic_graph::server::s3::S3_ADDR_ENV)
+        std::env::var(medulla::server::s3::S3_ADDR_ENV)
             .ok()
             .as_deref(),
         "127.0.0.1:9000",
@@ -1494,7 +1494,7 @@ async fn spawn_s3_listener(
         info!("s3-api: serving S3-compatible REST surface on {}", addr);
         tokio::spawn(async move {
             if let Err(e) =
-                epistemic_graph::server::s3::serve_with_blob_store(&addr, s3_state, selected_blob)
+                medulla::server::s3::serve_with_blob_store(&addr, s3_state, selected_blob)
                     .await
             {
                 tracing::error!("s3-api server error: {}", e);
@@ -1508,17 +1508,17 @@ async fn spawn_kvcache_listener(
 ) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "kvcache-server")]
     let state = _state;
-    // ── Remote KV-cache HTTP surface (CONCEPT:EG-KG.backend.is-configured-so-co) ─────────────────────
+    // ── Remote KV-cache HTTP surface (CONCEPT:MEDULLA-KG.backend.is-configured-so-co) ─────────────────────
     // Opt-in AND feature-gated, mirroring the s3 listener: it starts ONLY when the
-    // binary is built `--features kvcache-server` AND EPISTEMIC_GRAPH_KVCACHE_ADDR is
+    // binary is built `--features kvcache-server` AND MEDULLA_KVCACHE_ADDR is
     // set. With the feature off, or on but unset, this is a no-op. Exposes the
-    // `eg-kvcache` shared, content-addressed backend (EG-186) over HTTP so parallel
+    // `medulla-kvcache` shared, content-addressed backend (MEDULLA-186) over HTTP so parallel
     // vLLM/LMCache instances SHARE KV blocks by token-hash; a bare enable token binds
     // the safe localhost default `127.0.0.1:9130`. Startup fails closed unless JWT
     // validation or a runtime-injected bearer secret is configured.
     #[cfg(feature = "kvcache-server")]
     if let Some(addr) = resolve_listener_addr(
-        std::env::var(epistemic_graph::server::kvcache_http::KVCACHE_ADDR_ENV)
+        std::env::var(medulla::server::kvcache_http::KVCACHE_ADDR_ENV)
             .ok()
             .as_deref(),
         "127.0.0.1:9130",
@@ -1530,7 +1530,7 @@ async fn spawn_kvcache_listener(
         );
         tokio::spawn(async move {
             if let Err(e) =
-                epistemic_graph::server::kvcache_http::serve_with_security(&addr, kvcache_state)
+                medulla::server::kvcache_http::serve_with_security(&addr, kvcache_state)
                     .await
             {
                 tracing::error!("kvcache-server error: {}", e);
@@ -1559,13 +1559,13 @@ async fn recover_durable_catalog(
         p.register_graph(
             "__commons__",
             "__commons__",
-            epistemic_graph::protocol::GraphType::Commons,
+            medulla::protocol::GraphType::Commons,
         )
         .await
         .map_err(|error| format!("failed to register the mandatory commons graph: {error}"))?;
 
         let factory = std::sync::Arc::new(
-            epistemic_graph::server::persistence::read_through::BackendReadThroughFactory::new(
+            medulla::server::persistence::read_through::BackendReadThroughFactory::new(
                 p.clone(),
             ),
         );
@@ -1575,18 +1575,18 @@ async fn recover_durable_catalog(
             .registry
             .set_read_through_factory(factory);
         let materializer = std::sync::Arc::new(
-            epistemic_graph::server::persistence::read_through::BackendGraphMaterializer::new(
+            medulla::server::persistence::read_through::BackendGraphMaterializer::new(
                 p.clone(),
             ),
         );
         state.write().await.registry.set_materializer(materializer);
         info!("durable read-through and bounded lazy materialization enabled");
 
-        // The time-series startup reconciliation (CONCEPT:EG-KG.backend.ts-
+        // The time-series startup reconciliation (CONCEPT:MEDULLA-KG.backend.ts-
         // startup-reconcile, L16) no longer runs here: it is crash-window
         // residual closing, not a serving precondition, so it runs as post-bind
         // background maintenance (`server::boot_maintenance::
-        // spawn_post_bind_maintenance`, EG-DURABLE-KERNEL-R006.4) — running it
+        // spawn_post_bind_maintenance`, MEDULLA-DURABLE-KERNEL-R006.4) — running it
         // pre-listener is exactly what stalled the boot for minutes on a
         // legacy store (G9).
     }
@@ -1609,7 +1609,7 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
     #[cfg(all(feature = "owl", feature = "streaming"))]
     {
         let cascade = std::sync::Arc::new(
-            epistemic_graph::server::reasoning_cascade::ReasoningCascade::from_env(),
+            medulla::server::reasoning_cascade::ReasoningCascade::from_env(),
         );
         if cascade.is_active() {
             if let Some(hub) = state.read().await.cdc.as_ref() {
@@ -1619,25 +1619,25 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
                 "Reasoning cascade (REASON_ON_WRITE) armed: debounce {}ms",
                 cascade.debounce_window().as_millis()
             );
-            epistemic_graph::server::reasoning_cascade::spawn(state.clone(), cascade);
+            medulla::server::reasoning_cascade::spawn(state.clone(), cascade);
         }
     }
-    // EH-526 standing impact watches (opt-in, `EPISTEMIC_GRAPH_IMPACT_ON_WRITE`): a
+    // EH-526 standing impact watches (opt-in, `MEDULLA_IMPACT_ON_WRITE`): a
     // committed change to a watched seed recomputes its downstream impact through the
     // ordinary `MineRiskPropagation` writeback path. Unset ⇒ nothing installed/spawned.
     #[cfg(all(feature = "streaming", feature = "mining", feature = "query"))]
     {
         let hub =
-            std::sync::Arc::new(epistemic_graph::server::impact_watch::ImpactWatchHub::from_env());
+            std::sync::Arc::new(medulla::server::impact_watch::ImpactWatchHub::from_env());
         if hub.is_active() {
             if let Some(cdc) = state.read().await.cdc.as_ref() {
                 cdc.install_impact_watch(hub.clone());
             }
-            info!("Impact watches (EPISTEMIC_GRAPH_IMPACT_ON_WRITE) armed");
-            epistemic_graph::server::impact_watch::spawn(state.clone(), hub);
+            info!("Impact watches (MEDULLA_IMPACT_ON_WRITE) armed");
+            medulla::server::impact_watch::spawn(state.clone(), hub);
         }
     }
-    // CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl —
+    // CONCEPT:MEDULLA-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl —
     // install the server-layer secondary-index factory so a committed write batch
     // maintains the text / temporal / derived-OWL indexes INCREMENTALLY through the
     // per-graph IndexManager seam (the D3 remainder), instead of drop-and-rebuild. The
@@ -1668,12 +1668,12 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
             .registry
             .set_secondary_index_factory(factory.into_arc());
         info!(
-            "incremental secondary indexes installed (CONCEPT:EG-KG.storage.incremental-text \
+            "incremental secondary indexes installed (CONCEPT:MEDULLA-KG.storage.incremental-text \
              / .incremental-temporal / .incremental-derived-owl) — text/temporal/derived-OWL \
              maintained per committed write batch"
         );
     }
-    // CONCEPT:EG-KG.storage.semantic-index-directory — warm the semantic ANN index OFF the request path. The
+    // CONCEPT:MEDULLA-KG.storage.semantic-index-directory — warm the semantic ANN index OFF the request path. The
     // cold-start bug: the FIRST `semantic_search` after a restart triggered a full
     // single-threaded IVF-PQ+OPQ build (SVD over a 1024² matrix + k-means over
     // ~168k vectors) INLINE while holding the per-graph lock — minutes pegged on one
@@ -1697,7 +1697,7 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
         tokio::spawn(async move {
             // Snapshot (name, core) under a brief read lock; the heavy build runs
             // OFF the async runtime on a blocking thread.
-            let cores: Vec<(String, std::sync::Arc<epistemic_graph::graph::GraphCore>)> = {
+            let cores: Vec<(String, std::sync::Arc<medulla::graph::GraphCore>)> = {
                 let s = warm_state.read().await;
                 s.registry
                     .all_entries()
@@ -1708,7 +1708,7 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
             let _ = tokio::task::spawn_blocking(move || {
                 let mut warmed = 0usize;
                 for (name, core) in cores {
-                    if epistemic_graph::server::semantic_activation::activate_one(
+                    if medulla::server::semantic_activation::activate_one(
                         &name,
                         &core,
                         warm_dir.as_deref(),
@@ -1724,7 +1724,7 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
         });
     }
 
-    // ── Periodic ANN warm re-check sweep (W0.4 mechanism 2, CONCEPT:EG-KG.storage.semantic-index-directory) ──
+    // ── Periodic ANN warm re-check sweep (W0.4 mechanism 2, CONCEPT:MEDULLA-KG.storage.semantic-index-directory) ──
     // The boot-time warm task above and the post-write trigger (the dispatch
     // write-path tail) cover graphs warmed at startup and graphs written to
     // through the live request path. Neither runs for a change this node only
@@ -1744,7 +1744,7 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
             loop {
                 ticker.tick().await;
                 let __loop_tick_started = std::time::Instant::now();
-                let n = epistemic_graph::server::semantic_activation::sweep_resident_graphs(
+                let n = medulla::server::semantic_activation::sweep_resident_graphs(
                     &sweep_state,
                 )
                 .await;
@@ -1754,7 +1754,7 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
                         n
                     );
                 }
-                epistemic_graph::metrics::loop_tick(
+                medulla::metrics::loop_tick(
                     "ann_warm_sweep",
                     __loop_tick_started.elapsed().as_secs_f64(),
                 );
@@ -1771,10 +1771,10 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
     spawn_periodic_sweep(
         30,
         "sql_ann_generation_sweep",
-        epistemic_graph::server::sql_tables::sweep_ann_generations,
+        medulla::server::sql_tables::sweep_ann_generations,
     );
 
-    // Periodic Ebbinghaus decay sweep (CONCEPT:EG-KG.compute.graph-compute-engine) — opt-in. Confidence on
+    // Periodic Ebbinghaus decay sweep (CONCEPT:MEDULLA-KG.compute.graph-compute-engine) — opt-in. Confidence on
     // every node/edge decays toward 0 with a configurable half-life; with a
     // non-zero floor, forgotten facts are pruned. Off by default (interval 0).
     if decay_interval > 0 {
@@ -1790,7 +1790,7 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
                 ticker.tick().await;
                 let __loop_tick_started = std::time::Instant::now();
                 let stats =
-                    epistemic_graph::persist::decay_all(&dk_state, half_life, floor, prune).await;
+                    medulla::persist::decay_all(&dk_state, half_life, floor, prune).await;
                 tracing::info!(
                     "Decay sweep: {} nodes / {} edges decayed, {} nodes / {} edges pruned",
                     stats.nodes_decayed,
@@ -1798,7 +1798,7 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
                     stats.nodes_pruned,
                     stats.edges_pruned
                 );
-                epistemic_graph::metrics::loop_tick(
+                medulla::metrics::loop_tick(
                     "decay_sweep",
                     __loop_tick_started.elapsed().as_secs_f64(),
                 );
@@ -1809,7 +1809,7 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
 
 async fn spawn_memory_and_lifecycle_sweeps(
     state: &Arc<tokio::sync::RwLock<ServerState>>,
-    host_capacity: epistemic_graph::autosize::Capacity,
+    host_capacity: medulla::autosize::Capacity,
     txn_ttl_secs: u64,
 ) {
     spawn_memory_sweeps(state, host_capacity).await;
@@ -1818,11 +1818,11 @@ async fn spawn_memory_and_lifecycle_sweeps(
 
 async fn spawn_memory_sweeps(
     state: &Arc<tokio::sync::RwLock<ServerState>>,
-    host_capacity: epistemic_graph::autosize::Capacity,
+    host_capacity: medulla::autosize::Capacity,
 ) {
-    // ── Per-graph memory cap (CONCEPT:EG-KG.storage.nonblocking-checkpoint) — degrade, don't OOM ─────────
+    // ── Per-graph memory cap (CONCEPT:MEDULLA-KG.storage.nonblocking-checkpoint) — degrade, don't OOM ─────────
     // The engine keeps a bounded resident projection over the durable backend, so a graph that
-    // exceeds EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH is evicted (LRU) back down to it
+    // exceeds MEDULLA_MAX_NODES_PER_GRAPH is evicted (LRU) back down to it
     // — the backstop that makes a shard shed working set instead of OOM-killing
     // every tenant. The sweep is periodic so it never touches the write hot path.
     //
@@ -1830,11 +1830,11 @@ async fn spawn_memory_sweeps(
     // effective cgroup-aware RAM instead of being unbounded. An unbounded projection
     // OOM-kills a 1 GiB Pi; a RAM-derived cap bounds a runaway graph's RESIDENT footprint with ZERO data loss
     // — evicted nodes still serve from the durable redb tier (read-through eviction,
-    // CONCEPT:EG-KG.storage.read-through-seam-exercised). Any explicit override must
+    // CONCEPT:MEDULLA-KG.storage.read-through-seam-exercised). Any explicit override must
     // remain positive; the safety bound cannot be disabled.
     let max_nodes_per_graph = server_startup::max_nodes_per_graph(&host_capacity);
     let cap_interval = server_startup::env_or_exit(
-        "EPISTEMIC_GRAPH_MEMCAP_INTERVAL",
+        "MEDULLA_MEMCAP_INTERVAL",
         10,
         |value| {
             value
@@ -1842,7 +1842,7 @@ async fn spawn_memory_sweeps(
                 .ok()
                 .filter(|interval| (1..=3_600).contains(interval))
         },
-        "EPISTEMIC_GRAPH_MEMCAP_INTERVAL must be between 1 and 3600",
+        "MEDULLA_MEMCAP_INTERVAL must be between 1 and 3600",
     );
     info!(
         "Memory cap: per-graph max {} nodes, swept every {}s (LRU eviction)",
@@ -1853,7 +1853,7 @@ async fn spawn_memory_sweeps(
         server_startup::memcap_tick(cap_state.clone(), max_nodes_per_graph)
     });
 
-    // ── Per-tenant memory budget enforcer (CONCEPT:EG-KG.compute.lane-v, Lane V) ─────
+    // ── Per-tenant memory budget enforcer (CONCEPT:MEDULLA-KG.compute.lane-v, Lane V) ─────
     // Tracks an approximate resident-RAM estimate per TENANT (a tenant owns one or more
     // graphs) and evicts/hibernates a tenant's coldest graphs when it exceeds its byte
     // budget, with a global ceiling + fair per-tenant caps so one hot tenant can't starve
@@ -1864,13 +1864,13 @@ async fn spawn_memory_sweeps(
     // byte dimension on top).
     #[cfg(feature = "cost")]
     {
-        let cost_config = epistemic_graph::cost::CostConfig::from_env().unwrap_or_else(|error| {
+        let cost_config = medulla::cost::CostConfig::from_env().unwrap_or_else(|error| {
             eprintln!("error: {error}");
             std::process::exit(2);
         });
         info!(
             "Memory budget: global ceiling {} bytes, per-tenant {} bytes, swept every {}s \
-                 (CONCEPT:EG-KG.compute.lane-v)",
+                 (CONCEPT:MEDULLA-KG.compute.lane-v)",
             cost_config.global_ceiling_bytes,
             cost_config.per_tenant_budget_bytes,
             cost_config.interval_secs
@@ -1881,24 +1881,24 @@ async fn spawn_memory_sweeps(
         });
     }
 
-    // ── Cold-tenant idle offload sweep (CONCEPT:EG-KG.backend.r6-feature, R6) ─────────────
+    // ── Cold-tenant idle offload sweep (CONCEPT:MEDULLA-KG.backend.r6-feature, R6) ─────────────
     // Periodically hibernate every graph idle longer than a window (its access recency is
     // tracked by `cold_tracker.touch` on the dispatch read/write path), bounding RAM across
     // many tenants. Reuses the engine's existing interval-task cadence (like the budget
     // enforcer above) — NO new daemon. Durability-gated + read-through-safe (KG-2.191), so
     // an offloaded graph is never lost, only evicted; `__commons__` is never offloaded.
-    // OFF by default: arm with `EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS=N` (the idle window in
+    // OFF by default: arm with `MEDULLA_COLD_OFFLOAD_SECS=N` (the idle window in
     // seconds); the sweep then runs every `window` seconds.
     #[cfg(feature = "redb")]
     {
-        let window_secs = server_startup::optional_sweep_secs("EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS");
+        let window_secs = server_startup::optional_sweep_secs("MEDULLA_COLD_OFFLOAD_SECS");
         if window_secs > 0 {
             let cold_state = state.clone();
             let tracker = { cold_state.read().await.cold_tracker.clone() };
             let window = std::time::Duration::from_secs(window_secs);
             info!(
                 "Cold-tenant offload: hibernate graphs idle > {}s, swept every {}s \
-                 (CONCEPT:EG-KG.backend.r6-feature)",
+                 (CONCEPT:MEDULLA-KG.backend.r6-feature)",
                 window_secs, window_secs
             );
             spawn_periodic_sweep(window_secs, "cold_offload", move || {
@@ -1911,10 +1911,10 @@ async fn spawn_memory_sweeps(
 #[cfg(feature = "redb")]
 async fn cold_offload_tick(
     state: Arc<tokio::sync::RwLock<ServerState>>,
-    tracker: Arc<epistemic_graph::server::persistence::cold_offload::ColdTenantTracker>,
+    tracker: Arc<medulla::server::persistence::cold_offload::ColdTenantTracker>,
     window: std::time::Duration,
 ) {
-    let n = epistemic_graph::server::persistence::cold_offload::offload_cold_tenants(
+    let n = medulla::server::persistence::cold_offload::offload_cold_tenants(
         &state, &tracker, window,
     )
     .await;
@@ -1924,7 +1924,7 @@ async fn cold_offload_tick(
 }
 
 fn spawn_lifecycle_sweeps(state: &Arc<tokio::sync::RwLock<ServerState>>, txn_ttl_secs: u64) {
-    // ── Fleet server registry stale-lease reaper (CONCEPT:EG-KG.sharding.server-registry, W2.5) ──
+    // ── Fleet server registry stale-lease reaper (CONCEPT:MEDULLA-KG.sharding.server-registry, W2.5) ──
     // `Method::RegisterServer` writes/renews a `:Server` node with a
     // server-computed `lease_expires_at_ms`. This sweep expires (durably
     // removes, CDC-emitting) any `:Server` node whose lease has lapsed --
@@ -1934,9 +1934,9 @@ fn spawn_lifecycle_sweeps(state: &Arc<tokio::sync::RwLock<ServerState>>, txn_ttl
     // an unreaped dead registration is a correctness/staleness concern, not
     // a resource-usage opt-in) at a short default interval so even the
     // minimum 1s `ttl_secs` lease is reaped promptly.
-    let reap_interval = epistemic_graph::server::registry_reaper::reap_interval_secs();
+    let reap_interval = medulla::server::registry_reaper::reap_interval_secs();
     info!(
-        "Server registry: reaping expired :Server leases every {}s (CONCEPT:EG-KG.sharding.server-registry)",
+        "Server registry: reaping expired :Server leases every {}s (CONCEPT:MEDULLA-KG.sharding.server-registry)",
         reap_interval
     );
     let reaper_state = state.clone();
@@ -1947,10 +1947,10 @@ fn spawn_lifecycle_sweeps(state: &Arc<tokio::sync::RwLock<ServerState>>, txn_ttl
     // ── Sealed record expiry (EH-558) ─────────────────────────────────────────
     // Retires every sealed record past its class's configured retention through
     // the owning op, `RetireSealedRecord` -- an audited tombstone, never a generic
-    // delete. Armed only when `EPISTEMIC_GRAPH_SEALED_RETENTION` names a policy.
-    let sealed_policy = epistemic_graph::server::sealed_retention::configured_policy();
+    // delete. Armed only when `MEDULLA_SEALED_RETENTION` names a policy.
+    let sealed_policy = medulla::server::sealed_retention::configured_policy();
     if !sealed_policy.is_empty() {
-        let interval = epistemic_graph::server::sealed_retention::sweep_interval_secs();
+        let interval = medulla::server::sealed_retention::sweep_interval_secs();
         info!(
             "Sealed records: expiring by retention policy every {}s (EH-558)",
             interval
@@ -1961,25 +1961,25 @@ fn spawn_lifecycle_sweeps(state: &Arc<tokio::sync::RwLock<ServerState>>, txn_ttl
         });
     }
 
-    // ── Provenance anchoring (CONCEPT:EG-KG.sharding.row-level-security) ───────────────────────────────
+    // ── Provenance anchoring (CONCEPT:MEDULLA-KG.sharding.row-level-security) ───────────────────────────────
     // Periodically Merkle-anchor every resident graph's `:ToolCall`/`:RunTrace`
     // provenance-node window into the SAME tamper-evident audit chain the
     // `security` feature already maintains, so a tamper of an anchored node's
     // durable content becomes detectable via `Method::AuditProveInclusion`.
     // Reuses the engine's existing interval-task cadence (like the budget/cold-
     // offload sweeps above) — NO new daemon/thread. OFF by default: arm with
-    // `EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS=N` (the sweep then runs every `N`
+    // `MEDULLA_PROVENANCE_ANCHOR_SECS=N` (the sweep then runs every `N`
     // seconds). Overhead is bounded regardless of `N`: the window-size-dependent
     // work runs off the writer thread, and an unchanged window commits nothing
     // (see `server::persistence::provenance_anchor`'s module doc).
     #[cfg(feature = "security")]
     {
         let interval_secs =
-            server_startup::optional_sweep_secs("EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS");
+            server_startup::optional_sweep_secs("MEDULLA_PROVENANCE_ANCHOR_SECS");
         if interval_secs > 0 {
             info!(
                 "Provenance anchoring: Merkle-anchoring :ToolCall/:RunTrace windows every {}s \
-                 (CONCEPT:EG-KG.sharding.row-level-security)",
+                 (CONCEPT:MEDULLA-KG.sharding.row-level-security)",
                 interval_secs
             );
             let anchor_state = state.clone();
@@ -1989,10 +1989,10 @@ fn spawn_lifecycle_sweeps(state: &Arc<tokio::sync::RwLock<ServerState>>, txn_ttl
         }
     }
 
-    // ── Background node-payload scrub (EH-384, CONCEPT:EG-KG.storage.node-payload-scrub) ──
+    // ── Background node-payload scrub (EH-384, CONCEPT:MEDULLA-KG.storage.node-payload-scrub) ──
     // ON by default: one bounded, resumable, read-only pass per shard per tick,
     // so an unreadable node is named between restarts rather than on first read.
-    // `EPISTEMIC_GRAPH_STORAGE_SCRUB_SECS=0` turns it off.
+    // `MEDULLA_STORAGE_SCRUB_SECS=0` turns it off.
     #[cfg(feature = "redb")]
     {
         let scrub_state = state.clone();
@@ -2003,7 +2003,7 @@ fn spawn_lifecycle_sweeps(state: &Arc<tokio::sync::RwLock<ServerState>>, txn_ttl
         );
     }
 
-    // ── OCC transaction TTL sweep (CONCEPT:EG-KG.txn.multi-op-occ-acid safety rail) ─────────
+    // ── OCC transaction TTL sweep (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid safety rail) ─────────
     // Auto-roll-back transactions idle past the TTL so an abandoned client never
     // leaks a staged transaction forever. An abandoned txn never committed, so it
     // applied nothing — reclaiming it just frees memory and never touches a graph
@@ -2020,7 +2020,7 @@ fn spawn_lifecycle_sweeps(state: &Arc<tokio::sync::RwLock<ServerState>>, txn_ttl
 /// reload that used to sit in this function (hence the old name) is RAM
 /// re-hydration, not a serving precondition, and moved to post-bind
 /// background maintenance (`server::boot_maintenance::
-/// spawn_post_bind_maintenance`, EG-DURABLE-KERNEL-R006.4) — running it here
+/// spawn_post_bind_maintenance`, MEDULLA-DURABLE-KERNEL-R006.4) — running it here
 /// stalled the pre-listener path behind the projection drain for minutes on
 /// a large store (G9).
 async fn start_raft(
@@ -2029,20 +2029,20 @@ async fn start_raft(
     #[cfg(feature = "raft")]
     let state = _state;
     // ── In-engine Raft replication (CONCEPT:AU-KG.ingest.source-sync-canonical) — cluster tier ──────
-    // Only when built `--features raft` AND configured (EPISTEMIC_GRAPH_RAFT_NODE_ID
-    // + EPISTEMIC_GRAPH_RAFT_PEERS). When the feature is off, OR on but unconfigured,
+    // Only when built `--features raft` AND configured (MEDULLA_RAFT_NODE_ID
+    // + MEDULLA_RAFT_PEERS). When the feature is off, OR on but unconfigured,
     // this block is absent / no-ops and the engine runs single-node exactly as
     // before. Raft replicates the AUTHORITATIVE state, so it requires a persist dir
     // (the redb store) — refuse to start a half-configured cluster loudly.
     #[cfg(feature = "raft")]
     {
-        match epistemic_graph::raft::config::RaftClusterConfig::from_env() {
+        match medulla::raft::config::RaftClusterConfig::from_env() {
             Ok(Some(cluster_cfg)) => {
                 let persist_dir = match state.read().await.persist_dir.clone() {
                     Some(d) => d,
                     None => {
                         eprintln!(
-                            "error: Raft is configured (EPISTEMIC_GRAPH_RAFT_NODE_ID) but no \
+                            "error: Raft is configured (MEDULLA_RAFT_NODE_ID) but no \
                              persist dir is set — Raft replicates the authoritative redb store, so \
                              GRAPH_SERVICE_PERSIST_DIR is required."
                         );
@@ -2057,13 +2057,13 @@ async fn start_raft(
                 // persist_dir is validated above (Raft requires the redb store); the
                 // MultiRaft opens its durable log over the SAME backend in ServerState.
                 let _ = &persist_dir;
-                match epistemic_graph::raft::node::start(cluster_cfg, state.clone()).await {
+                match medulla::raft::node::start(cluster_cfg, state.clone()).await {
                     Ok(started) => {
                         // `raft::node::start` atomically installed the routing handle
                         // and durable MultiRaft placement authority into ServerState.
                         // Keep the manager alive through the state-owned Arc while the
                         // recovery checks below complete before listeners serve traffic.
-                        // Cross-shard 2PC recovery (CONCEPT:EG-KG.storage.lane-n-increment): resolve any
+                        // Cross-shard 2PC recovery (CONCEPT:MEDULLA-KG.storage.lane-n-increment): resolve any
                         // in-doubt cross-shard txns from the durable prepare/decision
                         // records BEFORE serving — a COMMIT decision re-applies, an
                         // undecided/ABORT clears (presumed-abort). Deterministic from
@@ -2071,14 +2071,14 @@ async fn start_raft(
                         {
                             let backend = state.read().await.persistence.clone();
                             if let Some(backend) = backend {
-                                let coord = epistemic_graph::raft::cross_shard_txn::CrossShardCoordinator::new(
+                                let coord = medulla::raft::cross_shard_txn::CrossShardCoordinator::new(
                                     started.multi.clone(),
                                     backend,
                                 );
                                 match coord.recover_in_doubt().await {
                                     Ok(0) => {}
                                     Ok(n) => info!(
-                                        "Cross-shard 2PC recovery: resolved {n} in-doubt txn(s) (CONCEPT:EG-KG.storage.lane-n-increment)"
+                                        "Cross-shard 2PC recovery: resolved {n} in-doubt txn(s) (CONCEPT:MEDULLA-KG.storage.lane-n-increment)"
                                     ),
                                     Err(e) => {
                                         eprintln!("error: cross-shard 2PC recovery failed: {e}");
@@ -2130,7 +2130,7 @@ mod listener_policy_tests {
             Some(local.clone().into_os_string()),
             Some(std::ffi::OsString::from("operator-temp")),
         );
-        let expected_parent = local.join("epistemic-graph");
+        let expected_parent = local.join("medulla");
         assert_eq!(
             resolved,
             (
@@ -2145,13 +2145,13 @@ mod listener_policy_tests {
         let temp =
             resolve_windows_socket_path(None, Some(std::ffi::OsString::from("operator-temp")));
         assert_eq!(temp.1, None);
-        assert!(temp.0.ends_with("epistemic-graph.sock"));
+        assert!(temp.0.ends_with("medulla.sock"));
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn socket_directory_preparation_is_awaited_and_propagates_io_errors() {
         let root = tempfile::tempdir().expect("create socket-directory fixture root");
-        let parent = root.path().join("nested").join("epistemic-graph");
+        let parent = root.path().join("nested").join("medulla");
         prepare_socket_directory(Some(parent.clone()))
             .await
             .expect("prepare socket directory");

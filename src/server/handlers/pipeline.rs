@@ -1,6 +1,6 @@
-//! ML pipeline handler (CONCEPT:EG-KG.mining.ml-pipeline): a graph-scoped
+//! ML pipeline handler (CONCEPT:MEDULLA-KG.mining.ml-pipeline): a graph-scoped
 //! train→evaluate→serve→predict lifecycle over versioned `:Model` artifacts.
-//! It composes eg-compute's classify, estimator, graphlearn, embedding, and
+//! It composes medulla-compute's classify, estimator, graphlearn, embedding, and
 //! metrics primitives; ordered feature steps rebuild the same recipe for eval
 //! and predict. Train/serve/predict writes use the gateway; evaluate/compare
 //! reads use this handler's RLS-projected core.
@@ -16,18 +16,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::graph::GraphCore;
 use crate::protocol::{GraphSource, Method, Response, ResultPayload};
-use eg_compute::datascience::estimators;
-use eg_compute::graphlearn::edge_fn::Basis;
-use eg_compute::graphlearn::link_predict::{self, FeatureCtx, KanLinkConfig, KanLinkModel};
-use eg_compute::mining::classify;
-use eg_types::compute_result::graphlearn::PredictedLink;
-use eg_types::compute_result::pipeline::{
+use medulla_compute::datascience::estimators;
+use medulla_compute::graphlearn::edge_fn::Basis;
+use medulla_compute::graphlearn::link_predict::{self, FeatureCtx, KanLinkConfig, KanLinkModel};
+use medulla_compute::mining::classify;
+use medulla_types::compute_result::graphlearn::PredictedLink;
+use medulla_types::compute_result::pipeline::{
     ClassifyPrediction, EstimatorPrediction, GraphlearnPrediction, PipelineClassifiedRow,
     PipelineComparison, PipelineEvaluation, PipelinePrediction, PipelineServeResult,
     PipelineTrainResult, PipelineValueRow,
 };
-use eg_types::result_contract::compute::{self as results, MiningPipelinePredict};
-use eg_types::wire::{FeatureStep, ModelSpec, PipelineSpec};
+use medulla_types::result_contract::compute::{self as results, MiningPipelinePredict};
+use medulla_types::wire::{FeatureStep, ModelSpec, PipelineSpec};
 use serde_json::{json, Value};
 
 use self::features::{build_features, compute_embedding_rows, first_embedding};
@@ -666,7 +666,7 @@ fn resolve_labels_f64(
         let blob = core
             .get_node_properties(id)
             .ok_or_else(|| format!("pipeline: node {id:?} not found for label read"))?;
-        let val = eg_types::msgpack::decode_property_value(&blob)
+        let val = medulla_types::msgpack::decode_property_value(&blob)
             .map_err(|e| format!("pipeline: decode {id:?}: {e:?}"))?;
         let label = val
             .get(label_property)
@@ -704,7 +704,7 @@ fn served_node_id(name: &str) -> String {
 fn next_version(core: &GraphCore, name: &str) -> u64 {
     let mut max = 0u64;
     for (_, blob) in core.get_nodes_by_label("Model", 0) {
-        if let Ok(v) = eg_types::msgpack::decode_property_value(&blob) {
+        if let Ok(v) = medulla_types::msgpack::decode_property_value(&blob) {
             if v.get("name").and_then(|x| x.as_str()) == Some(name) {
                 if let Some(ver) = v.get("version").and_then(|x| x.as_u64()) {
                     max = max.max(ver);
@@ -727,7 +727,7 @@ fn resolve_version(core: &GraphCore, name: &str, version: u64) -> Result<u64, St
                 "pipeline: no served version for {name:?} — call serve or pass an explicit version"
             )
         })?;
-    let v = eg_types::msgpack::decode_property_value(&blob)
+    let v = medulla_types::msgpack::decode_property_value(&blob)
         .map_err(|e| format!("pipeline: decode served pointer: {e:?}"))?;
     v.get("version")
         .and_then(|x| x.as_u64())
@@ -739,7 +739,7 @@ fn load_model(core: &GraphCore, name: &str, version: u64) -> Result<LoadedModel,
     let blob = core
         .get_node_properties(&model_id)
         .ok_or_else(|| format!("pipeline: model {model_id:?} not found"))?;
-    let v = eg_types::msgpack::decode_property_value(&blob)
+    let v = medulla_types::msgpack::decode_property_value(&blob)
         .map_err(|e| format!("pipeline: decode model {model_id:?}: {e:?}"))?;
     let feature_spec: Vec<FeatureStep> = v
         .get("feature_spec")
@@ -903,7 +903,7 @@ mod tests {
     use crate::protocol::GraphSource;
     use crate::server::access::GraphReadAuthority;
     use crate::server::auth::VerifiedRequestContext;
-    use eg_types::wire::{FeatureStep, ModelSpec, SplitSpec};
+    use medulla_types::wire::{FeatureStep, ModelSpec, SplitSpec};
 
     fn node(props: Value) -> Vec<u8> {
         rmp_serde::to_vec_named(&props).unwrap()
@@ -1198,7 +1198,7 @@ mod tests {
         core.mark_dirty();
     }
 
-    /// Explicitly RLS-tag an already-trained `:Model` node (CONCEPT:EG-KG.sharding.row-level-security).
+    /// Explicitly RLS-tag an already-trained `:Model` node (CONCEPT:MEDULLA-KG.sharding.row-level-security).
     /// A freshly-trained model carries NO `_owner`/`_visibility`/`_grants` fields —
     /// `RowVisibility::tagged` is therefore `false`, and an untagged row is
     /// default-DENIED to every non-System caller (there is no implicit-public
@@ -1226,7 +1226,7 @@ mod tests {
         owner: Option<&str>,
     ) {
         let mut props =
-            eg_types::msgpack::decode_property_value(&core.get_node_properties(model_id).unwrap())
+            medulla_types::msgpack::decode_property_value(&core.get_node_properties(model_id).unwrap())
                 .unwrap();
         match owner {
             Some(owner) => {
@@ -1273,7 +1273,7 @@ mod tests {
         ));
         assert_eq!(train["version"], 1);
         // A freshly-trained `:Model` node carries NO RLS tags of its own — under
-        // the mandatory default-deny RLS posture (CONCEPT:EG-KG.sharding.row-level-security,
+        // the mandatory default-deny RLS posture (CONCEPT:MEDULLA-KG.sharding.row-level-security,
         // `RowVisibility::tagged`), an UNTAGGED row is invisible to every non-System
         // caller, not implicitly public. This test is about the row-visibility of
         // the PERSON data Evaluate reads, not the model's own visibility, so tag the

@@ -1,4 +1,4 @@
-//! Super-cluster federated search (CONCEPT:EG-KG.ontology.federation-client).
+//! Super-cluster federated search (CONCEPT:MEDULLA-KG.ontology.federation-client).
 //!
 //! Fans a *read* query across a registry of peer engine instances, runs the SAME
 //! query locally, and MERGES the partial result sets into one answer — the
@@ -11,7 +11,7 @@
 //! * [`PeerRegistry`] — the set of peer base-URLs, seeded from the comma-separated
 //!   env var [`FEDERATION_PEERS_ENV`] plus a programmatic [`PeerRegistry::register`].
 //! * SSRF safety — every peer URL is vetted with the SAME allowlist + internal-range
-//!   guard the SPARQL `SERVICE` federation uses (CONCEPT:EG-KG.query.sparql-service-federation-client): a peer that
+//!   guard the SPARQL `SERVICE` federation uses (CONCEPT:MEDULLA-KG.query.sparql-service-federation-client): a peer that
 //!   resolves to a loopback / link-local / RFC-1918 address is refused UNLESS the
 //!   operator opts it in via [`FEDERATION_ALLOW_ENV`]. Per-peer connect + read
 //!   timeouts bound a slow/hostile peer.
@@ -21,7 +21,7 @@
 //!   de-duplicated by key; ranked/search partials are re-ranked with Reciprocal Rank
 //!   Fusion (RRF, the `Op::FuseRrf` idea). A slow / dead peer is SKIPPED and noted in
 //!   `failed_peers` with `partial: true` — it never fails the whole query.
-//! * Schema-aware typed fusion for SQL + SPARQL (CONCEPT:EG-KG.query.schema-typed-fusion-sql) — the ranked-search
+//! * Schema-aware typed fusion for SQL + SPARQL (CONCEPT:MEDULLA-KG.query.schema-typed-fusion-sql) — the ranked-search
 //!   merge above dedups by a hash of the row payload, which is wrong for tabular
 //!   (SQL row / SPARQL solution) partials whose peers may list the SAME columns in a
 //!   DIFFERENT order, serialize the SAME value with a DIFFERENT JSON type (`30` vs
@@ -56,17 +56,17 @@ use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::ServerState;
 
 /// Comma-separated peer engine base-URLs, e.g.
-/// `https://eg-eu.example:7900,https://eg-us.example:7900` (CONCEPT:EG-KG.ontology.federation-client).
-pub const FEDERATION_PEERS_ENV: &str = "EPISTEMIC_GRAPH_FEDERATION_PEERS";
+/// `https://medulla-eu.example:7900,https://medulla-us.example:7900` (CONCEPT:MEDULLA-KG.ontology.federation-client).
+pub const FEDERATION_PEERS_ENV: &str = "MEDULLA_FEDERATION_PEERS";
 
-/// SSRF allowlist for outbound peer fan-out (CONCEPT:EG-KG.ontology.federation-client, mirrors EG-052). A
+/// SSRF allowlist for outbound peer fan-out (CONCEPT:MEDULLA-KG.ontology.federation-client, mirrors MEDULLA-052). A
 /// comma-separated list of bare hosts or `scheme://host:port` origins that may be
 /// contacted even though they resolve to an internal (loopback / RFC-1918 / link-local)
 /// address. Empty / unset ⇒ internal peers are refused (fail-closed default).
-pub const FEDERATION_ALLOW_ENV: &str = "EPISTEMIC_GRAPH_FEDERATION_ALLOW";
+pub const FEDERATION_ALLOW_ENV: &str = "MEDULLA_FEDERATION_ALLOW";
 
 /// Default graph a bare federated query resolves against (shared with the SPARQL surface).
-pub const DEFAULT_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_DEFAULT_GRAPH";
+pub const DEFAULT_GRAPH_ENV: &str = "MEDULLA_SPARQL_DEFAULT_GRAPH";
 
 /// Per-peer connect timeout (seconds) — a peer that will not connect fast degrades.
 const CONNECT_TIMEOUT_SECS: u64 = 5;
@@ -77,7 +77,7 @@ const MAX_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
 
 // ── Normalized federated row ──────────────────────────────────────────────
 
-/// One normalized result row shared by the local store and every peer (CONCEPT:EG-KG.ontology.federation-client).
+/// One normalized result row shared by the local store and every peer (CONCEPT:MEDULLA-KG.ontology.federation-client).
 /// `key` is the union/dedup identity; `score` (when present) drives re-ranking; `data`
 /// carries the opaque payload the caller cares about.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -104,7 +104,7 @@ impl FedRow {
 }
 
 /// The outcome of contacting ONE source (local or a peer): either its rows, or the
-/// error that made it degrade (CONCEPT:EG-KG.ontology.federation-client). A degraded peer keeps its label so the
+/// error that made it degrade (CONCEPT:MEDULLA-KG.ontology.federation-client). A degraded peer keeps its label so the
 /// merged metadata can report it in `failed_peers`.
 #[derive(Debug, Clone)]
 pub struct PeerOutcome {
@@ -114,7 +114,7 @@ pub struct PeerOutcome {
     pub rows: Result<Vec<FedRow>, String>,
 }
 
-/// The merged federated answer + provenance metadata (CONCEPT:EG-KG.ontology.federation-client).
+/// The merged federated answer + provenance metadata (CONCEPT:MEDULLA-KG.ontology.federation-client).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FederatedResponse {
     /// The merged, de-duplicated (and, for ranked queries, RRF-re-ranked) rows.
@@ -123,7 +123,7 @@ pub struct FederatedResponse {
     pub metadata: FederatedMetadata,
 }
 
-/// Provenance block returned alongside the merged rows (CONCEPT:EG-KG.ontology.federation-client).
+/// Provenance block returned alongside the merged rows (CONCEPT:MEDULLA-KG.ontology.federation-client).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FederatedMetadata {
     /// Peer base-URLs that were contacted (excludes the always-present local store).
@@ -138,7 +138,7 @@ pub struct FederatedMetadata {
 
 // ── Peer registry ─────────────────────────────────────────────────────────
 
-/// The set of peer engine base-URLs to fan a federated query out to (CONCEPT:EG-KG.ontology.federation-client).
+/// The set of peer engine base-URLs to fan a federated query out to (CONCEPT:MEDULLA-KG.ontology.federation-client).
 #[derive(Debug, Clone, Default)]
 pub struct PeerRegistry {
     peers: Vec<String>,
@@ -150,7 +150,7 @@ impl PeerRegistry {
         Self::default()
     }
 
-    /// Parse a comma-separated peer list (CONCEPT:EG-KG.ontology.federation-client). Blanks are dropped, each
+    /// Parse a comma-separated peer list (CONCEPT:MEDULLA-KG.ontology.federation-client). Blanks are dropped, each
     /// entry is trimmed, a trailing `/` is normalized off, and duplicates are removed
     /// (order-preserving) so the same peer is never queried twice.
     pub fn parse(raw: &str) -> Self {
@@ -176,7 +176,7 @@ impl PeerRegistry {
             .unwrap_or_default()
     }
 
-    /// Programmatically add a peer base-URL (CONCEPT:EG-KG.ontology.federation-client). No-ops on a blank or
+    /// Programmatically add a peer base-URL (CONCEPT:MEDULLA-KG.ontology.federation-client). No-ops on a blank or
     /// already-registered URL. Returns `true` when the peer was newly added.
     pub fn register(&mut self, url: impl Into<String>) -> bool {
         let url = url.into().trim().trim_end_matches('/').to_string();
@@ -198,9 +198,9 @@ impl PeerRegistry {
     }
 }
 
-// ── SSRF guard (mirrors CONCEPT:EG-KG.query.sparql-service-federation-client) ──────────────────────────────────
+// ── SSRF guard (mirrors CONCEPT:MEDULLA-KG.query.sparql-service-federation-client) ──────────────────────────────────
 
-/// The SSRF allowlist for peer fan-out (CONCEPT:EG-KG.ontology.federation-client). Built from [`FEDERATION_ALLOW_ENV`];
+/// The SSRF allowlist for peer fan-out (CONCEPT:MEDULLA-KG.ontology.federation-client). Built from [`FEDERATION_ALLOW_ENV`];
 /// an internal-range peer is only contacted when its host is named here.
 #[derive(Debug, Clone, Default)]
 pub struct PeerAllowlist {
@@ -238,8 +238,8 @@ impl PeerAllowlist {
     fn check_target(
         &self,
         peer_url: &str,
-    ) -> Result<eg_plan::federation_ssrf::ValidatedHttpJsonTarget, String> {
-        use eg_plan::federation_ssrf::{validate_outbound_http_target, OutboundAllowPolicy};
+    ) -> Result<medulla_plan::federation_ssrf::ValidatedHttpJsonTarget, String> {
+        use medulla_plan::federation_ssrf::{validate_outbound_http_target, OutboundAllowPolicy};
         validate_outbound_http_target(peer_url, &self.allow, OutboundAllowPolicy::PublicHttps)
     }
 }
@@ -247,7 +247,7 @@ impl PeerAllowlist {
 // ── Peer fan-out (ureq, blocking) ─────────────────────────────────────────
 
 /// POST the query to ONE peer's `/federated?local=1` endpoint and parse its rows
-/// (CONCEPT:EG-KG.ontology.federation-client). Runs inside a `spawn_blocking` task (the `ureq` client is blocking).
+/// (CONCEPT:MEDULLA-KG.ontology.federation-client). Runs inside a `spawn_blocking` task (the `ureq` client is blocking).
 /// SSRF-vetted first; any failure (blocked / connect / read / parse) is returned as the
 /// degrade reason so the caller records it as a failed peer.
 fn fetch_one_peer(
@@ -256,7 +256,7 @@ fn fetch_one_peer(
     query: &str,
     lang: &str,
 ) -> Result<Vec<FedRow>, String> {
-    use eg_plan::federation_ssrf::pinned_agent;
+    use medulla_plan::federation_ssrf::pinned_agent;
     use std::io::Read;
     let target = allow.check_target(peer)?;
     let endpoint = format!("{peer}/federated?local=1");
@@ -281,7 +281,7 @@ fn fetch_one_peer(
     parse_peer_rows(&text)
 }
 
-/// Parse a peer's `/federated` JSON response back into rows (CONCEPT:EG-KG.ontology.federation-client). Accepts the
+/// Parse a peer's `/federated` JSON response back into rows (CONCEPT:MEDULLA-KG.ontology.federation-client). Accepts the
 /// full `{rows: [...], metadata: {...}}` envelope this module emits, or a bare `[...]`.
 fn parse_peer_rows(text: &str) -> Result<Vec<FedRow>, String> {
     let val: serde_json::Value =
@@ -299,7 +299,7 @@ fn parse_peer_rows(text: &str) -> Result<Vec<FedRow>, String> {
 }
 
 /// Fan the query out to every peer concurrently and collect the per-peer outcomes
-/// (CONCEPT:EG-KG.ontology.federation-client). Each peer runs in its own `spawn_blocking` task; a panic or join
+/// (CONCEPT:MEDULLA-KG.ontology.federation-client). Each peer runs in its own `spawn_blocking` task; a panic or join
 /// error degrades that peer rather than the whole query.
 pub async fn fetch_peers(
     registry: &PeerRegistry,
@@ -333,7 +333,7 @@ pub async fn fetch_peers(
 
 // ── Local execution ───────────────────────────────────────────────────────
 
-/// Run the query against the LOCAL store via in-process dispatch (CONCEPT:EG-KG.ontology.federation-client).
+/// Run the query against the LOCAL store via in-process dispatch (CONCEPT:MEDULLA-KG.ontology.federation-client).
 /// Routes by `lang`: `sparql`/`sql` use their native read method when that feature is
 /// compiled; everything else (default `nl`/`search`) goes through the NL/search path.
 /// The result is normalized to [`FedRow`]s so it merges uniformly with peer rows.
@@ -363,7 +363,7 @@ async fn local_execute(
     Ok(decode_local_rows(&bytes, lang))
 }
 
-/// Build the in-process read [`Method`] for a `lang` (CONCEPT:EG-KG.ontology.federation-client). SQL/SPARQL arms
+/// Build the in-process read [`Method`] for a `lang` (CONCEPT:MEDULLA-KG.ontology.federation-client). SQL/SPARQL arms
 /// only compile when their feature is present; otherwise every lang uses the NL/search
 /// path so a slim build still federates over the search surface.
 fn build_local_method(query: &str, lang: &str, graph: &str) -> crate::protocol::Method {
@@ -387,15 +387,15 @@ fn build_local_method(query: &str, lang: &str, graph: &str) -> crate::protocol::
     }
 }
 
-/// Decode the local `ResultPayload::Raw` into normalized rows (CONCEPT:EG-KG.ontology.federation-client). The
+/// Decode the local `ResultPayload::Raw` into normalized rows (CONCEPT:MEDULLA-KG.ontology.federation-client). The
 /// ranked-search path is `[(id, score)]`; SPARQL/SQL rows are flattened to a stable key
 /// + a JSON payload. Unrecognized shapes yield no local rows (peer rows still merge).
 fn decode_local_rows(bytes: &[u8], lang: &str) -> Vec<FedRow> {
     #[cfg(feature = "sparql")]
     if lang == "sparql" {
-        if let Ok(res) = eg_types::msgpack::decode_bounded::<crate::protocol::SparqlResult>(
+        if let Ok(res) = medulla_types::msgpack::decode_bounded::<crate::protocol::SparqlResult>(
             bytes,
-            eg_types::msgpack::MsgpackLimits::new(MAX_RESPONSE_BYTES as usize, 1_000_000, 64),
+            medulla_types::msgpack::MsgpackLimits::new(MAX_RESPONSE_BYTES as usize, 1_000_000, 64),
         ) {
             return res
                 .rows
@@ -422,17 +422,17 @@ fn decode_local_rows(bytes: &[u8], lang: &str) -> Vec<FedRow> {
     }
     #[cfg(feature = "query")]
     if lang == "sql" {
-        if let Ok(res) = eg_types::msgpack::decode_bounded::<crate::protocol::QueryResult>(
+        if let Ok(res) = medulla_types::msgpack::decode_bounded::<crate::protocol::QueryResult>(
             bytes,
-            eg_types::msgpack::MsgpackLimits::new(MAX_RESPONSE_BYTES as usize, 1_000_000, 64),
+            medulla_types::msgpack::MsgpackLimits::new(MAX_RESPONSE_BYTES as usize, 1_000_000, 64),
         ) {
             return res
                 .rows
                 .into_iter()
                 .map(|blob| {
-                    let cells: Vec<serde_json::Value> = eg_types::msgpack::decode_bounded(
+                    let cells: Vec<serde_json::Value> = medulla_types::msgpack::decode_bounded(
                         &blob,
-                        eg_types::msgpack::MsgpackLimits::new(
+                        medulla_types::msgpack::MsgpackLimits::new(
                             MAX_RESPONSE_BYTES as usize,
                             1_000_000,
                             64,
@@ -460,9 +460,9 @@ fn decode_local_rows(bytes: &[u8], lang: &str) -> Vec<FedRow> {
     }
     let _ = lang;
     // Default ranked-search path: `[(id, score)]` rows.
-    match eg_types::msgpack::decode_bounded::<Vec<(String, Option<f32>)>>(
+    match medulla_types::msgpack::decode_bounded::<Vec<(String, Option<f32>)>>(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(MAX_RESPONSE_BYTES as usize, 1_000_000, 64),
+        medulla_types::msgpack::MsgpackLimits::new(MAX_RESPONSE_BYTES as usize, 1_000_000, 64),
     ) {
         Ok(rows) => rows
             .into_iter()
@@ -477,7 +477,7 @@ fn decode_local_rows(bytes: &[u8], lang: &str) -> Vec<FedRow> {
 }
 
 /// Collect per-source outcomes (local store + peer fan-out) WITHOUT merging
-/// (CONCEPT:EG-KG.ontology.federation-client). Pure extraction of [`run_federated`]'s prior body — a
+/// (CONCEPT:MEDULLA-KG.ontology.federation-client). Pure extraction of [`run_federated`]'s prior body — a
 /// CA-14 hook point (see `federation::opensearch::run_federated_with_opensearch`), not a
 /// behavior change: `run_federated` is now a thin wrapper over this plus its unchanged
 /// merge call, so its own outcome/return value is byte-identical to before this split
@@ -508,7 +508,7 @@ pub async fn collect_outcomes(
     outcomes
 }
 
-/// The full federated read (CONCEPT:EG-KG.ontology.federation-client): run locally AND fan out to peers, then merge.
+/// The full federated read (CONCEPT:MEDULLA-KG.ontology.federation-client): run locally AND fan out to peers, then merge.
 /// `local_only` short-circuits the fan-out (used when a super-cluster peer calls us with
 /// `?local=1`, preventing recursion). A local-store error degrades to a partial answer
 /// rather than failing the request.
@@ -519,8 +519,8 @@ pub async fn run_federated(
     local_only: bool,
 ) -> FederatedResponse {
     let outcomes = collect_outcomes(state, query, lang, local_only).await;
-    // Tabular SQL / SPARQL partials get schema-aware typed fusion (CONCEPT:EG-KG.query.schema-typed-fusion-sql); the
-    // ranked-search path keeps its hash-union + RRF re-rank (CONCEPT:EG-KG.ontology.federation-client) unchanged.
+    // Tabular SQL / SPARQL partials get schema-aware typed fusion (CONCEPT:MEDULLA-KG.query.schema-typed-fusion-sql); the
+    // ranked-search path keeps its hash-union + RRF re-rank (CONCEPT:MEDULLA-KG.ontology.federation-client) unchanged.
     if is_typed_lang(lang) {
         merge_partials_typed(outcomes, lang)
     } else {
@@ -530,7 +530,7 @@ pub async fn run_federated(
 
 // ── HTTP surface (`/federated`) ───────────────────────────────────────────
 
-/// Serve the `/federated` POST endpoint (CONCEPT:EG-KG.ontology.federation-client) using the same hand-rolled
+/// Serve the `/federated` POST endpoint (CONCEPT:MEDULLA-KG.ontology.federation-client) using the same hand-rolled
 /// HTTP framing idiom as `sparql_http` (no new HTTP dep). Body: `{query, lang}`; a
 /// `?local=1` query param short-circuits the fan-out (peer-to-peer, no recursion).
 pub async fn serve(listener: TcpListener, state: Arc<RwLock<ServerState>>) {
@@ -565,7 +565,7 @@ const HTTP_LIMITS: RequestLimits = RequestLimits {
     max_body_bytes: 1024 * 1024,
 };
 
-/// Route + execute a `/federated` request (CONCEPT:EG-KG.ontology.federation-client).
+/// Route + execute a `/federated` request (CONCEPT:MEDULLA-KG.ontology.federation-client).
 async fn handle(
     state: &Arc<RwLock<ServerState>>,
     req: HttpMessage,
@@ -834,7 +834,7 @@ mod tests {
         assert_eq!(decoded[1].score, None);
     }
 
-    // ── CONCEPT:EG-KG.query.schema-typed-fusion-sql — schema-aware typed fusion for SQL + SPARQL ──────────
+    // ── CONCEPT:MEDULLA-KG.query.schema-typed-fusion-sql — schema-aware typed fusion for SQL + SPARQL ──────────
 
     /// Build a tabular [`FedRow`] the way [`decode_local_rows`] does for a store partial:
     /// `field` is `"columns"` (SQL) or `"vars"` (SPARQL), paired 1:1 with `cells`.
@@ -1000,7 +1000,7 @@ mod tests {
     #[test]
     fn eg309_failed_peer_degrades_typed_fusion_to_partial() {
         // A dead peer under the typed path must degrade to `partial: true` with local rows
-        // preserved — identical contract to the ranked-search path (CONCEPT:EG-KG.ontology.federation-client).
+        // preserved — identical contract to the ranked-search path (CONCEPT:MEDULLA-KG.ontology.federation-client).
         let local = PeerOutcome {
             source: "<local>".to_string(),
             rows: Ok(vec![tabular_row(

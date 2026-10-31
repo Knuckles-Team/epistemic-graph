@@ -7,14 +7,14 @@ mod gateway_graph_routes;
 
 /// Decode a MessagePack-encoded JSON object blob (the `props_msgpack` /
 /// `semantic_props_msgpack` wire fields) into a `serde_json` object map
-/// (CONCEPT:EG-KG.memory.eg-batch-decay-caller). A missing/undecodable/non-object blob yields an empty map, so
-/// a caller may omit props entirely — the eg-core primitive injects the structural
+/// (CONCEPT:MEDULLA-KG.memory.medulla-batch-decay-caller). A missing/undecodable/non-object blob yields an empty map, so
+/// a caller may omit props entirely — the medulla-core primitive injects the structural
 /// markers regardless. Mirrors the `CompareAndSetNodeFields` blob-decode discipline.
 pub(super) fn decode_json_object(blob: &[u8]) -> serde_json::Map<String, serde_json::Value> {
-    eg_types::msgpack::decode_property_object(blob).unwrap_or_default()
+    medulla_types::msgpack::decode_property_object(blob).unwrap_or_default()
 }
 
-// EG-ORCH-VOCAB-R801.3 — the versioned harness-component write attaches to
+// MEDULLA-ORCH-VOCAB-R801.3 — the versioned harness-component write attaches to
 // the existing AddNode path at the pre-commit point in `try_handle_gateway`
 // (beside the owner-id stamp), through
 // `crate::server::harness_admission::direct_add_node`: the method is mutated
@@ -166,16 +166,16 @@ fn apply_apply_mutation(
     {
         let _ = event_type;
         struct SingleCoreStore(std::sync::Arc<GraphCore>);
-        impl eg_rdf::update::GraphStore for SingleCoreStore {
+        impl medulla_rdf::update::GraphStore for SingleCoreStore {
             fn core(&self, graph: Option<&str>) -> Option<std::sync::Arc<GraphCore>> {
                 graph.is_none().then(|| self.0.clone())
             }
         }
         #[cfg(feature = "shacl")]
         {
-            let update = eg_rdf::update::parse_update(&query)
+            let update = medulla_rdf::update::parse_update(&query)
                 .map_err(|error| format!("ApplyMutation: {error}"))?;
-            if !eg_rdf::update::referenced_named_graphs(&update).is_empty() {
+            if !medulla_rdf::update::referenced_named_graphs(&update).is_empty() {
                 return Err(
                     "ApplyMutation: graph-scoped updates cannot address a named RDF graph"
                         .to_string(),
@@ -189,16 +189,16 @@ fn apply_apply_mutation(
                 std::sync::Arc::new(GraphCore::from_snapshot(core.snapshot(), core.version())?);
             let store = SingleCoreStore(update_core.clone());
             let guard = crate::server::icv_guard::CoreIcvGuard::single(update_core.as_ref());
-            let report = eg_rdf::update::execute(
+            let report = medulla_rdf::update::execute(
                 &update,
                 &store,
-                &eg_rdf::sparql::Projection::raw(),
+                &medulla_rdf::sparql::Projection::raw(),
                 &guard,
             )
             .map_err(|error| format!("ApplyMutation: {error}"))?;
             core.replace_snapshot(update_core.snapshot())?;
-            ResultPayload::of::<eg_types::result_contract::graph::ApplyMutation>(
-                eg_types::result_contract::transactions::SparqlUpdateReport {
+            ResultPayload::of::<medulla_types::result_contract::graph::ApplyMutation>(
+                medulla_types::result_contract::transactions::SparqlUpdateReport {
                     operations: report.operations as u64,
                     inserted: report.inserted as u64,
                     deleted: report.deleted as u64,
@@ -223,7 +223,7 @@ fn apply_apply_mutation(
 /// byte-identical behaviour.
 ///
 /// Gated on `reasoning`: `crate::reasoning` (see `lib.rs`, `#[cfg(feature =
-/// "reasoning")] pub use eg_compute::reasoning;`) exists only under that feature, and
+/// "reasoning")] pub use medulla_compute::reasoning;`) exists only under that feature, and
 /// this function's only caller is the `#[cfg(feature = "reasoning")]
 /// Method::RunDatalogReasoning` arm in `try_handle_gateway` below. Same shape as
 /// BUG-CX-104 / the `dispatch.rs` fix (commit `bc280437`): a function with no cfg of
@@ -268,8 +268,8 @@ fn apply_run_datalog_reasoning(
 ) -> Result<ResultPayload, String> {
     let input = resolve_datalog_input(core, input)?;
     let (schema_digests, all_inferred) = collect_datalog_inferences(core, input)?;
-    ResultPayload::of::<eg_types::result_contract::reasoning::RunDatalogReasoning>(
-        eg_types::types::DatalogReasoningResult {
+    ResultPayload::of::<medulla_types::result_contract::reasoning::RunDatalogReasoning>(
+        medulla_types::types::DatalogReasoningResult {
             schema_digests,
             inferred_count: all_inferred.len(),
             inferred_triples: all_inferred,
@@ -384,7 +384,7 @@ fn datalog_input_from_graph_schema(core: &GraphCore) -> Result<DatalogReasoningI
     // independently would let their local blank-node labels alias one another
     // and would bypass the conflict/import checks used at commit time.
     let composed = crate::server::graph_schema::compose::validate_and_compose(&sources)?;
-    let ontology = eg_rdf::owl::parse_ontology(&composed.ontology);
+    let ontology = medulla_rdf::owl::parse_ontology(&composed.ontology);
     Ok(datalog_input_from_ontology(
         ontology,
         sources.composed_digest().to_hex(),
@@ -393,14 +393,14 @@ fn datalog_input_from_graph_schema(core: &GraphCore) -> Result<DatalogReasoningI
 
 #[cfg(all(feature = "reasoning", feature = "owl", feature = "shacl"))]
 fn datalog_input_from_ontology(
-    ontology: eg_rdf::owl::Ontology,
+    ontology: medulla_rdf::owl::Ontology,
     composed_digest: String,
 ) -> DatalogReasoningInput {
     // The native property graph stores relationship labels in UPPER_SNAKE,
     // while the RDF authority uses camelCase IRI local names. The canonical
     // projection lives with the native OWL parser and is shared by read-side
     // fact saturation and write-side materialization.
-    let relationship = eg_rdf::owl::native_relationship_label;
+    let relationship = medulla_rdf::owl::native_relationship_label;
     let subclass_relations = datalog_subclass_relations(&ontology);
     let (transitive_properties, property_chains) = datalog_property_chains(&ontology, relationship);
     DatalogReasoningInput {
@@ -450,10 +450,10 @@ fn datalog_input_from_ontology(
 }
 
 #[cfg(all(feature = "reasoning", feature = "owl", feature = "shacl"))]
-fn datalog_subclass_relations(ontology: &eg_rdf::owl::Ontology) -> Vec<(String, String)> {
+fn datalog_subclass_relations(ontology: &medulla_rdf::owl::Ontology) -> Vec<(String, String)> {
     let mut relations = Vec::new();
     for gci in &ontology.gcis {
-        if let ([eg_rdf::owl::Concept::Named(sub)], eg_rdf::owl::Concept::Named(sup)) =
+        if let ([medulla_rdf::owl::Concept::Named(sub)], medulla_rdf::owl::Concept::Named(sup)) =
             (gci.lhs.as_slice(), &gci.rhs)
         {
             if let (Some(sub), Some(sup)) = (datalog_class(sub), datalog_class(sup)) {
@@ -466,7 +466,7 @@ fn datalog_subclass_relations(ontology: &eg_rdf::owl::Ontology) -> Vec<(String, 
 
 #[cfg(all(feature = "reasoning", feature = "owl", feature = "shacl"))]
 fn datalog_property_chains(
-    ontology: &eg_rdf::owl::Ontology,
+    ontology: &medulla_rdf::owl::Ontology,
     relationship: fn(&str) -> String,
 ) -> (Vec<String>, Vec<(Vec<String>, String)>) {
     let mut transitive_properties = Vec::new();
@@ -506,14 +506,14 @@ fn apply_claim_next(
     label: &str,
     updates_msgpack: &[u8],
 ) -> Result<ResultPayload, String> {
-    let updates = match eg_types::msgpack::decode_property_object(updates_msgpack) {
+    let updates = match medulla_types::msgpack::decode_property_object(updates_msgpack) {
         Ok(m) => m,
         Err(_) => {
-            return ResultPayload::of::<eg_types::result_contract::coordination::ClaimNext>(None)
+            return ResultPayload::of::<medulla_types::result_contract::coordination::ClaimNext>(None)
         }
     };
     let claimed = core.claim_next_fields(label, &updates);
-    ResultPayload::of::<eg_types::result_contract::coordination::ClaimNext>(claimed)
+    ResultPayload::of::<medulla_types::result_contract::coordination::ClaimNext>(claimed)
 }
 
 /// `AddSceneObject`: pure extract-method from `try_handle_gateway`'s closure,
@@ -528,7 +528,7 @@ fn apply_add_scene_object(
     };
     let id = core.add_scene_object(&pose, parent);
     Ok(ResultPayload::scalar::<
-        eg_types::result_contract::graph::AddSceneObject,
+        medulla_types::result_contract::graph::AddSceneObject,
     >(id))
 }
 
@@ -544,7 +544,7 @@ fn apply_set_pose(
     };
     let ok = core.set_pose(node_id, &pose);
     Ok(ResultPayload::scalar::<
-        eg_types::result_contract::graph::SetPose,
+        medulla_types::result_contract::graph::SetPose,
     >(ok))
 }
 
@@ -600,7 +600,7 @@ fn apply_supersede_edge(
         input.tx_now,
     ) {
         Ok(()) => Ok(ResultPayload::scalar::<
-            eg_types::result_contract::graph::SupersedeEdge,
+            medulla_types::result_contract::graph::SupersedeEdge,
         >("ok".to_string())),
         Err(e) => Err(e),
     }
@@ -613,19 +613,19 @@ fn apply_batch_update(
     operations_msgpack: &[u8],
 ) -> Result<ResultPayload, String> {
     let summary = crate::algorithms::batch_update(core, operations_msgpack)?;
-    eg_types::result_contract::transactions::BatchUpdateReport::decode(&summary)
-        .and_then(ResultPayload::of::<eg_types::result_contract::transactions::BatchUpdate>)
+    medulla_types::result_contract::transactions::BatchUpdateReport::decode(&summary)
+        .and_then(ResultPayload::of::<medulla_types::result_contract::transactions::BatchUpdate>)
 }
 
 /// Decode a MessagePack-encoded `{translation,rotation,scale}` JSON blob into an
-/// eg-core [`eg_core::scene::Pose`] (CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-087). `None` only if the blob
+/// medulla-core [`medulla_core::scene::Pose`] (CONCEPT:MEDULLA-KG.memory.medulla-batch-decay-caller/MEDULLA-087). `None` only if the blob
 /// is not a decodable JSON object or a present sub-object is malformed (a bare `{}`
 /// reads back as the identity pose, since translation/rotation default to identity
-/// and scale to unit). Keeps the `eg-types` wire crate free of the eg-core scene
+/// and scale to unit). Keeps the `medulla-types` wire crate free of the medulla-core scene
 /// dependency — the Pose lives only handler-side.
-fn decode_pose(blob: &[u8]) -> Option<eg_core::scene::Pose> {
-    let val = eg_types::msgpack::decode_property_value(blob).ok()?;
-    eg_core::scene::Pose::from_json(&val)
+fn decode_pose(blob: &[u8]) -> Option<medulla_core::scene::Pose> {
+    let val = medulla_types::msgpack::decode_property_value(blob).ok()?;
+    medulla_core::scene::Pose::from_json(&val)
 }
 
 pub(super) async fn try_handle(

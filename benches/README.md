@@ -1,7 +1,7 @@
 # Benchmarks
 
-Criterion micro-benchmark harnesses for epistemic-graph. Every bench here is **dev-only** —
-`criterion` is a `[dev-dependencies]` entry, never linked into `epistemic-graph-server`, so
+Criterion micro-benchmark harnesses for medulla. Every bench here is **dev-only** —
+`criterion` is a `[dev-dependencies]` entry, never linked into `medulla-server`, so
 these have **zero** release-build impact. Each is registered `harness = false` in the root
 `Cargo.toml`.
 
@@ -9,15 +9,15 @@ these have **zero** release-build impact. Each is registered `harness = false` i
 
 | Bench | Concept | Feature gate | Measures |
 |-------|---------|--------------|----------|
-| `eg096_massive_scale_bench` | **EG-KG.compute.massive-scale-benchmark** | default (feature-light) | in-process node/edge write throughput, graph query latency, exact flat top-k, IVF-PQ and native HNSW kNN latency |
-| `write_coalescer_bench` | EG-KG.txn.write-path-benchmarks | `--features server` | `__commons__` write-lock contention curve vs the batch window |
-| `redb_group_commit_bench` | EG-024 | `--features full` | durable group-commit ops-per-fsync vs the linger knob |
+| `eg096_massive_scale_bench` | **MEDULLA-KG.compute.massive-scale-benchmark** | default (feature-light) | in-process node/edge write throughput, graph query latency, exact flat top-k, IVF-PQ and native HNSW kNN latency |
+| `write_coalescer_bench` | MEDULLA-KG.txn.write-path-benchmarks | `--features server` | `__commons__` write-lock contention curve vs the batch window |
+| `redb_group_commit_bench` | MEDULLA-024 | `--features full` | durable group-commit ops-per-fsync vs the linger knob |
 | `redb_write_latency_bench` | EH-290 | `--features full` | per-write durable latency p50/p95/p99 by `commit_phase` span, swept over graph size, beside raw-redb Immediate/None floors (plain `main`, not criterion) |
 
-## EG-KG.compute.massive-scale-benchmark — massive-scale core harness
+## MEDULLA-KG.compute.massive-scale-benchmark — massive-scale core harness
 
 `eg096_massive_scale_bench.rs` is the standing "how fast is the core?" harness. It runs
-entirely **in-process** against the pure `eg-core` `GraphCore` and the pure `eg-ann`
+entirely **in-process** against the pure `medulla-core` `GraphCore` and the pure `medulla-ann`
 flat/IVF-PQ/HNSW indexes — **no socket, no Tokio, no durable/redb tier** — so it isolates raw compute cost from
 transport/fsync noise. It is deliberately **feature-light**: it builds under default features,
 so a plain `cargo bench --no-run` compiles it while the server/redb benches above skip.
@@ -81,5 +81,5 @@ cargo flamegraph --bench eg096_massive_scale_bench -- --bench eg096_ann_knn
 ```
 
 ---
-*CONCEPT:EG-KG.compute.massive-scale-benchmark — massive-scale benchmark harness. Sibling harnesses: EG-KG.txn.write-path-benchmarks (write coalescer),
-EG-024 (redb group-commit).*
+*CONCEPT:MEDULLA-KG.compute.massive-scale-benchmark — massive-scale benchmark harness. Sibling harnesses: MEDULLA-KG.txn.write-path-benchmarks (write coalescer),
+MEDULLA-024 (redb group-commit).*

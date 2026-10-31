@@ -1,4 +1,4 @@
-//! In-process embedded library API (CONCEPT:EG-KG.backend.engine-modes).
+//! In-process embedded library API (CONCEPT:MEDULLA-KG.backend.engine-modes).
 //!
 //! SQLite/DuckDB-style: `EmbeddedEngine::open(persist_dir, options)` hands back an
 //! in-process handle that owns a [`GraphRegistry`] + (optionally) the redb durable
@@ -41,11 +41,11 @@
 //! the server with no persist dir.
 //!
 //! `open()` also takes the SAME single-writer `engine.lock` `flock` guard the
-//! standalone server takes (`eg_core::persist_lock`, BUG-PE-031): a second
+//! standalone server takes (`medulla_core::persist_lock`, BUG-PE-031): a second
 //! `EmbeddedEngine::open()` — or a `main.rs`-launched server — against the same
 //! `persist_dir` while this handle is alive is refused, not merely racy.
 //!
-//! ## SQLite-equivalent SQL (CONCEPT:EG-KG.storage.namespaced-kv-surface / EG-018)
+//! ## SQLite-equivalent SQL (CONCEPT:MEDULLA-KG.storage.namespaced-kv-surface / MEDULLA-018)
 //!
 //! SQLite is *embedded* — its equivalence here is this in-process mode PLUS arbitrary
 //! SQL user tables. On a `query` build [`EmbeddedEngine::sql_exec`] runs `CREATE
@@ -94,7 +94,7 @@ impl EmbeddedOptions {
     }
 }
 
-/// An in-process handle to the epistemic-graph engine core.
+/// An in-process handle to the medulla engine core.
 ///
 /// Cheaply cloneable (it is `Arc`-backed); clones share the same registry + durable
 /// store, so several call sites in one process drive ONE engine.
@@ -122,20 +122,20 @@ struct Inner {
     /// `Some` — the embedded-transport half of BUG-PE-031: `src/main.rs`'s
     /// standalone server already refuses a second writer on the same persist dir
     /// via `persist_lock::acquire`; this closes the same class for the embedded
-    /// transport by taking the SAME `eg_core::persist_lock` guard. `None` for an
+    /// transport by taking the SAME `medulla_core::persist_lock` guard. `None` for an
     /// in-memory engine (nothing to guard).
     #[cfg(feature = "redb")]
-    _persist_lock: Option<eg_core::persist_lock::PersistDirLock>,
+    _persist_lock: Option<medulla_core::persist_lock::PersistDirLock>,
     /// In-memory-only when there is no durable store.
     #[cfg(not(feature = "redb"))]
     _persist: Option<std::path::PathBuf>,
-    /// SQLite-equivalent arbitrary user-table store (CONCEPT:EG-KG.query.register-user-tables-alongside / EG-022),
+    /// SQLite-equivalent arbitrary user-table store (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside / MEDULLA-022),
     /// present on a `query` build. A single-file `{persist_dir}/sql_tables.redb` when
     /// durable, else an ephemeral temp file (SQLite's `:memory:` analogue). `sql_exec`
     /// runs CREATE TABLE / INSERT / SELECT against it WITHOUT a server — the embedded
     /// half of the user-table SQL surface the pgwire shim serves out-of-process.
     #[cfg(feature = "query")]
-    tables: eg_query::TableStore,
+    tables: medulla_query::TableStore,
 }
 
 impl EmbeddedEngine {
@@ -161,8 +161,8 @@ impl EmbeddedEngine {
                     // Single-writer guard FIRST — refuse (and touch nothing) if another
                     // engine already owns this persist dir, exactly like `src/main.rs`'s
                     // standalone-server guard (BUG-PE-031).
-                    persist_lock = eg_core::persist_lock::open_persist_mode(
-                        eg_core::persist_lock::PersistMode::Durable(dir.clone()),
+                    persist_lock = medulla_core::persist_lock::open_persist_mode(
+                        medulla_core::persist_lock::PersistMode::Durable(dir.clone()),
                     )?;
                     let store = EmbeddedRedbStore::open(dir)?;
                     // Replay the durable store into the fresh registry (the SAME
@@ -204,7 +204,7 @@ impl EmbeddedEngine {
         }
     }
 
-    /// Open the SQLite-equivalent user-table store (CONCEPT:EG-KG.query.register-user-tables-alongside / EG-022): a
+    /// Open the SQLite-equivalent user-table store (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside / MEDULLA-022): a
     /// single-file `{persist_dir}/sql_tables.redb` when durable (the SAME filename the
     /// pgwire shim uses, so a table created embedded is visible out-of-process and
     /// vice-versa), else an ephemeral temp file (the `:memory:` analogue).
@@ -212,7 +212,7 @@ impl EmbeddedEngine {
     fn open_table_store(
         persist_dir: Option<&Path>,
         durable: bool,
-    ) -> Result<eg_query::TableStore, String> {
+    ) -> Result<medulla_query::TableStore, String> {
         match (persist_dir, durable) {
             (Some(dir), true) => {
                 std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -221,7 +221,7 @@ impl EmbeddedEngine {
                 // serve this file's scopes, and for the embedded API this
                 // library IS that root.
                 let authority = crate::store_authority::process_authority();
-                eg_query::TableStore::open(
+                medulla_query::TableStore::open(
                     dir.join("sql_tables.redb"),
                     crate::store_authority::process_verifier(),
                     authority.principal(),
@@ -229,7 +229,7 @@ impl EmbeddedEngine {
                 )
             }
             // The `:memory:` analogue is still opened by the composition root,
-            // not by `eg-query`'s `dev-scope-grant` stand-in: ephemeral is a
+            // not by `medulla-query`'s `dev-scope-grant` stand-in: ephemeral is a
             // lifetime, not a weaker authority.
             _ => crate::store_authority::open_ephemeral_sql_store().map(|(store, _path)| store),
         }
@@ -295,7 +295,7 @@ impl EmbeddedEngine {
     /// Delete a named graph (cannot delete `__commons__`).
     ///
     /// Under the durable store this also PURGES the graph's redb rows (nodes/edges/
-    /// ledger/semantic + the `graph_meta` identity, CONCEPT:EG-KG.backend.tenant-delete-recreate-same) so a recreate
+    /// ledger/semantic + the `graph_meta` identity, CONCEPT:MEDULLA-KG.backend.tenant-delete-recreate-same) so a recreate
     /// of the SAME name starts from a clean durable slate instead of inheriting the
     /// deleted incarnation's rows on the next `load_all` — the embedded analogue of
     /// the server's tenant-delete teardown.
@@ -557,16 +557,16 @@ impl EmbeddedEngine {
     // ── gated query surface ──────────────────────────────────────────────
 
     /// Run read-only SQL (`SELECT … FROM nodes/edges …`) over `graph` via the SAME
-    /// DataFusion path the server's `Sql` handler uses (`eg_query::exec_sql` over an
+    /// DataFusion path the server's `Sql` handler uses (`medulla_query::exec_sql` over an
     /// off-lock `analysis_snapshot`). Available with the `query` feature.
     #[cfg(feature = "query")]
     pub fn sql(&self, graph: &str, sql: &str) -> Result<crate::protocol::QueryResult, String> {
         let snap = self.core(graph, false)?.analysis_snapshot();
-        eg_query::exec_sql(&snap, sql, &eg_query::CancellationToken::new())
+        medulla_query::exec_sql(&snap, sql, &medulla_query::CancellationToken::new())
     }
 
     /// Run read-only Cypher (`MATCH … RETURN …`, dep-free) over `graph` via the SAME
-    /// path the server's `CypherQuery` handler uses (`eg_query::exec_cypher`).
+    /// path the server's `CypherQuery` handler uses (`medulla_query::exec_cypher`).
     /// Available with the `cypher` feature (the lean-Pi query surface).
     #[cfg(feature = "cypher")]
     pub fn cypher(
@@ -575,7 +575,7 @@ impl EmbeddedEngine {
         cypher: &str,
     ) -> Result<crate::protocol::QueryResult, String> {
         let snap = self.core(graph, false)?.analysis_snapshot();
-        eg_query::exec_cypher(&snap, cypher)
+        medulla_query::exec_cypher(&snap, cypher)
     }
 
     /// Build or refresh the maintained ANN generation of every registered pgvector
@@ -583,14 +583,14 @@ impl EmbeddedEngine {
     /// bulk writes; until a generation is live, a nearest-neighbour read takes the
     /// bounded exact path (and says so in the index status).
     #[cfg(feature = "query")]
-    pub fn refresh_ann_indexes(&self) -> Result<Vec<eg_query::AnnRefreshOutcome>, String> {
+    pub fn refresh_ann_indexes(&self) -> Result<Vec<medulla_query::AnnRefreshOutcome>, String> {
         self.inner
             .tables
-            .refresh_ann_generations(eg_query::AnnRefreshPolicy::Immediate)
+            .refresh_ann_generations(medulla_query::AnnRefreshPolicy::Immediate)
     }
 
     /// Execute a SQL statement SQLite-style, in-process, WITHOUT a server
-    /// (CONCEPT:EG-KG.storage.namespaced-kv-surface / EG-018). This is the embedded equivalence to SQLite: open a
+    /// (CONCEPT:MEDULLA-KG.storage.namespaced-kv-surface / MEDULLA-018). This is the embedded equivalence to SQLite: open a
     /// file → `CREATE TABLE` / `INSERT` / `SELECT` over arbitrary user tables, durably,
     /// with no socket and no auth.
     ///
@@ -605,20 +605,20 @@ impl EmbeddedEngine {
     /// handled here — use the typed `add_node`/`add_edge`/`remove_*` methods for the
     /// graph. Available with the `query` feature.
     #[cfg(feature = "query")]
-    pub fn sql_exec(&self, graph: &str, sql: &str) -> Result<eg_query::TypedQueryResult, String> {
-        use eg_query::StatementKind;
+    pub fn sql_exec(&self, graph: &str, sql: &str) -> Result<medulla_query::TypedQueryResult, String> {
+        use medulla_query::StatementKind;
         let store = &self.inner.tables;
-        match eg_query::classify(sql)? {
+        match medulla_query::classify(sql)? {
             // SELECT / WITH: the read path over the graph snapshot + the user tables.
             // Auto-create the (possibly empty) graph so a table-only SELECT works
             // without a pre-existing graph, matching the firehose write path.
             StatementKind::Read => {
                 let snap = self.core(graph, true)?.analysis_snapshot();
-                eg_query::exec_sql_typed_with_tables(&snap, store, sql)
+                medulla_query::exec_sql_typed_with_tables(&snap, store, sql)
             }
             StatementKind::CreateTable(plan) => {
-                let columns = eg_query::columns_from_defs(&plan.columns)?;
-                let schema = eg_query::TableSchema::new(plan.name, columns);
+                let columns = medulla_query::columns_from_defs(&plan.columns)?;
+                let schema = medulla_query::TableSchema::new(plan.name, columns);
                 store.create_table(&schema, plan.if_not_exists)?;
                 Ok(status_result("CREATE TABLE"))
             }
@@ -626,7 +626,7 @@ impl EmbeddedEngine {
                 store.drop_table(&plan.name, plan.if_exists)?;
                 Ok(status_result("DROP TABLE"))
             }
-            // CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog the rest — one dispatch helper.
+            // CONCEPT:MEDULLA-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:MEDULLA-KG.query.rename-table-moves-catalog the rest — one dispatch helper.
             StatementKind::AlterTable(plan) => {
                 apply_alter_table(store, plan)?;
                 Ok(status_result("ALTER TABLE"))
@@ -635,7 +635,7 @@ impl EmbeddedEngine {
                 let n = store.insert_rows(&ins.table, &ins.columns, &ins.rows)?;
                 Ok(count_result(n))
             }
-            // CONCEPT:EG-KG.query.create-drop-function — CREATE/DROP FUNCTION over the durable function catalog; a
+            // CONCEPT:MEDULLA-KG.query.create-drop-function — CREATE/DROP FUNCTION over the durable function catalog; a
             // later SELECT fn(args)/FROM fn(args) expands it on the read path above.
             StatementKind::CreateFunction(plan) => {
                 store.create_function(&plan.func, plan.or_replace)?;
@@ -711,17 +711,17 @@ impl EmbeddedEngine {
 }
 
 /// Route a decoded `ALTER TABLE` action to the matching durable `TableStore` mutation
-/// (CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog DROP/RENAME COLUMN, RENAME TABLE, ALTER
+/// (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:MEDULLA-KG.query.rename-table-moves-catalog DROP/RENAME COLUMN, RENAME TABLE, ALTER
 /// COLUMN TYPE, DROP CONSTRAINT). The single facade mapping the embedded path reuses.
 #[cfg(feature = "query")]
 fn apply_alter_table(
-    store: &eg_query::TableStore,
-    plan: eg_query::AlterTablePlan,
+    store: &medulla_query::TableStore,
+    plan: medulla_query::AlterTablePlan,
 ) -> Result<(), String> {
-    use eg_query::AlterTableAction as A;
+    use medulla_query::AlterTableAction as A;
     match plan.action {
         A::AddColumn(col) => {
-            let columns = eg_query::columns_from_defs(std::slice::from_ref(&col))?;
+            let columns = medulla_query::columns_from_defs(std::slice::from_ref(&col))?;
             let column = columns.into_iter().next().expect("one column");
             store.add_column(&plan.name, column)
         }
@@ -729,7 +729,7 @@ fn apply_alter_table(
         A::RenameColumn { from, to } => store.rename_column(&plan.name, &from, &to),
         A::RenameTable { new_name } => store.rename_table(&plan.name, &new_name),
         A::AlterColumnType { column, new_type } => {
-            let ty = eg_query::ColumnType::parse(&new_type)?;
+            let ty = medulla_query::ColumnType::parse(&new_type)?;
             store.alter_column_type(&plan.name, &column, ty)
         }
         A::DropConstraint {
@@ -741,11 +741,11 @@ fn apply_alter_table(
 
 /// A one-row `status` result for a DDL statement (CREATE/ALTER/DROP TABLE).
 #[cfg(feature = "query")]
-fn status_result(tag: &str) -> eg_query::TypedQueryResult {
-    eg_query::TypedQueryResult {
-        columns: vec![eg_query::TypedColumn {
+fn status_result(tag: &str) -> medulla_query::TypedQueryResult {
+    medulla_query::TypedQueryResult {
+        columns: vec![medulla_query::TypedColumn {
             name: "status".to_string(),
-            ty: eg_query::PgColType::Text,
+            ty: medulla_query::PgColType::Text,
         }],
         rows: vec![vec![serde_json::Value::String(tag.to_string())]],
     }
@@ -753,11 +753,11 @@ fn status_result(tag: &str) -> eg_query::TypedQueryResult {
 
 /// A one-row `inserted` count result for an INSERT statement.
 #[cfg(feature = "query")]
-fn count_result(n: usize) -> eg_query::TypedQueryResult {
-    eg_query::TypedQueryResult {
-        columns: vec![eg_query::TypedColumn {
+fn count_result(n: usize) -> medulla_query::TypedQueryResult {
+    medulla_query::TypedQueryResult {
+        columns: vec![medulla_query::TypedColumn {
             name: "inserted".to_string(),
-            ty: eg_query::PgColType::Int8,
+            ty: medulla_query::PgColType::Int8,
         }],
         rows: vec![vec![serde_json::Value::from(n as i64)]],
     }
@@ -775,14 +775,14 @@ mod lifecycle_failure_tests {
     use std::thread;
 
     fn temp_dir(tag: &str) -> PathBuf {
-        crate::test_support::temp_dir("eg-embedded-lifecycle", tag)
+        crate::test_support::temp_dir("medulla-embedded-lifecycle", tag)
     }
 
     /// Hold the ambient encryption environment still for a durable test's body.
     ///
     /// Same mechanism and same reason as `embedded::tests::durable_env_guard`
     /// (see that function's doc): `EmbeddedRedbStore::open` resolves its at-rest
-    /// cipher from the process-global `EPISTEMIC_GRAPH_ENCRYPTION_KEY` once per
+    /// cipher from the process-global `MEDULLA_ENCRYPTION_KEY` once per
     /// open, so any body that writes rows and then REOPENS the same directory
     /// needs that env to hold still across both opens. Taken by every durable
     /// test in this module, not only the ones observed to fail.

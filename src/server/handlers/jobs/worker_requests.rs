@@ -45,11 +45,11 @@ pub(super) fn bounded_lease_ms(value: u64) -> u64 {
 
 pub(super) fn tenant_worker_quota() -> TenantJobQuota {
     TenantJobQuota {
-        max_active: std::env::var("EG_ANALYTICS_TENANT_ACTIVE")
+        max_active: std::env::var("MEDULLA_ANALYTICS_TENANT_ACTIVE")
             .ok()
             .and_then(|value| value.parse().ok())
             .unwrap_or(2),
-        max_reserved_cpu_ms: std::env::var("EG_ANALYTICS_TENANT_CPU_MS")
+        max_reserved_cpu_ms: std::env::var("MEDULLA_ANALYTICS_TENANT_CPU_MS")
             .ok()
             .and_then(|value| value.parse().ok())
             .unwrap_or(u64::MAX),
@@ -65,9 +65,9 @@ pub(super) fn worker_claim_response(req_id: u64, claim: &WorkerClaim) -> Respons
 
 pub(super) fn worker_claim_payload(claim: &WorkerClaim) -> Result<ResultPayload, String> {
     let (record, input_payload) = job_record(&claim.job)?;
-    ResultPayload::of::<eg_types::result_contract::coordination::JobWorkerClaim>(Some(
-        eg_types::result_contract::coordination::WorkerJobClaim {
-            job: eg_types::result_contract::coordination::ClaimedAnalyticsJob {
+    ResultPayload::of::<medulla_types::result_contract::coordination::JobWorkerClaim>(Some(
+        medulla_types::result_contract::coordination::WorkerJobClaim {
+            job: medulla_types::result_contract::coordination::ClaimedAnalyticsJob {
                 record,
                 input_payload,
             },
@@ -77,9 +77,9 @@ pub(super) fn worker_claim_payload(claim: &WorkerClaim) -> Result<ResultPayload,
 }
 
 pub(super) fn worker_lease(
-    lease: &eg_jobs::model::WorkerLease,
-) -> eg_types::result_contract::coordination::JobWorkerLease {
-    eg_types::result_contract::coordination::JobWorkerLease {
+    lease: &medulla_jobs::model::WorkerLease,
+) -> medulla_types::result_contract::coordination::JobWorkerLease {
+    medulla_types::result_contract::coordination::JobWorkerLease {
         worker_ref: lease.worker_ref.clone(),
         epoch: lease.epoch,
         acquired_at_ms: lease.acquired_at_ms,
@@ -121,7 +121,7 @@ pub(super) fn handle_worker_claim(
         Ok(Some(claim)) => worker_claim_response(req_id, &claim),
         Ok(None) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::coordination::JobWorkerClaim>(None),
+            ResultPayload::of::<medulla_types::result_contract::coordination::JobWorkerClaim>(None),
         ),
         Err(error) => Response::err(req_id, job_refusal(&error)),
     }
@@ -153,7 +153,7 @@ pub(super) fn handle_worker_renew(
     ) {
         Ok(lease) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::coordination::JobWorkerRenew>(
+            ResultPayload::of::<medulla_types::result_contract::coordination::JobWorkerRenew>(
                 worker_lease(&lease),
             ),
         ),
@@ -204,7 +204,7 @@ pub(super) fn handle_worker_checkpoint(
         },
         now,
     ) {
-        Ok(job) => job_response::<eg_types::result_contract::coordination::JobWorkerCheckpoint>(
+        Ok(job) => job_response::<medulla_types::result_contract::coordination::JobWorkerCheckpoint>(
             req_id, &job,
         ),
         Err(error) => Response::err(req_id, job_refusal(&error)),

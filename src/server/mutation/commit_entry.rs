@@ -1,4 +1,4 @@
-use eg_capabilities::DurabilityDomain;
+use medulla_capabilities::DurabilityDomain;
 
 use super::{
     advance_authoritative_manifest, commit_mutation_body_prepublish_fast_path,
@@ -31,7 +31,7 @@ pub(super) struct CommitFinalizeOptions {
     pub(super) preserve_node_indexes: bool,
 }
 
-/// Steps 1-3 of the commit gateway (CONCEPT:EG-P0-2): Write-authz, idempotency-replay
+/// Steps 1-3 of the commit gateway (CONCEPT:MEDULLA-P0-2): Write-authz, idempotency-replay
 /// short-circuit, and the pre-apply CDC image. Returns `Err(Response)` to short-
 /// circuit the whole call (an ACCESS_DENIED, or a cached idempotent replay — no re-
 /// apply), else `Ok(CommitPrep)` for the caller to run apply + [`commit_finalize`].
@@ -79,7 +79,7 @@ pub(super) fn commit_prepare(
     // for every call to this graph for the rest of the process's life, so every
     // later caller got back a response correlated to a DIFFERENT (the very
     // first) request id. The transport demuxes purely by `Response.id`
-    // (`epistemic_graph/client.py`'s `self._pending[req_id]`), so a mismatched id
+    // (`medulla/client.py`'s `self._pending[req_id]`), so a mismatched id
     // is silently unmatchable -- the caller's future never resolves and the RPC
     // hangs until its own client-side timeout, even though the engine already
     // "answered". Rewriting `id` to the CURRENT request before returning is
@@ -189,7 +189,7 @@ pub(super) async fn commit_finalize_durable(
     if let Err(e) = persistence.record_durable(&fname, method).await {
         return Some(Response::err(
             ctx.req_id,
-            eg_types::contract::classify_refusal(
+            medulla_types::contract::classify_refusal(
                 "INTERNAL",
                 "durable commit failed (write not acknowledged): ",
                 &e,
@@ -251,11 +251,11 @@ pub(super) fn commit_finalize_emit_cdc(
     crate::server::cdc::emit_for_method(hub, ctx.core, ctx.graph_name, method, cdc_pre);
 }
 
-/// The single commit gateway (CONCEPT:EG-P0-2): authz, apply, durable commit,
+/// The single commit gateway (CONCEPT:MEDULLA-P0-2): authz, apply, durable commit,
 /// audit (delegated — see module docs), CDC, and idempotency-replay dedup, all in
-/// ONE call, driven entirely by `plan` (sourced from `eg_capabilities::policy`).
+/// ONE call, driven entirely by `plan` (sourced from `medulla_capabilities::policy`).
 ///
-/// `apply` performs the actual `eg-core` mutation and returns the success payload;
+/// `apply` performs the actual `medulla-core` mutation and returns the success payload;
 /// it is only invoked after authz passes and (for an idempotent replay hit) is
 /// skipped entirely. On a failed apply, nothing durable/audited/CDC-emitted/cached
 /// happens.
@@ -296,7 +296,7 @@ where
 }
 
 /// The prepare → durable-commit → RAM-publish sequence for ONE routed mutation
-/// (CONCEPT:EG-P0-2 / L18 rewrite): authz, idempotency-replay short-circuit, CDC
+/// (CONCEPT:MEDULLA-P0-2 / L18 rewrite): authz, idempotency-replay short-circuit, CDC
 /// pre-image, durable commit, apply, mark-dirty/RAM publish, CDC emit, and
 /// idempotency-replay cache insert.
 ///

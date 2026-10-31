@@ -5,7 +5,7 @@ struct JobPublicationSubmission<'a> {
     multi: &'a Arc<crate::raft::multi::MultiRaft>,
     authority: &'a CarrierAuthority,
     request_id: u64,
-    attempt_nonce: Option<eg_types::contract::Nonce>,
+    attempt_nonce: Option<medulla_types::contract::Nonce>,
     coordinator_id: &'a str,
     operation: &'a str,
     graph_name: &'a str,

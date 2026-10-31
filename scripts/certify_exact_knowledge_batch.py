@@ -349,7 +349,7 @@ def _certify_snapshot_binding(
 
 def _run(binary: ExactBinary, binary_digest: str) -> dict[str, object]:
     authority = _new_ephemeral_authority()
-    with tempfile.TemporaryDirectory(prefix="eg-exact-knowledge-batch-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="medulla-exact-knowledge-batch-") as scratch:
         root = Path(scratch)
         engine = ExactEngine(binary, root, authority)
         try:
@@ -381,7 +381,7 @@ def _run(binary: ExactBinary, binary_digest: str) -> dict[str, object]:
 
     evidence = {
         "binary": {"sha256": binary_digest},
-        "certification": "epistemic-graph-exact-knowledge-batch",
+        "certification": "medulla-exact-knowledge-batch",
         "families": families,
         "requirements": list(REQUIREMENTS),
         "schema_version": SCHEMA_VERSION,

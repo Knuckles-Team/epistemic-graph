@@ -1,5 +1,5 @@
 //! The impact watch's graph access: `service:impact-watch` may read and write
-//! exactly the graphs the operator opted in (`EPISTEMIC_GRAPH_IMPACT_ON_WRITE`),
+//! exactly the graphs the operator opted in (`MEDULLA_IMPACT_ON_WRITE`),
 //! one engine-provisioned role per graph (`impact-watch:<graph>`).
 
 use crate::isolation::IsolationLayer;

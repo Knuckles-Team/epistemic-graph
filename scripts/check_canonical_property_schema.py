@@ -19,31 +19,31 @@ from rust_module_tree import read_module_tree
 ROOT = Path(__file__).resolve().parents[1]
 
 STRUCTURAL_READERS = (
-    "crates/eg-core/src/graph.rs",
-    "crates/eg-graphql/src/schema.rs",
-    "crates/eg-graphql/src/resolver.rs",
-    "crates/eg-query/src/cypher/exec.rs",
-    "crates/eg-query/src/cypher/proc.rs",
-    "crates/eg-plan/src/exec.rs",
-    "crates/eg-rdf/src/mapping.rs",
-    "crates/eg-rdf/src/update.rs",
-    "crates/eg-rdf/src/sparql.rs",
-    "crates/eg-rdf/src/owl.rs",
-    "crates/eg-compute/src/reasoning.rs",
-    "crates/eg-epistemic/src/adapter.rs",
-    "crates/eg-epistemic/src/incremental.rs",
-    "crates/eg-epistemic/src/recompute.rs",
-    "crates/eg-jobs/src/claim.rs",
+    "crates/medulla-core/src/graph.rs",
+    "crates/medulla-graphql/src/schema.rs",
+    "crates/medulla-graphql/src/resolver.rs",
+    "crates/medulla-query/src/cypher/exec.rs",
+    "crates/medulla-query/src/cypher/proc.rs",
+    "crates/medulla-plan/src/exec.rs",
+    "crates/medulla-rdf/src/mapping.rs",
+    "crates/medulla-rdf/src/update.rs",
+    "crates/medulla-rdf/src/sparql.rs",
+    "crates/medulla-rdf/src/owl.rs",
+    "crates/medulla-compute/src/reasoning.rs",
+    "crates/medulla-epistemic/src/adapter.rs",
+    "crates/medulla-epistemic/src/incremental.rs",
+    "crates/medulla-epistemic/src/recompute.rs",
+    "crates/medulla-jobs/src/claim.rs",
     "src/server/handlers/mining.rs",
     "src/server/handlers/graphlearn.rs",
     "src/server/handlers/graph_ops.rs",
     "src/server/handlers/txn.rs",
     "src/server/reasoning_projection.rs",
 )
-KNOWLEDGE_READER = "crates/eg-plan/src/knowledge.rs"
+KNOWLEDGE_READER = "crates/medulla-plan/src/knowledge.rs"
 CYPHER_READERS = (
-    "crates/eg-query/src/cypher/exec.rs",
-    "crates/eg-query/src/cypher/proc.rs",
+    "crates/medulla-query/src/cypher/exec.rs",
+    "crates/medulla-query/src/cypher/proc.rs",
 )
 
 EDGE_TYPE_FALLBACKS = (
@@ -110,7 +110,7 @@ def _cypher_label_failures() -> list[str]:
                 f"{path}: Cypher structural label readers must use only "
                 f"`node_type`/`labels`"
             )
-    cypher_exec = text("crates/eg-query/src/cypher/exec.rs")
+    cypher_exec = text("crates/medulla-query/src/cypher/exec.rs")
     for required in (
         "materialize_node(view, id)",
         'obj.insert("id".to_string(), Value::String(node_id.to_string()));',
@@ -119,7 +119,7 @@ def _cypher_label_failures() -> list[str]:
     ):
         if required not in cypher_exec:
             failures.append(
-                "crates/eg-query/src/cypher/exec.rs: missing canonical Cypher node "
+                "crates/medulla-query/src/cypher/exec.rs: missing canonical Cypher node "
                 f"projection/write marker `{required}`"
             )
     return failures
@@ -128,23 +128,23 @@ def _cypher_label_failures() -> list[str]:
 def _edge_writer_failures() -> list[str]:
     """Edge writers and the typed edge itself expose only `relationship`."""
     failures = []
-    graphql_writer = text("crates/eg-graphql/src/mutation.rs")
+    graphql_writer = text("crates/medulla-graphql/src/mutation.rs")
     if (
         'obj.insert("relationship".to_string(), Value::String(rel.clone()));'
         not in graphql_writer
     ):
         failures.append(
-            "crates/eg-graphql/src/mutation.rs: GraphQL edge writer must stamp "
+            "crates/medulla-graphql/src/mutation.rs: GraphQL edge writer must stamp "
             "`relationship`"
         )
-    typed_edge = text("crates/eg-types/src/types.rs")
+    typed_edge = text("crates/medulla-types/src/types.rs")
     if (
         "pub relationship: String," not in typed_edge
         or "pub relationship_type:" in typed_edge
         or "#[serde(deny_unknown_fields)]\npub struct EdgeData" not in typed_edge
     ):
         failures.append(
-            "crates/eg-types/src/types.rs: EdgeData must expose only canonical "
+            "crates/medulla-types/src/types.rs: EdgeData must expose only canonical "
             "`relationship`"
         )
     return failures

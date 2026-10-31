@@ -18,7 +18,7 @@ use crate::epistemic_operations::{
     DevelopmentLaneHoldState,
 };
 use crate::protocol::DevelopmentLaneWorkItemKind;
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 
 pub(super) fn finish_state_matches(
     terminal_state: DevelopmentLaneFinishRequestTerminalState,

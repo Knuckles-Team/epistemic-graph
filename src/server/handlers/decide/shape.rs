@@ -4,9 +4,9 @@
 //! Independent of the opt-in native-write ICV guard: every commit projects the
 //! record to RDF and validates it against the shapes below, and a record that
 //! does not conform -- or a validation run that cannot complete -- is refused.
-//! The shapes stay inside what eg-shacl supports: SHACL Core plus
+//! The shapes stay inside what medulla-shacl supports: SHACL Core plus
 //! aggregate-free `sh:sparql`, with "winner ∈ options" written as
-//! `OPTIONAL { … FILTER(?o = ?w) } FILTER(!BOUND(?o))` (eg-shacl rejects
+//! `OPTIONAL { … FILTER(?o = ?w) } FILTER(!BOUND(?o))` (medulla-shacl rejects
 //! `FILTER NOT EXISTS`).
 //!
 //! Terms are minted from hex-encoded identifiers, so no caller-supplied text is
@@ -14,7 +14,7 @@
 
 use std::fmt::Write as _;
 
-use eg_types::decision::{DecisionOutcome, DecisionRecord};
+use medulla_types::decision::{DecisionOutcome, DecisionRecord};
 
 const NS: &str = "urn:eg:decide:";
 
@@ -95,7 +95,7 @@ fn project(record: &DecisionRecord) -> String {
 /// Validate `record` against [`DECISION_SHAPES`]; any non-conformance, or a
 /// validation run that cannot complete, refuses the commit.
 pub(crate) fn check_decision_shape(record: &DecisionRecord) -> Result<(), String> {
-    let report = eg_shacl::validate_turtle(DECISION_SHAPES, &project(record))
+    let report = medulla_shacl::validate_turtle(DECISION_SHAPES, &project(record))
         .map_err(|error| format!("DERIVATION_REJECTED: DecisionShape could not run: {error}"))?;
     if report.conforms {
         return Ok(());
@@ -113,8 +113,8 @@ pub(crate) fn check_decision_shape(record: &DecisionRecord) -> Result<(), String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_types::agent_component::AgentComponentKind;
-    use eg_types::test_support::contract_wave::decision;
+    use medulla_types::agent_component::AgentComponentKind;
+    use medulla_types::test_support::contract_wave::decision;
 
     fn solved() -> DecisionRecord {
         decision::record(
@@ -131,7 +131,7 @@ mod tests {
     }
 
     /// The gate catches a known-bad input: a winner outside the options.
-    // spec: EG-DECISION-ENGINE-R069
+    // spec: MEDULLA-DECISION-ENGINE-R069
     #[test]
     fn a_winner_outside_the_candidates_is_refused() {
         let mut record = solved();
@@ -140,7 +140,7 @@ mod tests {
         };
         let mut forged = slots.as_slice().to_vec();
         forged[0].component = decision::dependency("component-elsewhere", AgentComponentKind::Tool);
-        *slots = eg_types::contract::BoundedVec::new(forged).expect("bounded");
+        *slots = medulla_types::contract::BoundedVec::new(forged).expect("bounded");
         let error = check_decision_shape(&record).expect_err("refused");
         assert!(error.starts_with("DERIVATION_REJECTED: "), "{error}");
     }
@@ -150,7 +150,7 @@ mod tests {
         let mut record = solved();
         let mut eliminated = record.eliminated.as_slice().to_vec();
         eliminated[0].component_id = "component-a".to_string();
-        record.eliminated = eg_types::contract::BoundedVec::new(eliminated).expect("bounded");
+        record.eliminated = medulla_types::contract::BoundedVec::new(eliminated).expect("bounded");
         assert!(check_decision_shape(&record).is_err());
     }
 }

@@ -2,7 +2,7 @@
 # Small native-container probes, not a substitute for the complete wheel gate.
 set -euo pipefail
 # The shared release-maturin action has already configured the linker.
-probe_dir="$(mktemp -d /tmp/eg-arm64-link-probe.XXXXXX)"
+probe_dir="$(mktemp -d /tmp/medulla-arm64-link-probe.XXXXXX)"
 trap 'rm -rf "$probe_dir"' EXIT
 IFS=$'\x1f' read -r -a flags <<< "$CARGO_ENCODED_RUSTFLAGS"
 cat > "$probe_dir/runtime.rs" <<'RS'
@@ -123,7 +123,7 @@ mkdir -p .ci-arm64-link-probe/src
 cp "$probe_dir/runtime.rs" .ci-arm64-link-probe/src/main.rs
 cat > .ci-arm64-link-probe/Cargo.toml <<'TOML'
 [package]
-name = "eg-arm64-link-probe"
+name = "medulla-arm64-link-probe"
 version = "0.0.0"
 edition = "2021"
 [workspace]
@@ -138,7 +138,7 @@ cat > .ci-arm64-link-probe/pyproject.toml <<'TOML'
 requires = ["maturin==1.15.0"]
 build-backend = "maturin"
 [project]
-name = "eg-arm64-link-probe"
+name = "medulla-arm64-link-probe"
 version = "0.0.0"
 [tool.maturin]
 bindings = "bin"

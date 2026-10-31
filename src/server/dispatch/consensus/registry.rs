@@ -1,7 +1,7 @@
 use super::*;
 
-use eg_types::contract::{BoundedVec, Digest256};
-use eg_types::result_contract::cluster::{
+use medulla_types::contract::{BoundedVec, Digest256};
+use medulla_types::result_contract::cluster::{
     is_valid_server_name, RegisteredServerCursor, RegisteredServerListPage,
     RegisteredServerListRequest, RegisteredServerView, ServerDesiredState, ServerTransport,
     MAX_REGISTERED_SERVER_PAGE_ENTRIES, REGISTERED_SERVER_LIST_SCHEMA_VERSION,
@@ -14,9 +14,9 @@ const REGISTRY_CURSOR_STALE: &str =
 
 /// Civil (proleptic Gregorian) `(year, month, day)` from a days-since-1970-01-01
 /// count -- Howard Hinnant's `civil_from_days`, the SAME proven, dependency-free
-/// algorithm `eg-rdf`'s `sparql::civil_from_days` already uses for XSD `dateTime`
+/// algorithm `medulla-rdf`'s `sparql::civil_from_days` already uses for XSD `dateTime`
 /// formatting (deliberately re-derived here rather than imported: the facade
-/// does not otherwise depend on `eg-rdf` internals, and this is a small, fully
+/// does not otherwise depend on `medulla-rdf` internals, and this is a small, fully
 /// self-contained pure function).
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
@@ -72,7 +72,7 @@ fn registered_server_view(
     properties_msgpack: &[u8],
     observed_at_ms: u64,
 ) -> Option<RegisteredServerView> {
-    let value = eg_types::msgpack::decode_property_value(properties_msgpack).ok()?;
+    let value = medulla_types::msgpack::decode_property_value(properties_msgpack).ok()?;
     if value.get("node_type").and_then(serde_json::Value::as_str) != Some("Server") {
         return None;
     }
@@ -276,7 +276,7 @@ pub(in crate::server::dispatch) async fn handle_list_registered_servers(
         read_authority.can_see_node(properties, raw_core.is_schema_node(node_id))
     });
     crate::server::dispatch::typed_response::<
-        eg_types::result_contract::cluster::ListRegisteredServers,
+        medulla_types::result_contract::cluster::ListRegisteredServers,
     >(
         req_id,
         registered_server_page(&live, &request, observed_at_ms, registry_revision),
@@ -357,7 +357,7 @@ fn validated_resources(registration: &ServerRegistration) -> Result<serde_json::
     }
 }
 
-/// `Method::RegisterServer`'s handler (CONCEPT:EG-KG.sharding.server-registry, W2.5):
+/// `Method::RegisterServer`'s handler (CONCEPT:MEDULLA-KG.sharding.server-registry, W2.5):
 /// validate, compute the server-authoritative lease fields, build the `:Server`
 /// property blob (preserving `registered_at_ms` across a renewal -- a heartbeat
 /// is just a repeat call with the same `name`), and delegate to the ordinary
@@ -390,7 +390,7 @@ pub(in crate::server::dispatch) async fn handle_register_server(
         s.registry
             .get(REGISTRY_GRAPH)
             .and_then(|entry| entry.core.get_node_properties(&node_id))
-            .and_then(|blob| eg_types::msgpack::decode_property_value(&blob).ok())
+            .and_then(|blob| medulla_types::msgpack::decode_property_value(&blob).ok())
             .and_then(|value| value.get("registered_at_ms").and_then(|v| v.as_u64()))
             .unwrap_or(now_ms)
     };
@@ -449,7 +449,7 @@ fn register_server_response(response: Response) -> Response {
             ..
         } => Response::ok(
             id,
-            ResultPayload::scalar::<eg_types::result_contract::cluster::RegisterServer>(
+            ResultPayload::scalar::<medulla_types::result_contract::cluster::RegisterServer>(
                 acknowledgement,
             ),
         ),

@@ -1,0 +1,330 @@
+# CONCEPT:MEDULLA-KG.query.wire-protocol — Medulla Service CLI
+#
+# Command-line interface for managing the medulla Tokio service.
+# Handles start/stop/status/ping operations.
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import logging
+import os
+import signal
+import subprocess
+import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .client import RequestContextClaims
+
+logger = logging.getLogger(__name__)
+
+
+def _request_context(raw: str) -> RequestContextClaims:
+    from .client import validate_request_context
+
+    if not raw:
+        raise SystemExit(
+            "MEDULLA_REQUEST_CONTEXT_JSON is required for client commands"
+        )
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit("request context JSON is invalid") from exc
+    return validate_request_context(value)
+
+
+def _default_socket_path() -> str:
+    fallback = os.path.join(
+        os.path.expanduser("~"), ".local", "state", "medulla"
+    )
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", fallback)  # nosec B108
+    os.makedirs(runtime_dir, exist_ok=True)
+    return os.path.join(runtime_dir, "medulla.sock")
+
+
+def _default_pid_path() -> str:
+    fallback = os.path.join(
+        os.path.expanduser("~"), ".local", "state", "medulla"
+    )
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", fallback)  # nosec B108
+    os.makedirs(runtime_dir, exist_ok=True)
+    return os.path.join(runtime_dir, "medulla.pid")
+
+
+def _find_server_binary() -> str | None:
+    """Locate the medulla-server binary."""
+    # Check common locations.
+    candidates = [
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "target",
+            "release",
+            "medulla-server",
+        ),
+        os.path.join(
+            os.path.dirname(__file__), "..", "target", "debug", "medulla-server"
+        ),
+    ]
+    # The installed `medulla-server` package, else PATH.
+    from medulla.server_binary import (
+        ServerBinaryNotFoundError,
+        resolve_server_binary,
+    )
+
+    try:
+        candidates.insert(0, resolve_server_binary())
+    except ServerBinaryNotFoundError:
+        pass
+
+    for candidate in candidates:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return os.path.abspath(candidate)
+    return None
+
+
+def cmd_start(args: argparse.Namespace) -> None:
+    """Start the medulla service as a background process."""
+    binary = _find_server_binary()
+    if not binary:
+        print("Error: medulla-server binary not found.", file=sys.stderr)
+        print(
+            'Install it with: pip install "medulla[server]" (or cargo build --release)',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    cmd = [binary, "--socket-path", args.socket_path]
+    if args.tcp_addr:
+        cmd.extend(["--tcp-addr", args.tcp_addr])
+    if args.persist_dir:
+        cmd.extend(["--persist-dir", args.persist_dir])
+
+    print("Starting medulla-server...")
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+    pid_path = _default_pid_path()
+    with open(pid_path, "w") as f:
+        f.write(str(proc.pid))
+
+    print(f"Started (PID: {proc.pid}, socket: {args.socket_path})")
+
+
+def cmd_stop(args: argparse.Namespace) -> None:
+    """Stop the medulla service."""
+    pid_path = _default_pid_path()
+    if not os.path.exists(pid_path):
+        print("No PID file found. Service may not be running.")
+        return
+
+    with open(pid_path) as f:
+        pid = int(f.read().strip())
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+        print(f"Sent SIGTERM to PID {pid}")
+        os.unlink(pid_path)
+    except ProcessLookupError:
+        print(f"Process {pid} not found. Cleaning up PID file.")
+        os.unlink(pid_path)
+    except PermissionError:
+        print(f"Permission denied sending signal to PID {pid}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_status(args: argparse.Namespace) -> None:
+    """Check if the service is running."""
+    pid_path = _default_pid_path()
+    if not os.path.exists(pid_path):
+        print("Status: NOT RUNNING (no PID file)")
+        return
+
+    with open(pid_path) as f:
+        pid = int(f.read().strip())
+
+    try:
+        os.kill(pid, 0)
+        print(f"Status: RUNNING (PID: {pid})")
+    except ProcessLookupError:
+        print(f"Status: DEAD (stale PID file for {pid})")
+    except PermissionError:
+        print(f"Status: RUNNING (PID: {pid}, no signal permission)")
+
+
+def cmd_ping(args: argparse.Namespace) -> None:
+    """Send a ping to the service."""
+    from .client import MedullaClient
+
+    async def _ping() -> None:
+        client = await MedullaClient.connect(
+            socket_path=args.socket_path,
+            verified_context=_request_context(args.request_context_json),
+        )
+        result = await client.ping()
+        print(f"Pong: {result}")
+        await client.close()
+
+    asyncio.run(_ping())
+
+
+def cmd_graphs_list(args: argparse.Namespace) -> None:
+    """List all registered graphs."""
+    from .client import MedullaClient
+
+    async def _list() -> None:
+        client = await MedullaClient.connect(
+            socket_path=args.socket_path,
+            verified_context=_request_context(args.request_context_json),
+        )
+        graphs = await client.tenants.list()
+        if not graphs:
+            print("No graphs registered.")
+        else:
+            for g in graphs:
+                print(f"  {g.get('name', '?')} ({g.get('type', '?')})")
+        await client.close()
+
+    asyncio.run(_list())
+
+
+def cmd_cluster_refresh(args: argparse.Namespace) -> None:
+    """(Re)compute + cache a graph's hierarchical cluster tree (VIZ-1)."""
+    from .client import MedullaClient
+
+    async def _refresh() -> None:
+        client = await MedullaClient.connect(
+            socket_path=args.socket_path,
+            graph_name=args.graph,
+            verified_context=_request_context(args.request_context_json),
+        )
+        summary = await client.graph.cluster_hierarchy_refresh(
+            label=args.label, resolution=args.resolution, seed=args.seed
+        )
+        print(json.dumps(summary, indent=2))
+        await client.close()
+
+    asyncio.run(_refresh())
+
+
+def cmd_cluster_list(args: argparse.Namespace) -> None:
+    """List the cached hierarchy's clusters at one level (VIZ-1)."""
+    from .client import MedullaClient
+
+    async def _list() -> None:
+        client = await MedullaClient.connect(
+            socket_path=args.socket_path,
+            graph_name=args.graph,
+            verified_context=_request_context(args.request_context_json),
+        )
+        result = await client.graph.cluster_hierarchy_clusters(
+            level=args.level, parent_cluster_id=args.parent
+        )
+        print(json.dumps(result, indent=2))
+        await client.close()
+
+    asyncio.run(_list())
+
+
+def cmd_cluster_expand(args: argparse.Namespace) -> None:
+    """Expand one cluster one level down (VIZ-1)."""
+    from .client import MedullaClient
+
+    async def _expand() -> None:
+        client = await MedullaClient.connect(
+            socket_path=args.socket_path,
+            graph_name=args.graph,
+            verified_context=_request_context(args.request_context_json),
+        )
+        result = await client.graph.cluster_hierarchy_expand(args.cluster_id)
+        print(json.dumps(result, indent=2))
+        await client.close()
+
+    asyncio.run(_expand())
+
+
+def main() -> None:
+    """CLI entry point."""
+    parser = argparse.ArgumentParser(
+        prog="medulla-service",
+        description="Manage the medulla Tokio service",
+    )
+    parser.add_argument(
+        "--socket-path",
+        default=_default_socket_path(),
+        help="Unix Domain Socket path",
+    )
+    parser.add_argument(
+        "--request-context-json",
+        default=os.environ.get("MEDULLA_REQUEST_CONTEXT_JSON", ""),
+        help="Complete current request-context claims as JSON",
+    )
+
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # start
+    sp_start = subparsers.add_parser("start", help="Start the service")
+    sp_start.add_argument("--tcp-addr", help="Optional TCP address (host:port)")
+    sp_start.add_argument("--persist-dir", help="Durable engine data directory")
+    sp_start.set_defaults(func=cmd_start)
+
+    # stop
+    sp_stop = subparsers.add_parser("stop", help="Stop the service")
+    sp_stop.set_defaults(func=cmd_stop)
+
+    # status
+    sp_status = subparsers.add_parser("status", help="Check service status")
+    sp_status.set_defaults(func=cmd_status)
+
+    # ping
+    sp_ping = subparsers.add_parser("ping", help="Ping the service")
+    sp_ping.set_defaults(func=cmd_ping)
+
+    # graphs list
+    sp_graphs = subparsers.add_parser("graphs", help="Graph management")
+    graphs_sub = sp_graphs.add_subparsers(dest="graphs_command", required=True)
+    sp_gl = graphs_sub.add_parser("list", help="List registered graphs")
+    sp_gl.set_defaults(func=cmd_graphs_list)
+
+    # cluster (VIZ-1: server-side hierarchical clustering for visualization)
+    sp_cluster = subparsers.add_parser(
+        "cluster", help="Hierarchical cluster tree for graph visualization (VIZ-1)"
+    )
+    cluster_sub = sp_cluster.add_subparsers(dest="cluster_command", required=True)
+
+    sp_cr = cluster_sub.add_parser(
+        "refresh", help="(Re)compute + cache the cluster hierarchy"
+    )
+    sp_cr.add_argument("--graph", default="__commons__", help="Graph name")
+    sp_cr.add_argument("--label", help="Restrict clustering to one node type")
+    sp_cr.add_argument(
+        "--resolution", type=float, default=1.0, help="Leiden resolution (gamma)"
+    )
+    sp_cr.add_argument("--seed", type=int, default=0, help="Leiden RNG seed")
+    sp_cr.set_defaults(func=cmd_cluster_refresh)
+
+    sp_cl = cluster_sub.add_parser("list", help="List cached clusters at one level")
+    sp_cl.add_argument("--graph", default="__commons__", help="Graph name")
+    sp_cl.add_argument(
+        "--level", type=int, required=True, help="Hierarchy level (1 = finest)"
+    )
+    sp_cl.add_argument("--parent", help="Restrict to this parent cluster's children")
+    sp_cl.set_defaults(func=cmd_cluster_list)
+
+    sp_ce = cluster_sub.add_parser("expand", help="Expand one cluster one level down")
+    sp_ce.add_argument("--graph", default="__commons__", help="Graph name")
+    sp_ce.add_argument("cluster_id", help="Cluster id, e.g. L1-0")
+    sp_ce.set_defaults(func=cmd_cluster_expand)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

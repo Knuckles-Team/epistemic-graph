@@ -2,7 +2,7 @@
 //!
 //! A template is a published agent plus declared axes of variation: the same
 //! role on a cheaper model, the same research agent against a different search
-//! tool. See [`eg_types::agent_template`] for why it is a complete base plus
+//! tool. See [`medulla_types::agent_template`] for why it is a complete base plus
 //! substitutions rather than a partially-specified agent.
 //!
 //! Published into the SAME owner file as [`super::agent_component`],
@@ -25,8 +25,8 @@
 
 use std::sync::Arc;
 
-use eg_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
-use eg_types::agent_template::{
+use medulla_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
+use medulla_types::agent_template::{
     AgentTemplateCommittedResult, AgentTemplateEntry, AgentTemplateMutationKind,
     AgentTemplateOutboxEvent, AgentTemplatePublishRequest, AgentTemplateRetireRequest,
     AgentTemplateStatusRequest, AGENT_TEMPLATE_SCHEMA_VERSION,
@@ -40,7 +40,7 @@ use super::agent_revision::{
 
 mod write;
 
-const AGENT_TEMPLATE_OUTBOX_TOPIC: &str = "eg.agent-template.revision.v1";
+const AGENT_TEMPLATE_OUTBOX_TOPIC: &str = "medulla.agent-template.revision.v1";
 const AGENT_TEMPLATE_RESULT_SCHEMA_ID: &str = "agent-template-result.v1";
 /// `pub(super)` for [`super::agent_pin_resolution`]: the bound on how deep one
 /// pin lookup may scan this layer's history is this layer's own.
@@ -60,8 +60,8 @@ pub(super) struct TemplateLayer;
 /// The template layer's head and revision tables.
 fn template_tables() -> RevisionTables {
     RevisionTables {
-        heads: eg_storage::AGENT_TEMPLATE_HEADS,
-        revisions: eg_storage::AGENT_TEMPLATE_REVISIONS,
+        heads: medulla_storage::AGENT_TEMPLATE_HEADS,
+        revisions: medulla_storage::AGENT_TEMPLATE_REVISIONS,
     }
 }
 
@@ -120,7 +120,7 @@ impl RevisionLayer for TemplateLayer {
             action_actor_scope: context.actor_scope.clone(),
         };
         event.validate()?;
-        eg_storage::encode_bounded(&event, "agent template outbox event")
+        medulla_storage::encode_bounded(&event, "agent template outbox event")
     }
 
     fn retired_revision(
@@ -219,18 +219,18 @@ impl AgentLibraryStore {
     /// the row it was called on; this one is the gate that matters.
     pub fn instantiate_template(
         &self,
-        request: &eg_types::agent_template::AgentTemplateInstantiateRequest,
-    ) -> Result<eg_types::agent_library::AgentLibraryEntryDraft, String> {
+        request: &medulla_types::agent_template::AgentTemplateInstantiateRequest,
+    ) -> Result<medulla_types::agent_library::AgentLibraryEntryDraft, String> {
         request.validate()?;
-        eg_types::agent_library::validate_key(&request.tenant_id, &request.template_id)?;
+        medulla_types::agent_library::validate_key(&request.tenant_id, &request.template_id)?;
         let read = self.read()?;
-        let heads = read.open_owner_table(eg_storage::AGENT_TEMPLATE_HEADS)?;
+        let heads = read.open_owner_table(medulla_storage::AGENT_TEMPLATE_HEADS)?;
         let head_revision = heads
             .get((request.tenant_id.as_str(), request.template_id.as_str()))
             .map_err(|error| error.to_string())?
             .map(|value| value.value())
             .ok_or_else(|| "no such agent template in this tenant".to_string())?;
-        let revisions = read.open_owner_table(eg_storage::AGENT_TEMPLATE_REVISIONS)?;
+        let revisions = read.open_owner_table(medulla_storage::AGENT_TEMPLATE_REVISIONS)?;
         let head = revisions
             .get((
                 request.tenant_id.as_str(),

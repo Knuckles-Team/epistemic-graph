@@ -1,9 +1,9 @@
 //! Postgres wire-protocol shim (CONCEPT:AU-KG.query.raw-python) — the FIRST `WireProtocol` adapter
-//! (CONCEPT:EG-KG.compute.subsystems-reference). A thin facade over the engine's internal SQL surface that lets
+//! (CONCEPT:MEDULLA-KG.compute.subsystems-reference). A thin facade over the engine's internal SQL surface that lets
 //! `psql`, BI tools, and ORMs connect and run SQL against a graph.
 //!
 //! ## What this is (and is NOT)
-//! This is a SHIM, not a second SQL engine, and — since EG-074 — not even a second
+//! This is a SHIM, not a second SQL engine, and — since MEDULLA-074 — not even a second
 //! copy of the query orchestration: the wire-agnostic `classify → dispatch → exec`
 //! pipeline, the per-connection session state, and the mixed-store transaction logic
 //! all live in [`crate::server::wire`] ([`WireSession`], the one shared
@@ -17,12 +17,12 @@
 //! wire-neutral [`WireOutcome`] / [`WireError`] into Postgres bytes.
 //!
 //! A SELECT arriving over the wire is parsed/planned/executed by the SAME DataFusion
-//! path `Method::Sql` uses; a write is classified (`eg_query::classify`) and routed
+//! path `Method::Sql` uses; a write is classified (`medulla_query::classify`) and routed
 //! through the engine's `GraphTxn` write path so it gets `mark_dirty` + durability for
 //! free. No SQL grammar, planner, or executor is reimplemented here.
 //!
 //! ## Protocols supported
-//! BOTH Postgres query protocols (CONCEPT:EG-KG.query.describe):
+//! BOTH Postgres query protocols (CONCEPT:MEDULLA-KG.query.describe):
 //!   * **Simple query** (`SimpleQueryHandler`) — a single text query string, one
 //!     round-trip. What raw `psql` and `client.simple_query(...)` use.
 //!   * **Extended / prepared** (`ExtendedQueryHandler`) — the Parse / Bind /
@@ -34,14 +34,14 @@
 //!     (`substitute_params`), then runs the identical classify → read/write path.
 //!
 //! ## DML / transactions / connected graph / auth / OID mapping
-//! Unchanged from KG-2.189/KG-2.198/EG-020/EG-045..049/EG-072/EG-102/EG-115 — the
+//! Unchanged from KG-2.189/KG-2.198/MEDULLA-020/MEDULLA-045..049/MEDULLA-072/MEDULLA-102/MEDULLA-115 — the
 //! behavior now lives in [`crate::server::wire`]; this adapter only frames it. See the
 //! `wire` module header for the mixed-store transaction and durability semantics, and
-//! `auth.rs` for the SCRAM identity model (CONCEPT:EG-KG.query.concept-13).
+//! `auth.rs` for the SCRAM identity model (CONCEPT:MEDULLA-KG.query.concept-13).
 //!
 //! ## Arrow → pg type-OID mapping
 //! Result columns are described from the Arrow result schema via
-//! `eg_query::PgColType`: `Int8 → INT8`, `Float8 → FLOAT8`, `Bool → BOOL`,
+//! `medulla_query::PgColType`: `Int8 → INT8`, `Float8 → FLOAT8`, `Bool → BOOL`,
 //! everything else `TEXT` (JSON-stringified) — so a column is never lossy-dropped.
 
 use std::fs::File;
@@ -69,7 +69,7 @@ use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::data::DataRow;
 use pgwire::tokio::process_socket;
 
-use eg_query::{
+use medulla_query::{
     ColumnType, CopyFormat, DeleteNodes, InsertNodes, PgColType, StatementKind, TableSchema,
     TypedQueryResult, UpdateNodes,
 };
@@ -83,17 +83,17 @@ pub use auth::{derive_pg_password, PgWireAuthMode, PGWIRE_AUTH_ENV};
 
 /// Env var: when set (and the binary is built `--features pgwire`), the pgwire
 /// listener binds this address (e.g. `127.0.0.1:5433`). Unset → no listener.
-pub const PGWIRE_ADDR_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_ADDR";
+pub const PGWIRE_ADDR_ENV: &str = "MEDULLA_PGWIRE_ADDR";
 /// Env var: the default graph a fresh connection runs against when the libpq
 /// `database` parameter is not supplied. Defaults to `__commons__`.
-pub const PGWIRE_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_GRAPH";
+pub const PGWIRE_GRAPH_ENV: &str = "MEDULLA_PGWIRE_GRAPH";
 /// Env var: PEM certificate chain for the native pgwire TLS listener.
-pub const PGWIRE_TLS_CERT_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_TLS_CERT";
+pub const PGWIRE_TLS_CERT_ENV: &str = "MEDULLA_PGWIRE_TLS_CERT";
 /// Env var: PEM private key for the native pgwire TLS listener.
-pub const PGWIRE_TLS_KEY_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_TLS_KEY";
+pub const PGWIRE_TLS_KEY_ENV: &str = "MEDULLA_PGWIRE_TLS_KEY";
 /// Env var: optional PEM CA bundle that makes the native pgwire listener require
 /// a client certificate (mTLS).
-pub const PGWIRE_TLS_CLIENT_CA_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_TLS_CLIENT_CA";
+pub const PGWIRE_TLS_CLIENT_CA_ENV: &str = "MEDULLA_PGWIRE_TLS_CLIENT_CA";
 
 /// Upper bound for each configured PEM input. TLS material is loaded only at
 /// listener startup, but it is still deployment-controlled input and must not
@@ -536,7 +536,7 @@ async fn client_requested_tls(socket: &tokio::net::TcpStream) -> std::io::Result
     .map_err(|_| Error::new(ErrorKind::TimedOut, "pgwire TLS negotiation timed out"))?
 }
 
-// ── error + outcome adaptation (CONCEPT:EG-KG.compute.subsystems-reference) ───────────────────────────────
+// ── error + outcome adaptation (CONCEPT:MEDULLA-KG.compute.subsystems-reference) ───────────────────────────────
 
 /// Map an internal error string to a pgwire user error (SQLSTATE 58000 — system
 /// error) for the Postgres-SPECIFIC surfaces of this adapter (COPY framing, etc.).
@@ -550,7 +550,7 @@ fn user_err(msg: impl Into<String>) -> PgWireError {
 
 /// Map a wire-neutral [`WireError`] onto a Postgres error frame, preserving the exact
 /// SQLSTATE + message the shared core produced (so a client sees byte-for-byte the
-/// same `ERROR` it did before EG-074 — e.g. `25P02` aborted-txn, `42501` denied).
+/// same `ERROR` it did before MEDULLA-074 — e.g. `25P02` aborted-txn, `42501` denied).
 fn wire_err_to_pg(e: WireError) -> PgWireError {
     PgWireError::UserError(Box::new(ErrorInfo::new(
         "ERROR".to_owned(),
@@ -596,14 +596,14 @@ fn outcome_to_response(outcome: WireOutcome, format: Option<&Format>) -> Respons
 
 // ── Arrow → Postgres result encoding ──────────────────────────────────────────
 
-/// `eg_query::PgColType` → a Postgres wire `Type` (the OID the client sees).
+/// `medulla_query::PgColType` → a Postgres wire `Type` (the OID the client sees).
 fn pg_type(t: PgColType) -> Type {
     match t {
         PgColType::Int8 => Type::INT8,
         PgColType::Float8 => Type::FLOAT8,
         PgColType::Bool => Type::BOOL,
         PgColType::Text => Type::TEXT,
-        // CONCEPT:EG-KG.query.pgvector-binary-wire — pgvector `vector`. pgvector's own OID is dynamically assigned
+        // CONCEPT:MEDULLA-KG.query.pgvector-binary-wire — pgvector `vector`. pgvector's own OID is dynamically assigned
         // by the extension, so we report the stable, always-present float4-array OID
         // (`_float4` = 1021, "float-array-ish"): a client without the vector type
         // registered still resolves a sane type, and the value is sent as the pgvector
@@ -655,7 +655,7 @@ fn encode_cell(
             Value::String(s) => encoder.encode_field(&s.as_str()),
             other => encoder.encode_field(&other.to_string()),
         },
-        // CONCEPT:EG-KG.query.pgvector-binary-wire — render a vector (a JSON array of numbers) as the pgvector
+        // CONCEPT:MEDULLA-KG.query.pgvector-binary-wire — render a vector (a JSON array of numbers) as the pgvector
         // text literal `[1,2,3]`; a non-array value falls back to its JSON text.
         PgColType::Vector => encode_vector_cell(encoder, cell),
     }
@@ -746,14 +746,14 @@ fn query_response(result: TypedQueryResult, format: Option<&Format>) -> QueryRes
 
 // ── the Postgres wire adapter ──────────────────────────────────────────────────
 
-/// Per-connection Postgres wire handler (CONCEPT:EG-KG.compute.subsystems-reference). Owns the wire-agnostic
+/// Per-connection Postgres wire handler (CONCEPT:MEDULLA-KG.compute.subsystems-reference). Owns the wire-agnostic
 /// [`WireSession`] that does the actual SQL work and adds ONLY the Postgres framing:
 /// the simple/extended protocol handlers, the extended-protocol Describe support (OID
 /// resolution + result-column schema), and the COPY wire decoders. One instance per
 /// connection (a fresh factory per accepted connection in `serve`), so each
 /// connection's `SET graph` / txn state stays isolated.
 struct EngineBackend {
-    /// The shared, wire-agnostic execution core (CONCEPT:EG-KG.compute.subsystems-reference).
+    /// The shared, wire-agnostic execution core (CONCEPT:MEDULLA-KG.compute.subsystems-reference).
     session: Arc<WireSession>,
     /// The SQL parser used for the extended protocol's Parse step. Stateless.
     parser: Arc<EngineQueryParser>,
@@ -763,17 +763,17 @@ struct EngineBackend {
 /// out of `param_type_oids` (extract-method, cx/wD8) — same terms, same
 /// order as before.
 fn param_site_pg_col_type(
-    site: eg_query::ParamSite,
+    site: medulla_query::ParamSite,
     cols: &std::collections::HashMap<String, PgColType>,
 ) -> PgColType {
     match site {
-        eg_query::ParamSite::IdColumn => PgColType::Text,
-        eg_query::ParamSite::Column(name) => cols.get(&name).copied().unwrap_or(PgColType::Text),
-        eg_query::ParamSite::Literal(lt) => match lt {
-            eg_query::ParamLiteralType::Int => PgColType::Int8,
-            eg_query::ParamLiteralType::Float => PgColType::Float8,
-            eg_query::ParamLiteralType::Bool => PgColType::Bool,
-            eg_query::ParamLiteralType::Text => PgColType::Text,
+        medulla_query::ParamSite::IdColumn => PgColType::Text,
+        medulla_query::ParamSite::Column(name) => cols.get(&name).copied().unwrap_or(PgColType::Text),
+        medulla_query::ParamSite::Literal(lt) => match lt {
+            medulla_query::ParamLiteralType::Int => PgColType::Int8,
+            medulla_query::ParamLiteralType::Float => PgColType::Float8,
+            medulla_query::ParamLiteralType::Bool => PgColType::Bool,
+            medulla_query::ParamLiteralType::Text => PgColType::Text,
         },
     }
 }
@@ -794,10 +794,10 @@ impl EngineBackend {
     /// call `handlers::query::handle_sql` makes for the native RPC path. Neither
     /// `do_query` (simple protocol) nor the extended protocol's `do_query` ever calls
     /// `handle_sql` (see `bind_sql_text_embedder`'s doc), and both call THIS method
-    /// first, so without this call `eg_embed(text)`'s process-wide embedder was never
-    /// bound for a session that only ever spoke pgwire — `eg_embed(...)` always fell
+    /// first, so without this call `medulla_embed(text)`'s process-wide embedder was never
+    /// bound for a session that only ever spoke pgwire — `medulla_embed(...)` always fell
     /// through to its typed "no server-side text embedder is bound" error even with
-    /// `EG_UQL_TEXT_EMBEDDER` configured. Idempotent/cheap (`Once`-guarded internally).
+    /// `MEDULLA_UQL_TEXT_EMBEDDER` configured. Idempotent/cheap (`Once`-guarded internally).
     async fn bind_startup_from_client<C: ClientInfo>(&self, client: &C) -> PgWireResult<()> {
         crate::server::handlers::query::bind_sql_text_embedder();
         let meta = client.metadata();
@@ -814,7 +814,7 @@ impl EngineBackend {
     }
 
     /// Resolve the wire `Type` OIDs for a statement's `$N` parameters
-    /// (CONCEPT:EG-KG.query.describe). Locates each param via `eg_query::infer_param_sites` (a
+    /// (CONCEPT:MEDULLA-KG.query.describe). Locates each param via `medulla_query::infer_param_sites` (a
     /// column / `id` / literal site), then types it: an `id` site → TEXT; a column
     /// site → that column's type from the shared node column-type map; a literal site
     /// → its directly-derived type. A column with no observed type defaults to TEXT.
@@ -822,7 +822,7 @@ impl EngineBackend {
     /// (tokio-postgres/psycopg/asyncpg) encode a typed parameter — UNKNOWN is
     /// rejected client-side as `WrongType`.
     async fn param_type_oids(&self, graph: &str, sql: &str) -> PgWireResult<Vec<Type>> {
-        let sites = match eg_query::infer_param_sites(sql) {
+        let sites = match medulla_query::infer_param_sites(sql) {
             Ok(s) => s,
             Err(_) => return Ok(Vec::new()),
         };
@@ -842,7 +842,7 @@ impl EngineBackend {
     }
 
     /// Derive the result-set `FieldInfo`s a statement will produce, for the Describe
-    /// step (CONCEPT:EG-KG.query.describe) — WITHOUT mutating state. The extended protocol sends
+    /// step (CONCEPT:MEDULLA-KG.query.describe) — WITHOUT mutating state. The extended protocol sends
     /// the `RowDescription` from Describe (not from Execute), so a wrong/empty schema
     /// here makes the client miscount DataRow fields. `sql` must already have any
     /// bound params substituted (portal describe) or `$N`→dummy (statement describe).
@@ -856,7 +856,7 @@ impl EngineBackend {
         graph: &str,
         sql: &str,
     ) -> PgWireResult<Vec<FieldInfo>> {
-        match eg_query::classify(sql) {
+        match medulla_query::classify(sql) {
             Ok(StatementKind::Read) => {
                 // Derive the schema from a PROBE form (WHERE/LIMIT dropped) so the
                 // engine's schema-on-read path always sees rows — a filtered query
@@ -864,7 +864,7 @@ impl EngineBackend {
                 // make the described `RowDescription` disagree with the executed
                 // DataRows. The probe keeps the projection/FROM/GROUP BY, so the
                 // columns are identical to the real query.
-                let probe = eg_query::schema_probe_sql(sql).unwrap_or_else(|| sql.to_string());
+                let probe = medulla_query::schema_probe_sql(sql).unwrap_or_else(|| sql.to_string());
                 let result = self
                     .session
                     .run_read(graph, probe)
@@ -904,7 +904,7 @@ impl EngineBackend {
                     })
                     .collect())
             }
-            // DDL / user-table DML (CONCEPT:EG-KG.query.register-user-tables-alongside) → no result columns (like a
+            // DDL / user-table DML (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside) → no result columns (like a
             // non-RETURNING write); and unclassifiable (e.g. SET graph) → none either.
             Ok(_) | Err(_) => Ok(Vec::new()),
         }
@@ -934,7 +934,7 @@ impl SimpleQueryHandler for EngineBackend {
     }
 }
 
-// ── COPY … FROM STDIN handler (CONCEPT:EG-KG.query.register-each-user-table) ───────────────────────────────
+// ── COPY … FROM STDIN handler (CONCEPT:MEDULLA-KG.query.register-each-user-table) ───────────────────────────────
 
 #[async_trait]
 impl pgwire::api::copy::CopyHandler for EngineBackend {
@@ -1009,7 +1009,7 @@ impl pgwire::api::copy::CopyHandler for EngineBackend {
 }
 
 /// Decode a `COPY … FROM STDIN` body into typed rows aligned to the copy target's
-/// columns (CONCEPT:EG-KG.query.register-each-user-table). Supports the Postgres TEXT, CSV, and BINARY formats; each
+/// columns (CONCEPT:MEDULLA-KG.query.register-each-user-table). Supports the Postgres TEXT, CSV, and BINARY formats; each
 /// field is coerced to its target column's [`ColumnType`] so the store's typed insert
 /// path accepts it (and SERIAL/DEFAULT fill any column the COPY omits).
 /// Resolve the declared type of each COPY target column. Split out of
@@ -1256,7 +1256,7 @@ fn copy_field_to_value(field: Option<&str>, ty: ColumnType) -> Result<serde_json
             other => return Err(format!("invalid boolean `{other}`")),
         },
         ColumnType::Json => serde_json::from_str(s).unwrap_or(Value::String(s.to_string())),
-        // CONCEPT:EG-KG.query.pgvector-binary-wire — a vector arrives as pgvector text `[1,2,3]`; pass it through
+        // CONCEPT:MEDULLA-KG.query.pgvector-binary-wire — a vector arrives as pgvector text `[1,2,3]`; pass it through
         // as a string so the store's `Cell::coerce` parses + dimension-checks it.
         // Added with the constraint/column-type work. Each of these has an exact
         // canonical TEXT form on the Postgres wire, and the store's `Cell::coerce`
@@ -1276,7 +1276,7 @@ fn copy_field_to_value(field: Option<&str>, ty: ColumnType) -> Result<serde_json
     Ok(v)
 }
 
-/// Decode the Postgres BINARY COPY format into typed rows (CONCEPT:EG-KG.query.register-each-user-table). Parses the
+/// Decode the Postgres BINARY COPY format into typed rows (CONCEPT:MEDULLA-KG.query.register-each-user-table). Parses the
 /// 11-byte `PGCOPY` signature + flags + header extension, then per row a 2-byte field
 /// count (`-1` ⇒ the trailer) and per field a 4-byte length (`-1` ⇒ NULL) + bytes
 /// decoded by the target column's type (the common scalar widths).
@@ -1391,7 +1391,7 @@ fn decode_binary_field(bytes: &[u8], ty: ColumnType) -> Result<serde_json::Value
             Value::Array(bytes.iter().map(|b| Value::Number((*b).into())).collect())
         }
         ColumnType::Text | ColumnType::Json => decode_text_or_json_field(bytes, ty)?,
-        // CONCEPT:EG-KG.query.pgvector-binary-wire — the pgvector BINARY wire format is a distinct later item;
+        // CONCEPT:MEDULLA-KG.query.pgvector-binary-wire — the pgvector BINARY wire format is a distinct later item;
         // for now a vector must be sent via TEXT/CSV COPY (or INSERT).
         ColumnType::Vector(_) => {
             return Err(
@@ -1420,7 +1420,7 @@ fn decode_binary_field(bytes: &[u8], ty: ColumnType) -> Result<serde_json::Value
     Ok(v)
 }
 
-/// A prepared statement parsed at `Parse` time (CONCEPT:EG-KG.query.describe). Holds the raw
+/// A prepared statement parsed at `Parse` time (CONCEPT:MEDULLA-KG.query.describe). Holds the raw
 /// SQL (with `$N` placeholders intact) and the count of distinct parameters so the
 /// `Bind` step can validate and the describe step can report a `ParameterDescription`.
 #[derive(Debug, Clone)]
@@ -1602,7 +1602,7 @@ where
 
 /// Substitute the portal's bound parameters into the prepared SQL, replacing each
 /// `$N` placeholder with its bound value rendered as a SQL literal
-/// (CONCEPT:EG-KG.query.describe). This is what lets the extended protocol reuse the EXACT
+/// (CONCEPT:MEDULLA-KG.query.describe). This is what lets the extended protocol reuse the EXACT
 /// simple-query classify → read/write path: after substitution the statement is a
 /// plain literal SQL string, identical to what `psql` would send. Scans the SQL
 /// once, skipping `$N` inside single-quoted string literals so a literal `'$1'` is
@@ -1686,7 +1686,7 @@ impl ExtendedQueryHandler for EngineBackend {
         self.parser.clone()
     }
 
-    /// Execute a bound portal (CONCEPT:EG-KG.query.describe). Substitutes the portal's
+    /// Execute a bound portal (CONCEPT:MEDULLA-KG.query.describe). Substitutes the portal's
     /// parameters into the prepared SQL, then runs the SAME [`WireProtocol::execute`]
     /// core the simple-query path uses — so a prepared/parameterized statement from a
     /// real driver takes the identical classify → DataFusion-read / GraphTxn-write
@@ -1718,7 +1718,7 @@ impl ExtendedQueryHandler for EngineBackend {
         ))
     }
 
-    /// Describe a parsed-but-unbound statement (CONCEPT:EG-KG.query.describe): report concrete
+    /// Describe a parsed-but-unbound statement (CONCEPT:MEDULLA-KG.query.describe): report concrete
     /// parameter type OIDs (resolved against the node column schema, so a real
     /// driver can encode typed params) AND the result column schema. Params are not
     /// yet bound, so the result schema is derived from the SQL with each `$N`
@@ -1751,7 +1751,7 @@ impl ExtendedQueryHandler for EngineBackend {
         Ok(DescribeStatementResponse::new(param_types, fields))
     }
 
-    /// Describe a bound portal (CONCEPT:EG-KG.query.describe): report the result column schema
+    /// Describe a bound portal (CONCEPT:MEDULLA-KG.query.describe): report the result column schema
     /// for THIS binding. The params ARE bound, so we substitute them into the SQL
     /// (the same `substitute_params` the execute path uses) and derive the columns
     /// from that concrete statement, honouring the portal's result column format.
@@ -1785,7 +1785,7 @@ impl ExtendedQueryHandler for EngineBackend {
 }
 
 /// Replace each `$N` placeholder with a TYPED dummy literal for the unbound-statement
-/// Describe path (CONCEPT:EG-KG.query.describe). The result columns of a read depend only on its
+/// Describe path (CONCEPT:MEDULLA-KG.query.describe). The result columns of a read depend only on its
 /// projection + FROM, not the param VALUES — but a degenerate placeholder like `NULL`
 /// changes the query's typing (e.g. `WHERE rank > NULL` makes DataFusion fold the
 /// scan to an EMPTY, column-less result, which would mis-describe the schema). A typed
@@ -1838,7 +1838,7 @@ fn replace_placeholders_with_dummy(sql: &str, param_oids: &[Type]) -> String {
 struct EngineBackendFactory {
     backend: Arc<EngineBackend>,
     /// The resolved auth mode + the engine secret, used to build the per-connection
-    /// startup handler (CONCEPT:EG-KG.query.concept-13). The SCRAM handler holds per-connection
+    /// startup handler (CONCEPT:MEDULLA-KG.query.concept-13). The SCRAM handler holds per-connection
     /// SASL state, so a FRESH one is built in `startup_handler()` (called once per
     /// connection — a fresh factory is created per accepted connection in `serve`).
     auth_mode: PgWireAuthMode,
@@ -1890,7 +1890,7 @@ impl PgWireServerHandlers for EngineBackendFactory {
     }
 
     fn copy_handler(&self) -> Arc<impl pgwire::api::copy::CopyHandler> {
-        // SAME shared backend instance (CONCEPT:EG-KG.query.register-each-user-table) so `COPY … FROM STDIN`'s
+        // SAME shared backend instance (CONCEPT:MEDULLA-KG.query.register-each-user-table) so `COPY … FROM STDIN`'s
         // per-connection copy state is the one the query handler set up.
         self.backend.clone()
     }
@@ -1900,19 +1900,19 @@ impl PgWireServerHandlers for EngineBackendFactory {
 }
 
 /// Bind `addr` and serve pgwire connections until the process exits. Spawned by
-/// `main.rs` only when built `--features pgwire` AND `EPISTEMIC_GRAPH_PGWIRE_ADDR`
-/// is set. The default graph is read once from `EPISTEMIC_GRAPH_PGWIRE_GRAPH`
+/// `main.rs` only when built `--features pgwire` AND `MEDULLA_PGWIRE_ADDR`
+/// is set. The default graph is read once from `MEDULLA_PGWIRE_GRAPH`
 /// (falling back to `__commons__`). Native TLS/mTLS is enabled by the
-/// `EPISTEMIC_GRAPH_PGWIRE_TLS_*` environment variables; loopback remains
+/// `MEDULLA_PGWIRE_TLS_*` environment variables; loopback remains
 /// plaintext-compatible when those variables are absent.
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
-    // Resolve the auth mode once from the engine secret + env (CONCEPT:EG-KG.query.concept-13).
+    // Resolve the auth mode once from the engine secret + env (CONCEPT:MEDULLA-KG.query.concept-13).
     let auth_secret = state.read().await.auth_secret.clone();
     let auth_mode = PgWireAuthMode::resolve(&auth_secret)?;
     serve_with_auth(addr, state, auth_mode).await
 }
 
-/// `serve` with an EXPLICIT auth mode (CONCEPT:EG-KG.query.concept-13). `serve` resolves the mode
+/// `serve` with an EXPLICIT auth mode (CONCEPT:MEDULLA-KG.query.concept-13). `serve` resolves the mode
 /// from the env + engine secret and delegates here; integration tests call this
 /// directly so they pin the secure mode deterministically without a process-global
 /// env toggle (tests run in parallel).
@@ -2133,7 +2133,7 @@ mod tls_policy_tests {
             .expect("next startup function");
         let listener_source = &main_source[listener_start..listener_end];
         let preparation = listener_source
-            .find("let prepared_pgwire = epistemic_graph::server::pgwire::prepare_startup_policy(")
+            .find("let prepared_pgwire = medulla::server::pgwire::prepare_startup_policy(")
             .expect("production TLS preparation");
         let awaited = listener_source[preparation..]
             .find(".await?;")
@@ -2247,9 +2247,9 @@ mod tls_policy_tests {
 #[cfg(test)]
 mod copy_tests {
     //! Unit tests for the `COPY … FROM STDIN` decoders + a full decode→ingest proving
-    //! "COPY ingests N rows" deterministically (CONCEPT:EG-KG.query.register-each-user-table), without a socket.
+    //! "COPY ingests N rows" deterministically (CONCEPT:MEDULLA-KG.query.register-each-user-table), without a socket.
     use super::*;
-    use eg_query::{Column, ColumnType, TableSchema};
+    use medulla_query::{Column, ColumnType, TableSchema};
 
     fn items_schema() -> TableSchema {
         TableSchema::new(

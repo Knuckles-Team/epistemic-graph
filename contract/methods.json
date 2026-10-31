@@ -1,6 +1,6 @@
 {
   "contract_version": 1,
-  "generator": "eg-capabilities/gen_contract",
+  "generator": "medulla-capabilities/gen_contract",
   "method_count": 492,
   "methods": [
     {
@@ -20418,7 +20418,7 @@
       ],
       "id": "EnrichDocument",
       "is_wire_callable": true,
-      "note": "EG-UNIFIED-DATA-PLANE-R651.7: chunks one RLS-visible held Document and embeds the chunks. Chunk nodes, chunkOf edges, vectors and one enrichment record commit as one ChangeEnvelope. An enriched digest replays; a new digest supersedes the earlier chunks",
+      "note": "MEDULLA-UNIFIED-DATA-PLANE-R651.7: chunks one RLS-visible held Document and embeds the chunks. Chunk nodes, chunkOf edges, vectors and one enrichment record commit as one ChangeEnvelope. An enriched digest replays; a new digest supersedes the earlier chunks",
       "policy": {
         "audited": true,
         "authz_action": "source:ingest",
@@ -25843,7 +25843,7 @@
       "format_identities": [],
       "id": "ExplainProvenanceByIds",
       "is_wire_callable": true,
-      "note": "CONCEPT:EG-KB-CURRENCY — ID-seeded sibling of ExplainProvenance, same policy profile",
+      "note": "CONCEPT:MEDULLA-KB-CURRENCY — ID-seeded sibling of ExplainProvenance, same policy profile",
       "policy": {
         "audited": false,
         "authz_action": "explain:read",
@@ -26579,7 +26579,7 @@
       "format_identities": [],
       "id": "ExplainEvidence",
       "is_wire_callable": true,
-      "note": "CONCEPT:EG-X1 multimodal-citation resolver; handler additionally gated `evidence-graph`",
+      "note": "CONCEPT:MEDULLA-X1 multimodal-citation resolver; handler additionally gated `evidence-graph`",
       "policy": {
         "audited": false,
         "authz_action": "explain:read",
@@ -27032,7 +27032,7 @@
       "format_identities": [],
       "id": "NlQueryExplain",
       "is_wire_callable": true,
-      "note": "EG-FEDERATED-QUERY-R058.2.2.1: NlQuery plus the executed UQL text. It shares the planner, budget, authority and refusals of NlQuery",
+      "note": "MEDULLA-FEDERATED-QUERY-R058.2.2.1: NlQuery plus the executed UQL text. It shares the planner, budget, authority and refusals of NlQuery",
       "policy": {
         "audited": false,
         "authz_action": "query:nl",
@@ -27137,7 +27137,7 @@
       "format_identities": [],
       "id": "NlQueryPlan",
       "is_wire_callable": true,
-      "note": "EG-FEDERATED-QUERY-R058.2.2.2: typed plan-only UQL candidate and pins; no graph/source data read or authority claim",
+      "note": "MEDULLA-FEDERATED-QUERY-R058.2.2.2: typed plan-only UQL candidate and pins; no graph/source data read or authority claim",
       "policy": {
         "audited": false,
         "authz_action": "query:nl",
@@ -27556,7 +27556,7 @@
       "format_identities": [],
       "id": "SelectWebPages",
       "is_wire_callable": true,
-      "note": "EG-DECISION-ENGINE-R802: deterministic web page selection over search candidates. It dedupes by canonical URL and digest against held Documents and enforces a budget. It commits nothing and runs no model",
+      "note": "MEDULLA-DECISION-ENGINE-R802: deterministic web page selection over search candidates. It dedupes by canonical URL and digest against held Documents and enforces a budget. It commits nothing and runs no model",
       "policy": {
         "audited": false,
         "authz_action": "query:decide",
@@ -28160,7 +28160,7 @@
       "format_identities": [],
       "id": "RunRules",
       "is_wire_callable": false,
-      "note": "READ-ONLY (EG-P0-2/L11 handler audit): handle_run_rules reasons over an off-lock analysis_snapshot and returns inferred triples, no writeback -- unlike its sibling RunDatalogReasoning which materialises in-place. Corrected from a prior mutates=true semantic guess; now agrees with access.rs (never a write there)",
+      "note": "READ-ONLY (MEDULLA-P0-2/L11 handler audit): handle_run_rules reasons over an off-lock analysis_snapshot and returns inferred triples, no writeback -- unlike its sibling RunDatalogReasoning which materialises in-place. Corrected from a prior mutates=true semantic guess; now agrees with access.rs (never a write there)",
       "policy": {
         "audited": false,
         "authz_action": "reasoning:read",
@@ -30474,7 +30474,7 @@
       "format_identities": [],
       "id": "CapabilityCoverage",
       "is_wire_callable": true,
-      "note": "EG-DECISION-ENGINE-R126.2.1. Reads ONE tenant-bound agent_library.redb snapshot and answers which visible components and A2A cards cover each capability of a task closure; ranks nothing, commits nothing",
+      "note": "MEDULLA-DECISION-ENGINE-R126.2.1. Reads ONE tenant-bound agent_library.redb snapshot and answers which visible components and A2A cards cover each capability of a task closure; ranks nothing, commits nothing",
       "policy": {
         "audited": false,
         "authz_action": "agent:assemble-read",
@@ -30537,7 +30537,7 @@
       "format_identities": [],
       "id": "GuardrailEntailment",
       "is_wire_callable": true,
-      "note": "EG-DECISION-ENGINE-R127.2.2. Reads ONE tenant-bound agent_library.redb snapshot of published rule heads and returns advisory ontology entailment paths and source generations; commits nothing and does not authorize execution",
+      "note": "MEDULLA-DECISION-ENGINE-R127.2.2. Reads ONE tenant-bound agent_library.redb snapshot of published rule heads and returns advisory ontology entailment paths and source generations; commits nothing and does not authorize execution",
       "policy": {
         "audited": false,
         "authz_action": "agent:assemble-read",
@@ -31939,7 +31939,7 @@
       ],
       "id": "BlobRef",
       "is_wire_callable": true,
-      "note": "X6 (fix/eg-blob-cas-hardening-20260917): holder-scoped named reference (digest, owner scope), not a bare counter -- a retry or replay of the same reference is one holder row, never a second count (holders.rs's own module doc and handle_blob_ref_op's doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb.",
+      "note": "X6 (fix/medulla-blob-cas-hardening-20260917): holder-scoped named reference (digest, owner scope), not a bare counter -- a retry or replay of the same reference is one holder row, never a second count (holders.rs's own module doc and handle_blob_ref_op's doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb.",
       "policy": {
         "audited": false,
         "authz_action": "blob:write",
@@ -32138,7 +32138,7 @@
       "format_identities": [],
       "id": "KvGet",
       "is_wire_callable": true,
-      "note": "EG-DURABLE-KERNEL-R102. The key is scoped by verified tenant, principal (unless shared), request graph and namespace. It answers the value and its commit version",
+      "note": "MEDULLA-DURABLE-KERNEL-R102. The key is scoped by verified tenant, principal (unless shared), request graph and namespace. It answers the value and its commit version",
       "policy": {
         "audited": false,
         "authz_action": "kv:read",
@@ -34373,7 +34373,7 @@
       ],
       "id": "MutationOutbox",
       "is_wire_callable": true,
-      "note": "X10, runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Targets a graph's outbox, or a native store of the verified tenant through a typed scope selector (tenant for Agent Library and jobs, binding for a semantic index, resource for the shared SQL catalog). Local-only authority, refused in clustered mode",
+      "note": "X10, runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded medulla-transaction transactions, so it is a saga rather than one atomic write. Targets a graph's outbox, or a native store of the verified tenant through a typed scope selector (tenant for Agent Library and jobs, binding for a semantic index, resource for the shared SQL catalog). Local-only authority, refused in clustered mode",
       "policy": {
         "audited": false,
         "authz_action": "admin:outbox",

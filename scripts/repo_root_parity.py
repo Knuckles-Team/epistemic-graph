@@ -1,13 +1,13 @@
 """Typed contract for resolved-checkout parity.
 
-Producer-first split of EG-CONTRACT-R008.
+Producer-first split of MEDULLA-CONTRACT-R008.
 
-``EG-CONTRACT-R008`` requires that a repo-parity check validate the *resolved*
+``MEDULLA-CONTRACT-R008`` requires that a repo-parity check validate the *resolved*
 checkout, not merely the path string a caller happened to pass: a symlink, a
 relative path, or a second checkout of the same repo can all make two
 different-looking paths resolve to the same (or a different) directory on
 disk. This module is the type-level contract ahead of the real
-``scripts/check_five_repo_parity.py`` CLI entry point (``EG-CONTRACT-R008.2``):
+``scripts/check_five_repo_parity.py`` CLI entry point (``MEDULLA-CONTRACT-R008.2``):
 a pure function that resolves both the requested and the actual checkout path
 and fails closed -- raises rather than silently continuing -- the moment they
 diverge.

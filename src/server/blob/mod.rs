@@ -1,4 +1,4 @@
-//! Streamed, content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace).
+//! Streamed, content-addressed BLOB substrate (CONCEPT:MEDULLA-KG.storage.blob-namespace).
 //!
 //! The bytes tier under multimodal media (image/video/audio/file). A blob is
 //! transferred as MANY ordinary one-Response-per-Request frames sharing a
@@ -16,11 +16,11 @@
 pub mod engine_bodies;
 pub mod store;
 
-// Content-defined chunking (CONCEPT:EG-KG.storage.backward-manifest-read): the Gear/FastCDC rolling-hash splitter
+// Content-defined chunking (CONCEPT:MEDULLA-KG.storage.backward-manifest-read): the Gear/FastCDC rolling-hash splitter
 // that replaces fixed-stride chunking, so the sha256 CAS dedups edited copies.
 pub mod cdc;
 
-// In-process bounded-memory streaming facade over the CAS (CONCEPT:EG-KG.sharding.m3-r4, M3 R4):
+// In-process bounded-memory streaming facade over the CAS (CONCEPT:MEDULLA-KG.sharding.m3-r4, M3 R4):
 // stream a multi-GB blob between an arbitrary `Read`/`Write` and the CAS without
 // buffering the whole blob. The in-process twin of the wire upload/fetch cursor.
 pub mod stream;
@@ -28,11 +28,11 @@ pub mod stream;
 #[cfg(feature = "blob-s3")]
 pub mod s3;
 
-// A real, engine-backed `eg_alignment::EvidenceResolver` (L21, CONCEPT:EG-P1-3
+// A real, engine-backed `medulla_alignment::EvidenceResolver` (L21, CONCEPT:MEDULLA-P1-3
 // follow-up): resolves a located `EvidenceLocus` through a `GraphView` snapshot's
 // own stored `blob_ref` property, then reads the actual bytes back out of THIS
 // module's `ChunkStore` — see `cas_resolver`'s module docs for why it lives here
-// rather than inside `eg-alignment` itself. Behind the `alignment` feature (implies
+// rather than inside `medulla-alignment` itself. Behind the `alignment` feature (implies
 // `blob`); a build without it compiles none of it.
 #[cfg(feature = "alignment")]
 pub mod cas_resolver;

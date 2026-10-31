@@ -7,21 +7,21 @@
 
 use std::collections::BTreeMap;
 
-use eg_types::agent_component::{
+use medulla_types::agent_component::{
     AgentComponentEntry, AgentComponentFacts, AgentComponentKind, ComponentProvenance,
 };
-use eg_types::agent_library::AgentLibraryLifecycle;
-use eg_types::connector_pack::digest::entry_kind_token;
-use eg_types::connector_pack::ids::PACK_COMPONENT_ID_PREFIX;
-use eg_types::connector_pack::index::PackEntryKind;
-use eg_types::contract::{BoundedVec, Digest256, ResourceId};
-use eg_types::fleet_catalog::{
+use medulla_types::agent_library::AgentLibraryLifecycle;
+use medulla_types::connector_pack::digest::entry_kind_token;
+use medulla_types::connector_pack::ids::PACK_COMPONENT_ID_PREFIX;
+use medulla_types::connector_pack::index::PackEntryKind;
+use medulla_types::contract::{BoundedVec, Digest256, ResourceId};
+use medulla_types::fleet_catalog::{
     FleetCatalogCursor, FleetCatalogKind, FleetCatalogListRequest, FleetCatalogPage,
     FleetCatalogRow, FleetComponentRef, FleetDiscoveryRow, FleetPromptRow, FleetResourceRow,
     FleetRowAcl, FleetRowSubject, FleetSkillRow, FleetToolRow, FleetVisibility, ResourceKind,
     SkillType, SkillTypeSource, ToolMode, FLEET_CATALOG_SCHEMA_VERSION, MAX_FLEET_SNAPSHOT_ROWS,
 };
-use eg_types::result_contract::cluster::ServerDesiredState;
+use medulla_types::result_contract::cluster::ServerDesiredState;
 
 use super::records::{discovery_record_id, DiscoveryBody, StoredRecord};
 

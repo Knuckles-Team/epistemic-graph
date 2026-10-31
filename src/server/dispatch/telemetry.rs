@@ -14,7 +14,7 @@
 //!    ontology subsumes under Server / Service / Host / Workload / Agent
 //!    ([`classes`]) through the verified caller's row-level read authority:
 //!    their declared resolution keys and declared health.
-//! 3. The pure engine (`eg_stream::telemetry`) binds, rolls up, runs the
+//! 3. The pure engine (`medulla_stream::telemetry`) binds, rolls up, runs the
 //!    declared CEP patterns and checks conformance.
 //! 4. [`materialize`] turns every fact into one upsert of a `BatchUpdate`
 //!    that is dispatched through the ordinary graph gateway
@@ -32,9 +32,9 @@ mod tests;
 
 use std::sync::Arc;
 
-use eg_stream::telemetry::{derive_facts, fact_graph, TelemetryFacts, TelemetryPolicy};
-use eg_types::result_contract::ingestion::TelemetryDerive as TelemetryDeriveResult;
-use eg_types::telemetry_derive::TelemetryDeriveReceipt;
+use medulla_stream::telemetry::{derive_facts, fact_graph, TelemetryFacts, TelemetryPolicy};
+use medulla_types::result_contract::ingestion::TelemetryDerive as TelemetryDeriveResult;
+use medulla_types::telemetry_derive::TelemetryDeriveReceipt;
 use tokio::sync::RwLock;
 
 use super::graph_pipeline::dispatch_graph_op;
@@ -111,8 +111,8 @@ async fn derive(
 
 fn decode_policy(policy_msgpack: &[u8]) -> Result<TelemetryPolicy, String> {
     let limits =
-        eg_types::msgpack::MsgpackLimits::new(MAX_POLICY_BYTES, MAX_POLICY_ITEMS, MAX_POLICY_DEPTH);
-    eg_types::msgpack::decode_bounded(policy_msgpack, limits).map_err(|_| {
+        medulla_types::msgpack::MsgpackLimits::new(MAX_POLICY_BYTES, MAX_POLICY_ITEMS, MAX_POLICY_DEPTH);
+    medulla_types::msgpack::decode_bounded(policy_msgpack, limits).map_err(|_| {
         "INVALID_ARGUMENT: policy_msgpack is not a bounded TelemetryPolicy".to_string()
     })
 }

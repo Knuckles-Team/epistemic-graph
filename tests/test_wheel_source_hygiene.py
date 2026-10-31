@@ -58,7 +58,7 @@ def test_shipped_python_surface_has_no_numpy_runtime_imports() -> None:
 
     findings = [
         finding
-        for path in sorted((REPO / "epistemic_graph").rglob("*.py"))
+        for path in sorted((REPO / "medulla").rglob("*.py"))
         for finding in _numpy_import_findings(path)
     ]
     assert not findings, "NumPy runtime imports in shipped source: " + ", ".join(
@@ -84,7 +84,7 @@ def _recorded_numeric_wheel(path: Path) -> None:
 
 
 def _seed_python_package(root: Path) -> dict[Path, bytes]:
-    package = root / "epistemic_graph"
+    package = root / "medulla"
     source_files = {
         package / "__init__.py": b'"""fixture package"""\n',
         package / "client.py": b"def health() -> str:\n    return 'ok'\n",
@@ -130,7 +130,7 @@ def _fixture_pyproject(root_config: dict[str, object], root: Path) -> None:
         'dependencies = ["msgpack>=1.2.1"]\n\n'
         "[tool.maturin]\n"
         'python-source = "."\n'
-        'module-name = "epistemic_graph"\n'
+        'module-name = "medulla"\n'
         'bindings = "bin"\n'
         "strip = true\n"
         f"exclude = {json.dumps(excludes)}\n",
@@ -153,8 +153,8 @@ def _seed_fixture_crate(
     before = _seed_python_package(fixture)
     _fixture_pyproject(root_config, fixture)
     (fixture / "Cargo.toml").write_text(
-        '[package]\nname = "epistemic-graph"\nversion = "0.0.0"\nedition = "2021"\n\n'
-        '[[bin]]\nname = "epistemic-graph-server"\npath = "src/main.rs"\n',
+        '[package]\nname = "medulla"\nversion = "0.0.0"\nedition = "2021"\n\n'
+        '[[bin]]\nname = "medulla-server"\npath = "src/main.rs"\n',
         encoding="utf-8",
     )
     source = fixture / "src" / "main.rs"
@@ -164,7 +164,7 @@ def _seed_fixture_crate(
 
 
 def _build_server_wheel(fixture: Path, dist: Path) -> Path:
-    # The fixture's `fn main() {}` binary is named `epistemic-graph-server`. An
+    # The fixture's `fn main() {}` binary is named `medulla-server`. An
     # inherited `CARGO_TARGET_DIR` would land it in the SHARED target's
     # `release/`, where `conftest.find_server_binary()` then hands that stub to
     # every module that spawns its own engine (it exits 0 at once, never binds
@@ -204,9 +204,9 @@ def _has_bytecode_cache_entry(names: list[str]) -> bool:
 def _assert_built_wheel_is_clean_and_complete(server_wheel: Path) -> None:
     with zipfile.ZipFile(server_wheel) as archive:
         names = archive.namelist()
-    assert "epistemic_graph/__init__.py" in names
-    assert "epistemic_graph/client.py" in names
-    assert any(name.endswith("/epistemic-graph-server") for name in names), names
+    assert "medulla/__init__.py" in names
+    assert "medulla/client.py" in names
+    assert any(name.endswith("/medulla-server") for name in names), names
     assert not _has_bytecode_cache_entry(names)
 
 
@@ -222,10 +222,10 @@ def _assert_injected_wheel_is_clean_and_complete(server_wheel: Path) -> None:
         server_entries = [
             info
             for info in archive.infolist()
-            if info.filename.endswith("/epistemic-graph-server")
+            if info.filename.endswith("/medulla-server")
         ]
-        assert "epistemic_graph/numeric.abi3.so" in names
-        assert "epistemic_graph/client.py" in names
+        assert "medulla/numeric.abi3.so" in names
+        assert "medulla/client.py" in names
         assert server_entries and (server_entries[0].external_attr >> 16) & 0o100
         assert not _has_bytecode_cache_entry(names)
 

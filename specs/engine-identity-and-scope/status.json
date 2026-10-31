@@ -1,65 +1,65 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-IDENTITY",
+  "spec_id": "MEDULLA-IDENTITY",
   "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "EG-IDENTITY-R001",
-    "EG-IDENTITY-R002",
-    "EG-IDENTITY-R003",
-    "EG-IDENTITY-R003.1",
-    "EG-IDENTITY-R003.2",
-    "EG-IDENTITY-R003.3",
-    "EG-IDENTITY-R004",
-    "EG-IDENTITY-R005",
-    "EG-IDENTITY-R006",
-    "EG-IDENTITY-R007",
-    "EG-IDENTITY-R008",
-    "EG-IDENTITY-R008.1",
-    "EG-IDENTITY-R008.2",
-    "EG-IDENTITY-R008.3",
-    "EG-IDENTITY-R008.4",
-    "EG-IDENTITY-R008.5",
-    "EG-IDENTITY-R008.6",
-    "EG-IDENTITY-R023",
-    "EG-IDENTITY-R023.1",
-    "EG-IDENTITY-R023.2",
-    "EG-IDENTITY-R023.3",
-    "EG-IDENTITY-R023.4",
-    "EG-IDENTITY-R023.5",
-    "EG-IDENTITY-R023.6",
-    "EG-IDENTITY-R023.7",
-    "EG-IDENTITY-R023.8",
-    "EG-IDENTITY-R023.9",
-    "EG-IDENTITY-R023.10",
-    "EG-IDENTITY-R023.11",
-    "EG-IDENTITY-R023.12",
-    "EG-IDENTITY-R023.13",
-    "EG-IDENTITY-R023.13.1",
-    "EG-IDENTITY-R023.13.2",
-    "EG-IDENTITY-R023.13.3",
-    "EG-IDENTITY-R023.13.4",
-    "EG-IDENTITY-R023.13.5",
-    "EG-IDENTITY-R023.13.6",
-    "EG-IDENTITY-R610",
-    "EG-IDENTITY-R610.1",
-    "EG-IDENTITY-R610.2",
-    "EG-IDENTITY-R610.3",
-    "EG-IDENTITY-R610.4",
-    "EG-IDENTITY-R610.5",
-    "EG-IDENTITY-R610.6",
-    "EG-IDENTITY-R023.600",
-    "EG-IDENTITY-R700",
-    "EG-IDENTITY-R700.1",
-    "EG-IDENTITY-R700.2",
-    "EG-IDENTITY-R700.3",
-    "EG-IDENTITY-R700.4",
-    "EG-IDENTITY-R700.5",
-    "EG-IDENTITY-R700.6"
+    "MEDULLA-IDENTITY-R001",
+    "MEDULLA-IDENTITY-R002",
+    "MEDULLA-IDENTITY-R003",
+    "MEDULLA-IDENTITY-R003.1",
+    "MEDULLA-IDENTITY-R003.2",
+    "MEDULLA-IDENTITY-R003.3",
+    "MEDULLA-IDENTITY-R004",
+    "MEDULLA-IDENTITY-R005",
+    "MEDULLA-IDENTITY-R006",
+    "MEDULLA-IDENTITY-R007",
+    "MEDULLA-IDENTITY-R008",
+    "MEDULLA-IDENTITY-R008.1",
+    "MEDULLA-IDENTITY-R008.2",
+    "MEDULLA-IDENTITY-R008.3",
+    "MEDULLA-IDENTITY-R008.4",
+    "MEDULLA-IDENTITY-R008.5",
+    "MEDULLA-IDENTITY-R008.6",
+    "MEDULLA-IDENTITY-R023",
+    "MEDULLA-IDENTITY-R023.1",
+    "MEDULLA-IDENTITY-R023.2",
+    "MEDULLA-IDENTITY-R023.3",
+    "MEDULLA-IDENTITY-R023.4",
+    "MEDULLA-IDENTITY-R023.5",
+    "MEDULLA-IDENTITY-R023.6",
+    "MEDULLA-IDENTITY-R023.7",
+    "MEDULLA-IDENTITY-R023.8",
+    "MEDULLA-IDENTITY-R023.9",
+    "MEDULLA-IDENTITY-R023.10",
+    "MEDULLA-IDENTITY-R023.11",
+    "MEDULLA-IDENTITY-R023.12",
+    "MEDULLA-IDENTITY-R023.13",
+    "MEDULLA-IDENTITY-R023.13.1",
+    "MEDULLA-IDENTITY-R023.13.2",
+    "MEDULLA-IDENTITY-R023.13.3",
+    "MEDULLA-IDENTITY-R023.13.4",
+    "MEDULLA-IDENTITY-R023.13.5",
+    "MEDULLA-IDENTITY-R023.13.6",
+    "MEDULLA-IDENTITY-R610",
+    "MEDULLA-IDENTITY-R610.1",
+    "MEDULLA-IDENTITY-R610.2",
+    "MEDULLA-IDENTITY-R610.3",
+    "MEDULLA-IDENTITY-R610.4",
+    "MEDULLA-IDENTITY-R610.5",
+    "MEDULLA-IDENTITY-R610.6",
+    "MEDULLA-IDENTITY-R023.600",
+    "MEDULLA-IDENTITY-R700",
+    "MEDULLA-IDENTITY-R700.1",
+    "MEDULLA-IDENTITY-R700.2",
+    "MEDULLA-IDENTITY-R700.3",
+    "MEDULLA-IDENTITY-R700.4",
+    "MEDULLA-IDENTITY-R700.5",
+    "MEDULLA-IDENTITY-R700.6"
   ],
   "requirements": [
     {
-      "id": "EG-IDENTITY-R001",
+      "id": "MEDULLA-IDENTITY-R001",
       "title": "Multi-issuer OIDC trust list with per-issuer kind limits",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -73,7 +73,7 @@
       ]
     },
     {
-      "id": "EG-IDENTITY-R002",
+      "id": "MEDULLA-IDENTITY-R002",
       "title": "Identity and RBAC writes recompute roles and audit atomically",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -81,12 +81,12 @@
         "f9a69bfe8a9c"
       ],
       "verified_by": [
-        "crates/eg-core/src/isolation/identity_store_tests/tenant_and_audit.rs:139",
-        "crates/eg-core/src/isolation/identity_store_tests/tenant_and_audit.rs:190"
+        "crates/medulla-core/src/isolation/identity_store_tests/tenant_and_audit.rs:139",
+        "crates/medulla-core/src/isolation/identity_store_tests/tenant_and_audit.rs:190"
       ]
     },
     {
-      "id": "EG-IDENTITY-R003",
+      "id": "MEDULLA-IDENTITY-R003",
       "title": "Identity mode is a durable singleton with CAS transition",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -94,17 +94,17 @@
         "f9a69bfe8a9c"
       ],
       "verified_by": [
-        "crates/eg-types/src/identity/tests/modes.rs:111",
-        "crates/eg-types/src/identity/tests/modes.rs:182"
+        "crates/medulla-types/src/identity/tests/modes.rs:111",
+        "crates/medulla-types/src/identity/tests/modes.rs:182"
       ],
       "rollup_of": [
-        "EG-IDENTITY-R003.1",
-        "EG-IDENTITY-R003.2",
-        "EG-IDENTITY-R003.3"
+        "MEDULLA-IDENTITY-R003.1",
+        "MEDULLA-IDENTITY-R003.2",
+        "MEDULLA-IDENTITY-R003.3"
       ]
     },
     {
-      "id": "EG-IDENTITY-R003.1",
+      "id": "MEDULLA-IDENTITY-R003.1",
       "title": "Explicit isolated anonymous store authority (native TCP qualification)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -116,21 +116,21 @@
       ]
     },
     {
-      "id": "EG-IDENTITY-R003.2",
+      "id": "MEDULLA-IDENTITY-R003.2",
       "title": "Measured anonymous admission budget (pending)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R003.3",
+      "id": "MEDULLA-IDENTITY-R003.3",
       "title": "Additional isolated-mode runtime qualification (pending)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R004",
+      "id": "MEDULLA-IDENTITY-R004",
       "title": "Generated scope registry classifies every capability scope",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -141,15 +141,15 @@
         "a2cbfc473ba2"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/scopes/tests.rs:142",
-        "crates/eg-capabilities/src/scopes/tests.rs:203",
-        "crates/eg-capabilities/src/scopes/tests.rs:38",
-        "crates/eg-capabilities/src/scopes/tests.rs:51",
-        "crates/eg-capabilities/src/scopes/tests.rs:65"
+        "crates/medulla-capabilities/src/scopes/tests.rs:142",
+        "crates/medulla-capabilities/src/scopes/tests.rs:203",
+        "crates/medulla-capabilities/src/scopes/tests.rs:38",
+        "crates/medulla-capabilities/src/scopes/tests.rs:51",
+        "crates/medulla-capabilities/src/scopes/tests.rs:65"
       ]
     },
     {
-      "id": "EG-IDENTITY-R005",
+      "id": "MEDULLA-IDENTITY-R005",
       "title": "Semantic workers use one identity across queue classes",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -162,7 +162,7 @@
       ]
     },
     {
-      "id": "EG-IDENTITY-R006",
+      "id": "MEDULLA-IDENTITY-R006",
       "title": "Tenant roles read the shared commons graph",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -171,47 +171,47 @@
         "dfb2367561d1"
       ],
       "verified_by": [
-        "crates/eg-core/src/isolation.rs:1756"
+        "crates/medulla-core/src/isolation.rs:1756"
       ]
     },
     {
-      "id": "EG-IDENTITY-R007",
+      "id": "MEDULLA-IDENTITY-R007",
       "title": "Scopes `identity:admin`, `loops:read` and `loops:control` are registered in the engine contract",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "9dd2343e2b89"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/scopes/tests.rs:143",
-        "crates/eg-capabilities/src/scopes/tests.rs:66",
+        "crates/medulla-capabilities/src/scopes/tests.rs:143",
+        "crates/medulla-capabilities/src/scopes/tests.rs:66",
         "tests/test_identity_scope_registry.py:25",
         "tests/test_identity_scope_registry.py:39"
       ]
     },
     {
-      "id": "EG-IDENTITY-R008",
+      "id": "MEDULLA-IDENTITY-R008",
       "title": "Run scope comes from a durable policy node, never from plan text (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-IDENTITY-R008.1",
-        "EG-IDENTITY-R008.2",
-        "EG-IDENTITY-R008.3",
-        "EG-IDENTITY-R008.4",
-        "EG-IDENTITY-R008.5",
-        "EG-IDENTITY-R008.6"
+        "MEDULLA-IDENTITY-R008.1",
+        "MEDULLA-IDENTITY-R008.2",
+        "MEDULLA-IDENTITY-R008.3",
+        "MEDULLA-IDENTITY-R008.4",
+        "MEDULLA-IDENTITY-R008.5",
+        "MEDULLA-IDENTITY-R008.6"
       ]
     },
     {
-      "id": "EG-IDENTITY-R008.1",
+      "id": "MEDULLA-IDENTITY-R008.1",
       "title": "Locate and wire the attach point",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R008.2",
+      "id": "MEDULLA-IDENTITY-R008.2",
       "title": "Typed `ScopeBound`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -219,339 +219,339 @@
         "92de9f434e0b"
       ],
       "verified_by": [
-        "crates/eg-core/src/isolation/scope_bound.rs:107",
-        "crates/eg-core/src/isolation/scope_bound.rs:144"
+        "crates/medulla-core/src/isolation/scope_bound.rs:107",
+        "crates/medulla-core/src/isolation/scope_bound.rs:144"
       ]
     },
     {
-      "id": "EG-IDENTITY-R008.3",
+      "id": "MEDULLA-IDENTITY-R008.3",
       "title": "Pure subset check",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "92de9f434e0b"
       ],
       "verified_by": [
-        "crates/eg-core/src/isolation/scope_bound.rs:123",
-        "crates/eg-core/src/isolation/scope_bound.rs:164"
+        "crates/medulla-core/src/isolation/scope_bound.rs:123",
+        "crates/medulla-core/src/isolation/scope_bound.rs:164"
       ]
     },
     {
-      "id": "EG-IDENTITY-R008.4",
+      "id": "MEDULLA-IDENTITY-R008.4",
       "title": "Bound is read from the stored policy node",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R008.5",
+      "id": "MEDULLA-IDENTITY-R008.5",
       "title": "Typed refusal `ScopeExceedsPolicy`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R008.6",
+      "id": "MEDULLA-IDENTITY-R008.6",
       "title": "End-to-end proof over the wire",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023",
+      "id": "MEDULLA-IDENTITY-R023",
       "title": "Principal-scoped knowledge segments with explicit sharing (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-IDENTITY-R023.1",
-        "EG-IDENTITY-R023.2",
-        "EG-IDENTITY-R023.3",
-        "EG-IDENTITY-R023.4",
-        "EG-IDENTITY-R023.5",
-        "EG-IDENTITY-R023.6",
-        "EG-IDENTITY-R023.7",
-        "EG-IDENTITY-R023.8",
-        "EG-IDENTITY-R023.9",
-        "EG-IDENTITY-R023.10",
-        "EG-IDENTITY-R023.11",
-        "EG-IDENTITY-R023.12",
-        "EG-IDENTITY-R023.13",
-        "EG-IDENTITY-R023.600"
+        "MEDULLA-IDENTITY-R023.1",
+        "MEDULLA-IDENTITY-R023.2",
+        "MEDULLA-IDENTITY-R023.3",
+        "MEDULLA-IDENTITY-R023.4",
+        "MEDULLA-IDENTITY-R023.5",
+        "MEDULLA-IDENTITY-R023.6",
+        "MEDULLA-IDENTITY-R023.7",
+        "MEDULLA-IDENTITY-R023.8",
+        "MEDULLA-IDENTITY-R023.9",
+        "MEDULLA-IDENTITY-R023.10",
+        "MEDULLA-IDENTITY-R023.11",
+        "MEDULLA-IDENTITY-R023.12",
+        "MEDULLA-IDENTITY-R023.13",
+        "MEDULLA-IDENTITY-R023.600"
       ]
     },
     {
-      "id": "EG-IDENTITY-R023.1",
+      "id": "MEDULLA-IDENTITY-R023.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "9dd2343e2b89"
       ],
       "verified_by": [
-        "crates/eg-types/src/identity/segment.rs:150"
+        "crates/medulla-types/src/identity/segment.rs:150"
       ]
     },
     {
-      "id": "EG-IDENTITY-R023.2",
+      "id": "MEDULLA-IDENTITY-R023.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "ef06195c8341"
       ],
       "verified_by": [
-        "crates/eg-types/src/identity/segment.rs:208"
+        "crates/medulla-types/src/identity/segment.rs:208"
       ]
     },
     {
-      "id": "EG-IDENTITY-R023.3",
+      "id": "MEDULLA-IDENTITY-R023.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.4",
+      "id": "MEDULLA-IDENTITY-R023.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.5",
+      "id": "MEDULLA-IDENTITY-R023.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.6",
+      "id": "MEDULLA-IDENTITY-R023.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.7",
+      "id": "MEDULLA-IDENTITY-R023.7",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.8",
+      "id": "MEDULLA-IDENTITY-R023.8",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.9",
+      "id": "MEDULLA-IDENTITY-R023.9",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.10",
+      "id": "MEDULLA-IDENTITY-R023.10",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.11",
+      "id": "MEDULLA-IDENTITY-R023.11",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.12",
+      "id": "MEDULLA-IDENTITY-R023.12",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.13",
+      "id": "MEDULLA-IDENTITY-R023.13",
       "title": "Served share grant and revoke persist across restart (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-IDENTITY-R023.13.1",
-        "EG-IDENTITY-R023.13.2",
-        "EG-IDENTITY-R023.13.3",
-        "EG-IDENTITY-R023.13.4",
-        "EG-IDENTITY-R023.13.5",
-        "EG-IDENTITY-R023.13.6"
+        "MEDULLA-IDENTITY-R023.13.1",
+        "MEDULLA-IDENTITY-R023.13.2",
+        "MEDULLA-IDENTITY-R023.13.3",
+        "MEDULLA-IDENTITY-R023.13.4",
+        "MEDULLA-IDENTITY-R023.13.5",
+        "MEDULLA-IDENTITY-R023.13.6"
       ]
     },
     {
-      "id": "EG-IDENTITY-R023.13.1",
+      "id": "MEDULLA-IDENTITY-R023.13.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.13.2",
+      "id": "MEDULLA-IDENTITY-R023.13.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.13.3",
+      "id": "MEDULLA-IDENTITY-R023.13.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.13.4",
+      "id": "MEDULLA-IDENTITY-R023.13.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.13.5",
+      "id": "MEDULLA-IDENTITY-R023.13.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.13.6",
+      "id": "MEDULLA-IDENTITY-R023.13.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R610",
+      "id": "MEDULLA-IDENTITY-R610",
       "title": "Tenant sharing, parent chains, secured reads and ownership claims are enforced in the engine (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-IDENTITY-R610.1",
-        "EG-IDENTITY-R610.2",
-        "EG-IDENTITY-R610.3",
-        "EG-IDENTITY-R610.4",
-        "EG-IDENTITY-R610.5",
-        "EG-IDENTITY-R610.6"
+        "MEDULLA-IDENTITY-R610.1",
+        "MEDULLA-IDENTITY-R610.2",
+        "MEDULLA-IDENTITY-R610.3",
+        "MEDULLA-IDENTITY-R610.4",
+        "MEDULLA-IDENTITY-R610.5",
+        "MEDULLA-IDENTITY-R610.6"
       ]
     },
     {
-      "id": "EG-IDENTITY-R610.1",
+      "id": "MEDULLA-IDENTITY-R610.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "ef06195c8341"
       ],
       "verified_by": [
-        "crates/eg-types/src/tenancy.rs:345"
+        "crates/medulla-types/src/tenancy.rs:345"
       ]
     },
     {
-      "id": "EG-IDENTITY-R610.2",
+      "id": "MEDULLA-IDENTITY-R610.2",
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "ef06195c8341"
       ],
       "verified_by": [
-        "crates/eg-types/src/tenancy.rs:395"
+        "crates/medulla-types/src/tenancy.rs:395"
       ]
     },
     {
-      "id": "EG-IDENTITY-R610.3",
+      "id": "MEDULLA-IDENTITY-R610.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R610.4",
+      "id": "MEDULLA-IDENTITY-R610.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R610.5",
+      "id": "MEDULLA-IDENTITY-R610.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R610.6",
+      "id": "MEDULLA-IDENTITY-R610.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R023.600",
+      "id": "MEDULLA-IDENTITY-R023.600",
       "title": "Hierarchical tenant chains and audited reads",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R700",
+      "id": "MEDULLA-IDENTITY-R700",
       "title": "Graph ownership is inferred from signals and applied as reversible grants (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-IDENTITY-R700.1",
-        "EG-IDENTITY-R700.2",
-        "EG-IDENTITY-R700.3",
-        "EG-IDENTITY-R700.4",
-        "EG-IDENTITY-R700.5",
-        "EG-IDENTITY-R700.6"
+        "MEDULLA-IDENTITY-R700.1",
+        "MEDULLA-IDENTITY-R700.2",
+        "MEDULLA-IDENTITY-R700.3",
+        "MEDULLA-IDENTITY-R700.4",
+        "MEDULLA-IDENTITY-R700.5",
+        "MEDULLA-IDENTITY-R700.6"
       ]
     },
     {
-      "id": "EG-IDENTITY-R700.1",
+      "id": "MEDULLA-IDENTITY-R700.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R700.2",
+      "id": "MEDULLA-IDENTITY-R700.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R700.3",
+      "id": "MEDULLA-IDENTITY-R700.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R700.4",
+      "id": "MEDULLA-IDENTITY-R700.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R700.5",
+      "id": "MEDULLA-IDENTITY-R700.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-IDENTITY-R700.6",
+      "id": "MEDULLA-IDENTITY-R700.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

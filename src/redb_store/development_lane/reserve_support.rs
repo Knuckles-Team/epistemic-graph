@@ -13,7 +13,7 @@ use crate::epistemic_operations::{
     DevelopmentLaneIntentHostTargetKind, DevelopmentLaneQuotaPolicy, DevelopmentLaneReserveRequest,
 };
 use crate::protocol::DevelopmentLaneWorkItemKind;
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 
 pub(super) fn work_item_kind_name(kind: DevelopmentLaneWorkItemKind) -> &'static str {
     match kind {

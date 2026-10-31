@@ -1,4 +1,4 @@
-//! PackStream v2 codec + Bolt chunked framing (CONCEPT:EG-KG.query.bolt-wire-protocol).
+//! PackStream v2 codec + Bolt chunked framing (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol).
 //!
 //! PackStream is the binary serialization Neo4j's Bolt protocol carries. This is a
 //! HAND-ROLLED, pure-Rust encoder/decoder for the value space Bolt uses on the wire:
@@ -39,7 +39,7 @@ const M_MAP32: u8 = 0xDA;
 const M_STRUCT8: u8 = 0xDC;
 const M_STRUCT16: u8 = 0xDD;
 
-/// A decoded PackStream value (CONCEPT:EG-KG.query.bolt-wire-protocol). `Map` preserves key insertion order so
+/// A decoded PackStream value (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol). `Map` preserves key insertion order so
 /// a round-trip is byte-stable for a fixed key order (Bolt metadata maps are small and
 /// order-insensitive to clients, but stability keeps the tests deterministic).
 #[derive(Debug, Clone, PartialEq)]
@@ -100,7 +100,7 @@ impl PackValue {
 
 // ── encoding ─────────────────────────────────────────────────────────────────────
 
-/// Append the PackStream v2 encoding of `v` to `out` (CONCEPT:EG-KG.query.bolt-wire-protocol). Integers pick
+/// Append the PackStream v2 encoding of `v` to `out` (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol). Integers pick
 /// the smallest width; strings/lists/maps pick the tiny/8/16/32 marker by length.
 pub fn encode(v: &PackValue, out: &mut Vec<u8>) {
     match v {
@@ -221,7 +221,7 @@ fn encode_sized_len(len: usize, m8: u8, m16: u8, m32: u8, out: &mut Vec<u8>) {
     }
 }
 
-/// Encode `v` into a fresh byte vector (CONCEPT:EG-KG.query.bolt-wire-protocol).
+/// Encode `v` into a fresh byte vector (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol).
 pub fn encode_to_vec(v: &PackValue) -> Vec<u8> {
     let mut out = Vec::new();
     encode(v, &mut out);
@@ -274,7 +274,7 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// Decode ONE PackStream value from `buf`, returning it (CONCEPT:EG-KG.query.bolt-wire-protocol). Trailing bytes
+/// Decode ONE PackStream value from `buf`, returning it (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol). Trailing bytes
 /// are ignored (a message may pack several top-level values, though Bolt messages are
 /// always a single top-level structure).
 pub fn decode(buf: &[u8]) -> Result<PackValue, DecodeError> {
@@ -425,7 +425,7 @@ fn decode_struct(c: &mut Cursor, n: usize) -> Result<PackValue, DecodeError> {
 const MAX_CHUNK: usize = u16::MAX as usize;
 
 /// Frame one serialized message body into Bolt chunks + the terminating `0x00 0x00`
-/// end-of-message marker (CONCEPT:EG-KG.query.bolt-wire-protocol). A body larger than 65535 bytes is split
+/// end-of-message marker (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol). A body larger than 65535 bytes is split
 /// across several length-prefixed chunks.
 pub fn chunk_message(body: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(body.len() + 4);
@@ -443,7 +443,7 @@ pub fn encode_chunked(v: &PackValue) -> Vec<u8> {
     chunk_message(&encode_to_vec(v))
 }
 
-/// Reassembles inbound Bolt chunks into complete message bodies (CONCEPT:EG-KG.query.bolt-wire-protocol). Feed
+/// Reassembles inbound Bolt chunks into complete message bodies (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol). Feed
 /// raw chunk bytes; when a zero-length chunk closes a message, the accumulated body is
 /// returned. Used by tests + any buffered-byte transport; the live listener reads
 /// chunks directly off the socket.
@@ -476,7 +476,7 @@ impl Dechunker {
 
 #[cfg(test)]
 mod tests {
-    //! PackStream v2 round-trip + chunk-framing unit tests (CONCEPT:EG-KG.query.bolt-wire-protocol).
+    //! PackStream v2 round-trip + chunk-framing unit tests (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol).
     use super::*;
 
     fn roundtrip(v: PackValue) {

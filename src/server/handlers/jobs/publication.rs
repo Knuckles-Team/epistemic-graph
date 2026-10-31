@@ -128,7 +128,7 @@ impl PreparedJobPublication {
             || self.batch_id != expected_batch
             || !is_opaque_result_ref(&self.result_ref)
             || !is_opaque_result_ref(&self.dataset_ref)
-            || self.claim_id != eg_jobs::claim::claim_node_id(&self.result_ref)
+            || self.claim_id != medulla_jobs::claim::claim_node_id(&self.result_ref)
             || self.methods.is_empty()
             || self.methods.len() > 64
             || self
@@ -220,7 +220,7 @@ pub(crate) fn validate_job_publication_commit(
     if batch.batch_id != prepared.batch_id || batch.idempotency_key() != prepared.batch_id {
         return Err("job publication receipt has the wrong batch identity".to_string());
     }
-    let expected_scope = eg_types::MutationScopeIdentity::fixed_graph(
+    let expected_scope = medulla_types::MutationScopeIdentity::fixed_graph(
         &prepared.target_graph,
         &prepared.target_graph,
         crate::server::mutation_batch::COMPILED_BATCH_INCARNATION,
@@ -256,7 +256,7 @@ pub(crate) fn validate_job_publication_commit(
 #[cfg(feature = "raft")]
 pub(super) async fn prepare_consensus_job_publication(
     state: &Arc<RwLock<ServerState>>,
-    job: &eg_jobs::AnalyticsJob,
+    job: &medulla_jobs::AnalyticsJob,
     worker_ref: &str,
     lease_epoch: u64,
 ) -> Result<Vec<u8>, String> {
@@ -265,7 +265,7 @@ pub(super) async fn prepare_consensus_job_publication(
             .await
             .ok_or_else(|| "analytics target graph is unavailable".to_string())?;
     let (confidence, calibration) = result_quality(job);
-    let plan = eg_jobs::plan_result_claim(job, confidence, calibration)?;
+    let plan = medulla_jobs::plan_result_claim(job, confidence, calibration)?;
     let result_ref = job.result_ref();
     let coordinator_material = format!(
         "{}\0{}\0{}\0{}",
@@ -317,12 +317,12 @@ pub(crate) fn decode_prepared_job_publication(
     if bytes.is_empty() || bytes.len() > MAX_JOB_PUBLICATION_PLAN_BYTES {
         return Err("job publication prepare result exceeds resource limits".to_string());
     }
-    let prepared: PreparedJobPublication = eg_types::msgpack::decode_bounded(
+    let prepared: PreparedJobPublication = medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_JOB_PUBLICATION_PLAN_BYTES,
             1_000_000,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| "job publication prepare result is invalid".to_string())?;
@@ -370,12 +370,12 @@ pub(super) fn decode_routed_job_publication(bytes: &[u8]) -> Result<RoutedJobPub
     if bytes.is_empty() || bytes.len() > MAX_JOB_PUBLICATION_PLAN_BYTES {
         return Err("job publication commit plan exceeds resource limits".to_string());
     }
-    let plan: RoutedJobPublication = eg_types::msgpack::decode_bounded(
+    let plan: RoutedJobPublication = medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_JOB_PUBLICATION_PLAN_BYTES,
             1_000_000,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| "job publication commit plan is invalid".to_string())?;
@@ -390,12 +390,12 @@ pub(super) fn decode_finalize_job_publication(
     if bytes.is_empty() || bytes.len() > MAX_JOB_PUBLICATION_PLAN_BYTES {
         return Err("job publication finalize receipt exceeds resource limits".to_string());
     }
-    let receipt: FinalizeJobPublication = eg_types::msgpack::decode_bounded(
+    let receipt: FinalizeJobPublication = medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_JOB_PUBLICATION_PLAN_BYTES,
             64,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| "job publication finalize receipt is invalid".to_string())?;
@@ -500,7 +500,7 @@ pub(crate) async fn apply_consensus_job_publication_finalize(
             committed_at_ms,
         )
         .map_err(|error| error.to_string())?;
-    job_result_payload::<eg_types::result_contract::coordination::JobWorkerPublish>(&job)
+    job_result_payload::<medulla_types::result_contract::coordination::JobWorkerPublish>(&job)
 }
 
 /// One analytics publication's durable graph write: where it commits, who it
@@ -513,7 +513,7 @@ struct PublicationWrite<'a> {
     batch_id: &'a str,
     methods: Vec<Method>,
     result: &'a ResultPayload,
-    attempt_nonce: Option<eg_types::contract::Nonce>,
+    attempt_nonce: Option<medulla_types::contract::Nonce>,
     #[cfg(feature = "program-optimization")]
     promotion: Option<&'a ProgramRevisionIdentity>,
 }
@@ -559,7 +559,7 @@ async fn commit_publication_write(
 pub(super) async fn publish_staged_result(
     state: &Arc<RwLock<ServerState>>,
     store: &JobStore,
-    job: eg_jobs::AnalyticsJob,
+    job: medulla_jobs::AnalyticsJob,
     worker_ref: &str,
     epoch: u64,
 ) -> Result<(), String> {
@@ -569,7 +569,7 @@ pub(super) async fn publish_staged_result(
             .ok_or_else(|| "analytics target graph is unavailable".to_string())?;
     let persistence = state.read().await.persistence.clone();
     let (confidence, calibration) = result_quality(&job);
-    let plan = eg_jobs::plan_result_claim(&job, confidence, calibration)?;
+    let plan = medulla_jobs::plan_result_claim(&job, confidence, calibration)?;
     let coordinator = format!("{}\0{}", job.result_ref(), job.job_id);
     let batch_id = crate::server::mutation_batch::opaque_coordinator_key(
         "job-result",
@@ -651,7 +651,7 @@ mod publication_receipt_tests {
             result_ref: result_ref.clone(),
             principal_ref: native_opaque_ref("principal", "publication-receipt-principal"),
             batch_id,
-            claim_id: eg_jobs::claim::claim_node_id(&result_ref),
+            claim_id: medulla_jobs::claim::claim_node_id(&result_ref),
             dataset_ref: native_opaque_ref("dataset", "publication-receipt-dataset"),
             methods: vec![Method::AddNode {
                 node_id: "publication-receipt-claim".to_string(),
@@ -738,7 +738,7 @@ mod publication_receipt_tests {
         );
         assert!(validate_job_publication_commit(&prepared, &wrong_result).is_err());
 
-        let wrong_tenant = eg_types::MutationScopeIdentity::fixed_graph(
+        let wrong_tenant = medulla_types::MutationScopeIdentity::fixed_graph(
             "other-publication-tenant",
             &prepared.target_graph,
             crate::server::mutation_batch::COMPILED_BATCH_INCARNATION,
@@ -750,7 +750,7 @@ mod publication_receipt_tests {
         wrong_tenant_receipt.identity = wrong_tenant;
         assert!(validate_job_publication_commit(&prepared, &wrong_tenant_receipt).is_err());
 
-        let wrong_incarnation = eg_types::MutationScopeIdentity::fixed_graph(
+        let wrong_incarnation = medulla_types::MutationScopeIdentity::fixed_graph(
             &prepared.target_graph,
             &prepared.target_graph,
             "epistemic-graph:mutation-batch-compiler:wrong-incarnation",

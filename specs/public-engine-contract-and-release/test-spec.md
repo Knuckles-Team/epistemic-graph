@@ -1,40 +1,40 @@
-# EG-CONTRACT — Test specification
+# MEDULLA-CONTRACT — Test specification
 
 **Acceptance state:** PENDING. Every result below must be attached to an exact public commit and artifact digest before this spec becomes ACCEPTED.
 
 | ID | Requirements | Test level | Setup and input | Required observation |
 |---|---|---|---|---|
-| EG-T-01 | EG-C-01/02 | Generator/contract | Regenerate from a clean tree and compare tracked catalogs, schemas and receipt. | Zero diff; unique IDs; all referenced schema/error names resolve; every wire-callable method has a dispatcher. |
-| EG-T-02 | EG-C-02 | Server negative | Send a transaction with a stale conflicting revision and a malformed tenant/audience claim. | Transaction conflict returns its declared non-INTERNAL code; each auth mismatch returns its own declared code, retry flag and HTTP hint. No mutation occurs. |
-| EG-T-03 | EG-C-03/07 | Package | Build wheel, install in empty venv outside checkout, load each contract file and corrupt one copy. | Original digest matches source receipt; missing/corrupt file gives typed digest/missing error; no source-tree lookup. |
-| EG-T-03.1 | EG-CONTRACT-R015.1 | Package | Inject the source ontology into a wheel and compare the packaged set with the source set. Read the set through `epistemic_graph.ontology`. For a built wheel, set `EG_ONTOLOGY_WHEEL` to its path. | Every source `.ttl` file is present with identical bytes. A missing, changed or extra file fails the build step. The API returns the same set and the catalog order. |
-| EG-T-04 | EG-C-04 | Python type | Round-trip every callable request/result fixture; inject an unknown nested property. | Exactly one generated model per shape; valid fixture decodes; unknown nested property is rejected. |
-| EG-T-05 | EG-C-05/06 | Cross-language | Replay every checked-in body vector in Rust, Python, Go and JS with both embedded WASM copies. | Signed body bytes and digest equal vector across languages; stale WASM fails freshness check. |
-| EG-T-06 | EG-C-06 | Reproducibility | Build codec and wheel twice on declared toolchains and compare normalized hashes. | Identical bytes/digests or a documented deterministic normalization; measured WASM size within declared budget. |
-| EG-T-07 | EG-C-07/08 | Hosted integration | CI builds engine and Python kernel from commit, starts local test service, installs wheel, executes full root Python and Go/JS client tests. | Same commit and digest throughout; no external host or preexisting credential; no skipped required test. |
-| EG-T-08 | EG-C-08/09 | Static and quality | Run CCCC, KISS, jscpd, Dupehound and source privacy/secret scanners on exact PR and release trees. | No new duplicate/complexity/privacy violation; a scanner failure names owned source rather than a missing live service. |
-| EG-T-09 | EG-C-01/09 | Mutation checks | Plant undeclared errors, duplicate method IDs, stale dispatch targets and copied encoders in isolated fixtures. | Contract/dispatch/duplication gates each reject the corresponding defect. |
-| EG-T-10 | EG-C-07 | Release matrix | Validate default, full and supported optional Cargo feature sets and wheel architecture/profile matrix. | Every supported feature is exercised; a new feature cannot silently drop from the matrix. |
-| EG-T-11 | EG-C-10 | Served Python | Build and install wheel outside checkout, start a disposable server with two tenants and policy fixtures, publish/read/import an Agent Library pack, then invoke Decide. | Authorized round trip succeeds through the wire; denied tenant/import cases return declared codes and leave no durable side effect; replay after restart preserves the result. |
+| MEDULLA-T-01 | MEDULLA-C-01/02 | Generator/contract | Regenerate from a clean tree and compare tracked catalogs, schemas and receipt. | Zero diff; unique IDs; all referenced schema/error names resolve; every wire-callable method has a dispatcher. |
+| MEDULLA-T-02 | MEDULLA-C-02 | Server negative | Send a transaction with a stale conflicting revision and a malformed tenant/audience claim. | Transaction conflict returns its declared non-INTERNAL code; each auth mismatch returns its own declared code, retry flag and HTTP hint. No mutation occurs. |
+| MEDULLA-T-03 | MEDULLA-C-03/07 | Package | Build wheel, install in empty venv outside checkout, load each contract file and corrupt one copy. | Original digest matches source receipt; missing/corrupt file gives typed digest/missing error; no source-tree lookup. |
+| MEDULLA-T-03.1 | MEDULLA-CONTRACT-R015.1 | Package | Inject the source ontology into a wheel and compare the packaged set with the source set. Read the set through `medulla.ontology`. For a built wheel, set `MEDULLA_ONTOLOGY_WHEEL` to its path. | Every source `.ttl` file is present with identical bytes. A missing, changed or extra file fails the build step. The API returns the same set and the catalog order. |
+| MEDULLA-T-04 | MEDULLA-C-04 | Python type | Round-trip every callable request/result fixture; inject an unknown nested property. | Exactly one generated model per shape; valid fixture decodes; unknown nested property is rejected. |
+| MEDULLA-T-05 | MEDULLA-C-05/06 | Cross-language | Replay every checked-in body vector in Rust, Python, Go and JS with both embedded WASM copies. | Signed body bytes and digest equal vector across languages; stale WASM fails freshness check. |
+| MEDULLA-T-06 | MEDULLA-C-06 | Reproducibility | Build codec and wheel twice on declared toolchains and compare normalized hashes. | Identical bytes/digests or a documented deterministic normalization; measured WASM size within declared budget. |
+| MEDULLA-T-07 | MEDULLA-C-07/08 | Hosted integration | CI builds engine and Python kernel from commit, starts local test service, installs wheel, executes full root Python and Go/JS client tests. | Same commit and digest throughout; no external host or preexisting credential; no skipped required test. |
+| MEDULLA-T-08 | MEDULLA-C-08/09 | Static and quality | Run CCCC, KISS, jscpd, Dupehound and source privacy/secret scanners on exact PR and release trees. | No new duplicate/complexity/privacy violation; a scanner failure names owned source rather than a missing live service. |
+| MEDULLA-T-09 | MEDULLA-C-01/09 | Mutation checks | Plant undeclared errors, duplicate method IDs, stale dispatch targets and copied encoders in isolated fixtures. | Contract/dispatch/duplication gates each reject the corresponding defect. |
+| MEDULLA-T-10 | MEDULLA-C-07 | Release matrix | Validate default, full and supported optional Cargo feature sets and wheel architecture/profile matrix. | Every supported feature is exercised; a new feature cannot silently drop from the matrix. |
+| MEDULLA-T-11 | MEDULLA-C-10 | Served Python | Build and install wheel outside checkout, start a disposable server with two tenants and policy fixtures, publish/read/import an Agent Library pack, then invoke Decide. | Authorized round trip succeeds through the wire; denied tenant/import cases return declared codes and leave no durable side effect; replay after restart preserves the result. |
 
 ## Exact gates and evidence format
 
-Run `cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check`, `python3 scripts/build_method_codec_wasm.py --check`, `python3 scripts/check_contract_method_reachability.py`, `go test ./...` from `clients/go`, `npm test` from `clients/js`, `python3 -m pytest -q tests/`, `bash scripts/ci_parity.sh`, and the hosted release workflow. Run `pre-commit run --config .config/pre-commit.yaml --all-files` for the configured CCCC, KISS, jscpd and Dupehound checks. The differential clone gate may also be reproduced with `python3 scripts/check_duplication.py enforce --base-ref origin/main` on a PR branch. Record each command, tool version, revision, exit code and artifact digest in [tasks.md](tasks.md). Do not mark an unavailable external soak as a pass.
+Run `cargo run -q --locked -p medulla-capabilities --features contract --bin gen_contract -- --check`, `python3 scripts/build_method_codec_wasm.py --check`, `python3 scripts/check_contract_method_reachability.py`, `go test ./...` from `clients/go`, `npm test` from `clients/js`, `python3 -m pytest -q tests/`, `bash scripts/ci_parity.sh`, and the hosted release workflow. Run `pre-commit run --config .config/pre-commit.yaml --all-files` for the configured CCCC, KISS, jscpd and Dupehound checks. The differential clone gate may also be reproduced with `python3 scripts/check_duplication.py enforce --base-ref origin/main` on a PR branch. Record each command, tool version, revision, exit code and artifact digest in [tasks.md](tasks.md). Do not mark an unavailable external soak as a pass.
 
-The quality gate may exclude generated bytes and vendored dependencies by explicit checked-in scanner rules. It must scan changed handwritten source and test files. Replacing a failing scanner with an unconditional skip does not meet EG-T-08.
+The quality gate may exclude generated bytes and vendored dependencies by explicit checked-in scanner rules. It must scan changed handwritten source and test files. Replacing a failing scanner with an unconditional skip does not meet MEDULLA-T-08.
 
-## EG-CONTRACT-R047 rolling engine wheel
+## MEDULLA-CONTRACT-R047 rolling engine wheel
 
-The `engine-main-wheel` job runs `scripts/release_wheel_smoke.sh` on the built wheel before publication. After a main push, `gh release view engine-main -R Knuckles-Team/epistemic-graph` shows the source commit, one wheel and `SHA256SUMS`. The wheel hash matches `SHA256SUMS`.
+The `engine-main-wheel` job runs `scripts/release_wheel_smoke.sh` on the built wheel before publication. After a main push, `gh release view engine-main -R Knuckles-Team/medulla` shows the source commit, one wheel and `SHA256SUMS`. The wheel hash matches `SHA256SUMS`.
 
-## EG-CONTRACT-R048 strict generated DTOs
+## MEDULLA-CONTRACT-R048 strict generated DTOs
 
 - `tests/test_generated_dto_strictness.py` accepts a valid claim request and evidence bundle.
 - The test refuses each probe input: blank tenant, zero lease, string clock, zero and 4097 in-flight limits.
 - The test refuses a string `resolved`, duplicate exclusions and a blank bundle id.
 - `gen_contract --check` regenerates the Python models byte for byte.
 
-## EG-CONTRACT-R031 quality-gate evidence boundaries
+## MEDULLA-CONTRACT-R031 quality-gate evidence boundaries
 
 R031.1 uses tests/test_ci_change_scope.py::test_lint_installs_manifest_rustfmt_before_all_formatting_steps to assert unconditional manifest-resolved provisioning before both formatting paths. Run it alongside tests/test_rustfmt_scope.py. It is setup coverage only.
 
@@ -46,12 +46,12 @@ These checks validate documentation against source. They do not execute or certi
 
 | Check | Requirement | Procedure | Refusal and evidence |
 |---|---|---|---|
-| EG-T-12.1 | EG-CONTRACT-R052.1 | Parse workspace manifests; compare every package with the plan's module inventory. Read `.config/arch-lint.toml`. | Reject missing packages and unsupported dependency-enforcement claims. Record the reviewed commit and manifest inventory. |
-| EG-T-12.2 | EG-CONTRACT-R052.2 | Compare feature values, Python extras, the release action, and `_compose` with the boundary table. | Reject conflated build and deployment claims. Record each recipe separately; retain EG-T-03/06/07/10 acceptance. |
-| EG-T-12.3 | EG-CONTRACT-R052.3 | Resolve every named symbol and call site. Compare each contract with its linked owner. | Reject duplicate authorities and universal-planner claims. Record source anchors and owner IDs. |
-| EG-T-12.4 | EG-CONTRACT-R052.4 | Review real-entry-point evidence requirements against the existing owner tests. Compare diagram labels with the coverage map. | Reject a diagram, unit-only proof, or status label offered as served evidence. Record missing evidence explicitly. |
+| MEDULLA-T-12.1 | MEDULLA-CONTRACT-R052.1 | Parse workspace manifests; compare every package with the plan's module inventory. Read `.config/arch-lint.toml`. | Reject missing packages and unsupported dependency-enforcement claims. Record the reviewed commit and manifest inventory. |
+| MEDULLA-T-12.2 | MEDULLA-CONTRACT-R052.2 | Compare feature values, Python extras, the release action, and `_compose` with the boundary table. | Reject conflated build and deployment claims. Record each recipe separately; retain MEDULLA-T-03/06/07/10 acceptance. |
+| MEDULLA-T-12.3 | MEDULLA-CONTRACT-R052.3 | Resolve every named symbol and call site. Compare each contract with its linked owner. | Reject duplicate authorities and universal-planner claims. Record source anchors and owner IDs. |
+| MEDULLA-T-12.4 | MEDULLA-CONTRACT-R052.4 | Review real-entry-point evidence requirements against the existing owner tests. Compare diagram labels with the coverage map. | Reject a diagram, unit-only proof, or status label offered as served evidence. Record missing evidence explicitly. |
 
-### EG-T-12.4 real entry-point evidence
+### MEDULLA-T-12.4 real entry-point evidence
 
 Each R052.3 entry point names its source anchor and the existing owner test that enters it, or records the evidence as missing.
 Evidence must be a test file and test name. A document, diagram, feature declaration or `status.json` is refused as evidence.
@@ -59,7 +59,7 @@ Evidence must be a test file and test name. A document, diagram, feature declara
 
 | Entry point | Source anchor | Owner evidence |
 |---|---|---|
-| Served mutation | `src/server/mutation/commit_entry.rs::commit_mutation` | missing: no served test asserts a committed result through this entry point; owner EG-DURABLE-KERNEL |
+| Served mutation | `src/server/mutation/commit_entry.rs::commit_mutation` | missing: no served test asserts a committed result through this entry point; owner MEDULLA-DURABLE-KERNEL |
 | Planned query | `src/server/handlers/query/planning.rs::run_unified_with` | `src/server/handlers/query/planning/federation_served_tests.rs::a_served_named_join_keeps_the_exact_intersection` |
 
 Runtime proof must enter the actual served or embedded boundary named by the owning requirement.
@@ -67,7 +67,7 @@ Query proof must observe authorized results and the specified planner behavior w
 Mutation proof must observe the committed result and the owner's refusal, replay, restart, and atomicity cases.
 A direct native operation must use its own entry point; forcing it through the planner changes the architecture.
 Record revision, feature profile, entry point, command, exit result, artifact digest, and observed effect for each execution claim.
-Keep unexecuted cases explicit. Preserve EG-C-07/08, EG-T-10, and each linked parent's complete acceptance.
+Keep unexecuted cases explicit. Preserve MEDULLA-C-07/08, MEDULLA-T-10, and each linked parent's complete acceptance.
 
 <!-- spec-definition-patch:owner-batch-20261012-public-engine-contract-and-release -->
 ## Planned residual acceptance — 2026-10-12
@@ -77,13 +77,13 @@ No test below has run; these are acceptance targets only.
 
 | Requirement | Source SHA-256 | Planned served case | Scope |
 |---|---|---|---|
-| `EG-CONTRACT-R001.1` | `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2` | `lifecycle_generated_types_survive_run_and_restart` | Run lifecycle_generated_types_survive_run_and_restart through the generated client and real Meristem run_agent. Transition through tool request/result to RunOutcome. Persist, restart, and resume with the same typed values. Unknown nested fields, wrong scalar types, stale schema revisions, and malformed persisted values SHALL refuse before the next step. Meristem separately refuses illegal phase transitions. Read persisted/resumed values independently and compare every field. A generated-model unit round trip alone does not pass. Planned only. No test, served readback, receipt, implementation, or closure is claimed. |
-| `EG-CONTRACT-R001.2` | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` | `blueprint_canonical_disk_roundtrip_has_no_difference` | Run blueprint_canonical_disk_roundtrip_has_no_difference with served R094 export and governed Graft SDK disk write/read. Import and re-export after restart. Include nested defaults, nulls, ordered arrays, Unicode, and schema-boundary numeric values. Compare exact canonical bytes and schema-typed values. Lost fields, unknowns, coerced numbers, changed array order, and changed final newline SHALL fail. Capture source-effect receipt. A serializer-only test does not pass. Planned only. No test, served readback, receipt, implementation, or closure is claimed. |
+| `MEDULLA-CONTRACT-R001.1` | `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2` | `lifecycle_generated_types_survive_run_and_restart` | Run lifecycle_generated_types_survive_run_and_restart through the generated client and real Meristem run_agent. Transition through tool request/result to RunOutcome. Persist, restart, and resume with the same typed values. Unknown nested fields, wrong scalar types, stale schema revisions, and malformed persisted values SHALL refuse before the next step. Meristem separately refuses illegal phase transitions. Read persisted/resumed values independently and compare every field. A generated-model unit round trip alone does not pass. Planned only. No test, served readback, receipt, implementation, or closure is claimed. |
+| `MEDULLA-CONTRACT-R001.2` | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` | `blueprint_canonical_disk_roundtrip_has_no_difference` | Run blueprint_canonical_disk_roundtrip_has_no_difference with served R094 export and governed Graft SDK disk write/read. Import and re-export after restart. Include nested defaults, nulls, ordered arrays, Unicode, and schema-boundary numeric values. Compare exact canonical bytes and schema-typed values. Lost fields, unknowns, coerced numbers, changed array order, and changed final newline SHALL fail. Capture source-effect receipt. A serializer-only test does not pass. Planned only. No test, served readback, receipt, implementation, or closure is claimed. |
 
 Both definitions remain SPECIFIED. No test receipt or closure is claimed.
 
-- **EG-CONTRACT-R006.3:** `tests/test_export_canonical_contract.py` proves export provenance, allowlist refusal, failed generation and retained parity failure. Hosted artifact promotion requires exact source and recipe verification.
+- **MEDULLA-CONTRACT-R006.3:** `tests/test_export_canonical_contract.py` proves export provenance, allowlist refusal, failed generation and retained parity failure. Hosted artifact promotion requires exact source and recipe verification.
 
-- **EG-CONTRACT-R053.13:** `tests/test_ci_change_scope.py` exercises successful bounded packaging and rejects missing, multiple, symlinked and stale wheels, source mismatch and dirty tracked input. Changed bytes after installation, missing digest evidence and symlinked wheel directories also refuse. Workflow assertions require successful completeness, privacy and installed-wheel checks before export. Native artifact producers, consumers and shared-cache users must use Ubuntu 24.04 with fresh target and compiler cache namespaces.
+- **MEDULLA-CONTRACT-R053.13:** `tests/test_ci_change_scope.py` exercises successful bounded packaging and rejects missing, multiple, symlinked and stale wheels, source mismatch and dirty tracked input. Changed bytes after installation, missing digest evidence and symlinked wheel directories also refuse. Workflow assertions require successful completeness, privacy and installed-wheel checks before export. Native artifact producers, consumers and shared-cache users must use Ubuntu 24.04 with fresh target and compiler cache namespaces.
 
 R006.1 binds `tests/test_build_method_codec_wasm.py` export fixtures. R006.3 binds `tests/test_export_canonical_contract.py` provenance and failure fixtures. R006.2 retains the complete native, measured-size and cross-language matrix. Neither fixture suite substitutes for that proof.

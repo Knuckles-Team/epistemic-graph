@@ -1,4 +1,4 @@
-"""EG-IDENTITY-R007: the engine contract registers the identity and loop scopes."""
+"""MEDULLA-IDENTITY-R007: the engine contract registers the identity and loop scopes."""
 
 from __future__ import annotations
 
@@ -22,9 +22,9 @@ def _scopes(path: str) -> dict[str, dict]:
     return {entry["scope"]: entry for entry in document["scopes"]}
 
 
-@pytest.mark.spec("EG-IDENTITY-R007")
+@pytest.mark.spec("MEDULLA-IDENTITY-R007")
 @pytest.mark.parametrize(
-    "path", ["contract/scopes.json", "epistemic_graph/contract/scopes.json"]
+    "path", ["contract/scopes.json", "medulla/contract/scopes.json"]
 )
 def test_identity_and_loop_scopes_are_registered_in_both_contract_copies(path) -> None:
     registry = _scopes(path)
@@ -36,8 +36,8 @@ def test_identity_and_loop_scopes_are_registered_in_both_contract_copies(path) -
     assert "identity:root" not in registry
 
 
-@pytest.mark.spec("EG-IDENTITY-R007")
+@pytest.mark.spec("MEDULLA-IDENTITY-R007")
 def test_packaged_scope_mirror_is_identical_to_the_generated_contract() -> None:
     assert (ROOT / "contract/scopes.json").read_bytes() == (
-        ROOT / "epistemic_graph/contract/scopes.json"
+        ROOT / "medulla/contract/scopes.json"
     ).read_bytes()

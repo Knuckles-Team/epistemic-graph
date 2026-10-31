@@ -14,7 +14,7 @@ import pytest
 
 # The scale harness (scripts/bench_scale.py) manages its OWN server subprocess
 # and skips itself when no binary is built -- it never uses conftest.py's
-# session-scoped `start_epistemic_graph_server` fixture, so this module
+# session-scoped `start_medulla_server` fixture, so this module
 # should not trigger it either.
 pytestmark = pytest.mark.no_engine
 

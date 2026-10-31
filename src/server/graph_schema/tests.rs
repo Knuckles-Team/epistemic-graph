@@ -1,5 +1,5 @@
 use super::*;
-use eg_types::graph_schema::GraphSchemaOp;
+use medulla_types::graph_schema::GraphSchemaOp;
 
 fn pack_document(uri: &str, body: Arc<str>) -> PackSchemaDocument {
     PackSchemaDocument {
@@ -10,8 +10,8 @@ fn pack_document(uri: &str, body: Arc<str>) -> PackSchemaDocument {
 
 #[test]
 fn pack_projection_graph_identity_is_framed_opaque_and_tenant_safe() {
-    let graph_os = eg_types::contract::ResourceId::new("graph-os").unwrap();
-    let utilities = eg_types::contract::ResourceId::new("agent-utilities").unwrap();
+    let graph_os = medulla_types::contract::ResourceId::new("graph-os").unwrap();
+    let utilities = medulla_types::contract::ResourceId::new("agent-utilities").unwrap();
     let golden = pack_projection_graph_name("tenant-a", &graph_os).unwrap();
     assert_eq!(
         golden,
@@ -47,7 +47,7 @@ fn attach_list_and_detach_share_one_authoritative_source_set() {
         .core_sources
         .iter()
         .filter_map(|source| match &source.origin {
-            eg_types::graph_schema::SchemaSourceOriginView::Core { .. } => {
+            medulla_types::graph_schema::SchemaSourceOriginView::Core { .. } => {
                 Some(source.source_id.as_str())
             }
             _ => None,
@@ -267,7 +267,7 @@ fn generic_graph_schema_cannot_detach_or_replace_core() {
 #[test]
 fn internal_pack_projection_owns_identity_and_rejects_regression() {
     let core = GraphCore::new();
-    let connector = eg_types::contract::ResourceId::new("graph-os").unwrap();
+    let connector = medulla_types::contract::ResourceId::new("graph-os").unwrap();
     let ontology_a = Arc::<str>::from(
         "@prefix owl: <http://www.w3.org/2002/07/owl#> . @prefix ex: <http://example/> . ex:A a owl:Class .",
     );
@@ -337,7 +337,7 @@ fn internal_pack_projection_owns_identity_and_rejects_regression() {
 #[test]
 fn internal_pack_projection_withdrawal_retains_record_high_water() {
     let core = GraphCore::new();
-    let connector = eg_types::contract::ResourceId::new("agent-utilities").unwrap();
+    let connector = medulla_types::contract::ResourceId::new("agent-utilities").unwrap();
     let ontology = Arc::<str>::from(
         "@prefix owl: <http://www.w3.org/2002/07/owl#> . @prefix ex: <http://example/> . ex:A a owl:Class .",
     );
@@ -420,15 +420,15 @@ fn pack_members_keep_file_local_blank_nodes_and_uri_order_is_stable() {
         "archive member order cannot change identity"
     );
     assert_eq!(
-        eg_types::contract::Digest256::sha256(forward.as_bytes()),
-        eg_types::contract::Digest256::sha256(reverse.as_bytes())
+        medulla_types::contract::Digest256::sha256(forward.as_bytes()),
+        medulla_types::contract::Digest256::sha256(reverse.as_bytes())
     );
 
-    let triples = eg_rdf::mapping::parse_turtle(&forward).unwrap();
+    let triples = medulla_rdf::mapping::parse_turtle(&forward).unwrap();
     let blank_subjects: std::collections::BTreeSet<_> = triples
         .iter()
         .filter_map(|triple| match &triple.subject {
-            eg_rdf::oxrdf::NamedOrBlankNode::BlankNode(node) => Some(node.as_str().to_string()),
+            medulla_rdf::oxrdf::NamedOrBlankNode::BlankNode(node) => Some(node.as_str().to_string()),
             _ => None,
         })
         .collect();
@@ -455,7 +455,7 @@ fn pack_member_failures_name_the_exact_uri_and_enforce_each_bound() {
         "SHAPES",
         vec![PackSchemaDocument {
             uri: "shapes://test/oversized.ttl".to_string(),
-            body: Arc::from("x".repeat(eg_types::graph_schema::MAX_SCHEMA_DOCUMENT_BYTES + 1)),
+            body: Arc::from("x".repeat(medulla_types::graph_schema::MAX_SCHEMA_DOCUMENT_BYTES + 1)),
         }],
     )
     .unwrap_err();

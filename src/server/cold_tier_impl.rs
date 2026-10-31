@@ -1,8 +1,8 @@
 //! Facade-side [`ColdTier`](crate::cold_tier::ColdTier) implementations
-//! (CONCEPT:EG-KG.coordination.distributed-cache-coherence): the durable redb-backed default and the object-store (S3/
+//! (CONCEPT:MEDULLA-KG.coordination.distributed-cache-coherence): the durable redb-backed default and the object-store (S3/
 //! MinIO) variant behind the SEPARATE `cold-tier-s3` feature.
 //!
-//! The seam + the dep-free `InMemoryColdTier` live DAG-low in eg-core
+//! The seam + the dep-free `InMemoryColdTier` live DAG-low in medulla-core
 //! (`crate::cold_tier`). These impls layer durability on top — exactly the same
 //! split as the blob `ChunkStore` (native redb default; S3 behind a feature), so the
 //! lean `cold-tier` build links NO object-store SDK and the Pi contract holds.
@@ -13,7 +13,7 @@
 //!     file (RF-RULING-004/005) — this module never opens a `redb::Database`.
 //!   * S3:   one object at `{prefix}/{sanitized_graph}` in the configured bucket.
 
-use eg_core::cold_tier::ColdTier;
+use medulla_core::cold_tier::ColdTier;
 use redb::TableDefinition;
 
 /// `graph_name → serialized graph blob`. One table; one row per offloaded graph.
@@ -28,7 +28,7 @@ const COLD_TIER_SCOPE_INCARNATION: &str = "cold-tier:v1";
 /// through the two kernels via the single `cold_graphs` owner table.
 #[derive(Debug)]
 pub struct RedbColdTier {
-    durable: crate::sidecar_store::SidecarStore<eg_storage::ColdTierOwner>,
+    durable: crate::sidecar_store::SidecarStore<medulla_storage::ColdTierOwner>,
 }
 
 impl RedbColdTier {
@@ -96,8 +96,8 @@ mod s3 {
 
     /// Object-store-backed cold tier. A cold graph's blob is ONE object at
     /// `{prefix}/{sanitized_graph}`. Reuses the SAME AWS env config as the blob-s3
-    /// backend (`EPISTEMIC_GRAPH_BLOB_S3_BUCKET`, AWS endpoint/creds); the cold
-    /// prefix is `EPISTEMIC_GRAPH_COLD_S3_PREFIX` (default `cold/graphs`).
+    /// backend (`MEDULLA_BLOB_S3_BUCKET`, AWS endpoint/creds); the cold
+    /// prefix is `MEDULLA_COLD_S3_PREFIX` (default `cold/graphs`).
     pub struct S3ColdTier {
         store: Box<dyn ObjectStore>,
         prefix: String,
@@ -114,10 +114,10 @@ mod s3 {
 
     impl S3ColdTier {
         pub fn open() -> Result<Self, String> {
-            let bucket = std::env::var("EPISTEMIC_GRAPH_BLOB_S3_BUCKET").map_err(|_| {
-                "EPISTEMIC_GRAPH_BLOB_S3_BUCKET is required for the cold-tier-s3 backend"
+            let bucket = std::env::var("MEDULLA_BLOB_S3_BUCKET").map_err(|_| {
+                "MEDULLA_BLOB_S3_BUCKET is required for the cold-tier-s3 backend"
             })?;
-            let prefix = std::env::var("EPISTEMIC_GRAPH_COLD_S3_PREFIX")
+            let prefix = std::env::var("MEDULLA_COLD_S3_PREFIX")
                 .unwrap_or_else(|_| "cold/graphs".into());
             let store = AmazonS3Builder::from_env()
                 .with_bucket_name(bucket)
@@ -199,7 +199,7 @@ mod tests {
 
     fn tmp_dir() -> String {
         let d = std::env::temp_dir().join(format!(
-            "eg-cold-{}-{}",
+            "medulla-cold-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

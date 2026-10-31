@@ -22,14 +22,14 @@ from conftest import (
     request_context,
 )
 
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.generated.agent_component import (
+from medulla.client import MedullaClient
+from medulla.generated.agent_component import (
     AgentComponentContentRequest,
     AgentComponentKind,
     AgentComponentOpCurrent,
     AgentComponentSearchRequest,
 )
-from epistemic_graph.generated.storage import (
+from medulla.generated.storage import (
     send_agent_component,
     send_agent_component_content,
     send_agent_component_current,
@@ -49,8 +49,8 @@ def _alphabetical(value: Any) -> Any:
     return value
 
 
-async def _client() -> EpistemicGraphClient:
-    return await EpistemicGraphClient.connect(
+async def _client() -> MedullaClient:
+    return await MedullaClient.connect(
         socket_path=os.environ["GRAPH_SERVICE_SOCKET"],
         verified_context=request_context(),
     )
@@ -137,7 +137,7 @@ async def test_agent_component_senders_pass_the_served_mac() -> None:
 
 
 async def _content_reaches_dispatch(
-    client: EpistemicGraphClient, component_id: str
+    client: MedullaClient, component_id: str
 ) -> None:
     """The probe component has no stored body, so the engine may refuse the
     read itself -- but only after the MAC and decode accepted the request."""

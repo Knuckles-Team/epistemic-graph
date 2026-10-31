@@ -100,12 +100,12 @@ fn open_private_coordinator_plan_with_cipher<T: serde::de::DeserializeOwned>(
     if observed != private_coordinator_plan_digest(batch, event_type)? {
         return Err("coordinator recovery plan digest mismatch".to_string());
     }
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         &plaintext,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_PRIVATE_COORDINATOR_PLAN_BYTES,
             4_000_000,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| "coordinator recovery plan is invalid".to_string())
@@ -126,7 +126,7 @@ struct SparqlRecoveryPlan {
     /// the same `ApplyMutation` report as the attempt that planned it. A plan sealed
     /// before this field existed decodes with zero counts.
     #[serde(default)]
-    counts: eg_rdf::update::UpdateReport,
+    counts: medulla_rdf::update::UpdateReport,
 }
 
 #[cfg(all(feature = "redb", feature = "security", feature = "sparql-http"))]
@@ -213,7 +213,7 @@ async fn resume_sparql_update_plan(
         Ok(read) => read,
         Err(error) => return Err(Response::err(coord.req_id, error)),
     };
-    let encrypted = match eg_transaction::read_private_payload(&read, coord.parent_id) {
+    let encrypted = match medulla_transaction::read_private_payload(&read, coord.parent_id) {
         Ok(Some(value)) => value,
         Ok(None) => {
             return Err(Response::err(
@@ -482,7 +482,7 @@ fn finish_sparql_parent_saga(
     saga: handlers::admin::AdminSaga,
     plan: &SparqlRecoveryPlan,
 ) -> Result<ResultPayload, String> {
-    let report = eg_types::result_contract::transactions::SparqlUpdateReport {
+    let report = medulla_types::result_contract::transactions::SparqlUpdateReport {
         operations: plan.counts.operations as u64,
         inserted: plan.counts.inserted as u64,
         deleted: plan.counts.deleted as u64,
@@ -493,7 +493,7 @@ fn finish_sparql_parent_saga(
             .filter(|graph| !graph.existed_before)
             .count() as u64,
     };
-    let result = ResultPayload::of::<eg_types::result_contract::graph::ApplyMutation>(report)?;
+    let result = ResultPayload::of::<medulla_types::result_contract::graph::ApplyMutation>(report)?;
     handlers::admin::finish_admin_saga(redb, saga.batch, saga.created_at_ms, result)
 }
 
@@ -535,7 +535,7 @@ async fn try_sparql_forward_commit(
     let marker_plan = SparqlRecoveryPlan {
         schema_version: 1,
         graphs: Vec::new(),
-        counts: eg_rdf::update::UpdateReport::default(),
+        counts: medulla_rdf::update::UpdateReport::default(),
     };
     match begin_sealed_sparql_saga(
         coord,
@@ -774,10 +774,10 @@ pub(super) async fn coordinated_sparql_http_update(
 mod coordinator_restart_tests {
     use super::*;
     use crate::mutation_batch::{DurabilityDomain, MutationBatchStatus, MutationSurface};
-    use eg_transaction::{read_ledger, read_private_payload};
+    use medulla_transaction::{read_ledger, read_private_payload};
 
     /// The coordinator owner file is ledger-only: receipts and sealed payloads.
-    type Owner = eg_storage::LedgerOnlyOwner;
+    type Owner = medulla_storage::LedgerOnlyOwner;
 
     /// The ONE physical owner file each test opens, and the principal + proof
     /// bytes this module's grant authority accepts for it.
@@ -785,7 +785,7 @@ mod coordinator_restart_tests {
     const TEST_PRINCIPAL: &str = "principal:epistemic-graph:sparql-coordinator-test";
     const TEST_PROOF: &[u8] = b"sparql-coordinator-test-scope-grant";
 
-    /// Test-local [`eg_storage::PrivatePayloadIntegrity`], mirroring
+    /// Test-local [`medulla_storage::PrivatePayloadIntegrity`], mirroring
     /// `persistence::redb_backend::TxnRecoveryPrivateIntegrity` exactly (same
     /// unseal-then-compare-SHA-256 check) but keyed off the test's own in-memory
     /// cipher. These tests seal and read real private (encrypted) coordinator
@@ -794,7 +794,7 @@ mod coordinator_restart_tests {
     /// authentication these tests exist to exercise.
     struct TestPrivateIntegrity(crate::crypto::ValueCipher);
 
-    impl eg_storage::PrivatePayloadIntegrity for TestPrivateIntegrity {
+    impl medulla_storage::PrivatePayloadIntegrity for TestPrivateIntegrity {
         fn authenticate(
             &self,
             sealed: &[u8],
@@ -815,16 +815,16 @@ mod coordinator_restart_tests {
     /// principal or proof still fails closed.
     struct TestScopeVerifier;
 
-    impl eg_storage::ScopeGrantVerifier for TestScopeVerifier {
+    impl medulla_storage::ScopeGrantVerifier for TestScopeVerifier {
         fn verify(
             &self,
-            _physical: &eg_storage::PhysicalStoreIdentity,
-            layout: eg_storage::OwnerLayout,
-            identity: &eg_types::MutationScopeIdentity,
+            _physical: &medulla_storage::PhysicalStoreIdentity,
+            layout: medulla_storage::OwnerLayout,
+            identity: &medulla_types::MutationScopeIdentity,
             principal: &str,
             proof: &[u8],
         ) -> Result<(), String> {
-            if layout != eg_storage::OwnerLayout::LedgerOnly
+            if layout != medulla_storage::OwnerLayout::LedgerOnly
                 || identity.tenant().as_str() != "native"
                 || principal != TEST_PRINCIPAL
                 || proof != TEST_PROOF
@@ -840,24 +840,24 @@ mod coordinator_restart_tests {
     /// it issues once, and the single authenticated, ledger-bootstrapped scope.
     fn open_coordinator_store(
         path: &std::path::Path,
-        identity: &eg_types::MutationScopeIdentity,
+        identity: &medulla_types::MutationScopeIdentity,
         cipher: &crate::crypto::ValueCipher,
     ) -> (
-        eg_storage::StorageKernel,
-        eg_transaction::MutationKernel,
-        eg_storage::OwnedStoreHandle<Owner>,
+        medulla_storage::StorageKernel,
+        medulla_transaction::MutationKernel,
+        medulla_storage::OwnedStoreHandle<Owner>,
     ) {
-        let physical = eg_storage::PhysicalStoreIdentity::new(TEST_PHYSICAL_STORE).unwrap();
-        let integrity: Option<Arc<dyn eg_storage::PrivatePayloadIntegrity>> =
+        let physical = medulla_storage::PhysicalStoreIdentity::new(TEST_PHYSICAL_STORE).unwrap();
+        let integrity: Option<Arc<dyn medulla_storage::PrivatePayloadIntegrity>> =
             Some(Arc::new(TestPrivateIntegrity(cipher.clone())));
         let kernel = if path.exists() {
-            eg_storage::StorageKernel::open_owner::<Owner>(path, physical, integrity)
+            medulla_storage::StorageKernel::open_owner::<Owner>(path, physical, integrity)
         } else {
-            eg_storage::StorageKernel::create_owner::<Owner>(path, physical, integrity)
+            medulla_storage::StorageKernel::create_owner::<Owner>(path, physical, integrity)
         }
         .unwrap();
         let (kernel, authority) = kernel.into_read_and_mutation_authority().unwrap();
-        let mutations = eg_transaction::MutationKernel::new(authority);
+        let mutations = medulla_transaction::MutationKernel::new(authority);
         let grant = kernel
             .authenticate_scope::<Owner>(
                 &TestScopeVerifier,
@@ -871,7 +871,7 @@ mod coordinator_restart_tests {
         (kernel, mutations, owner)
     }
 
-    fn parent_batch(id: &str, digest: &str, event_type: &str) -> eg_types::MutationBatch {
+    fn parent_batch(id: &str, digest: &str, event_type: &str) -> medulla_types::MutationBatch {
         crate::server::mutation_batch::compile_opaque_digest(
             crate::server::mutation_batch::CompileBatch {
                 batch_id: id,
@@ -910,7 +910,7 @@ mod coordinator_restart_tests {
                 before_msgpack: vec![0x91, 0x01],
                 after_msgpack: vec![0x91, 0x02],
             }],
-            counts: eg_rdf::update::UpdateReport::default(),
+            counts: medulla_rdf::update::UpdateReport::default(),
         };
         let (digest, encrypted) =
             seal_private_coordinator_plan_with_cipher(&cipher, &plan).unwrap();
@@ -919,7 +919,7 @@ mod coordinator_restart_tests {
         {
             let (_kernel, mutations, owner) = open_coordinator_store(&path, &identity, &cipher);
             let begun = mutations.saga_step(&owner, &batch, 1, Some(&encrypted));
-            assert!(matches!(begun.unwrap(), eg_transaction::SagaBegin::Execute));
+            assert!(matches!(begun.unwrap(), medulla_transaction::SagaBegin::Execute));
         }
         let (kernel, _mutations, owner) = open_coordinator_store(&path, &identity, &cipher);
         let read = kernel.read_scope(&owner).unwrap();
@@ -958,7 +958,7 @@ mod coordinator_restart_tests {
         let parent_plan = SparqlRecoveryPlan {
             schema_version: 1,
             graphs: Vec::new(),
-            counts: eg_rdf::update::UpdateReport::default(),
+            counts: medulla_rdf::update::UpdateReport::default(),
         };
         let (parent_digest, parent_encrypted) =
             seal_private_coordinator_plan_with_cipher(&cipher, &parent_plan).unwrap();

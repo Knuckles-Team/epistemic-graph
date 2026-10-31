@@ -10,7 +10,7 @@ pub(super) struct GatewayRouteCtx<'a> {
     pub(super) req_id: u64,
     pub(super) graph_name: &'a str,
     pub(super) caller: Option<&'a str>,
-    pub(super) attempt_nonce: Option<eg_types::contract::Nonce>,
+    pub(super) attempt_nonce: Option<medulla_types::contract::Nonce>,
     pub(super) idempotency_key: &'a str,
     pub(super) tenant_scope: &'a str,
     pub(super) core: Arc<crate::graph::GraphCore>,

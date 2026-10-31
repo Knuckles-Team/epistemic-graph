@@ -2,16 +2,16 @@
 
 use std::collections::BTreeMap;
 
-use eg_types::agent_component::{AgentComponentEntry, AgentComponentMutationKind};
-use eg_types::connector_pack::{
+use medulla_types::agent_component::{AgentComponentEntry, AgentComponentMutationKind};
+use medulla_types::connector_pack::{
     PackDisposition, PackDispositionCounts, PackHeadRef, PackHeadView, PackImportReceipt,
     PackImportRecord, PackImportResult, PackProjectionState, CONNECTOR_PACK_IMPORT_TOPIC,
     CONNECTOR_PACK_RESULT_SCHEMA_ID,
 };
-use eg_types::mutation_batch::{
+use medulla_types::mutation_batch::{
     DurabilityDomain, MutationOperation, MutationOutboxIntent, MutationSurface,
 };
-use eg_types::protocol::Method;
+use medulla_types::protocol::Method;
 use redb::ReadableTable;
 
 use super::admitted::{PackOwnerWrite, PackWriteEffects, PackWriteIdentity, PackWriteStaged};
@@ -29,14 +29,14 @@ pub(crate) struct ConnectorPackComponentCommit {
 }
 
 pub(crate) struct ConnectorPackHolderCommit {
-    pub body_sha256: eg_types::contract::Digest256,
+    pub body_sha256: medulla_types::contract::Digest256,
     pub component_id: String,
     pub entry_revision: u64,
     pub row: ConnectorPackBodyHolderRow,
 }
 
 pub(crate) struct ConnectorPackCommitPlan {
-    pub context: eg_types::agent_library::AgentLibraryMutationContext,
+    pub context: medulla_types::agent_library::AgentLibraryMutationContext,
     pub expected_head: Option<PackHeadRef>,
     pub record: PackImportRecord,
     pub components: Vec<ConnectorPackComponentCommit>,
@@ -143,7 +143,7 @@ fn validate_plan(store: &AgentLibraryStore, plan: &ConnectorPackCommitPlan) -> R
                     && holder.entry_revision == component.entry.entry_revision
                     && holder.body_sha256.to_hex() == body
                     && holder.row.length
-                        <= eg_types::agent_component::MAX_COMPONENT_BODY_BYTES as u64
+                        <= medulla_types::agent_component::MAX_COMPONENT_BODY_BYTES as u64
             })
             .count();
         if matching_holders != 1 {
@@ -157,7 +157,7 @@ fn validate_plan(store: &AgentLibraryStore, plan: &ConnectorPackCommitPlan) -> R
 
 fn pack_effects(
     plan: &ConnectorPackCommitPlan,
-    context: &eg_types::agent_library::AgentLibraryMutationContext,
+    context: &medulla_types::agent_library::AgentLibraryMutationContext,
 ) -> Result<PackWriteEffects, String> {
     let PackWriteEffects {
         mut operations,
@@ -173,7 +173,7 @@ fn pack_effects(
         },
     });
     renumber(&mut operations)?;
-    let payload = eg_storage::encode_bounded(&plan.record, "connector pack import record")?;
+    let payload = medulla_storage::encode_bounded(&plan.record, "connector pack import record")?;
     outbox.push(MutationOutboxIntent {
         topic: CONNECTOR_PACK_IMPORT_TOPIC.to_string(),
         key: format!(
@@ -200,11 +200,11 @@ fn pack_effects(
 }
 
 /// The component revisions a pack write commits, as operations plus one
-/// `eg.agent-component.revision.v1` intent each -- exactly what a direct
+/// `medulla.agent-component.revision.v1` intent each -- exactly what a direct
 /// publish of each revision would have emitted.
 pub(super) fn component_effects(
     components: &[ConnectorPackComponentCommit],
-    context: &eg_types::agent_library::AgentLibraryMutationContext,
+    context: &medulla_types::agent_library::AgentLibraryMutationContext,
 ) -> Result<PackWriteEffects, String> {
     let mut operations = Vec::with_capacity(components.len() + 1);
     let mut outbox = Vec::with_capacity(components.len() + 1);
@@ -289,7 +289,7 @@ fn apply_pack_rows(
 /// The catalog rows one pack write names: component revisions, member rows
 /// and the body holders that keep each written revision's body alive.
 pub(super) struct PackCatalogRows<'a> {
-    pub(super) context: &'a eg_types::agent_library::AgentLibraryMutationContext,
+    pub(super) context: &'a medulla_types::agent_library::AgentLibraryMutationContext,
     pub(super) connector: &'a str,
     pub(super) components: &'a [ConnectorPackComponentCommit],
     pub(super) members: &'a [ConnectorPackMemberRow],
@@ -304,7 +304,7 @@ pub(super) fn apply_catalog_rows(
     rows: &PackCatalogRows<'_>,
 ) -> Result<(), String> {
     for component in rows.components {
-        let bytes = eg_storage::encode_bounded(&component.entry, "agent component revision")?;
+        let bytes = medulla_storage::encode_bounded(&component.entry, "agent component revision")?;
         apply_revision_rows::<ComponentLayer>(
             write,
             component_tables(),
@@ -315,9 +315,9 @@ pub(super) fn apply_catalog_rows(
         )?;
     }
     let tenant = rows.context.tenant_id.as_str();
-    let mut members = write.open_table(eg_storage::CONNECTOR_PACK_MEMBERS)?;
+    let mut members = write.open_table(medulla_storage::CONNECTOR_PACK_MEMBERS)?;
     for member in rows.members {
-        let bytes = eg_storage::encode_bounded(member, "connector pack member")?;
+        let bytes = medulla_storage::encode_bounded(member, "connector pack member")?;
         members
             .insert(
                 (tenant, rows.connector, member.uri.as_str()),
@@ -333,7 +333,7 @@ fn apply_holders(
     tenant: &str,
     holders_to_write: &[ConnectorPackHolderCommit],
 ) -> Result<(), String> {
-    let mut holders = write.open_table(eg_storage::CONNECTOR_PACK_BODY_HOLDERS)?;
+    let mut holders = write.open_table(medulla_storage::CONNECTOR_PACK_BODY_HOLDERS)?;
     for holder in holders_to_write {
         let body = holder.body_sha256.to_hex();
         let key = (
@@ -342,7 +342,7 @@ fn apply_holders(
             holder.component_id.as_str(),
             holder.entry_revision,
         );
-        let bytes = eg_storage::encode_bounded(&holder.row, "connector pack body holder")?;
+        let bytes = medulla_storage::encode_bounded(&holder.row, "connector pack body holder")?;
         let existing = holders
             .get(key)
             .map_err(|error| error.to_string())?
@@ -370,8 +370,8 @@ fn apply_import_record(
 ) -> Result<(), String> {
     let tenant = plan.record.tenant_id.as_str();
     let connector = plan.record.connector.as_str();
-    let mut imports = write.open_table(eg_storage::CONNECTOR_PACK_IMPORTS)?;
-    let record_bytes = eg_storage::encode_bounded(&plan.record, "connector pack import record")?;
+    let mut imports = write.open_table(medulla_storage::CONNECTOR_PACK_IMPORTS)?;
+    let record_bytes = medulla_storage::encode_bounded(&plan.record, "connector pack import record")?;
     if imports
         .get((tenant, connector, plan.record.binding_revision))
         .map_err(|error| error.to_string())?
@@ -417,9 +417,9 @@ fn apply_head(
         },
         receipt: receipt.clone(),
     };
-    let bytes = eg_storage::encode_bounded(&head, "connector pack head")?;
+    let bytes = medulla_storage::encode_bounded(&head, "connector pack head")?;
     write
-        .open_table(eg_storage::CONNECTOR_PACK_HEADS)?
+        .open_table(medulla_storage::CONNECTOR_PACK_HEADS)?
         .insert((tenant, connector), bytes.as_slice())
         .map_err(|error| error.to_string())?;
     Ok(())
@@ -429,7 +429,7 @@ fn compare_head(
     write: &PackOwnerWrite<'_>,
     plan: &ConnectorPackCommitPlan,
 ) -> Result<Option<String>, String> {
-    let heads = write.open_table(eg_storage::CONNECTOR_PACK_HEADS)?;
+    let heads = write.open_table(medulla_storage::CONNECTOR_PACK_HEADS)?;
     let actual = heads
         .get((
             plan.record.tenant_id.as_str(),

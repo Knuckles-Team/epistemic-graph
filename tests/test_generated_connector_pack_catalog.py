@@ -4,11 +4,11 @@ import asyncio
 
 import pytest
 
-from epistemic_graph.generated.connector_pack import (
+from medulla.generated.connector_pack import (
     ConnectorPackStatus,
     ConnectorPackStatusRequest,
 )
-from epistemic_graph.generated.storage import send_connector_pack_status
+from medulla.generated.storage import send_connector_pack_status
 
 pytestmark = pytest.mark.no_engine
 

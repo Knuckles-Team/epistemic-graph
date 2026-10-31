@@ -12,7 +12,7 @@ use crate::epistemic_operations::{
     DevelopmentLaneQuotaChargeSchemaVersion, DevelopmentLaneQuotaPolicy,
     DevelopmentLaneReserveRequest,
 };
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 use sha2::{Digest, Sha256};
 
 pub(super) fn scope_key(scope: Scope, hold: &DevelopmentLaneHold) -> String {

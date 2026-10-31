@@ -1,6 +1,6 @@
 //! `Method::Viz { op }` (D-VZ-1 lanes V4 "engine integration" / V6 "graph-native
 //! marks"), feature `viz-static-export`: resolve a caller-provided
-//! `eg_viz_core::ViewSpec` against a dataset and render it to static PNG/SVG/PDF
+//! `medulla_viz_core::ViewSpec` against a dataset and render it to static PNG/SVG/PDF
 //! bytes, fetch the mark x surface capability matrix, or look up a rendered
 //! view's durable provenance.
 //!
@@ -14,8 +14,8 @@
 //! `result_ref` as a cross-tenant read handle. This is an owner-scoped
 //! non-row exception, not a bypass of the graph RLS predicate.
 //! Gated on the facade's `viz-static-export` feature (a deliberate deviation from
-//! gating on bare `viz`: this handler needs a real `eg_viz_columnstore::ColumnStore`
-//! and `eg_viz_export::ColumnStoreExportBackend` to do anything, which only exist
+//! gating on bare `viz`: this handler needs a real `medulla_viz_columnstore::ColumnStore`
+//! and `medulla_viz_export::ColumnStoreExportBackend` to do anything, which only exist
 //! at that tier — see the root `Cargo.toml`'s `viz-static-export` doc comment).
 //!
 //! ## Scope — full V4 (upgraded from the former V4-LITE slice)
@@ -46,7 +46,7 @@
 //!
 //! ## Scope — V6-lite graph marks, static-export only
 //!
-//! `MarkKind::Graph` renders through `eg_viz_export::render`'s `resolve_graph`
+//! `MarkKind::Graph` renders through `medulla_viz_export::render`'s `resolve_graph`
 //! path (private to that crate; reached transitively through
 //! `ColumnStoreExportBackend::resolve` — see that function's doc for the exact
 //! dataset convention [`VizDatasetSource::SyntheticGraph`] ingestion below
@@ -67,18 +67,18 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use eg_types::result_contract::ingestion as viz_results;
-use eg_types::result_contract::ingestion::{
+use medulla_types::result_contract::ingestion as viz_results;
+use medulla_types::result_contract::ingestion::{
     VizCapabilityEntry, VizCapabilityMatrixResult, VizPayloadRef,
     VizProvenanceRecord as VizProvenanceResult, VizRenderResponse as VizRenderResult,
     VizViewResult,
 };
-use eg_types::viz::{VizColumnValues, VizDatasetSource, VizFormat, VizOp, VizRenderRequest};
-use eg_viz_columnstore::{ColumnData, ColumnInput, ColumnStore};
-use eg_viz_core::{
+use medulla_types::viz::{VizColumnValues, VizDatasetSource, VizFormat, VizOp, VizRenderRequest};
+use medulla_viz_columnstore::{ColumnData, ColumnInput, ColumnStore};
+use medulla_viz_core::{
     CapabilityMatrix, FrameBudget, StaticExportBackend, StaticExportFormat, ViewSpec,
 };
-use eg_viz_export::ColumnStoreExportBackend;
+use medulla_viz_export::ColumnStoreExportBackend;
 
 use crate::protocol::{Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
@@ -174,11 +174,11 @@ pub(crate) async fn engine_state(state: &Arc<RwLock<ServerState>>) -> Arc<VizEng
 }
 
 /// Internal render response state. `render_result` projects it onto the exact
-/// `eg_types::result_contract::ingestion::VizRender` body at the protocol
+/// `medulla_types::result_contract::ingestion::VizRender` body at the protocol
 /// boundary.
 #[derive(Debug)]
 struct VizRenderResponse {
-    view_result: eg_viz_core::ViewResult,
+    view_result: medulla_viz_core::ViewResult,
     format: VizFormat,
     content_type: &'static str,
     /// The durable provenance key this render was (or will be) recorded under
@@ -203,7 +203,7 @@ fn capability_matrix_result(
 }
 
 fn capability_entry_result(
-    entry: &eg_viz_core::CapabilityEntry,
+    entry: &medulla_viz_core::CapabilityEntry,
 ) -> Result<VizCapabilityEntry, String> {
     Ok(VizCapabilityEntry {
         mark: enum_wire_name(&entry.mark)?,
@@ -235,8 +235,8 @@ fn render_result(response: VizRenderResponse) -> Result<VizRenderResult, String>
     })
 }
 
-fn view_result_result(result: eg_viz_core::ViewResult) -> Result<VizViewResult, String> {
-    let eg_viz_core::ViewResult {
+fn view_result_result(result: medulla_viz_core::ViewResult) -> Result<VizViewResult, String> {
+    let medulla_viz_core::ViewResult {
         query_hash,
         seed,
         row_count,
@@ -264,8 +264,8 @@ fn view_result_result(result: eg_viz_core::ViewResult) -> Result<VizViewResult, 
     })
 }
 
-fn payload_ref_result(payload: eg_viz_core::PayloadRef) -> Result<VizPayloadRef, String> {
-    let eg_viz_core::PayloadRef { id, kind, byte_len } = payload;
+fn payload_ref_result(payload: medulla_viz_core::PayloadRef) -> Result<VizPayloadRef, String> {
+    let medulla_viz_core::PayloadRef { id, kind, byte_len } = payload;
     Ok(VizPayloadRef {
         id,
         kind: enum_wire_name(&kind)?,
@@ -329,7 +329,7 @@ fn render(
             .to_string()
     })?;
 
-    let query_hash = eg_viz_core::query_hash(&spec, &request.dataset_ref, fingerprint)
+    let query_hash = medulla_viz_core::query_hash(&spec, &request.dataset_ref, fingerprint)
         .map_err(|e| format!("failed to compute query hash: {e}"))?;
     let cache_key = render_cache_key(&query_hash, width_px, height_px, request.format, budget);
     let result_ref = scoped_result_ref(authority, &provenance_result_ref(&cache_key));
@@ -370,7 +370,7 @@ fn render(
 
     debug_assert_eq!(
         view_result.query_hash, query_hash,
-        "engine-level cache key and eg-viz-export's own query_hash must agree"
+        "engine-level cache key and medulla-viz-export's own query_hash must agree"
     );
 
     engine.cache_put(
@@ -385,14 +385,14 @@ fn render(
     let algo_name = spec
         .marks
         .first()
-        .map(|m| eg_viz_core::viz_algorithm_name(m.kind))
+        .map(|m| medulla_viz_core::viz_algorithm_name(m.kind))
         .unwrap_or("empty");
     let _ = engine.provenance.put_if_absent(VizProvenanceRecord {
         result_ref: result_ref.clone(),
         query_hash: query_hash.clone(),
         dataset_ref: request.dataset_ref.clone(),
         content_fingerprint: fingerprint,
-        algo_family: eg_viz_core::VIZ_JOB_FAMILY.to_string(),
+        algo_family: medulla_viz_core::VIZ_JOB_FAMILY.to_string(),
         algo_name: algo_name.to_string(),
         lod_tier: format!("{:?}", view_result.lod_tier),
         exact: view_result.exact,
@@ -462,7 +462,7 @@ fn authorized_result_ref(owner_prefix: &str, result_ref: &str) -> bool {
 /// Ingest `dataset` into `store` under `dataset_ref`, per [`VizDatasetSource`]'s
 /// own documented shape. `SyntheticGraph` additionally ingests a SECOND dataset
 /// under `"{dataset_ref}:edges"` — see the module doc's "Scope — V6-lite" section
-/// for why (mirrors `eg_viz_export::render::resolve_graph`'s dataset convention).
+/// for why (mirrors `medulla_viz_export::render::resolve_graph`'s dataset convention).
 fn ingest_dataset(
     store: &mut ColumnStore,
     dataset_ref: &str,
@@ -599,7 +599,7 @@ fn ingest_synthetic_graph(
 
 /// splitmix64 — a small, dependency-free, deterministic PRNG (Vigna's
 /// well-known public-domain construction), the SAME hand-rolled generator
-/// `eg_viz_export::graph_layout` uses (that copy is crate-private, so this is a
+/// `medulla_viz_export::graph_layout` uses (that copy is crate-private, so this is a
 /// separate small copy rather than a new shared public dependency — this repo
 /// avoids adding `rand`/`rand_chacha` here unless already resolved and reachable
 /// from this crate, which it is not for a `viz-static-export`-only build). Not
@@ -628,7 +628,7 @@ impl SplitMix64 {
 
 /// Deterministic, seeded, clustered pseudo-scatter — `clusters` distinct
 /// Gaussian-ish blobs across a `0..1_000_000` domain, mirroring the algorithm
-/// `crates/eg-viz-export/examples/render_large_n_tier.rs` already uses for
+/// `crates/medulla-viz-export/examples/render_large_n_tier.rs` already uses for
 /// exactly this kind of high-density demo data (generalized here from that
 /// example's fixed 5 clusters to a caller-chosen `clusters` count).
 fn synthetic_scatter_clusters(row_count: u64, clusters: u32, seed: u64) -> (Vec<f64>, Vec<f64>) {

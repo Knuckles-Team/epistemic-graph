@@ -10,7 +10,7 @@
 //!
 //! A headroom the plan exceeds is named `lease:<cell>:<class>` by the model.
 
-use eg_types::decision::{CapacityHeadroom, CapacityScope};
+use medulla_types::decision::{CapacityHeadroom, CapacityScope};
 
 use super::SharedState;
 

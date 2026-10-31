@@ -11,9 +11,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use eg_query::TableStore;
-use eg_types::contract::{Digest256, Nonce};
-use eg_types::storage_wire::{SqlSourceBatchRequest, SqlSourceBatchResult};
+use medulla_query::TableStore;
+use medulla_types::contract::{Digest256, Nonce};
+use medulla_types::storage_wire::{SqlSourceBatchRequest, SqlSourceBatchResult};
 use tokio::sync::RwLock;
 
 use crate::mutation_batch::MutationBatch;
@@ -62,7 +62,7 @@ pub(crate) async fn handle(
     match result {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::storage::SqlSourceBatch>(result),
+            ResultPayload::of::<medulla_types::result_contract::storage::SqlSourceBatch>(result),
         ),
         Err(error) => Response::err(req_id, error),
     }
@@ -116,7 +116,7 @@ fn publish(
             .result_msgpack
             .as_deref()
             .ok_or_else(|| "committed SQL source publication has no result".to_string())?;
-        eg_storage::decode_ledger_record(bytes)
+        medulla_storage::decode_ledger_record(bytes)
     })
 }
 

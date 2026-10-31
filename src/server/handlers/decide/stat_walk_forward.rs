@@ -12,26 +12,26 @@
 //! policy-dependent environment, bandit labels, an understated trial count, a
 //! look-ahead.
 
-use eg_compute::finance::quant::{
+use medulla_compute::finance::quant::{
     deflated_sharpe_ratio, diebold_mariano, probability_of_backtest_overfit,
 };
-use eg_numeric::decision::admission::Regime;
-use eg_numeric::decision::fit::FitSpec;
-use eg_numeric::decision::quant::{q32, value_of};
-use eg_numeric::decision::refusal::RefusalResult;
-use eg_numeric::decision::replay::{
+use medulla_numeric::decision::admission::Regime;
+use medulla_numeric::decision::fit::FitSpec;
+use medulla_numeric::decision::quant::{q32, value_of};
+use medulla_numeric::decision::refusal::RefusalResult;
+use medulla_numeric::decision::replay::{
     gold_steps, head_digest, max_drawdown, mean, replay, sharpe, time_ordered, HeadReplay,
     ReplayOutcome, ReplayPolicy, ReplayStep, Uniform,
 };
-use eg_types::contract::BoundedVec;
-use eg_types::decision::digest::digest_text;
-use eg_types::decision::replay::{
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::digest::digest_text;
+use medulla_types::decision::replay::{
     EvaluationRun, OptionContribution, ReplayEnvironment, ReplayFoldView, ReplaySpec,
     ReplayValidation, TrialLog,
 };
-use eg_types::decision::statistical::dataset::LabelledItem;
-use eg_types::decision::statistical::StatisticalErrorCode;
-use eg_types::decision::{DecisionEvalRequest, DecisionJobOutput, QuantisedValue};
+use medulla_types::decision::statistical::dataset::LabelledItem;
+use medulla_types::decision::statistical::StatisticalErrorCode;
+use medulla_types::decision::{DecisionEvalRequest, DecisionJobOutput, QuantisedValue};
 
 use super::stat_jobs::{candidate_head, dataset_digest, EvalInputs, JobRun};
 use super::stat_support::refusal;
@@ -130,8 +130,8 @@ fn incumbent_head(
     store: &AgentLibraryStore,
     inputs: &EvalInputs,
     tenant_id: &str,
-    pin: &eg_types::decision::EvalCandidate,
-) -> Result<eg_types::decision::statistical::head::DecisionHeadBody, String> {
+    pin: &medulla_types::decision::EvalCandidate,
+) -> Result<medulla_types::decision::statistical::head::DecisionHeadBody, String> {
     let head = candidate_head(store, tenant_id, pin)?;
     if head.feature_schema_digest != inputs.dataset.feature_schema_digest {
         return Err(refusal(

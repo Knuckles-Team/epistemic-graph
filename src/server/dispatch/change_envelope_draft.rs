@@ -11,7 +11,7 @@
 //! governed form, so a draft can never bypass what an envelope must satisfy.
 
 use super::*;
-use eg_types::change_envelope::{ChangeEnvelope, ChangeEnvelopeDraft};
+use medulla_types::change_envelope::{ChangeEnvelope, ChangeEnvelopeDraft};
 
 /// The verified facts every draft of one request is compiled under.
 struct DraftAuthority<'a> {
@@ -179,10 +179,10 @@ fn compile_draft_batch(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use eg_types::change_envelope::{
+    use medulla_types::change_envelope::{
         ChangeMutationDraft, ContentVersion, ContentVersionPosition, PrivacyAttestation,
     };
-    use eg_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
+    use medulla_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
 
     fn draft() -> ChangeEnvelopeDraft {
         draft_for("tenant-a", serde_json::json!({"type": "Document"}))
@@ -225,9 +225,9 @@ pub(crate) mod tests {
             },
             cursor: None,
             lineage: Vec::new(),
-            policies: vec![eg_types::change_envelope::PolicyRecord {
+            policies: vec![medulla_types::change_envelope::PolicyRecord {
                 policy_id: "policy:doc:1".into(),
-                operation: eg_types::change_envelope::MaterialOperation::Upsert,
+                operation: medulla_types::change_envelope::MaterialOperation::Upsert,
                 object_id: "doc:1".into(),
                 tenant: tenant.into(),
                 classification: "internal".into(),
@@ -271,7 +271,7 @@ pub(crate) mod tests {
         super::super::request_boundary::preflight_request_msgpack(&method)
             .expect("material preflight");
         assert_eq!(
-            eg_types::mutation_batch::batch_request_number(&envelope.mutation),
+            medulla_types::mutation_batch::batch_request_number(&envelope.mutation),
             Some(7)
         );
         assert_eq!(

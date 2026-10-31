@@ -78,18 +78,18 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "eg-contract-method-reachability-gate/v1"
 
 CONTRACT = "contract/methods.json"
-PROTOCOL = "crates/eg-types/src/protocol.rs"
+PROTOCOL = "crates/medulla-types/src/protocol.rs"
 SERVER_ROOT = "src/server/mod.rs"
 TERMINAL_CATCH_ALL = "src/server/handlers/graph_ops/terminal.rs"
 
 # The round-trip check's declared scope.  Anything outside it is NOT covered,
 # and the receipt says so rather than implying whole-contract coverage.
 DIGEST_SCOPE = (
-    "crates/eg-types/src/agent_library.rs",
-    "crates/eg-types/src/agent_component.rs",
-    "crates/eg-types/src/agent_graph.rs",
-    "crates/eg-types/src/agent_template.rs",
-    "crates/eg-types/src/delegation.rs",
+    "crates/medulla-types/src/agent_library.rs",
+    "crates/medulla-types/src/agent_component.rs",
+    "crates/medulla-types/src/agent_graph.rs",
+    "crates/medulla-types/src/agent_template.rs",
+    "crates/medulla-types/src/delegation.rs",
 )
 
 _METHOD_USE = re.compile(r"\bMethod::(?P<name>[A-Za-z_][A-Za-z0-9_]*)")

@@ -1,6 +1,6 @@
 //! L37 — incremental ≡ rebuild equivalence for the server-layer maintained spatial
 //! index (`GraphSpatialIndex`) wired into the per-graph `IndexManager` seam
-//! (CONCEPT:EG-KG.storage.incremental-spatial). Mirrors `tests/incremental_server_indexes.rs`'s
+//! (CONCEPT:MEDULLA-KG.storage.incremental-spatial). Mirrors `tests/incremental_server_indexes.rs`'s
 //! text/temporal equivalence proofs, applied to the spatial index: after a batch of
 //! writes touching `type`/`geometry`, a bbox query returns the IDENTICAL id set to a
 //! full-rebuild baseline built from the live nodes — including the "geometry-only CAS
@@ -8,9 +8,9 @@
 //! documents.
 #![cfg(feature = "geo")]
 
-use epistemic_graph::graph::GraphCore;
-use epistemic_graph::index::{ChangeSet, NodeChange, SecondaryIndex};
-use epistemic_graph::server::secondary_indexes::GraphSpatialIndex;
+use medulla::graph::GraphCore;
+use medulla::index::{ChangeSet, NodeChange, SecondaryIndex};
+use medulla::server::secondary_indexes::GraphSpatialIndex;
 
 fn props(v: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&v).unwrap()

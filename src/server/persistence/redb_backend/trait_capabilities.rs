@@ -36,7 +36,7 @@ macro_rules! persistence_capabilities {
         Ok(n)
     }
 
-    /// Populate the registry's CATALOG ONLY (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3) — every
+    /// Populate the registry's CATALOG ONLY (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog, DIST-P2-3) — every
     /// graph's `{name, graph_type}` identity row, with NO node/edge/ledger/semantic
     /// data read. Each graph's `GraphCore` then materializes lazily on first access
     /// (`server::persistence::cold_offload::lazy_open`), via
@@ -47,14 +47,14 @@ macro_rules! persistence_capabilities {
         let n = self.load_catalog_into(state).await?;
         tracing::info!(
             "redb: catalog-loaded {} graph(s) from {} shard(s) — lazy startup, no node/edge \
-             data read (CONCEPT:EG-KG.sharding.lazy-graph-catalog)",
+             data read (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog)",
             n,
             self.shards.len()
         );
         Ok(n)
     }
 
-    /// SYNC durable-material fetch for a lazy first-open (CONCEPT:EG-KG.sharding.lazy-graph-catalog,
+    /// SYNC durable-material fetch for a lazy first-open (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog,
     /// DIST-P2-3) — reuses [`Self::read_graph_dump_blocking`], the SAME per-graph
     /// rehydrate path `shard_migrate`/`backup` already use, so a lazily-opened
     /// graph replays byte-identically to an eagerly-loaded one.

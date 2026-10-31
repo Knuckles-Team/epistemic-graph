@@ -126,7 +126,7 @@ fn partition_move_id(
 ) -> String {
     use sha2::{Digest, Sha256};
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph/partition-move/v1\0");
+    digest.update(b"medulla/partition-move/v1\0");
     digest.update(key.tenant.as_bytes());
     digest.update(key.range_start.to_be_bytes());
     digest.update(key.range_end.to_be_bytes());

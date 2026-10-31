@@ -2,9 +2,9 @@
 
 use super::*;
 use crate::mutation_batch::VersionExpectation;
-use eg_types::change_envelope::CursorPosition;
-use eg_types::contract::{BoundedVec, Digest256, Nonce, RecordBytes, ResourceId};
-use eg_types::storage_wire::{
+use medulla_types::change_envelope::CursorPosition;
+use medulla_types::contract::{BoundedVec, Digest256, Nonce, RecordBytes, ResourceId};
+use medulla_types::storage_wire::{
     SqlSourceBatch, SqlSourceBatchRequest, SqlSourceCell, SqlSourceDescriptor, SqlSourceJson,
     SqlSourceMappingDescriptor, SqlSourceText,
 };
@@ -155,18 +155,18 @@ fn outbox_contains_only_bound_digests_and_generic_invalidation() {
     let dirty = compiled
         .outbox
         .iter()
-        .find(|intent| intent.topic == eg_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC)
+        .find(|intent| intent.topic == medulla_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC)
         .unwrap();
     let intent =
-        eg_types::semantic_index::SemanticSourceDirtyIntent::from_canonical_cbor(&dirty.payload)
+        medulla_types::semantic_index::SemanticSourceDirtyIntent::from_canonical_cbor(&dirty.payload)
             .unwrap();
     assert_eq!(
         intent.input_digest,
-        eg_types::semantic_index::SemanticDigest::from_bytes(*digests.batch_digest.as_bytes())
+        medulla_types::semantic_index::SemanticDigest::from_bytes(*digests.batch_digest.as_bytes())
     );
     assert_eq!(
         intent.source_scope_digest,
-        eg_types::semantic_index::SemanticDigest::from_bytes(
+        medulla_types::semantic_index::SemanticDigest::from_bytes(
             *compiled.identity.binding_digest().as_bytes()
         )
     );
@@ -192,11 +192,11 @@ fn validate_reasoning_wakeup(compiled: &MutationBatch) {
         .iter()
         .find(|intent| intent.topic == "engine.projection.rebuild")
         .unwrap();
-    let wakeup: eg_epistemic::ReasoningProjectionWakeup =
+    let wakeup: medulla_epistemic::ReasoningProjectionWakeup =
         rmp_serde::from_slice(&projection.payload).unwrap();
     assert_eq!(
         wakeup.events,
-        vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll]
+        vec![medulla_epistemic::IncrementalReasoningEvent::InvalidateAll]
     );
     assert_eq!(wakeup.operation_count, 1);
 }
@@ -251,10 +251,10 @@ fn generic_opaque_compiler_keeps_original_applymutation_bytes() {
         CompiledOutbox {
             extra: Vec::new(),
             semantic_source_dirty_input: Some(
-                eg_types::semantic_index::SemanticDigest::from_bytes(input_digest),
+                medulla_types::semantic_index::SemanticDigest::from_bytes(input_digest),
             ),
             #[cfg(feature = "epistemic-tms")]
-            reasoning_events: vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
+            reasoning_events: vec![medulla_epistemic::IncrementalReasoningEvent::InvalidateAll],
         },
         None,
     )

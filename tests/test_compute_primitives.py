@@ -1,6 +1,6 @@
 """Round-trip tests for the data-science and extended-finance compute methods
 exposed over the Tokio/MessagePack protocol (CONCEPT:AU-KG.memory.mementified-context,
-CONCEPT:EG-KG.compute.rust-native-training-loss).
+CONCEPT:MEDULLA-KG.compute.rust-native-training-loss).
 
 These exercise the full path: Python client -> UDS -> Rust dispatch -> result.
 Uses the session-scoped server + `clean_graph` sync client from conftest.py.
@@ -172,7 +172,7 @@ def test_match_orders_roundtrip(clean_graph):
     assert len(fills) >= 1
 
 
-# ── Training loss / optimizer kernels (CONCEPT:EG-KG.compute.rust-native-training-loss)
+# ── Training loss / optimizer kernels (CONCEPT:MEDULLA-KG.compute.rust-native-training-loss)
 # ────────────────────
 
 

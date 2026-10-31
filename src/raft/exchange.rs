@@ -1,17 +1,17 @@
-//! X4 — the distributed cross-shard DAG EXCHANGE operator (CONCEPT:EG-KG.query.dag-distributed-exchange).
+//! X4 — the distributed cross-shard DAG EXCHANGE operator (CONCEPT:MEDULLA-KG.query.dag-distributed-exchange).
 //!
-//! `eg_plan::dag::PlanDag`'s multi-input node is the seam a cross-shard exchange hangs
-//! off (see `crates/eg-plan/src/dag.rs`'s "X4" doc section) — a multi-branch plan whose
+//! `medulla_plan::dag::PlanDag`'s multi-input node is the seam a cross-shard exchange hangs
+//! off (see `crates/medulla-plan/src/dag.rs`'s "X4" doc section) — a multi-branch plan whose
 //! branches execute on DIFFERENT Raft groups, each producing a partial `RowSet`, merged
 //! at the join node. This module is that operator, entirely OUTSIDE the dep-free
-//! `eg-plan` crate (which gains only a generic, cluster-agnostic hook —
-//! [`eg_plan::execute_dag_with`] — no new `Op`/`PlanNode` variant, no raft/openraft
+//! `medulla-plan` crate (which gains only a generic, cluster-agnostic hook —
+//! [`medulla_plan::execute_dag_with`] — no new `Op`/`PlanNode` variant, no raft/openraft
 //! dependency).
 //!
 //! ## The shape
 //!
 //!  1. **The marker.** [`ExchangeMap`] is an "exchange marker on the DAG" kept OUTSIDE
-//!     `PlanDag`/`PlanNode`: it maps a branch's ROOT [`eg_plan::NodeId`] to the graph
+//!     `PlanDag`/`PlanNode`: it maps a branch's ROOT [`medulla_plan::NodeId`] to the graph
 //!     name it reads and the [`GroupId`] that owns it (resolved via
 //!     [`super::multi::GroupRouter::group_of`] through [`ExchangeMap::route_via_router`]).
 //!     A node with no entry — or one that maps to the LOCAL group — runs exactly as
@@ -27,11 +27,11 @@
 //!     `network::{write_frame, read_frame}` already use — and gets the partial `RowSet`
 //!     back (as plain `(id, score)` rows, exactly the shape `RemoteEngineSource::fetch_uql`
 //!     projects). [`serve_exchange_conn`] is the responder half: it decodes the
-//!     sub-plan, runs it through the UNMODIFIED [`eg_plan::execute_dag`] against
+//!     sub-plan, runs it through the UNMODIFIED [`medulla_plan::execute_dag`] against
 //!     whatever local graph the [`ExchangeGraphResolver`] resolves, and replies with the
 //!     rows.
 //!  4. **The merge.** [`execute_dag_distributed`] runs the WHOLE original dag through
-//!     [`eg_plan::execute_dag_with`], overriding exactly the routed branch roots (and
+//!     [`medulla_plan::execute_dag_with`], overriding exactly the routed branch roots (and
 //!     skipping — as cheap no-ops — their local ancestors, since the whole subtree
 //!     shipped as one remote unit) with the fetched `RowSet`. The join node's own
 //!     `join_inputs` call is the UNTOUCHED `RowSet::intersect_keep_order` chain E5
@@ -57,8 +57,8 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use eg_plan::dag::NodeId as DagNodeId;
-use eg_plan::{execute_dag, execute_dag_with, PlanCtx, PlanDag, RowSet};
+use medulla_plan::dag::NodeId as DagNodeId;
+use medulla_plan::{execute_dag, execute_dag_with, PlanCtx, PlanDag, RowSet};
 
 use super::multi::GroupRouter;
 use super::GroupId;
@@ -66,7 +66,7 @@ use super::GroupId;
 // ── 1. the exchange marker (kept OUTSIDE PlanDag/PlanNode) ─────────────────────────
 
 /// Routes SOME branch-root node ids of a [`PlanDag`] to the [`GroupId`] (+ graph name)
-/// that should execute them (CONCEPT:EG-KG.query.dag-distributed-exchange). A node absent from
+/// that should execute them (CONCEPT:MEDULLA-KG.query.dag-distributed-exchange). A node absent from
 /// the map runs LOCALLY, exactly like plain `execute_dag` — so an empty `ExchangeMap`
 /// makes [`execute_dag_distributed`] behave byte-for-byte like `execute_dag`.
 #[derive(Default, Clone, Debug)]
@@ -142,7 +142,7 @@ fn ancestor_closure(dag: &PlanDag, root: DagNodeId) -> BTreeSet<DagNodeId> {
 
 /// Extract the subtree rooted at `root` (root + its full ancestor closure) into a
 /// standalone, renumbered [`PlanDag`] whose SINK is `root` — the self-contained
-/// sub-plan shipped to a remote group (CONCEPT:EG-KG.query.dag-distributed-exchange). Node ids are
+/// sub-plan shipped to a remote group (CONCEPT:MEDULLA-KG.query.dag-distributed-exchange). Node ids are
 /// reassigned along [`PlanDag::topo_order`]'s own deterministic order (ties ascending
 /// by original id) restricted to the closure, so extraction is REPRODUCIBLE — the same
 /// branch always serializes to the same bytes, which is what keeps the distributed
@@ -199,7 +199,7 @@ struct ExchangeRequest {
 struct ExchangeReply(Result<Vec<(String, Option<f32>)>, String>);
 
 /// 4-byte big-endian length prefix + a MessagePack body — IDENTICAL framing to
-/// `super::network::{write_frame, read_frame}` and `eg_plan::federation`'s
+/// `super::network::{write_frame, read_frame}` and `medulla_plan::federation`'s
 /// `RemoteEngineSource::round_trip`; reimplemented at this call site only because it
 /// runs over a BLOCKING `std::net::TcpStream` (the caller is
 /// [`execute_dag_distributed`]'s synchronous per-node override closure, matching how
@@ -247,14 +247,14 @@ pub fn call_remote_branch(addr: &str, graph: &str, dag: &PlanDag) -> Result<RowS
 }
 
 /// Resolves a graph name to the ingredients an exchange RESPONDER needs to run a
-/// received branch locally (CONCEPT:EG-KG.query.dag-distributed-exchange) — mirrors the federation
+/// received branch locally (CONCEPT:MEDULLA-KG.query.dag-distributed-exchange) — mirrors the federation
 /// `ForeignSource` seam: one trait, implemented ONCE against the real deployment
 /// (`ServerState`/`MultiRaft` — the documented follow-up, see module docs) and by a
 /// fixture in tests.
 pub trait ExchangeGraphResolver: Send + Sync {
     /// Run `dag` (a self-contained branch — its own sink is the value to return) over
     /// the CURRENT local snapshot for `graph`, returning its rows. Uses the UNMODIFIED
-    /// [`eg_plan::execute_dag`] — the responder does not reinterpret the branch, it
+    /// [`medulla_plan::execute_dag`] — the responder does not reinterpret the branch, it
     /// just runs it exactly like any other dag.
     fn execute_branch(&self, graph: &str, dag: &PlanDag) -> Result<RowSet, String>;
 }
@@ -328,13 +328,13 @@ pub async fn serve_exchange_loop(
 
 // ── 4. the distributed executor: same dag_exec join, remote-fed branches ───────────
 
-/// Execute `dag` DISTRIBUTED across Raft groups (CONCEPT:EG-KG.query.dag-distributed-exchange, X4): every
+/// Execute `dag` DISTRIBUTED across Raft groups (CONCEPT:MEDULLA-KG.query.dag-distributed-exchange, X4): every
 /// branch root `routes` maps to a group OTHER than `local_group` is shipped to that
 /// group's `endpoints` address (via [`extract_branch`] + [`call_remote_branch`]) instead
 /// of running through `ctx` locally; its ancestors (already folded into the shipped
 /// subtree) are skipped locally as cheap no-ops. Every other node — including the join
 /// node(s) that consume the routed branches — runs through the UNMODIFIED
-/// [`eg_plan::execute_dag_with`]/`join_inputs` path, so the merge is EXACTLY the
+/// [`medulla_plan::execute_dag_with`]/`join_inputs` path, so the merge is EXACTLY the
 /// `RowSet::intersect_keep_order` chain a single-node multi-branch dag already uses.
 ///
 /// An empty `routes` (or one that only maps to `local_group`) makes this byte-identical
@@ -369,7 +369,7 @@ pub fn execute_dag_distributed(
             return Err(format!(
                 "exchange: node {root} is routed to a remote group but is ALSO an \
                  ancestor of another routed branch — routed branches must not share \
-                 ancestry (CONCEPT:EG-KG.query.dag-distributed-exchange)"
+                 ancestry (CONCEPT:MEDULLA-KG.query.dag-distributed-exchange)"
             ));
         }
     }
@@ -395,12 +395,12 @@ mod tests {
     //! Proves the X4 shape end-to-end over REAL loopback TCP sockets — the same
     //! in-process-multi-"node" convention `xshard_modality_harness` uses for its
     //! cross-group proofs (a real socket round-trip, one process, standing in for a
-    //! separate physical node per CONCEPT:EG-KG.txn.harness-crash's documented
+    //! separate physical node per CONCEPT:MEDULLA-KG.txn.harness-crash's documented
     //! cross-NODE-participant remainder).
     use super::*;
-    use eg_core::compute::semantic::SemanticStore;
-    use eg_core::graph::GraphCore;
-    use eg_plan::{Op, PlanNode};
+    use medulla_core::compute::semantic::SemanticStore;
+    use medulla_core::graph::GraphCore;
+    use medulla_plan::{Op, PlanNode};
     use serde_json::json;
 
     fn blob(v: serde_json::Value) -> Vec<u8> {
@@ -408,7 +408,7 @@ mod tests {
     }
 
     /// Group A's graph: two `Doc` nodes `a`,`b` plus a `Tool` node `c` — the SAME
-    /// fixture shape `eg_plan::dag_exec`'s own tests use, so results are directly
+    /// fixture shape `medulla_plan::dag_exec`'s own tests use, so results are directly
     /// comparable to a plain local `execute_dag` baseline.
     fn fixture_a() -> (GraphCore, SemanticStore) {
         let core = GraphCore::new();
@@ -442,7 +442,7 @@ mod tests {
         // process so the spawned task can hold a `'static` resolver — acceptable in a
         // short-lived test binary, mirroring how other in-process harnesses here keep
         // fixtures alive for the test's duration.
-        let view: &'static eg_core::graph::GraphView = Box::leak(Box::new(view));
+        let view: &'static medulla_core::graph::GraphView = Box::leak(Box::new(view));
         let semantic: &'static SemanticStore = Box::leak(Box::new(semantic));
         let resolver: Arc<dyn ExchangeGraphResolver + Send + Sync> = Arc::new(FixedGraphResolver {
             graph: graph.to_string(),

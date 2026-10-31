@@ -41,7 +41,7 @@ class RustLexerStaticTests(unittest.TestCase):
         )
 
     def test_module_tree_output_keeps_production_and_test_views_distinct(self) -> None:
-        with TemporaryDirectory(prefix="eg-lexer-static-") as directory:
+        with TemporaryDirectory(prefix="medulla-lexer-static-") as directory:
             root = Path(directory)
             (root / "src" / "facade").mkdir(parents=True)
             (root / "src" / "facade.rs").write_text(

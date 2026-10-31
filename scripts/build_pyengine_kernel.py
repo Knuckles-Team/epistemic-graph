@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the eg-pyengine kernel into a mounted or editable working tree.
+"""Build the medulla-pyengine kernel into a mounted or editable working tree.
 
 Use `--check` for a no-build presence check. The shared build path lives in
 `scripts/_kernel_build.py`; the wheel path uses `inject_pyengine.py`.
@@ -14,10 +14,10 @@ if __name__ == "__main__":
         main(
             KernelSpec(
                 module="engine",
-                crate="eg-pyengine",
+                crate="medulla-pyengine",
                 injector="inject_pyengine",
                 marker="__engine__",
-                expected_stamp="eg-pyengine",
+                expected_stamp="medulla-pyengine",
                 script="build_pyengine_kernel.py",
                 features=("python", "security"),
             )

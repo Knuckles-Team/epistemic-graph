@@ -4,9 +4,9 @@ use super::*;
 
 pub(crate) fn validate_submit_work_item_identity(
     graph: &str,
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
 ) -> Result<(), String> {
-    use eg_types::native_control::{NativeControlSchemaVersion, MAX_SUBMIT_REF_BYTES};
+    use medulla_types::native_control::{NativeControlSchemaVersion, MAX_SUBMIT_REF_BYTES};
     if request.schema_version != NativeControlSchemaVersion::V1 {
         return Err("SubmitWorkItem schema_version must be 1".to_string());
     }
@@ -31,9 +31,9 @@ pub(crate) fn validate_submit_work_item_identity(
 }
 
 pub(crate) fn validate_submit_work_item_refs(
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
 ) -> Result<(), String> {
-    use eg_types::native_control::{MAX_SUBMIT_DEPENDENCIES, MAX_SUBMIT_REF_BYTES};
+    use medulla_types::native_control::{MAX_SUBMIT_DEPENDENCIES, MAX_SUBMIT_REF_BYTES};
     if request.command_digest.len() != 64
         || !request
             .command_digest
@@ -53,7 +53,7 @@ pub(crate) fn validate_submit_work_item_refs(
 
 pub(crate) fn validate_submit_work_item_identity_and_refs(
     graph: &str,
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
 ) -> Result<(), String> {
     validate_submit_work_item_identity(graph, request)?;
     validate_submit_work_item_refs(request)?;
@@ -61,7 +61,7 @@ pub(crate) fn validate_submit_work_item_identity_and_refs(
 }
 
 pub(crate) fn resolve_submit_work_item_max_inflight(
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
 ) -> Result<u64, String> {
     let max_inflight = if request.max_tenant_in_flight == 0 {
         4096
@@ -87,9 +87,9 @@ pub(crate) fn resolve_submit_work_item_max_inflight(
 }
 
 pub(crate) fn validate_submit_work_item_provenance_and_metadata(
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
 ) -> Result<(), String> {
-    use eg_types::native_control::{
+    use medulla_types::native_control::{
         MAX_SUBMIT_METADATA_BYTES, MAX_SUBMIT_PROVENANCE_REFS, MAX_SUBMIT_REF_BYTES,
     };
     if request.provenance_refs.len() > MAX_SUBMIT_PROVENANCE_REFS
@@ -108,7 +108,7 @@ pub(crate) fn validate_submit_work_item_provenance_and_metadata(
 }
 
 pub(crate) fn resolve_submit_work_item_admission_limits(
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
 ) -> Result<u64, String> {
     let max_inflight = resolve_submit_work_item_max_inflight(request)?;
     validate_submit_work_item_provenance_and_metadata(request)?;
@@ -116,7 +116,7 @@ pub(crate) fn resolve_submit_work_item_admission_limits(
 }
 
 pub(crate) fn check_submit_work_item_dependencies_unique(
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
 ) -> Result<Vec<String>, String> {
     let mut dependencies = request.depends_on.clone();
     dependencies.sort();
@@ -186,7 +186,7 @@ pub(crate) type SubmitWorkItemDependencies = (u64, Vec<String>, Vec<(String, boo
 
 pub(crate) fn validate_and_resolve_submit_work_item_dependencies(
     graph: &str,
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
     nodes: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<SubmitWorkItemDependencies, String> {
@@ -244,7 +244,7 @@ pub(crate) fn count_submit_work_item_tenant_inflight(
 pub(crate) fn resolve_submit_work_item_id(
     graph: &str,
     context_tenant: &str,
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
     nodes: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
 ) -> Result<String, String> {
     use sha2::{Digest, Sha256};
@@ -290,7 +290,7 @@ pub(crate) fn resolve_submit_work_item_command_sequence(
 struct SubmitWorkItemAdmission<'args, 'table, 'crypto> {
     graph: &'args str,
     context_tenant: &'args str,
-    request: &'args eg_types::native_control::SubmitWorkItemRequest,
+    request: &'args medulla_types::native_control::SubmitWorkItemRequest,
     nodes: &'args mut ScopedOwnerTableMut<'table, (&'static str, &'static str), &'static [u8]>,
     command_sequences: &'args mut ScopedOwnerTableMut<'table, &'static str, u64>,
     max_inflight: u64,
@@ -331,7 +331,7 @@ pub(crate) fn submit_work_item_status(pending_dependencies: usize) -> &'static s
 fn insert_submit_work_item_identity_props(
     props: &mut serde_json::Map<String, serde_json::Value>,
     context_tenant: &str,
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
     status: &str,
 ) {
     props.insert(
@@ -413,7 +413,7 @@ fn insert_submit_work_item_lease_props(props: &mut serde_json::Map<String, serde
 
 fn insert_submit_work_item_artifact_props(
     props: &mut serde_json::Map<String, serde_json::Value>,
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
 ) {
     props.insert(
         "input_artifact_refs".into(),
@@ -436,7 +436,7 @@ fn insert_submit_work_item_artifact_props(
 
 fn insert_submit_work_item_identity_metadata_props(
     props: &mut serde_json::Map<String, serde_json::Value>,
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
     now_s: f64,
 ) {
     props.insert("created_at".into(), serde_json::Value::from(now_s));
@@ -465,7 +465,7 @@ fn insert_submit_work_item_identity_metadata_props(
 
 fn insert_submit_work_item_provenance_props(
     props: &mut serde_json::Map<String, serde_json::Value>,
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
     command_sequence: u64,
 ) -> Result<(), String> {
     props.insert(
@@ -499,7 +499,7 @@ fn insert_submit_work_item_provenance_props(
 
 pub(crate) fn build_submit_work_item_props(
     context_tenant: &str,
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
     dependencies: &[String],
     pending_dependencies: usize,
     command_sequence: u64,
@@ -600,7 +600,7 @@ pub(crate) struct SubmitWorkItemWrite<'args, 'table, 'crypto> {
     graph: &'args str,
     work_item_id: &'args str,
     context_tenant: &'args str,
-    request: &'args eg_types::native_control::SubmitWorkItemRequest,
+    request: &'args medulla_types::native_control::SubmitWorkItemRequest,
     dependencies: &'args [String],
     dependency_rows: &'args [(String, bool)],
     command_sequence: u64,
@@ -669,7 +669,7 @@ pub(crate) struct SubmitWorkItemResultInput<'a> {
     work_item_id: String,
     status: &'a str,
     command_sequence: u64,
-    request: &'a eg_types::native_control::SubmitWorkItemRequest,
+    request: &'a medulla_types::native_control::SubmitWorkItemRequest,
     dependencies: &'a [String],
     dependency_rows: &'a [(String, bool)],
     inflight: u64,
@@ -679,7 +679,7 @@ pub(crate) struct SubmitWorkItemResultInput<'a> {
 
 pub(crate) fn build_submit_work_item_result(
     input: SubmitWorkItemResultInput<'_>,
-) -> eg_types::native_control::SubmitWorkItemResult {
+) -> medulla_types::native_control::SubmitWorkItemResult {
     let SubmitWorkItemResultInput {
         work_item_id,
         status,
@@ -699,8 +699,8 @@ pub(crate) fn build_submit_work_item_result(
             .filter(|(_, pending)| *pending)
             .map(|(dependency, _)| dependency.clone()),
     );
-    eg_types::native_control::SubmitWorkItemResult {
-        schema_version: eg_types::native_control::NativeControlSchemaVersion::V1,
+    medulla_types::native_control::SubmitWorkItemResult {
+        schema_version: medulla_types::native_control::NativeControlSchemaVersion::V1,
         work_item_id,
         status: status.to_string(),
         created: true,
@@ -719,7 +719,7 @@ pub(crate) fn build_submit_work_item_result(
 
 pub(crate) fn apply_submit_work_item_rows<'txn, 'crypto>(
     graph: &str,
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
     nodes: &mut ScopedOwnerTableMut<'txn, (&'static str, &'static str), &'static [u8]>,
     edges: &mut ScopedOwnerTableMut<
         'txn,
@@ -728,7 +728,7 @@ pub(crate) fn apply_submit_work_item_rows<'txn, 'crypto>(
     >,
     command_sequences: &mut ScopedOwnerTableMut<'txn, &'static str, u64>,
     scope: WorkItemCommitScope<'crypto, '_>,
-) -> Result<eg_types::native_control::SubmitWorkItemResult, String> {
+) -> Result<medulla_types::native_control::SubmitWorkItemResult, String> {
     let WorkItemCommitScope {
         crypto,
         authoritative_now_ms,
@@ -796,7 +796,7 @@ pub(crate) fn apply_submit_work_item_rows<'txn, 'crypto>(
 
 pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
     graph: &str,
-    request: &eg_types::native_control::SubmitWorkItemsRequest,
+    request: &medulla_types::native_control::SubmitWorkItemsRequest,
     nodes: &mut ScopedOwnerTableMut<'txn, (&'static str, &'static str), &'static [u8]>,
     edges: &mut ScopedOwnerTableMut<
         'txn,
@@ -805,14 +805,14 @@ pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
     >,
     command_sequences: &mut ScopedOwnerTableMut<'txn, &'static str, u64>,
     scope: WorkItemCommitScope<'crypto, '_>,
-) -> Result<eg_types::native_control::SubmitWorkItemsResult, String> {
+) -> Result<medulla_types::native_control::SubmitWorkItemsResult, String> {
     let WorkItemCommitScope {
         crypto,
         authoritative_now_ms,
         outbox_id,
         admitted_actor,
     } = scope;
-    use eg_types::native_control::{
+    use medulla_types::native_control::{
         NativeControlSchemaVersion, MAX_SUBMIT_BATCH, MAX_SUBMIT_BATCH_CHANGED_IDS,
     };
     if request.schema_version != NativeControlSchemaVersion::V1
@@ -856,7 +856,7 @@ pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
         changed.extend(result.changed_work_item_ids.clone());
         results.push(result);
     }
-    Ok(eg_types::native_control::SubmitWorkItemsResult {
+    Ok(medulla_types::native_control::SubmitWorkItemsResult {
         schema_version: NativeControlSchemaVersion::V1,
         results,
         replayed: false,
@@ -868,7 +868,7 @@ pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
 fn validate_batch_child(
     graph: &str,
     tenant: &str,
-    child: &eg_types::native_control::SubmitWorkItemRequest,
+    child: &medulla_types::native_control::SubmitWorkItemRequest,
 ) -> Result<(), String> {
     if child.run_id.is_some() {
         return Err("run admission requires a single SubmitWorkItem".into());
