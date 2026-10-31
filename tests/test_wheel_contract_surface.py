@@ -247,9 +247,9 @@ class ContractProbeFixtures(unittest.TestCase):
         if sibling.is_file():
             data = sibling.read_bytes()
             self.contract.parent.joinpath("contract_errors.py").write_bytes(data)
-            manifest["artifact_digests"]["medulla/contract_errors.py"] = (
-                hashlib.sha256(data).hexdigest()
-            )
+            manifest["artifact_digests"]["medulla/contract_errors.py"] = hashlib.sha256(
+                data
+            ).hexdigest()
         fields = [manifest["source_tree_oid"]]
         for name, digest in sorted(manifest["artifact_digests"].items()):
             fields.extend([name, digest])
@@ -266,10 +266,7 @@ class ContractProbeFixtures(unittest.TestCase):
         info.joinpath("METADATA").write_text("Name: medulla\nVersion: 0\n")
         self.record = info / "RECORD"
         self.record.write_text(
-            "".join(
-                f"medulla/contract/{name},,\n"
-                for name in [*files, "receipt.json"]
-            )
+            "".join(f"medulla/contract/{name},,\n" for name in [*files, "receipt.json"])
         )
 
         if sibling.is_file():
@@ -320,8 +317,7 @@ class ContractProbeFixtures(unittest.TestCase):
                     extra.write_text("{}")
                 if location != "filesystem":
                     self.record.write_text(
-                        original_record
-                        + "medulla/contract/schemas/extra.json,,\n"
+                        original_record + "medulla/contract/schemas/extra.json,,\n"
                     )
                 self._assert_rejected(
                     "RECORD schema inventory mismatch"

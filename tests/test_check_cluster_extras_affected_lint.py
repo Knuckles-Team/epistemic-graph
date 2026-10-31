@@ -77,7 +77,9 @@ def test_main_runs_heavy_when_cargo_lock_changed(module, monkeypatch):
     reasons: list[str] = []
     _stub_run_heavy(monkeypatch, module, reasons)
     monkeypatch.setattr(
-        module, "_changed_files", lambda: ["Cargo.lock", "crates/medulla-core/src/lib.rs"]
+        module,
+        "_changed_files",
+        lambda: ["Cargo.lock", "crates/medulla-core/src/lib.rs"],
     )
 
     assert module.main() == _HEAVY_SENTINEL
@@ -88,7 +90,9 @@ def test_main_runs_heavy_when_reachability_cannot_be_computed(module, monkeypatc
     _disable_reuse(monkeypatch, module)
     reasons: list[str] = []
     _stub_run_heavy(monkeypatch, module, reasons)
-    monkeypatch.setattr(module, "_changed_files", lambda: ["crates/medulla-core/src/lib.rs"])
+    monkeypatch.setattr(
+        module, "_changed_files", lambda: ["crates/medulla-core/src/lib.rs"]
+    )
 
     def boom() -> set[str]:
         raise RuntimeError("cargo metadata exploded")
@@ -103,7 +107,9 @@ def test_main_runs_heavy_when_touched_crate_reaches_extras(module, monkeypatch):
     _disable_reuse(monkeypatch, module)
     reasons: list[str] = []
     _stub_run_heavy(monkeypatch, module, reasons)
-    monkeypatch.setattr(module, "_changed_files", lambda: ["crates/medulla-raft/src/lib.rs"])
+    monkeypatch.setattr(
+        module, "_changed_files", lambda: ["crates/medulla-raft/src/lib.rs"]
+    )
     monkeypatch.setattr(module, "reachable_from_extras", lambda: {"medulla-raft"})
 
     assert module.main() == _HEAVY_SENTINEL
@@ -117,7 +123,9 @@ def test_main_skips_heavy_when_touched_crate_does_not_reach_extras(
     _disable_reuse(monkeypatch, module)
     reasons: list[str] = []
     _stub_run_heavy(monkeypatch, module, reasons)
-    monkeypatch.setattr(module, "_changed_files", lambda: ["crates/medulla-core/src/lib.rs"])
+    monkeypatch.setattr(
+        module, "_changed_files", lambda: ["crates/medulla-core/src/lib.rs"]
+    )
     monkeypatch.setattr(module, "reachable_from_extras", lambda: {"medulla-raft"})
 
     assert module.main() == 0

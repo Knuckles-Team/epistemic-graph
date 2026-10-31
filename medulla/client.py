@@ -10929,9 +10929,7 @@ async def _open_tcp_stream(
         )
     except (asyncio.TimeoutError, TimeoutError) as e:
         raise TimeoutError("medulla TCP connection timed out") from e
-    logger.info(
-        "Connected to medulla via native TCP (tls=%s)", tls_context is not None
-    )
+    logger.info("Connected to medulla via native TCP (tls=%s)", tls_context is not None)
     return reader, writer
 
 
@@ -11262,9 +11260,7 @@ async def _read_frame(reader: asyncio.StreamReader) -> dict[str, Any]:
     len_buf = await reader.readexactly(4)
     msg_len = int.from_bytes(len_buf, byteorder="big")
     if msg_len <= 0 or msg_len > _MAX_RESPONSE_BYTES:
-        raise ConnectionError(
-            "medulla response exceeded the configured resource limit"
-        )
+        raise ConnectionError("medulla response exceeded the configured resource limit")
     body = await reader.readexactly(msg_len)
     resp = msgpack.unpackb(body, raw=False)
     if not isinstance(resp, dict) or not isinstance(resp.get("id"), int):
@@ -16223,9 +16219,7 @@ class MedullaClient:
         except Exception as e:
             self._on_reader_terminated(
                 generation,
-                ConnectionError(
-                    f"medulla response failed ({type(e).__name__})"
-                ),
+                ConnectionError(f"medulla response failed ({type(e).__name__})"),
             )
 
     def _dispatch_response(self, resp: dict[str, Any]) -> None:
@@ -16977,9 +16971,7 @@ class SyncMedullaClient:
         thread = threading.Thread(target=run_loop, daemon=True)
         thread.start()
 
-        future = asyncio.run_coroutine_threadsafe(
-            MedullaClient.connect(**kwargs), loop
-        )
+        future = asyncio.run_coroutine_threadsafe(MedullaClient.connect(**kwargs), loop)
         async_client: MedullaClient | None = None
         try:
             async_client = future.result()

@@ -204,7 +204,11 @@ def test_kiss_census_package_roots_cover_the_facade_and_each_crate():
     census = _load_kiss_census()
 
     roots = census.package_roots(
-        ["src/lib.rs", "crates/medulla-core/src/lib.rs", "crates/medulla-core/tests/t.rs"]
+        [
+            "src/lib.rs",
+            "crates/medulla-core/src/lib.rs",
+            "crates/medulla-core/tests/t.rs",
+        ]
     )
 
     assert roots == ["crates/medulla-core", "src"]

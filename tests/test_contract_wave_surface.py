@@ -96,9 +96,7 @@ def test_every_wave_method_is_internal_with_no_consumer() -> None:
 
 def test_no_wave_method_is_reachable_from_the_python_client() -> None:
     ids = (ROOT / "medulla/generated/_ids.py").read_text(encoding="utf-8")
-    dispatch = (ROOT / "medulla/generated/__init__.py").read_text(
-        encoding="utf-8"
-    )
+    dispatch = (ROOT / "medulla/generated/__init__.py").read_text(encoding="utf-8")
     for name in INTERNAL_WAVE_METHODS:
         assert f'"{name}"' not in ids, f"{name} must not appear in METHOD_IDS yet"
         assert f'"{name}"' not in dispatch, f"{name} must not be sendable yet"

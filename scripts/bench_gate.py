@@ -112,7 +112,9 @@ def _check_latency(
 
 
 def _emit_result(reported: list[str], failures: list[str]) -> int:
-    print("medulla-plan perf/recall gate (CONCEPT:MEDULLA-KG.query.perf-recall-ci-gate):")
+    print(
+        "medulla-plan perf/recall gate (CONCEPT:MEDULLA-KG.query.perf-recall-ci-gate):"
+    )
     print("\n".join(reported))
 
     if failures:

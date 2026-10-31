@@ -70,9 +70,7 @@ def test_injects_platform_extension_and_preserves_server_mode(
     target = f"medulla/{extension}"
     with zipfile.ZipFile(server) as archive:
         assert archive.read(target) == payload
-        server_info = archive.getinfo(
-            "medulla_stem-0.data/scripts/medulla-server"
-        )
+        server_info = archive.getinfo("medulla_stem-0.data/scripts/medulla-server")
         assert (server_info.external_attr >> 16) & 0o777 == 0o755
         record = archive.read("medulla_stem-0.dist-info/RECORD").decode()
     rows = {row[0]: row[1:] for row in csv.reader(io.StringIO(record))}

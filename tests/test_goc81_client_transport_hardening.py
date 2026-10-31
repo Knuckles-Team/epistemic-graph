@@ -264,10 +264,7 @@ def test_generic_ca_vars_alone_never_select_tls_mode(monkeypatch):
     )
     assert decision == _TlsDecision(False, "default", None, "none")
     # And the higher-level context builder must agree: no context at all.
-    assert (
-        MedullaClient._resolve_tls(None, client_cert=None, client_key=None)
-        is None
-    )
+    assert MedullaClient._resolve_tls(None, client_cert=None, client_key=None) is None
 
 
 def test_service_specific_ca_var_does_select_tls(monkeypatch):

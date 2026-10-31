@@ -66,7 +66,9 @@ def test_eg_compute_solve_step_enables_the_solve_feature():
     to an empty test binary and the medulla-compute solve coverage this
     requirement names never actually executes."""
     invocations = [
-        inv for inv in _cargo_test_invocations(_gates_steps()) if "medulla-compute" in inv[0]
+        inv
+        for inv in _cargo_test_invocations(_gates_steps())
+        if "medulla-compute" in inv[0]
     ]
     assert invocations, (
         "gates job must declare a cargo test invocation covering medulla-compute"
@@ -78,7 +80,9 @@ def test_eg_compute_solve_step_enables_the_solve_feature():
     )
 
     solve_test = ROOT / "crates" / "medulla-compute" / "tests" / "solve.rs"
-    assert solve_test.is_file(), "expected crates/medulla-compute/tests/solve.rs to exist"
+    assert solve_test.is_file(), (
+        "expected crates/medulla-compute/tests/solve.rs to exist"
+    )
     assert _required_feature(solve_test) == "solve", (
         "tests/solve.rs is expected to stay gated on the `solve` feature; if that "
         "changes, this audit's coverage mapping must be revisited alongside it"

@@ -184,9 +184,9 @@ def test_no_retired_flat_policy_surface_exists() -> None:
     capability_source = (ROOT / "crates/medulla-capabilities/src/lib.rs").read_text(
         encoding="utf-8"
     )
-    registry_source = (ROOT / "crates/medulla-capabilities/src/domains/mod.rs").read_text(
-        encoding="utf-8"
-    )
+    registry_source = (
+        ROOT / "crates/medulla-capabilities/src/domains/mod.rs"
+    ).read_text(encoding="utf-8")
     scanner_source = (ROOT / "scripts/method_policy_inventory.py").read_text(
         encoding="utf-8"
     )

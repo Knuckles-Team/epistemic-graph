@@ -136,9 +136,7 @@ async def test_agent_component_senders_pass_the_served_mac() -> None:
         await client.close()
 
 
-async def _content_reaches_dispatch(
-    client: MedullaClient, component_id: str
-) -> None:
+async def _content_reaches_dispatch(client: MedullaClient, component_id: str) -> None:
     """The probe component has no stored body, so the engine may refuse the
     read itself -- but only after the MAC and decode accepted the request."""
     try:
