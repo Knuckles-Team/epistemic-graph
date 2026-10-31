@@ -1,0 +1,957 @@
+{
+ "method": "W0 spec-coherence pass, 2026-10-30. Each entry names the medulla row and the call recorded in it.",
+ "decisions": [
+  {
+   "row": "EG-DECISION-ENGINE-R001.2",
+   "decision": "R001.2 split into .2.1 Constraint and .2.2 Entailment; proofs live in a new optional DecisionRecord field `uniqueness`, omitted when empty so v1 goldens keep their bytes (no schema_version bump)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R001.2",
+   "decision": "Entailment requires uniqueness in both scopes; with no eliminations the second solve serves both scopes."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R001.100",
+   "decision": "Renamed RecommendationSafetyV1/SafetyBoundV1 to SafetyBound and siblings; dropped the V1 suffix."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R001.100",
+   "decision": "Bounds use Q32 fixed point; the NaN/infinity refusal is unrepresentable and dropped."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R001.100",
+   "decision": "Dropped dead AU-HARNESS-R021.4/.6/.7: their bound and provenance checks are this row; evidence persists through DecisionLog Commit of the sealed record."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R014.100",
+   "decision": "Replaced dead AU-CONTROL-R006 (usage-informed cost) with its medulla successor R801."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R014.100",
+   "decision": "Ties break on component_id ascending."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R019.100",
+   "decision": "Approval is required only when the pinned policy sets approval_required, so existing commits keep working."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R020.1",
+   "decision": "CandidatePoolV1 renamed CandidatePool."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R020.1",
+   "decision": "No medulla successor existed for the experience-record content of dead AU-HARNESS-R022.1/.3; the record and ranking are written into R020.1.1/.2 and the dead IDs removed."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R029.1",
+   "decision": "RetrievalProviderBindingV1 renamed RetrievalProviderBinding; execution moved to arbora retrieval.search."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R029.2",
+   "decision": "AvailableContextSourceV1/ContextSourceSelectionV1 renamed without suffix."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R029.2",
+   "decision": "UNAUTHORIZED applies only to sources the caller named; unnamed invisible sources are never counted (R013 wins)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R031.100",
+   "decision": "Admission is a new QuestionKind::PaperAdmission with its own family; the six-hour scheduler stays arbora ARBORA-OPS-R022.2 (live)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R035.750",
+   "decision": "The route code is a file route.rs, not a route/ directory, matching the flat eg-numeric decision layout."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R035.750",
+   "decision": "Workflow-context shielding and the structured-plan fallback are in-run mechanics; medulla keeps the stage order and the ROUTE_NO_STAGE abstention."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R039.2",
+   "decision": "Replaced dead AU-CONTROL-R006 with R801; cost key stays `l5.observed_cost` as in R039.1."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R042.100",
+   "decision": "Removed dead SDK-SOURCE-INGEST-R012.2 reference; the consumer moves to SCION-CONNECTOR-CONTROL."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R042.101",
+   "decision": "R042.101 and R165 define the same ToolNecessity concept; R165 survives. Dead AU-HARNESS-R018.5/R024.2/.4 references drop with the retired row."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R044.2.2",
+   "decision": "Medulla exposes A2A routing as a Decide question kind; the task-submission handler moves to ARBORA-A2A."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R054.1",
+   "decision": "New ontology files are named decision.ttl and decision.shapes.ttl without the -v1 suffix (no version suffixes); this departs from the existing file-name pattern."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R079.2",
+   "decision": "Cheaper-index skip is the exact-digest lookup only; no persistent BM25 or graph lookup exists for spans, so those skips stay out of scope."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R079.4",
+   "decision": "No SQL-column embedding path exists on main; the gate attaches at source_ingestion.rs::prepare and the profile contract moves to scion-sdk."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R080.2",
+   "decision": "R080.2 wires the two producers that exist on main; extractors for the remaining rungs bind when their rows land."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R088.1",
+   "decision": "rapid_r088.rs does not exist; the change lives in stat_belief.rs."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R088.2",
+   "decision": "ReplayEventV1 renamed ReplayEvent."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R099.1",
+   "decision": "Wikidata connector code moves to a new connector repo (CONN-WIKIDATA); medulla keeps only the mapping fixture and SHACL validation."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R116.2",
+   "decision": "admit_call_path is absent on origin/main and cannot be enforced on the wire; R116.2 proves the contract by inventory instead of wiring a client-side gate."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R129.1",
+   "decision": "Attach point is a new DecisionLog PromoteRule op; no production consensus-to-rule path existed. Invariants are a new RuleInvariant component kind."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R130.3",
+   "decision": "The call site is the Rank family on the statistical path (register D R130.3), not conclude.rs; the call is rank_calibrated, not rank."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R130.6",
+   "decision": "Replaced the Python test with an L3 journey: Rank adds no client method."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R131.3",
+   "decision": "The limit stage runs on the statistical Decide path (stat_decide.rs), where Advisory exists; conclude.rs is the assembly path and is not touched."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R132.3",
+   "decision": "Entries enter the statistical Decide path as a typed param; known source digests come from the pinned policy."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R615.3",
+   "decision": "Removed dead SDK-SOURCE-INGEST-R600; vendor execution moves to SCION-GOVERNED-WRITEBACK."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R036",
+   "decision": "R036 root journey test is a new L3 file assemble_tests.rs; AgentAssemble solved records use ResolutionKind::Optimization."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R036.101",
+   "decision": "R036.101: dropped the sandboxed-frame rendering clause (not a medulla concern); path discovery is a consumer note."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R036.103",
+   "decision": "R036.103-.106: kept as medulla-resident engine persistence (RbacStore, AgentLibraryStore, coordinator); the two-phase direction already landed in R036.102 stays."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R106.1",
+   "decision": "R106.1: quorum is strict majority of positions, default fraction 0.5 (knob); conflict rule plurality, tie abstains. Types lose the V1 suffix."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R172",
+   "decision": "R172: removed all references to the deleted Meristem module and its acceptance tests; acceptance is defined inline by fixtures."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R614",
+   "decision": "R614: the engine runs no text model. The caller supplies a card summary with model id and prompt digest; classification is nearest-centroid on the existing embedder. Method SemanticEnrich is new (method_11.rs, ingestion domain)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R650",
+   "decision": "R650: the served method CapabilityDesignate is dropped; designation is the Decide kind CapabilityDesignation of R172 and R650 supplies the descriptor and closure projection it returns."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R814.7",
+   "decision": "R814.7: UQL text follows the pipeline grammar seen in tests (MATCH ... |> RETURN); the served test must parse it, and the lane corrects row and test together if the grammar differs."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128",
+   "decision": "R128 root keeps the harness_config family in medulla; run-time application is a harness obligation recorded as a consumer note."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128.4",
+   "decision": "Thresholds become knobs harness.* (R179); tenant override flows through the pinned DecisionPolicy, not a separate override path."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128.8",
+   "decision": "Profile resolved via search_components kind filter (verified path in candidates.rs); ablation and upper-bound facts read from graph nodes so no new request fields are needed."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128.9",
+   "decision": "Reviewer cited smallest_covering_subset (greedy); stat_tool_subset.rs already uses the exact solver (R056.2.2), so the family reuses solved_covering_subset to keep one selector."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128.9",
+   "decision": "required_capabilities added as an optional additive field on HarnessConfigRequestBody."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128.10",
+   "decision": "The old specialized-or_else chain is gone (R001.101.2), so routing is one registry arm instead of a match beside tool_subset_outcome."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128.11",
+   "decision": "Why-not for non-component parts is encoded as Definition premises because WhyNot is keyed by component and slot."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128.12",
+   "decision": "The family stores HarnessConfigEvaluationEvidence in StatisticalInputs.harness_evaluation at seal time; that field exists on main."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128.13",
+   "decision": "Rollup only; the two children carry the work."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128.13.1",
+   "decision": "Both unit tests exist at harness_config.rs and are bound by this row."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128.13.1.1",
+   "decision": "Wording no longer says refuse all attached evidence; after R128.13.2.1 only evidence that fails re-derivation refuses. The existing test still holds."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128.13.1.2",
+   "decision": "Limits become knobs; benchmark clause moves to the R178 nightly suite (D-3); byte ceiling capped at the 16 MiB frame limit."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128.13.2",
+   "decision": "Rollup only."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128.13.2.1",
+   "decision": "Replay mirrors the existing replay_harness_contrast pattern in stat_replay.rs."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128.13.2.2",
+   "decision": "Limits become knobs; benchmark clause moves to the R178 nightly suite (D-3)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R128.15",
+   "decision": "Benchmark clause is the nightly group decide/harness_config."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R801",
+   "decision": "Ledger is an ingest/read surface, not a Decide family; its stage is stated as outside the pipeline."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R801",
+   "decision": "One served method Usage{op} (append, put_price, read) follows the DecisionLog{op} pattern; read is the 'UsageRead' of R801.7."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R801.1",
+   "decision": "UsageRecord gains recorded_at_ms (needed for price-at-record-time) and child_id/operation (partition keys for R158); prices use u64 micro-units per Mtok to avoid floats."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R801.1",
+   "decision": "Currency is one catalog currency per tenant; no currency field."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R801.2",
+   "decision": "Storage is a redb ledger transaction in server/persistence (pattern: decision_jobs.rs), replacing the unverifiable 'MutationBatch' and 'eg-tsdb buckets' wording; day buckets live in the same transaction so append and rollup stay atomic."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R801.2",
+   "decision": "Cost is None (unknown) when no price applies; routing must abstain naming the fact (R039.1)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R801.4",
+   "decision": "Negative counts arrive only through the wire decoder, so the code is raised there."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R801.5",
+   "decision": "Golden file location fixed at tests/golden/usage_cost_rollup.json."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R801.6",
+   "decision": "Benchmark moves to the nightly suite (D-3); budgets kept as written (D-4)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R801.7",
+   "decision": "Read is op 'read' of the Usage method; the old name UsageRead is retained only as the operation's meaning."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R133",
+   "decision": "Trace persistence reuses the existing ReceiptNode and apply_receipt_rows path; the produced link comes from eg_durable::project."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R133",
+   "decision": "Split the review's R133.5 into premises (R133.5) and trace write (new R133.8)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R133.1",
+   "decision": "RunTraceRecord gains model_id; R165 counts tool use from its steps."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R133.2",
+   "decision": "Defaults are Tunable knobs; ceilings are Fixed because they bound security resources."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R133.3",
+   "decision": "Routing is a registry arm; the cited stat_decide.rs line numbers are dropped."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R133.4",
+   "decision": "A missing task class answers the defaults as an Advisory with a Claim premise instead of an Abstained outcome, because an abstention would carry no quota values."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R133.5",
+   "decision": "Trace-write evidence moved to R133.8."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R133.6",
+   "decision": "Benchmark clause is the nightly group decide/runtime_quota."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R133.7",
+   "decision": "Recursive trace nodes ride the existing terminal receipt-node path; the read is one typed method TraceCritique with a scope split for protected fields."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R133.7",
+   "decision": "Version suffixes dropped (RecursiveTraceNode, TraceCritiqueQuery)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137",
+   "decision": "Three package/mode decisions get their own question kinds (context_package, recursion_mode) instead of one overloaded context_budget kind; one term per concept."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.3",
+   "decision": "The context policy of harness_config is not an input here; the over-window fraction is a knob."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.3",
+   "decision": "Missing window uses the knob default with a Claim premise instead of abstaining."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.4",
+   "decision": "Missing window uses the knob default, fixing the contradictory 'abstain with the default' wording."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.6",
+   "decision": "Benchmark clause is the nightly group decide/context_budget."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.7",
+   "decision": "Values are integer micro-units so no float or rounding rule is needed at solve time."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.7",
+   "decision": "Package records live in a new context_package.rs, not in context_budget.rs, to keep both files small."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.8",
+   "decision": "The review rated this row READY; the sentence 'round_ties_even' is dropped because values are already integer micro-units."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.8",
+   "decision": "Latency term uses milliseconds and tokens per second, divided by 1000."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.9",
+   "decision": "The package arrives as a new typed param, with declared candidates carrying only the ids, so stages 1 and 2 still run."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.10",
+   "decision": "Stale means the graph node revision or digest differs; the node properties are read through the tenant-filtered GraphView."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.11",
+   "decision": "The consumer contract AU-CONTEXT-R004 is dead; the consumer side is a harness obligation recorded as a consumer note."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.12",
+   "decision": "Cross-repository acceptance dropped; the consumer is a consumer note."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.13",
+   "decision": "Threshold rule is a policy constraint at stage 3, not a ladder rung; the selected_rung output of the draft is dropped."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.13",
+   "decision": "Defaults 65536 bytes and 50000 nodes come from the review."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.14",
+   "decision": "Medulla keeps the verdict; the held-out evaluator and the replacement point are harness obligations recorded as consumer notes."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.14",
+   "decision": "AU-HARNESS references removed."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.14",
+   "decision": "R137.101 retires into this row."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.15",
+   "decision": "Admission is the medulla share; output validation against the signature is a harness obligation recorded as a consumer note."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.15",
+   "decision": "R137.102 retires into this row; AU-HARNESS references removed."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.16",
+   "decision": "Recommended option applied: bands map to fractions of remaining tokens (R137.16 decision); the band is a measured task-class fact, never a request claim."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.100",
+   "decision": "Medulla owns relevance selection; the run loop applies the version and records the event (consumer note)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.100",
+   "decision": "AU-HARNESS references removed."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.101",
+   "decision": "D-5: retire R137.101 into R137.14."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.102",
+   "decision": "D-5: retire R137.102 into R137.15."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R148",
+   "decision": "Option 1 applied: registered mode table, selection by request mode_id (D R148.2). The ConfigReplayReceipt draft type is dropped; the sealed record inputs_digest plus the config digest already bind the replay."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R148.1",
+   "decision": "Settings are a closed scalar map so the digest is canonical and hashable."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R148.2",
+   "decision": "KnobValue has no text type, so the default-mode knob holds the mode ordinal."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R148.3",
+   "decision": "Applying the config is a harness obligation (consumer note 9)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R148.4",
+   "decision": "A changed config between decision and invocation is detected when the caller re-asks with expected_config_digest."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R148.5",
+   "decision": "Loader acceptance is Meristem-side and is not recorded here."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R148.6",
+   "decision": "Loader step dropped to a consumer note."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R158",
+   "decision": "Entry is Decide (evaluate-only, per run), not DecisionEval; error observations are the R801 ledger outcomes, partitioned by child_id and operation."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R158.1",
+   "decision": "Budget is echoed, not changed, by the rule."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R158.2",
+   "decision": "Decision R158.2 applied: ladder rule, model one tier up and width minus one at high error; width plus one up to the host ceiling at low error."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R158.3",
+   "decision": "Replaces the stat_jobs.rs seam, which holds import lines and no routing."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R165",
+   "decision": "Necessity is computed from stored RunTrace nodes (R133), which is why RunTraceRecord carries model_id and step kinds."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R165.2",
+   "decision": "Decision R165.2 applied: necessity is the success-rate difference with versus without the tool, abstaining below 30 samples per arm."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R165.4",
+   "decision": "Staleness applies to the newest counted run because the measure is computed at read time."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R165.5",
+   "decision": "The link to the model call is a premise, so Decide writes nothing."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R173",
+   "decision": "Threshold defaults 3 and 5 become knobs concentration.min_shipped and concentration.window_rounds."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R173.3",
+   "decision": "Shape goes into the existing harness-v1.shapes.ttl rather than a new file; the policy node is the single threshold source."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R173.6",
+   "decision": "Benchmark clause moves to the nightly suite (D-3); the 2 ms budget stays on the kernel sub-benchmark."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R134",
+   "decision": "Tool relevance returns a ranked tool list and covering subset, not a TaskPlanProposal: a plan tool step needs call arguments the engine does not hold."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R134.1",
+   "decision": "A skill step names its skill in a typed `assignee` field instead of in `prompt`; the policy revision bump covers the change."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R134.1",
+   "decision": "QuestionKind::ToolRelevance moves from R134.1 to R134.110.1, which owns that family."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R134.2",
+   "decision": "Callers supply no relevance scores: the tool index computes them (R134.110.2), so R134.2 no longer takes a caller `relevance` field."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R134.3",
+   "decision": "Specialist routing uses caller-declared specialist scores; Medulla holds no model, so decomposition takes typed subtasks from the harness."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R134.9",
+   "decision": "Skill ranking authority is Medulla (brief R134.9); the AU-HARNESS/AU-CONTEXT conflict is closed by removing both references."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R134.11",
+   "decision": "Horizon partition rule is dependency-layer based; credit accounting is one fixed identity, not a tunable formula."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R134.100",
+   "decision": "AggregateFanout/v1 becomes a `Decide` question kind `FanoutAggregate`: the operator application is a verdict, so no new Method variant is needed."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R134.101",
+   "decision": "The coordinator is the existing output task, so the plan gains only `final_artifact`, not a second `coordinator_id`."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R134.110.2",
+   "decision": "Reuse the candidate-local BM25 kernel instead of a new inverted index: one lexical scorer, and visibility holds by construction."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R134.111",
+   "decision": "Removed dead AU-BOUNDARY references; kept the live ARBORA-RELEASE and MERISTEM-HARNESS-CYCLE references."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R134.751",
+   "decision": "R134.751 stays as the scale proof at the catalog cap; R134.110.6 is the functional journey. Both use knob tool_subset.max_tools (D-6)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R135.7",
+   "decision": "Producer/consumer identity digests of R135.9 are dropped: the receipt digest and the verifier policy digest already bind both sides."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R135.8",
+   "decision": "Semantic reuse key and provenance receipt follow the closure text; receipts split into child R135.8.1 to keep each row one unit."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R139.3",
+   "decision": "Dropped ComparativeAnalysisEvidence and ComparativeAnalysisRefusal as separate types: premises are PremiseRef and refusals are registered codes (R010.100)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R139.3",
+   "decision": "Used Q32 QuantisedValue for score and importance instead of f64, so replay stays deterministic."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R139.3",
+   "decision": "Importance thresholds, synthesis batch and ceiling cap are knobs; importance is already normalised or the request refuses."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R139.3",
+   "decision": "Carrier for the family body is a new TypedValue variant and the answer is StatisticalOutcome::Answered with FamilyAnswer; the first family PR adds the variant."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R139.5",
+   "decision": "Meristem consumer and receipt moved to MERISTEM-RUN; Medulla keeps plan, premises and digest."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R139.6",
+   "decision": "Meristem consumer and receipt moved to MERISTEM-RUN; Medulla keeps plan, premises and digest."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R156.3",
+   "decision": "Per R135.8 decision: medulla compiles only typed drafts; the harness extracts the draft from prose. No Method::CompileSkillWorkflow is added: the compile is a Decide question and the store reuses CompiledProgram and ProgramLookup."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R156.3",
+   "decision": "Dependency on R135.1 and R135.3 so one program store exists."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R159.3",
+   "decision": "Replaced the proposed RecordPathOutcome write op with the existing DecisionLog Evaluate path and aggregate_log; path_id is the option id."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R159.3",
+   "decision": "Moved the R039 routing wording out: this root is its own PathPreference question and does not extend connector-competency R039."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R171.2",
+   "decision": "Per register: comparison is the set difference of planned versus wired call sites; wired means the attach file is a support path of an existing view container. Reused derive_architecture_view; no second derivation."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R171.2",
+   "decision": "R171 overlaps EG-CQ-ORCH-R010.7; this root owns the Decide question and R010.7's TaskPlan gate calls the same function. Request type PlanningAdmissionRequest replaces PlanAdmissionV1."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R176.2",
+   "decision": "Merge rule: max score per component id, ties by id; skills join tools through shared capabilities in the same pack; agents via orchestrationUsesTool."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R176.2",
+   "decision": "Test file renamed load_set.rs -> load_set_tests.rs to match the stat_tests convention; refusal codes prefixed with the family (LOAD_SET_*)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R177.2",
+   "decision": "Conditions derive from cp:providesCapability and cp:operatesOn (no precondition property exists); step tool joins through the step's needsSkill skill and shared capabilities; success rate source is DecisionLog aggregate."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R750.750",
+   "decision": "Search arena stays with the caller: Decide takes a 64-node frontier summary plus a spent-budget ledger, because the request cap is 64 KiB and 64 candidates."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R751.751",
+   "decision": "Split: reward decomposition and curriculum promotion are two question kinds; the subgoal hierarchy is produced by the harness and only validated here. Dynamic sampling reduced to a saturation check on the trajectory reward."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R752.751",
+   "decision": "Fan-out width, drift and corrigibility are choices and stay in medulla; the harness only applies them. Approval is enforced by arbora, not by a medulla approval fact. Self-reported outcomes are the existing label refusal."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R753.751",
+   "decision": "Module name verify clashed with solve/verify; kernels live in eg-numeric decision/trajectory_join.rs and step_verify.rs. Adversarial probes reuse ProbeVerdict of R138; the join, verdict and admission are choices and stay in medulla."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R100",
+   "decision": "Overstory comparison panel text dropped from R100.100: no live consumer spec exists (WEBUI-* is cut), so no move was emitted."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R100.1",
+   "decision": "R100.1 mapping (register): ok is positive, error or correction is hard negative, key (event_id, source_revision). Added: latest event time wins per (record, evidence); ties go negative."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R100.1",
+   "decision": "R100.1 entry corrected from DecisionFit to DecisionLog Learn FitAdapter, because adapter fits run there (stat_adapter.rs)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R100.100",
+   "decision": "R100.100 split into two features (ranking evaluation .1/.2, context search .3/.4) per review. Ranking metric value is stored as integer parts per million (half to even) to stay deterministic."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R100.100",
+   "decision": "Context search matches exact normalized n-grams (no case folding) so original-byte offsets stay exact; case folding is out of scope."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R100.101",
+   "decision": "R100.101 split into topic coverage, Brier score and wiring per review. Brier uses fixed-point parts per million with q rounded half to even before squaring, so the score is exact in 128-bit integers."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R141",
+   "decision": "D-2: R145.* retired into R141.100. MemoryRecord does not exist on origin/main in crates/eg-types/src/memory.rs (it holds ConversationRecord, ProjectRules, RetentionPolicy, ContextBudget, MemoryClass). Rows cite MemoryRecord as defined by R617.1 (g07)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R141",
+   "decision": "Receipt gate lands on Consolidate (new required field admit_receipt_digests) and on SyncMemorySnapshot (EG-DURABLE-KERNEL-R085.4 calls the same function); Reinforce and DecayMemories are salience-only and exempt."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R141",
+   "decision": "SyncMemorySnapshot, ReadMemorySnapshot and ListMemorySnapshots are not in the code on origin/main; they are specified in EG-DURABLE-KERNEL-R085. Rows depend on those IDs."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R141.100",
+   "decision": "R059 outcome-aggregate fidelity and R128 context elision are not substitutes; kept as the original row stated."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R144",
+   "decision": "R144.1 (register): typed ops RawRead, CorpusScan, VerifySpan over medulla-stored Document nodes only. Served as a new read method IndexlessRetrieve instead of changing the raw-row result of UnifiedQuery, so the cost report has a typed home."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R144",
+   "decision": "Budget type is named IndexlessBudget because eg_plan::budget::Budget already exists for plan execution and means something else."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R144",
+   "decision": "ARBORA forwarding of caller budgets needs no row: arbora serves the new method automatically as eg.*."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R147",
+   "decision": "Ranking is served as a Decide Rank variant (param distilled_scorer) instead of a UnifiedQuery change, so the choice is a sealed record. Uploads reuse LearningWrite; no new Method."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R147",
+   "decision": "planning.rs:424 cited by the old row is unrelated; dropped."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R149",
+   "decision": "Search state uses the R085.9 body (four arrays) instead of the old digest-only SearchState struct, so there is one store and one record model. Digests are derived at read time."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R149",
+   "decision": "A separate SaveSearchState operation is not added: SyncMemorySnapshot compare-and-set already provides versioning (anti-sprawl)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R150",
+   "decision": "R150.2 staleness: 7 d stale and 14 d archived (register). EG-DURABLE-KERNEL-R085.10 says 30 d; its text must follow these knobs."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R150",
+   "decision": "Conflicting notes (same input digest, different output digest) are flagged and never applied automatically, matching R085.10's rule that unresolved content is not used implicitly."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R150",
+   "decision": "Capture requires a successful RunOutcome receipt (R100.102) for the note's run id."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R151",
+   "decision": "D-2/R151.3: medulla applies the penalty in the fit path; consolidation moved out of R151 to R651."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R152",
+   "decision": "Split R152: medulla returns a cited fact bundle (new read ContextFacts); prose rendering, citation mapping and unrenderable-fact refusal moved to MERISTEM-RUN."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R152",
+   "decision": "Dead context-compiler reference removed; rendering is a harness obligation recorded as a consumer note."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R153",
+   "decision": "R153.3/.6: medulla keeps the TOC record and ReadSpan; arbora listing and meristem exploration consumers moved out."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R153",
+   "decision": "Method::RetrievalContextSearch does not exist on main; the served proof uses the new ReadSpan read."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R154",
+   "decision": "D-2/R154: the target store is the one MemoryRecord model of R651; no separate operator knobs."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R154",
+   "decision": "R154.3 and R154.5 retired per register."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R155",
+   "decision": "D-2/R155: Episode groups MemoryRecord ids; no second memory record type."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R155",
+   "decision": "Transcript projection is owned by R617.2/R617.3; R155 consumes it."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R164",
+   "decision": "R164.3: history source is a new Learn write RecordBranchOutcome; Meristem binding and SkillGraphPipeline extension moved to MERISTEM-RUN."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R164",
+   "decision": "Contradiction is defined as a first-half versus second-half success-rate gap above 0.5."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R174",
+   "decision": "R174 family: refusal codes are upper-snake and registered in the retrieval-learning REFUSALS table; version suffixes dropped from every type."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R175",
+   "decision": "Decide writes nothing (AD-4), so the encoder fit is a Learn write (new child R175.8)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R175",
+   "decision": "V1 names in recommend.rs renamed in new child R175.7."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R617",
+   "decision": "D-2/R617: chat logs, rules and notes all store as MemoryRecord; R617.2 split into five slices (.2 and .2.1 to .2.4)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R651",
+   "decision": "D-2/R651.3: keep Consolidate, Reinforce and DecayMemories; add only MemoryRemember, MemoryRecall and MemoryExport. Consolidation planning is a field of MemoryRecall."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R651",
+   "decision": "R651.1: no new crate file in eg-epistemic; the types extend the existing crates/eg-types/src/memory.rs."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R651",
+   "decision": "Term fix: 'salience' retired in favour of the existing node property and field 'importance'."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R059",
+   "decision": "AU-HARNESS-R022.2 had no medulla successor; its consolidation threshold is a choice, so new child R059.2 holds it."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R059.1",
+   "decision": "Transferability reuses the R059 independent-outcome aggregate; no parallel evaluation store."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R059.1",
+   "decision": "`BackboneSkillEvaluation` becomes `BackboneBinding` on the existing evaluation record; no version suffix."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R059.1",
+   "decision": "R654 `TransferScore` retires into `TransferEstimate` here (one term per concept)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R118.1.2",
+   "decision": "The scalar reliability wire fields change in one release with no compatibility alias (hard cutover); the plan note asking for compatibility is superseded."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R118.1.2",
+   "decision": "Sparse-pool threshold is the existing statistical policy `min_support` (10), now `knob reputation.min_support`."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R136",
+   "decision": "AU-HARNESS-R021.3/.6/.7 (judge versus outcome divergence gate) had no medulla successor; new child R136.103 holds it."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R136",
+   "decision": "R136.100 retires into R161; R136.101 and R136.102 become one new kind `CriterionReview`."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R136.100",
+   "decision": "R136.100 restates R161 (failed-run trace, fix, regression test, paired revision receipts); R161 survives."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R136.100",
+   "decision": "AU-HARNESS-R004.1, R019.9 and R019.10 content (correction proposal, measured lift, engine-owned admission) is covered by R161."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R136.101",
+   "decision": "AU-HARNESS-R021.1 verdict `promote/hold/refuse` maps onto `PromotionVerdict` from R805.7; the review returns `hold` on regression."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R654.1",
+   "decision": "Applied R654.1 register: skill revisions reuse R805/R810 types; `PromotionVerdict` lives in R805.7, `TransferScore` retires into R059.1 `TransferEstimate`."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R654.6",
+   "decision": "R654.6 hot-path numbers move to the nightly suite (D-3); the bench is a `decide/skill_evolution` group in `benches/decide_budgets.rs`, not an `eg-epistemic` bench."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R805",
+   "decision": "AD-10 lifecycle owner is R805: types in `crates/eg-types/src/decision/promotion.rs`, kernels in `crates/eg-numeric/src/decision/promotion.rs`."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R805",
+   "decision": "Champion pointers reuse the governed pointer store (`stat_pointer.rs`) and `DecisionLog` `MovePointer`; the program graph pointer `ProgramActiveRevision` retires (R805.8)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R805",
+   "decision": "Promotion knobs are `Fixed`: the evolution engine must not tune its own promotion gate."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R805",
+   "decision": "Three receipt producers map into one `HeldOutEvidence`: `DecisionEvalReceipt` (heads), program job evidence (programs, prompts, skills), `PolicyEvaluation` (knob sets, model policies)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R810",
+   "decision": "`OptimizationResult.promoted` is replaced by `stage`; the job never moves a champion (hard cutover)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R810",
+   "decision": "Program refusal codes live in new `crates/eg-types/src/decision/program.rs` so the R010.100 uniqueness test reaches them."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R811",
+   "decision": "R179.3 says R811 receipts score knob-set revisions, so `PolicyEvaluation` generalizes from model-policy versions to `RevisionSubject` (wire change, hard cutover)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R813.1",
+   "decision": "Applied register: one `GraderKind` with five kinds; it lives in eg-types so `PolicyEvaluation` and `HeldOutEvidence` share it."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R138",
+   "decision": "Probe verdict rides in StatisticalOutcome::Advisory as a one-hot score over the labels resisted, compromised, inconclusive; no new outcome variant."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R138.100",
+   "decision": "Admission is a Decide family (new QuestionKind GeneratedCodeAdmission); materialization authority stays in arbora's governed write path."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R138.100",
+   "decision": "Receipt cases travel as Declared options because TypedValue has no list-of-records variant."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R138.101",
+   "decision": "Changeset review is a Decide family; findings arrive as Declared options; arbora is the producer."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R652.6",
+   "decision": "Claims are served by one Method::Claims with an op enum, following the DecisionLog shape; wire types in eg-types, kernels in eg-epistemic."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R652.6",
+   "decision": "Seal digest is SHA-256 (D-5), not blake3."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R653.6",
+   "decision": "LoopInstance.state is a string validated against loop_statechart_def(); no second LoopStatus enum."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R140",
+   "decision": "Meristem consumer clauses (K dispatch, projection, breadth receipts, comparison execution) became consumer notes."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R140",
+   "decision": "Dropped the python L4 file: the root adds no client method, so L3 is the served proof."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R140.100",
+   "decision": "Score is a weighted integer sum in micro-units, so replay is byte-stable."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R140.100",
+   "decision": "Dropped version suffix from TrajectoryBudgetDecision."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R140.101",
+   "decision": "Projection order comes from the engine so Meristem only applies it."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R140.102",
+   "decision": "Outcome-to-breadth mapping is a knob table: failure widens, success narrows."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R140.103",
+   "decision": "Policy id has no version suffix: pairwise_copeland, revision 1."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R140.103",
+   "decision": "Dead AU reference removed; comparison execution is a consumer note."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R142.100",
+   "decision": "Dropped version suffix; types are LocalCertificationAttestation."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R157.1",
+   "decision": "Admission knobs are Fixed: delegation admission is a policy question."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R160.2",
+   "decision": "Publication knobs are Fixed: publication is a policy and irreversible action."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R161.1",
+   "decision": "Admission rides Decide with a new CorrectionAdmission kind, because no ProposeCorrection method exists."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R162",
+   "decision": "Kept the projection decision and its record in medulla; workspace construction is a consumer note."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R166.3",
+   "decision": "Registry persistence uses tenant graph nodes, matching the graph-stored workflows of R135.8."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R167.2",
+   "decision": "Compatibility is an additive-only schema diff (D register R167.2)."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R168.1",
+   "decision": "Agent lifecycle record reuses AgentLibraryLifecycle; run-time states are harness consumer notes."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R169.2",
+   "decision": "Stop rule is a choice, so it stays in medulla; grading and instruction derivation are consumer notes."
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R170.2",
+   "decision": "The fallback is a choice, so it stays in medulla; the durable task store and the coordinator move to ARBORA-OPS."
+  }
+ ]
+}

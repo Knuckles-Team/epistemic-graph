@@ -4,65 +4,34 @@
 
 `plan.md` "Delivery architecture" defines the waves, the stages and the architecture decisions AD-1 to AD-12. Each task below names its exit proof. [`evidence/delivery-review-20261030/review.jsonl`](evidence/delivery-review-20261030/review.jsonl) holds the per-row gap, the proposed fix, the entry point, the proof kind and the model tier.
 
-### W0 Spec coherence (spec-only PRs)
+### W0 Spec coherence
 
-One PR per subsystem. A PR edits only the rows of its subsystem, so PRs touch different lines of `requirements.md`.
+W0 rewrote every open row to this standard. Each row must name its stage, its served operation and its files. It must also name its rule values, knobs (R179) and refusal codes (R010.100). It names its premises, write path and served proving test.
 
-- [ ] W0.1 Apply each THIN row's `fix` from `review.jsonl`. Each row must name its stage and its call site (file and function). It must also name its refusal codes, its values and its served proving test.
-- [ ] W0.2 Record the owner answer for each DECISION row in the row text (table below).
-- [ ] W0.3 Merge each DUP row into the row it restates. Retire the duplicate with a `retired_reason` that names the surviving row.
-- [ ] W0.4 Move each OWNER part to the owning repository's spec as a new row. Link the new row by ID from the medulla row.
-- [ ] W0.5 Write text for the BLANK rows R140.104, R140.105, R141.102, R141.103, R142.101 and R142.102, or retire them.
-- [ ] W0.6 Rename every version-suffixed type in row text (AD-3).
-- [ ] W0.7 Correct stale paths and line numbers. Use `tests/decide/` for served Python tests, and the `decide_blocking` dispatch chain for per-kind wiring.
-- [ ] W0.8 Mark each `.1` model row "verified by the root's served slice" (AD-5, AD-7).
-- [ ] W0.9 Re-run the rubric on every open row. Exit when every open row is READY, EXISTS or RETIRED.
+- [x] W0.1 Apply the review fixes to THIN rows.
+- [x] W0.2 Record each DECISION answer in its row. `evidence/delivery-review-20261030/w0-decisions.json` lists every call.
+- [x] W0.3 Retire DUP rows into their surviving rows.
+- [x] W0.4 File other-owner parts in ARBORA-OPS, ARBORA-A2A, SCION-* and CONN-* rows (`w0-moves.json`).
+- [x] W0.5 Write the formerly blank rows.
+- [x] W0.6 Drop version suffixes from type names.
+- [x] W0.7 Correct stale paths and dispatch references.
+- [x] W0.8 Mark model rows as verified by their root's served slice.
+- [x] W0.9 Re-check every open row against the standard.
 
-#### Cross-cutting owner decisions
+#### Cross-cutting decisions
 
-| ID | Question | Recommended answer |
-|---|---|---|
-| D-1 | Where do subsystem S9 roots belong? R140, R142, R157, R160–R163 and R166–R171 describe harness, package and workflow behaviour. | Move the run-loop and consumer behaviour to Meristem or arbora rows. Keep only the stored record and the decision question in medulla. |
-| D-2 | No other medulla spec owns agent memory. How are R141, R145, R150, R154, R155, R617 and R651 kept coherent? | Keep them in this spec under subsystem S6. Define one memory record and one consolidation path, reusing the served `Consolidate`, `Reinforce` and `DecayMemories` routes. Retire R145 into R141.100. |
-| D-3 | How does a benchmark clause in a `.6` row gate delivery? | Move it to the nightly suite (AD-9). The `.6` row keeps its served functional proof. |
-| D-4 | Are the AD-9 budgets right: `Decide` p50 20 ms, p99 150 ms, 10 % regression limit? | Adopt them as starting budgets. W6 measures them on the reference host and records the measured values. |
+| ID | Decision |
+|---|---|
+| D-1 | Lifecycle, package and workflow roots keep the record and the decision in medulla. Served parts go to ARBORA-OPS. The harness applies the received decision. |
+| D-2 | Agent memory stays in this spec as one `MemoryRecord` (R651.1) with one consolidation path over the served `Consolidate`, `Reinforce` and `DecayMemories` routes. R145 retired into R141.100. |
+| D-3 | Benchmark clauses run in the nightly suite (R178). A `.6` row keeps its served functional proof. |
+| D-4 | R178 budgets are service-level objectives, not knobs. W6 records measured values. |
+| D-5 | Tunable values are R179 knobs. Promotion-gate knobs are `Fixed`. |
+| D-6 | Harness obligations from the cut Meristem specs are consumer notes (`w0-consumer-notes.json`), not medulla clauses. |
 
-#### Row decisions (recommended option first)
-
-| Row | Question | Options |
-|---|---|---|
-| `R020.1` | What counts as a context match (dimensions, threshold) is explicitly unspecified; CandidatePoolV1 has a version suffix. | Options: (1) exact equality on task/context feature digest (recommended, deterministic); (2) cosine >= declared threshold; (3) owner-supplied policy. Then name `CandidatePool` in crates/eg-numeric/src/decision/exploration.rs. Call site: src/server/handlers/decide/stat_decide.rs::handle_decide candidate selection; require served Harness test. |
-| `R031.100` | Relevance scoring method, dimensions and threshold are undefined; scheduling and retrieval are other repos. | Options: (1) deterministic score = max(BM25 vs platform goals, embedding cosine vs graph nodes) >= 0.6 (recommended); (2) LLM scored; (3) caller-supplied scores. Also pick file crates/eg-numeric/src/decision/admission.rs. Call site: ingest admission gate calling crates/eg-numeric/src/decision/admission.rs; require served ingest test. |
-| `R039.2` | How cost enters the ladder is undefined (lexicographic vs weight); ObservedCost is a Meristem fact whose feature name is unknown. | Options: (1) among legal options with scores within epsilon, prefer lowest cost feature (recommended); (2) weighted sum; (3) hard cost cap. Name feature `observed_cost` and file crates/eg-numeric/src/decision/ladder.rs. |
-| `R059.1` | Robust/transferability aggregate formula and independence rule undefined; BackboneSkillEvaluationV1 suffix; skill merge key is AU's. | Options: min over backbones with all rows required (recommended); mean minus std; quantile. Name `BackboneSkillEvaluation` in crates/eg-numeric/src/decision/track_record.rs. |
-| `R100.1` | Outcome-to-label mapping policy and signal producer are unspecified (row says so); FeedbackEventV1 suffix. | Options: map outcome ok=positive, error/correction=hard negative, key (event_id, source_revision) (recommended); or owner-supplied policy. Then file crates/eg-numeric/src/decision/adapter.rs. |
-| `R130.3` | The row attaches `rank` at `conclude.rs`. That path has no calibrated scores, so the call must be `rank_calibrated`. Which `Decide` path supplies `RankedCandidate`? Where does `calibrated_score` come from? | Recommended: call `rank_calibrated` from the statistical `QuestionKind::Rank` arm in stat_decide.rs, taking `calibrated_score` from the pinned head's calibration. Alternative: conclude.rs with caller-supplied scores. Restate row to name `rank_calibrated` and the chosen path. |
-| `R131.5` | Decide is evaluate-only (R133.3 states read-only) yet this row stores an observation node and edge during Decide. Which path writes? | Recommended: Decide returns `LimitBreach` descriptors in the sealed record; a separate commit via `handle_decision_commit` persists the observation + edge to `signal_iri`. Alternative: write in Decide (breaks read-only guarantee). |
-| `R134.9` | Row asks to resolve AU-HARNESS-R022.3 vs AU-CONTEXT-R001 (who ranks skills). Also `TaskPlanSkillNodeV1` suffix, no file/test, depends on R140.102 policy. | Recommended: Medulla ranks and emits the tree; Meristem consumes. Then rename `TaskPlanSkillNode`, place in task_plan/skill_tree.rs, name test, refuse unpinned policy. Name the call site (file+function) and require a served proof through it. |
-| `R134.12` | How are width/depth chosen? Row refuses to prescribe a scoring formula, leaving no algorithm; relies on R018 paired comparison verdict. | Recommended: record-and-verify only: Medulla validates a caller-chosen ladder rung and paired-arm completeness; does not select. Rename `TrajectoryDecision`; name file and test. Alternative: define a width/depth ladder with thresholds. Name the call site (file+function) and require a served proof through it. |
-| `R135.8` | Who compiles NL workflows? Medulla has no NL compiler; types carry V1 suffixes (`WorkflowCompileRequestV1`, `CompiledWorkflowV1`, `semantic_reuse_key_v1`); compiler interface 'unspecified'. | Recommended: Medulla compiles only graph-stored typed workflows deterministically; NL compile is produced by harness as typed graph then stored. Rename types; key tuple as defined; error `MISSING_WORKFLOW_STEP`. Name the call site (file+function) and require a served proof through it. |
-| `R137.16` | How does task complexity change selection? 'Selection policy' undefined; `ContextBudgetSignalsV1` suffix. | Recommended: a pinned complexity policy maps score bands to a fraction of remaining tokens. The fraction is the caller ceiling: low 0.25, medium 0.5, high 1.0. Remaining = ceiling - committed - reserved. Alternative: scale value floor. Name the call site (file+function) and require a served proof through it. |
-| `R143.2` | Who detects relevance_update/constraint_change/timeout and from what input? Timeout duration? 'Define trigger conditions' is deferred to the implementer. | Options: (1) the caller submits the trigger kind in the `Decide` request, and Medulla only versions and hashes it (recommended). (2) Medulla derives triggers from graph state; timeout default 300 s. Pick (1) and state it. |
-| `R144.1` | What are 'raw file read' and 'corpus scan' inside Medulla (graph facts? lake files? connector-side)? Field types of IndexlessRetrieval undefined; 'context verification' undefined. | Options: (1) typed op enum {RawRead,CorpusScan,VerifySpan} over Medulla-stored source documents only (recommended); (2) pass-through to connectors (owner scion-sdk). Add budget field types u64. |
-| `R148.2` | What decision inputs choose a mode and what are the modes? Selection rule absent; 'Meristem loader validates' is AU-owned. | Options: (1) Medulla serves a registered mode table and picks by request-supplied mode_id, returning pinned config (recommended); (2) rule-based selection. Loader validation goes to AU-. |
-| `R150.2` | Contradiction: stale >7 days (here) vs >14 days (.4); relevance scoring algorithm undefined; auto-capture is a harness behavior. | Options: stale=7d archived=14d (recommended, two tiers); relevance = cosine of stored embeddings (existing vector path). Capture trigger comes from caller record_outcome. |
-| `R151.3` | Which 'embedding producer' and 'Medulla solver'? Mixes post-sync consolidation trigger into a penalty row; embedding production may be SDK-owned. | Options: (1) Medulla accepts importance weights on the fit request and applies the penalty in `eg-compute/solve` (recommended). (2) The producer lives in scion-sdk. Drop consolidation clause. |
-| `R154.1` | 'Parameter-free' memory with no admission criteria or eviction policy is not implementable; which memory layer is meant? | Options: (1) reword as requirement that existing memory store needs no per-corpus tuning knobs, prove by benchmark (recommended); (2) specify admission/eviction. Name the target store. Also name the call site (file+fn) and require a served proof through it. |
-| `R154.2` | No linearity tolerance, sizes, or metric; benchmarks are not a 5-minute slice. | State: ingest N, 2N and 4N facts. Per-query p95 latency grows at most 2.2x per doubling. Alternative: move it to the nightly suite. Also name the call site (file+fn) and require a served proof through it. |
-| `R154.3` | 'Filtered-scan and lifecycle operators' and 'retention semantics' are not defined anywhere here. | Name the concrete operators and traits (file/type), or retire the row. Also name the call site (file+fn) and require a served proof through it. |
-| `R154.5` | Duplicates .2 (scaling benchmark); 1..10x range with no pass criteria. | Merge .2 and .5; pass criterion as in .2 fix. Also name the call site (file+fn) and require a served proof through it. |
-| `R158.2` | Error-frequency-to-adjustment rule and policy thresholds undefined; 'jointly adjust model and width' unspecified. | Options: (1) ladder policy: error_rate>=hi -> step model down one tier and width-1 (recommended); (2) solver-based. State host ceiling is max allowed. |
-| `R165.2` | How is necessity measured? Needs with/without-tool runs, which are harness work. | Options: (1) aggregate recorded outcomes with vs without tool (recommended, engine-side); (2) harness supplies score; (3) model-self-report. |
-| `R167.2` | What defines 'compatible' vs 'breaking' consumer contract? No algorithm, no file. | Options: (1) additive-only schema diff over consumer contract (recommended); (2) digest equality only; (3) semver. Name fn and file. |
-| `R168.1` | Which agent state fields and lifecycle states? Agent runtime state is Meristem; 'generated strict client types' not in medulla. | Options: (1) medulla stores the agent lifecycle record only: id, state enum, digest (recommended). (2) Move to Meristem. (3) Reuse the `agent_component` lifecycle types. |
-| `R171.2` | What comparison runs and what is the 'architecture view'? Not defined or located. | Options: (1) reuse existing served architecture view query (recommended); (2) new comparison op. |
-| `R651.3` | New MemoryRemember/Recall/Consolidate/Export names collide with existing served Consolidate, Reinforce, DecayMemories (R651.7/.8). Rename or reuse? | Recommended: keep existing wire names, add only Remember/Recall/Export; Consolidate stays the existing route. Alternative: rename old routes (hard cutover). |
-| `R654.1` | FailurePattern collides with R701.1; SkillRevision/PromotionVerdict/MergePolicy duplicate R805/R812 (ProgramRevisionIdentity, ChampionPointer, PromotionPolicy). Reuse or new? | Recommended: SkillRevision is a ProgramRevision; reuse R805/R812 types; keep only Rollout, TransferScore, SpecProposal here; rename FailurePattern use to R701's. |
-| `R804.1` | grader_kind set {independent,human,model_judge,trace_metric} conflicts with R813.1 GraderKind{annotation,model_judge,api}. Also duplicates R810.1 binding. | Recommended: one enum, defined once (R813.1 owner), values annotation,human,model_judge,trace_metric,api; R804.1 drops its own. |
-| `R813.1` | GraderKind{annotation,model_judge,api} conflicts with R804.1 grader_kind set; TrainingExample lacks the field now. | Recommended: single enum here with annotation,human,model_judge,api,trace_metric; R804.1 dropped. |
 ### W1 Architecture spine (serial PRs, Opus low effort)
 
-- [ ] W1.1 Add rows R001.101 (AD-1), R010.100 (AD-2), R072.100 (AD-8), R178 (AD-9) and EG-CONTRACT-R055 (AD-6) with file, call site and served test.
+- [x] W1.1 Add the spine rows R001.101, R010.100, R072.100, R178, R179 and EG-CONTRACT-R055.
 - [ ] W1.2 Implement the `DecisionFamily` registry. Migrate all 27 existing `QuestionKind` values. Proof: the existing `stat_tests` suite passes unchanged through the registry.
 - [ ] W1.3 Implement the refusal taxonomy, the code-uniqueness test and the `AnswerGrounding` rename. Proof: existing refusal tests assert the same stable codes.
 - [ ] W1.4 Add the served-test kit to the Rust `Harness`. It provides per-family request builders, publish fixtures and record-premise assertions. Add one served Python smoke template under `tests/decide/`.

@@ -1,0 +1,239 @@
+{
+ "method": "Parts of decision-engine rows filed in their owner repository.",
+ "moves": [
+  {
+   "id": "ARBORA-OPS-R862",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Surface a recommendation only after a passing safety-bound verdict",
+   "body": "Before arbora shows or forwards a recommendation, it must read the sealed `Decide` record. It must surface the recommendation only when `SafetyVerdict` is `Pass`. A `Withheld` verdict or an absent verdict blocks surfacing and returns the withheld bound id.",
+   "acceptance": "An arbora served test surfaces a passing record and blocks a withheld record and a record without a verdict.",
+   "receives": "EG-DECISION-ENGINE-R001.100"
+  },
+  {
+   "id": "ARBORA-OPS-R863",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Issue a recommendation approval receipt bound to a record digest",
+   "body": "The arbora approval flow must issue a `RecommendationApproval` bound to one decision record id and digest. It must check the reviewer's scope before issuing. It passes the receipt to `DecisionCommit` or `DecisionLog` `Commit`.",
+   "acceptance": "An arbora served test approves one record, commits it once, and refuses a reviewer outside scope before medulla is called.",
+   "receives": "EG-DECISION-ENGINE-R019.100.2"
+  },
+  {
+   "id": "ARBORA-OPS-R864",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Execute only the bound retrieval provider",
+   "body": "`retrieval.search` must read `retrieval_binding` from the committed record. It must call only that provider at that digest. An unavailable or mismatched provider refuses before retrieval, with zero calls to other providers. Extends `ARBORA-OPS-R021.2.1`.",
+   "acceptance": "An arbora served test varies provider and reasoning model independently and records zero alternate-provider calls on refusal.",
+   "receives": "EG-DECISION-ENGINE-R029.1"
+  },
+  {
+   "id": "SCION-SOURCE-INGEST-R904",
+   "repo": "scion-sdk",
+   "spec": "SCION-SOURCE-INGEST",
+   "title": "Paper retrieval stages papers for admission",
+   "body": "The paper source connector must retrieve papers and stage each as a graph node. Each node carries summary text, content digest and claim ids. It then requests `Decide` with `QuestionKind::PaperAdmission` and ingests only admitted claims.",
+   "acceptance": "A served connector test stages two papers and ingests claims only for the admitted one.",
+   "receives": "EG-DECISION-ENGINE-R031.100"
+  },
+  {
+   "id": "SCION-CONNECTOR-CONTROL-R903",
+   "repo": "scion-sdk",
+   "spec": "SCION-CONNECTOR-CONTROL",
+   "title": "Ordered fallback reads the tool-path advisory and reports attempts",
+   "body": "The ordered equivalent-fallback transport must try paths in the advisory order from the sealed record. It must report each attempt outcome through `DecisionLog` `Evaluate`. It keeps its own declared order when no advisory exists and executes no write without authorization.",
+   "acceptance": "A served transport test follows the advisory order, records each attempt outcome and keeps declared order without an advisory.",
+   "receives": "EG-DECISION-ENGINE-R042.100"
+  },
+  {
+   "id": "ARBORA-A2A-R023",
+   "repo": "arbora",
+   "spec": "ARBORA-A2A",
+   "title": "Inbound A2A tasks route through medulla Decide",
+   "body": "The inbound A2A task-submission handler must call `Decide` with `QuestionKind::A2aRoute` and param `a2a.requested_graph_id`. It dispatches the task only to the graph the record names. An abstention refuses the task.",
+   "acceptance": "An arbora served test submits one task to a known graph and one to an unknown graph. It asserts dispatch and refusal.",
+   "receives": "EG-DECISION-ENGINE-R044.2.2"
+  },
+  {
+   "id": "SCION-SOURCE-INGEST-R905",
+   "repo": "scion-sdk",
+   "spec": "SCION-SOURCE-INGEST",
+   "title": "SQL sources send a column profile",
+   "body": "The SQL source contract must send one `SqlColumnProfile` per column. It holds SQL type, foreign-key flag, Q32 distinct ratio and sample count. Medulla's source ingestion reads it for embedding admission.",
+   "acceptance": "A contract test round-trips the profile and a SQL connector fixture fills every field.",
+   "receives": "EG-DECISION-ENGINE-R079.4"
+  },
+  {
+   "id": null,
+   "repo": "wikidata-connector",
+   "spec": "CONN-WIKIDATA",
+   "title": "Align Region, Country, Taxon, Food and Nutrient entities",
+   "body": "The connector must query the open knowledge base and emit `wikidataId` and `skos:exactMatch` facts. It covers Region, Country, Taxon, Food and Nutrient entities. It publishes them through a connector pack whose `schema_mappings` target the world-model properties. It depends on scion-sdk only.",
+   "acceptance": "A connector test aligns one entity of each class and its pack passes medulla's world-model shape validation.",
+   "receives": "EG-DECISION-ENGINE-R099.1"
+  },
+  {
+   "id": "ARBORA-OPS-R865",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Approve queued write-back proposals",
+   "body": "The arbora approval flow must show each queued high-tier write-back proposal to an authorized approver. It records the decision through `DecisionLog` `Writeback` `Approve` with the approver principal.",
+   "acceptance": "An arbora served test approves one proposal and refuses an approver without the approval scope.",
+   "receives": "EG-DECISION-ENGINE-R615.3"
+  },
+  {
+   "id": "SCION-GOVERNED-WRITEBACK-R006",
+   "repo": "scion-sdk",
+   "spec": "SCION-GOVERNED-WRITEBACK",
+   "title": "Execute a released governed change set",
+   "body": "A connector sink must execute only a `GovernedChangeSet` released by medulla. It reports each external result through `DecisionLog` `Evaluate`. It refuses a change set without a release id.",
+   "acceptance": "A sink test executes one released change set against a stub vendor and refuses an unreleased one.",
+   "receives": "EG-DECISION-ENGINE-R615.3"
+  },
+  {
+   "id": "ARBORA-OPS-R866",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Serve tool search from the Medulla tool ranking",
+   "body": "The tool search served by the multiplexer must call `eg.decide.Decide` with `QuestionKind::ToolRelevance` for its ordering and must not rank tools locally. Pass the caller's task text, role IRI and budget unchanged. Touch the operation that implements tool discovery.",
+   "acceptance": "A multiplexer test shows tool search order equals the order in the sealed Medulla record for the same inputs.",
+   "receives": "EG-DECISION-ENGINE-R134.110.6"
+  },
+  {
+   "id": "SCION-CONNECTOR-CONTROL-R904",
+   "repo": "scion-sdk",
+   "spec": "SCION-CONNECTOR-CONTROL",
+   "title": "Apply the ranked path order as the ordered equivalent fallback",
+   "body": "The connector transport tries paths in the order that `Decide` returns for a `PathPreference` question. It tries the next path when the first fails. It keeps its transport contract for retries and fails over without reading success history itself. Medulla owns path identity, success rates and the preference.",
+   "acceptance": "Test: `tests/test_ordered_equivalent_fallback.py::test_transport_follows_ranked_path_order` asserts the second path runs after the first fails.",
+   "receives": "EG-DECISION-ENGINE-R159.3"
+  },
+  {
+   "id": "ARBORA-OPS-R867",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Block an action until approval when medulla requires confirmation",
+   "body": "When a `Decide` answer for an `AutonomyVerdict` question is `RequireConfirmation`, arbora refuses the served action call until an approval for that action id exists. Arbora treats the verdict as a minimum. The admission code is the existing approval flow of arbora. Medulla never passes an irreversible action.",
+   "acceptance": "Test: `tests/test_autonomy_confirmation.py::test_irreversible_action_waits_for_approval` asserts the call is refused before approval and runs after it.",
+   "receives": "EG-DECISION-ENGINE-R752.755"
+  },
+  {
+   "id": "EG-DURABLE-KERNEL-R863",
+   "repo": "medulla",
+   "spec": "EG-DURABLE-KERNEL",
+   "title": "SyncMemorySnapshot calls the memory-change admission gate",
+   "body": "The `SyncMemorySnapshot` handler (R085.4) must call `require_admit_receipts` from `src/server/handlers/decide/stat_memory_change.rs` before it commits a rewrite or consolidation. Add a refusal path that leaves the head unchanged.",
+   "acceptance": "Test: `tests/memory_sync_served.rs::sync_rewrite_requires_a_current_admit_receipt` submits a rewrite without a receipt and asserts `MEMORY_RECEIPT_REQUIRED` and an unchanged head.",
+   "receives": "EG-DECISION-ENGINE-R141.104"
+  },
+  {
+   "id": "SCION-CONNECTOR-CONTROL-R905",
+   "repo": "scion-sdk",
+   "spec": "SCION-CONNECTOR-CONTROL",
+   "title": "Offline teacher scoring producer",
+   "body": "A scorer service must compute one teacher score with fidelity bounds per document offline and upload batches through `DecisionLog` `Learn` `UploadDistilledScores`. Each batch names scorer id and revision.",
+   "acceptance": "Test: a producer test uploads two batches against a fake engine and asserts the upload shape of R147.3.",
+   "receives": "EG-DECISION-ENGINE-R147.3"
+  },
+  {
+   "id": "ARBORA-OPS-R868",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Carry the table-of-contents identity in space directory listings",
+   "body": "The retrieval space directory listing for a source document must carry the `toc_digest` that medulla `ReadSpan` returns. A client must pass that digest back on each span request.",
+   "acceptance": "Test: a served listing test asserts `toc_digest` equals the digest in a `ReadSpan` response.",
+   "receives": "EG-DECISION-ENGINE-R153"
+  },
+  {
+   "id": "CONN-LANGFUSE-AGENT-TRACE-INGEST-R006",
+   "repo": "langfuse-agent",
+   "spec": "CONN-LANGFUSE-AGENT-TRACE-INGEST",
+   "title": "Score properties for evaluation corpora",
+   "body": "The trace-store connector maps each score to a `:Score` node with `value`, `range_min`, `range_max`, `grader_kind`, `author` and `split`. `grader_kind` takes one of `annotation`, `human`, `model_judge`, `trace_metric` or `api`. Each score links to its run with `:scoresRun`. Extend the mapping beside `CONN-LANGFUSE-AGENT-TRACE-INGEST-R001`.",
+   "acceptance": "A connector test maps one score per grader kind and asserts every property and the run link.",
+   "receives": "EG-DECISION-ENGINE-R813.3"
+  },
+  {
+   "id": "ARBORA-OPS-R869",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Gate generated-code materialization on a committed admission record",
+   "body": "The governed write path must refuse to materialize generated code without a committed `Decide` admission record whose artifact digest equals the proposed digest. Arbora keeps materialization authority. File: the governed write operation in the arbora operation registry. Receives `EG-DECISION-ENGINE-R138.100`.",
+   "acceptance": "Test: `tests/ops/test_generated_code_admission_gate.py::test_write_refuses_without_matching_admission` asserts the refusal.",
+   "receives": "EG-DECISION-ENGINE-R138.100"
+  },
+  {
+   "id": "ARBORA-OPS-R870",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Serve authenticated changeset review and call medulla Decide",
+   "body": "Arbora serves an authenticated changeset-review operation. It runs the review producer over the base and head revisions, builds the finding options, and calls `Decide` with `QuestionKind::ChangesetReview`. It returns the sealed record digest. File: the operation registry entry `review.changeset` (new). Receives `EG-DECISION-ENGINE-R138.101`.",
+   "acceptance": "Test: `tests/ops/test_changeset_review_op.py::test_op_calls_decide_and_returns_the_record_digest`.",
+   "receives": "EG-DECISION-ENGINE-R138.101"
+  },
+  {
+   "id": "ARBORA-OPS-R871",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Accept a playbook write step only with a committed Decide record",
+   "body": "The governed Action path must accept a playbook step that writes only when the request cites the digest of a committed `Decide` record with `QuestionKind::ConnectorWriteBack` for that step. Arbora keeps execution authority; medulla only proposes. File: the governed Action operation in the arbora operation registry. Receives `EG-DECISION-ENGINE-R704.3`.",
+   "acceptance": "Test: `tests/ops/test_playbook_step_requires_decision.py::test_action_refuses_without_a_committed_record`.",
+   "receives": "EG-DECISION-ENGINE-R704.3"
+  },
+  {
+   "id": "ARBORA-OPS-R872",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Check the certification attestation before workflow invocation",
+   "body": "Before `orchestrate` or `agents.run` dispatches a workflow, the operation registry must read the medulla attestation for each atomic dependency. It must refuse a missing, stale or mismatched attestation. Certification-mode runs need separate authorization and must not open the normal invocation path. Test: an arbora test that invokes with each case and asserts refusal and no run effect.",
+   "acceptance": "An arbora test shows a missing, stale or mismatched attestation refuses invocation with no effect. It shows the exact current attestation admits it.",
+   "receives": "EG-DECISION-ENGINE-R142.100"
+  },
+  {
+   "id": "ARBORA-OPS-R873",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Start the workflow engine lazily on first invocation",
+   "body": "The workflow registry host must not start the workflow engine at registration time. It must start the engine once on the first invocation and reuse it. It must refuse an unknown workflow id with the medulla code before any engine start. It must record the resolved workflow identity and the single start event on each invocation receipt. Test: an arbora test with a start counter.",
+   "acceptance": "A start counter reads zero before first use and one after repeated invocations. Unknown workflow ids refuse with the counter at zero. Each receipt shows the identity and one start event.",
+   "receives": "EG-DECISION-ENGINE-R166.4"
+  },
+  {
+   "id": "ARBORA-OPS-R874",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Return registry identities from the host semantic workflow match",
+   "body": "The host semantic workflow match must return medulla registry identities (id, version, content digest). The served `graph_orchestrate` `execute_workflow` call must pass that identity through. Test: an arbora test through the real orchestrate entry.",
+   "acceptance": "An arbora test shows the real orchestrate entry resolves the registered record. It shows an unknown workflow refuses with no engine start.",
+   "receives": "EG-DECISION-ENGINE-R166.6"
+  },
+  {
+   "id": "ARBORA-OPS-R875",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Run the upgrade admission before the invoke certification step",
+   "body": "On every skill upgrade, the invoke path must call medulla `Decide` with `QuestionKind::SkillUpgrade` before certification dispatches. It must read the returned receipt and refuse dispatch on an abstention. It must add no compatibility wrapper. Test: an arbora test with a compatible, a breaking and a declared-migration upgrade.",
+   "acceptance": "An arbora test shows a breaking upgrade without migration stops before dispatch with no effect and the other two dispatch.",
+   "receives": "EG-DECISION-ENGINE-R167.3"
+  },
+  {
+   "id": "ARBORA-OPS-R876",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Report the loop continuation from the latest committed record",
+   "body": "The loop status, run and pause facade must read the continuation. The source is the latest committed feedback record for the loop id. The existing scope and idempotency checks must still fail closed. Test: an arbora test that restarts the host and reads the continuation.",
+   "acceptance": "An arbora test shows the facade reports the same continuation after a restart.",
+   "receives": "EG-DECISION-ENGINE-R169.3"
+  },
+  {
+   "id": "ARBORA-OPS-R877",
+   "repo": "arbora",
+   "spec": "ARBORA-OPS",
+   "title": "Write team records and apply the coordination decision",
+   "body": "The agent-to-agent endpoint and task store must write the team, its members and each task status. They must use the medulla `:Team`, `:TeamMember` and `:TeamTask` nodes through the graph write path. The coordinator must call `Decide` with `QuestionKind::TeamCoordination` with the observed channel signal, and apply the returned option. Task status must survive a restart. Test: an arbora test with an unavailable and an available channel.",
+   "acceptance": "An arbora test shows an unavailable channel starts the team path. It shows an available channel keeps the primary path. It shows the task status survives a restart.",
+   "receives": "EG-DECISION-ENGINE-R170.2"
+  }
+ ]
+}
