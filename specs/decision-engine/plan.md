@@ -4,7 +4,7 @@
 
 This section governs the delivery of every open row in this spec. The 2026-10-30 implementability review is recorded in [`evidence/delivery-review-20261030/`](evidence/delivery-review-20261030/). `review.jsonl` holds one graded line per open leaf row. `verified-isolation.json` lists VERIFIED rows whose proof does not reach a production path.
 
-### Review result
+### Review baseline
 
 Five reviewers graded the 603 open leaf rows against one rubric. A row is READY when one agent can implement and prove it in one five-minute slice. The agent uses only the row text and the repository. The row names the type, the file and the rule with concrete values. It also names the refusal cases, the production call site and the proving test.
 
@@ -31,6 +31,21 @@ The 187 VERIFIED leaf rows have this proof mix:
 22 VERIFIED rows prove modules that no production code calls. Examples are `limit_guard`, `entry_trust`, `evolution_round`, `context_budget`, `red_team`, `answer_ranking`, `recommend`, `load_set`, `usage_guidance` and `promotion`. 33 more VERIFIED rows prove kernels only through crate tests.
 
 The spec is not cheap to implement as written. Wave-1 lanes on 2026-10-29 and 2026-10-30 confirm this: their time went to open design questions, wrong file references and build waits. The rows that landed in isolation produced the orphan modules above.
+
+### Wave W0 result
+
+The W0 pass rewrote every open row to the row standard in `tasks.md` W0.1. It recorded each design call in the owning row.
+
+| Measure | Rows |
+|---|---|
+| Rows rewritten | 699 |
+| Rows retired as duplicates or with nothing medulla-owned left | 31 |
+| New child rows from splits | 105 |
+| New spine rows (R001.101, R010.100, R072.100, R178, R179) | 22 |
+| Parts filed in another repository (ARBORA-OPS, ARBORA-A2A, SCION-*, CONN-*) | 24 |
+| In-run harness obligations recorded as consumer notes | 85 |
+
+Every open leaf row now names its stage, files, rule values, knobs, refusal codes, premises, write path and served proof. `evidence/delivery-review-20261030/` holds `w0-decisions.json`, `w0-consumer-notes.json` and `w0-moves.json`.
 
 ### Recurring defects
 
@@ -74,11 +89,11 @@ arbora (admission, auth, principal) ──► medulla dispatch
 
 ### Architecture decisions
 
-Each decision states a rule that every row and every lane follows. Wave W1 adds the new rows named here.
+Each decision states a rule that every row and every lane follows. The spine rows R001.101, R010.100, R072.100, R178, R179 and EG-CONTRACT-R055 carry them.
 
-**AD-1 Question-family registry (new row R001.101).** One `DecisionFamily` trait carries the per-stage hooks: candidate validation, constraints, premises, abstain mapping and outcome kind. An exhaustive `match` maps each `QuestionKind` to its family, so the compiler rejects a kind without a family. The registry replaces the per-kind `if` chains in `stat_decide.rs` and `candidates.rs`. Each new question root is one family implementation, one registration line and one served test.
+**AD-1 Question-family registry (R001.101).** One `DecisionFamily` trait carries the per-stage hooks: candidate validation, constraints, premises, abstain mapping and outcome kind. An exhaustive `match` maps each `QuestionKind` to its family, so the compiler rejects a kind without a family. The registry replaces the per-kind `if` chains in `stat_decide.rs` and `candidates.rs`. Each new question root is one family implementation, one registration line and one served test. A family body is one `TypedValue` variant, and a family answer is one `FamilyAnswer` variant (R001.101.5).
 
-**AD-2 One refusal taxonomy (new row R010.100).** `AbstainReason` covers decision outcomes. `DecisionError` covers request refusals. Each variant has one stable string code, and a test proves every code is unique. A family-specific refusal converts into the taxonomy through `From`; no family defines a parallel wire enum. The retrieval `EvidenceClass` is renamed `AnswerGrounding`.
+**AD-2 One refusal taxonomy (R010.100).** `AbstainReason` covers decision outcomes. `DecisionError` covers request refusals. Each variant has one stable string code, and a test proves every code is unique. A family-specific refusal converts into the taxonomy through `From`; no family defines a parallel wire enum. Shared request codes live once in `decision/codes.rs`. The retrieval `EvidenceClass` is renamed `AnswerGrounding`.
 
 **AD-3 Names and schema evolution.** No component name carries a version suffix. A record carries a `schema_version` field. A decoder accepts every published version and refuses an unknown version.
 
@@ -86,19 +101,21 @@ Each decision states a rule that every row and every lane follows. Wave W1 adds 
 
 **AD-5 Integration-first definition of done.** A behaviour row is VERIFIED only when its bound test enters through the production dispatch. Two harnesses qualify: the Rust `Harness` in `src/server/handlers/decide/stat_tests`, and served Python tests in `tests/decide/*_served.py`. The test runs with a tenant and principal context. It asserts the outcome, the resolution kind and the premises in the sealed record. A type or model row is VERIFIED by the served test of the slice that first calls it. Unit, property and golden-vector tests remain mandatory for algorithms, but they do not verify a row alone. `test-spec.md` records the full standard.
 
-**AD-6 Reachability gate (new row EG-CONTRACT-R055).** A repository gate lists each public item in `eg-types::decision`, `eg-numeric::decision` and `eg-compute::{assemble,solve}`. It fails when no non-test code under `src/` reaches that item. The gate has no baseline. It becomes a required check when wave W2 closes the current orphans.
+**AD-6 Reachability gate (EG-CONTRACT-R055).** A repository gate lists each public item in `eg-types::decision`, `eg-numeric::decision` and `eg-compute::{assemble,solve}`. It fails when no non-test code under `src/` reaches that item. The gate has no baseline. It becomes a required check when wave W2 closes the current orphans.
 
 **AD-7 Vertical slices.** One root is one slice. Its model, behaviour, wiring, refusal, evidence and hot-path rows land in one PR. A lane never lands a model row without its caller.
 
-**AD-8 Observability (new row R072.100).** Each stage emits one span `medulla.decide.<stage>` with the family, tenant, outcome and duration. Metrics cover latency per family and stage, and abstentions per stable code. They also cover solver nodes against budget and calibration drift per head. The sealed record is the audit artifact; logs carry its digest, not its content.
+**AD-8 Observability (R072.100).** Each stage emits one span `medulla.decide.<stage>` with the family, tenant, outcome and duration. Metrics cover latency per family and stage, and abstentions per stable code. They also cover solver nodes against budget and calibration drift per head. The sealed record is the audit artifact; logs carry its digest, not its content.
 
-**AD-9 Service-level budgets (new root R178).** The proposed budgets apply on the reference host at 64 candidates and 32 capabilities. `Decide` p50 is 20 ms and p99 is 150 ms. `AgentAssemble` must finish within its declared node budget. A nightly benchmark suite measures each budget against a stored baseline. It fails on a regression above 10 %. Benchmark work leaves the per-PR gate; `.6` benchmark clauses move into this suite.
+**AD-9 Service-level budgets (R178).** The proposed budgets apply on the reference host at 64 candidates and 32 capabilities. `Decide` p50 is 20 ms and p99 is 150 ms. `AgentAssemble` must finish within its declared node budget. A nightly benchmark suite measures each budget against a stored baseline. It fails on a regression above 10 %. Benchmark work leaves the per-PR gate; `.6` benchmark clauses move into this suite.
 
 **AD-10 Fitted-head governance.** Fitted heads follow one lifecycle: draft, evaluated, published, champion, retired. An evaluation receipt binds the head digest. A challenger runs in shadow mode before promotion. Rollback is one compare-and-set on the champion pointer. Drift above the head's bound makes the head abstain. R040, R060, R086, R805 and R810–R813 share these types; R804 and R812 fold into them.
 
 **AD-11 Security.** Visibility filtering precedes features. Authorization comes only from the arbora principal. Exploration is refused for security, policy, write-back and irreversible questions. `DecideText` gets a fuzz target. The solver and verifier get property tests. Records hold no secret values.
 
-**AD-12 Ownership.** A medulla row keeps the fact, decision and record side only. Consumer behaviour moves to the owner's spec (AU-, ARBORA-, SDK-, CONN-). The medulla row links the owner row by ID. The owner repository proves the consumer side against medulla's published request and response types.
+**AD-13 Evolution-tuned knobs (new root R179).** Every tunable value in a row is a named knob with a default, bounds and a unit. The pinned `DecisionPolicy` carries knob values. A knob-set revision is a challenger in the R805 lifecycle. R811 receipts score it, and a compare-and-set on the champion pointer promotes or rolls it back. Knobs of security, policy, write-back, irreversible-action and promotion-gate questions are `Fixed`. The evolution engine therefore never tunes its own gate.
+
+**AD-12 Ownership.** A medulla row keeps the fact, decision and record side only. Served, contract and connector parts move to the owner's spec (ARBORA-, SCION-, CONN-). The harness applies a received decision; that obligation is a consumer note, not a medulla clause. The medulla row links the owner row by ID. The owner repository proves the consumer side against medulla's published request and response types.
 
 ### Delivery waves
 
