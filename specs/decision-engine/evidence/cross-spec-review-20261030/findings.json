@@ -1,0 +1,110 @@
+{
+ "method": "2026-10-30 cross-spec review. review.jsonl grades every open row (verdict, tier, entry point, proof kind, cross-spec interfaces, overlap, gap, fix). orphan_verified lists VERIFIED rows whose tested module has no public item named by non-test code under src/. group_summary is the reviewer summary for the review group that held this spec.",
+ "orphan_verified": [
+  {
+   "row": "EG-DECISION-ENGINE-R026.1",
+   "module": "crates/eg-numeric/src/decision/targets.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R061.1",
+   "module": "crates/eg-types/src/test_support/decision.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R079.1",
+   "module": "crates/eg-types/src/decision/ingestion_admission.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R080.1",
+   "module": "crates/eg-types/src/decision/ingestion_ladder.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R081",
+   "module": "crates/eg-compute/src/algorithms.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R096",
+   "module": "crates/eg-compute/src/algorithms.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R102.1",
+   "module": "crates/eg-types/src/graph_schema/shadow_branch.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R103",
+   "module": "crates/eg-compute/src/finance/market/record_tests.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R113.1",
+   "module": "crates/eg-types/src/decision/topology/capacity_commit.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R131.1",
+   "module": "crates/eg-types/src/decision/limit_guard.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R131.2",
+   "module": "crates/eg-types/src/decision/limit_guard.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R132.1",
+   "module": "crates/eg-types/src/decision/entry_trust.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R132.2",
+   "module": "crates/eg-types/src/decision/entry_trust.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R136.1",
+   "module": "crates/eg-types/src/decision/evolution_round.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R136.2",
+   "module": "crates/eg-types/src/decision/evolution_round.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.1",
+   "module": "crates/eg-types/src/decision/context_budget.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R137.2",
+   "module": "crates/eg-types/src/decision/context_budget.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R138.1",
+   "module": "crates/eg-types/src/decision/red_team.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R138.2",
+   "module": "crates/eg-types/src/decision/red_team.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R134.104",
+   "module": "crates/eg-types/src/decision/answer_ranking.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R134.105",
+   "module": "crates/eg-types/src/decision/answer_ranking.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R134.107",
+   "module": "crates/eg-types/src/decision/answer_ranking.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R175.1",
+   "module": "crates/eg-types/src/decision/recommend.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R176.1",
+   "module": "crates/eg-types/src/decision/load_set.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R177.1",
+   "module": "crates/eg-types/src/decision/usage_guidance.rs"
+  },
+  {
+   "row": "EG-DECISION-ENGINE-R805.1",
+   "module": "crates/eg-types/src/decision/promotion.rs"
+  }
+ ],
+ "group_summary": []
+}

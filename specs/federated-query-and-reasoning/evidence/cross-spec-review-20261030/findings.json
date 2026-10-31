@@ -1,0 +1,101 @@
+{
+ "method": "2026-10-30 cross-spec review. review.jsonl grades every open row (verdict, tier, entry point, proof kind, cross-spec interfaces, overlap, gap, fix). orphan_verified lists VERIFIED rows whose tested module has no public item named by non-test code under src/. group_summary is the reviewer summary for the review group that held this spec.",
+ "orphan_verified": [
+  {
+   "row": "EG-FEDERATED-QUERY-R007",
+   "module": "crates/eg-core/src/compute/semantic_index_service/reconciliation_regression.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R019",
+   "module": "crates/eg-compute/src/finance/market/record_tests.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R034",
+   "module": "crates/eg-numeric/src/series/motif_tests.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R035",
+   "module": "crates/eg-plan/src/text_tests.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R037",
+   "module": "crates/eg-numeric/src/series/streaming_tests.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R042",
+   "module": "crates/eg-rdf/src/obda/pushdown.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R052",
+   "module": "crates/eg-plan/src/federation_opt/engine_peer_tests.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R055",
+   "module": "crates/eg-rdf/src/sparql/multivalue_tests.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R063",
+   "module": "crates/eg-compute/src/algorithms.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R069",
+   "module": "crates/eg-plan/src/federation_opt/sql.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R079.1",
+   "module": "crates/eg-types/src/lake_catalog.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R081.1",
+   "module": "crates/eg-types/src/retrieval_verdict.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R081.2",
+   "module": "crates/eg-plan/src/retrieval_verdict_tests.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R081.4",
+   "module": "crates/eg-plan/src/retrieval_verdict_tests.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R081.7.1",
+   "module": "crates/eg-types/src/retrieval_verdict.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R081.7.2",
+   "module": "crates/eg-plan/src/retrieval_verdict_tests.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R081.7.4",
+   "module": "crates/eg-plan/src/retrieval_verdict_tests.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R081.9.1",
+   "module": "crates/eg-types/src/retrieval_verdict.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R081.9.2",
+   "module": "crates/eg-plan/src/retrieval_verdict_tests.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R058.4.8",
+   "module": "crates/eg-plan/src/nl/context_tests.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R705.1",
+   "module": "crates/eg-plan/src/feedback_boost.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R705.2",
+   "module": "crates/eg-plan/src/feedback_boost.rs"
+  },
+  {
+   "row": "EG-FEDERATED-QUERY-R706.1",
+   "module": "crates/eg-plan/src/policy_mask.rs"
+  }
+ ],
+ "group_summary": [
+  "# x02 summary: federated-query-and-reasoning (lower half of roots, 172 IDs)\nMethod: row text from origin/main plus grep of origin/main. Roots R005 to R086 are covered. All 172 rows are SPECIFIED except R036, R046 and R054, which are LANDED with empty verified_by. Only 19 rows carry `// spec:` bindings. Bound rows are R005, R006, R028, R032 and R040.5.x.\n\n## 1. Verdict and tier counts\n- Verdicts: READY 56, THIN 81, DECISION 16, EXISTS 9, DUP 6, OWNER 2, BLANK 2.\n- Tiers: sonnet 98, opus 34, bind 40. There is no vllm tier: the retrieval and served-proof rows need cross-file wiring.\n- THIN 81 includes 21 rollups, which have no own proof and are bind-only.\n- EXISTS 9: R036, R046 and R054 (LANDED but unbound), plus R084.1, .3, .4, .5, .6 and .7. R084.x only documents the existing ShexValidate surface.\n- DUP 6: R039.3, R039.4, R040.3, R040.4, R075, R083.7. OWNER 2: R040.5 (durable-kernel) and R076 (typed-packs). BLANK 2: R005.700 and R053.700 (template text only).\n- DECISION 16: R006.1, R039.1.3, R039.1.6, R039.2.8, R058.4.9, R074, R079.6, R081.7.3, R081.7.6, R081.8.6, R081.9.7.8, R081.10, R081.101, R081.102, R085.8, R086.100.\n\n## 2. Cross-spec contracts\nBoth sides declared and named alike:\n- FQ R081/R082 -> DECISION-ENGINE-R705.3 consumes the sufficiency and stop rules.\n- FQ R040 and R078 -> DECISION-ENGINE-R706.2 consumes filtered k-NN and the plan tenant predicate.\n- FQ R081.5, R082.5, R083.5 -> DECISION-ENGINE-R100 premise on DecisionRecord (FQ side declared; the DE premise schema is not cited by field).\n- FQ R040.5 -> DURABLE-KERNEL-R085 (memory contract).\n- FQ R053 -> DURABLE-KERNEL-R024.1 and R024.3 (Cypher and AGE ForeignSourceSpec).\n\nMissing sides:\n| consumer row | provider spec | missing provider row (proposed text) |\n|---|---|---|\n| R085.5, R085.6, R085.4 | scion-sdk SDK-SOURCE-INGEST-R004.1-.6 | SDK row must name `ApprovedSourceQuery` generated from `eg-capabilities` and cite FQ-R085.5 and R085.6 as the producer. FQ R085 cites R004 but no reverse reference was found. |\n| R078.x | EG-IDENTITY-R610.2 | \"Plan-level scope: IDENTITY R610.2 names visibility; FQ R078 injects it per scan node. The FQ row owns the injection, IDENTITY owns the scope definition.\" |\n| R039.2.5 and R077.3 | EG-REPO-INGEST-R006.2 | \"The re-embed worker executes the FQ R039.2 encoding recipe via regenerate_eligible (FQ R040.5.3). No second queue.\" |\n| R081.9.7.8 and R081.10 | EG-INGEST-WORKER | \"Ingest stage builds the TOC once per immutable document revision, and stores storage, event and narrative time with provenance.\" |\n| R058 | EG-CQ-CONN | CQ-CONN cites NlQuery. FQ has no row for the CQ answer shape. |\n| R074 | EG-DECISION-ENGINE | \"SelectTopology is a decision kind with ChoicePolicy-bound topology values.\" No DE row exists. |\n| R079/R080 | EG-UNIFIED-DATA-PLANE-R020 | UDP-R020 covers Iceberg federation (read). Add \"publish-side Iceberg is FQ R079; UDP does not write.\" |\n| R074, R076 | AU-SEMANTIC-R008.2.2 and R006.5.1 | Meristem-side rows are named but are outside the medulla specs, so I could not check them. |\n\n## 3. Overlaps and duplicate authority\n- R039.3, R039.4, R040.3, R040.4 repeat R039, R040.1.4 and R039.2.6. Keep R039 and R040 and delete the residuals.\n- R083.7 repeats R083.2 (support-aware arbitration).\n- R075 (generated client) belongs to EG-CONTRACT, not a per-method row.\n- R076 (canonical Turtle hash) belongs to EG-TYPED-PACKS-R090 (canonical ontology artifacts).\n- R040.5 duplicates the DURABLE-KERNEL-R085 decision. R040.5.3 `regenerate_eligible`, R039.2.5 and R077.3 share one re-embed owner with REPO-INGEST-R006.2. Make semantic_index/worker.rs the single executor.\n- R077.4 is subsumed by R077.6.2.\n- R081.9.7.7 restates the zero-model rule of R081.9.7.2.\n- R081.8.1 \"extends\" types that already exist in retrieval_verdict.rs and eg-plan/feedback_boost.rs. R082.1 and R083.1 do the same with eg-types/retrieval_stop.rs and retrieval_arbitration.rs.\n- R053 and R073 rely on ForeignSourceSpec kinds that DURABLE-KERNEL-R024.x also defines. The backends should live in R024.\n- R078.7 (company-context view) overlaps EG-CQ-XSRC.\n- R084.x documents existing behaviour and is not new requirements.\n\n## 4. Hot paths\nEntry points: Method::Uql (handle_uql, uql_statement.rs:17 via dispatch_query_family), Method::UnifiedQuery (run_unified_with planning.rs:424), NlQuery/NlQueryExplain/NlQueryPlan (data_plane.rs:698), ShexValidate (rdf/dispatch.rs:366), Sql (sql_read.rs:100), the Iceberg REST listener (src/server/lake/rest) and the new ApproveSourceQuery methods.\n\nRows that never reach a hot path today:\n- R081/R082/R083 are anchored on crates/eg-graphql/src/crossmodal.rs:429, a GraphQL path and not the arbora-served UnifiedQuery. `judge_sufficiency` (eg-plan/retrieval_verdict.rs:65) has no caller under src/. decide_stop and arbitrate do not exist, and the cited eg-plan files retrieval_stop.rs and retrieval_arbitration.rs are missing.\n- R078: PlanScope exists in eg-query/plan_scope.rs, but `inject_scope` is absent and there is no src/ caller.\n- R080: `refuse_projection_write` (eg-lake/catalog.rs:107) and `ProjectionCatalog` have no src/ caller.\n- R039/R040.1/R040.2/R077.6: types such as TopicBackend, ColumnVectorAdvice and LowStorageAnnManifest are absent from the repo. R074 (SelectTopology), R085 (ApproveSourceQuery), R086.100 and R081.103 define new methods that do not exist yet.\n- R005.700/.701, R053.701 and R084.8: the planned test and bench files are absent from origin/main.\n\n## 5. VERIFIED isolation spot check\nSpec-level, since none of my 172 IDs are VERIFIED. I checked the 10 largest VERIFIED roots by grepping `src/` (not crates) on origin/main.\n\n| root | production call from src/ |\n|---|---|\n| R009, R008 (edge_index) | yes: src/server/handlers/query.rs:201 uses eg_query::edge_index::EdgeIndexSpec |\n| R059 (ann_authority) | yes: src/server/sql_catalog_acl/ann_projection.rs:79 and :130 |\n| R038, R041 (federation_opt) | partly: src/server/foreign_catalog.rs:124 uses SourceWatermark |\n| R064 (UQL lexer) | yes: handlers/query.rs:66 and nl.rs:254 call `eg_plan::uql::parse_statement` |\n| R050, R055 (SPARQL service, multivalue) | partly: src/server/handlers/rdf.rs:280 uses `eg_rdf::sparql::Projection` |\n| R063 (Leiden) | no src/ reference found (may be reached through eg-compute) |\n| R072 (source_selection) | no src/ reference found |\n| R048 (federation_stats) | no src/ reference found |\nFollow up on R063, R072 and R048 (reached via eg-compute?) with a call-graph check. R001, R044 are reached through the reasoner and EXPLAIN respectively.\n\n## 6. Five most common gaps\n1. No served proof or hot-path call site: the sufficiency, stop and arbitration rows (R081.3, R082.3, R083.3), and R078.3 and R080.3 when they are written.\n2. Newly created types and tests are not named, or the test files do not exist (R005.701, R084.8, R053.701).\n3. No numeric values: retrieval defaults, budgets, error codes and receipt types are unnamed (R039.1.4, R040.2.4, R077.6.4). Examples: R040.5.5 and R085.6.\n4. Rollup rows with no own proof, and duplicate residual rows (R039.4, R040.4, R083.7).\n5. Missing model, encoder or runtime owner: R039.1.3, R081.7.3, R081.101/.102, R081.8.2.\n\n## 7. Decisions needed (recommendation first)\n1. Retrieval encoders (R039.1.3, R081.7.3): engine-local model registry per modality; tiny pinned test models in CI (R039.1.6, R081.7.6).\n2. Perspective generation and distilled scorers (R081.8.2, R081.102): the harness supplies them, medulla validates and stores them.\n3. Entry point for R081 through R083: UnifiedQuery (run_unified_with) is primary and crossmodal.rs is secondary.\n4. Derived-fact persistence (R006.1): persist via ApplyMutation with origin refs.\n5. SelectTopology (R074): a DECISION-ENGINE decision kind; delete R075.\n6. R079.6: use pyiceberg pinned as the external reader.\n7. R058.4.9: always refuse inline adapters in NL.\n8. Move R076 to typed-packs and R040.5 to durable-kernel. Single re-embed executor.\n",
+  "# x03 summary: federated-query-and-reasoning, upper roots (167 IDs graded)\n\n## 1. Verdict and tier counts\nTotals: THIN 100, READY 53, EXISTS 10, DUP 4, others 0. Tiers: sonnet 111, opus 44, bind 12.\nR087 viz: READY 2, EXISTS 4, DUP 1 (code and served route exist; only SVG/PDF served proof is open).\nR088 UQL summary: THIN 3, READY 4. R089 verdict: THIN 4, READY 3, EXISTS 1. R090 Discover plan: THIN 4, READY 4.\nR091 plan evolution: THIN 2, READY 5. R607/R608 analytics and reasoning: THIN 14 (template rows, no method, no fields).\nR650-R655 (six new eg-plan modules): THIN 39, READY 1 (R653.7), DUP 3 (R655.1-.3 repeat R089).\nR700-R702: THIN 10, READY 3. R703-R706: THIN 9, READY 12. R707-R709: THIN 6, EXISTS 4, READY 10.\nR720-R722: THIN 8, READY 9, EXISTS 1.\nPattern: rows with a concrete test path, code and budget are READY. The rollup-template families (R607, R608, R650-R655) have type names only, \"stable code\" with no name, and benches that do not exist. Rollups are THIN wherever a child is.\n\n## 2. Cross-spec contracts\nBoth sides declared: R089.7 <-> DE R174.8; R653 <-> REPO-INGEST R652.3; R704 <-> INGEST-WORKER R904.3; R708 <-> TYPED-PACKS R802.7; R706 <-> TYPED-PACKS R652/R803.\nMissing sides (consumer row | provider spec | missing provider row, proposed text):\n| consumer row | provider spec | missing provider row (proposed text) |\n|---|---|---|\n| R090.7 | DE R174.7/.9 | \"Discover applies the scoped adapter to each expansion embedding and tags refreshed rows with source, time and query digest.\" |\n| R091 / R091.3 | DK R101, UDP R038 | R101: \"downtime job type `plan_evolution` registered with budget and window.\" R038: \"acceleration policy admits plan-evolution materialization.\" |\n| R705.5 | DE R100 | \"Retrieval feedback events are outcome evidence for R100 joins.\" |\n| R607.4 | PLACEMENT R003 | \"Analytics payload bound constant is read by the mining methods; refusal code ANALYTICS_PAYLOAD_BOUND.\" |\n| R607.3 | REPO-INGEST R011 | \"Leiden driver is exposed to the mining method without a second copy.\" |\n| R608.3 | DE R001 | \"Decision ladder calls the rule-fixpoint and causal reasoning method.\" |\n| R654.2/.3 | REPO-INGEST R600 | \"Typed code facts are the input of CodeContext and Diagnose.\" |\n| R704.3 | ORCH-VOCAB R800 | \"Agent profile carries a knowledge-scope fact (sets, container subtrees, filters).\" |\n| R706.2 | DK R035 | \"Wire protocol shares the single policy rewrite.\" |\n| R707.2/.5 | DK R043 | \"SPARQL update batch commits as one MutationBatch with a receipt.\" |\n| R709.2 | DK R046 | \"GeoSPARQL predicates use the kernel's shared-boundary rule.\" |\n| R720.6 / R721.2 | DK R042.2 / R055 | \"Latency harness covers five-stage UQL; registry maps modality to redb store.\" |\n| R722 | TYPED-PACKS R101; SDK-CONNECTOR-CONTROL-R074; ARBORA-FLEET-R042 | \"Pack contract declares data resources (class, access, pagination) consumed at import.\" (SDK/arbora rows are in other repos, unchecked.) |\n| R703.3 | SDK-SOURCE-INGEST-R805.5 | \"Access-check port trait answered per record.\" (other repo, unchecked) |\n| R702.3 | DE R053 | Claim is wrong: R053 is a requirement-to-assembly gold set, not a retrieval eval set. Drop it. |\n\n## 3. Overlaps and duplicate authority\n- R655.1-.3 vs R089.1-.3: both define retrieval failure modes and a verdict on Discover (RetrievalFailureMode already in eg-types/wire.rs:28). R089 owns the verdict; R655 keeps only EvaluationCorpus, Beta trust, embedding-version refusal and adoption.\n- R090.2/.3 (planner-port hypothetical passages) vs R651.2/.3 (ExpansionProvider) vs R058.4: three expansion ports. R651 owns one ExpansionProvider; R090 and R058.4 consume it.\n- R090.2 hard-negative mining vs DE R100: DE owns it.\n- R650.2 knapsack vs DE R014 (constraint solver with knapsack) and DE R137 (context window decisions): reuse the DE solver; one owner of token budgets.\n- R608 vs R700 (both eg-epistemic) and the paradigm router vs DE decision ladder: router to DE, causal ops chain to ORCH-VOCAB, R608 keeps rule fixpoint.\n- R087.5 is a restatement of R087.6; R087.1-.4 describe shipped code and need binding only.\n- R707 (src/server/dispatch/sparql_update.rs, eg-rdf update.rs) and R709 (eg-rdf geosparql.rs, wired in sparql/expression.rs) already exist: EXISTS, bind rather than rebuild.\n\n(Sections 4-7 are in the summary file below.)\n\n## 4. Hot paths\nServed entries that exist: Method::Viz VizOp::Render, Method::Uql -> handle_uql (uql_statement.rs:17), Method::Discover -> discover (semantic.rs:88), SparqlUpdate (dispatch/sparql_update.rs), SPARQL via foreign_scan (run.rs:26), ConnectorPack.Import.\nNever reach one: R607, R608, R650-R655 (ContextCompile, CodeContext, Diagnose, RetrievalFeedbackRecord, StoredQueryPut/Call do not exist in the repo), R700-R702 (no method named), R703-R706 modules (see 5).\n## 5. Isolation spot check (landed crate code, no non-test caller under src/ or other crates)\n- crates/eg-plan/src/access_check.rs: AccessCheckRequest, 0 callers (R703).\n- feedback_boost.rs: document_boost, 0 callers (R705).\n- knowledge_scope.rs: scoped_top_k, 0 callers (R704).\n- policy_mask.rs: MaskPolicy, 0 callers (R706).\n- stored_query.rs: StoredQuery, 0 callers (R708).\n- code_context.rs: rank_hubs, 0 callers (R654).\n- eg-types/src/argument_map.rs: ArgumentMap, DungProjection, 0 callers (R700).\n- eg-types/src/live_artifact.rs: LiveArtifact, 0 callers (R701).\n- retrieval_verdict.rs: judge_sufficiency, only retrieval_verdict_tests.rs calls it (R081).\n- Wired: eg-compute CommunityResult is used by src/server/handlers/mining/insight.rs.\n## 6. Five most common gaps\n1. Template rows with no fields, values or method name (R607, R608, R650-R655). 2. Stable refusal codes named but not in the error contract (R706.4, R709.4, R720.5). 3. Benches named but absent, p99 budgets asserted in functional tests (R088.6, R089.6, R703.6). 4. Landed module with no production call site (R703-R708, R700-R701). 5. Test files in directories that do not exist (tests/retrieval, tests/reasoning, tests/query, tests/federated) and contract/methods.json, which is absent.\n## 7. Decisions needed\na. Verdict owner: R089 (recommended); R655 trimmed. b. One ExpansionProvider port owned by R651. c. ContextCompile contract file: use the existing generated contract, not contract/methods.json. d. R608.4 on non-convergence: return the partial derivation read-only, write nothing. e. R702 search-task synthesis: keep in medulla only if tied to R655 evaluation corpora; otherwise drop. f. Split R722.2/.3 into registration, approval and driver binding.\n"
+ ]
+}
