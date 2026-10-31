@@ -27,11 +27,12 @@ on:
     - cron: '17 6 * * *'
   workflow_dispatch:
 
-# One in-flight run per PR / per ref: a newer push supersedes the older run
-# (main pushes were 24 runs, 0 success, 16 cancelled with queued runs).
+# One in-flight run per pull request: a newer push supersedes the older run.
+# Runs on main, the nightly schedule and manual dispatch queue behind each other
+# and always finish, so every merged commit gets a verdict.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name == 'schedule' && 'schedule-' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

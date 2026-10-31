@@ -170,3 +170,6 @@ node_modules/
 security-results/
 .pipeline-theme/
 .pipeline-contract/
+
+# Spec status is computed at read time (pipelines-hook spec-status --write), never committed.
+specs/*/status.json
