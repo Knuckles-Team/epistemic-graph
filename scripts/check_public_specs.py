@@ -8,7 +8,8 @@ import sys
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-REQUIRED = ("spec.md", "plan.md", "test-spec.md", "tasks.md", "status.json")
+# status.json is computed at read time (pipelines spec-status) and never tracked.
+REQUIRED = ("spec.md", "plan.md", "test-spec.md", "tasks.md")
 SPEC_DIRECTORY = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 DELIVERY_STATES = frozenset(
     {
@@ -220,12 +221,12 @@ def _contract_errors(root: Path, paths: set[Path]) -> list[str]:
             if path not in paths:
                 errors.append(f"{path}: missing required owner contract")
                 continue
-            if filename == "status.json":
-                errors.extend(_status_errors(root, path))
-            else:
-                errors.extend(
-                    _document_errors(path, (root / path).read_text(encoding="utf-8"))
-                )
+            errors.extend(
+                _document_errors(path, (root / path).read_text(encoding="utf-8"))
+            )
+        status = Path("specs") / name / "status.json"
+        if (root / status).is_file():
+            errors.extend(_status_errors(root, status))
     return errors
 
 
