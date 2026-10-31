@@ -1,4 +1,4 @@
-//! AMQP 0.9.1 wire-protocol listener (CONCEPT:EG-KG.query.amqp-codec-arg-cursor) — a HAND-ROLLED AMQP 0.9.1
+//! AMQP 0.9.1 wire-protocol listener (CONCEPT:MEDULLA-KG.query.amqp-codec-arg-cursor) — a HAND-ROLLED AMQP 0.9.1
 //! server that lets a standard AMQP client (pika, amqplib, the `rabbitmqadmin`-style
 //! tools) speak to the native message broker built on the KG-2.303 work-queue.
 //!
@@ -15,7 +15,7 @@
 //! AMQP 0.9.1 spec (the Pi-contract idiom pgwire / mysql-wire / sparql-http use), so a
 //! default/pi build carries zero AMQP dependency (asserted by `cargo tree`).
 //!
-//! ## Protocol subset (CONCEPT:EG-KG.query.amqp-codec-arg-cursor)
+//! ## Protocol subset (CONCEPT:MEDULLA-KG.query.amqp-codec-arg-cursor)
 //! LANDED: the connection handshake (`connection.start`/`start-ok`/`tune`/`tune-ok`/
 //! `open`/`open-ok`/`close`), `channel.open`/`close`, `exchange.declare`/`delete`,
 //! `queue.declare`/`bind`/`unbind`, `basic.publish` (+ content header/body frames),
@@ -26,25 +26,25 @@
 //! every engine request. The direct listener is loopback-only; remote access must use
 //! a TLS/mTLS identity-binding gateway. Unsupported methods fail closed.
 //!
-//! ## Publisher confirms + idempotent publish (CONCEPT:EG-KG.ingest.broker-reject-publish / EG-284)
+//! ## Publisher confirms + idempotent publish (CONCEPT:MEDULLA-KG.ingest.broker-reject-publish / MEDULLA-284)
 //! `confirm.select` puts a channel into publisher-confirm mode: every subsequent
 //! `basic.publish` is answered with a `basic.ack` (delivery-tag = the per-channel
 //! 1-based publish sequence) once the broker durably accepts it, or a `basic.nack`
-//! when the target exchange is unknown — mapping the EG-284 confirm surface onto the
+//! when the target exchange is unknown — mapping the MEDULLA-284 confirm surface onto the
 //! AMQP wire. A publish that carries the idempotency application-headers
 //! `x-producer-id` (string) + `x-producer-seq` (int) is routed through
-//! `Method::PublishIdempotent` (CONCEPT:EG-KG.ingest.broker-reject-publish): the broker dedups a re-published
+//! `Method::PublishIdempotent` (CONCEPT:MEDULLA-KG.ingest.broker-reject-publish): the broker dedups a re-published
 //! `(producer_id, seq)` against that producer's durable high-water mark, so a client
 //! that retries after an ambiguous confirm gets effectively-once delivery (the
 //! duplicate is dropped but STILL `basic.ack`-ed). A publish with no producer header
 //! behaves exactly as before (at-least-once). The AMQP `priority` property is threaded
-//! through to EG-278 priority queues on this path.
+//! through to MEDULLA-278 priority queues on this path.
 //!
-//! ## Stream reads (CONCEPT:EG-KG.compute.replayable-append-log) mapping
+//! ## Stream reads (CONCEPT:MEDULLA-KG.compute.replayable-append-log) mapping
 //! AMQP 0.9.1 has no request/response frame for reading a RETAINED log by offset, so
-//! EG-283 stream reads are NOT exposed over this wire — they are reached through the
+//! MEDULLA-283 stream reads are NOT exposed over this wire — they are reached through the
 //! RPC surface (`Method::StreamRead`) or a future STOMP/native frame. A `basic.consume`
-//! here maps to the DESTRUCTIVE queue-claim path (EG-275/280), not a stream replay.
+//! here maps to the DESTRUCTIVE queue-claim path (MEDULLA-275/280), not a stream replay.
 
 use std::sync::atomic::AtomicU64;
 
@@ -58,10 +58,10 @@ use crate::server::ServerState;
 /// Env var: when set (and the binary is built `--features amqp-wire`), the AMQP wire
 /// listener binds this address (documented loopback default `127.0.0.1:5672`). Unset ⇒
 /// no listener.
-pub const AMQP_ADDR_ENV: &str = "EPISTEMIC_GRAPH_AMQP_ADDR";
+pub const AMQP_ADDR_ENV: &str = "MEDULLA_AMQP_ADDR";
 /// Env var: the control graph broker state lives on (exchanges/bindings/queues/
 /// messages). Defaults to `__commons__` (mirrors mysql-wire's default-graph idiom).
-pub const AMQP_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_AMQP_GRAPH";
+pub const AMQP_GRAPH_ENV: &str = "MEDULLA_AMQP_GRAPH";
 
 const WIRE: BrokerProtocol = BrokerProtocol::Amqp;
 
@@ -168,7 +168,7 @@ struct ConnectionState {
     delivery_tag: u64,
     // delivery-tag → (queue, graph node id) for native broker acknowledgement.
     unacked: std::collections::HashMap<u64, (String, String)>,
-    // CONCEPT:EG-KG.ingest.broker-reject-publish publisher confirms: channels switched into confirm mode + their
+    // CONCEPT:MEDULLA-KG.ingest.broker-reject-publish publisher confirms: channels switched into confirm mode + their
     // per-channel 1-based publish sequence (the delivery-tag returned in basic.ack/nack).
     confirm_channels: std::collections::HashSet<u16>,
     publish_seq: std::collections::HashMap<u16, u64>,
@@ -571,7 +571,7 @@ async fn handle_basic_publish(
     }
     let (props, body) = read_content(socket, channel).await?;
     // Route EVERY publish through the idempotent path — with no producer-id
-    // it is byte-identical to a plain publish; with one it dedups (EG-314).
+    // it is byte-identical to a plain publish; with one it dedups (MEDULLA-314).
     let result = broker_wire::engine_call(
         &ctx.state,
         &ctx.graph,
@@ -758,7 +758,7 @@ async fn pump_consumers(
 }
 
 /// True when an engine publish result confirms the message was durably accepted
-/// (CONCEPT:EG-KG.ingest.broker-reject-publish / EG-284). Decodes the `IdempotentPublish.confirmed` flag; a
+/// (CONCEPT:MEDULLA-KG.ingest.broker-reject-publish / MEDULLA-284). Decodes the `IdempotentPublish.confirmed` flag; a
 /// non-`Raw` / undecodable result fails closed and is negatively acknowledged.
 fn decode_confirmed(result: &ResultPayload) -> bool {
     if let ResultPayload::Raw(bytes) = result {
@@ -801,7 +801,7 @@ fn authenticate_start_ok(args: &[u8], secret: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    //! CONCEPT:EG-KG.query.amqp-codec-arg-cursor — codec + arg-cursor unit tests (the byte layouts the hand-rolled
+    //! CONCEPT:MEDULLA-KG.query.amqp-codec-arg-cursor — codec + arg-cursor unit tests (the byte layouts the hand-rolled
     //! AMQP framing depends on). The full socket handshake is exercised by the served
     //! integration path; these pin the primitives.
     use super::*;
@@ -876,7 +876,7 @@ mod tests {
         assert!(validate_startup_policy("127.0.0.1:5672", "test").is_ok());
     }
 
-    // ── CONCEPT:EG-KG.ingest.broker-reject-publish publisher confirms + idempotent-publish headers ────
+    // ── CONCEPT:MEDULLA-KG.ingest.broker-reject-publish publisher confirms + idempotent-publish headers ────
 
     /// Assemble a content-header payload carrying an application-`headers` table
     /// (bit 0x2000) + a `priority` octet (bit 0x0800), the layout `parse_content_props`
@@ -968,7 +968,7 @@ mod tests {
     #[test]
     fn eg314_decode_confirmed_reads_idempotent_publish_flag() {
         let confirmed = ResultPayload::of_ref::<
-            eg_types::result_contract::messaging::PublishIdempotent,
+            medulla_types::result_contract::messaging::PublishIdempotent,
         >(&crate::broker::IdempotentPublish {
             confirmed: true,
             duplicate: false,
@@ -977,7 +977,7 @@ mod tests {
         .unwrap();
         assert!(decode_confirmed(&confirmed));
         let nacked =
-            ResultPayload::of_ref::<eg_types::result_contract::messaging::PublishIdempotent>(
+            ResultPayload::of_ref::<medulla_types::result_contract::messaging::PublishIdempotent>(
                 &crate::broker::IdempotentPublish {
                     confirmed: false,
                     duplicate: false,

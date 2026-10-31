@@ -1,4 +1,4 @@
-//! Pure proposal planning for M3 cross-node elasticity (CONCEPT:EG-KG.sharding.cross-node-elasticity).
+//! Pure proposal planning for M3 cross-node elasticity (CONCEPT:MEDULLA-KG.sharding.cross-node-elasticity).
 //!
 //! This module deliberately stops at a typed, deterministic **proposal**.  It does not
 //! talk to Raft, move a graph, change a placement record, or call an actuator.  A
@@ -349,8 +349,8 @@ impl MoveIdentity {
         let source_bytes = source.to_be_bytes();
         let target_bytes = target.to_be_bytes();
         let epoch_bytes = placement_epoch.to_be_bytes();
-        let move_id = eg_types::work_market::scoped_digest_parts(
-            b"epistemic-graph/cross-node-move/v1\0",
+        let move_id = medulla_types::work_market::scoped_digest_parts(
+            b"medulla/cross-node-move/v1\0",
             [
                 graph.as_bytes(),
                 shard_bytes.as_slice(),
@@ -360,16 +360,16 @@ impl MoveIdentity {
                 kind.as_bytes(),
             ],
         );
-        let snapshot_id = eg_types::work_market::scoped_digest_parts(
-            b"epistemic-graph/cross-node-snapshot/v1\0",
+        let snapshot_id = medulla_types::work_market::scoped_digest_parts(
+            b"medulla/cross-node-snapshot/v1\0",
             [move_id.as_bytes()],
         );
-        let delta_stream_id = eg_types::work_market::scoped_digest_parts(
-            b"epistemic-graph/cross-node-delta/v1\0",
+        let delta_stream_id = medulla_types::work_market::scoped_digest_parts(
+            b"medulla/cross-node-delta/v1\0",
             [move_id.as_bytes(), snapshot_id.as_bytes()],
         );
-        let fence_id = eg_types::work_market::scoped_digest_parts(
-            b"epistemic-graph/cross-node-fence/v1\0",
+        let fence_id = medulla_types::work_market::scoped_digest_parts(
+            b"medulla/cross-node-fence/v1\0",
             [move_id.as_bytes(), delta_stream_id.as_bytes()],
         );
         Self {
@@ -774,8 +774,8 @@ impl CrossNodeElasticityPlanner {
         input.validate()?;
         let encoded = serde_json::to_vec(input)
             .map_err(|error| PlannerError::Fingerprint(error.to_string()))?;
-        let input_digest = eg_types::work_market::scoped_digest_parts(
-            b"epistemic-graph/cross-node-input/v1\0",
+        let input_digest = medulla_types::work_market::scoped_digest_parts(
+            b"medulla/cross-node-input/v1\0",
             [encoded.as_slice()],
         );
         let trigger_bp = (input.policy.scale_up_threshold_bp as u64)
@@ -977,8 +977,8 @@ impl CrossNodeElasticityPlanner {
     ) -> MoveProposal {
         let planning_epoch = input.planning_epoch.to_be_bytes();
         let topology_epoch = input.topology_epoch.to_be_bytes();
-        let proposal_id = eg_types::work_market::scoped_digest_parts(
-            b"epistemic-graph/cross-node-proposal/v1\0",
+        let proposal_id = medulla_types::work_market::scoped_digest_parts(
+            b"medulla/cross-node-proposal/v1\0",
             [
                 checkpoint.identity.move_id.as_bytes(),
                 planning_epoch.as_slice(),

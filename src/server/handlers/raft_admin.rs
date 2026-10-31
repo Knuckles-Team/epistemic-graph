@@ -1,4 +1,4 @@
-//! Raft cluster-membership ADMIN RPC (CONCEPT:EG-KG.storage.kg-kg-2 —
+//! Raft cluster-membership ADMIN RPC (CONCEPT:MEDULLA-KG.storage.kg-kg-2 —
 //! `cluster_deployment.md` §5 item 2).
 //!
 //! `MultiRaft::add_group_learner` / `change_group_voters` (src/raft/multi.rs) already
@@ -95,10 +95,10 @@ pub(crate) async fn try_handle(
 fn raft_admin_result(op: &RaftAdminOp) -> fn(bool) -> ResultPayload {
     match op {
         RaftAdminOp::AddLearner { .. } => {
-            ResultPayload::scalar::<eg_types::result_contract::cluster::RaftAddLearner>
+            ResultPayload::scalar::<medulla_types::result_contract::cluster::RaftAddLearner>
         }
         RaftAdminOp::ChangeMembership { .. } => {
-            ResultPayload::scalar::<eg_types::result_contract::cluster::RaftChangeMembership>
+            ResultPayload::scalar::<medulla_types::result_contract::cluster::RaftChangeMembership>
         }
     }
 }

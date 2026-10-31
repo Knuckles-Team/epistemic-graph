@@ -50,7 +50,7 @@ class SentCall(NamedTuple):
 
 
 class RecordingTransport:
-    """A fake `EpistemicGraphClient` transport: `_send` records the call, then
+    """A fake `MedullaClient` transport: `_send` records the call, then
     answers with `reply`. Subclasses decide the answer (and may assert on the
     call there); tests read `sent` in call order."""
 

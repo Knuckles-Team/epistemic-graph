@@ -1,17 +1,17 @@
 """Tamper-evident audit round-trip against a live engine
-(CONCEPT:EG-KG.sharding.row-level-security,
+(CONCEPT:MEDULLA-KG.sharding.row-level-security,
 feature `security`, folded into `full`).
 
 Proves the `AdminClient.audit_verify` / `audit_prove_inclusion` bindings (added for
 B-2 — `Method::AuditVerify`/`AuditProveInclusion` were handler-complete and compiled
-into the default `full` build but had zero occurrences in `epistemic_graph/client.py`)
+into the default `full` build but had zero occurrences in `medulla/client.py`)
 actually work end-to-end: commit real mutations, prove the hash-chained audit log
 verifies clean, prove a Merkle inclusion proof for a real anchored node, and prove
 verification actually FAILS when that node's durable content is changed after
 anchoring -- a verifier never shown to reject anything is not a verifier.
 
 `audit_prove_inclusion` needs at least one provenance anchor to exist
-(`EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS`), which the shared session engine in
+(`MEDULLA_PROVENANCE_ANCHOR_SECS`), which the shared session engine in
 `conftest.py` does not enable (it would add a background sweep to every other
 test in the suite for a feature only this file exercises). This module starts its
 OWN short-lived server, with that sweep armed at a 1s interval, reusing the SAME
@@ -39,15 +39,15 @@ from conftest import (
     wait_for_server,
 )
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
 _SERVER_BIN = find_server_binary()
 
 pytestmark = [
-    pytest.mark.concept("CONCEPT:EG-KG.sharding.row-level-security"),
+    pytest.mark.concept("CONCEPT:MEDULLA-KG.sharding.row-level-security"),
     pytest.mark.skipif(
         _SERVER_BIN is None,
-        reason="epistemic-graph-server (full) binary not built",
+        reason="medulla-server (full) binary not built",
     ),
 ]
 
@@ -59,7 +59,7 @@ def anchor_service():
     # fixture never runs without a built binary; make that guarantee visible
     # to the type checker too.
     assert _SERVER_BIN is not None
-    tmpdir = tempfile.mkdtemp(prefix="eg-audit-")
+    tmpdir = tempfile.mkdtemp(prefix="medulla-audit-")
     socket_path = os.path.join(tmpdir, "test.sock")
     secret = "audit-test-secret"  # sanitizer:ignore — test-only value
     persist_dir = os.path.join(tmpdir, "persist")
@@ -69,7 +69,7 @@ def anchor_service():
         **os.environ,
         **strict_server_env(os.path.join(tmpdir, "security"), auth_secret=secret),
         "GRAPH_SERVICE_PERSIST_DIR": persist_dir,
-        "EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS": "1",
+        "MEDULLA_PROVENANCE_ANCHOR_SECS": "1",
     }
 
     log_path = Path(tmpdir) / "server.log"
@@ -78,7 +78,7 @@ def anchor_service():
     )
     wait_for_server(proc, socket_path, name="anchor_service", log_path=log_path)
 
-    bootstrap = SyncEpistemicGraphClient.connect(
+    bootstrap = SyncMedullaClient.connect(
         socket_path=socket_path,
         auth_secret=secret,
         verified_context=bootstrap_context(),
@@ -102,7 +102,7 @@ def anchor_service():
 
 @pytest.fixture
 def client(anchor_service):
-    c = SyncEpistemicGraphClient.connect(
+    c = SyncMedullaClient.connect(
         socket_path=anchor_service["socket_path"],
         auth_secret=anchor_service["auth_secret"],
         verified_context=request_context(),

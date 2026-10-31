@@ -16,11 +16,11 @@
 //!   also holds (self-evaluation is never independent);
 //! * every evaluation admitted through a grant is audited.
 
-use eg_types::control_lease::{
+use medulla_types::control_lease::{
     ControlLeaseStatus, ControlLeaseView, IssueControlLeaseRequest, DECISION_EVALUATION_LEASE_KIND,
 };
-use eg_types::decision::statistical::log::{DecisionLogEntry, NamedEvaluator};
-use eg_types::decision::statistical::StatisticalErrorCode;
+use medulla_types::decision::statistical::log::{DecisionLogEntry, NamedEvaluator};
+use medulla_types::decision::statistical::StatisticalErrorCode;
 use serde_json::{Map, Value};
 
 use super::stat_executor::ExecutionContext;
@@ -150,7 +150,7 @@ fn granted_entry(
         return Ok(None);
     };
     tracing::info!(
-        target: "epistemic_graph::decide::evaluator_grant",
+        target: "medulla::decide::evaluator_grant",
         record_id,
         lease_id = %view.lease_id,
         evaluator = %reader.principal,

@@ -8,8 +8,8 @@
 //! function.
 #![cfg(feature = "security")]
 
-use epistemic_graph::audit::audit_line;
-use epistemic_graph::protocol::Method;
+use medulla::audit::audit_line;
+use medulla::protocol::Method;
 
 /// Plain CRUD arm: no guard, no branching -- a sanity baseline.
 #[test]

@@ -1,9 +1,9 @@
 """Cross-modal SEAM regression — served end-to-end
-(CONCEPT:EG-KG.compute.cross-modal-seam).
+(CONCEPT:MEDULLA-KG.compute.cross-modal-seam).
 
 These exercise the write→read cross-modal seams through the REAL served engine (the
 `clean_graph` fixture in conftest.py builds `--features full` and connects a
-`SyncEpistemicGraphClient` over the socket), so they need a LIVE engine to run — they
+`SyncMedullaClient` over the socket), so they need a LIVE engine to run — they
 are skipped/uncollected only if the served fixture is unavailable.
 
 Seam 1: a node written with an embedding + a type the reasoner subsumes is BOTH
@@ -52,7 +52,7 @@ def test_sparql_update_then_hybrid_retrieve(clean_graph):
     rex = "<http://ex/rex>"
     dog = "<http://ex/Dog>"
 
-    # X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): AddTriples/RemoveTriples
+    # X5-enforce (CONCEPT:MEDULLA-KG.ontology.rdf-update-guard): AddTriples/RemoveTriples
     # unconditionally require a registered integrity policy before accepting ANY RDF
     # write -- there is no "no policy configured" pass-through. Register a shape that
     # targets a class this test never uses, so it validates successfully without

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use eg_types::result_contract::ingestion as ingestion_results;
-use eg_types::semantic_index::SemanticIndexOp;
+use medulla_types::result_contract::ingestion as ingestion_results;
+use medulla_types::semantic_index::SemanticIndexOp;
 
 use crate::protocol::Response;
 
@@ -29,7 +29,7 @@ pub(super) async fn handle(ctx: &SemanticIndexContext<'_>, op: SemanticIndexOp) 
 
 async fn admit_record(
     ctx: &SemanticIndexContext<'_>,
-    record: eg_types::mutation_batch::MutationOutboxRecord,
+    record: medulla_types::mutation_batch::MutationOutboxRecord,
 ) -> Response {
     let port = read_port(ctx.persist_dir, ctx.authority);
     let service = Arc::clone(&ctx.service);
@@ -46,7 +46,7 @@ async fn admit_record(
 
 async fn admit_page(
     ctx: &SemanticIndexContext<'_>,
-    record: eg_types::mutation_batch::MutationOutboxRecord,
+    record: medulla_types::mutation_batch::MutationOutboxRecord,
     cursor: Option<String>,
 ) -> Response {
     let cursor = match decode_cursor(cursor) {
@@ -68,7 +68,7 @@ async fn admit_page(
 
 async fn admit_reconcile(
     ctx: &SemanticIndexContext<'_>,
-    record: eg_types::mutation_batch::MutationOutboxRecord,
+    record: medulla_types::mutation_batch::MutationOutboxRecord,
 ) -> Response {
     let port = read_port(ctx.persist_dir, ctx.authority);
     let service = Arc::clone(&ctx.service);
@@ -85,9 +85,9 @@ async fn admit_reconcile(
 
 async fn admit_replacement(
     ctx: &SemanticIndexContext<'_>,
-    draft: Box<eg_types::semantic_index::SemanticBindingDraft>,
-    source_manifest: eg_types::semantic_index::SemanticSqlSourceManifestDraft,
-    record: eg_types::mutation_batch::MutationOutboxRecord,
+    draft: Box<medulla_types::semantic_index::SemanticBindingDraft>,
+    source_manifest: medulla_types::semantic_index::SemanticSqlSourceManifestDraft,
+    record: medulla_types::mutation_batch::MutationOutboxRecord,
 ) -> Response {
     let (replacement, manifest) = match checked_replacement(ctx, draft, source_manifest) {
         Ok(validated) => validated,

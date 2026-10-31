@@ -1,5 +1,5 @@
 """Environment precedence pins for ``KvCacheConfig.from_env``
-(CONCEPT:EG-KG.backend.shipped-pip-installable-python).
+(CONCEPT:MEDULLA-KG.backend.shipped-pip-installable-python).
 
 Pure configuration resolution: no HTTP server and no native graph engine.
 """
@@ -8,20 +8,20 @@ from __future__ import annotations
 
 import pytest
 
-from epistemic_graph.kvcache import KvCacheConfig
+from medulla.kvcache import KvCacheConfig
 
 pytestmark = pytest.mark.no_engine
 
 _TEST_TOKEN = "test-kvcache-token"
 
 _KVCACHE_ENV = (
-    "EPISTEMIC_GRAPH_KVCACHE_URL",
-    "EPISTEMIC_GRAPH_KVCACHE_ADDR",
-    "EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S",
-    "EPISTEMIC_GRAPH_KVCACHE_MAX_CONNECTIONS",
-    "EPISTEMIC_GRAPH_KVCACHE_CLIENT_CERT",
-    "EPISTEMIC_GRAPH_KVCACHE_CLIENT_KEY",
-    "EPISTEMIC_GRAPH_KVCACHE_CLIENT_KEY_PASSWORD",
+    "MEDULLA_KVCACHE_URL",
+    "MEDULLA_KVCACHE_ADDR",
+    "MEDULLA_KVCACHE_TIMEOUT_S",
+    "MEDULLA_KVCACHE_MAX_CONNECTIONS",
+    "MEDULLA_KVCACHE_CLIENT_CERT",
+    "MEDULLA_KVCACHE_CLIENT_KEY",
+    "MEDULLA_KVCACHE_CLIENT_KEY_PASSWORD",
     "SSL_CERT_FILE",
     "REQUESTS_CA_BUNDLE",
     "SSL_CERT_DIR",
@@ -34,9 +34,9 @@ _KVCACHE_ENV = (
         # Explicit arguments win over every environment variable.
         (
             {
-                "EPISTEMIC_GRAPH_KVCACHE_URL": "http://127.0.0.1:1111",
-                "EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S": "9",
-                "EPISTEMIC_GRAPH_KVCACHE_MAX_CONNECTIONS": "9",
+                "MEDULLA_KVCACHE_URL": "http://127.0.0.1:1111",
+                "MEDULLA_KVCACHE_TIMEOUT_S": "9",
+                "MEDULLA_KVCACHE_MAX_CONNECTIONS": "9",
             },
             {
                 "base_url": " http://localhost:2222/ ",
@@ -52,15 +52,15 @@ _KVCACHE_ENV = (
         ),
         # An explicit addr argument wins over the URL environment variable.
         (
-            {"EPISTEMIC_GRAPH_KVCACHE_URL": "http://127.0.0.1:1111"},
+            {"MEDULLA_KVCACHE_URL": "http://127.0.0.1:1111"},
             {"addr": "on"},
             {"base_url": "http://127.0.0.1:9130"},
         ),
         # The URL environment variable wins over the ADDR environment variable.
         (
             {
-                "EPISTEMIC_GRAPH_KVCACHE_URL": " http://127.0.0.1:1111/ ",
-                "EPISTEMIC_GRAPH_KVCACHE_ADDR": "2222",
+                "MEDULLA_KVCACHE_URL": " http://127.0.0.1:1111/ ",
+                "MEDULLA_KVCACHE_ADDR": "2222",
             },
             {},
             {"base_url": "http://127.0.0.1:1111"},
@@ -77,8 +77,8 @@ _KVCACHE_ENV = (
         ),
         (
             {
-                "EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S": "0.25",
-                "EPISTEMIC_GRAPH_KVCACHE_MAX_CONNECTIONS": "7",
+                "MEDULLA_KVCACHE_TIMEOUT_S": "0.25",
+                "MEDULLA_KVCACHE_MAX_CONNECTIONS": "7",
             },
             {},
             {"timeout_s": 0.25, "max_connections": 7},
@@ -86,8 +86,8 @@ _KVCACHE_ENV = (
         # Empty values fall back; SSL_CERT_FILE wins over REQUESTS_CA_BUNDLE.
         (
             {
-                "EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S": "",
-                "EPISTEMIC_GRAPH_KVCACHE_MAX_CONNECTIONS": "",
+                "MEDULLA_KVCACHE_TIMEOUT_S": "",
+                "MEDULLA_KVCACHE_MAX_CONNECTIONS": "",
                 "SSL_CERT_FILE": "file-ca.pem",
                 "REQUESTS_CA_BUNDLE": "bundle-ca.pem",
                 "SSL_CERT_DIR": "",
@@ -103,9 +103,9 @@ _KVCACHE_ENV = (
         (
             {
                 "SSL_CERT_DIR": "ca-dir",
-                "EPISTEMIC_GRAPH_KVCACHE_CLIENT_CERT": "client.pem",
-                "EPISTEMIC_GRAPH_KVCACHE_CLIENT_KEY": "client.key",
-                "EPISTEMIC_GRAPH_KVCACHE_CLIENT_KEY_PASSWORD": "",
+                "MEDULLA_KVCACHE_CLIENT_CERT": "client.pem",
+                "MEDULLA_KVCACHE_CLIENT_KEY": "client.key",
+                "MEDULLA_KVCACHE_CLIENT_KEY_PASSWORD": "",
             },
             {},
             {

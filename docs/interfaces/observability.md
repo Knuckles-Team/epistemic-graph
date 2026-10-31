@@ -6,45 +6,45 @@ one main build). Logs land as time-series + full-text documents, metrics answer 
 search, and a super-cluster `/federated` fan-out unifies multiple regions. It is cross-modal: an ingest
 pipeline can enrich a record from the graph, and a query can join logs against graph/SQL data.
 
-> Status snapshot: log ingestion (AU-KG.ingest.self-ingest), Parquet-on-object-store segments (EG-KG.retrieval.observability-search), log search/query API
-> (EG-KG.query.concept-4), VRL-style ingest pipelines (EG-165), PromQL (EG-172) — with the Program-B **extended function
-> set** (EG-302) — and distributed traces + trace search (EG-163) are shipped. Program B also adds the
-> engine's **own** telemetry egress: OTLP export + a Prometheus remote-write receiver (EG-316), and
-> **typed** SQL/SPARQL result fusion for federated search (EG-KG.query.schema-typed-fusion-sql). See the
+> Status snapshot: log ingestion (AU-KG.ingest.self-ingest), Parquet-on-object-store segments (MEDULLA-KG.retrieval.observability-search), log search/query API
+> (MEDULLA-KG.query.concept-4), VRL-style ingest pipelines (MEDULLA-165), PromQL (MEDULLA-172) — with the Program-B **extended function
+> set** (MEDULLA-302) — and distributed traces + trace search (MEDULLA-163) are shipped. Program B also adds the
+> engine's **own** telemetry egress: OTLP export + a Prometheus remote-write receiver (MEDULLA-316), and
+> **typed** SQL/SPARQL result fusion for federated search (MEDULLA-KG.query.schema-typed-fusion-sql). See the
 > [capability matrix](../capabilities.md).
 
-All the HTTP surfaces below share **one** obs listener: `EPISTEMIC_GRAPH_OBS_ADDR` (`--obs-addr`, default
+All the HTTP surfaces below share **one** obs listener: `MEDULLA_OBS_ADDR` (`--obs-addr`, default
 `127.0.0.1:5080`).
 
 ## Log ingestion (AU-KG.ingest.self-ingest)
 
 A hand-rolled HTTP ingestion listener with no axum/hyper dependency accepting **OTLP/HTTP**
 (`/v1/logs`), Elasticsearch-**`_bulk`**/`_doc`, syslog, and JSON-lines records. Records land as
-schema-on-read streams: an eg-tsdb time-series **and** an eg-text full-text index, with rolling Parquet
-columnar segments persisted into the blob CAS / S3 backend (EG-KG.retrieval.observability-search) — the "140× cheaper storage"
+schema-on-read streams: an medulla-tsdb time-series **and** an medulla-text full-text index, with rolling Parquet
+columnar segments persisted into the blob CAS / S3 backend (MEDULLA-KG.retrieval.observability-search) — the "140× cheaper storage"
 object-store architecture, still DataFusion-queryable.
 
 ```bash
-EPISTEMIC_GRAPH_OBS_ADDR=127.0.0.1:5080 \
-  epistemic-graph-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "obs server"
+MEDULLA_OBS_ADDR=127.0.0.1:5080 \
+  medulla-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "obs server"
 
 curl -s -XPOST 'http://127.0.0.1:5080/v1/logs' \
   -H 'content-type: application/json' --data-binary @otlp-logs.json
 ```
 
-`EPISTEMIC_GRAPH_OBS_FLUSH_RECORDS` tunes the segment-flush batch size.
+`MEDULLA_OBS_FLUSH_RECORDS` tunes the segment-flush batch size.
 
-## VRL-style ingest pipelines (EG-165)
+## VRL-style ingest pipelines (MEDULLA-165)
 
 An OpenObserve/Vector-style transform pipeline runs over incoming records **before** they land: a small
 pure-Rust pipeline DSL (parse / json-extract, filter / drop, set / rename / remove fields, coerce types,
 route-to-stream) compiled to a staged executor. It surpasses OpenObserve VRL by being cross-modal — a
 transform can enrich a record from the graph.
 
-## Log search & query API (EG-KG.query.concept-4)
+## Log search & query API (MEDULLA-KG.query.concept-4)
 
 SQL + full-text search over the ingested streams: a DataFusion scan over the Parquet segments (pruned by
-the segment manifest's time/stream range) UNIONed with the hot eg-tsdb series + the eg-text BM25 index,
+the segment manifest's time/stream range) UNIONed with the hot medulla-tsdb series + the medulla-text BM25 index,
 plus an OpenObserve/Elasticsearch-shaped `_search` endpoint.
 
 ```bash
@@ -53,10 +53,10 @@ curl -s -XPOST 'http://127.0.0.1:5080/api/<org>/<stream>/_search' \
   --data '{"query":{"sql":"SELECT * FROM logs WHERE level = '\''error'\'' LIMIT 50"}}'
 ```
 
-## Metrics — PromQL (EG-172)
+## Metrics — PromQL (MEDULLA-172)
 
 A PromQL evaluator (instant/range vectors, selectors, `rate`/`sum`/`avg`/`max`/`min`/histogram functions,
-binary ops) over the eg-tsdb metric series, exposed as a Prometheus-compatible HTTP API:
+binary ops) over the medulla-tsdb metric series, exposed as a Prometheus-compatible HTTP API:
 
 ```bash
 curl -s 'http://127.0.0.1:5080/api/v1/query?query=up'
@@ -64,7 +64,7 @@ curl -s 'http://127.0.0.1:5080/api/v1/query_range?query=rate(http_requests[5m])&
 curl -s 'http://127.0.0.1:5080/api/v1/labels'
 ```
 
-### Extended function set (EG-302)
+### Extended function set (MEDULLA-302)
 
 Program B rounds out the evaluator to the functions dashboards actually emit: the **`_over_time`** family
 (`sum_over_time`/`avg_over_time`/`min_over_time`/`max_over_time`/`count_over_time`/`stddev_over_time`/
@@ -79,7 +79,7 @@ curl -s 'http://127.0.0.1:5080/api/v1/query?query=topk(5, avg_over_time(cpu[10m]
 Point a Grafana **Prometheus** data source at the obs listener. (Feature `promql`, implies `obs`.) See
 also [time-series](timeseries.md#promql-api).
 
-## Traces (EG-163)
+## Traces (MEDULLA-163)
 
 OTLP / OTLP-JSON span ingest on `/v1/traces` into a span store (spans as nodes/rows keyed by
 `trace_id`/`span_id` with parent links, attributes, timings), plus trace-assembly + search (by
@@ -96,27 +96,27 @@ curl -s 'http://127.0.0.1:5080/api/traces?service=my-svc'
 
 (Feature `traces`, implies `obs`.)
 
-## Super-cluster federated search (EG-KG.ontology.federation-client)
+## Super-cluster federated search (MEDULLA-KG.ontology.federation-client)
 
 A read query fans out across a peer registry of engine instances (regions/clusters) and the local store,
 then unions/de-dups + RRF-re-ranks the partials — a slow/dead peer degrades to `partial: true`, never
 fails. Program B adds **typed result fusion** for SQL + SPARQL partials — a schema-aware column union +
 typed dedup/merge rather than a plain hashed-key union — so cross-instance SQL/SPARQL results combine
-correctly (EG-KG.query.schema-typed-fusion-sql). This is its **own** listener (`EPISTEMIC_GRAPH_FEDERATED_ADDR`, feature
+correctly (MEDULLA-KG.query.schema-typed-fusion-sql). This is its **own** listener (`MEDULLA_FEDERATED_ADDR`, feature
 `federation-search`), not on the obs listener:
 
 ```bash
-EPISTEMIC_GRAPH_FEDERATED_ADDR=127.0.0.1:7900 \
-EPISTEMIC_GRAPH_FEDERATION_PEERS='http://peer-b:7900,http://peer-c:7900' \
-EPISTEMIC_GRAPH_FEDERATION_ALLOW='peer-b,peer-c' \
-  epistemic-graph-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "federation-search server"
+MEDULLA_FEDERATED_ADDR=127.0.0.1:7900 \
+MEDULLA_FEDERATION_PEERS='http://peer-b:7900,http://peer-c:7900' \
+MEDULLA_FEDERATION_ALLOW='peer-b,peer-c' \
+  medulla-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "federation-search server"
 
 curl -s -XPOST 'http://127.0.0.1:7900/federated' \
   -H 'content-type: application/json' \
   --data '{"query":"SELECT * FROM logs LIMIT 100","lang":"sql"}'
 ```
 
-`EPISTEMIC_GRAPH_FEDERATION_ALLOW` is a fail-closed SSRF allowlist for the peer fan-out. Peers answer each
+`MEDULLA_FEDERATION_ALLOW` is a fail-closed SSRF allowlist for the peer fan-out. Peers answer each
 other over `/federated?local=1` (run-locally-only). See
 [connecting](connecting.md#super-cluster-federated-search-federation-search).
 
@@ -124,10 +124,10 @@ other over `/federated?local=1` (run-locally-only). See
 
 Distinct from ingesting *other* systems' observability, the engine exports its **own** metrics/traces:
 Prometheus `/metrics` (feature `metrics`, default-on, `GRAPH_SERVICE_METRICS_ADDR`) and OTLP span export
-(feature `otel`, `EPISTEMIC_GRAPH_OTLP_ENDPOINT`) + a slow-query log (`EPISTEMIC_GRAPH_SLOW_QUERY_MS`).
+(feature `otel`, `MEDULLA_OTLP_ENDPOINT`) + a slow-query log (`MEDULLA_SLOW_QUERY_MS`).
 See the [runbook](../operations/runbook.md#8-observability-of-the-engine-itself).
 
-### OTel export + Prometheus remote-write (EG-316)
+### OTel export + Prometheus remote-write (MEDULLA-316)
 
 The engine both **ingests** other systems' telemetry (above) and **emits** its own
 to external collectors. The `otel-export` feature turns on:

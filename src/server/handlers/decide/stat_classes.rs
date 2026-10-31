@@ -1,6 +1,6 @@
 //! Rule-derived capability classes for library candidates (EH-200).
 //!
-//! eg-rdf's `classify_components` derives `eg:profile/*` traits and native
+//! medulla-rdf's `classify_components` derives `eg:profile/*` traits and native
 //! `eg:capability/*` terms from each component's DECLARED typed facts, each
 //! with the rule that fired. A derived class is only as strong as the facts it
 //! reads, so it enters a decision as a CLAIM premise naming the rule, never as
@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use eg_types::agent_component::AgentComponentEntry;
+use medulla_types::agent_component::AgentComponentEntry;
 
 /// The classes each candidate was derived to belong to, as `(class, rule)`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -24,7 +24,7 @@ pub(super) struct DerivedClasses {
 #[cfg(feature = "owl")]
 mod imp {
     use super::*;
-    use eg_rdf::rules::capability::{
+    use medulla_rdf::rules::capability::{
         classify_components, ClassificationPolicy, ProfiledComponent, DERIVATION_RULES,
     };
 
@@ -39,13 +39,13 @@ mod imp {
     pub(in super::super) fn current_rules() -> Option<String> {
         let policy = policy();
         let names: Vec<&str> = DERIVATION_RULES.iter().map(|rule| rule.rule).collect();
-        Some(eg_types::decision::digest::digest_text(
+        Some(medulla_types::decision::digest::digest_text(
             RULES_DOMAIN,
             &(
                 names,
                 policy.long_context_tokens,
                 policy.low_latency_p95_ms,
-                eg_types::agent_ontology::ontology_digest(),
+                medulla_types::agent_ontology::ontology_digest(),
             ),
         ))
     }
@@ -62,8 +62,8 @@ mod imp {
         let derived = classify_components(
             &components,
             &policy(),
-            &eg_rdf::owl::Ontology::default(),
-            &eg_rdf::rules::RuleSet::default(),
+            &medulla_rdf::owl::Ontology::default(),
+            &medulla_rdf::rules::RuleSet::default(),
         );
         let by_component = derived
             .components

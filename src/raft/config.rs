@@ -1,7 +1,7 @@
 //! Raft cluster configuration parsed from the environment (CONCEPT:AU-KG.ingest.source-sync-canonical).
 //!
 //! Raft only ACTIVATES when built `--features raft` AND configured here. With the
-//! feature on but no `EPISTEMIC_GRAPH_RAFT_NODE_ID`, [`RaftClusterConfig::from_env`]
+//! feature on but no `MEDULLA_RAFT_NODE_ID`, [`RaftClusterConfig::from_env`]
 //! returns `None` and the engine runs single-node exactly as before.
 
 use std::collections::BTreeMap;
@@ -13,8 +13,8 @@ use sha2::{Digest, Sha256};
 
 use super::{NodeId, PeerMap};
 
-const RAFT_AUTH_SECRET_ENV: &str = "EPISTEMIC_GRAPH_RAFT_AUTH_SECRET";
-const RAFT_AUTH_SECRET_FILE_ENV: &str = "EPISTEMIC_GRAPH_RAFT_AUTH_SECRET_FILE";
+const RAFT_AUTH_SECRET_ENV: &str = "MEDULLA_RAFT_AUTH_SECRET";
+const RAFT_AUTH_SECRET_FILE_ENV: &str = "MEDULLA_RAFT_AUTH_SECRET_FILE";
 const MIN_RAFT_AUTH_SECRET_BYTES: usize = 32;
 const MAX_RAFT_AUTH_SECRET_BYTES: usize = 4 * 1024;
 const MAX_RAFT_PEERS: usize = 1_024;
@@ -22,7 +22,7 @@ const MAX_RAFT_PEER_ADDRESS_BYTES: usize = 1_024;
 /// Optional explicit placement/failure-domain map used by the bounded leader
 /// balancer.  The value is a comma-separated `node_id=domain` list and, when
 /// present, must cover every configured peer exactly once.
-const RAFT_FAILURE_DOMAINS_ENV: &str = "EPISTEMIC_GRAPH_RAFT_FAILURE_DOMAINS";
+const RAFT_FAILURE_DOMAINS_ENV: &str = "MEDULLA_RAFT_FAILURE_DOMAINS";
 const MAX_RAFT_FAILURE_DOMAIN_BYTES: usize = 256;
 /// ADR-1 / W1.1 — this node's client-reachable address, self-reported into the
 /// durable cluster-topology store (typed Raft node self-report) and handed back by
@@ -30,21 +30,21 @@ const MAX_RAFT_FAILURE_DOMAIN_BYTES: usize = 256;
 /// are configured (config-contract style, like the transport secret below):
 /// without it, a discovering client would have no address to learn for THIS
 /// node beyond its own seed contact.
-const ADVERTISED_CLIENT_ADDR_ENV: &str = "EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR";
+const ADVERTISED_CLIENT_ADDR_ENV: &str = "MEDULLA_ADVERTISED_CLIENT_ADDR";
 /// Optional TLS server name (SNI / certificate hostname) a client should verify
 /// when connecting to `ADVERTISED_CLIENT_ADDR_ENV` over `tls://`. Unset ⇒ the
 /// client verifies against the address's own host (the TLS default) — zero
 /// friction for a deployment that doesn't need SNI override.
-const ADVERTISED_TLS_SERVER_NAME_ENV: &str = "EPISTEMIC_GRAPH_ADVERTISED_TLS_SERVER_NAME";
+const ADVERTISED_TLS_SERVER_NAME_ENV: &str = "MEDULLA_ADVERTISED_TLS_SERVER_NAME";
 /// Optional opaque certificate reference/fingerprint. Raw PEM/key material is
 /// never copied into the discovery record; this is only rotation metadata.
-const ADVERTISED_CERTIFICATE_ID_ENV: &str = "EPISTEMIC_GRAPH_ADVERTISED_CERTIFICATE_ID";
+const ADVERTISED_CERTIFICATE_ID_ENV: &str = "MEDULLA_ADVERTISED_CERTIFICATE_ID";
 const ADVERTISED_CERTIFICATE_ROTATION_EPOCH_ENV: &str =
-    "EPISTEMIC_GRAPH_ADVERTISED_CERTIFICATE_ROTATION_EPOCH";
+    "MEDULLA_ADVERTISED_CERTIFICATE_ROTATION_EPOCH";
 const ADVERTISED_CERTIFICATE_NOT_BEFORE_ENV: &str =
-    "EPISTEMIC_GRAPH_ADVERTISED_CERTIFICATE_NOT_BEFORE_MS";
+    "MEDULLA_ADVERTISED_CERTIFICATE_NOT_BEFORE_MS";
 const ADVERTISED_CERTIFICATE_NOT_AFTER_ENV: &str =
-    "EPISTEMIC_GRAPH_ADVERTISED_CERTIFICATE_NOT_AFTER_MS";
+    "MEDULLA_ADVERTISED_CERTIFICATE_NOT_AFTER_MS";
 const MAX_ADVERTISED_FIELD_BYTES: usize = 1_024;
 
 /// Derived pre-shared key for the authenticated, encrypted Raft transport.
@@ -62,7 +62,7 @@ impl RaftTransportSecret {
             ));
         }
         let mut hasher = Sha256::new();
-        hasher.update(b"epistemic-graph/raft-transport-key/v1\0");
+        hasher.update(b"medulla-engine/raft-transport-key/v1\0");
         hasher.update(material);
         let mut digest = hasher.finalize();
         let mut key = [0u8; 32];
@@ -102,7 +102,7 @@ pub struct RaftClusterConfig {
     pub peers: PeerMap,
     /// The `host:port` this node binds its Raft-RPC listener to. Defaults to this
     /// node's own PEERS entry (the advertised address), but can be overridden by
-    /// `EPISTEMIC_GRAPH_RAFT_BIND_ADDR` (CONCEPT:AU-KG.backend.authority-has-already-acked) so a CONTAINERIZED member can
+    /// `MEDULLA_RAFT_BIND_ADDR` (CONCEPT:AU-KG.backend.authority-has-already-acked) so a CONTAINERIZED member can
     /// bind `0.0.0.0:9100` locally while still ADVERTISING its routable host IP
     /// (`10.0.0.x:9100`) to peers — a container on an overlay net cannot bind the host's
     /// external IP directly. Bare-metal members leave it unset and bind their own addr.
@@ -111,13 +111,13 @@ pub struct RaftClusterConfig {
     /// lowest-id node does, and only when its raft store is empty). Computed, not
     /// configured.
     pub is_bootstrap: bool,
-    /// This node's client-reachable address (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 / W1.1),
+    /// This node's client-reachable address (CONCEPT:MEDULLA-KG.sharding.cluster-topology, ADR-1 / W1.1),
     /// self-reported into the durable cluster-topology store at startup. Required
     /// (`from_env` fails closed without it — config-contract style, like the
     /// transport secret below) whenever Raft peers are configured.
     pub advertised_client_addr: String,
     /// Optional TLS server name (SNI / cert hostname) a client should verify when
-    /// connecting to `advertised_client_addr` over `tls://` (CONCEPT:EG-KG.sharding.cluster-topology).
+    /// connecting to `advertised_client_addr` over `tls://` (CONCEPT:MEDULLA-KG.sharding.cluster-topology).
     pub advertised_tls_server_name: Option<String>,
     /// Opaque certificate reference/fingerprint metadata for discovery. It is
     /// deliberately not certificate or private-key material.
@@ -125,8 +125,8 @@ pub struct RaftClusterConfig {
     pub advertised_certificate_rotation_epoch: u64,
     pub advertised_certificate_not_before_ms: Option<u64>,
     pub advertised_certificate_not_after_ms: Option<u64>,
-    /// Number of Raft groups THIS node stands up at boot (DIST-P2-2, CONCEPT:EG-KG.sharding.placement-catalog).
-    /// `1` — the default when `EPISTEMIC_GRAPH_RAFT_GROUPS` is unset/absent — keeps
+    /// Number of Raft groups THIS node stands up at boot (DIST-P2-2, CONCEPT:MEDULLA-KG.sharding.placement-catalog).
+    /// `1` — the default when `MEDULLA_RAFT_GROUPS` is unset/absent — keeps
     /// production startup creating ONLY [`super::DEFAULT_GROUP`], byte-for-byte the
     /// pre-existing single-group behavior (`node::start` calling
     /// [`super::multi::MultiRaft::configure_group_ring`] with `groups <= 1` is a
@@ -165,42 +165,42 @@ impl std::fmt::Debug for RaftClusterConfig {
 }
 
 impl RaftClusterConfig {
-    /// Parse `EPISTEMIC_GRAPH_RAFT_NODE_ID` + `EPISTEMIC_GRAPH_RAFT_PEERS`.
+    /// Parse `MEDULLA_RAFT_NODE_ID` + `MEDULLA_RAFT_PEERS`.
     ///
-    /// * `EPISTEMIC_GRAPH_RAFT_NODE_ID` — this node's integer id. Absent ⇒ `None`
+    /// * `MEDULLA_RAFT_NODE_ID` — this node's integer id. Absent ⇒ `None`
     ///   (Raft disabled, single-node).
-    /// * `EPISTEMIC_GRAPH_RAFT_PEERS` — comma-separated `id@host:port` members,
+    /// * `MEDULLA_RAFT_PEERS` — comma-separated `id@host:port` members,
     ///   e.g. `1@127.0.0.1:7001,2@127.0.0.1:7002,3@127.0.0.1:7003`. MUST include
     ///   this node's own id.
-    /// * `EPISTEMIC_GRAPH_RAFT_AUTH_SECRET_FILE` — preferred reference to a 32-byte
+    /// * `MEDULLA_RAFT_AUTH_SECRET_FILE` — preferred reference to a 32-byte
     ///   or longer pre-shared key readable only by the service account. Alternatively
-    ///   `EPISTEMIC_GRAPH_RAFT_AUTH_SECRET` may carry it inline. Exactly one source
+    ///   `MEDULLA_RAFT_AUTH_SECRET` may carry it inline. Exactly one source
     ///   may be set. The key is mandatory outside one-member loopback mode.
     ///
     /// Returns `Err` if the node id is set but the peer set is missing/malformed or
     /// does not contain this node — a loud misconfig rather than a silent half-up
     /// cluster.
     pub fn from_env() -> Result<Option<Self>, String> {
-        let node_id = match std::env::var("EPISTEMIC_GRAPH_RAFT_NODE_ID") {
+        let node_id = match std::env::var("MEDULLA_RAFT_NODE_ID") {
             Ok(v) if !v.trim().is_empty() => v
                 .trim()
                 .parse::<NodeId>()
-                .map_err(|_| "EPISTEMIC_GRAPH_RAFT_NODE_ID is not an integer".to_string())?,
+                .map_err(|_| "MEDULLA_RAFT_NODE_ID is not an integer".to_string())?,
             _ => return Ok(None),
         };
-        let peers_raw = std::env::var("EPISTEMIC_GRAPH_RAFT_PEERS").map_err(|_| {
-            "EPISTEMIC_GRAPH_RAFT_NODE_ID is set but EPISTEMIC_GRAPH_RAFT_PEERS is missing \
+        let peers_raw = std::env::var("MEDULLA_RAFT_PEERS").map_err(|_| {
+            "MEDULLA_RAFT_NODE_ID is set but MEDULLA_RAFT_PEERS is missing \
              (need e.g. '1@host:port,2@host:port,3@host:port')"
                 .to_string()
         })?;
         let peers = parse_peers(&peers_raw)?;
         let advertise_addr = peers.get(&node_id).map(|n| n.addr.clone()).ok_or_else(|| {
-            "EPISTEMIC_GRAPH_RAFT_PEERS does not contain this node id".to_string()
+            "MEDULLA_RAFT_PEERS does not contain this node id".to_string()
         })?;
         // The listener bind address defaults to the advertised (PEERS) address, but a
         // containerized member overrides it (e.g. `0.0.0.0:9100`) while peers still dial
         // its routable host IP from PEERS — see `bind_addr` docs (CONCEPT:AU-KG.backend.authority-has-already-acked).
-        let bind_addr = match std::env::var("EPISTEMIC_GRAPH_RAFT_BIND_ADDR") {
+        let bind_addr = match std::env::var("MEDULLA_RAFT_BIND_ADDR") {
             Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
             _ => advertise_addr,
         };
@@ -212,7 +212,7 @@ impl RaftClusterConfig {
         // cores-derived default (K == N groups, write-sharded like the non-raft path);
         // set explicitly to size the pool. Clamped to MAX_SHARD_COUNT (K's ceiling).
         let groups = parse_groups(
-            std::env::var("EPISTEMIC_GRAPH_RAFT_GROUPS").ok(),
+            std::env::var("MEDULLA_RAFT_GROUPS").ok(),
             default_raft_group_count(),
         )?;
         let transport_secret = resolve_transport_secret()?;
@@ -258,15 +258,15 @@ impl RaftClusterConfig {
 /// it is omitted, only stable configured member IDs are hashed: rotating a
 /// peer's endpoint must not rotate the cluster identity.
 fn parse_cluster_id(peers: &PeerMap) -> Result<String, String> {
-    let configured = std::env::var("EPISTEMIC_GRAPH_RAFT_CLUSTER_ID")
+    let configured = std::env::var("MEDULLA_RAFT_CLUSTER_ID")
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     let mut hasher = Sha256::new();
-    hasher.update(b"epistemic-graph/cluster-id/v1\0");
+    hasher.update(b"medulla-engine/cluster-id/v1\0");
     if let Some(value) = configured {
         if value.len() > MAX_ADVERTISED_FIELD_BYTES {
-            return Err("EPISTEMIC_GRAPH_RAFT_CLUSTER_ID exceeds resource limits".to_string());
+            return Err("MEDULLA_RAFT_CLUSTER_ID exceeds resource limits".to_string());
         }
         hasher.update(value.as_bytes());
     } else {
@@ -345,8 +345,8 @@ fn parse_optional_u64_env(name: &str) -> Result<Option<u64>, String> {
         .map_err(|_| format!("{name} must be a u64"))
 }
 
-/// Parse the required `EPISTEMIC_GRAPH_ADVERTISED_CLIENT_ADDR` (CONCEPT:EG-KG.sharding.cluster-topology,
-/// ADR-1). Called only once `EPISTEMIC_GRAPH_RAFT_NODE_ID`/`_PEERS` are already
+/// Parse the required `MEDULLA_ADVERTISED_CLIENT_ADDR` (CONCEPT:MEDULLA-KG.sharding.cluster-topology,
+/// ADR-1). Called only once `MEDULLA_RAFT_NODE_ID`/`_PEERS` are already
 /// known-present (see [`RaftClusterConfig::from_env`]), so "peers configured"
 /// always holds here -- fail closed rather than silently omitting this node from
 /// discovery.
@@ -524,7 +524,7 @@ fn parse_peers(raw: &str) -> Result<PeerMap, String> {
         }
     }
     if peers.is_empty() {
-        return Err("EPISTEMIC_GRAPH_RAFT_PEERS is empty".to_string());
+        return Err("MEDULLA_RAFT_PEERS is empty".to_string());
     }
     Ok(peers)
 }
@@ -621,7 +621,7 @@ fn parse_failure_domains(raw: &str, peers: &PeerMap) -> Result<BTreeMap<NodeId, 
     Ok(domains)
 }
 
-/// Parse `EPISTEMIC_GRAPH_RAFT_GROUPS` (DIST-P2-2 / ADR-2 W1.2): `None`/empty/`"0"` all
+/// Parse `MEDULLA_RAFT_GROUPS` (DIST-P2-2 / ADR-2 W1.2): `None`/empty/`"0"` all
 /// collapse to `default` rather than erroring — an operator who never heard of this knob
 /// gets the cores-derived default ([`default_raft_group_count`]). A non-empty,
 /// non-integer value is a loud misconfig (same posture as `parse_peers`). A configured
@@ -639,14 +639,14 @@ fn parse_groups(raw: Option<String>, default: u64) -> Result<u64, String> {
         Some(v) if !v.trim().is_empty() => v
             .trim()
             .parse::<u64>()
-            .map_err(|_| "EPISTEMIC_GRAPH_RAFT_GROUPS is not an integer".to_string())?,
+            .map_err(|_| "MEDULLA_RAFT_GROUPS is not an integer".to_string())?,
         _ => 0,
     };
     let resolved = if n == 0 { default } else { n };
     Ok(resolved.clamp(1, ceiling))
 }
 
-/// The cores-derived default group/shard count when `EPISTEMIC_GRAPH_RAFT_GROUPS` is
+/// The cores-derived default group/shard count when `MEDULLA_RAFT_GROUPS` is
 /// unset (ADR-2 / W1.2, `reports/wave1/ADR-scale-trio.md` §ADR-2 decision 2): the raft
 /// group count defaults to the non-raft durable-shard auto-size
 /// `clamp(effective-cgroup-cpu/2, 1, …)` but
@@ -660,7 +660,7 @@ pub(crate) fn default_raft_group_count() -> u64 {
 }
 
 /// The number of raft groups (== redb shards K, ADR-2 / W1.2) this node runs, resolved
-/// from `EPISTEMIC_GRAPH_RAFT_GROUPS` with the [`default_raft_group_count`] fallback. Read
+/// from `MEDULLA_RAFT_GROUPS` with the [`default_raft_group_count`] fallback. Read
 /// by `resolve_shard_count` so the durable store opens EXACTLY N shards — group `g` owns
 /// shard `g`. A malformed value falls back to the default here; the loud validation error
 /// is raised once by [`RaftClusterConfig::from_env`], which gates startup, so this
@@ -668,7 +668,7 @@ pub(crate) fn default_raft_group_count() -> u64 {
 /// re-report it.
 pub(crate) fn raft_group_count() -> u64 {
     parse_groups(
-        std::env::var("EPISTEMIC_GRAPH_RAFT_GROUPS").ok(),
+        std::env::var("MEDULLA_RAFT_GROUPS").ok(),
         default_raft_group_count(),
     )
     .unwrap_or_else(|_| default_raft_group_count())

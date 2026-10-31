@@ -4,12 +4,12 @@ import asyncio
 
 import pytest
 
-from epistemic_graph.generated.agent_component import (
+from medulla.generated.agent_component import (
     AgentComponentKind,
     AgentComponentSearchPage,
     AgentComponentSearchRequest,
 )
-from epistemic_graph.generated.storage import send_agent_component_search
+from medulla.generated.storage import send_agent_component_search
 
 pytestmark = pytest.mark.no_engine
 

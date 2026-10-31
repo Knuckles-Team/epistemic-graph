@@ -1,7 +1,7 @@
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 
-use eg_types::result_contract::coordination::{GraphResourceStats, TenantResourceStats};
+use medulla_types::result_contract::coordination::{GraphResourceStats, TenantResourceStats};
 use tokio::sync::RwLock;
 
 use crate::server::ServerState;

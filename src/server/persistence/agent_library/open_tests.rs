@@ -1,9 +1,9 @@
 //! Production owner-open acceptance for the ConnectorPack catalog.
 
 use super::*;
-use eg_types::contract::ResourceId;
+use medulla_types::contract::ResourceId;
 
-// spec: EG-DECISION-ENGINE-R073.3
+// spec: MEDULLA-DECISION-ENGINE-R073.3
 #[test]
 fn fresh_open_initializes_all_pack_tables_and_reopens_empty() {
     let dir = tempfile::tempdir().unwrap();
@@ -13,13 +13,13 @@ fn fresh_open_initializes_all_pack_tables_and_reopens_empty() {
         let store = AgentLibraryStore::open(dir.path().to_str().unwrap()).unwrap();
         let read = store.read().unwrap();
         assert_eq!(
-            eg_storage::owner_table_names(eg_storage::OwnerLayout::AgentLibrary).len(),
+            medulla_storage::owner_table_names(medulla_storage::OwnerLayout::AgentLibrary).len(),
             21
         );
         macro_rules! empty_table {
             ($table:ident) => {
                 assert_eq!(
-                    read.open_owner_table(eg_storage::$table)
+                    read.open_owner_table(medulla_storage::$table)
                         .unwrap()
                         .len()
                         .unwrap(),
@@ -40,21 +40,21 @@ fn fresh_open_initializes_all_pack_tables_and_reopens_empty() {
         assert!(status.importer.is_none());
         assert_eq!(
             status.members,
-            eg_types::connector_pack::PackMemberCounts::default()
+            medulla_types::connector_pack::PackMemberCounts::default()
         );
         assert!(path.exists());
     }
 }
 
-// spec: EG-DECISION-ENGINE-R073.3
+// spec: MEDULLA-DECISION-ENGINE-R073.3
 #[test]
 fn production_open_refuses_each_genuine_predecessor_without_writing() {
-    let predecessors = eg_storage::layout_predecessors(eg_storage::OwnerLayout::AgentLibrary);
+    let predecessors = medulla_storage::layout_predecessors(medulla_storage::OwnerLayout::AgentLibrary);
     assert!(!predecessors.is_empty());
     for predecessor in predecessors {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(AGENT_LIBRARY_FILE);
-        eg_storage::create_predecessor_owner_file(
+        medulla_storage::create_predecessor_owner_file(
             &path,
             PhysicalStoreIdentity::new(AGENT_LIBRARY_PHYSICAL_STORE).unwrap(),
             predecessor,

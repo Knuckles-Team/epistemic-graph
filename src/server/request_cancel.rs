@@ -1,7 +1,7 @@
-//! Request-scoped cancellation registry (CONCEPT:EG-KG.query.streaming-spillable-collect, L36).
+//! Request-scoped cancellation registry (CONCEPT:MEDULLA-KG.query.streaming-spillable-collect, L36).
 //!
-//! `eg_query::sql::exec::collect_streaming` (the batch-at-a-time SQL collect path,
-//! EG-P1-4) already checks a [`eg_query::CancellationToken`] between batches — but
+//! `medulla_query::sql::exec::collect_streaming` (the batch-at-a-time SQL collect path,
+//! MEDULLA-P1-4) already checks a [`medulla_query::CancellationToken`] between batches — but
 //! before this module every served `Method::Sql` call built a FRESH, never-cancelled
 //! token internally (`exec_sql_typed_with_tables`), so a client cancel or a server-side
 //! timeout had no live token to trip: cancellation was wired end-to-end EXCEPT for the
@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 use crate::lock_recovery::LockRecovery;
-use eg_query::CancellationToken;
+use medulla_query::CancellationToken;
 
 fn registry() -> &'static Mutex<HashMap<u64, CancellationToken>> {
     static REG: OnceLock<Mutex<HashMap<u64, CancellationToken>>> = OnceLock::new();
@@ -75,7 +75,7 @@ pub fn cancel(req_id: u64) -> bool {
     }
 }
 
-/// Spawn a background task that cancels `token` after `EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS`
+/// Spawn a background task that cancels `token` after `MEDULLA_SQL_REQUEST_TIMEOUT_MS`
 /// milliseconds — a server-side per-request DEADLINE that trips the SAME cooperative
 /// cancellation an explicit client `Method::CancelRequest` does, so a runaway SQL scan
 /// is bounded even when no client ever cancels it. Returns `None` (spawns nothing) when
@@ -84,7 +84,7 @@ pub fn cancel(req_id: u64) -> bool {
 /// own work finishes (cancelled or not), so a completed request never leaves a stray
 /// sleeping task behind.
 pub fn spawn_timeout(token: CancellationToken) -> Option<tokio::task::JoinHandle<()>> {
-    let ms = std::env::var("EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS")
+    let ms = std::env::var("MEDULLA_SQL_REQUEST_TIMEOUT_MS")
         .ok()?
         .trim()
         .parse::<u64>()
@@ -149,7 +149,7 @@ mod tests {
         );
     }
 
-    /// `EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS` is process-global; serialize the two
+    /// `MEDULLA_SQL_REQUEST_TIMEOUT_MS` is process-global; serialize the two
     /// tests below against each other (mirrors `redb_backend`'s `LINGER_ENV_LOCK`
     /// precedent) so a parallel run can't have one observe the other's value.
     static TIMEOUT_ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -159,7 +159,7 @@ mod tests {
     #[tokio::test]
     async fn spawn_timeout_noop_when_unset() {
         let _env = TIMEOUT_ENV_LOCK.lock_recovering("SQL request-timeout env lock");
-        std::env::remove_var("EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS");
+        std::env::remove_var("MEDULLA_SQL_REQUEST_TIMEOUT_MS");
         let tok = CancellationToken::new();
         assert!(spawn_timeout(tok).is_none());
     }
@@ -174,9 +174,9 @@ mod tests {
         let tok = CancellationToken::new();
         let handle = {
             let _env = TIMEOUT_ENV_LOCK.lock_recovering("SQL request-timeout env lock");
-            std::env::set_var("EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS", "10");
+            std::env::set_var("MEDULLA_SQL_REQUEST_TIMEOUT_MS", "10");
             let handle = spawn_timeout(tok.clone());
-            std::env::remove_var("EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS");
+            std::env::remove_var("MEDULLA_SQL_REQUEST_TIMEOUT_MS");
             handle
             // `_env` drops here, BEFORE the `.await` below.
         }

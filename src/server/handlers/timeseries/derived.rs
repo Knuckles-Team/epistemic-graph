@@ -1,7 +1,7 @@
 //! EH-524 — materialised derived series: `TsDefineSeries`, and the maintenance every
 //! `TsAppend` runs on the series derived from the one it appended to.
 //!
-//! The logic is `eg_tsdb::derive::maintain` (pure); this module does the IO. Each
+//! The logic is `medulla_tsdb::derive::maintain` (pure); this module does the IO. Each
 //! derived series commits its new points AND its new state (definition, program,
 //! checkpoints) in ONE native MutationBatch in `series.redb`, so its points and its
 //! checkpoint can never disagree. A source append commits first; a crash between the
@@ -15,11 +15,11 @@
 //! construction. Lineage (`derived_from`) and the expression digest are in the receipt
 //! and in the series metadata.
 
-use eg_tsdb::derive::maintain::{latest_versions, DerivedState, Step, DERIVED_FIELDS};
-use eg_tsdb::derive::KERNEL_VERSION;
-use eg_tsdb::point::{Point, Ts};
-use eg_tsdb::store::{DerivedWrite, ScopedAppendBatch, SeriesKey, SeriesMeta, SeriesStore};
-use eg_types::series_expr::{DerivedSeriesReceipt, SeriesExpr};
+use medulla_tsdb::derive::maintain::{latest_versions, DerivedState, Step, DERIVED_FIELDS};
+use medulla_tsdb::derive::KERNEL_VERSION;
+use medulla_tsdb::point::{Point, Ts};
+use medulla_tsdb::store::{DerivedWrite, ScopedAppendBatch, SeriesKey, SeriesMeta, SeriesStore};
+use medulla_types::series_expr::{DerivedSeriesReceipt, SeriesExpr};
 
 use super::{compute_off_lock, results, store_of, BatchScope, TsRequestContext};
 use crate::protocol::{Method, Response, ResultPayload};
@@ -60,7 +60,7 @@ pub(super) async fn handle_define(
         ),
         Ok(Err(error)) => Response::err(
             context.req_id,
-            eg_types::contract::classify_refusal("INTERNAL", "", &error),
+            medulla_types::contract::classify_refusal("INTERNAL", "", &error),
         ),
         Err(response) => response,
     }
@@ -95,7 +95,7 @@ fn define(
     if def.series_id == def.source {
         return Err("INVALID_ARGUMENT: a derived series cannot derive from itself".into());
     }
-    let expr = eg_plan::uql::parse_series_expr(&def.expr)
+    let expr = medulla_plan::uql::parse_series_expr(&def.expr)
         .map_err(|e| format!("INVALID_ARGUMENT: {}", e.render(&def.expr)))?;
     let source_key = scope.key(&def.source)?;
     let source_meta = meta(store, &source_key)?.ok_or_else(|| {

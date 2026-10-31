@@ -668,7 +668,7 @@ mod tests {
 
     #[test]
     fn reactivation_cas_rejects_stale_park_and_budget() {
-        let path = crate::redb_store::temp_path("eg-enrichment-reactivation", "durable");
+        let path = crate::redb_store::temp_path("medulla-enrichment-reactivation", "durable");
         let shard = Shard::open(&path).unwrap();
         let graph = "reactivation-graph";
         let (old, park, next) = parked_rows();
@@ -809,7 +809,7 @@ mod tests {
 
     #[test]
     fn zero_page_top_up_persists_funded_source_and_supersession_across_reopen() {
-        let path = crate::redb_store::temp_path("eg-enrichment-zero-topup", "durable");
+        let path = crate::redb_store::temp_path("medulla-enrichment-zero-topup", "durable");
         let shard = Shard::open(&path).unwrap();
         let graph = "reactivation-graph";
         let (mut old, _, mut next) = parked_rows();

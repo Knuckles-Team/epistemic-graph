@@ -9,7 +9,7 @@ import pytest
 
 # Pure/static source proof -- it greps tracked files and never needs the shared
 # native engine, so exempt it from conftest.py's session-scoped
-# `start_epistemic_graph_server` fixture (without this marker the module builds
+# `start_medulla_server` fixture (without this marker the module builds
 # and starts a server just to read source text).
 pytestmark = pytest.mark.no_engine
 
@@ -26,8 +26,8 @@ def _existing_source(*relative_paths: str) -> str:
 
 def test_deleted_first_release_symbols_stay_absent() -> None:
     index_source = _existing_source(
-        "crates/eg-core/src/index.rs",
-        "crates/eg-core/src/index/model/kinds.rs",
+        "crates/medulla-core/src/index.rs",
+        "crates/medulla-core/src/index/model/kinds.rs",
     )
     writer_source = _existing_source(
         "src/server/persistence/redb_backend.rs",

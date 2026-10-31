@@ -1,5 +1,5 @@
 """QueryClient.sql sends the Sql RPC and zips Raw(QueryResult) rows into dicts
-(CONCEPT:EG-KG.query.read-only-sql-query)."""
+(CONCEPT:MEDULLA-KG.query.read-only-sql-query)."""
 
 from __future__ import annotations
 
@@ -8,15 +8,15 @@ from typing import Any
 import msgpack
 import pytest
 
-from epistemic_graph.client import EpistemicGraphClient, QueryClient
+from medulla.client import MedullaClient, QueryClient
 
 # Fake-client unit tests only -- never needs the shared native engine (see
-# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# conftest.py's session-scoped `start_medulla_server` fixture,
 # which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient(EpistemicGraphClient):
+class _FakeClient(MedullaClient):
     """Mimics the engine's decoded `Raw(QueryResult)` reply: `_send` returns the
     already-double-unpacked dict `{"columns": [...], "rows": [<row-blob>, ...]}`
     where each row blob is a MessagePack list of cells (what the server emits)."""

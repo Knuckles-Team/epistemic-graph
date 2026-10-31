@@ -1,4 +1,4 @@
-//! Cross-shard 2PC atomicity + recovery gauntlet (CONCEPT:EG-KG.storage.lane-n-increment).
+//! Cross-shard 2PC atomicity + recovery gauntlet (CONCEPT:MEDULLA-KG.storage.lane-n-increment).
 //!
 //! The nemesis harness for the cross-shard distributed transaction: it spins a live
 //! two-group cluster (one in-process node, two Raft groups on the shared listener,
@@ -65,7 +65,7 @@ fn harness_isolation() -> crate::isolation::IsolationLayer {
 ///
 /// Every test in this module opens a durable store -- several open the SAME directory
 /// twice across a simulated crash -- and a durable open resolves its at-rest cipher
-/// from the process-global `EPISTEMIC_GRAPH_ENCRYPTION_KEY`. A concurrent key mutation
+/// from the process-global `MEDULLA_ENCRYPTION_KEY`. A concurrent key mutation
 /// between two of those opens fails the canary check, so the env has to hold still for
 /// the whole body, not just the first open. That is the READ guard
 /// `crate::crypto::provisioned_test_env_read_lock` hands back, after taking (and
@@ -88,7 +88,7 @@ async fn env_read_guard() -> crate::crypto::TestEnvReadGuard {
 /// provisioned it.
 fn fresh_dir(tag: &str) -> String {
     // Keep directory lifecycle and UTF-8 validation in the shared harness fixture.
-    fixture::fresh_dir("eg-xshard", tag)
+    fixture::fresh_dir("medulla-xshard", tag)
 }
 
 /// Bring up a one-node, two-group cluster over `dir`'s redb, with `shardA`→100 and
@@ -171,7 +171,7 @@ async fn shutdown_releases_accepted_connection_and_backend_fds_before_reopen() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. See `env_read_guard`'s doc.
     let _env_read_lock = env_read_guard().await;
-    const CHILD_ENV: &str = "EG_XSHARD_FD_LIFECYCLE_CHILD";
+    const CHILD_ENV: &str = "MEDULLA_XSHARD_FD_LIFECYCLE_CHILD";
     if std::env::var_os(CHILD_ENV).is_none() {
         let executable = std::env::current_exe().expect("xshard test executable");
         let mut child = tokio::process::Command::new(executable)
@@ -200,7 +200,7 @@ async fn shutdown_releases_accepted_connection_and_backend_fds_before_reopen() {
     let baseline = process_fd_count();
 
     for cycle in 0..CYCLES {
-        let dir = fresh_dir(&format!("eg-xshard-fd-lifecycle-cycle-{cycle}"));
+        let dir = fresh_dir(&format!("medulla-xshard-fd-lifecycle-cycle-{cycle}"));
         let backend = fixture::open_backend(&dir).expect("open redb");
         let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
         let before_connection = process_fd_count();
@@ -268,7 +268,7 @@ fn two_shard_txn(txn_id: &str, a_node: &str, b_node: &str) -> CrossShardTxn {
 }
 
 /// A two-graph cross-shard txn where shardA WRITES a node and shardB is READ-ONLY
-/// (its slice carries no methods) — the EG-081 read-only-participant fast-path shape.
+/// (its slice carries no methods) — the MEDULLA-081 read-only-participant fast-path shape.
 fn writer_plus_readonly_txn(txn_id: &str, a_node: &str) -> CrossShardTxn {
     let writer = fixture::add_node_slice(GRAPH_A, a_node, 0, None);
     let read_only = GraphSlice {
@@ -520,7 +520,7 @@ async fn recovery_aborts_in_doubt_txn_with_no_decision_record() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// 6. Lane N WIRE (CONCEPT:EG-KG.txn.routes-cross-shard-txn) — a USER multi-graph txn across 2 groups,
+// 6. Lane N WIRE (CONCEPT:MEDULLA-KG.txn.routes-cross-shard-txn) — a USER multi-graph txn across 2 groups,
 //    driven through the BeginTxn→stage→Commit HANDLER, is atomic.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -529,7 +529,7 @@ use crate::protocol::{Response, ResultPayload};
 const XSHARD_HARNESS_TEST_AGENT: &str = "xshard-harness-agent";
 
 /// Thin wrapper over `handlers::txn::try_handle` binding the harness's fixed test
-/// identity to a `VerifiedRequestContext` (CONCEPT:EG-KG.txn.routes-cross-shard-txn drift fix
+/// identity to a `VerifiedRequestContext` (CONCEPT:MEDULLA-KG.txn.routes-cross-shard-txn drift fix
 /// cbde3e3: `try_handle` gained a mandatory `caller`/`verified_context` pair that this
 /// harness's call sites never picked up). Mirrors the identical pattern in
 /// `server/persistence/redb_backend.rs`'s cross-modal ACID test module.
@@ -561,7 +561,7 @@ async fn txn_handle(
 }
 
 /// Register `shardA`/`shardB` in the registry + wire `state.multi_raft` so the
-/// user-facing commit path can resolve the cross-shard span (CONCEPT:EG-KG.txn.routes-cross-shard-txn).
+/// user-facing commit path can resolve the cross-shard span (CONCEPT:MEDULLA-KG.txn.routes-cross-shard-txn).
 async fn wire_user_graphs(state: &Arc<RwLock<crate::server::ServerState>>, multi: &Arc<MultiRaft>) {
     let mut s = state.write().await;
     let _ = s.registry.create_graph(GRAPH_A, GraphType::Global, None);
@@ -696,7 +696,7 @@ async fn user_multigraph_txn_commits_atomically_across_groups() {
 /// NEMESIS: kill participant B (close its group) so its slice cannot prepare, then
 /// commit a USER multi-graph txn through the handler. It must ABORT with NO PARTIAL
 /// COMMIT — the live participant A must NOT have applied. This proves the user wire
-/// inherits the coordinator's atomicity under a participant kill (CONCEPT:EG-KG.txn.routes-cross-shard-txn).
+/// inherits the coordinator's atomicity under a participant kill (CONCEPT:MEDULLA-KG.txn.routes-cross-shard-txn).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn user_multigraph_txn_atomic_under_participant_kill() {
     // Opens a durable store, so the ambient encryption env must hold still for
@@ -743,7 +743,7 @@ async fn user_multigraph_txn_atomic_under_participant_kill() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// 7. EG-081 read-only fast path — a participant with an EMPTY write-set slice
+// 7. MEDULLA-081 read-only fast path — a participant with an EMPTY write-set slice
 //    is validated but SKIPS its prepare-log + phase-2 write; the writer still
 //    commits atomically and no durable 2PC record leaks.
 // ─────────────────────────────────────────────────────────────────────────
@@ -796,7 +796,7 @@ async fn read_only_participant_skips_prepare_and_phase2() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// 8. EG-081 parallel prepare — a 3-WRITER cross-shard txn prepared CONCURRENTLY
+// 8. MEDULLA-081 parallel prepare — a 3-WRITER cross-shard txn prepared CONCURRENTLY
 //    reaches the SAME atomic decision as the sequential protocol: it commits on
 //    every writing participant, and recovery re-applies after a post-decision
 //    crash. Proves join_all with >2 futures preserves correctness + recovery.
@@ -950,7 +950,7 @@ async fn parallel_prepare_multi_writer_recovers_after_post_decision_crash() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// 9. EG-082 NON-BLOCKING commit (Paxos-Commit-lite) — the decision is
+// 9. MEDULLA-082 NON-BLOCKING commit (Paxos-Commit-lite) — the decision is
 //    REPLICATED through a Raft group, not held in the coordinator's private
 //    redb, so a coordinator crash between decision and apply does NOT block:
 //    a different resolver learns the decision from the replicated log and
@@ -958,7 +958,7 @@ async fn parallel_prepare_multi_writer_recovers_after_post_decision_crash() {
 //    (c) agreement with 2PC on commit/abort for the same inputs.
 // ─────────────────────────────────────────────────────────────────────────
 
-/// The dedicated cross-shard DECISION Raft group (CONCEPT:EG-KG.txn.harness-crash): the commit/abort
+/// The dedicated cross-shard DECISION Raft group (CONCEPT:MEDULLA-KG.txn.harness-crash): the commit/abort
 /// record is Raft-replicated into a graph here instead of the coordinator's redb.
 const GROUP_D: u64 = 400;
 
@@ -1204,7 +1204,7 @@ async fn nonblocking_recovery_presumed_abort_with_no_replicated_decision() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// ── EG-324: FULL Calvin deterministic-ordering commit — live proofs ─────────────
+// ── MEDULLA-324: FULL Calvin deterministic-ordering commit — live proofs ─────────────
 
 /// (a) Calvin HAPPY PATH: a deterministic-ordering commit lands on BOTH participants
 /// with NO vote round, the ORDER is replicated (not in coordinator redb), the txn gets a
@@ -1311,8 +1311,8 @@ async fn calvin_crash_after_sequencing_is_resolved_by_replay() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// ── EG-342: Calvin OLLP reconnaissance + ordered read-lock phase — live proof ────
-// ── EG-343: multi-node sequencer epoch fan-in — determinism proof ───────────────
+// ── MEDULLA-342: Calvin OLLP reconnaissance + ordered read-lock phase — live proof ────
+// ── MEDULLA-343: multi-node sequencer epoch fan-in — determinism proof ───────────────
 
 /// Write a single node's properties into `graph` through its owning Raft group (the
 /// deterministic-execution write primitive the Calvin OLLP tests apply under lock).
@@ -1399,7 +1399,7 @@ fn spawn_ordered_writer(
     })
 }
 
-/// EG-342: the OLLP reconnaissance + deterministic ordered read-lock phase gives FULL
+/// MEDULLA-342: the OLLP reconnaissance + deterministic ordered read-lock phase gives FULL
 /// serializable isolation of CONFLICTING sequenced txns.
 ///
 /// Setup: a directory node `dir`→`{target: "k"}` in shardA. Two sequenced txns share the
@@ -1413,7 +1413,7 @@ fn spawn_ordered_writer(
 /// on `k` to WAIT behind T1's exclusive write lock. So even though T2's execution task is
 /// spawned FIRST, it reads `k` only AFTER T1 has committed `v1` → `r = {saw: "v1"}`: T2
 /// observes T1's committed write per the sequence order. That is serializability
-/// equivalent to running T1 then T2 — the guarantee EG-324 deferred.
+/// equivalent to running T1 then T2 — the guarantee MEDULLA-324 deferred.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn calvin_ollp_ordered_readlock_serializes_conflicting_txns() {
     // Opens a durable store, so the ambient encryption env must hold still for
@@ -1541,11 +1541,11 @@ async fn calvin_ollp_ordered_readlock_serializes_conflicting_txns() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// EG-348: Calvin OLLP recon-staleness RESTART — a txn whose reconnaissance goes STALE
+/// MEDULLA-348: Calvin OLLP recon-staleness RESTART — a txn whose reconnaissance goes STALE
 /// between recon and lock acquisition is automatically re-sequenced (re-reconnoitered +
 /// re-submitted at a NEW `GlobalSeq`) and ultimately commits with a SERIALIZABLE result.
 ///
-/// EG-342 shipped only the DETECTION half (`recon_still_valid`); this proves the wired
+/// MEDULLA-342 shipped only the DETECTION half (`recon_still_valid`); this proves the wired
 /// restart loop (`acquire_ollp_with_restart`).
 ///
 /// Setup — a directory `dir`→`{target}` in shardA that a lower-sequence txn MUTATES, so
@@ -1712,9 +1712,9 @@ async fn calvin_ollp_stale_recon_is_restarted_and_commits_serializably() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// EG-343: two nodes, each with its own local sequencer, fan their per-epoch input
+/// MEDULLA-343: two nodes, each with its own local sequencer, fan their per-epoch input
 /// batches into ONE global total order — and DERIVE THE IDENTICAL ORDER. This is the
-/// multi-node generalization of the single EG-324 sequencer: the merge is a pure,
+/// multi-node generalization of the single MEDULLA-324 sequencer: the merge is a pure,
 /// data-only function, so every node computes byte-identical output and can then run the
 /// vote-free deterministic execution phase without disagreeing on the order.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1756,7 +1756,7 @@ async fn calvin_two_node_epoch_fan_in_derives_identical_order() {
     assert_eq!(order_on_node_1.epoch, 9);
 }
 
-/// EG-349: a Calvin OLLP txn whose reconnaissance goes stale is restarted (as in
+/// MEDULLA-349: a Calvin OLLP txn whose reconnaissance goes stale is restarted (as in
 /// [`calvin_ollp_stale_recon_is_restarted_and_commits_serializably`]) but this time the
 /// restart is routed into a SPECIFIC epoch of the MULTI-NODE `epoch_fan_in` rather than a
 /// fresh `GlobalSeq` in one sequencer's ordering domain — closing the gap

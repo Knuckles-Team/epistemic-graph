@@ -1,0 +1,33 @@
+# Declared capacity-limit thresholds (MEDULLA-SUPPLY-VOCAB-R004.3, Decision D6).
+#
+# No connected source exposes a capacity limit, so the declared ceilings
+# are ontology-side data: one HostLimit row per kind (disk, memory, cpu)
+# for the reference host. The reading is the last observed value; the
+# limit is the declared threshold. Temperature limits come from the
+# fan-manager policy (MEDULLA-SUPPLY-VOCAB-R006.7), not from this table.
+
+@prefix : <http://knuckles.team/kg/infrastructure#> .
+@prefix ex: <http://knuckles.team/test/host-limit#> .
+
+ex:referenceHost a :Host .
+
+ex:diskThreshold a :HostLimit ;
+    :limitOf ex:referenceHost ;
+    :limitKind "disk" ;
+    :readingValue 1700000000000 ;
+    :limitValue 2000000000000 ;
+    :limitUnit "bytes" .
+
+ex:memoryThreshold a :HostLimit ;
+    :limitOf ex:referenceHost ;
+    :limitKind "memory" ;
+    :readingValue 512000000000 ;
+    :limitValue 600000000000 ;
+    :limitUnit "bytes" .
+
+ex:cpuThreshold a :HostLimit ;
+    :limitOf ex:referenceHost ;
+    :limitKind "cpu" ;
+    :readingValue 6 ;
+    :limitValue 8 ;
+    :limitUnit "count" .

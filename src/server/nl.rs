@@ -1,7 +1,7 @@
-//! Natural-language query planner resolution for the facade (CONCEPT:EG-KG.query.fence-stripper).
+//! Natural-language query planner resolution for the facade (CONCEPT:MEDULLA-KG.query.fence-stripper).
 //!
 //! The engine's NL surface is LLM-OPTIONAL and pure-Rust in the core: the
-//! [`eg_plan::NlPlanner`] seam (CONCEPT:EG-KG.query.core-query-input) turns NL into a UQL query STRING that then
+//! [`medulla_plan::NlPlanner`] seam (CONCEPT:MEDULLA-KG.query.core-query-input) turns NL into a UQL query STRING that then
 //! runs through the existing deterministic UQL pipeline. This module owns
 //! WHICH planner the facade uses:
 //!
@@ -10,16 +10,16 @@
 //!    can inject its own via [`set_nl_planner`]. An injected planner always wins.
 //!  * **Standalone (config)** — a bare engine reads an OpenAI-compatible LLM
 //!    endpoint/model/api-key-env from Arbora's `config.json` and builds a
-//!    [`eg_plan::UreqNlPlanner`]. If no endpoint is configured the planner stays `None`
+//!    [`medulla_plan::UreqNlPlanner`]. If no endpoint is configured the planner stays `None`
 //!    and `Method::NlQuery` returns a clear "not configured" error (never a panic).
 //!
 //! The whole module is gated behind `nl-query`.
 
 use std::sync::{Arc, OnceLock};
 
-use eg_plan::{NlConfigError, NlPlanner, OAuth2ClientCredentials, TokenAuthStyle, UreqNlPlanner};
+use medulla_plan::{NlConfigError, NlPlanner, OAuth2ClientCredentials, TokenAuthStyle, UreqNlPlanner};
 
-/// An operator-injected planner (CONCEPT:EG-KG.query.fence-stripper). Set ONCE, before first use, by an
+/// An operator-injected planner (CONCEPT:MEDULLA-KG.query.fence-stripper). Set ONCE, before first use, by an
 /// embedder that wants the engine to drive its own NL→query. Wins over the config default.
 static INJECTED: OnceLock<Arc<dyn NlPlanner>> = OnceLock::new();
 /// The lazily-built, config-derived default planner (`None` when nothing is configured).
@@ -28,7 +28,7 @@ static INJECTED: OnceLock<Arc<dyn NlPlanner>> = OnceLock::new();
 type ConfigDefault = Result<Option<Arc<dyn NlPlanner>>, NlConfigError>;
 static CONFIG_DEFAULT: OnceLock<ConfigDefault> = OnceLock::new();
 
-/// Inject the NL planner the facade should use (CONCEPT:EG-KG.query.fence-stripper). An embedder calls this
+/// Inject the NL planner the facade should use (CONCEPT:MEDULLA-KG.query.fence-stripper). An embedder calls this
 /// at startup to opt into the engine driving NL→query with its own planner. Idempotent:
 /// a second call after the planner is set (or after the config default was already
 /// resolved) is ignored, so the wiring is stable for the process lifetime.
@@ -38,7 +38,7 @@ pub fn set_nl_planner(planner: Arc<dyn NlPlanner>) {
 
 /// Resolve the active planner: the injected one if present, else the lazily-built config
 /// default (`Ok(None)` when standalone config names no LLM endpoint). Invalid request
-/// config (EG-FEDERATED-QUERY-R058.5) is returned as the typed [`NlConfigError`].
+/// config (MEDULLA-FEDERATED-QUERY-R058.5) is returned as the typed [`NlConfigError`].
 pub fn resolve_planner() -> Result<Option<Arc<dyn NlPlanner>>, NlConfigError> {
     if let Some(p) = INJECTED.get() {
         return Ok(Some(p.clone()));
@@ -82,14 +82,14 @@ struct NlSettings {
 }
 
 /// Env overrides (take precedence over the config file when set).
-const ENDPOINT_ENV: &str = "EPISTEMIC_GRAPH_NL_ENDPOINT";
-const MODEL_ENV: &str = "EPISTEMIC_GRAPH_NL_MODEL";
-const API_KEY_ENV_ENV: &str = "EPISTEMIC_GRAPH_NL_API_KEY_ENV";
-const TLS_CA_ENV: &str = "EPISTEMIC_GRAPH_NL_TLS_CA";
-const READ_TIMEOUT_ENV: &str = "EPISTEMIC_GRAPH_NL_READ_TIMEOUT_SECS";
-const EXTRA_BODY_ENV: &str = "EPISTEMIC_GRAPH_NL_EXTRA_BODY";
+const ENDPOINT_ENV: &str = "MEDULLA_NL_ENDPOINT";
+const MODEL_ENV: &str = "MEDULLA_NL_MODEL";
+const API_KEY_ENV_ENV: &str = "MEDULLA_NL_API_KEY_ENV";
+const TLS_CA_ENV: &str = "MEDULLA_NL_TLS_CA";
+const READ_TIMEOUT_ENV: &str = "MEDULLA_NL_READ_TIMEOUT_SECS";
+const EXTRA_BODY_ENV: &str = "MEDULLA_NL_EXTRA_BODY";
 
-/// Build the standalone config default planner (CONCEPT:EG-KG.query.fence-stripper). Reads config +
+/// Build the standalone config default planner (CONCEPT:MEDULLA-KG.query.fence-stripper). Reads config +
 /// env-overrides; returns `None` (no NL surface) when no endpoint is configured.
 fn build_default_from_config() -> ConfigDefault {
     let settings = load_or_scaffold_settings();
@@ -129,7 +129,7 @@ fn build_default_from_config() -> ConfigDefault {
     Ok(Some(Arc::new(planner) as Arc<dyn NlPlanner>))
 }
 
-/// Apply the configured read timeout / extra request body (EG-FEDERATED-QUERY-R058.5),
+/// Apply the configured read timeout / extra request body (MEDULLA-FEDERATED-QUERY-R058.5),
 /// refusing invalid values with a typed [`NlConfigError`].
 fn apply_request_settings(
     mut planner: UreqNlPlanner,
@@ -196,7 +196,7 @@ fn load_or_scaffold_settings() -> NlSettings {
 }
 
 /// Apply the env request overrides. An unparseable value keeps its source and raw text so
-/// the refusal names them (EG-FEDERATED-QUERY-R058.5).
+/// the refusal names them (MEDULLA-FEDERATED-QUERY-R058.5).
 fn apply_env_request_values(
     settings: &mut NlSettings,
     timeout: Option<String>,
@@ -361,13 +361,13 @@ fn scaffold_minimal_config() {
             "endpoint": "",
             "model": "gpt-4o-mini",
             "api_key_env": "OPENAI_API_KEY",
-            "_comment": "epistemic-graph CONCEPT:EG-KG.query.fence-stripper — set `endpoint` to an \
+            "_comment": "medulla CONCEPT:MEDULLA-KG.query.fence-stripper — set `endpoint` to an \
     OpenAI-compatible /chat/completions URL to enable the NL query surface (Method::NlQuery \
     + /nl). `api_key_env` names the env var holding the bearer key (empty for a local \
     keyless endpoint).",
             "_headers_comment": "Optional `headers`: a string→string map sent on every request \
     (e.g. {\"X-Client-Id\": \"my-service\"} for a gateway that requires a static client-id header).",
-            "_tls_comment": "Use `tls_ca_path` (or EPISTEMIC_GRAPH_NL_TLS_CA) for \
+            "_tls_comment": "Use `tls_ca_path` (or MEDULLA_NL_TLS_CA) for \
     private trust. Certificate verification is always enabled.",
             "_oauth2_comment": "Optional `oauth2` client-credentials block minting a short-lived \
     bearer instead of a static key: {\"token_url\": \"...\", \"client_id\": \"...\", \
@@ -402,7 +402,7 @@ mod tests {
     #[test]
     fn parse_config_reads_headers_tls_and_oauth2() {
         let path = write_tmp(
-            "eg_nl_full_config.json",
+            "medulla_nl_full_config.json",
             r#"{
               "nl_query": {
                 "endpoint": "https://gw.example/v1/chat/completions",
@@ -436,7 +436,7 @@ mod tests {
     #[test]
     fn parse_config_defaults_are_inert() {
         let path = write_tmp(
-            "eg_nl_minimal_config.json",
+            "medulla_nl_minimal_config.json",
             r#"{"nl_query": {"endpoint": "http://x/v1", "model": "m"}}"#,
         );
         let s = parse_config(&path).expect("parsed");
@@ -450,7 +450,7 @@ mod tests {
     fn parse_config_drops_incomplete_oauth2_block() {
         // Missing client_secret_env ⇒ the block is ignored (no half-configured mint).
         let path = write_tmp(
-            "eg_nl_bad_oauth_config.json",
+            "medulla_nl_bad_oauth_config.json",
             r#"{"nl_query": {"endpoint": "http://x/v1",
                 "oauth2": {"token_url": "https://idp/token", "client_id": "cid"}}}"#,
         );
@@ -459,10 +459,10 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
-    // spec: EG-FEDERATED-QUERY-R058.5
+    // spec: MEDULLA-FEDERATED-QUERY-R058.5
     #[test]
     fn config_request_settings_are_parsed_and_invalid_ones_refused() {
-        let dir = std::env::temp_dir().join(format!("eg-nl-cfg-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-nl-cfg-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
         std::fs::write(
@@ -486,14 +486,14 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    // spec: EG-FEDERATED-QUERY-R058.5
+    // spec: MEDULLA-FEDERATED-QUERY-R058.5
     #[test]
     fn unparseable_env_values_are_refused_with_source_and_raw_value() {
         let mut s = NlSettings::empty();
         apply_env_request_values(&mut s, Some("abc".into()), None);
         assert_eq!(
             s.request_error.unwrap().to_string(),
-            "nl-query: EPISTEMIC_GRAPH_NL_READ_TIMEOUT_SECS='abc' is not an integer"
+            "nl-query: MEDULLA_NL_READ_TIMEOUT_SECS='abc' is not an integer"
         );
         let mut s = NlSettings::empty();
         apply_env_request_values(&mut s, Some("45".into()), Some("{oops".into()));
@@ -502,8 +502,8 @@ mod tests {
             .request_error
             .unwrap()
             .to_string()
-            .contains("EPISTEMIC_GRAPH_NL_EXTRA_BODY='{oops' is not valid JSON"));
-        let dir = std::env::temp_dir().join(format!("eg-nl-cfg2-{}", std::process::id()));
+            .contains("MEDULLA_NL_EXTRA_BODY='{oops' is not valid JSON"));
+        let dir = std::env::temp_dir().join(format!("medulla-nl-cfg2-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
         std::fs::write(&path, r#"{"nl_query":{"read_timeout_secs":"soon"}}"#).unwrap();

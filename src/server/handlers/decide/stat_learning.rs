@@ -8,12 +8,12 @@
 //! derive from their own verified carrier) and the ACL-checked graphs a fit or
 //! a generation evaluation probes.
 
-use eg_types::decision::statistical::log::DecisionLogOp;
-use eg_types::decision::statistical::retrieval::{
+use medulla_types::decision::statistical::log::DecisionLogOp;
+use medulla_types::decision::statistical::retrieval::{
     LearningRecorded, LearningWrite, PointerMovement, PointerRef,
 };
-use eg_types::decision::statistical::retrieval_adapter::AdapterFitRequest;
-use eg_types::decision::statistical::retrieval_generation::GenerationEvalRequest;
+use medulla_types::decision::statistical::retrieval_adapter::AdapterFitRequest;
+use medulla_types::decision::statistical::retrieval_generation::GenerationEvalRequest;
 
 use super::stat_adapter::{adapter_pointer, fit_adapter, qualified};
 use super::stat_executor::ExecutionContext;

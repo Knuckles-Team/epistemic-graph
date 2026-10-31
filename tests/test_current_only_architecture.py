@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 # Pure/static test -- never needs the shared native engine (see
-# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# conftest.py's session-scoped `start_medulla_server` fixture,
 # which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
@@ -65,12 +65,12 @@ def test_current_only_architecture_gate(gate) -> None:
     ],
     ids=["foreign-dispatch", "foreign-scan-missing-registry"],
 )
-@pytest.mark.spec("EG-CONTRACT-R019")
+@pytest.mark.spec("MEDULLA-CONTRACT-R019")
 def test_live_foreign_pass_through_is_rejected(
     tmp_path: Path, monkeypatch, relative: str, old: str, new: str
 ) -> None:
     module = _gate_module()
-    plan = Path("crates/eg-plan/src")
+    plan = Path("crates/medulla-plan/src")
     shutil.copytree(ROOT / plan, tmp_path / plan)
     read_tree = module.read_module_tree
 
@@ -173,7 +173,7 @@ def test_required_field_ban_is_not_fooled_by_a_commented_attribute(gate) -> None
 
 def test_live_protocol_rejects_a_new_serde_default(gate) -> None:
     protocol = gate.protocol_source()
-    wire = gate.tree("crates/eg-types/src/wire.rs")
+    wire = gate.tree("crates/medulla-types/src/wire.rs")
     gate.check_protocol(protocol, wire)
     broken, count = re.subn(
         r"(?m)^(\s*CreateNodeIfAbsent\s*\{\s*)node_id:",
@@ -188,7 +188,7 @@ def test_live_protocol_rejects_a_new_serde_default(gate) -> None:
 
 def test_causal_mode_default_derive_is_rejected(gate) -> None:
     protocol = gate.protocol_source()
-    wire = gate.tree("crates/eg-types/src/wire.rs")
+    wire = gate.tree("crates/medulla-types/src/wire.rs")
     broken = protocol.replace(
         "pub enum CausalQueryModeWire",
         "#[derive(Default)]\npub enum CausalQueryModeWire",
@@ -200,7 +200,7 @@ def test_causal_mode_default_derive_is_rejected(gate) -> None:
 
 def test_legacy_default_helper_is_rejected_but_not_in_a_comment(gate) -> None:
     protocol = gate.protocol_source()
-    wire = gate.tree("crates/eg-types/src/wire.rs")
+    wire = gate.tree("crates/medulla-types/src/wire.rs")
     gate.check_protocol(protocol + "\n// fn default_temperature() {}\n", wire)
     with pytest.raises(SystemExit, match="default_temperature"):
         gate.check_protocol(protocol + "\nfn default_temperature() {}\n", wire)
@@ -243,7 +243,7 @@ def test_rdf_update_check_follows_compiler_declared_children(
     tmp_path: Path, monkeypatch
 ) -> None:
     module = _gate_module()
-    update_dir = tmp_path / "crates/eg-rdf/src/update"
+    update_dir = tmp_path / "crates/medulla-rdf/src/update"
     update_dir.mkdir(parents=True)
     (update_dir.parent / "update.rs").write_text("mod engine;\n", encoding="utf-8")
     child = update_dir / "engine.rs"

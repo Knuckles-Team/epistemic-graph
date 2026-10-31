@@ -21,9 +21,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use epistemic_graph::protocol::Method;
-use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-use epistemic_graph::server::persistence::PersistenceBackend;
+use medulla::protocol::Method;
+use medulla::server::persistence::redb_backend::RedbBackend;
+use medulla::server::persistence::PersistenceBackend;
 use std::hint::black_box;
 use tokio::runtime::Builder;
 
@@ -40,7 +40,7 @@ fn node_props(k: usize) -> Vec<u8> {
 /// to the benchmark so its existing explicit cleanup remains responsible for the path.
 /// The caller retains the existing `String` return type for benchmark setup and cleanup.
 fn unique_dir(tag: &str) -> String {
-    let prefix = format!("eg-coldwarm-{tag}-");
+    let prefix = format!("medulla-coldwarm-{tag}-");
     tempfile::Builder::new()
         .prefix(&prefix)
         .tempdir()

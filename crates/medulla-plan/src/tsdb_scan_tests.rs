@@ -1,0 +1,766 @@
+//! Lane C proofs (CONCEPT:MEDULLA-KG.query.native-time-series) — mid-pipeline OWL reasoning + the native TSDB
+//! SOURCE op, both over a HAND-BUILT [`PlanCtx`] (no server, fully self-contained).
+//!
+//! Two headline properties:
+//!  * `reason_mid_pipeline` — `Scan/BGP → Rank → Reason<C> → Traverse` returns ONLY the
+//!    members reachable from the reasoned-AND-vector-ranked set, proving `Op::Reason`
+//!    composes as a confidence-preserving FILTER in the MIDDLE of a plan (not only as a
+//!    leaf source): the non-member the vector ranked HIGHEST is dropped by the reasoner,
+//!    so its downstream traversal target never appears.
+//!  * `tsdb_in_plan_fusion` — `TsScan(series,from,to) → Rank → Limit` seeds the RowSet
+//!    from a real `medulla_tsdb::store::SeriesStore` and fuses those tsdb rows with a vector
+//!    rerank, proving the medulla-tsdb-backed SOURCE op.
+//!
+//! Plus the regression that an EMPTY-input `Reason` still behaves as a pure SOURCE.
+
+#[cfg(feature = "timeseries")]
+use crate::exec::{execute, PlanCtx};
+#[cfg(feature = "timeseries")]
+use medulla_core::compute::semantic::SemanticStore;
+#[cfg(feature = "timeseries")]
+use medulla_core::graph::GraphCore;
+#[cfg(feature = "timeseries")]
+use medulla_tsdb::{point::Point, store::SeriesKey};
+#[cfg(feature = "timeseries")]
+use medulla_types::wire::Plan;
+
+// ── mid-pipeline OWL reasoning (owl) ─────────────────────────────────────────────
+
+/// TBox + individuals shared by the owl compose tests: `Article ⊑ Paper ⊑ ∃about.Topic`
+/// and `∃about.Topic ⊑ ScholarlyWork`, so p1/p2/p4 are INFERRED `ScholarlyWork` while p3
+/// (a `Topic`) is NOT — even though p3 is the vector-closest. Each individual also gets a
+/// plain `CITES` edge to a distinct target node so a downstream `Traverse` has topology.
+#[cfg(feature = "owl")]
+fn reason_compose_fixture() -> (
+    medulla_core::graph::GraphView,
+    medulla_core::compute::semantic::SemanticStore,
+) {
+    use medulla_core::compute::semantic::SemanticStore;
+    use medulla_core::graph::GraphCore;
+    use serde_json::json;
+
+    let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:Paper rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:about ; owl:someValuesFrom ex:Topic ] .
+[ a owl:Restriction ; owl:onProperty ex:about ; owl:someValuesFrom ex:Topic ] rdfs:subClassOf ex:ScholarlyWork .
+ex:Article rdfs:subClassOf ex:Paper .
+
+ex:p1 a ex:Paper .
+ex:p2 a ex:Article .
+ex:p3 a ex:Topic .
+ex:p4 a ex:Paper .
+"#;
+    let core = GraphCore::new();
+    let mut iris = medulla_rdf::mapping::IriStore::default();
+    medulla_rdf::mapping::load_triples(
+        &core,
+        &mut iris,
+        "g",
+        medulla_rdf::mapping::parse_turtle(ttl).unwrap(),
+    )
+    .unwrap();
+
+    // Plain target nodes + a CITES edge from each individual to its own target, so
+    // Traverse<CITES> reaches exactly the targets of the surviving (reasoned) seeds.
+    let blob = |v: serde_json::Value| rmp_serde::to_vec_named(&v).unwrap();
+    for t in ["t1", "t2", "t3", "t4"] {
+        core.add_node(t.into(), blob(json!({ "type": "Target" })));
+    }
+    let cites = || blob(json!({ "relationship": "CITES" }));
+    for (p, t) in [("p1", "t1"), ("p2", "t2"), ("p3", "t3"), ("p4", "t4")] {
+        core.add_edge(format!("<http://example.org/{p}>"), t.into(), cites())
+            .unwrap();
+    }
+
+    // Query ≈ [1,0,0,0]. p3 (NON-member Topic) is vector-CLOSEST, then p2, p1, p4.
+    let mut semantic = SemanticStore::new();
+    semantic
+        .add_embedding("<http://example.org/p1>".into(), vec![0.90, 0.44, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/p2>".into(), vec![0.99, 0.10, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/p3>".into(), vec![1.00, 0.00, 0.0, 0.0])
+        .unwrap();
+    semantic
+        .add_embedding("<http://example.org/p4>".into(), vec![0.20, 0.97, 0.0, 0.0])
+        .unwrap();
+
+    (core.analysis_snapshot(), semantic)
+}
+
+/// `BGP{?w a ?t} → Rank → Reason<ScholarlyWork> → Traverse<CITES>`: reasoning runs in the
+/// MIDDLE of the plan, filtering the vector-ranked candidate set to only inferred members
+/// BEFORE the traversal. So p3 — the vector-closest but a `Topic`, NOT a `ScholarlyWork` —
+/// is dropped by `Reason`, and its target `t3` is NEVER reached; only the members' targets
+/// (in the preserved vector-rank order p2,p1,p4) appear.
+#[cfg(feature = "owl")]
+#[test]
+fn reason_mid_pipeline() {
+    use crate::exec::{execute, PlanCtx};
+    use medulla_types::wire::{Op, Plan};
+
+    let (view, semantic) = reason_compose_fixture();
+    let plan = Plan::new(vec![
+        // Seed candidates: every typed subject (p1..p4 all have `a <type>`).
+        Op::SparqlBgp {
+            query: "SELECT ?w WHERE { ?w a ?t . }".into(),
+            var: "w".into(),
+        },
+        // Vector-rank the candidate set (p3 first — it is the closest).
+        Op::Rank {
+            query: vec![1.0, 0.0, 0.0, 0.0],
+        },
+        // MID-PIPELINE reasoning: keep only inferred ScholarlyWork members, in rank order.
+        Op::Reason {
+            target_class: "<http://example.org/ScholarlyWork>".into(),
+            ontology: String::new(),
+        },
+        // Traverse from the surviving seeds.
+        Op::Traverse {
+            rel: "CITES".into(),
+            min: 1,
+            max: 1,
+        },
+    ]);
+    let ctx = PlanCtx::new(&view, &semantic);
+    let reached = execute(&plan, &ctx).unwrap();
+    let ids = reached.ids();
+
+    // Only the members' targets, in the reasoned-AND-vector-ranked seed order (p2,p1,p4).
+    assert_eq!(
+        ids,
+        vec!["t2".to_string(), "t1".to_string(), "t4".to_string()],
+        "Traverse must reach only the members' targets, in preserved rank order"
+    );
+    // The vector-CLOSEST seed p3 was a non-member — Reason dropped it mid-plan, so its
+    // traversal target t3 is absent. This is the load-bearing proof of mid-pipeline compose.
+    assert!(
+        !ids.contains(&"t3".to_string()),
+        "p3 (Topic) was vector-closest but not a ScholarlyWork — Reason must filter it out"
+    );
+}
+
+/// REGRESSION: an EMPTY-input `Reason` (as a leaf SOURCE) still yields exactly the inferred
+/// member set — the mid-pipeline change must not disturb the source path.
+#[cfg(feature = "owl")]
+#[test]
+fn reason_empty_input_is_source() {
+    use crate::exec::{execute, PlanCtx};
+    use medulla_types::wire::{Op, Plan};
+
+    let (view, semantic) = reason_compose_fixture();
+    let plan = Plan::new(vec![Op::Reason {
+        target_class: "<http://example.org/ScholarlyWork>".into(),
+        ontology: String::new(),
+    }]);
+    let ctx = PlanCtx::new(&view, &semantic);
+    let out = execute(&plan, &ctx).unwrap();
+
+    let got: std::collections::HashSet<String> = out.ids().into_iter().collect();
+    let want: std::collections::HashSet<String> = [
+        "<http://example.org/p1>",
+        "<http://example.org/p2>",
+        "<http://example.org/p4>",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    assert_eq!(
+        got, want,
+        "empty-input Reason must still SOURCE all inferred members"
+    );
+    // The non-member Topic is not sourced.
+    assert!(!got.contains("<http://example.org/p3>"));
+}
+
+// ── native TSDB SOURCE scan (timeseries) ─────────────────────────────────────────
+
+/// A fresh, unique-per-invocation series-store path under the system temp dir.
+#[cfg(feature = "timeseries")]
+fn temp_store_path(tag: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("medulla_plan_{tag}_{}_{nanos}.redb", std::process::id()))
+}
+
+/// The tenant/graph scope `build_series` writes under and every test in this module
+/// must pass to `PlanCtx::with_tsdb_scope` to read it back. `tsdb_scan_op`'s committed
+/// leg (see `exec.rs`) only ever calls `SeriesStore::range_scoped` -- "tenant ownership
+/// is never inferred from a caller-controlled graph string" -- so a committed read with
+/// no scope attached always resolves `(None, None)` and degrades to zero rows (`_ =>
+/// Ok(Vec::new())`), regardless of what an unscoped write wrote. Regression note: this
+/// module used the unscoped `append_batch` + scope-less `PlanCtx` for years; it built
+/// and its assertions read correctly, but every one of them was reading the fail-closed
+/// empty default, not `build_series`'s data -- `--lib` was never part of any CI job for
+/// this crate (only `--test fuzz_pipelines` is), so nothing observed it (GOC-40).
+#[cfg(feature = "timeseries")]
+const TEST_TENANT: &str = "test-tenant";
+#[cfg(feature = "timeseries")]
+const TEST_GRAPH: &str = "test-graph";
+
+#[cfg(feature = "timeseries")]
+fn scan(series: &[&str], to: f64) -> medulla_types::wire::Op {
+    medulla_types::wire::Op::TsScan {
+        series: series.iter().map(|id| (*id).to_string()).collect(),
+        from: 0.0,
+        to,
+    }
+}
+
+/// Build a one-field series with points at 1s/2s/3s carrying values 10/20/30, under
+/// `(TEST_TENANT, TEST_GRAPH)`. Every caller MUST also attach
+/// `.with_tsdb_scope(TEST_TENANT, TEST_GRAPH)` to its `PlanCtx` (see the module doc
+/// above `TEST_TENANT` for why an unscoped `PlanCtx` reads back nothing at all).
+#[cfg(feature = "timeseries")]
+fn build_series(path: &std::path::Path) -> medulla_tsdb::store::SeriesStore {
+    use medulla_tsdb::dev_scope_grant::open_dev_store;
+    use medulla_tsdb::point::Point;
+    use medulla_tsdb::store::SeriesKey;
+
+    let store = open_dev_store(path).unwrap();
+    let one_s: i64 = 1_000_000_000;
+    let points = vec![
+        Point::single(one_s, 10.0),
+        Point::single(2 * one_s, 20.0),
+        Point::single(3 * one_s, 30.0),
+    ];
+    store
+        .append_scoped(
+            &SeriesKey::new(TEST_TENANT, TEST_GRAPH, "temp"),
+            1,
+            one_s as u64,
+            &["v".to_string()],
+            &points,
+        )
+        .unwrap();
+    store
+}
+
+/// `TsScan(temp, 0..10) → Rank → Limit`: the rows come from the medulla-tsdb `SeriesStore`
+/// (id = `series@ts`, score = value), then a vector Rank reorders them and Limit truncates —
+/// proving the tsdb SOURCE op fuses with the vector leg in ONE plan (tsdb-in-plan fusion).
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsdb_in_plan_fusion() {
+    use crate::exec::execute;
+    use medulla_types::wire::{Op, Plan};
+
+    let (path, store, core, mut semantic) = series_fixture("fusion", build_series);
+
+    // The scan emits rows keyed `series@ts` (ns, EH-521). Embed them so 2s ranks first, then 1s,
+    // then 3s — a vector order DIFFERENT from the tsdb ts order (proving the rerank).
+    semantic
+        .add_embedding("temp@1000000000".into(), vec![0.80, 0.60, 0.0, 0.0])
+        .unwrap(); // 2nd
+    semantic
+        .add_embedding("temp@2000000000".into(), vec![0.99, 0.10, 0.0, 0.0])
+        .unwrap(); // 1st
+    semantic
+        .add_embedding("temp@3000000000".into(), vec![0.10, 0.99, 0.0, 0.0])
+        .unwrap(); // 3rd
+
+    // A tsdb SOURCE plan needs no graph; a bare snapshot suffices for the (unused) view.
+    let view = core.analysis_snapshot();
+
+    // Bare TsScan first: proves the SOURCE reads the store (3 rows, scores = the values).
+    let src_plan = Plan::new(vec![scan(&["temp"], 10.0)]);
+    let ctx = scoped_context(&view, &semantic, &store);
+    let sourced = execute(&src_plan, &ctx).unwrap();
+    assert_eq!(
+        sourced.len(),
+        3,
+        "TsScan must source all 3 points in the window"
+    );
+    // Rows carry the stored values as scores, keyed by ts.
+    let by_id: std::collections::HashMap<&str, Option<f32>> = sourced
+        .rows()
+        .iter()
+        .map(|r| (r.id.as_str(), r.score))
+        .collect();
+    assert_eq!(by_id.get("temp@1000000000"), Some(&Some(10.0)));
+    assert_eq!(by_id.get("temp@2000000000"), Some(&Some(20.0)));
+    assert_eq!(by_id.get("temp@3000000000"), Some(&Some(30.0)));
+
+    // Fused: TsScan → Rank → Limit — tsdb rows reranked by the vector leg, top-2.
+    let plan = Plan::new(vec![
+        scan(&["temp"], 10.0),
+        Op::Rank {
+            query: vec![1.0, 0.0, 0.0, 0.0],
+        },
+        Op::Limit { k: 2 },
+    ]);
+    let fused = execute(&plan, &ctx).unwrap();
+    assert_eq!(
+        fused.ids(),
+        vec!["temp@2000000000".to_string(), "temp@1000000000".to_string()],
+        "tsdb-sourced rows must be reordered by the vector Rank, then limited"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// In-txn tsdb READ-YOUR-OWN-WRITES (CONCEPT:MEDULLA-KG.query.txn-tsdb-read-your): a `StagedSeries` overlay attached
+/// to the ctx via `with_staged_series` makes `Op::TsScan` read the transaction's OWN
+/// staged, uncommitted points MERGED with (and taking precedence over) the committed
+/// `SeriesStore`, while a scan with NO overlay attached sees committed points only.
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsdb_in_txn_ryow_staged_overlay() {
+    use crate::exec::{execute, PlanCtx};
+    use crate::StagedSeries;
+    use medulla_core::compute::semantic::SemanticStore;
+    use medulla_core::graph::GraphCore;
+    use medulla_types::wire::Plan;
+
+    let one_s: i64 = 1_000_000_000;
+    let path = temp_store_path("ryow");
+    let store = build_series(&path); // committed "temp": 1s=10, 2s=20, 3s=30
+
+    // The txn's staged, uncommitted measurements:
+    //  * "temp"  gets an EXTRA point at 4s=40 (extends the committed series), and a
+    //    shadowing point at 1s=111 (RYOW precedence over the committed 1s=10);
+    //  * "temp2" is a brand-new series the txn just created (5s=99) — invisible to any
+    //    committed read until commit.
+    let mut staged = StagedSeries::new();
+    staged.push_points("temp", [(one_s, vec![111.0]), (4 * one_s, vec![40.0])]);
+    staged.push_points("temp2", [(5 * one_s, vec![99.0])]);
+    assert!(!staged.is_empty());
+
+    let semantic = SemanticStore::new();
+    let core = GraphCore::new();
+    let view = core.analysis_snapshot();
+
+    let scan_plan = |series: &str| Plan::new(vec![scan(&[series], 10.0)]);
+    let by_id = |rs: crate::rowset::RowSet| -> std::collections::HashMap<String, Option<f32>> {
+        rs.rows().iter().map(|r| (r.id.clone(), r.score)).collect()
+    };
+
+    // OFF-TXN (committed only): 3 rows, committed values, no staged point/series.
+    let off = {
+        let ctx = PlanCtx::new(&view, &semantic)
+            .with_tsdb(&store)
+            .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
+        by_id(execute(&scan_plan("temp"), &ctx).unwrap())
+    };
+    assert_eq!(off.len(), 3, "off-txn sees the 3 committed points only");
+    assert_eq!(off.get(&format!("temp@{one_s}")), Some(&Some(10.0)));
+    assert!(
+        !off.contains_key(&format!("temp@{}", 4 * one_s)),
+        "the staged 4s point is invisible off-txn"
+    );
+
+    // IN-TXN (committed + staged overlay): the staged point is visible AND shadows the
+    // committed one at the same ts (RYOW precedence).
+    let ctx = PlanCtx::new(&view, &semantic)
+        .with_tsdb(&store)
+        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH)
+        .with_staged_series(&staged);
+    let in_txn = by_id(execute(&scan_plan("temp"), &ctx).unwrap());
+    assert_eq!(
+        in_txn.len(),
+        4,
+        "in-txn sees committed 3 + the staged 4s point"
+    );
+    assert_eq!(
+        in_txn.get(&format!("temp@{one_s}")),
+        Some(&Some(111.0)),
+        "the staged 1s point shadows the committed 1s (read-your-own-writes)"
+    );
+    assert_eq!(
+        in_txn.get(&format!("temp@{}", 4 * one_s)),
+        Some(&Some(40.0))
+    );
+    assert_eq!(
+        in_txn.get(&format!("temp@{}", 2 * one_s)),
+        Some(&Some(20.0))
+    );
+
+    // A staged-only series (never committed) reads its own staged point in-txn …
+    let staged_only = by_id(execute(&scan_plan("temp2"), &ctx).unwrap());
+    assert_eq!(
+        staged_only.get(&format!("temp2@{}", 5 * one_s)),
+        Some(&Some(99.0)),
+        "a series created inside the txn reads its own staged point"
+    );
+    // … but is empty off-txn (isolated until commit).
+    let off_only = {
+        let ctx = PlanCtx::new(&view, &semantic)
+            .with_tsdb(&store)
+            .with_tsdb_scope(TEST_TENANT, TEST_GRAPH);
+        execute(&scan_plan("temp2"), &ctx).unwrap()
+    };
+    assert!(
+        off_only.is_empty(),
+        "the txn-staged series is invisible off-txn until commit"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// CONCEPT:MEDULLA-KG.compute.tsscan-series-window-60s — `TsScan(series) → Window(60s) → Rank → Limit`: the windowed aggregate
+/// CONSUMES the `(ts, value)` rows the tsdb SOURCE emits and PRODUCES one row per non-empty
+/// 60-second tumbling bucket (`id` = aligned bucket start ns, `score` = the MEAN), which
+/// then composes downstream into a vector `Rank` + `Limit`. Before MEDULLA-413 a TsScan row's
+/// numeric id was not a graph node, so `Window` dropped every row and produced nothing.
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsscan_window_mean_consumes_and_composes() {
+    use crate::exec::execute;
+    use medulla_types::wire::{Op, Plan};
+
+    // Series "temp": 1s=10, 2s=20, 3s=30 (see build_series). A 60s window aligns all three
+    // points to ONE bucket (start 0), so the mean is (10+20+30)/3 = 20.
+    let (path, store, core, semantic) = series_fixture("window_mean", build_series);
+    let view = core.analysis_snapshot();
+    let ctx = scoped_context(&view, &semantic, &store);
+
+    // TsScan → Window(60s): one bucket (start 0), mean = 20.
+    let win = Plan::new(vec![scan(&["temp"], 10.0), Op::Window { secs: 60.0 }]);
+    let out = execute(&win, &ctx).unwrap();
+    let rows: Vec<(String, Option<f32>)> =
+        out.rows().iter().map(|r| (r.id.clone(), r.score)).collect();
+    assert_eq!(
+        rows,
+        vec![("0".to_string(), Some(20.0))],
+        "TsScan → Window(60s) must yield ONE bucket at start 0 with mean 20"
+    );
+
+    // Finer buckets: the points sit at 1s/2s/3s, so a 1-second window buckets each on its
+    // own — 3 buckets (aligned to seconds 1/2/3), each the point's value.
+    let fine = Plan::new(vec![scan(&["temp"], 10.0), Op::Window { secs: 1.0 }]);
+    let fine_out = execute(&fine, &ctx).unwrap();
+    assert_eq!(
+        fine_out.len(),
+        3,
+        "a 1s window (< the 1e9-ns point spacing) keeps each point its own bucket"
+    );
+
+    // Downstream compose: Window → Limit truncates the windowed series (proves the RowSet
+    // flows on unchanged).
+    let composed = Plan::new(vec![
+        scan(&["temp"], 10.0),
+        Op::Window { secs: 1.0 },
+        Op::Limit { k: 2 },
+    ]);
+    assert_eq!(
+        execute(&composed, &ctx).unwrap().len(),
+        2,
+        "Window output composes into a downstream Limit"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// CONCEPT:MEDULLA-KG.compute.trailing-aggregate-selector-lowers — the selectable-aggregate `Op::WindowAgg` runs the SAME tumbling
+/// windower with a chosen aggregate: over "temp" (10/20/30 in one 60s bucket) SUM=60,
+/// MIN=10, MAX=30, COUNT=3.
+#[cfg(feature = "timeseries")]
+#[test]
+fn window_agg_selects_the_aggregate() {
+    use crate::exec::execute;
+    use medulla_types::wire::{Op, Plan};
+
+    let (path, store, core, semantic) = series_fixture("window_agg", build_series);
+    let view = core.analysis_snapshot();
+    let ctx = scoped_context(&view, &semantic, &store);
+
+    let agg_value = |agg: &str| -> f32 {
+        let plan = Plan::new(vec![
+            scan(&["temp"], 10.0),
+            Op::WindowAgg {
+                secs: 60.0,
+                agg: agg.into(),
+            },
+        ]);
+        let out = execute(&plan, &ctx).unwrap();
+        assert_eq!(out.len(), 1, "one 60s bucket for agg {agg}");
+        out.rows()[0].score.unwrap()
+    };
+
+    assert_eq!(agg_value("sum"), 60.0);
+    assert_eq!(agg_value("min"), 10.0);
+    assert_eq!(agg_value("max"), 30.0);
+    assert_eq!(agg_value("count"), 3.0);
+    assert_eq!(agg_value("mean"), 20.0);
+    // An unknown selector degrades to the canonical MEAN (never errs).
+    assert_eq!(agg_value("bogus"), 20.0);
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// REGRESSION: `Window` over GRAPH-NODE rows (id = node, ts = `valid_from`, value =
+/// `score`|`value` prop) is UNCHANGED by the MEDULLA-413 tsdb-row path — a node without a valid
+/// ts/value is still dropped, never reinterpreted as a bare timestamp.
+#[cfg(feature = "timeseries")]
+#[test]
+fn window_over_graph_nodes_is_unchanged() {
+    use crate::exec::{execute, PlanCtx};
+    use medulla_core::compute::semantic::SemanticStore;
+    use medulla_core::graph::GraphCore;
+    use medulla_types::wire::{Op, Plan};
+    use serde_json::json;
+
+    let core = GraphCore::new();
+    let blob = |v: serde_json::Value| rmp_serde::to_vec_named(&v).unwrap();
+    // Two Event nodes with a valid_from ts (ns) + a numeric value, one in each 60s bucket;
+    // plus one node with NO valid_from (must be dropped, not reinterpreted).
+    core.add_node(
+        "e1".into(),
+        blob(json!({ "type": "Event", "valid_from": 1_000_000_000i64, "value": 10.0 })),
+    );
+    core.add_node(
+        "e2".into(),
+        blob(json!({ "type": "Event", "valid_from": 2_000_000_000i64, "value": 30.0 })),
+    );
+    core.add_node("e3".into(), blob(json!({ "type": "Event", "value": 99.0 }))); // no ts ⇒ dropped
+    let view = core.analysis_snapshot();
+    let semantic = SemanticStore::new();
+    let ctx = PlanCtx::new(&view, &semantic);
+
+    // A 1e9-ns-wide window (secs=1) keeps e1 and e2 in separate buckets, e3 dropped.
+    let plan = Plan::new(vec![
+        Op::Scan {
+            label: "Event".into(),
+        },
+        Op::Window { secs: 1.0 },
+    ]);
+    let out = execute(&plan, &ctx).unwrap();
+    assert_eq!(
+        out.len(),
+        2,
+        "two valid-from Event nodes bucket; the ts-less one is dropped"
+    );
+}
+
+/// REGRESSION: with NO store attached to the ctx, `TsScan` yields no rows — degrade,
+/// never err (the `Rank`-over-empty-store precedent).
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsdb_scan_without_store_is_empty() {
+    use crate::exec::{execute, PlanCtx};
+    use medulla_core::compute::semantic::SemanticStore;
+    use medulla_core::graph::GraphCore;
+    use medulla_types::wire::Plan;
+
+    let core = GraphCore::new();
+    let view = core.analysis_snapshot();
+    let semantic = SemanticStore::new();
+    let plan = Plan::new(vec![scan(&["temp"], 10.0)]);
+    let ctx = PlanCtx::new(&view, &semantic); // no .with_tsdb
+    let out = execute(&plan, &ctx).unwrap();
+    assert!(
+        out.is_empty(),
+        "TsScan with no store must degrade to empty, not err"
+    );
+}
+
+/// A committed store without the complete verified `(tenant, graph)` scope is
+/// unreachable, even when the requested local series id exists.
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsdb_scan_rejects_unscoped_committed_store() {
+    let path = temp_store_path("graph_scope");
+    let store = medulla_tsdb::dev_scope_grant::open_dev_store(&path).unwrap();
+    store
+        .append_scoped(
+            &SeriesKey::new("acme", "acme:metrics", "cpu"),
+            1,
+            1_000_000_000,
+            &["value".into()],
+            &[Point::single(1_000_000_000, 10.0)],
+        )
+        .unwrap();
+    let core = GraphCore::new();
+    let view = core.analysis_snapshot();
+    let semantic = SemanticStore::new();
+    let plan = Plan::new(vec![scan(&["cpu"], 2.0)]);
+    let ctx = PlanCtx::new(&view, &semantic).with_tsdb(&store);
+    let out = execute(&plan, &ctx).unwrap();
+    assert!(out.is_empty());
+    let _ = std::fs::remove_file(path);
+}
+
+/// The served two-component scope separates Alice/Bob inside one tenant and also
+/// rejects the same actor namespace under another tenant.
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsdb_scan_honors_verified_actor_and_tenant_scope() {
+    let path = temp_store_path("verified_owner_scope");
+    let store = medulla_tsdb::dev_scope_grant::open_dev_store(&path).unwrap();
+    for (tenant, owner_graph, value) in [
+        ("tenant-a", "alice-owner", 10.0),
+        ("tenant-a", "bob-owner", 20.0),
+        ("tenant-b", "alice-owner", 30.0),
+    ] {
+        store
+            .append_scoped(
+                &SeriesKey::new(tenant, owner_graph, "cpu"),
+                1,
+                1_000_000_000,
+                &["value".into()],
+                &[Point::single(1_000_000_000, value)],
+            )
+            .unwrap();
+    }
+
+    let core = GraphCore::new();
+    let view = core.analysis_snapshot();
+    let semantic = SemanticStore::new();
+    let plan = Plan::new(vec![scan(&["cpu"], 2.0)]);
+    let score = |tenant, owner_graph| {
+        let ctx = PlanCtx::new(&view, &semantic)
+            .with_tsdb(&store)
+            .with_tsdb_scope(tenant, owner_graph);
+        execute(&plan, &ctx).unwrap().rows()[0].score
+    };
+    assert_eq!(score("tenant-a", "alice-owner"), Some(10.0));
+    assert_eq!(score("tenant-a", "bob-owner"), Some(20.0));
+    assert_eq!(score("tenant-b", "alice-owner"), Some(30.0));
+    let _ = std::fs::remove_file(path);
+}
+
+// ── EH-521: TSSCAN fidelity ─────────────────────────────────────────────────────
+
+/// A two-series store: `a` and `b` both have a point at 1s (values chosen so neither
+/// survives an `f32` narrowing), `b` a second field.
+#[cfg(feature = "timeseries")]
+fn build_two_series(path: &std::path::Path) -> medulla_tsdb::store::SeriesStore {
+    use medulla_tsdb::point::Point;
+    use medulla_tsdb::store::SeriesKey;
+
+    let store = medulla_tsdb::dev_scope_grant::open_dev_store(path).unwrap();
+    let one_s: i64 = 1_000_000_000;
+    let fields = [
+        ("a", vec![1.000_000_123_456_789_f64]),
+        ("b", vec![2.5, 123_456.789_012_345]),
+    ];
+    for (series, values) in fields {
+        let names: Vec<String> = (0..values.len()).map(|i| format!("f{i}")).collect();
+        store
+            .append_scoped(
+                &SeriesKey::new(TEST_TENANT, TEST_GRAPH, series),
+                values.len(),
+                one_s as u64,
+                &names,
+                &[Point { ts: one_s, values }],
+            )
+            .unwrap();
+    }
+    store
+}
+
+#[cfg(feature = "timeseries")]
+fn series_fixture(
+    tag: &str,
+    build: fn(&std::path::Path) -> medulla_tsdb::store::SeriesStore,
+) -> (
+    std::path::PathBuf,
+    medulla_tsdb::store::SeriesStore,
+    medulla_core::graph::GraphCore,
+    medulla_core::compute::semantic::SemanticStore,
+) {
+    let path = temp_store_path(tag);
+    let store = build(&path);
+    (
+        path,
+        store,
+        medulla_core::graph::GraphCore::new(),
+        medulla_core::compute::semantic::SemanticStore::new(),
+    )
+}
+
+#[cfg(feature = "timeseries")]
+fn scoped_context<'a>(
+    view: &'a medulla_core::graph::GraphView,
+    semantic: &'a medulla_core::compute::semantic::SemanticStore,
+    store: &'a medulla_tsdb::store::SeriesStore,
+) -> crate::exec::PlanCtx<'a> {
+    crate::exec::PlanCtx::new(view, semantic)
+        .with_tsdb(store)
+        .with_tsdb_scope(TEST_TENANT, TEST_GRAPH)
+}
+
+/// Two series with a point at the SAME timestamp are two rows (`a@ts`, `b@ts`); the old
+/// bare-ts id kept only the first series' point.
+#[cfg(feature = "timeseries")]
+// spec: MEDULLA-FEDERATED-QUERY-R030
+#[test]
+fn tsscan_keeps_both_series_at_a_shared_timestamp() {
+    use crate::exec::execute;
+    use medulla_types::wire::Plan;
+
+    let (path, store, core, semantic) = series_fixture("two_series", build_two_series);
+    let view = core.analysis_snapshot();
+    let ctx = scoped_context(&view, &semantic, &store);
+    let plan = Plan::new(vec![scan(&["a", "b"], 10.0)]);
+    let out = execute(&plan, &ctx).unwrap();
+    assert_eq!(out.ids(), vec!["a@1000000000", "b@1000000000"]);
+    assert_eq!(out.value("a@1000000000", "v0"), Some(1.000_000_123_456_789));
+    assert_eq!(out.value("b@1000000000", "v1"), Some(123_456.789_012_345));
+    assert_eq!(out.value("a@1000000000", "v1"), None, "a has one field");
+    let _ = std::fs::remove_file(&path);
+}
+
+/// An `f64` value round-trips BIT-EXACTLY through a UQL `RETURN v0` channel, while the
+/// `f32` score is only the rank currency.
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsscan_value_channels_are_exact_f64_through_uql_return() {
+    use crate::uql::serve::run_statement;
+    use crate::uql::{parse_statement, Params};
+    use medulla_types::wire::UqlResult;
+
+    let (path, store, core, semantic) = series_fixture("f64_channel", build_two_series);
+    let view = core.analysis_snapshot();
+    let ctx = scoped_context(&view, &semantic, &store);
+    let src = "TSSCAN ['a', 'b'] FROM 0 TO 10 |> RETURN v0, v1";
+    let stmt = parse_statement(src, &Params::new()).unwrap();
+    let UqlResult::Rows { rows, columns, .. } = run_statement(&stmt, &ctx).unwrap() else {
+        panic!("rows expected")
+    };
+    assert_eq!(columns, vec!["v0", "v1"]);
+    let a = rows.iter().find(|r| r.id == "a@1000000000").unwrap();
+    assert_eq!(
+        a.channels[0].map(f64::to_bits),
+        Some(1.000_000_123_456_789_f64.to_bits())
+    );
+    assert_eq!(a.channels[1], None);
+    assert_ne!(
+        a.score.map(f64::from),
+        a.channels[0],
+        "the f32 score is not exact"
+    );
+    let b = rows.iter().find(|r| r.id == "b@1000000000").unwrap();
+    assert_eq!(b.channels, vec![Some(2.5), Some(123_456.789_012_345)]);
+    let _ = std::fs::remove_file(&path);
+}
+
+/// `TSSCAN → WINDOW` over two series aggregates the exact `v0` values of both.
+#[cfg(feature = "timeseries")]
+#[test]
+fn tsscan_window_reads_series_row_ids_and_exact_values() {
+    use crate::exec::execute;
+    use medulla_types::wire::{Op, Plan};
+
+    let (path, store, core, semantic) = series_fixture("two_series_window", build_two_series);
+    let view = core.analysis_snapshot();
+    let ctx = scoped_context(&view, &semantic, &store);
+    let plan = Plan::new(vec![
+        scan(&["a", "b"], 10.0),
+        Op::WindowAgg {
+            secs: 60.0,
+            agg: "sum".into(),
+        },
+    ]);
+    let out = execute(&plan, &ctx).unwrap();
+    let expected = (1.000_000_123_456_789_f64 + 2.5) as f32;
+    assert_eq!(out.rows()[0].score, Some(expected));
+    let _ = std::fs::remove_file(&path);
+}

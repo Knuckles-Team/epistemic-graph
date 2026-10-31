@@ -85,23 +85,23 @@ pub(crate) mod test_env {
     ) -> AuthEnvGuard {
         let lock = AUTH_ENV_LOCK.lock_recovering("raft harness auth env guard");
         let names = [
-            "EPISTEMIC_GRAPH_AUDIENCE",
-            "EPISTEMIC_GRAPH_TENANT",
-            "EPISTEMIC_GRAPH_POLICY_VERSION",
-            "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+            "MEDULLA_AUDIENCE",
+            "MEDULLA_TENANT",
+            "MEDULLA_POLICY_VERSION",
+            "MEDULLA_SECURITY_STATE_DIR",
         ];
         let previous = names
             .into_iter()
             .map(|name| (name, std::env::var_os(name)))
             .collect();
         let sequence = AUTH_ENV_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-        std::env::set_var("EPISTEMIC_GRAPH_TENANT", tenant);
-        std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+        std::env::set_var("MEDULLA_AUDIENCE", "medulla-test");
+        std::env::set_var("MEDULLA_TENANT", tenant);
+        std::env::set_var("MEDULLA_POLICY_VERSION", "policy-test");
         std::env::set_var(
-            "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+            "MEDULLA_SECURITY_STATE_DIR",
             std::env::temp_dir().join(format!(
-                "eg-{state_dir_tag}-{}-{sequence}",
+                "medulla-{state_dir_tag}-{}-{sequence}",
                 std::process::id()
             )),
         );

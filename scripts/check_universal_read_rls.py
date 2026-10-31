@@ -29,7 +29,7 @@ def read(relative: str) -> str:
 def protocol_source() -> str:
     """Read the complete compiler-declared production protocol family."""
 
-    return read_compiler_family("crates/eg-types/src/protocol.rs", ROOT).production
+    return read_compiler_family("crates/medulla-types/src/protocol.rs", ROOT).production
 
 
 def rdf_handler_source() -> str:
@@ -73,7 +73,7 @@ def rust_function(source: str, signature: str) -> str:
 
 
 def isolation_source() -> tuple[str, str]:
-    source = read("crates/eg-core/src/isolation/access_policy.rs")
+    source = read("crates/medulla-core/src/isolation/access_policy.rs")
     return source, rust_function(source, "pub fn can_see_row(")
 
 
@@ -156,8 +156,8 @@ def capability_inventory() -> dict[str, bool]:
     """Return every declared method's mutates flag from the domain registry.
 
     The policy ledger lives across the eleven domain-owned `ROWS` modules
-    under `crates/eg-capabilities/src/domains/`, unified by one `REGISTRY` in
-    `domains/mod.rs` (`eg_capabilities::method_policy_entries()` is the public
+    under `crates/medulla-capabilities/src/domains/`, unified by one `REGISTRY` in
+    `domains/mod.rs` (`medulla_capabilities::method_policy_entries()` is the public
     read surface) -- there is no separately ordered projection. Delegates to
     the canonical parser in `method_policy_inventory` rather than re-deriving
     a second, independently maintained regex over that layout.
@@ -279,16 +279,16 @@ def main() -> None:
     channels = read("src/channels.rs")
     sqlite_file = read("src/server/handlers/sqlite_file.rs")
     timeseries = read("src/server/handlers/timeseries.rs")
-    plan_exec = read("crates/eg-plan/src/exec.rs")
-    plan_tsdb_dispatch = read("crates/eg-plan/src/exec/dispatch.rs")
-    plan_tsdb_scan = read("crates/eg-plan/src/exec/tsscan.rs")
-    plan_tsdb_tests = read("crates/eg-plan/src/tsdb_scan_tests.rs")
+    plan_exec = read("crates/medulla-plan/src/exec.rs")
+    plan_tsdb_dispatch = read("crates/medulla-plan/src/exec/dispatch.rs")
+    plan_tsdb_scan = read("crates/medulla-plan/src/exec/tsscan.rs")
+    plan_tsdb_tests = read("crates/medulla-plan/src/tsdb_scan_tests.rs")
     streaming = read("src/server/handlers/streaming.rs")
     cep = read("src/server/cep.rs")
     txn = read_module_tree("src/server/handlers/txn.rs", root_dir=ROOT)
     sparql_http = read("src/server/sparql_http.rs")
     graphql_sse = read("src/server/graphql_sub.rs")
-    graphql_crossmodal = read("crates/eg-graphql/src/crossmodal.rs")
+    graphql_crossmodal = read("crates/medulla-graphql/src/crossmodal.rs")
     ros2 = read("src/server/ros2_bridge.rs")
     obs = read_module_tree("src/server/obs/mod.rs", root_dir=ROOT)
     s3_http = read("src/server/s3/mod.rs")
@@ -758,7 +758,7 @@ def main() -> None:
                 in graphql_crossmodal,
                 "uuid::Uuid::new_v4()" in graphql_crossmodal,
                 "CrossModalRoute::Invalid" in graphql_crossmodal,
-                # `&core` or `core`: WB1-EG-01's extraction hoisted the borrow to the
+                # `&core` or `core`: WB1-MEDULLA-01's extraction hoisted the borrow to the
                 # call site, so the argument is already a reference. The property is
                 # that the query path reads through the AUTHORITY's projection rather
                 # than the raw committed core -- not which side takes the `&`.

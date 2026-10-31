@@ -23,7 +23,7 @@ fn fixture(id: &str) -> Option<Method> {
 #[tokio::test]
 async fn every_internal_capability_is_refused_at_the_public_boundary() {
     let state = test_state();
-    let ids: Vec<&str> = eg_capabilities::engine_internal_method_ids().collect();
+    let ids: Vec<&str> = medulla_capabilities::engine_internal_method_ids().collect();
     assert!(!ids.is_empty(), "the census must see the internal rows");
     for (n, id) in ids.into_iter().enumerate() {
         let method = fixture(id)

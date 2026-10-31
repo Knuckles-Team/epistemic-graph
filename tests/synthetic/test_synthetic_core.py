@@ -9,14 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from epistemic_graph.testing.synthetic import vocabulary as vocab
-from epistemic_graph.testing.synthetic._digest import canonical_json, framed
-from epistemic_graph.testing.synthetic._rng import SeededStream
+from medulla.testing.synthetic import vocabulary as vocab
+from medulla.testing.synthetic._digest import canonical_json, framed
+from medulla.testing.synthetic._rng import SeededStream
 
 pytestmark = pytest.mark.no_engine
 
 ONTOLOGY_RS = (
-    Path(__file__).resolve().parents[2] / "crates/eg-types/src/agent_ontology.rs"
+    Path(__file__).resolve().parents[2] / "crates/medulla-types/src/agent_ontology.rs"
 )
 ROOT_CONSTANTS = {
     "CAPABILITY_ROOT": vocab.CAPABILITY_ROOT,

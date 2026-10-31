@@ -10,12 +10,12 @@
 //! stamp still cannot act as someone else.
 
 #[cfg(feature = "security")]
-use eg_types::rbac_elevation::RbacElevationOp;
-use eg_types::rbac_elevation::{
+use medulla_types::rbac_elevation::RbacElevationOp;
+use medulla_types::rbac_elevation::{
     ElevationActor, ElevationDelegation, ElevationStanding, APPROVE_ELEVATION_SCOPE,
 };
 #[cfg(feature = "security")]
-use eg_types::result_contract::security::{
+use medulla_types::result_contract::security::{
     RbacElevationApprove, RbacElevationList, RbacElevationRequest, RbacElevationRevoke,
 };
 
@@ -135,7 +135,7 @@ fn respond(
         Ok(Ok(payload)) => {
             if op.is_mutation() {
                 tracing::info!(
-                    target: "epistemic_graph::rbac::elevation::audit",
+                    target: "medulla::rbac::elevation::audit",
                     op = op.name(),
                     elevation_id,
                     actor = %actor.parties_digest(),
@@ -147,7 +147,7 @@ fn respond(
         Ok(Err(error)) => Response::err(req_id, error),
         Err(error) => {
             tracing::warn!(
-                target: "epistemic_graph::rbac::elevation::audit",
+                target: "medulla::rbac::elevation::audit",
                 op = op.name(),
                 elevation_id,
                 actor = %actor.parties_digest(),

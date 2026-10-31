@@ -1,0 +1,126 @@
+//! Sole physical-state authority for the medulla workspace.
+//!
+//! [`StorageKernel`] alone opens and identifies durable stores, owns the
+//! closed physical owner-table registry, issues scoped read, snapshot and write
+//! capabilities, and validates adoption, backup, restore and recovery. No
+//! server handler, domain crate, provider, sidecar, or wrapper may open a
+//! database or become a second physical authority.
+//!
+//! Writes are reachable only through [`MutationOwnerAuthority`], the move-once
+//! token [`StorageKernel::into_read_and_mutation_authority`] issues exactly
+//! once per kernel. No code outside this crate can name one otherwise, so no
+//! domain crate can obtain a write capability.
+
+mod capability;
+mod codec;
+pub mod direct_state;
+mod kernel;
+mod owner;
+mod payload;
+mod physical;
+mod recovery;
+mod scoped;
+mod tables;
+
+pub use capability::{OwnerPayloadRetirement, PhysicalWriteCapability, ScopedRead, ScopedSnapshot};
+pub use codec::{
+    decode_batch_record, decode_ledger_record, decode_outbox_record, encode_bounded,
+    CollectionBudget,
+};
+pub use kernel::{MutationOwnerAuthority, StorageKernel, StoreOpenOptions};
+pub use owner::agent_library_upgrade::OwnerLayoutUpgradeReport;
+pub use owner::agent_library_upgrade::{
+    inspect_agent_library_mcp_catalog_upgrade, inspect_graph_shard_upgrade,
+    upgrade_agent_library_mcp_catalog, upgrade_graph_shard, AgentLibraryInspectionOptions,
+    AgentLibraryUpgradeReport, GraphShardInspectionOptions, GraphShardSource,
+    GraphShardUpgradeReport, ValidatedAgentLibraryUpgrade, ValidatedGraphShardUpgrade,
+};
+pub use owner::blob_shared::{
+    BlobSharedRead, BlobSharedServiceHandle, BlobSharedServiceVerifier, BlobSharedTable,
+    BlobSharedWrite, CasChunkRows, CasRefcountRows,
+};
+pub use owner::domain::{
+    AgentLibraryOwner, BlobOwner, ClusterHierarchyOwner, ColdTierOwner, GraphShardOwner, JobsOwner,
+    KvOwner, LedgerOnlyOwner, NodeInfoOwner, OwnerDomain, PathIndexOwner, RbacOwner,
+    RequestReplayOwner, SemanticIndexOwner, SqlOwner, StatechartOwner, TenantCatalogOwner,
+    TimeSeriesOwner, VizProvenanceOwner,
+};
+pub use owner::grant::{AuthenticatedScopeGrant, ScopeGrantVerifier};
+pub use owner::handle::OwnedStoreHandle;
+pub use owner::identity::PhysicalStoreIdentity;
+pub use owner::layout::OwnerLayout;
+pub use owner::lineage::{
+    layout_digest_hex, layout_predecessors, pinned_layout_digest, render_owner_store_formats,
+    AGENT_LIBRARY_BEFORE_CONNECTOR_PACKS, AGENT_LIBRARY_BEFORE_MCP_CATALOG, ALL_LAYOUTS,
+    BLOB_BEFORE_HOLDERS, GRAPH_SHARD_BEFORE_AUDIT_REQUESTS, GRAPH_SHARD_BEFORE_ENRICHMENT,
+    SQL_BEFORE_SOURCE_CHECKPOINTS,
+};
+pub use owner::offline_upgrade::{
+    classify_owner_store_format, offline_upgrades_for, registered_offline_upgrade,
+    InspectedStoreUpgrade, OfflineStoreUpgrade, OfflineUpgradeInspectionOptions, OwnerStoreFormat,
+    OFFLINE_STORE_UPGRADES, OFFLINE_UPGRADE_APPLY_COMMAND, OFFLINE_UPGRADE_INSPECT_COMMAND,
+};
+pub use owner::persisted_layout::{
+    create_predecessor_owner_file, refuse_known_predecessor, LayoutPredecessor,
+};
+pub use owner::registry::{
+    declared_table_names, owner_table_names, AGENT_COMPONENT_HEADS, AGENT_COMPONENT_REVISIONS,
+    AGENT_GRAPH_HEADS, AGENT_GRAPH_REVISIONS, AGENT_LIBRARY_HEADS, AGENT_LIBRARY_REVISIONS,
+    AGENT_TEMPLATE_HEADS, AGENT_TEMPLATE_REVISIONS, ANN_CODES, CONNECTOR_PACK_BINDINGS,
+    CONNECTOR_PACK_BODY_HOLDERS, CONNECTOR_PACK_HEADS, CONNECTOR_PACK_IMPORTS,
+    CONNECTOR_PACK_MEMBERS, DECISION_ARTIFACTS, DECISION_RECORDS, MCP_CATALOG_CONFIGS,
+    MCP_CATALOG_SCOPES, SEMANTIC_ANN, SEMANTIC_AUTH_RECEIPTS, SEMANTIC_BINDINGS,
+    SEMANTIC_CHECKPOINTS, SEMANTIC_CHECKPOINT_HEADS, SEMANTIC_DEAD_LETTERS,
+    SEMANTIC_GRAPH_PROJECTIONS, SEMANTIC_HEADS, SEMANTIC_LEXICAL, SEMANTIC_POINTERS,
+    SEMANTIC_SOURCE_PROGRESS, SEMANTIC_SQL_SOURCES, SEMANTIC_STAGES, SEMANTIC_STATES,
+    SEMANTIC_TOMBSTONES, SEMANTIC_VECTORS, SQL_ANN_DIRTY, SQL_ANN_GENERATIONS, SQL_EDGE_INDEXES,
+    SQL_SOURCE_AUTHORITY, SQL_SOURCE_CHECKPOINTS, WRITE_BACK_CHANGE_SETS, WRITE_BACK_IDEMPOTENCY,
+    WRITE_BACK_RECEIPTS, WRITE_BACK_RECEIPT_HEADS,
+};
+pub use owner::row_key::{
+    is_control_scope, owner_row_key, reserved_control_graph, OwnerRowScope, OwnerRowScopeStart,
+    RowKey, GRAPH_SHARD_CONTROL_GRAPH, GRAPH_SHARD_TENANT,
+};
+pub use owner::sql_checkpoint_upgrade::{
+    inspect_sql_ann_dirty_upgrade, inspect_sql_ann_generation_upgrade,
+    inspect_sql_source_checkpoint_upgrade, upgrade_sql_ann_dirty, upgrade_sql_ann_generations,
+    upgrade_sql_source_checkpoints, SqlSourceCheckpointInspectionOptions,
+    SqlSourceCheckpointUpgradeReport, ValidatedSqlSourceCheckpointUpgrade,
+};
+pub use owner::table_api::*;
+pub use payload::private_payload_digest;
+pub use physical::binding::ledger_scope_key;
+pub use physical::incarnation::{
+    StoreIdentityDigest, StoreIncarnation, STORAGE_KERNEL_SCHEMA_VERSION,
+};
+pub use physical::integrity::PrivatePayloadIntegrity;
+pub use physical::manifest::OwnerManifestDigest;
+pub use physical::read_only::{open_read_only, ReadOnlyStore};
+pub use physical::root::OpenReport;
+pub use physical::write_authority::WriteValidationCounts;
+pub use recovery::adopt::{
+    adopt_recovery, adopt_staged_mutation_store, classify_recovery_store,
+    inspect_staged_mutation_store, open_recovery, ClassifiedRecoveryStore, RecoveryExpectation,
+    ValidatedPlainRecoveryStore, ValidatedRecoveryStore, ValidatedStagedMutationStore,
+};
+pub use recovery::authority::rebind_copied_store;
+pub use recovery::backup::{backup_recovery_store, recovery_store_fingerprint};
+pub use recovery::evidence::{
+    backup_strict_recovery_store, prove_scope_bindings_reanchored_read_only,
+    strict_recovery_evidence, strict_recovery_evidence_read_only, StrictRecoveryEvidence,
+    StrictTableEvidence,
+};
+pub use recovery::semantic_merge::{
+    merge_semantic_owner_files, prove_semantic_owner_partition_read_only,
+    prove_semantic_owner_union_read_only, SemanticOwnerMergeEvidence,
+};
+pub use recovery::validate::{
+    validate_recovery_store, validate_recovery_store_read_only, RecoveryStoreCounts,
+};
+pub use scoped::{
+    OwnerReadTable, ScopeRow, ScopedOwnerTable, ScopedOwnerTableMut, ScopedTable, ScopedTableMut,
+};
+pub use tables::{
+    LedgerRowScope, MutationClass, MutationClassRow, OperationReplayRow, RecordedOperation,
+    ScopeFence,
+};

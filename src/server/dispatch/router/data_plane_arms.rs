@@ -283,7 +283,7 @@ pub(super) async fn dispatch_change_envelope_methods_arm_0(
                         .map(crate::mutation_batch::LogicalName::as_str)
                         != Some(req_graph.as_str())
                         || envelope.mutation.identity.tenant().as_str() != claims.tenant
-                        || eg_types::mutation_batch::batch_request_number(&envelope.mutation)
+                        || medulla_types::mutation_batch::batch_request_number(&envelope.mutation)
                             != Some(req_id)
                         || crate::server::mutation_batch::batch_actor(&envelope.mutation)
                             != Some(verified_context.principal_persistence_id().as_str())

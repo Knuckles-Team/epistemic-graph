@@ -1,13 +1,13 @@
-//! Redis RESP wire-protocol listener (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) — a native, HAND-ROLLED
+//! Redis RESP wire-protocol listener (CONCEPT:MEDULLA-KG.ontology.resp2-resp3-codec-round) — a native, HAND-ROLLED
 //! Redis server so a Redis client, an ORM cache layer, or `redis-cli` connects
 //! DIRECTLY to the engine and runs the core Redis command set.
 //!
 //! ## What this is (and is NOT)
 //!
-//! Like the SQL wire shims (pgwire / mysql-wire, CONCEPT:EG-KG.compute.subsystems-reference) and the Bolt
-//! adapter (CONCEPT:EG-KG.query.bolt-wire-protocol), this is an ADAPTER — NOT a re-implemented Redis. The
+//! Like the SQL wire shims (pgwire / mysql-wire, CONCEPT:MEDULLA-KG.compute.subsystems-reference) and the Bolt
+//! adapter (CONCEPT:MEDULLA-KG.query.bolt-wire-protocol), this is an ADAPTER — NOT a re-implemented Redis. The
 //! bytes are stored on the engine's own durable Key→Value substrate
-//! ([`crate::server::kv::KvStore`], CONCEPT:EG-KG.storage.namespaced-kv-surface): every Redis key lives as a
+//! ([`crate::server::kv::KvStore`], CONCEPT:MEDULLA-KG.storage.namespaced-kv-surface): every Redis key lives as a
 //! single msgpack [`Entry`] envelope in one `redis` namespace, so a `SET` that
 //! returned `OK` survives a `kill -9` exactly like a `KvPut`. The five Redis data
 //! types (string / list / hash / set / zset) are modeled as variants of one
@@ -20,7 +20,7 @@
 //! mysql-wire / bolt-wire follow). PURE-RUST, so it stays outside the Pi forbidden
 //! set; it is deliberately OUT of the `pi` tier (a network listener).
 //!
-//! ## Protocol subset (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round)
+//! ## Protocol subset (CONCEPT:MEDULLA-KG.ontology.resp2-resp3-codec-round)
 //!
 //! LANDED: the RESP2 + RESP3 codec (simple strings, errors, integers, bulk
 //! strings, arrays, and the RESP3 map/set/double/boolean/null types) + inline
@@ -31,9 +31,9 @@
 //! `ZADD`/`ZRANGE`/`ZSCORE`, `SCAN`, `TYPE`, plus `AUTH`/`SELECT`/`QUIT`/`CONFIG`/
 //! `CLIENT` niceties.
 //!
-//! ## Pub/sub + transactions (CONCEPT:EG-KG.txn.pubsub-transactions)
+//! ## Pub/sub + transactions (CONCEPT:MEDULLA-KG.txn.pubsub-transactions)
 //!
-//! LANDED (EG-307): the publish/subscribe surface — `SUBSCRIBE`/`UNSUBSCRIBE`,
+//! LANDED (MEDULLA-307): the publish/subscribe surface — `SUBSCRIBE`/`UNSUBSCRIBE`,
 //! `PSUBSCRIBE`/`PUNSUBSCRIBE` (glob-pattern channels), and `PUBLISH`, backed by a
 //! per-listener [`PubSub`] registry (an mpsc channel per connection; the connection
 //! driver `select!`s between the socket and its subscriber mailbox so published
@@ -63,7 +63,7 @@ use crate::server::ServerState;
 /// Env var: when set (and built `--features redis-wire`) the Redis RESP listener
 /// binds this address (documented loopback default `127.0.0.1:6379`, the Redis
 /// default port). Unset ⇒ no listener.
-pub const REDIS_ADDR_ENV: &str = "EPISTEMIC_GRAPH_REDIS_ADDR";
+pub const REDIS_ADDR_ENV: &str = "MEDULLA_REDIS_ADDR";
 /// Physical authority identity for the Redis adapter's private KV file.
 ///
 /// Redis and the main namespaced KV surface both use `OwnerLayout::Kv`, but
@@ -98,7 +98,7 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-// ── the stored value model (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) ─────────────────────────────────────
+// ── the stored value model (CONCEPT:MEDULLA-KG.ontology.resp2-resp3-codec-round) ─────────────────────────────────────
 
 /// One Redis value, tagged by type. Serialized (msgpack) inside an [`Entry`] and
 /// stored as ONE KV value per key — read-modify-write under the store mutex.
@@ -225,16 +225,16 @@ fn invalid_data(message: &'static str) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, message)
 }
 
-fn entry_limits() -> eg_types::msgpack::MsgpackLimits {
-    eg_types::msgpack::MsgpackLimits::new(
+fn entry_limits() -> medulla_types::msgpack::MsgpackLimits {
+    medulla_types::msgpack::MsgpackLimits::new(
         MAX_STORED_ENTRY_BYTES,
         MAX_STORED_ENTRY_ITEMS,
-        eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        medulla_types::msgpack::DEFAULT_MAX_DEPTH,
     )
 }
 
 fn decode_entry(bytes: &[u8]) -> Result<Entry, String> {
-    eg_types::msgpack::decode_bounded(bytes, entry_limits())
+    medulla_types::msgpack::decode_bounded(bytes, entry_limits())
         .map_err(|_| "ERR stored value is invalid or exceeds resource limits".to_string())
 }
 
@@ -247,7 +247,7 @@ fn utf8_argument(bytes: &[u8], max_bytes: usize) -> Result<String, String> {
         .map_err(|_| "ERR argument must be valid UTF-8".to_string())
 }
 
-// ── the store (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) — Redis types over the engine KV surface ──────────
+// ── the store (CONCEPT:MEDULLA-KG.ontology.resp2-resp3-codec-round) — Redis types over the engine KV surface ──────────
 
 /// A Redis keyspace layered over one [`KvStore`] namespace. Durable when the KV
 /// store is (a persist dir), else in-memory scratch — exactly the KV contract.
@@ -264,7 +264,7 @@ struct RedisStore {
 
 impl RedisStore {
     /// Open the Redis keyspace. `Some(dir)` ⇒ durable `{dir}/redis-kv/kv.redb`;
-    /// `None` ⇒ in-memory scratch (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round).
+    /// `None` ⇒ in-memory scratch (CONCEPT:MEDULLA-KG.ontology.resp2-resp3-codec-round).
     fn open(persist_dir: Option<&str>) -> Result<Self, String> {
         let sub = persist_dir.map(|d| format!("{d}/redis-kv"));
         let kv = KvStore::open_named(sub.as_deref(), REDIS_KV_PHYSICAL_STORE)?;
@@ -310,7 +310,7 @@ impl RedisStore {
     fn store(&self, key: &str, entry: &Entry) -> Result<(), String> {
         let bytes = rmp_serde::to_vec_named(entry)
             .map_err(|_| "ERR value could not be encoded".to_string())?;
-        eg_types::msgpack::validate_single_value(&bytes, entry_limits())
+        medulla_types::msgpack::validate_single_value(&bytes, entry_limits())
             .map_err(|_| "ERR value exceeds resource limits".to_string())?;
         self.kv.put(&self.namespace, key, bytes)
     }
@@ -796,9 +796,9 @@ fn glob_match(pat: &str, text: &str) -> bool {
     pi == p.len()
 }
 
-// ── pub/sub registry (CONCEPT:EG-KG.txn.pubsub-transactions) ────────────────────────────────────────────
+// ── pub/sub registry (CONCEPT:MEDULLA-KG.txn.pubsub-transactions) ────────────────────────────────────────────
 
-/// One message delivered to a subscriber's mailbox (CONCEPT:EG-KG.txn.pubsub-transactions). A `Channel`
+/// One message delivered to a subscriber's mailbox (CONCEPT:MEDULLA-KG.txn.pubsub-transactions). A `Channel`
 /// message is rendered as a RESP `message` push; a `Pattern` message (from a glob
 /// `PSUBSCRIBE`) as a `pmessage` push carrying the originating pattern.
 #[derive(Clone, Debug)]
@@ -861,7 +861,7 @@ impl PubSubInner {
     }
 }
 
-/// The per-listener publish/subscribe registry (CONCEPT:EG-KG.txn.pubsub-transactions). Shared (via `Arc`)
+/// The per-listener publish/subscribe registry (CONCEPT:MEDULLA-KG.txn.pubsub-transactions). Shared (via `Arc`)
 /// across every connection the listener accepts; each connection registers an
 /// bounded mpsc mailbox on connect and drops it on disconnect. `PUBLISH` fans a
 /// payload out to every exact-channel subscriber plus every glob-pattern subscriber
@@ -1040,7 +1040,7 @@ fn scoped_pubsub_key(scope: &str, name: &str) -> String {
     format!("{scope}\0{name}")
 }
 
-// ── RESP2 / RESP3 codec (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) ─────────────────────────────────────────
+// ── RESP2 / RESP3 codec (CONCEPT:MEDULLA-KG.ontology.resp2-resp3-codec-round) ─────────────────────────────────────────
 
 /// A RESP reply value. Version-aware: [`encode`](Resp::encode) renders the RESP3
 /// extended types (map/set/double/boolean/null) natively when the connection has
@@ -1056,7 +1056,7 @@ enum Resp {
     Map(Vec<(Resp, Resp)>),
     Set(Vec<Resp>),
     /// A RESP3 push message (`>`, used for pub/sub delivery + subscribe confirms,
-    /// CONCEPT:EG-KG.txn.pubsub-transactions). Downgrades to a plain array (`*`) on RESP2 — the RESP2
+    /// CONCEPT:MEDULLA-KG.txn.pubsub-transactions). Downgrades to a plain array (`*`) on RESP2 — the RESP2
     /// wire has no distinct push type, exactly how real Redis behaves.
     Push(Vec<Resp>),
     Double(f64),
@@ -1399,11 +1399,11 @@ fn read_bulk_payload(
     Ok(Some((buf[start..end].to_vec(), end + 2)))
 }
 
-// ── command dispatch (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) ─────────────────────────────────────────────
+// ── command dispatch (CONCEPT:MEDULLA-KG.ontology.resp2-resp3-codec-round) ─────────────────────────────────────────────
 
 /// Per-connection mutable state threaded through command execution. Carries the
 /// RESP version + auth flag, the pub/sub subscription sets, and the `MULTI`
-/// transaction queue (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round core; CONCEPT:EG-KG.txn.pubsub-transactions pub/sub + transactions).
+/// transaction queue (CONCEPT:MEDULLA-KG.ontology.resp2-resp3-codec-round core; CONCEPT:MEDULLA-KG.txn.pubsub-transactions pub/sub + transactions).
 struct ConnState {
     proto: u8,
     /// Present only after HMAC credential verification. The value is a
@@ -1413,15 +1413,15 @@ struct ConnState {
     /// This connection's unique id in the [`PubSub`] registry (0 until registered;
     /// the pure-`execute` unit tests never register, which is fine).
     id: u64,
-    /// Channels this connection is `SUBSCRIBE`d to (CONCEPT:EG-KG.txn.pubsub-transactions).
+    /// Channels this connection is `SUBSCRIBE`d to (CONCEPT:MEDULLA-KG.txn.pubsub-transactions).
     sub_channels: HashSet<String>,
-    /// Glob patterns this connection is `PSUBSCRIBE`d to (CONCEPT:EG-KG.txn.pubsub-transactions).
+    /// Glob patterns this connection is `PSUBSCRIBE`d to (CONCEPT:MEDULLA-KG.txn.pubsub-transactions).
     sub_patterns: HashSet<String>,
     /// Total retained channel/pattern bytes across both subscription sets.
     sub_bytes: usize,
     /// `true` between `MULTI` and `EXEC`/`DISCARD`: commands are queued not run.
     in_multi: bool,
-    /// The queued commands awaiting `EXEC` (CONCEPT:EG-KG.txn.pubsub-transactions).
+    /// The queued commands awaiting `EXEC` (CONCEPT:MEDULLA-KG.txn.pubsub-transactions).
     queued: Vec<Vec<Vec<u8>>>,
     /// Aggregate bytes retained by `queued`; commands have already left the
     /// socket buffer, so this independent accounting prevents an unbounded
@@ -1625,7 +1625,7 @@ fn hello(args: &[Vec<u8>], conn: &mut ConnState, auth_secret: &str) -> Resp {
         return Resp::Error("NOAUTH Authentication required.".into());
     }
     Resp::Map(vec![
-        (Resp::bulk_str("server"), Resp::bulk_str("epistemic-graph")),
+        (Resp::bulk_str("server"), Resp::bulk_str("medulla")),
         (Resp::bulk_str("version"), Resp::bulk_str("2.1.0")),
         (Resp::bulk_str("proto"), Resp::Int(conn.proto as i64)),
         (Resp::bulk_str("id"), Resp::Int(1)),
@@ -1636,7 +1636,7 @@ fn hello(args: &[Vec<u8>], conn: &mut ConnState, auth_secret: &str) -> Resp {
 }
 
 /// Execute a data command (auth already checked). `Err(msg)` becomes a RESP error.
-// CXA-EG-03 refactor: `execute_data` was CCN 90 as one `match cmd { .. }`
+// CXA-MEDULLA-03 refactor: `execute_data` was CCN 90 as one `match cmd { .. }`
 // with ~24 arms, several containing their own inner loops/matches. Same
 // technique as the sibling `try_handle`/`apply_txn_op` dispatchers in this
 // lane: a `match` costs lizard ~1 regardless of arm count, so the fix is
@@ -2001,7 +2001,7 @@ fn parse_num<T: std::str::FromStr>(arg: Option<&Vec<u8>>) -> Result<T, String> {
         .ok_or_else(|| "ERR value is not an integer or out of range".to_string())
 }
 
-// ── pub/sub + transaction dispatch (CONCEPT:EG-KG.txn.pubsub-transactions) ───────────────────────────────
+// ── pub/sub + transaction dispatch (CONCEPT:MEDULLA-KG.txn.pubsub-transactions) ───────────────────────────────
 
 /// Commands that are ALWAYS run immediately, never queued, even inside a `MULTI`
 /// block (they steer the transaction / session itself).
@@ -2037,7 +2037,7 @@ fn allowed_in_subscribe(cmd: &str) -> bool {
     )
 }
 
-/// Top-level command dispatch used by the connection driver (CONCEPT:EG-KG.txn.pubsub-transactions).
+/// Top-level command dispatch used by the connection driver (CONCEPT:MEDULLA-KG.txn.pubsub-transactions).
 /// Unlike [`execute`] (one reply) this returns a VECTOR of replies — subscribe /
 /// unsubscribe emit one confirmation per channel — and threads the [`PubSub`]
 /// registry plus the connection's transaction/subscription state. Non-pub/sub,
@@ -2102,7 +2102,7 @@ fn dispatch_command(
     }
 }
 
-/// Queue one command inside an open `MULTI` block (CONCEPT:EG-KG.txn.pubsub-transactions), rejecting an
+/// Queue one command inside an open `MULTI` block (CONCEPT:MEDULLA-KG.txn.pubsub-transactions), rejecting an
 /// unknown command, a SUBSCRIBE-family command, or a queue that would exceed
 /// resource limits — all of which taint the transaction (`multi_dirty`) so the
 /// eventual `EXEC` aborts.
@@ -2199,7 +2199,7 @@ fn reset_connection(pubsub: &PubSub, conn: &mut ConnState) -> Vec<Resp> {
     vec![Resp::Simple("RESET".into())]
 }
 
-/// Execute a queued `MULTI` transaction atomically (CONCEPT:EG-KG.txn.pubsub-transactions): run every
+/// Execute a queued `MULTI` transaction atomically (CONCEPT:MEDULLA-KG.txn.pubsub-transactions): run every
 /// queued command in order with no other connection interleaving, returning the
 /// array of their replies. A prior malformed queued command aborts with
 /// `EXECABORT`; `EXEC` outside a transaction is an error.
@@ -2230,7 +2230,7 @@ fn exec_transaction(store: &RedisStore, conn: &mut ConnState, auth_secret: &str)
     vec![Resp::Array(Some(results))]
 }
 
-/// `SUBSCRIBE` / `PSUBSCRIBE` (CONCEPT:EG-KG.txn.pubsub-transactions): add each channel/pattern to the
+/// `SUBSCRIBE` / `PSUBSCRIBE` (CONCEPT:MEDULLA-KG.txn.pubsub-transactions): add each channel/pattern to the
 /// registry + the connection's set, emitting one confirmation push per channel with
 /// the running total subscription count.
 fn subscribe(pubsub: &PubSub, conn: &mut ConnState, chans: &[Vec<u8>], pattern: bool) -> Vec<Resp> {
@@ -2302,7 +2302,7 @@ fn subscribe_one(
     ])
 }
 
-/// `UNSUBSCRIBE` / `PUNSUBSCRIBE` (CONCEPT:EG-KG.txn.pubsub-transactions): drop the named channels (or ALL
+/// `UNSUBSCRIBE` / `PUNSUBSCRIBE` (CONCEPT:MEDULLA-KG.txn.pubsub-transactions): drop the named channels (or ALL
 /// of this kind when none are named), one confirmation push each. Unsubscribing from
 /// nothing still emits a single null-channel confirmation, matching Redis.
 fn unsubscribe(
@@ -2395,7 +2395,7 @@ fn unsubscribe_one(
 
 /// Drive ONE Redis connection: parse commands from the socket, execute, reply,
 /// until the client quits or the socket closes. Generic over the byte stream so an
-/// in-process test can drive it over any duplex transport (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round).
+/// in-process test can drive it over any duplex transport (CONCEPT:MEDULLA-KG.ontology.resp2-resp3-codec-round).
 async fn handle_connection<S>(
     s: &mut S,
     store: Arc<RedisStore>,
@@ -2406,7 +2406,7 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let mut conn = ConnState::new(2);
-    // Register this connection's pub/sub mailbox so PUBLISH can reach it (EG-307).
+    // Register this connection's pub/sub mailbox so PUBLISH can reach it (MEDULLA-307).
     let (tx, mut rx) = mpsc::channel::<PubMessage>(PUBSUB_MAILBOX_CAPACITY);
     conn.id = pubsub
         .register(tx)
@@ -2477,7 +2477,7 @@ where
 /// [`PubSub`] unregister runs on every exit path). `select!`s between the socket and
 /// this connection's subscriber mailbox: buffered client commands are executed
 /// first, then it awaits either more bytes or a published message to push out
-/// (CONCEPT:EG-KG.txn.pubsub-transactions).
+/// (CONCEPT:MEDULLA-KG.txn.pubsub-transactions).
 async fn drive_connection<S>(
     s: &mut S,
     store: &Arc<RedisStore>,
@@ -2529,8 +2529,8 @@ where
 }
 
 /// Bind `addr` and serve Redis RESP connections until the process exits. Spawned by
-/// `main.rs` only when built `--features redis-wire` AND `EPISTEMIC_GRAPH_REDIS_ADDR`
-/// is set (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round). The Redis keyspace is durable when a persist dir is
+/// `main.rs` only when built `--features redis-wire` AND `MEDULLA_REDIS_ADDR`
+/// is set (CONCEPT:MEDULLA-KG.ontology.resp2-resp3-codec-round). The Redis keyspace is durable when a persist dir is
 /// configured on [`ServerState`], else in-memory scratch. The direct listener is
 /// loopback-only and requires a non-empty engine auth secret before bind.
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
@@ -2558,7 +2558,7 @@ async fn serve_listener(
     }
     let listener = TcpListener::bind(addr).await?;
     // One pub/sub registry per listener, shared across every accepted connection
-    // (CONCEPT:EG-KG.txn.pubsub-transactions).
+    // (CONCEPT:MEDULLA-KG.txn.pubsub-transactions).
     let pubsub = Arc::new(PubSub::default());
     tracing::info!(
         "redis-wire: serving authenticated, principal-scoped Redis RESP protocol on {} (durable={})",
@@ -2580,7 +2580,7 @@ async fn serve_listener(
 
 #[cfg(test)]
 mod tests {
-    //! CONCEPT:EG-KG.ontology.resp2-resp3-codec-round — RESP2/RESP3 codec round-trips, command-parse coverage, the
+    //! CONCEPT:MEDULLA-KG.ontology.resp2-resp3-codec-round — RESP2/RESP3 codec round-trips, command-parse coverage, the
     //! Redis data-type command execution over the KV store, plus an in-process
     //! listener smoke test driving the private authenticated listener over a TCP socket
     //! with hand-built RESP frames (no redis client crate).
@@ -2915,7 +2915,7 @@ mod tests {
         }
     }
 
-    // CXA-EG-03 characterization: `execute_data` (CCN 90) arms not already
+    // CXA-MEDULLA-03 characterization: `execute_data` (CCN 90) arms not already
     // exercised above -- MGET/MSET/HDEL/RPUSH/SCAN, the unknown-command
     // fallback, SET's EX/PX/XX option parsing, ZADD's odd-arg-count error,
     // ZRANGE WITHSCORES, and a ZSCORE miss -- ahead of decomposing the match.
@@ -3050,7 +3050,7 @@ mod tests {
     #[test]
     fn durable_set_reopens_and_main_kv_cannot_adopt_redis_index() {
         let dir = std::env::temp_dir().join(format!(
-            "eg-redis-durable-{}-{}",
+            "medulla-redis-durable-{}-{}",
             std::process::id(),
             now_ms()
         ));
@@ -3251,7 +3251,7 @@ mod tests {
         assert_eq!(read_reply(&mut s).await, b"$5\r\nhello\r\n");
     }
 
-    // ── pub/sub + transactions (CONCEPT:EG-KG.txn.pubsub-transactions) ──────────────────────────────────
+    // ── pub/sub + transactions (CONCEPT:MEDULLA-KG.txn.pubsub-transactions) ──────────────────────────────────
 
     fn ps() -> PubSub {
         PubSub::default()

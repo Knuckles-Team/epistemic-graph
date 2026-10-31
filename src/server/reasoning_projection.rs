@@ -15,7 +15,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use eg_epistemic::IncrementalReasoningIndex;
+use medulla_epistemic::IncrementalReasoningIndex;
 use sha2::{Digest, Sha256};
 use tokio::sync::RwLock;
 
@@ -29,13 +29,13 @@ use crate::server::state::ServerState;
 // `recompute_materialization`) serves from the on-disk projection and is not.
 
 #[cfg(any(feature = "redb", test))]
-use eg_epistemic::ProjectionPosition;
+use medulla_epistemic::ProjectionPosition;
 #[cfg(feature = "redb")]
-use eg_epistemic::{IncrementalDelta, ReasoningProjectionWakeup};
+use medulla_epistemic::{IncrementalDelta, ReasoningProjectionWakeup};
 #[cfg(feature = "redb")]
-use eg_transaction::OutboxClaimBudget;
+use medulla_transaction::OutboxClaimBudget;
 #[cfg(feature = "redb")]
-use eg_types::mutation_batch::{
+use medulla_types::mutation_batch::{
     CommittedVersion, MutationBatchStatus, MutationOutboxLease, MutationProjectionCursor,
 };
 #[cfg(feature = "redb")]
@@ -197,7 +197,7 @@ pub fn spawn(state: Arc<RwLock<ServerState>>) {
 struct ProjectionContext {
     persistence: Arc<dyn crate::server::persistence::PersistenceBackend>,
     persist_dir: Option<String>,
-    graphs: Vec<(String, Arc<eg_core::graph::GraphCore>)>,
+    graphs: Vec<(String, Arc<medulla_core::graph::GraphCore>)>,
     /// The worker's wall clock, injected so a sweep's lease arithmetic is
     /// testable exactly. Production passes `current_time_ms`.
     clock: fn() -> u64,
@@ -313,7 +313,7 @@ async fn ensure_subscription(
 async fn process_graph(
     context: &ProjectionContext,
     graph: &str,
-    core: &Arc<eg_core::graph::GraphCore>,
+    core: &Arc<medulla_core::graph::GraphCore>,
     budget: &mut OutboxClaimBudget,
 ) -> bool {
     let graph_fname = crate::persist::sanitize(graph);
@@ -385,7 +385,7 @@ async fn reset_retired_projection(persist_dir: Option<String>, graph_fname: Stri
 async fn initialize_index(
     persist_dir: Option<String>,
     graph_fname: String,
-    core: Arc<eg_core::graph::GraphCore>,
+    core: Arc<medulla_core::graph::GraphCore>,
 ) -> bool {
     match run_projection_job(move || {
         match load_index(persist_dir.as_deref(), &graph_fname) {
@@ -415,7 +415,7 @@ async fn initialize_index(
 async fn process_leases(
     context: &ProjectionContext,
     graph_fname: &str,
-    core: Arc<eg_core::graph::GraphCore>,
+    core: Arc<medulla_core::graph::GraphCore>,
     leases: Vec<MutationOutboxLease>,
 ) -> bool {
     // The durable watermark is the restart/reconciliation boundary, and it is
@@ -457,7 +457,7 @@ async fn process_leases(
 async fn process_lease(
     context: &ProjectionContext,
     graph_fname: &str,
-    core: Arc<eg_core::graph::GraphCore>,
+    core: Arc<medulla_core::graph::GraphCore>,
     lease: &MutationOutboxLease,
     watermark: Option<&MutationProjectionCursor>,
 ) -> Option<MutationProjectionCursor> {
@@ -516,9 +516,9 @@ async fn resolve_projection_wakeup(
         .map_err(|_| ())?
         .filter(|record| record.status == MutationBatchStatus::Committed)
         .ok_or(())?;
-    let wakeup: ReasoningProjectionWakeup = eg_types::msgpack::decode_bounded(
+    let wakeup: ReasoningProjectionWakeup = medulla_types::msgpack::decode_bounded(
         &lease.record.intent.payload,
-        eg_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
+        medulla_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
     )
     .map_err(|_| ())?;
     validate_projection_wakeup(&wakeup, &record.batch)?;
@@ -532,9 +532,9 @@ async fn resolve_projection_wakeup(
 #[cfg(feature = "redb")]
 fn committed_events(
     wakeup: ReasoningProjectionWakeup,
-    operations: &[eg_types::mutation_batch::MutationOperation],
+    operations: &[medulla_types::mutation_batch::MutationOperation],
 ) -> Result<ReasoningProjectionWakeup, ()> {
-    if wakeup.event_source == eg_epistemic::WakeupEventSource::Inline {
+    if wakeup.event_source == medulla_epistemic::WakeupEventSource::Inline {
         return Ok(wakeup);
     }
     let methods: Vec<_> = operations
@@ -547,7 +547,7 @@ fn committed_events(
 #[cfg(feature = "redb")]
 fn validate_projection_wakeup(
     wakeup: &ReasoningProjectionWakeup,
-    batch: &eg_types::mutation_batch::MutationBatch,
+    batch: &medulla_types::mutation_batch::MutationBatch,
 ) -> Result<(), ()> {
     if wakeup.validate().is_err() || wakeup.operation_count as usize != batch.operations.len() {
         return Err(());
@@ -563,7 +563,7 @@ fn validate_projection_wakeup(
 async fn apply_lease_and_publish(
     persist_dir: Option<String>,
     graph_fname: String,
-    core: Arc<eg_core::graph::GraphCore>,
+    core: Arc<medulla_core::graph::GraphCore>,
     lease: MutationOutboxLease,
     wakeup: ReasoningProjectionWakeup,
     watermark: Option<MutationProjectionCursor>,
@@ -624,7 +624,7 @@ fn require_snapshot_not_behind_watermark(
 #[cfg(feature = "redb")]
 fn apply_lease(
     index: &mut IncrementalReasoningIndex,
-    core: &eg_core::graph::GraphCore,
+    core: &medulla_core::graph::GraphCore,
     lease: &MutationOutboxLease,
     wakeup: &ReasoningProjectionWakeup,
 ) -> Result<IncrementalDelta, String> {
@@ -661,7 +661,7 @@ fn load_index(
     load_index_with_limits(
         persist_dir,
         graph_fname,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_PROJECTION_SNAPSHOT_BYTES as usize,
             MAX_PROJECTION_SNAPSHOT_ITEMS,
             MAX_PROJECTION_SNAPSHOT_DEPTH,
@@ -696,7 +696,7 @@ fn remove_projection_snapshot(persist_dir: Option<&str>, graph_fname: &str) -> R
 fn load_index_with_limits(
     persist_dir: Option<&str>,
     graph_fname: &str,
-    limits: eg_types::msgpack::MsgpackLimits,
+    limits: medulla_types::msgpack::MsgpackLimits,
 ) -> Result<Option<IncrementalReasoningIndex>, String> {
     let Some(path) = snapshot_path(persist_dir, graph_fname) else {
         return Ok(None);
@@ -748,7 +748,7 @@ fn open_regular_snapshot(path: &Path) -> Result<Option<std::fs::File>, String> {
 
 fn decode_snapshot_file(
     file: &mut std::fs::File,
-    limits: eg_types::msgpack::MsgpackLimits,
+    limits: medulla_types::msgpack::MsgpackLimits,
 ) -> Result<IncrementalReasoningIndex, String> {
     if file
         .metadata()
@@ -766,7 +766,7 @@ fn decode_snapshot_file(
     if bytes.len() > limits.max_bytes {
         return Err("reasoning projection snapshot exceeds its size limit".to_string());
     }
-    let index: IncrementalReasoningIndex = eg_types::msgpack::decode_bounded(&bytes, limits)
+    let index: IncrementalReasoningIndex = medulla_types::msgpack::decode_bounded(&bytes, limits)
         .map_err(|_| "reasoning projection snapshot is invalid".to_string())?;
     index.validate()?;
     Ok(index)
@@ -791,7 +791,7 @@ pub async fn materialization_status(
     persist_dir: Option<&str>,
     graph_name: &str,
     node_id: &str,
-) -> Result<(Option<eg_epistemic::ProjectedMaterializationStatus>, u64), String> {
+) -> Result<(Option<medulla_epistemic::ProjectedMaterializationStatus>, u64), String> {
     let index = read_index(persist_dir, graph_name).await?;
     let source_graph_version = index
         .position
@@ -821,11 +821,11 @@ pub async fn stale_materializations(
 pub async fn recompute_materialization(
     persist_dir: Option<&str>,
     graph_name: &str,
-    view: eg_core::graph::GraphView,
+    view: medulla_core::graph::GraphView,
     authoritative_graph_version: u64,
     node_id: &str,
     expected_source_graph_version: u64,
-) -> Result<(eg_epistemic::ProjectedMaterialization, u64), String> {
+) -> Result<(medulla_epistemic::ProjectedMaterialization, u64), String> {
     if authoritative_graph_version != expected_source_graph_version {
         return Err("STALE_RECOMPUTE_FENCE: authoritative graph version changed".to_string());
     }
@@ -856,12 +856,12 @@ pub async fn recompute_materialization(
 }
 
 fn resolve_materialization_provenance(
-    view: &eg_core::graph::GraphView,
+    view: &medulla_core::graph::GraphView,
     node_id: &str,
 ) -> Option<(std::collections::BTreeSet<String>, Option<String>)> {
     let properties = view.node_properties.get(node_id)?;
     // Yield EVERY parallel entry per outgoing pair (mirrors
-    // `eg_epistemic::incremental::register_from_graph_view`): `resolve_provenance`
+    // `medulla_epistemic::incremental::register_from_graph_view`): `resolve_provenance`
     // itself filters by each entry's `relationship`, so narrowing to
     // `versions.last()` here would silently drop a `DERIVED_FROM`/`GENERATED_BY`
     // edge shadowed by a later, different-relationship edge to the same target
@@ -875,7 +875,7 @@ fn resolve_materialization_provenance(
             outgoing.push((target.clone(), edge_properties.as_slice()));
         }
     }
-    Some(eg_epistemic::resolve_provenance(
+    Some(medulla_epistemic::resolve_provenance(
         Some(properties.as_slice()),
         outgoing,
     ))
@@ -1048,7 +1048,7 @@ fn replace_snapshot(temporary: &Path, path: &Path) -> std::io::Result<()> {
 
 // Win32 atomic-replace FFI. This is the C-FFI exception the repo's
 // `#![deny(unsafe_code)]` (src/lib.rs) permits only via a scoped `#[allow]` plus a
-// soundness note, exactly as `server/dds.rs` and `eg-compute/src/ast/parser.rs` do;
+// soundness note, exactly as `server/dds.rs` and `medulla-compute/src/ast/parser.rs` do;
 // it is gated to `#[cfg(windows)]`, not a blanket crate-level allow.
 //
 // Soundness: both calls take pointers into `Vec<u16>` buffers (`target`,
@@ -1159,8 +1159,8 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Condvar, Mutex as StdMutex};
 
-    use eg_epistemic::ProjectedMaterializationStatus;
-    use eg_types::protocol::Method;
+    use medulla_epistemic::ProjectedMaterializationStatus;
+    use medulla_types::protocol::Method;
 
     #[cfg(feature = "redb")]
     use crate::server::persistence::PersistenceBackend;
@@ -1170,7 +1170,7 @@ mod tests {
     fn test_root() -> PathBuf {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         std::env::temp_dir().join(format!(
-            "eg-reasoning-projection-{}-{}",
+            "medulla-reasoning-projection-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ))
@@ -1387,7 +1387,7 @@ mod tests {
         persist_index(Some(&root_str), "graph", &stale_index()).unwrap();
         let temporary = path.with_extension("msgpack.tmp");
         symlink(&outside, &temporary).unwrap();
-        let core = eg_core::graph::GraphCore::new();
+        let core = medulla_core::graph::GraphCore::new();
         core.add_node("derived".to_string(), derived_properties());
         let error = recompute_materialization(
             Some(&root_str),
@@ -1498,7 +1498,7 @@ mod tests {
         let error = load_index_with_limits(
             Some(&root_str),
             "graph",
-            eg_types::msgpack::MsgpackLimits::new(4, 4, 4),
+            medulla_types::msgpack::MsgpackLimits::new(4, 4, 4),
         )
         .unwrap_err();
         assert!(error.contains("size limit"));
@@ -1531,9 +1531,9 @@ mod tests {
     fn an_image_behind_its_durable_cursor_refuses_to_advance() {
         fn watermark(target: u64) -> MutationProjectionCursor {
             MutationProjectionCursor {
-                schema_version: eg_types::mutation_batch::MUTATION_BATCH_VERSION,
+                schema_version: medulla_types::mutation_batch::MUTATION_BATCH_VERSION,
                 projection: CONSUMER.to_string(),
-                identity: eg_types::mutation_batch::MutationScopeIdentity::fixed_graph(
+                identity: medulla_types::mutation_batch::MutationScopeIdentity::fixed_graph(
                     "graph-shard",
                     "graph",
                     "incarnation",
@@ -1581,7 +1581,7 @@ mod tests {
         let root_str = root.to_string_lossy();
         persist_index(Some(&root_str), "graph", &stale_index()).unwrap();
 
-        let core = eg_core::graph::GraphCore::new();
+        let core = medulla_core::graph::GraphCore::new();
         core.add_node("derived".to_string(), derived_properties());
         let view = core.analysis_snapshot();
 
@@ -1614,7 +1614,7 @@ mod tests {
     struct DeferredProjectionBackend {
         claim_calls: AtomicU64,
         ack_calls: AtomicU64,
-        deferred_reason: StdMutex<Option<eg_transaction::OutboxDeferral>>,
+        deferred_reason: StdMutex<Option<medulla_transaction::OutboxDeferral>>,
     }
 
     #[cfg(feature = "redb")]
@@ -1655,14 +1655,14 @@ mod tests {
             &self,
             _graph_fname: &str,
             _consumer: &str,
-            _budget: &mut eg_transaction::OutboxClaimBudget,
-        ) -> Result<eg_transaction::OutboxClaimOutcome, String> {
+            _budget: &mut medulla_transaction::OutboxClaimBudget,
+        ) -> Result<medulla_transaction::OutboxClaimOutcome, String> {
             self.claim_calls.fetch_add(1, Ordering::Relaxed);
             *self.deferred_reason.lock().unwrap() =
-                Some(eg_transaction::OutboxDeferral::BudgetSpent);
-            Ok(eg_transaction::OutboxClaimOutcome {
+                Some(medulla_transaction::OutboxDeferral::BudgetSpent);
+            Ok(medulla_transaction::OutboxClaimOutcome {
                 claims: Vec::new(),
-                deferred: Some(eg_transaction::OutboxDeferral::BudgetSpent),
+                deferred: Some(medulla_transaction::OutboxDeferral::BudgetSpent),
                 more_available: true,
                 dead_lettered: Vec::new(),
             })
@@ -1671,9 +1671,9 @@ mod tests {
         async fn ack_mutation_outbox(
             &self,
             _graph_fname: &str,
-            _lease: &eg_types::mutation_batch::MutationOutboxLease,
+            _lease: &medulla_types::mutation_batch::MutationOutboxLease,
             _now_ms: u64,
-        ) -> Result<eg_types::mutation_batch::MutationProjectionCursor, String> {
+        ) -> Result<medulla_types::mutation_batch::MutationProjectionCursor, String> {
             self.ack_calls.fetch_add(1, Ordering::Relaxed);
             Err("deferred projection must not acknowledge a lease".to_string())
         }
@@ -1689,7 +1689,7 @@ mod tests {
         let graph = format!("deferred-budget-{}", std::process::id());
         let backend = Arc::new(DeferredProjectionBackend::new());
         let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> = backend.clone();
-        let core = Arc::new(eg_core::graph::GraphCore::new());
+        let core = Arc::new(medulla_core::graph::GraphCore::new());
         let context = ProjectionContext {
             persistence,
             persist_dir: Some(root_str.clone()),
@@ -1697,14 +1697,14 @@ mod tests {
             clock: current_time_ms,
         };
         let mut budget =
-            eg_transaction::OutboxClaimBudget::new(CLAIM_SWEEP_LIMIT, CLAIM_LEASE_MS, 1).unwrap();
+            medulla_transaction::OutboxClaimBudget::new(CLAIM_SWEEP_LIMIT, CLAIM_LEASE_MS, 1).unwrap();
 
         assert!(!process_graph(&context, &graph, &core, &mut budget).await);
         assert_eq!(backend.claim_calls.load(Ordering::Relaxed), 1);
         assert_eq!(backend.ack_calls.load(Ordering::Relaxed), 0);
         assert_eq!(
             *backend.deferred_reason.lock().unwrap(),
-            Some(eg_transaction::OutboxDeferral::BudgetSpent)
+            Some(medulla_transaction::OutboxDeferral::BudgetSpent)
         );
         assert!(load_index(Some(&root_str), &graph).unwrap().is_some());
         let _ = std::fs::remove_dir_all(root);
@@ -1751,18 +1751,18 @@ mod tests {
             &self,
             _graph_fname: &str,
             _consumer: &str,
-            _budget: &mut eg_transaction::OutboxClaimBudget,
-        ) -> Result<eg_transaction::OutboxClaimOutcome, String> {
+            _budget: &mut medulla_transaction::OutboxClaimBudget,
+        ) -> Result<medulla_transaction::OutboxClaimOutcome, String> {
             self.claim_calls.fetch_add(1, Ordering::Relaxed);
             // This claim's lease retry bound was exhausted on a row ahead of
             // anything it returned: the kernel dead-lettered it, so the
             // projection's position silently skipped a mutation it never
             // applied.
-            Ok(eg_transaction::OutboxClaimOutcome {
+            Ok(medulla_transaction::OutboxClaimOutcome {
                 claims: Vec::new(),
                 deferred: None,
                 more_available: false,
-                dead_lettered: vec![eg_transaction::OutboxPosition {
+                dead_lettered: vec![medulla_transaction::OutboxPosition {
                     sequence: 1,
                     created_at_ms: 1,
                     batch_id: "dead-lettered-batch".to_string(),
@@ -1774,16 +1774,16 @@ mod tests {
         async fn ack_mutation_outbox(
             &self,
             _graph_fname: &str,
-            _lease: &eg_types::mutation_batch::MutationOutboxLease,
+            _lease: &medulla_types::mutation_batch::MutationOutboxLease,
             _now_ms: u64,
-        ) -> Result<eg_types::mutation_batch::MutationProjectionCursor, String> {
+        ) -> Result<medulla_types::mutation_batch::MutationProjectionCursor, String> {
             Err("a dead-lettered claim must not acknowledge a lease".to_string())
         }
 
         fn shutdown(&self) {}
     }
 
-    /// spec: EG-FEDERATED-QUERY-R004
+    /// spec: MEDULLA-FEDERATED-QUERY-R004
     ///
     /// A claim that dead-letters a row ahead of the leases it returned means
     /// the projection silently skipped applying that mutation. The projection
@@ -1812,7 +1812,7 @@ mod tests {
 
         let backend = Arc::new(DeadLetteredProjectionBackend::new());
         let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> = backend.clone();
-        let core = Arc::new(eg_core::graph::GraphCore::new());
+        let core = Arc::new(medulla_core::graph::GraphCore::new());
         let context = ProjectionContext {
             persistence,
             persist_dir: Some(root_str.clone()),
@@ -1820,7 +1820,7 @@ mod tests {
             clock: current_time_ms,
         };
         let mut budget =
-            eg_transaction::OutboxClaimBudget::new(CLAIM_SWEEP_LIMIT, CLAIM_LEASE_MS, 1).unwrap();
+            medulla_transaction::OutboxClaimBudget::new(CLAIM_SWEEP_LIMIT, CLAIM_LEASE_MS, 1).unwrap();
 
         // process_graph reports no progress for this sweep -- the claim
         // yielded no leases to apply -- but it must still have triggered the
@@ -1842,7 +1842,7 @@ mod tests {
     }
 
     #[cfg(feature = "redb")]
-    fn projection_budget_batch(graph: &str, row: u64) -> eg_types::mutation_batch::MutationBatch {
+    fn projection_budget_batch(graph: &str, row: u64) -> medulla_types::mutation_batch::MutationBatch {
         projection_batch(graph, row, format!("projection-budget-{graph}-{row}"))
     }
 
@@ -1851,12 +1851,12 @@ mod tests {
         graph: &str,
         row: u64,
         batch_id: String,
-    ) -> eg_types::mutation_batch::MutationBatch {
+    ) -> medulla_types::mutation_batch::MutationBatch {
         use std::collections::BTreeMap;
 
         use crate::server::mutation_batch::ENGINE_LEDGER_PRINCIPAL;
-        use eg_types::contract::{Digest256, MethodId, Nonce};
-        use eg_types::mutation_batch::{
+        use medulla_types::contract::{Digest256, MethodId, Nonce};
+        use medulla_types::mutation_batch::{
             CompiledOperation, CompiledScope, DurabilityDomain, MutationBatch, MutationEnvelope,
             MutationOperation, MutationOutboxIntent, MutationSurface, VersionExpectation,
             BATCH_COMPILED_METHODS, MUTATION_BATCH_VERSION,
@@ -1870,10 +1870,10 @@ mod tests {
         // a caller tenant". Same fix as
         // `resource_reservation_tests::resource_batch` and
         // `work_item_capability`.
-        let identity = eg_types::mutation_batch::MutationScopeIdentity::graph(
-            eg_types::mutation_batch::ScopeTenantId::new("tenant-a").expect("valid caller tenant"),
-            eg_types::mutation_batch::LogicalName::new(graph).expect("valid graph name"),
-            eg_types::mutation_batch::IncarnationId::new("incarnation:test:reasoning-projection")
+        let identity = medulla_types::mutation_batch::MutationScopeIdentity::graph(
+            medulla_types::mutation_batch::ScopeTenantId::new("tenant-a").expect("valid caller tenant"),
+            medulla_types::mutation_batch::LogicalName::new(graph).expect("valid graph name"),
+            medulla_types::mutation_batch::IncarnationId::new("incarnation:test:reasoning-projection")
                 .expect("valid incarnation"),
         );
         let actor = crate::server::mutation_batch::principal_fingerprint(
@@ -1910,7 +1910,7 @@ mod tests {
                 },
                 CompiledOperation {
                     method: method.clone(),
-                    method_schema_id: eg_types::mutation_batch::method_schema_id(&method)
+                    method_schema_id: medulla_types::mutation_batch::method_schema_id(&method)
                         .expect("compiled batch schema id"),
                     method_schema_digest: schema_digest,
                     canonical_payload_digest: Digest256::from_bytes([2_u8; 32]),
@@ -1961,7 +1961,7 @@ mod tests {
             .commit_mutation_batch(&graph_fname, &retired_batch, None, 1)
             .await
             .expect("commit retired-incarnation projection event");
-        let retired_core = Arc::new(eg_core::graph::GraphCore::new());
+        let retired_core = Arc::new(medulla_core::graph::GraphCore::new());
         retired_core.add_node("retired-derived".to_string(), derived_properties());
         let retired_context = ProjectionContext {
             persistence: persistence.clone(),
@@ -2014,7 +2014,7 @@ mod tests {
             .commit_mutation_batch(&graph_fname, &recreated_batch, None, 2)
             .await
             .expect("commit recreated-incarnation projection event");
-        let recreated_core = Arc::new(eg_core::graph::GraphCore::new());
+        let recreated_core = Arc::new(medulla_core::graph::GraphCore::new());
         recreated_core.add_node("fresh-derived".to_string(), derived_properties());
         let recreated_context = ProjectionContext {
             persistence: persistence.clone(),
@@ -2108,7 +2108,7 @@ mod tests {
 
         let graphs = graph_names
             .iter()
-            .map(|graph| (graph.clone(), Arc::new(eg_core::graph::GraphCore::new())))
+            .map(|graph| (graph.clone(), Arc::new(medulla_core::graph::GraphCore::new())))
             .collect();
         let context = ProjectionContext {
             persistence: persistence.clone(),
@@ -2158,7 +2158,7 @@ mod tests {
 /// still applies one event per committed operation (EH-280).
 #[cfg(all(test, feature = "redb", feature = "epistemic-tms"))]
 mod bounded_wakeup_tests {
-    use eg_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
+    use medulla_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
 
     use super::committed_events;
     use crate::protocol::Method;
@@ -2190,7 +2190,7 @@ mod bounded_wakeup_tests {
             "notice is {} bytes",
             payload.len()
         );
-        let notice: eg_epistemic::ReasoningProjectionWakeup =
+        let notice: medulla_epistemic::ReasoningProjectionWakeup =
             rmp_serde::from_slice(&payload).unwrap();
         assert!(notice.events.is_empty());
 
@@ -2198,7 +2198,7 @@ mod bounded_wakeup_tests {
         let methods: Vec<Method> = operations.iter().map(|op| op.method.clone()).collect();
         assert_eq!(
             resolved.events,
-            eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods)
+            medulla_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods)
         );
         assert!(
             committed_events(notice, &operations[1..]).is_err(),

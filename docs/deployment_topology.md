@@ -9,7 +9,7 @@ to run it.
 ```mermaid
 flowchart TD
     subgraph Core["Always required — the database"]
-        EG["Medulla<br/>(epistemic-graph-server)<br/>durable multi-modal DB · pgwire/SQL/Cypher/SPARQL/vector/tsdb"]
+        EG["Medulla<br/>(medulla-server)<br/>durable multi-modal DB · pgwire/SQL/Cypher/SPARQL/vector/tsdb"]
     end
 
     subgraph Optional["Optional — enhance, never required"]
@@ -34,7 +34,7 @@ flowchart TD
 | Component | Repo | What it is | Needs | Talks to the engine via | Required? |
 |-----------|------|------------|-------|-------------------------|-----------|
 | **Medulla** | `medulla` | The durable multi-modal database engine — the whole product. | nothing | *is* the engine | **Always** |
-| **agent-utilities** | `agent-utilities` | The orchestrator + Knowledge-Graph hub (`arbora`). Uses **every** engine feature — ontology/OWL reasoning, ingestion, agents, the loop engine — and exposes it to the fleet over MCP. | Medulla | MessagePack RPC (`GRAPH_SERVICE_TCP_ADDR`) or UDS + the native `epistemic_graph` client | Optional |
+| **agent-utilities** | `agent-utilities` | The orchestrator + Knowledge-Graph hub (`arbora`). Uses **every** engine feature — ontology/OWL reasoning, ingestion, agents, the loop engine — and exposes it to the fleet over MCP. | Medulla | MessagePack RPC (`GRAPH_SERVICE_TCP_ADDR`) or UDS + the native `medulla` client | Optional |
 | **agent-webui** | `agent-webui` | A web UI to **visualize and explore the database** (graphs, tables, query results). | agent-utilities (and/or direct engine reads) | through agent-utilities; can also read the DB directly | Optional |
 | **agent-terminal-ui** | `agent-terminal-ui` | A terminal client for the fleet. | agent-utilities | through agent-utilities | Optional |
 | **geniusbot** | `geniusbot` | A desktop "cockpit" (PySide6/Qt) — visual command centre over the fleet. | agent-utilities | through agent-utilities | Optional |

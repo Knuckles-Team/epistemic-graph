@@ -31,20 +31,20 @@
 //! a request/response tile fetch) for a benefit (lower per-request overhead)
 //! that does not matter at human pan/zoom interaction rates.
 //!
-//! ## LOD selection over the SAME `eg_viz_core::select_tier` rule
+//! ## LOD selection over the SAME `medulla_viz_core::select_tier` rule
 //!
 //! [`resolve_tile`] calls `select_tier` exactly like the static-export path
-//! (`eg-viz-export::render::resolve`) does — one tier-selection rule for the
+//! (`medulla-viz-export::render::resolve`) does — one tier-selection rule for the
 //! whole engine, never a second parallel one for this transport. The frame
 //! budget is derived directly from `width_px` (`2 * width_px` primitives — the
 //! Line/Area `primitives_per_row` cost — `8 * width_px` bytes), so Direct wins
 //! exactly when the viewport's row count already fits one point per pixel
-//! column, and Decimate (via [`eg_viz_kernels::lttb_reduce`], `threshold =
+//! column, and Decimate (via [`medulla_viz_kernels::lttb_reduce`], `threshold =
 //! width_px`) applies otherwise — **never more points than `width_px` pixels
 //! can show**, by construction.
 //!
 //! **Deliberately different reduction choice than the static-export path.**
-//! `eg-viz-export::render::resolve` uses [`eg_viz_kernels::m4_reduce`] for
+//! `medulla-viz-export::render::resolve` uses [`medulla_viz_kernels::m4_reduce`] for
 //! Line/Area (a smooth full-shape overview) and refuses Decimate for Scatter
 //! entirely (`mark_supports_tier`: "unordered decimation lies", routing
 //! Scatter to a Density surface instead). This endpoint uses LTTB
@@ -64,10 +64,10 @@ use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
-use eg_viz_core::{
+use medulla_viz_core::{
     select_tier, ColumnStoreIngest, Encodings, FrameBudget, LodTier, MarkKind, TierInput,
 };
-use eg_viz_kernels::lttb_reduce;
+use medulla_viz_kernels::lttb_reduce;
 
 use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::viz_engine::VizEngineState;
@@ -243,7 +243,7 @@ pub(crate) fn parse_param<T: std::str::FromStr>(
 
 /// Resolve one `GET /tile` request: read the requested columns, filter to the
 /// requested viewport (or the whole column range on a first request), select
-/// the LOD tier via `eg_viz_core::select_tier`, and encode the result. Returns
+/// the LOD tier via `medulla_viz_core::select_tier`, and encode the result. Returns
 /// `Err` only for a malformed/invalid REQUEST (missing params, unknown mark,
 /// row count over [`MAX_TILE_ROWS`]) — an unknown dataset or an empty
 /// viewport-filtered result is `Ok` with [`TileStatus::Unavailable`], per the
@@ -420,8 +420,8 @@ fn test_store_with(
     dataset_ref: &str,
     xs: Vec<f64>,
     ys: Vec<f64>,
-) -> eg_viz_columnstore::ColumnStore {
-    use eg_viz_columnstore::{ColumnData, ColumnInput, ColumnStore};
+) -> medulla_viz_columnstore::ColumnStore {
+    use medulla_viz_columnstore::{ColumnData, ColumnInput, ColumnStore};
     let mut store = ColumnStore::new();
     store
         .ingest_columns(

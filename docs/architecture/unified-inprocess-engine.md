@@ -15,10 +15,10 @@ Two shapes now exist, and this doc is about the second one:
 |---|---|---|
 | Transport | Tokio UDS/TCP server, length-prefixed MessagePack, `eg2.` HMAC envelope | A direct Rust function call inside the same OS process |
 | Scales | Horizontally — one engine, multiple `arbora` clients | Vertically only — one `arbora`, one embedded engine |
-| Wheel target | `bindings = "bin"` (`epistemic-graph-server`) | A pyo3 `cdylib` (`epistemic_graph.engine`), injected into the same wheel |
+| Wheel target | `bindings = "bin"` (`medulla-server`) | A pyo3 `cdylib` (`medulla.engine`), injected into the same wheel |
 | Identity boundary | Real — client and engine are different processes/hosts | None needed for the call itself — the caller *is* the trusted process |
 | Batching rule | Non-negotiable (round-trip amortization) | **Equally non-negotiable** (lock/allocation amortization — see §5) |
-| Status | Shipped, measured (`docs/benchmarks.md`) | **This doc + a compiling, minimally-proven prototype** (`crates/eg-pyengine`) |
+| Status | Shipped, measured (`docs/benchmarks.md`) | **This doc + a compiling, minimally-proven prototype** (`crates/medulla-pyengine`) |
 
 Neither shape replaces the other. `AGENTS.md` is explicit that PyO3 is restored as an
 **opt-in** path for the self-contained case, not a reversal of the out-of-process default:
@@ -29,7 +29,7 @@ and this new shape is reached only through the `pyo3-engine` cargo feature, off 
 ## 2. Why this is even possible without duplicating the engine
 
 The facade crate already contains the exact pattern this workstream needs:
-`src/embedded.rs`'s `EmbeddedEngine` (CONCEPT:EG-KG.backend.engine-modes, shipped under the
+`src/embedded.rs`'s `EmbeddedEngine` (CONCEPT:MEDULLA-KG.backend.engine-modes, shipped under the
 `embedded` cargo feature, demoed in `examples/embedded.rs`). Its own doc comment says it
 better than a summary can:
 
@@ -65,83 +65,83 @@ routing around the socket.
 ## 3. Why a separate crate, not a module in the facade
 
 Two independent constraints rule out adding pyo3 directly to the facade crate
-(`epistemic-graph`, the repo-root package):
+(`medulla`, the repo-root package):
 
 1. **maturin binding modes are mutually exclusive.** The main wheel is
-   `bindings = "bin"` (`pyproject.toml`) — it ships the `epistemic-graph-server` binary.
+   `bindings = "bin"` (`pyproject.toml`) — it ships the `medulla-server` binary.
    A single maturin invocation builds ONE binding kind; the operator cannot get a `bin` target
-   and a pyo3 `cdylib` out of the same crate/invocation. `crates/eg-numeric` already
+   and a pyo3 `cdylib` out of the same crate/invocation. `crates/medulla-numeric` already
    solved this for the numeric kernel: it is **its own crate**, with **its own
    `pyproject.toml`**, built with a **separate** `maturin build -m
-   crates/eg-numeric/Cargo.toml --features python` invocation, producing a standalone
+   crates/medulla-numeric/Cargo.toml --features python` invocation, producing a standalone
    wheel whose compiled extension is then folded into the main wheel
    (`scripts/inject_numeric_kernel.py`). This is the exact shape W-A reuses.
 
 2. **The workspace DAG only points one way.** `AGENTS.md`: *"member crates map 1:1 to
-   the acyclic dependency DAG `eg-types → eg-ann → eg-core → eg-compute →
-   epistemic-graph`... A crate may only `use` crates to its left; a cycle won't compile,
+   the acyclic dependency DAG `medulla-types → medulla-ann → medulla-core → medulla-compute →
+   medulla`... A crate may only `use` crates to its left; a cycle won't compile,
    which is the enforcement."* The facade sits at the **top** of that DAG. For
    `cargo build --release --features pyo3-engine` to compile a new crate from the repo
    root, that crate has to be an **optional dependency of the facade** (feature-gated).
    A crate cannot simultaneously be a dependency of the facade AND depend on the facade
-   — that is a cycle. So the new binding crate (`crates/eg-pyengine`) cannot reuse
-   `EmbeddedEngine` as a library dependency; it has to sit **parallel to `eg-compute`**,
-   talking to `eg-core` directly, the same layer `EmbeddedEngine` itself talks to.
+   — that is a cycle. So the new binding crate (`crates/medulla-pyengine`) cannot reuse
+   `EmbeddedEngine` as a library dependency; it has to sit **parallel to `medulla-compute`**,
+   talking to `medulla-core` directly, the same layer `EmbeddedEngine` itself talks to.
 
 ```
- eg-types → eg-ann → eg-core → eg-compute ─┐
-                        │                   ├→ epistemic-graph (facade)
-                        └── eg-pyengine ────┘        │  bin target: epistemic-graph-server
-                             (feature pyo3-engine,     │  lib target: re-exports eg-{types,core,compute}
+ medulla-types → medulla-ann → medulla-core → medulla-compute ─┐
+                        │                   ├→ medulla (facade)
+                        └── medulla-pyengine ────┘        │  bin target: medulla-server
+                             (feature pyo3-engine,     │  lib target: re-exports medulla-{types,core,compute}
                               optional dep of facade)  │  + src/embedded.rs (EmbeddedEngine, Rust API)
-                                                        └  #[cfg(feature="pyo3-engine")] pub use eg_pyengine;
+                                                        └  #[cfg(feature="pyo3-engine")] pub use medulla_pyengine;
 ```
 
-`crates/eg-pyengine` is therefore **not** a wrapper around `EmbeddedEngine` — it is a
+`crates/medulla-pyengine` is therefore **not** a wrapper around `EmbeddedEngine` — it is a
 second, minimal implementation of the *same pattern* (open a registry, resolve a graph's
 `GraphCore` by name, call its methods), one layer further down the DAG than
 `EmbeddedEngine` sits, because that is the only place a `crates/*` member is allowed to
-be. It reuses `eg-core` in exactly the sense `AGENTS.md` requires ("do not duplicate the
+be. It reuses `medulla-core` in exactly the sense `AGENTS.md` requires ("do not duplicate the
 engine") — no storage, locking, or mutation logic is reimplemented, only ~40 lines of
 registry glue that `EmbeddedEngine` also has to have. §11 covers the follow-up option of
-hoisting that glue **down into `eg-core` itself**, so both callers share one
+hoisting that glue **down into `medulla-core` itself**, so both callers share one
 implementation instead of two thin copies of it — worth doing once a second caller
 (this crate) makes the duplication real rather than hypothetical.
 
-This mirrors `eg-numeric` structurally in every respect: a leaf crate, an internal
+This mirrors `medulla-numeric` structurally in every respect: a leaf crate, an internal
 `python` feature (off by default) that is the only thing pulling in `pyo3`, a
 `crate-type = ["cdylib", "rlib"]` dual surface, and its own standalone `pyproject.toml`.
 The facade's own new feature is named `pyo3-engine` (matching this program's naming),
 and turns on both the optional dependency and the leaf crate's own `python` feature:
 
 ```toml
-# crates/eg-pyengine/Cargo.toml
+# crates/medulla-pyengine/Cargo.toml
 [features]
 default = []
-python = ["dep:pyo3"]        # mirrors eg-numeric's `python` feature 1:1
+python = ["dep:pyo3"]        # mirrors medulla-numeric's `python` feature 1:1
 
 # root Cargo.toml (facade)
 [dependencies]
-eg-pyengine = { path = "crates/eg-pyengine", optional = true }
+medulla-pyengine = { path = "crates/medulla-pyengine", optional = true }
 [features]
-pyo3-engine = ["dep:eg-pyengine", "eg-pyengine/python"]   # NOT in default/full/cluster
+pyo3-engine = ["dep:medulla-pyengine", "medulla-pyengine/python"]   # NOT in default/full/cluster
 ```
 
 ## 4. Same client API surface — only the transport swaps
 
 The instruction from the program doc is precise: `agent_utilities` code must be
 **unchanged**. Today, `agent_utilities` (and every other consumer under
-`agent-packages/`) talks to `epistemic_graph.client.EpistemicGraphClient`, which exposes
+`agent-packages/`) talks to `medulla.client.MedullaClient`, which exposes
 sub-clients — `.nodes`, `.edges`, `.graph`, `.query`, `.finance`, … — each a thin wrapper
 whose methods do two things: (1) MessagePack-encode/decode the Python-level
 arguments/results, and (2) call `self._client._send(method_name, params)`.
 
-Take `NodeClient` (`epistemic_graph/client.py`) as the concrete example already in the
+Take `NodeClient` (`medulla/client.py`) as the concrete example already in the
 codebase:
 
 ```python
 class NodeClient:
-    def __init__(self, client: EpistemicGraphClient) -> None:
+    def __init__(self, client: MedullaClient) -> None:
         self._client = client
 
     async def add(self, node_id: str, properties: dict[str, Any] | None = None) -> None:
@@ -162,12 +162,12 @@ class NodeClient:
         return raw_val
 ```
 
-The MessagePack encoding of `properties` is **already** identical to what `eg-core`
+The MessagePack encoding of `properties` is **already** identical to what `medulla-core`
 stores — `Method::AddNode { node_id, properties_msgpack: Vec<u8> }` never decodes the
 blob, it stores it opaquely (`GraphCore::add_node(&self, node_id: String,
 properties_msgpack: Vec<u8>)`) and hands the same bytes back on read
 (`get_node_properties(&self, node_id: &str) -> Option<Vec<u8>>`). That is exactly why
-`crates/eg-pyengine`'s pyo3 boundary is designed to take/return raw `bytes`, not a
+`crates/medulla-pyengine`'s pyo3 boundary is designed to take/return raw `bytes`, not a
 decoded dict (§6): **the wire encoding does not change when the transport does.** The
 only thing that has to change is what `_send`/its equivalent does underneath.
 
@@ -187,13 +187,13 @@ class _Transport(Protocol):
     ) -> Any: ...
 
 
-class SocketTransport:  # today's EpistemicGraphClient, unchanged
+class SocketTransport:  # today's MedullaClient, unchanged
     async def _send(
         self, method, params=None, *, graph=None
     ) -> Any: ...  # framed UDS/TCP + eg2. envelope
 
 
-class EmbeddedTransport:  # NEW — backs epistemic_graph.embedded
+class EmbeddedTransport:  # NEW — backs medulla.embedded
     def __init__(self, graph_name: str = "__commons__") -> None:
         from . import engine as _native  # the pyo3 extension this crate builds
 
@@ -228,7 +228,7 @@ so the "await" is a no-op yield, not a real suspension. §6 covers the one place
 stops being true (a durable commit) and what changes then.
 
 **Scope note:** the shipped prototype implements the native pyo3 flat layer
-(`crates/eg-pyengine`, §6) plus this design; wiring the full `Transport` protocol and
+(`crates/medulla-pyengine`, §6) plus this design; wiring the full `Transport` protocol and
 porting every sub-client (`.edges`, `.graph`, `.query`, …) is the concrete follow-up
 tracked in §11 — this section specifies the target shape precisely enough that doing so
 is mechanical, one sub-client at a time, with a round-trip test per method exactly like
@@ -261,7 +261,7 @@ in one criterion iteration, not per call — because even with zero transport, b
 much work one call does is still the lever that matters at scale. The wire protocol
 already has the batch primitives this pattern needs (`Method::BatchUpdate`,
 `Method::GetNodePropertiesBatch`, `Method::UnionGetNodeProperties`) — a production
-`eg-pyengine` surface must expose the **same** batch methods, not just the
+`medulla-pyengine` surface must expose the **same** batch methods, not just the
 one-node-per-call prototype shipped here. The rule for this crate, stated once so it does
 not drift as methods are added (mirrored in the crate's own doc comment):
 
@@ -271,23 +271,23 @@ not drift as methods are added (mirrored in the crate's own doc comment):
 > (`add_nodes_batch`, mirroring `Method::BatchUpdate`) instead of a per-element loop, in
 > both shapes, for the same reason.
 
-## 6. What ships: `crates/eg-pyengine` (the minimal, real prototype)
+## 6. What ships: `crates/medulla-pyengine` (the minimal, real prototype)
 
-The prototype crate wraps exactly enough of `eg-core` to prove the pattern end to end —
+The prototype crate wraps exactly enough of `medulla-core` to prove the pattern end to end —
 create a graph, add a node, read it back — through a real pyo3 boundary:
 
 ```rust
-// crates/eg-pyengine/src/lib.rs (excerpt; see the file for full doc comments)
-pub type SharedRegistry = Arc<parking_lot::RwLock<eg_core::registry::GraphRegistry>>;
+// crates/medulla-pyengine/src/lib.rs (excerpt; see the file for full doc comments)
+pub type SharedRegistry = Arc<parking_lot::RwLock<medulla_core::registry::GraphRegistry>>;
 
 pub fn new_registry() -> SharedRegistry { .. }
 pub fn create_graph(registry: &SharedRegistry, name: &str) -> Result<(), String> { .. }
 pub fn resolve_core(registry: &SharedRegistry, graph: &str)
-    -> Result<Arc<eg_core::graph::GraphCore>, String> { .. }
+    -> Result<Arc<medulla_core::graph::GraphCore>, String> { .. }
 
 #[cfg(feature = "python")]
 mod py {
-    #[pyclass(module = "epistemic_graph.engine", name = "Engine")]
+    #[pyclass(module = "medulla.engine", name = "Engine")]
     struct PyEngine { registry: SharedRegistry }
 
     #[pymethods]
@@ -305,17 +305,17 @@ mod py {
     #[pymodule]
     fn engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.add_class::<PyEngine>()?;
-        m.add("__engine__", "eg-pyengine")?;   // discovery marker, mirrors eg-numeric's `__kernel__`
+        m.add("__engine__", "medulla-pyengine")?;   // discovery marker, mirrors medulla-numeric's `__kernel__`
         Ok(())
     }
 }
 ```
 
 The pure (non-pyo3) half — `new_registry`/`create_graph`/`resolve_core` — has no pyo3
-dependency at all and is unit-tested with a bare `cargo test -p eg-pyengine` (no `python`
-feature needed), exactly like `eg-numeric`'s `linalg`/`reductions` modules. The pyo3 half
-is gated in its own `mod py { ... }`, mirroring `eg-numeric`'s own split precisely, for
-the same reason: a plain rlib consumer (or a bare `cargo build -p eg-pyengine`) never
+dependency at all and is unit-tested with a bare `cargo test -p medulla-pyengine` (no `python`
+feature needed), exactly like `medulla-numeric`'s `linalg`/`reductions` modules. The pyo3 half
+is gated in its own `mod py { ... }`, mirroring `medulla-numeric`'s own split precisely, for
+the same reason: a plain rlib consumer (or a bare `cargo build -p medulla-pyengine`) never
 pulls pyo3 in.
 
 **GIL discipline.** Every `#[pymethods]` call releases the GIL for the actual engine call
@@ -357,7 +357,7 @@ any process on the wire.
 In-process, origin is not in question: the caller **is** the same OS process, the same
 address space, the same security boundary as the engine. This is not a new argument —
 it is the exact justification `EmbeddedEngine` already documents for dropping HMAC *and*
-the ACL isolation layer wholesale ("a trusted local caller"). `eg-pyengine` inherits the
+the ACL isolation layer wholesale ("a trusted local caller"). `medulla-pyengine` inherits the
 identical reasoning and the identical scope cut for the same reason, which is why the
 prototype's `#[pymethods]` carry no `agent_id`/signature/scope parameters at all.
 
@@ -368,8 +368,8 @@ What this means concretely, layer by layer:
   threat model these defend against does not exist across a plain function call within
   one process. **Do not** build an in-process HMAC check — it will authenticate a
   caller against itself.
-- **Tenant/policy-version/audience matching** (`EPISTEMIC_GRAPH_TENANT`,
-  `EPISTEMIC_GRAPH_AUDIENCE`, `EPISTEMIC_GRAPH_POLICY_VERSION`) — these are
+- **Tenant/policy-version/audience matching** (`MEDULLA_TENANT`,
+  `MEDULLA_AUDIENCE`, `MEDULLA_POLICY_VERSION`) — these are
   deployment-identity assertions ("this server IS tenant X"), not per-call auth. A
   self-contained deployment still has exactly one tenant identity; it is simply bound
   **once**, at `Engine::new()`/`EmbeddedTransport.__init__` construction time (a
@@ -396,7 +396,7 @@ What this means concretely, layer by layer:
   `security`) — an independent, durability-layer concern, not a transport one. Neither
   `EmbeddedEngine` nor this prototype wires it today; a production in-process engine
   that wants tamper-evidence needs the same audit-chain hook both callers currently lack
-  (§11 — another argument for hoisting shared glue down into `eg-core` once there are two
+  (§11 — another argument for hoisting shared glue down into `medulla-core` once there are two
   callers instead of one).
 - **CDC / change-notification** (`ChangeNotifier`, the `changes` field on `GraphCore`) —
   transport-independent already: it lives on `GraphCore` itself, so an in-process
@@ -412,8 +412,8 @@ deployment, tracked explicitly in §11 rather than silently skipped.
 ## 8. One binary, both artifacts: packaging
 
 `pyproject.toml` today: `bindings = "bin"`, `features = ["full", "ast-extended"]` — one
-maturin invocation, one wheel, the `epistemic-graph-server` console-script binary plus the
-pure-Python `epistemic_graph/` package. The numeric kernel already proves the pattern for
+maturin invocation, one wheel, the `medulla-server` console-script binary plus the
+pure-Python `medulla/` package. The numeric kernel already proves the pattern for
 folding a *second*, independently-built pyo3 extension into that same wheel; this
 workstream's engine binding is the second instance of the identical pattern, run
 alongside the first:
@@ -422,23 +422,23 @@ alongside the first:
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ 1. maturin build --release --features full,ast-extended                 │
 │    (bindings="bin", repo root pyproject.toml)                           │
-│    → dist/epistemic_graph-X.Y.Z-*.whl                                   │
-│      = epistemic-graph-server binary + pure-python epistemic_graph/     │
+│    → dist/medulla_engine-X.Y.Z-*.whl                                   │
+│      = medulla-server binary + pure-python medulla/     │
 ├─────────────────────────────────────────────────────────────────────────┤
-│ 2. maturin build --release -m crates/eg-numeric/Cargo.toml \            │
+│ 2. maturin build --release -m crates/medulla-numeric/Cargo.toml \            │
 │      --features python        (existing)                                │
-│    → numeric-wheel/*.whl  (epistemic_graph.numeric)                     │
+│    → numeric-wheel/*.whl  (medulla.numeric)                     │
 ├─────────────────────────────────────────────────────────────────────────┤
-│ 2b. maturin build --release -m crates/eg-pyengine/Cargo.toml \          │
+│ 2b. maturin build --release -m crates/medulla-pyengine/Cargo.toml \          │
 │       --features python       (NEW, this workstream)                    │
-│     → engine-wheel/*.whl  (epistemic_graph.engine)                      │
+│     → engine-wheel/*.whl  (medulla.engine)                      │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ 3. python scripts/inject_numeric_kernel.py   dist/*.whl numeric-wheel/*.whl │
 │ 3b. python scripts/inject_pyengine.py        dist/*.whl engine-wheel/*.whl  │
 │     (NEW script, same RECORD-rewrite/mode-preserving zip surgery as 3)   │
 ├─────────────────────────────────────────────────────────────────────────┤
-│ Result: ONE wheel — epistemic-graph-server binary +                     │
-│         epistemic_graph/{numeric,engine}.abi3.so + pure-python package  │
+│ Result: ONE wheel — medulla-server binary +                     │
+│         medulla/{numeric,engine}.abi3.so + pure-python package  │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -456,7 +456,7 @@ artifacts (the `bin` **and** the extension) once this ships — installing does 
 the operator to a transport. `arbora` picks the transport (`EmbeddedTransport` vs
 `SocketTransport`, §4) from its own config at **startup**, which is exactly what W-D
 (deployment modes) and W-E (genesis profiles) key off of: a self-contained profile
-builds `EmbeddedTransport` and never spawns `epistemic-graph-server` at all; a
+builds `EmbeddedTransport` and never spawns `medulla-server` at all; a
 scale-out profile spawns/points at the server binary and builds `SocketTransport`
 as it does today. Neither choice changes what got installed.
 
@@ -469,7 +469,7 @@ as it does today. Neither choice changes what got installed.
 | `embedded` | Yes (`= ["redb"]`) | No | `EmbeddedEngine` — the Rust in-process API this design's pattern is proven by |
 | `cluster` | No (opt-in layer) | No | `raft` + distributed compute — orthogonal axis, composes freely with `pyo3-engine` |
 | `full-extras` | No (opt-in layer) | No | GPU/ROS2 — orthogonal axis |
-| **`pyo3-engine`** | **No** (opt-in, this workstream) | **Yes**, via `eg-pyengine/python` only | The unified single-binary path |
+| **`pyo3-engine`** | **No** (opt-in, this workstream) | **Yes**, via `medulla-pyengine/python` only | The unified single-binary path |
 
 `pyo3-engine` is an independent axis from `cluster`/`full-extras`: nothing about
 embedding the engine in-process conflicts with also being a Raft node or linking the GPU
@@ -492,13 +492,13 @@ answers the specific question this workstream's "no measured downside" gate need
 holding the actual `GraphCore` mutation constant, what does the socket add?
 
 - **`inprocess`** — calls `GraphCore::add_node`/`get_node_properties` directly. This is
-  the Rust-side cost `eg-pyengine`'s `#[pymethods]` pay inside `Python::detach` (the bench
+  the Rust-side cost `medulla-pyengine`'s `#[pymethods]` pay inside `Python::detach` (the bench
   does not spin up a Python interpreter — it isolates the transport delta the embedding
   removes, not the pyo3 marshaling cost on top, which is orders of magnitude smaller than
   a socket round trip for a `str`/`bytes`-shaped call).
 - **`uds_socket`** — wraps the identical call behind a real 4-byte length-prefixed
   MessagePack frame over a real Unix domain socket, on one persistent connection reused
-  across every sample (matching how `epistemic_graph.client` actually keeps one
+  across every sample (matching how `medulla.client` actually keeps one
   connection open, not reconnecting per call). It deliberately does **not** implement the
   `eg2.` envelope (HMAC verification, replay-ledger check) — that cost is orthogonal to
   *where the engine runs* and is already captured in the existing end-to-end measurement
@@ -565,21 +565,21 @@ This prototype proves the embedding *pattern*; it is deliberately not a producti
 surface. In priority order:
 
 1. **Durability.** The prototype is in-memory only. Wiring redb means either (a)
-   depending on `eg-core`'s durable primitives directly from `eg-pyengine` the way
+   depending on `medulla-core`'s durable primitives directly from `medulla-pyengine` the way
    `EmbeddedEngine` depends on `crate::redb_store`/`crate::mutation_apply` (both live in
-   the facade, above `eg-pyengine` in the DAG — not directly reusable, same constraint as
+   the facade, above `medulla-pyengine` in the DAG — not directly reusable, same constraint as
    §3), or (b) — the better fix — **hoisting the shared "resolve graph, apply Method,
-   commit durably" glue down into `eg-core` itself** as a small, transport-agnostic
-   helper both `EmbeddedEngine` (Rust) and `eg-pyengine` (Python) call, so there is
+   commit durably" glue down into `medulla-core` itself** as a small, transport-agnostic
+   helper both `EmbeddedEngine` (Rust) and `medulla-pyengine` (Python) call, so there is
    genuinely one implementation instead of the two thin, drifting copies this design
    currently accepts as a DAG-forced trade-off. Do this **before** shipping a durable
-   `eg-pyengine` surface, not after — it is materially easier to hoist now, with one small
+   `medulla-pyengine` surface, not after — it is materially easier to hoist now, with one small
    duplicate, than after a second production surface depends on the duplicate shape.
 2. **Real batch methods.** `add_node`/`get_node_properties` per call is the proof shape,
    not the production one (§5). Add `add_nodes_batch`/`get_node_properties_batch`
    mirroring `Method::BatchUpdate`/`GetNodePropertiesBatch` before any real caller adopts
    this path for bulk work.
-3. **The Python transport-swap layer.** `epistemic_graph/embedded.py` (or wherever this
+3. **The Python transport-swap layer.** `medulla/embedded.py` (or wherever this
    lands) implementing the `_Transport` protocol from §4 and porting `NodeClient`,
    `EdgeClient`, `GraphOperationsClient`, `AnalyticsClient`, etc. one at a time, each with
    the same round-trip test convention `AGENTS.md`'s "adding a capability" recipe already
@@ -591,7 +591,7 @@ surface. In priority order:
 5. **Packaging.** `scripts/inject_pyengine.py` (mirrors `inject_numeric_kernel.py`),
    wired into `.github/workflows/release-build.yml` alongside the existing numeric-kernel
    fold-in step, plus a `scripts/check_wheel_completeness.py` assertion that the shipped
-   wheel contains `epistemic_graph/engine*.so` whenever the release build opts into
+   wheel contains `medulla/engine*.so` whenever the release build opts into
    `pyo3-engine` (this is a **W-B/W-C-adjacent** follow-up, not this workstream's build —
    W-A's job was proving the crate and the pattern compile and work, not shipping a
    release pipeline).
@@ -613,7 +613,7 @@ surface. In priority order:
    shape.
 9. **`EngineResolver` / genesis wiring** (W-D, W-E). `agent-utilities`' engine resolution
    needs a new "embedded" mode alongside its existing socket-autostart behavior
-   (`EPISTEMIC_GRAPH_IDLE_SHUTDOWN_SECS`'s shared-tiny-daemon mode); `agent-os-genesis`
+   (`MEDULLA_IDLE_SHUTDOWN_SECS`'s shared-tiny-daemon mode); `agent-os-genesis`
    needs to pick this shape for the self-contained default profile. Both are explicitly
    out of scope for W-A (they are W-D/W-E), listed here only so the dependency is visible.
 

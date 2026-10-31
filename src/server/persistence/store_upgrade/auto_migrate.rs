@@ -1,5 +1,5 @@
 //! Automatic migration of an older but supported store when the engine opens
-//! its data directory (`EG-DURABLE-KERNEL-R070.1`).
+//! its data directory (`MEDULLA-DURABLE-KERNEL-R070.1`).
 //!
 //! The engine runs the same registered upgrades as `store-upgrade apply`,
 //! through the same per-store inspection and single-commit transition. It
@@ -21,7 +21,7 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use crate::persist_lock::PersistDirLock;
-use eg_storage::{classify_owner_store_format, OwnerLayout, OwnerStoreFormat};
+use medulla_storage::{classify_owner_store_format, OwnerLayout, OwnerStoreFormat};
 use serde::{Deserialize, Serialize};
 
 use super::discover::{discover, StoreFile};
@@ -29,10 +29,10 @@ use super::{apply_store, existing_directory, ApplyOptions, Staging, StoreReport,
 use super::{DEFAULT_STAGING_DIRECTORY, STAGING_SCRATCH_DIRECTORY};
 
 /// The switch. Unset or `true` turns automatic migration on.
-pub const AUTO_MIGRATE_ENV: &str = "EPISTEMIC_GRAPH_STORE_AUTO_MIGRATE";
+pub const AUTO_MIGRATE_ENV: &str = "MEDULLA_STORE_AUTO_MIGRATE";
 /// Private local staging directory of an automatic migration. It has the same
 /// rules as `store-upgrade apply --staging-dir`.
-pub const AUTO_MIGRATE_STAGING_ENV: &str = "EPISTEMIC_GRAPH_STORE_UPGRADE_STAGING_DIR";
+pub const AUTO_MIGRATE_STAGING_ENV: &str = "MEDULLA_STORE_UPGRADE_STAGING_DIR";
 /// The journal file, inside the private staging directory.
 const JOURNAL_FILE: &str = "auto-migrate.journal.json";
 const JOURNAL_VERSION: u32 = 1;

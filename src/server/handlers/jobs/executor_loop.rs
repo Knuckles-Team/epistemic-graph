@@ -41,15 +41,15 @@ fn parse_bounded_millis(
 fn analytics_worker_timing() -> Result<AnalyticsWorkerTiming, String> {
     Ok(AnalyticsWorkerTiming {
         lease_ms: parse_bounded_millis(
-            "EG_ANALYTICS_LEASE_MS",
-            std::env::var("EG_ANALYTICS_LEASE_MS").ok().as_deref(),
+            "MEDULLA_ANALYTICS_LEASE_MS",
+            std::env::var("MEDULLA_ANALYTICS_LEASE_MS").ok().as_deref(),
             DEFAULT_ANALYTICS_LEASE_MS,
             MIN_ANALYTICS_LEASE_MS,
             MAX_ANALYTICS_LEASE_MS,
         )?,
         poll_ms: parse_bounded_millis(
-            "EG_ANALYTICS_POLL_MS",
-            std::env::var("EG_ANALYTICS_POLL_MS").ok().as_deref(),
+            "MEDULLA_ANALYTICS_POLL_MS",
+            std::env::var("MEDULLA_ANALYTICS_POLL_MS").ok().as_deref(),
             DEFAULT_ANALYTICS_POLL_MS,
             MIN_ANALYTICS_POLL_MS,
             MAX_ANALYTICS_POLL_MS,
@@ -68,7 +68,7 @@ pub(super) fn ensure_job_workers(
     STARTED.get_or_init(|| {
         // Gauge state must advance when leases expire even if no worker or
         // client RPC arrives. This coordinator task is deliberately independent
-        // of EG_ANALYTICS_WORKERS so remote-only deployments remain autoscalable.
+        // of MEDULLA_ANALYTICS_WORKERS so remote-only deployments remain autoscalable.
         let metric_store = store.clone();
         tokio::spawn(async move {
             loop {
@@ -76,7 +76,7 @@ pub(super) fn ensure_job_workers(
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
         });
-        let workers = std::env::var("EG_ANALYTICS_WORKERS")
+        let workers = std::env::var("MEDULLA_ANALYTICS_WORKERS")
             .ok()
             .and_then(|value| value.parse::<usize>().ok())
             .unwrap_or(1)
@@ -164,7 +164,7 @@ mod tests {
     fn analytics_worker_timing_uses_defaults_and_accepts_range_ends() {
         assert_eq!(
             parse_bounded_millis(
-                "EG_ANALYTICS_LEASE_MS",
+                "MEDULLA_ANALYTICS_LEASE_MS",
                 None,
                 DEFAULT_ANALYTICS_LEASE_MS,
                 MIN_ANALYTICS_LEASE_MS,
@@ -174,7 +174,7 @@ mod tests {
         );
         assert_eq!(
             parse_bounded_millis(
-                "EG_ANALYTICS_LEASE_MS",
+                "MEDULLA_ANALYTICS_LEASE_MS",
                 Some("5000"),
                 DEFAULT_ANALYTICS_LEASE_MS,
                 MIN_ANALYTICS_LEASE_MS,
@@ -184,7 +184,7 @@ mod tests {
         );
         assert_eq!(
             parse_bounded_millis(
-                "EG_ANALYTICS_LEASE_MS",
+                "MEDULLA_ANALYTICS_LEASE_MS",
                 Some("300000"),
                 DEFAULT_ANALYTICS_LEASE_MS,
                 MIN_ANALYTICS_LEASE_MS,
@@ -194,7 +194,7 @@ mod tests {
         );
         assert_eq!(
             parse_bounded_millis(
-                "EG_ANALYTICS_POLL_MS",
+                "MEDULLA_ANALYTICS_POLL_MS",
                 None,
                 DEFAULT_ANALYTICS_POLL_MS,
                 MIN_ANALYTICS_POLL_MS,
@@ -204,7 +204,7 @@ mod tests {
         );
         assert_eq!(
             parse_bounded_millis(
-                "EG_ANALYTICS_POLL_MS",
+                "MEDULLA_ANALYTICS_POLL_MS",
                 Some("50"),
                 DEFAULT_ANALYTICS_POLL_MS,
                 MIN_ANALYTICS_POLL_MS,
@@ -214,7 +214,7 @@ mod tests {
         );
         assert_eq!(
             parse_bounded_millis(
-                "EG_ANALYTICS_POLL_MS",
+                "MEDULLA_ANALYTICS_POLL_MS",
                 Some("30000"),
                 DEFAULT_ANALYTICS_POLL_MS,
                 MIN_ANALYTICS_POLL_MS,
@@ -228,42 +228,42 @@ mod tests {
     fn analytics_worker_timing_refuses_out_of_range_or_malformed_values() {
         for (name, raw, default, min, max) in [
             (
-                "EG_ANALYTICS_LEASE_MS",
+                "MEDULLA_ANALYTICS_LEASE_MS",
                 "4999",
                 DEFAULT_ANALYTICS_LEASE_MS,
                 MIN_ANALYTICS_LEASE_MS,
                 MAX_ANALYTICS_LEASE_MS,
             ),
             (
-                "EG_ANALYTICS_LEASE_MS",
+                "MEDULLA_ANALYTICS_LEASE_MS",
                 "300001",
                 DEFAULT_ANALYTICS_LEASE_MS,
                 MIN_ANALYTICS_LEASE_MS,
                 MAX_ANALYTICS_LEASE_MS,
             ),
             (
-                "EG_ANALYTICS_POLL_MS",
+                "MEDULLA_ANALYTICS_POLL_MS",
                 "49",
                 DEFAULT_ANALYTICS_POLL_MS,
                 MIN_ANALYTICS_POLL_MS,
                 MAX_ANALYTICS_POLL_MS,
             ),
             (
-                "EG_ANALYTICS_POLL_MS",
+                "MEDULLA_ANALYTICS_POLL_MS",
                 "30001",
                 DEFAULT_ANALYTICS_POLL_MS,
                 MIN_ANALYTICS_POLL_MS,
                 MAX_ANALYTICS_POLL_MS,
             ),
             (
-                "EG_ANALYTICS_POLL_MS",
+                "MEDULLA_ANALYTICS_POLL_MS",
                 "not-a-number",
                 DEFAULT_ANALYTICS_POLL_MS,
                 MIN_ANALYTICS_POLL_MS,
                 MAX_ANALYTICS_POLL_MS,
             ),
             (
-                "EG_ANALYTICS_LEASE_MS",
+                "MEDULLA_ANALYTICS_LEASE_MS",
                 "-1",
                 DEFAULT_ANALYTICS_LEASE_MS,
                 MIN_ANALYTICS_LEASE_MS,

@@ -7,7 +7,7 @@ widths per field. ``contract/fixtures/method_body_vectors.json`` is rendered by
 per catalog method (alphabetical keys, defaults omitted -- the pydantic sender
 shape) plus every typed contract sample. Replaying each request through the
 client's own signer must reproduce the server's bytes; a signer that restates
-field order or defaults instead of delegating to eg-types fails here by name.
+field order or defaults instead of delegating to medulla-types fails here by name.
 """
 
 from __future__ import annotations
@@ -18,15 +18,15 @@ from typing import Any
 import pytest
 from _method_vectors import VECTORS, vector_request
 
-from epistemic_graph.client import _canonical_method_body
-from epistemic_graph.generated import METHOD_IDS
-from epistemic_graph.generated.agent_component import (
+from medulla.client import _canonical_method_body
+from medulla.generated import METHOD_IDS
+from medulla.generated.agent_component import (
     AgentComponentContentRequest,
     AgentComponentKind,
     AgentComponentOpCurrent,
     AgentComponentSearchRequest,
 )
-from epistemic_graph.generated.storage import (
+from medulla.generated.storage import (
     send_agent_component_content,
     send_agent_component_current,
     send_agent_component_search,

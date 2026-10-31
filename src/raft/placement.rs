@@ -1,5 +1,5 @@
 //! Placement catalog — the ONE placement authority for virtual partitions
-//! (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1).
+//! (CONCEPT:MEDULLA-KG.sharding.placement-catalog, DIST-P2-1).
 //!
 //! ## Why this exists
 //!
@@ -33,10 +33,10 @@
 //! commit these through the DEFAULT group's `client_write`, so:
 //!
 //! * **Durable** — the mutation lands in the authoritative shard through the same state-backed
-//!   MutationBatch kernel as any other graph (CONCEPT:EG-KG.storage.one-fsync-covers-raft), so a restart
+//!   MutationBatch kernel as any other graph (CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft), so a restart
 //!   reloads it with `load_all` like any graph.
 //! * **Raft-replicated** — when Raft is active, the SAME committed log entry applies
-//!   on every node via [`super::store::EgStore::apply_request`] with explicit opaque
+//!   on every node via [`super::store::MedullaStore::apply_request`] with explicit opaque
 //!   internal mutation authority, so every node's local
 //!   `__placement_catalog__` graph converges identically.
 //!
@@ -113,7 +113,7 @@ pub(crate) use move_journal::PlacementFence;
 pub use move_journal::{MoveStage, PartitionMoveJournal};
 
 /// The control graph every placement entry is durably stored in as one node per
-/// virtual partition (CONCEPT:EG-KG.sharding.placement-catalog). An ordinary graph — created
+/// virtual partition (CONCEPT:MEDULLA-KG.sharding.placement-catalog). An ordinary graph — created
 /// on first write via the SAME registry auto-create every Raft-applied graph
 /// mutation uses — so it rides the engine's existing persistence + replication with
 /// no new storage code.
@@ -148,7 +148,7 @@ fn is_membership_shrink_node_id(node_id: &str) -> bool {
         })
 }
 
-/// A virtual partition key (CONCEPT:EG-KG.sharding.placement-catalog): a tenant plus an inclusive
+/// A virtual partition key (CONCEPT:MEDULLA-KG.sharding.placement-catalog): a tenant plus an inclusive
 /// `[range_start, range_end]` sub-range over a stable hash of the tenant's
 /// workspace/session/entity id space. `range_start == 0 && range_end == u64::MAX` is
 /// the common "whole tenant, one group" partition; splitting a tenant produces two (or
@@ -188,7 +188,7 @@ impl PartitionKey {
     }
 }
 
-/// A partition's lifecycle state (CONCEPT:EG-KG.sharding.placement-catalog — the online-move state
+/// A partition's lifecycle state (CONCEPT:MEDULLA-KG.sharding.placement-catalog — the online-move state
 /// machine). `Active` is steady-state; `Moving` is the snapshot/CDC-catch-up window
 /// BEFORE the fenced cutover — [`PlacementCatalog::route`] still resolves to the
 /// CURRENT (source) group while `Moving`, only the cutover flips it.
@@ -198,7 +198,7 @@ pub enum PartitionState {
     Moving { target: GroupId },
 }
 
-/// One durable placement record (CONCEPT:EG-KG.sharding.placement-catalog): the control-graph node
+/// One durable placement record (CONCEPT:MEDULLA-KG.sharding.placement-catalog): the control-graph node
 /// body for a [`PartitionKey`]. `epoch` is this entry's routing epoch — the value of
 /// the cluster-wide monotonic counter ([`PlacementCatalog::next_epoch`]) at the moment
 /// this entry's AUTHORITATIVE group was last set (assign/split/merge/fenced cutover;
@@ -261,7 +261,7 @@ impl PlacementRoute {
     }
 }
 
-/// Split `graph_name` into `(tenant, sub_key)` (CONCEPT:EG-KG.sharding.placement-catalog): the substring
+/// Split `graph_name` into `(tenant, sub_key)` (CONCEPT:MEDULLA-KG.sharding.placement-catalog): the substring
 /// before the FIRST `:` is the tenant, the rest is the workspace/session/entity
 /// sub-key that hashes into a tenant's partition range. A name with no `:` is its own
 /// tenant AND sub-key (so a whole-tenant placement degenerates to a per-graph pin,
@@ -274,7 +274,7 @@ pub fn split_tenant_key(graph_name: &str) -> (&str, &str) {
 }
 
 /// A batch of durable control-graph writes plus the local write-serialization guard
-/// (CONCEPT:EG-KG.sharding.placement-catalog). Held by the caller across the ACTUAL Raft commit (see
+/// (CONCEPT:MEDULLA-KG.sharding.placement-catalog). Held by the caller across the ACTUAL Raft commit (see
 /// [`super::multi::MultiRaft::commit_placement_plan`]) so a second placement admin call on
 /// THIS node cannot prepare the same placement pre-image concurrently. The
 /// durable epoch CAS remains the authority across nodes and leadership terms.
@@ -305,7 +305,7 @@ pub struct PendingWrite<'a> {
 /// [`PlacementCatalog::index`] — same shape, same semantics.
 type PlacementIndexSnapshot = (u64, HashMap<String, Vec<PlacementEntry>>);
 
-/// The ONE placement authority (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1). Reads/plans are
+/// The ONE placement authority (CONCEPT:MEDULLA-KG.sharding.placement-catalog, DIST-P2-1). Reads/plans are
 /// pure queries over [`PLACEMENT_GRAPH`]'s current nodes; committing a plan's
 /// `methods` through Raft is the caller's job (see
 /// [`super::multi::MultiRaft`]'s `placement_*` methods) — this keeps the catalog's
@@ -313,7 +313,7 @@ type PlacementIndexSnapshot = (u64, HashMap<String, Vec<PlacementEntry>>);
 pub struct PlacementCatalog {
     state: Arc<RwLock<ServerState>>,
     write_lock: Mutex<()>,
-    /// W0.3 in-memory routing index (CONCEPT:EG-KG.sharding.placement-catalog): `tenant → its entries`, paired
+    /// W0.3 in-memory routing index (CONCEPT:MEDULLA-KG.sharding.placement-catalog): `tenant → its entries`, paired
     /// with the [`PLACEMENT_GRAPH`] core version it was built from.
     /// `route`/`tenant_entries`/`route_many`/epoch-alloc read this instead of
     /// decoding every node on every call. Rebuilt (one full scan) only when the
@@ -357,7 +357,7 @@ impl PlacementCatalog {
             .unwrap_or(0)
     }
 
-    /// Full scan + decode of [`PLACEMENT_GRAPH`]'s CURRENT nodes (CONCEPT:EG-KG.sharding.placement-catalog) —
+    /// Full scan + decode of [`PLACEMENT_GRAPH`]'s CURRENT nodes (CONCEPT:MEDULLA-KG.sharding.placement-catalog) —
     /// the ONE full-scan pass [`Self::ensure_index_fresh`] performs when (and only
     /// when) the index is stale relative to the graph's current version.
     async fn scan_all_entries(&self) -> Vec<PlacementEntry> {
@@ -370,9 +370,9 @@ impl PlacementCatalog {
                 .get_nodes()
                 .iter()
                 .filter_map(|(_, blob)| {
-                    eg_types::msgpack::decode_bounded::<PlacementEntry>(
+                    medulla_types::msgpack::decode_bounded::<PlacementEntry>(
                         blob,
-                        eg_types::msgpack::MsgpackLimits::new(1024 * 1024, 4_096, 16),
+                        medulla_types::msgpack::MsgpackLimits::new(1024 * 1024, 4_096, 16),
                     )
                     .ok()
                     .filter(|entry| {
@@ -387,7 +387,7 @@ impl PlacementCatalog {
     }
 
     /// Ensure the in-memory routing index reflects [`PLACEMENT_GRAPH`]'s CURRENT
-    /// core version (CONCEPT:EG-KG.sharding.placement-catalog, W0.3 — the O(N)→O(1) routing fix). A cheap O(1)
+    /// core version (CONCEPT:MEDULLA-KG.sharding.placement-catalog, W0.3 — the O(N)→O(1) routing fix). A cheap O(1)
     /// version compare when nothing has changed since the last build; a full
     /// scan + decode ONLY when the version has advanced (this node's own admin
     /// commit, or a Raft-replicated apply from the group leader).
@@ -435,7 +435,7 @@ impl PlacementCatalog {
         let Some(blob) = blob else {
             return Ok(None);
         };
-        let properties = eg_types::msgpack::decode_property_object(&blob)
+        let properties = medulla_types::msgpack::decode_property_object(&blob)
             .map_err(|_| "placement epoch counter is corrupt".to_string())?;
         let value = properties
             .get(PLACEMENT_EPOCH_FIELD)
@@ -463,7 +463,7 @@ impl PlacementCatalog {
         })
     }
 
-    /// Every durably-recorded placement entry (CONCEPT:EG-KG.sharding.placement-catalog). Index-backed (W0.3):
+    /// Every durably-recorded placement entry (CONCEPT:MEDULLA-KG.sharding.placement-catalog). Index-backed (W0.3):
     /// reads the in-memory routing index, rebuilt from a full scan only when
     /// [`PLACEMENT_GRAPH`]'s version has advanced since the last build. Empty
     /// (not an error) when the graph doesn't exist yet — an untouched catalog.
@@ -516,9 +516,9 @@ impl PlacementCatalog {
                 if !is_move_journal_node_id(&node_id) {
                     continue;
                 }
-                let journal = eg_types::msgpack::decode_bounded::<PartitionMoveJournal>(
+                let journal = medulla_types::msgpack::decode_bounded::<PartitionMoveJournal>(
                     &blob,
-                    eg_types::msgpack::MsgpackLimits::new(16 * 1024 * 1024, 131_072, 32),
+                    medulla_types::msgpack::MsgpackLimits::new(16 * 1024 * 1024, 131_072, 32),
                 )
                 .map_err(|_| "partition move journal is corrupt".to_string())?;
                 if !journal.validate() || journal.node_id() != node_id {
@@ -549,9 +549,9 @@ impl PlacementCatalog {
         let Some(blob) = core.and_then(|core| core.get_node_properties(&node_id)) else {
             return Ok(None);
         };
-        let journal = eg_types::msgpack::decode_bounded::<PartitionMoveJournal>(
+        let journal = medulla_types::msgpack::decode_bounded::<PartitionMoveJournal>(
             &blob,
-            eg_types::msgpack::MsgpackLimits::new(16 * 1024 * 1024, 131_072, 32),
+            medulla_types::msgpack::MsgpackLimits::new(16 * 1024 * 1024, 131_072, 32),
         )
         .map_err(|_| "partition move journal is corrupt".to_string())?;
         if !journal.validate() || journal.node_id() != node_id {
@@ -595,11 +595,11 @@ impl PlacementCatalog {
                 if !is_membership_shrink_node_id(&node_id) {
                     continue;
                 }
-                let journal = eg_types::msgpack::decode_bounded::<
+                let journal = medulla_types::msgpack::decode_bounded::<
                     super::membership_shrink::MembershipShrinkJournal,
                 >(
                     &blob,
-                    eg_types::msgpack::MsgpackLimits::new(256 * 1024, 4_096, 32),
+                    medulla_types::msgpack::MsgpackLimits::new(256 * 1024, 4_096, 32),
                 )
                 .map_err(|_| "membership shrink journal is corrupt".to_string())?;
                 if !journal.validate() || journal.node_id() != node_id {
@@ -631,9 +631,9 @@ impl PlacementCatalog {
             return Ok(None);
         };
         let journal =
-            eg_types::msgpack::decode_bounded::<super::membership_shrink::MembershipShrinkJournal>(
+            medulla_types::msgpack::decode_bounded::<super::membership_shrink::MembershipShrinkJournal>(
                 &blob,
-                eg_types::msgpack::MsgpackLimits::new(256 * 1024, 4_096, 32),
+                medulla_types::msgpack::MsgpackLimits::new(256 * 1024, 4_096, 32),
             )
             .map_err(|_| "membership shrink journal is corrupt".to_string())?;
         if !journal.validate() || journal.node_id() != node_id {
@@ -678,7 +678,7 @@ impl PlacementCatalog {
         PlacementRoute::unplaced(unplaced_group)
     }
 
-    /// Resolve a complete route vector from one catalog snapshot (CONCEPT:EG-KG.sharding.placement-catalog).
+    /// Resolve a complete route vector from one catalog snapshot (CONCEPT:MEDULLA-KG.sharding.placement-catalog).
     /// Index-backed (W0.3): one [`Self::ensure_index_fresh`] call (amortized O(1)
     /// absent a placement change since the last build) then ONE read-lock
     /// acquisition for the whole batch — still exactly one pass over `keys`,
@@ -703,7 +703,7 @@ impl PlacementCatalog {
             .collect()
     }
 
-    /// The fenced-cutover redirect check (CONCEPT:EG-KG.sharding.placement-catalog): `None` when the
+    /// The fenced-cutover redirect check (CONCEPT:MEDULLA-KG.sharding.placement-catalog): `None` when the
     /// caller's `client_epoch` is current (or there is no explicit placement — nothing
     /// to be stale against); `Some(route)` with the NEW group+epoch when the caller is
     /// behind, so it can be redirected instead of served against a partition that has
@@ -803,7 +803,7 @@ impl PlacementCatalog {
         })
     }
 
-    /// Plan a whole-tenant assignment to `group` (CONCEPT:EG-KG.sharding.placement-catalog). Collapses any
+    /// Plan a whole-tenant assignment to `group` (CONCEPT:MEDULLA-KG.sharding.placement-catalog). Collapses any
     /// prior split/ranged entries for this tenant back to one whole-keyspace entry —
     /// also used by `merge` (assigning to the merge target is the same operation).
     /// Bumps the cluster-wide epoch (the authoritative group changed).
@@ -838,7 +838,7 @@ impl PlacementCatalog {
     }
 
     /// Merge every one of `tenant`'s ranged partitions back onto a single group
-    /// (CONCEPT:EG-KG.sharding.placement-catalog) — the inverse of `split`. Same operation as `assign`.
+    /// (CONCEPT:MEDULLA-KG.sharding.placement-catalog) — the inverse of `split`. Same operation as `assign`.
     pub async fn plan_merge(
         &self,
         tenant: &str,
@@ -848,7 +848,7 @@ impl PlacementCatalog {
     }
 
     /// Plan splitting `tenant`'s partition covering `at` into `[start, at-1] → group_a`
-    /// and `[at, end] → group_b` (CONCEPT:EG-KG.sharding.placement-catalog — lets one tenant span two
+    /// and `[at, end] → group_b` (CONCEPT:MEDULLA-KG.sharding.placement-catalog — lets one tenant span two
     /// groups). Splits the IMPLICIT whole range `[0, u64::MAX]` when the tenant has no
     /// explicit placement yet. Bumps the cluster-wide epoch once for the pair.
     pub async fn plan_split(
@@ -916,7 +916,7 @@ impl PlacementCatalog {
     }
 
     /// Plan marking the partition `(tenant, range)` [`PartitionState::Moving`] to
-    /// `target` (CONCEPT:EG-KG.sharding.placement-catalog — online-move step 1). Does NOT bump the epoch:
+    /// `target` (CONCEPT:MEDULLA-KG.sharding.placement-catalog — online-move step 1). Does NOT bump the epoch:
     /// the authoritative group is unchanged until [`plan_fence_cutover`](Self::plan_fence_cutover)
     /// — `route` keeps answering with the SOURCE group while the target catches up.
     pub(crate) async fn plan_start_move(
@@ -969,7 +969,7 @@ impl PlacementCatalog {
         })
     }
 
-    /// Plan the fenced cutover of `(tenant, range)` to `target` (CONCEPT:EG-KG.sharding.placement-catalog —
+    /// Plan the fenced cutover of `(tenant, range)` to `target` (CONCEPT:MEDULLA-KG.sharding.placement-catalog —
     /// online-move step 3): bumps the cluster-wide epoch AND flips the partition's
     /// authoritative group, atomically (one control-graph write). After this commits,
     /// [`redirect_if_stale`](Self::redirect_if_stale) answers any caller still on the
@@ -1161,7 +1161,7 @@ mod tests {
         else {
             panic!("placement fence must use a property CAS");
         };
-        let conditions = eg_types::msgpack::decode_property_object(&conditions_msgpack).unwrap();
+        let conditions = medulla_types::msgpack::decode_property_object(&conditions_msgpack).unwrap();
         assert_eq!(
             conditions.get("key"),
             Some(&serde_json::to_value(&expected.key).unwrap())
@@ -1179,7 +1179,7 @@ mod tests {
             Some(&serde_json::to_value(expected.state).unwrap())
         );
 
-        let updates = eg_types::msgpack::decode_property_object(&updates_msgpack).unwrap();
+        let updates = medulla_types::msgpack::decode_property_object(&updates_msgpack).unwrap();
         assert!(!updates.contains_key("key"));
         assert_eq!(
             updates.get("group"),

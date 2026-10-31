@@ -132,7 +132,7 @@ const CAPACITY: usize = 4096;
 /// This crate's own raft-module traces (group lifecycle, leader routing) — the other
 /// half of the causal chain alongside openraft's internal replication/heartbeat
 /// events.
-const RAFT_MODULE_TARGET: &str = "epistemic_graph::raft";
+const RAFT_MODULE_TARGET: &str = "medulla::raft";
 
 /// One retained trace line.
 struct CapturedEvent {
@@ -456,7 +456,7 @@ mod tests {
                     tracing::debug!(target: "openraft::replication", "heartbeat send attempt");
                 });
             tracing::warn!(
-                target: "epistemic_graph::raft::multi",
+                target: "medulla::raft::multi",
                 "placement group 4 has no current leader"
             );
             tracing::error!(target: "unrelated_module", "MARKER-SHOULD-NOT-APPEAR");
@@ -478,8 +478,8 @@ mod tests {
     /// Known-bad input #2: pushing past `CAPACITY` must evict the oldest entries,
     /// not grow without bound (EH-286's "bounded so a long test cannot exhaust
     /// memory" requirement).
-    // spec: EG-DURABLE-KERNEL-R047
-    // spec: EG-DURABLE-KERNEL-R013
+    // spec: MEDULLA-DURABLE-KERNEL-R047
+    // spec: MEDULLA-DURABLE-KERNEL-R013
     #[test]
     fn ring_buffer_evicts_oldest_when_over_capacity() {
         let ring = Ring::new();
@@ -532,7 +532,7 @@ mod tests {
         );
         ring.push(
             Level::WARN,
-            "epistemic_graph::raft::multi",
+            "medulla::raft::multi",
             "t".to_string(),
             "second".to_string(),
             String::new(),
@@ -559,7 +559,7 @@ mod tests {
     /// mechanism `cluster_cfg_with_groups` wires into every cluster test. The
     /// assertion is deliberately triggered and caught (never propagated), so this
     /// test proves the harness without itself failing the suite.
-    // spec: EG-DURABLE-KERNEL-R013
+    // spec: MEDULLA-DURABLE-KERNEL-R013
     #[test]
     fn a_deliberate_assertion_failure_leaves_its_causal_chain_in_the_global_dump() {
         init();
@@ -598,7 +598,7 @@ mod tests {
     /// finish at the same time, so the writes are genuinely interleaved in time, not
     /// just sequential. Each thread's own dump must contain only its own events and,
     /// for the quiet cluster, must still contain the trigger event afterward.
-    // spec: EG-DURABLE-KERNEL-R067
+    // spec: MEDULLA-DURABLE-KERNEL-R067
     #[test]
     fn dump_for_one_thread_excludes_another_concurrently_writing_thread() {
         init();

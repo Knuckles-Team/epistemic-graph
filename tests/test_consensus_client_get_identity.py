@@ -1,7 +1,7 @@
 """``ConsensusClient.get_identity`` — the read half of ``register_identity``.
 
 These fixtures never contact an engine (mirrors ``test_cluster_topology_client.py``'s
-``_FakeClient`` convention): a bare async stand-in for :class:`EpistemicGraphClient`
+``_FakeClient`` convention): a bare async stand-in for :class:`MedullaClient`
 that only implements ``_send``, which is all ``get_identity`` calls through.
 
 The RPC exists specifically to let a caller distinguish three outcomes without
@@ -16,12 +16,12 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import ConsensusClient, EpistemicGraphClient
+from medulla.client import ConsensusClient, MedullaClient
 
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient(EpistemicGraphClient):
+class _FakeClient(MedullaClient):
     """Records the exact wire call and returns a canned ``_send`` result."""
 
     def __init__(self, answer: Any) -> None:

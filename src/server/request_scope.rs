@@ -10,7 +10,7 @@
 //!
 //! * waits (a pack lock) race it and give up with [`CANCELLED`];
 //! * CPU-bound work runs through [`interruptible`], which installs it as the
-//!   `eg_core::interrupt` probe the reasoning step loops poll, and discards the
+//!   `medulla_core::interrupt` probe the reasoning step loops poll, and discards the
 //!   result of an interrupted run.
 
 use std::future::Future;
@@ -70,7 +70,7 @@ pub(crate) fn interruptible<T>(
     work: impl FnOnce() -> T,
 ) -> Result<T, String> {
     let probe = cancel.clone();
-    let output = eg_core::interrupt::scoped(move || probe.is_cancelled(), work);
+    let output = medulla_core::interrupt::scoped(move || probe.is_cancelled(), work);
     if cancel.is_cancelled() {
         return Err(CANCELLED.to_string());
     }
@@ -114,7 +114,7 @@ mod tests {
         let tripped = cancel.clone();
         let outcome = interruptible(&cancel, move || {
             tripped.cancel();
-            eg_core::interrupt::requested()
+            medulla_core::interrupt::requested()
         });
         assert_eq!(outcome, Err(CANCELLED.to_string()));
     }

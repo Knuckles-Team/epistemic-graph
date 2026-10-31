@@ -1,0 +1,220 @@
+[package]
+name = "medulla-capabilities"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Machine-checked MethodPolicy capability ledger for the medulla-engine wire protocol (CONCEPT:MEDULLA-P0-1)"
+license = "MIT"
+
+[lib]
+name = "medulla_capabilities"
+
+# A leaf crate BELOW medulla-core/medulla-plan in the DAG (deps = medulla-types ONLY, mirroring the
+# medulla-modality precedent) so it can be built + tested in isolation without pulling in
+# the server, redb, raft, or any compute domain. It is NOT added as a normal
+# As of CONCEPT:MEDULLA-P0-2 the root `medulla-engine` package DOES depend on this crate
+# (optional, behind its `server` feature) so the mutation gateway can consume
+# `policy()`; see the root Cargo.toml. Default (non-`server`) builds still link none
+# of it.
+#
+# Every medulla-types optional feature that gates a `Method` VARIANT is enabled
+# unconditionally below. That is deliberate, not an oversight: `policy()` is an
+# EXHAUSTIVE match over `Method` with NO wildcard arm (the whole point of this crate
+# -- see `lib.rs`), so it must see every variant that can ever exist, regardless of
+# which serving tier a given build of the main engine happens to compile. All of
+# these features are PURE serde / enum-variant gates on medulla-types' side (no heavy
+# transitive dependency), so turning them all on here does not pull in
+# redb/tokio/raft/rayon/etc.
+#
+# MEDULLA-P0-2: `timeseries` and `probabilistic` are DELIBERATELY OMITTED. They gate ONLY
+# wire `Op`/DTO items on medulla-types' side -- ZERO `Method` variants (the `Ts*` Method
+# variants are ungated; there is no probabilistic `Method`), so `policy()`'s Method
+# match neither needs nor references them. Crucially, they are the ONLY two medulla-types
+# features that the main engine's `full` build does NOT already enable, so force-
+# enabling them here (now that `medulla-engine` links this crate) would, via Cargo
+# feature unification, turn on `medulla-types/{timeseries,probabilistic}` across the WHOLE
+# engine build and expose latent non-exhaustive `Op` matches (e.g. medulla-plan's
+# `exec.rs` `Op::Probabilistic`) that a shipped `full` build never compiles. Omitting
+# them keeps this crate's Method coverage 1:1 (still 337 variants) while leaving the
+# engine's feature set byte-for-byte what it was pre-MEDULLA-P0-2.
+#
+# CONCEPT:INT-P2-1: `jobs` (the `Method::AnalyticsJob` durable-job-plane variant) is
+# ALSO deliberately omitted from the forced-on list above, for the SAME reason as
+# `timeseries`/`probabilistic` -- but this time it DOES gate a real `Method` variant,
+# so simply omitting it would leave `policy()` non-exhaustive whenever a build
+# elsewhere in the graph turns `medulla-types/jobs` on. Instead this crate carries its OWN
+# mirrored `jobs` feature (below) that both turns on `medulla-types/jobs` AND cfg-gates
+# `policy()`'s one `Method::AnalyticsJob` arm together, so the two can never drift
+# out of sync -- the root `medulla-engine` package's `jobs` facade feature enables
+# BOTH `medulla-types/jobs` and `medulla-capabilities/jobs` in lockstep (see root Cargo.toml).
+[dependencies.medulla-types]
+path = "../medulla-types"
+features = ["metrics", "wire-contract"]
+
+# Only ever pulled in by the `contract-schema` feature: the generator needs JSON
+# Schema derivation, a JSON serializer, and a digest. A default build of this crate
+# (the one the root `medulla-engine` package links behind `server`) links none of them.
+[dependencies.schemars]
+version = "1.2.3"
+optional = true
+
+[dependencies.serde_json]
+version = "1.0.154"
+optional = true
+
+[dependencies.sha2]
+version = "0.10.9"
+optional = true
+
+[dependencies.hex]
+version = "0.4.3"
+optional = true
+
+# HMAC-SHA256 for the golden `eg2.` envelope MACs in
+# `contract/fixtures/method_body_vectors.json` -- the same crate and version the
+# server's `envelope_v2_mac` uses, so a vector's MAC is the engine's own.
+[dependencies.hmac]
+version = "0.12.1"
+optional = true
+
+# The format-identity pass parses Rust items instead of scanning lines, so a site is
+# identified by file + enclosing item path and a value by its tokens -- never by a
+# line number that `cargo fmt` or a blank line would move.
+[dependencies.syn]
+version = "2.0.119"
+optional = true
+default-features = false
+features = ["full", "parsing", "printing", "visit"]
+
+[dependencies.quote]
+version = "1.0.47"
+optional = true
+default-features = false
+
+[dependencies.proc-macro2]
+version = "1.0.107"
+optional = true
+default-features = false
+
+[dev-dependencies]
+tempfile = "3"
+
+# The generator can never run under a partial feature profile: the registry it
+# serializes must be the complete supported wire inventory.
+[[bin]]
+name = "gen_contract"
+required-features = ["contract", "canonical-ledger", "contract-schema"]
+
+[features]
+default = []
+# Marks a build that compiles the Decide surface (MEDULLA-DECISION-ENGINE-R078), so the
+# frozen feature profile can name it. Enabled by the root crate's `decide` feature.
+decide = []
+# RF-RULING-003 — the exact profile `gen_contract` regenerates and `--check` verifies.
+#
+# It pulls `medulla-types/test-support` because the generated digest vectors are
+# computed from the SAME sample values the wire tests use. A second, generator-
+# local copy of those samples is how a golden vector starts describing a value
+# nothing else ever sends. Default builds (the one the root package links behind
+# `server`) enable neither this feature nor that module.
+contract = ["canonical-ledger", "contract-schema", "medulla-types/test-support"]
+# JSON Schema derivation for the wire request/result bodies. Default OFF on both this
+# crate and `medulla-types`, exactly like the ~90 other pure-serde Method-gating features.
+contract-schema = [
+    "dep:schemars",
+    "dep:serde_json",
+    "dep:sha2",
+    "dep:hex",
+    "dep:hmac",
+    "dep:syn",
+    "dep:quote",
+    "dep:proc-macro2",
+    "medulla-types/contract-schema",
+]
+# The checked-in ledger is the complete supported wire inventory, not a
+# projection of whichever optional surfaces happened to be enabled for one build.
+# Use this named profile for regeneration and its exact drift test; ordinary
+# feature-selected builds retain their smaller runtime policy registry.
+canonical-ledger = [
+    # Freeze the Decide marker in canonical and all-features builds alike.
+    # This marker has no dependency or engine feature expansion.
+    "decide",
+    "jobs",
+    "statechart",
+    "knowledge-batch",
+    "modality-serving",
+    "quantum",
+    "asr-native",
+    "viz",
+    # The four host-driven foreign-read methods and RegisterForeignSource are
+    # part of the canonical published Python contract. Keep the wire feature
+    # in the same profile as their domain-owned descriptors so the registry
+    # bijection cannot silently omit the federation family.
+    "medulla-types/federation",
+    # `timeseries`, `probabilistic` and `program-optimization` gate wire `Op`/DTO
+    # items on medulla-types' side and NO `Method` variant, so `policy()`'s exhaustive
+    # Method match neither needs nor references them -- which is why they are (and
+    # stay) absent from the unconditional `[dependencies.medulla-types] features` list
+    # above: forcing them on THERE would, through feature unification, turn on
+    # `medulla-types/{timeseries,probabilistic}` across the whole engine build, because
+    # the root package links this crate behind `server`.
+    #
+    # They belong HERE, though, and their absence was a real gate defect
+    # (medulla-f3 burndown, 2026-09-11). `method.request.json` is a JSON Schema of the
+    # request BODIES, and those bodies embed `Op`/DTO types -- so these three
+    # features change the schema even though they change no Method. The committed
+    # artifact was generated under `--features contract` (without them) while
+    # `committed_contract_artifacts_match_the_registry` runs under
+    # `cargo test --workspace --all-features` (with them, via unification), so the
+    # gate compared two DIFFERENT wire universes and reported the committed
+    # contract STALE by 10,352 bytes with nothing actually stale. Measured: the
+    # canonical profile plus exactly these three reproduces the all-features
+    # generation byte-for-byte (855,270 bytes).
+    #
+    # `canonical-ledger` is the right home because nothing in the engine's build
+    # graph enables it -- only `contract` (the generator) and an explicit
+    # `--all-features` do -- so this restores "the complete supported wire
+    # inventory, not a projection of whichever optional surfaces happened to be
+    # enabled for one build" without changing one byte of the shipped build's
+    # feature set.
+    "medulla-types/timeseries",
+    "medulla-types/probabilistic",
+    "medulla-types/program-optimization",
+]
+# CONCEPT:INT-P2-1 -- see the module doc above. Mirrors `medulla-types/jobs` 1:1: NEVER
+# enable one without the other (this feature enables `medulla-types/jobs` itself, so a
+# caller only ever needs to request THIS one).
+jobs = ["medulla-types/jobs"]
+# CONCEPT:INT-P2-2 -- see the module doc above. Mirrors `medulla-types/statechart` 1:1 (same
+# lockstep contract as `jobs`): this feature enables `medulla-types/statechart` AND cfg-gates
+# `policy()`'s one `Method::Statechart` arm together, so the two can never drift.
+statechart = ["medulla-types/statechart"]
+# Mirrors the facade/medulla-types native governed KnowledgeBatch wire contract.
+knowledge-batch = ["medulla-types/knowledge-batch"]
+# Mirrors the facade/medulla-types governed modality feature so the exhaustive policy
+# match sees `Method::ServedModality` exactly when that wire surface exists.
+modality-serving = ["medulla-types/modality-serving"]
+# CONCEPT:MEDULLA-KG.compute.quantum-agent-api (Q8) -- see the module doc above for why
+# `jobs`/`statechart`-shaped Method-gating features are never forced on
+# unconditionally by this crate. Mirrors `medulla-types/quantum` 1:1 (same lockstep
+# contract as `jobs`): this feature enables `medulla-types/quantum` AND cfg-gates
+# `policy()`'s one `Method::Quantum` arm together, so the two can never drift. The
+# root `medulla-engine` package's `quantum-agent-api` facade feature enables BOTH
+# `medulla-types/quantum` and `medulla-capabilities/quantum` in lockstep.
+quantum = ["medulla-types/quantum"]
+# GOC-33 (`OWNER-VOICE-ASR`) -- see the module doc above. Mirrors `medulla-types/asr-native`
+# 1:1 (same lockstep contract as `jobs`/`quantum`): this feature enables
+# `medulla-types/asr-native` AND cfg-gates `policy()`'s one `Method::Asr` arm together, so
+# the two can never drift. The root `medulla-engine` package's `asr-whisper` facade
+# feature enables both `medulla-types/asr-native` and `medulla-capabilities/asr-native` in
+# lockstep.
+asr-native = ["medulla-types/asr-native"]
+# D-VZ-1 (lanes V4/V6) -- see the module doc above. Mirrors `medulla-types/viz` 1:1 (same
+# lockstep contract as `jobs`/`statechart`): `viz` is deliberately EXCLUDED from
+# `full` (unlike most medulla-types features this crate force-enables above), so this
+# crate carries its OWN mirrored `viz` feature that both turns on `medulla-types/viz` AND
+# cfg-gates `policy()`'s one `Method::Viz` arm together, so the two can never drift
+# out of sync. The root `medulla-engine` package's `viz` facade feature enables
+# `medulla-capabilities?/viz` (weak-dep syntax: only takes effect if `medulla-capabilities` is
+# ALSO linked via `server` from elsewhere) in lockstep -- see root Cargo.toml.
+viz = ["medulla-types/viz"]

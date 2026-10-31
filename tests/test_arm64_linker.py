@@ -116,7 +116,7 @@ def test_all_three_maturin_containers_select_linker_after_setup():
     )
     assert (
         shared["with"]["before-script-linux"].splitlines()[0]
-        == "source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'"
+        == "source scripts/configure_arm64_linker.sh '${{ env.MEDULLA_WHEEL_TARGET }}'"
     )
 
 
@@ -138,8 +138,8 @@ def test_probe_is_bounded_hosted_and_nonpublishing():
     )
     assert step["with"]["maturin-version"] == "1.15.0"
     assert step["with"]["prepare-script"] == "scripts/probe_arm64_linker.sh"
-    assert job["env"]["EG_WHEEL_TARGET"] == "aarch64-unknown-linux-gnu"
-    assert job["env"]["EG_WHEEL_MANYLINUX"] == "2_28"
+    assert job["env"]["MEDULLA_WHEEL_TARGET"] == "aarch64-unknown-linux-gnu"
+    assert job["env"]["MEDULLA_WHEEL_MANYLINUX"] == "2_28"
     assert all("upload" not in step.get("uses", "") for step in job["steps"])
 
 
@@ -148,7 +148,7 @@ def test_pass_target_is_mounted_and_reproduction_starts_clean(tmp_path):
         (ROOT / ".github/actions/folded-wheel/action.yml").read_text()
     )
     steps = action["runs"]["steps"]
-    target = tmp_path / "epistemic-graph-release-target"
+    target = tmp_path / "medulla-release-target"
     env_file = tmp_path / "github-env"
     env_file.touch()
     environment = {
@@ -159,12 +159,12 @@ def test_pass_target_is_mounted_and_reproduction_starts_clean(tmp_path):
     # Execute the actual selector twice: a primary artifact must not survive
     # the reproduction pass, while the directory/path stays consistent. The primary
     # pass keeps the target so the restored compile cache is not discarded.
-    environment["EG_PASS"] = "primary"
+    environment["MEDULLA_PASS"] = "primary"
     target.mkdir()
     (target / "restored-cache").write_text("kept")
     subprocess.run(["bash", "-eu", "-c", steps[0]["run"]], env=environment, check=True)
     assert (target / "restored-cache").exists()
-    environment["EG_PASS"] = "reproduction"
+    environment["MEDULLA_PASS"] = "reproduction"
     for _ in range(2):
         target.mkdir(parents=True, exist_ok=True)
         marker = target / "previous-pass-artifact"
@@ -204,8 +204,8 @@ def test_platform_overrides_preserve_exact_probed_environments(tmp_path, target)
         "RUNNER_TEMP": str(tmp_path),
         "GITHUB_ENV": str(tmp_path / "env"),
         "GITHUB_OUTPUT": str(outputs),
-        "EG_WHEEL_TARGET": target,
-        "EG_PASS": "primary",
+        "MEDULLA_WHEEL_TARGET": target,
+        "MEDULLA_PASS": "primary",
     }
     subprocess.run(["bash", "-eu", "-c", steps[0]["run"]], env=environment, check=True)
     if target == "aarch64-unknown-linux-gnu":

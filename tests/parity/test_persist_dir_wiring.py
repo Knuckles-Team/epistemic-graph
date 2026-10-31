@@ -3,8 +3,8 @@ SAME `GRAPH_SERVICE_PERSIST_DIR` setting `agent_utilities.knowledge_graph
 .core.graph_compute:1914` reads today, and an unset value never silently
 falls back to an unmounted default path.
 
-Exercises `epistemic_graph.embedded._resolve_persist_dir` directly -- a pure
-function needing neither the native `epistemic_graph.engine` extension nor
+Exercises `medulla.embedded._resolve_persist_dir` directly -- a pure
+function needing neither the native `medulla.engine` extension nor
 the shared out-of-process server, so (unlike the rest of `tests/parity/`)
 these tests run and pass in THIS session, with no native build. Marked
 `no_engine` (this repo's own convention, `tests/test_create_graph_type_
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from epistemic_graph.embedded import (
+from medulla.embedded import (
     EmbeddedTransportConfigError,
     _resolve_persist_dir,
 )

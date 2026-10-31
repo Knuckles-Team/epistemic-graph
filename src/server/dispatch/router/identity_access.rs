@@ -24,11 +24,11 @@ pub(super) async fn dispatch_identity_and_access_methods(
         method @ Method::RegisterIdentity { .. } => {
             dispatch_identity_and_access_methods_arm_0(ctx, method).await
         }
-        // Identity read-back (CONCEPT:EG-KG.compute.feature): closes the `RegisterIdentity`
+        // Identity read-back (CONCEPT:MEDULLA-KG.compute.feature): closes the `RegisterIdentity`
         // blind-upsert gap. `RegisterIdentity` REPLACES a principal's whole role set on
         // every call, so a caller that wants to add a role without dropping one already
         // granted by a prior admission pass must read the current set back first. Gated at
-        // the SAME `security:admin` scope as `RegisterIdentity` (see `eg_capabilities::policy`),
+        // the SAME `security:admin` scope as `RegisterIdentity` (see `medulla_capabilities::policy`),
         // enforced by the admin-scope check above the method match, so no additional
         // authorization is done here.
         method @ Method::GetIdentity { .. } => {
@@ -40,9 +40,9 @@ pub(super) async fn dispatch_identity_and_access_methods(
             dispatch_boxed(dispatch_check_access(ctx, agent_id, access)).await
         }
 
-        // ── RBAC policy administration (CONCEPT:EG-KG.compute.feature) ──────────────────
+        // ── RBAC policy administration (CONCEPT:MEDULLA-KG.compute.feature) ──────────────────
         // Gated at the handler; a non-security build has no arm and falls to the
-        // dispatch "not available in this build" catch-all (mirrors EG-090).
+        // dispatch "not available in this build" catch-all (mirrors MEDULLA-090).
         #[cfg(feature = "security")]
         method @ Method::RbacAdmin { .. } => {
             dispatch_identity_and_access_methods_arm_2(ctx, method).await
@@ -175,7 +175,7 @@ async fn dispatch_identity_and_access_methods_arm_0(
                     Response::ok(
                         req_id,
                         ResultPayload::scalar::<
-                            eg_types::result_contract::security::RegisterIdentity,
+                            medulla_types::result_contract::security::RegisterIdentity,
                         >("registered".to_string()),
                     )
                 }
@@ -191,7 +191,7 @@ async fn dispatch_identity_and_access_methods_arm_0(
 async fn dispatch_check_access(
     ctx: DispatchCtx<'_>,
     agent_id: String,
-    access: eg_types::acl::AccessCheck,
+    access: medulla_types::acl::AccessCheck,
 ) -> Response {
     let (req_id, graph) = (ctx.req.id, ctx.req.graph.clone());
     let s = timed_read(ctx.state).await;
@@ -219,7 +219,7 @@ async fn dispatch_check_access(
         access,
     );
     drop(s);
-    let decision = eg_types::acl::AccessDecision {
+    let decision = medulla_types::acl::AccessDecision {
         agent_id,
         graph,
         access,
@@ -227,7 +227,7 @@ async fn dispatch_check_access(
     };
     Response::ok(
         req_id,
-        ResultPayload::of::<eg_types::result_contract::security::CheckAccess>(decision),
+        ResultPayload::of::<medulla_types::result_contract::security::CheckAccess>(decision),
     )
 }
 
@@ -373,7 +373,7 @@ fn multisig_mutation_response(response: Response) -> Response {
     let Response { id, result, .. } = response;
     let report = match result {
         Some(ResultPayload::Json(value)) => serde_json::from_value::<
-            eg_types::result_contract::transactions::SparqlUpdateReport,
+            medulla_types::result_contract::transactions::SparqlUpdateReport,
         >(value)
         .map_err(|error| {
             format!(
@@ -387,7 +387,7 @@ fn multisig_mutation_response(response: Response) -> Response {
     Response::ok(
         id,
         report.and_then(
-            ResultPayload::of::<eg_types::result_contract::transactions::ApplyMultisigMutation>,
+            ResultPayload::of::<medulla_types::result_contract::transactions::ApplyMultisigMutation>,
         ),
     )
 }

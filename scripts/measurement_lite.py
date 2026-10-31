@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 """Measurement harness — thin twin (mirrors the Python side's full implementation).
 
-CONCEPT:EG-KG.build.measurement-harness-lite
+CONCEPT:MEDULLA-KG.build.measurement-harness-lite
 
-Mirrors, on epistemic-graph's own gates/CI, the fuller measurement harness
+Mirrors, on medulla's own gates/CI, the fuller measurement harness
 built in `agent-utilities` (`agent_utilities/measurement/`, capabilities
 A-G, one module per catalogued false-alarm incident — see that package's
 README for the full incident list).
 
 Deliberately a SEPARATE, dependency-free file rather than an
-`agent-utilities` import, for one concrete reason: `epistemic-graph`
+`agent-utilities` import, for one concrete reason: `medulla`
 publishes as a self-contained wheel (`pip install medulla` alone,
 no extras needed for the full engine — see this repo's own
 `pyproject.toml` "FULL-BY-DEFAULT" comment on `[project.dependencies]`) and
-`agent-utilities` already depends on `epistemic-graph` (`agent_utilities.
-numeric`'s `xp` shim binds `epistemic_graph.numeric`, CONCEPT:KG-2.315) —
-so an `epistemic-graph` -> `agent-utilities` dependency, even a dev/test
+`agent-utilities` already depends on `medulla` (`agent_utilities.
+numeric`'s `xp` shim binds `medulla.numeric`, CONCEPT:KG-2.315) —
+so an `medulla` -> `agent-utilities` dependency, even a dev/test
 one, would create a two-repo circular dependency at install/CI-checkout
 time. A gate or CI job in THIS repo must be runnable from a bare clone of
-just `epistemic-graph`, before any sibling checkout exists. Hence: not a
+just `medulla`, before any sibling checkout exists. Hence: not a
 full reimplementation of all 7 capabilities, just the subset this repo's
 own gates/build actually need, kept small on purpose (see each function's
 own docstring for its source incident).
@@ -31,13 +31,13 @@ Covers:
 * `env_fingerprint`                      -- the sccache/RUSTC_WRAPPER half of
   capability A -- deliberately included because that incident (a Cargo
   `rustc-wrapper` config passing every LOCAL gate and killing every CI job)
-  is literally an epistemic-graph incident, not a generic one.
+  is literally an medulla incident, not a generic one.
 
 NOT mirrored here (see `agent_utilities/measurement/README.md`'s "What's
 not mechanical" for the full reasoning): full provenance headers, copy
 integrity, and safe process targeting. Those are heavier and less specific
 to this repo's own Rust/Cargo-centric gate surface; a lane that needs them
-for an epistemic-graph script should invoke `agent-utilities`'s CLI/script
+for an medulla script should invoke `agent-utilities`'s CLI/script
 surface as a SUBPROCESS (not an import) if it must, exactly like any other
 cross-repo tool invocation in this ecosystem.
 """
@@ -224,7 +224,7 @@ def run_background(
     systemd_run = shutil.which("systemd-run")
     if systemd_run is None:
         raise SystemdRunUnavailableError("systemd-run not found on PATH")
-    unit = unit_name or f"eg-measurement-{uuid.uuid4().hex[:12]}"
+    unit = unit_name or f"medulla-measurement-{uuid.uuid4().hex[:12]}"
     log_dir = Path(log_dir) if log_dir is not None else Path(tempfile.gettempdir())
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{unit}.log"

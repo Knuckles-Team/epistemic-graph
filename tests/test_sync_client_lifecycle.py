@@ -8,17 +8,17 @@ import time
 
 import pytest
 
-from epistemic_graph.client import (
-    EpistemicGraphClient,
+from medulla.client import (
+    MedullaClient,
     SyncCallDeadlineExceeded,
-    SyncEpistemicGraphClient,
+    SyncMedullaClient,
     sync_call_deadline,
 )
 
 pytestmark = pytest.mark.no_engine
 
 
-class _AsyncClient(EpistemicGraphClient):
+class _AsyncClient(MedullaClient):
     def __init__(self) -> None:
         self.close_calls = 0
 
@@ -48,7 +48,7 @@ def test_sync_supports_matches_async_capability_probe() -> None:
     )
     loop_thread.start()
     async_client = _CapabilityAsyncClient({"ReserveWorkItemResources"})
-    client = SyncEpistemicGraphClient(async_client, loop, loop_thread)
+    client = SyncMedullaClient(async_client, loop, loop_thread)
     try:
         assert client.supports("ReserveWorkItemResources") is True
         assert client.supports("UpdateResourceHost") is False
@@ -75,7 +75,7 @@ def test_sync_deadline_cancels_blocked_graph_future_without_asyncio_run_tail() -
                 cancelled.set()
                 raise
 
-    wrapper = SyncEpistemicGraphClient._SyncWrapper(_BlockingNamespace(), loop)
+    wrapper = SyncMedullaClient._SyncWrapper(_BlockingNamespace(), loop)
     baseline_workers = {
         thread.ident
         for thread in threading.enumerate()
@@ -104,15 +104,15 @@ def test_sync_deadline_cancels_blocked_graph_future_without_asyncio_run_tail() -
     } == baseline_workers
 
 
-@pytest.mark.spec("EG-CONTRACT-R021")
+@pytest.mark.spec("MEDULLA-CONTRACT-R021")
 def test_failed_sync_connect_releases_its_loop_resources(monkeypatch) -> None:
     """A failed async dial must not strand the loop thread or selector FDs."""
 
     async def fail_connect(**_kwargs: object) -> _AsyncClient:
         raise ConnectionError("engine unavailable")
 
-    monkeypatch.setattr(EpistemicGraphClient, "connect", fail_connect)
-    original_stop = SyncEpistemicGraphClient._stop_loop
+    monkeypatch.setattr(MedullaClient, "connect", fail_connect)
+    original_stop = SyncMedullaClient._stop_loop
     stopped: list[tuple[asyncio.AbstractEventLoop, threading.Thread]] = []
 
     def track_stop(loop: asyncio.AbstractEventLoop, thread: threading.Thread) -> None:
@@ -120,12 +120,12 @@ def test_failed_sync_connect_releases_its_loop_resources(monkeypatch) -> None:
         stopped.append((loop, thread))
 
     monkeypatch.setattr(
-        SyncEpistemicGraphClient, "_stop_loop", staticmethod(track_stop)
+        SyncMedullaClient, "_stop_loop", staticmethod(track_stop)
     )
 
     for attempt in range(32):
         with pytest.raises(ConnectionError, match="engine unavailable"):
-            SyncEpistemicGraphClient.connect(verified_context={})
+            SyncMedullaClient.connect(verified_context={})
         assert len(stopped) == attempt + 1, "failed dial skipped owned-loop teardown"
         loop, thread = stopped[-1]
         assert loop.is_closed(), "selector FD remains open"
@@ -141,12 +141,12 @@ def test_successful_sync_close_releases_loop_resources_once(monkeypatch) -> None
         clients.append(client)
         return client
 
-    monkeypatch.setattr(EpistemicGraphClient, "connect", connect)
+    monkeypatch.setattr(MedullaClient, "connect", connect)
     # Unrelated cleanup changes process totals but cannot change client ownership.
     unrelated_loop = asyncio.new_event_loop()
 
     for _ in range(32):
-        client = SyncEpistemicGraphClient.connect(verified_context={})
+        client = SyncMedullaClient.connect(verified_context={})
         unrelated_loop.close()
         client.close()
         client.close()
@@ -165,8 +165,8 @@ def test_sync_close_retries_loop_teardown_without_reclosing_transport(
     async def connect(**_kwargs: object) -> _AsyncClient:
         return async_client
 
-    monkeypatch.setattr(EpistemicGraphClient, "connect", connect)
-    original_stop_loop = SyncEpistemicGraphClient._stop_loop
+    monkeypatch.setattr(MedullaClient, "connect", connect)
+    original_stop_loop = SyncMedullaClient._stop_loop
     stop_calls = 0
 
     def fail_once(loop, thread) -> None:
@@ -176,11 +176,11 @@ def test_sync_close_retries_loop_teardown_without_reclosing_transport(
             original_stop_loop(loop, thread)
 
     monkeypatch.setattr(
-        SyncEpistemicGraphClient,
+        SyncMedullaClient,
         "_stop_loop",
         staticmethod(fail_once),
     )
-    client = SyncEpistemicGraphClient.connect(verified_context={})
+    client = SyncMedullaClient.connect(verified_context={})
 
     client.close()
     assert not client._loop.is_closed()

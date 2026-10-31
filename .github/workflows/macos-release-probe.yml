@@ -25,7 +25,7 @@ jobs:
       CARGO_BUILD_JOBS: '2'
       CARGO_INCREMENTAL: '0'
       RUSTUP_TOOLCHAIN: '1.96.0'
-      EG_WHEEL_TARGET: ${{ matrix.target }}
+      MEDULLA_WHEEL_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -39,10 +39,10 @@ jobs:
       - name: Install the exact packaging probe tool
         run: python -m pip install 'maturin==1.15.0'
       - name: Configure path remaps
-        run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "$EG_WHEEL_TARGET"
+        run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "$MEDULLA_WHEEL_TARGET"
       - name: Probe native Mach-O linking and five-binary packaging
         shell: bash
         run: |
           export MACOSX_DEPLOYMENT_TARGET=11.0
-          source scripts/configure_macos_linker.sh "$EG_WHEEL_TARGET"
+          source scripts/configure_macos_linker.sh "$MEDULLA_WHEEL_TARGET"
           python scripts/probe_macos_release.py

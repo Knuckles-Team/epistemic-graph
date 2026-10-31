@@ -50,7 +50,7 @@ impl CrossShardCoordinator {
         Ok(None)
     }
 
-    /// PHASE 1: PREPARE every WRITING participant CONCURRENTLY (EG-081) and tally
+    /// PHASE 1: PREPARE every WRITING participant CONCURRENTLY (MEDULLA-081) and tally
     /// the votes. Returns `(all_yes, prepared_groups)`.
     ///
     /// Deadlock-freedom under parallel prepare: a prepare holds NO lock ACROSS
@@ -215,7 +215,7 @@ pub(super) async fn replicated_decision_properties(
         .core
         .get_node_properties(txn_id)
         .map(|blob| {
-            eg_types::msgpack::decode_property_value(&blob).map_err(|_| invalid.to_string())
+            medulla_types::msgpack::decode_property_value(&blob).map_err(|_| invalid.to_string())
         })
         .transpose()
 }

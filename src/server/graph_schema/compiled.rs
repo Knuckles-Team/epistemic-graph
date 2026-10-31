@@ -18,7 +18,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use eg_types::contract::Digest256;
+use medulla_types::contract::Digest256;
 use parking_lot::Mutex;
 
 use super::compose::ComposedSchema;
@@ -118,13 +118,13 @@ impl ComposedSchema {
     /// The lock makes concurrent attaches of one identity single-flight.
     pub(crate) fn require_abox_consistency(
         &self,
-        budget: eg_rdf::owl::DerivationBudget,
+        budget: medulla_rdf::owl::DerivationBudget,
     ) -> Result<(), String> {
         let mut accepted = self.abox_consistent.lock();
         if *accepted {
             return Ok(());
         }
-        match eg_rdf::tableau::abox_consistency_within(&self.ontology, budget) {
+        match medulla_rdf::tableau::abox_consistency_within(&self.ontology, budget) {
             Ok(true) => {
                 *accepted = true;
                 Ok(())

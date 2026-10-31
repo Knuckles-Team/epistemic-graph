@@ -22,7 +22,7 @@ struct PrepareRecord {
 
 fn digest(transaction: &str, participant: GroupId, payload: &[u8]) -> [u8; 32] {
     let mut hash = Sha256::new();
-    hash.update(b"eg.graph-prepare.v1\0");
+    hash.update(b"medulla.graph-prepare.v1\0");
     hash.update((transaction.len() as u64).to_be_bytes());
     hash.update(transaction.as_bytes());
     hash.update(participant.to_be_bytes());
@@ -32,12 +32,12 @@ fn digest(transaction: &str, participant: GroupId, payload: &[u8]) -> [u8; 32] {
 }
 
 fn decode<T: serde::de::DeserializeOwned>(blob: &[u8]) -> Result<T, String> {
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         blob,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_PREPARED_TXN_BYTES,
             MAX_PREPARED_TXN_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| "invalid durable cross-shard prepare record".to_string())
@@ -109,7 +109,7 @@ mod tests {
         }]
     }
 
-    // spec: EG-DECISION-ENGINE-R036.102
+    // spec: MEDULLA-DECISION-ENGINE-R036.102
     #[test]
     fn bound_prepare_round_trip_and_legacy() {
         let expected = slices();
@@ -122,7 +122,7 @@ mod tests {
         assert_eq!(decode_prepared_slices(&legacy, "txn", 7).unwrap().len(), 1);
     }
 
-    // spec: EG-DECISION-ENGINE-R036.102
+    // spec: MEDULLA-DECISION-ENGINE-R036.102
     #[test]
     fn bound_prepare_rejects_swapped_keys() {
         let encoded = encode_prepared_slices("txn", 7, &slices()).unwrap();
@@ -130,7 +130,7 @@ mod tests {
         assert!(decode_prepared_slices(&encoded, "txn", 8).is_err());
     }
 
-    // spec: EG-DECISION-ENGINE-R036.102
+    // spec: MEDULLA-DECISION-ENGINE-R036.102
     #[test]
     fn bound_prepare_rejects_corruption_and_unsupported_owner() {
         for variant in 0..4 {
@@ -147,7 +147,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R036.102
+    // spec: MEDULLA-DECISION-ENGINE-R036.102
     #[test]
     fn bound_prepare_rejects_invalid_slice_and_truncated_record() {
         let mut invalid = slices();

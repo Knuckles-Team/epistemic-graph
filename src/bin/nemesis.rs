@@ -16,9 +16,9 @@
 
 use std::time::Duration;
 
-use epistemic_graph::raft::harness::loadgen::LoadConfig;
-use epistemic_graph::raft::harness::nemesis::Nemesis;
-use epistemic_graph::raft::harness::run_gauntlet;
+use medulla::raft::harness::loadgen::LoadConfig;
+use medulla::raft::harness::nemesis::Nemesis;
+use medulla::raft::harness::run_gauntlet;
 
 struct Opts {
     nodes: usize,

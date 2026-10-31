@@ -5,7 +5,7 @@ use super::prelude_std::*;
 use super::*;
 
 pub(super) fn typed_association_result(
-    job: &eg_jobs::AnalyticsJob,
+    job: &medulla_jobs::AnalyticsJob,
     rules: &[association::LabeledRule],
 ) -> Result<TypedJobResult, String> {
     let rows = association_rows(job, rules);
@@ -55,7 +55,7 @@ pub(super) fn typed_association_result(
 }
 
 fn association_rows(
-    job: &eg_jobs::AnalyticsJob,
+    job: &medulla_jobs::AnalyticsJob,
     rules: &[association::LabeledRule],
 ) -> Vec<BTreeMap<String, serde_json::Value>> {
     rules
@@ -98,7 +98,7 @@ mod rule_identity_tests {
     // Expected IDs were produced by executing the actual deleted Python function
     // from Knuckles-Team/agent-utilities commit 92974bae8c3ed3a270f582300b7458d4f53571c4.
     // The fixture records its source; no Rust output was used as the oracle.
-    // spec: EG-DURABLE-KERNEL-R082.4
+    // spec: MEDULLA-DURABLE-KERNEL-R082.4
     #[test]
     fn rule_identity_matches_deleted_python_worker_golden_vectors() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(

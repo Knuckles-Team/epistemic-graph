@@ -1,4 +1,4 @@
-# EG-SCM — Source changesets as the source of truth
+# MEDULLA-SCM — Source changesets as the source of truth
 
 Owner: Medulla (`EG`). Sole owner.
 Cross-repo IDs: none. The served `source.*` operations, the client transport, the gate
@@ -27,16 +27,16 @@ sync. A rollback returns authority to the mirror.
 ## Requirements
 
 Every requirement ID this spec owns lives in [requirements.md](requirements.md). The IDs
-are `EG-SCM-R001`–`R013`. Architecture and live wiring live in [plan.md](plan.md).
+are `MEDULLA-SCM-R001`–`R013`. Architecture and live wiring live in [plan.md](plan.md).
 The test contract lives in [test-spec.md](test-spec.md). Ordered work lives in
 [tasks.md](tasks.md). Machine-readable delivery state lives in [status.json](status.json).
 
 ## Why a new spec
 
 The search covered `git grep -n -iE "changeset|blame|bisect|git blob" -- specs`.
-It read EG-BRANCH-MERGE, EG-REPO-INGEST, EG-DURABLE-KERNEL and EG-DECISION-ENGINE.
-EG-BRANCH-MERGE owns entity branches and merges, not file changesets.
-EG-REPO-INGEST indexes external revisions. It does not hold the source of truth.
+It read MEDULLA-BRANCH-MERGE, MEDULLA-REPO-INGEST, MEDULLA-DURABLE-KERNEL and MEDULLA-DECISION-ENGINE.
+MEDULLA-BRANCH-MERGE owns entity branches and merges, not file changesets.
+MEDULLA-REPO-INGEST indexes external revisions. It does not hold the source of truth.
 No spec owns a file changeset log, trees by query, or per-repository source
 authority. This spec owns those parts. Each linked part stays with its owner.
 

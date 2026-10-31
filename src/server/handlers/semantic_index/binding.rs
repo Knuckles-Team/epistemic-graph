@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use eg_core::compute::semantic_ann_codes::OperationAttribution;
-use eg_core::compute::semantic_index_service::SemanticIndexService;
-use eg_types::contract::Nonce;
-use eg_types::result_contract::ingestion as ingestion_results;
-use eg_types::semantic_index::{SemanticBinding, SemanticIndexOp, SemanticSqlSourceManifest};
+use medulla_core::compute::semantic_ann_codes::OperationAttribution;
+use medulla_core::compute::semantic_index_service::SemanticIndexService;
+use medulla_types::contract::Nonce;
+use medulla_types::result_contract::ingestion as ingestion_results;
+use medulla_types::semantic_index::{SemanticBinding, SemanticIndexOp, SemanticSqlSourceManifest};
 
 use crate::protocol::Response;
 use crate::server::semantic_index::SemanticIndexServerAdapter;
@@ -44,8 +44,8 @@ fn binding_operation_inputs(
 /// authorization before either mutation path can touch durable state.
 pub(super) fn checked_replacement(
     ctx: &SemanticIndexContext<'_>,
-    mut draft: Box<eg_types::semantic_index::SemanticBindingDraft>,
-    source_manifest: eg_types::semantic_index::SemanticSqlSourceManifestDraft,
+    mut draft: Box<medulla_types::semantic_index::SemanticBindingDraft>,
+    source_manifest: medulla_types::semantic_index::SemanticSqlSourceManifestDraft,
 ) -> Result<(SemanticBinding, SemanticSqlSourceManifest), Response> {
     stamp_draft_identity(&mut draft, ctx.authority);
     let replacement = SemanticBinding::create(*draft)
@@ -115,7 +115,7 @@ pub(super) async fn handle(ctx: &SemanticIndexContext<'_>, op: SemanticIndexOp) 
 
 fn checked_admission_inputs(
     ctx: &SemanticIndexContext<'_>,
-    mut draft: Box<eg_types::semantic_index::SemanticBindingDraft>,
+    mut draft: Box<medulla_types::semantic_index::SemanticBindingDraft>,
 ) -> Result<
     (
         SemanticBinding,
@@ -135,7 +135,7 @@ fn checked_admission_inputs(
 
 async fn admit_binding(
     ctx: &SemanticIndexContext<'_>,
-    draft: Box<eg_types::semantic_index::SemanticBindingDraft>,
+    draft: Box<medulla_types::semantic_index::SemanticBindingDraft>,
     idempotency_key: String,
 ) -> Response {
     let (binding, service, now_ms, actor, nonce) = match checked_admission_inputs(ctx, draft) {
@@ -155,8 +155,8 @@ async fn admit_binding(
 async fn refresh_binding(
     ctx: &SemanticIndexContext<'_>,
     expected_generation: u64,
-    draft: Box<eg_types::semantic_index::SemanticBindingDraft>,
-    source_manifest: eg_types::semantic_index::SemanticSqlSourceManifestDraft,
+    draft: Box<medulla_types::semantic_index::SemanticBindingDraft>,
+    source_manifest: medulla_types::semantic_index::SemanticSqlSourceManifestDraft,
     idempotency_key: String,
 ) -> Response {
     let (replacement, manifest) = match checked_replacement(ctx, draft, source_manifest) {
@@ -188,7 +188,7 @@ async fn refresh_binding(
 }
 
 enum BindingLifecycle {
-    Transition(eg_types::semantic_index::SemanticBindingState),
+    Transition(medulla_types::semantic_index::SemanticBindingState),
     Drop,
 }
 
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn malformed_semantic_input_has_a_declared_stable_code_and_safe_detail() {
-        assert!(eg_capabilities::error_routing::method_allows_error(
+        assert!(medulla_capabilities::error_routing::method_allows_error(
             "SemanticIndex",
             "INVALID_ARGUMENT"
         ));

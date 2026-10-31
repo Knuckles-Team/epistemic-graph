@@ -1,14 +1,14 @@
 # Time-series interface
 
-The `tsdb` feature (`eg-tsdb`) gives a native, redb-backed time-series store with the analytic
+The `tsdb` feature (`medulla-tsdb`) gives a native, redb-backed time-series store with the analytic
 primitives a time-series workload needs — including ASOF joins, which DataFusion 43 lacks. It is
 pure-Rust and shares the engine's one durability model.
 
 > Status snapshot: the store and time-ops are supported as native functions, now bound into the unified
-> planner (`Op::Window` execution, EG-KG.query.streaming-execution) with per-point retention trim (EG-KG.temporal.bucket-cutoff-trim). A columnar segment
-> layout backs analytical/SQL-window scans (EG-089), and a **PromQL** `/api/v1/query` HTTP API (EG-172)
-> serves the metric series. TimescaleDB hypertables + continuous aggregates (EG-117) layer on over pgwire.
-> See the [capability matrix](../capabilities.md#time-series-eg-tsdb).
+> planner (`Op::Window` execution, MEDULLA-KG.query.streaming-execution) with per-point retention trim (MEDULLA-KG.temporal.bucket-cutoff-trim). A columnar segment
+> layout backs analytical/SQL-window scans (MEDULLA-089), and a **PromQL** `/api/v1/query` HTTP API (MEDULLA-172)
+> serves the metric series. TimescaleDB hypertables + continuous aggregates (MEDULLA-117) layer on over pgwire.
+> See the [capability matrix](../capabilities.md#time-series-medulla-tsdb).
 
 ## The store
 
@@ -22,7 +22,7 @@ metadata or points.
 
 - `append_scoped` amortizes the fsync across a group of points and commits its projection cursor in the same transaction;
 - `range_scoped` does a bounded scan over a `[from, to)` window within one tenant/graph scope;
-- `evict_before_scoped` applies retention, trimming straddling buckets at the boundary (per-point trim, EG-KG.temporal.bucket-cutoff-trim),
+- `evict_before_scoped` applies retention, trimming straddling buckets at the boundary (per-point trim, MEDULLA-KG.temporal.bucket-cutoff-trim),
   not just whole-bucket eviction.
 
 Cross-modal transactions persist this same canonical key in the authoritative
@@ -37,7 +37,7 @@ cursor in `series.redb`; an interrupted projection is reported as `catching_up` 
 | Restart | Canonical keys and the durable projection cursor survive store reopen. |
 | Crash reconciliation | Authoritative points replay once; a second pass is a no-op. |
 
-A **columnar (struct-of-arrays) segment layout** (EG-089) backs analytical scans over the tsdb/table store
+A **columnar (struct-of-arrays) segment layout** (MEDULLA-089) backs analytical scans over the tsdb/table store
 — the same layout the SQL window functions read (see [sql](sql.md#window-functions)).
 
 ## Time operations (native, no DataFusion)
@@ -49,12 +49,12 @@ A **columnar (struct-of-arrays) segment layout** (EG-089) backs analytical scans
 | `gap_fill_locf` | last-observation-carried-forward over a fixed grid |
 | `ohlc_bars` | open / high / low / close + volume bars |
 | `downsample` | rollup to a coarser resolution |
-| `decay_weighted_mean` | Ebbinghaus decay-weighted mean (shared `eg_core::decay` curve) |
+| `decay_weighted_mean` | Ebbinghaus decay-weighted mean (shared `medulla_core::decay` curve) |
 | `series_ewma`, `series_rolling_zscore` | EWMA and rolling z-score (reuse the finance kernels) |
 
-## Unified-planner binding (EG-KG.query.streaming-execution)
+## Unified-planner binding (MEDULLA-KG.query.streaming-execution)
 
-The time-ops are wired behind the planner's `Op::Window` (with the eg-plan→eg-tsdb dependency edge +
+The time-ops are wired behind the planner's `Op::Window` (with the medulla-plan→medulla-tsdb dependency edge +
 cost-based reorder), so a temporal aggregate composes inline in a [UQL](../uql.md) pipeline with
 graph/vector/SQL stages. The bi-temporal `Op::AsOf` point-in-time filter also executes today:
 
@@ -64,11 +64,11 @@ MATCH (:Reading)
   |> LIMIT 100
 ```
 
-## PromQL / Prometheus HTTP API (EG-172, feature `promql` on the `obs` listener) {#promql-api}
+## PromQL / Prometheus HTTP API (MEDULLA-172, feature `promql` on the `obs` listener) {#promql-api}
 
 A PromQL evaluator (instant/range vectors, selectors, `rate`/`sum`/`avg`/`max`/`min`/histogram functions,
-binary ops) over the eg-tsdb metric series is exposed as a Prometheus-compatible HTTP API on the obs
-listener (`EPISTEMIC_GRAPH_OBS_ADDR`, default `127.0.0.1:5080`):
+binary ops) over the medulla-tsdb metric series is exposed as a Prometheus-compatible HTTP API on the obs
+listener (`MEDULLA_OBS_ADDR`, default `127.0.0.1:5080`):
 
 ```bash
 curl -s 'http://127.0.0.1:5080/api/v1/query?query=up'
@@ -78,7 +78,7 @@ curl -s 'http://127.0.0.1:5080/api/v1/query_range?query=rate(http_requests[5m])&
 Point a Grafana **Prometheus** data source at the obs listener. This is one leg of the full observability
 surface (logs + PromQL + traces) — see [observability](observability.md).
 
-## TimescaleDB compatibility (EG-117, over pgwire)
+## TimescaleDB compatibility (MEDULLA-117, over pgwire)
 
 `CREATE EXTENSION timescaledb` lights up `create_hypertable()`, `time_bucket()` gap-fill, and
 `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous)` continuous aggregates, lowered onto this

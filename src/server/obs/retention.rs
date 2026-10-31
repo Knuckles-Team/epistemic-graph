@@ -38,7 +38,7 @@ impl ObsState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_tsdb::point::Point;
+    use medulla_tsdb::point::Point;
 
     const DAY_NS: i64 = 24 * 60 * 60 * 1_000_000_000;
 

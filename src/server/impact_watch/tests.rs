@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use eg_compute::graph_algos::impact::{noisy_or, ImpactGraph, Seed};
-use eg_core::graph::GraphCore;
+use medulla_compute::graph_algos::impact::{noisy_or, ImpactGraph, Seed};
+use medulla_core::graph::GraphCore;
 use serde_json::json;
 use tokio::sync::RwLock;
 
@@ -65,13 +65,13 @@ fn populate(core: &GraphCore, queue_status: &str) {
     }
 }
 
-fn view(queue_status: &str) -> eg_core::graph::GraphView {
+fn view(queue_status: &str) -> medulla_core::graph::GraphView {
     let core = GraphCore::new();
     populate(&core, queue_status);
     core.analysis_snapshot()
 }
 
-fn watch(view: &eg_core::graph::GraphView) -> ImpactWatchSpec {
+fn watch(view: &medulla_core::graph::GraphView) -> ImpactWatchSpec {
     let watches = load_watches(view);
     assert_eq!(watches.len(), 1);
     watches[0].clone()
@@ -83,7 +83,7 @@ fn outcome(method: &Method) -> (BTreeMap<String, f64>, Vec<String>) {
         nodes,
         seed,
         edges,
-        model: eg_types::compute_result::mining::RiskModel::NoisyOr(options),
+        model: medulla_types::compute_result::mining::RiskModel::NoisyOr(options),
         ..
     } = method
     else {
@@ -109,7 +109,7 @@ fn outcome(method: &Method) -> (BTreeMap<String, f64>, Vec<String>) {
     (map, options.assess.clone())
 }
 
-// spec: EG-FEDERATED-QUERY-R032
+// spec: MEDULLA-FEDERATED-QUERY-R032
 #[test]
 fn cone_only_recompute_equals_a_full_recompute() {
     let view = view("open");
@@ -132,7 +132,7 @@ fn cone_only_recompute_equals_a_full_recompute() {
     assert!((partial["web"] - web).abs() < 1e-12);
 }
 
-// spec: EG-FEDERATED-QUERY-R032
+// spec: MEDULLA-FEDERATED-QUERY-R032
 #[test]
 fn a_resolved_seed_clears_its_region() {
     let view = view("resolved");
@@ -154,7 +154,7 @@ fn a_resolved_seed_clears_its_region() {
         .is_none());
 }
 
-// spec: EG-FEDERATED-QUERY-R032
+// spec: MEDULLA-FEDERATED-QUERY-R032
 #[test]
 fn an_unwatched_graph_leaves_no_state_and_labels_filter_once_loaded() {
     let hub = ImpactWatchHub::new(["g".to_string()].into(), Duration::ZERO);

@@ -11,7 +11,7 @@ const VERIFIED: &str = "tenant-a";
 fn context(tenant: &str) -> Value {
     json!({
         "schema_version": "2", "request_id": "r", "subject_id": "s", "tenant_id": tenant,
-        "agent_id": "a", "scopes": [], "audience": "epistemic-graph",
+        "agent_id": "a", "scopes": [], "audience": "medulla",
         "authentication_method": "oidc", "policy_version": "p", "graph": "g",
         "placement_epoch": null, "trace_id": "t", "issued_at_ms": 1, "expires_at_ms": 2,
     })
@@ -81,7 +81,7 @@ fn writes(tenant: &str) -> Vec<(&'static str, Value)> {
         ),
         (
             "IssueHostStartGrant",
-            json!({"request": eg_types::test_support::host_start::host_start_request(tenant)}),
+            json!({"request": medulla_types::test_support::host_start::host_start_request(tenant)}),
         ),
         (
             "IssueControlLease",

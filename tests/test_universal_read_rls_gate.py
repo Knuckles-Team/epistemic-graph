@@ -1,4 +1,4 @@
-"""Bind the universal read-RLS architecture gate to EG-DURABLE-KERNEL-R029."""
+"""Bind the universal read-RLS architecture gate to MEDULLA-DURABLE-KERNEL-R029."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def _gate_module():
     return module
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R029")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R029")
 def test_universal_read_rls_gate_checks_current_ts_scan_dispatch(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

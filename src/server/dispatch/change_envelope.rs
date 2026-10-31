@@ -3,9 +3,9 @@ use super::consensus::authoritative_now_ms;
 use super::graph_pipeline::dispatch_graph_op;
 use super::graph_pipeline::GraphOpRouting;
 use super::*;
-use eg_types::result_contract::transactions as txn_results;
+use medulla_types::result_contract::transactions as txn_results;
 
-/// Batch envelope coordinator (CONCEPT:EG-KG.ingest.batched-change-envelopes). Validates
+/// Batch envelope coordinator (CONCEPT:MEDULLA-KG.ingest.batched-change-envelopes). Validates
 /// each envelope's context against the verified request authority, groups envelopes
 /// by their `mutation.graph`, and routes each graph's envelopes to `dispatch_graph_op`
 /// (which resolves that graph's Write ACL + placement and commits the group in ONE
@@ -125,7 +125,7 @@ fn change_envelope_batch_authority_error(
         // silently dropped or grouped under a sentinel.
         if envelope.mutation.identity.scope().graph_name().is_none()
             || envelope.mutation.identity.tenant().as_str() != claims.tenant
-            || eg_types::mutation_batch::batch_request_number(&envelope.mutation)
+            || medulla_types::mutation_batch::batch_request_number(&envelope.mutation)
                 != Some(req_id)
             // The CALLER is the outbox `actor` header, never the batch's serving
             // principal: RF-RULING-004's application note makes the latter this
@@ -254,7 +254,7 @@ pub(in crate::server::dispatch) use multi_graph::decode_multi_graph_batches;
 pub(in crate::server::dispatch) use multi_graph::multi_graph_batch_update;
 
 fn change_envelope_result(
-    committed: &eg_types::ChangeEnvelopeCommit,
+    committed: &medulla_types::ChangeEnvelopeCommit,
     projection_pending: bool,
 ) -> txn_results::ChangeEnvelopeApplied {
     txn_results::ChangeEnvelopeApplied {
@@ -276,7 +276,7 @@ pub(super) fn work_item_capability_authority_epoch(incarnation_id: &str) -> u64 
 async fn check_change_envelope_placement_fence(
     req_id: u64,
     #[cfg(feature = "raft")] graph_name: &str,
-    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    envelope: &medulla_types::change_envelope::ChangeEnvelope,
     #[cfg(feature = "raft")] routed_raft: Option<&crate::raft::multi::RoutedRaftHandle>,
 ) -> Result<(), Response> {
     #[cfg(feature = "raft")]
@@ -345,7 +345,7 @@ struct ChangeEnvelopeReplicaCtx<'a> {
 #[cfg(feature = "raft")]
 async fn try_replicate_change_envelope(
     ctx: ChangeEnvelopeReplicaCtx<'_>,
-    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    envelope: &medulla_types::change_envelope::ChangeEnvelope,
     source_budget: Option<&crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
     committed_at_ms: u64,
 ) -> Option<Response> {
@@ -369,7 +369,7 @@ async fn try_replicate_change_envelope(
         envelope.mutation.batch_id.clone(),
         // The dispatch request number the batch was compiled for, read back
         // through the one encoder rather than from a second field.
-        eg_types::mutation_batch::batch_request_number(&envelope.mutation).unwrap_or(req_id),
+        medulla_types::mutation_batch::batch_request_number(&envelope.mutation).unwrap_or(req_id),
         attempt_nonce,
         tenant_scope,
         // The CALLER, which under RF-RULING-004's application note is the outbox
@@ -446,7 +446,7 @@ async fn try_replicate_change_envelope(
 async fn try_replicate_new_change_envelope(
     known_replay: bool,
     ctx: ChangeEnvelopeReplicaCtx<'_>,
-    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    envelope: &medulla_types::change_envelope::ChangeEnvelope,
     source_budget: Option<&crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
     committed_at_ms: u64,
 ) -> Option<Response> {
@@ -469,7 +469,7 @@ async fn commit_change_envelope_batch_results(
     backend: &Arc<dyn crate::server::persistence::PersistenceBackend>,
     core: &Arc<crate::graph::GraphCore>,
     fname: &str,
-    envelopes: &[eg_types::change_envelope::ChangeEnvelope],
+    envelopes: &[medulla_types::change_envelope::ChangeEnvelope],
     committed_at_ms: u64,
 ) -> Vec<txn_results::ChangeEnvelopeOutcome> {
     match backend
@@ -493,8 +493,8 @@ async fn commit_change_envelope_batch_results(
 /// pretending the durable commit did not happen.
 fn change_envelope_applied_entry(
     core: &Arc<crate::graph::GraphCore>,
-    envelope: &eg_types::change_envelope::ChangeEnvelope,
-    committed: &eg_types::ChangeEnvelopeCommit,
+    envelope: &medulla_types::change_envelope::ChangeEnvelope,
+    committed: &medulla_types::ChangeEnvelopeCommit,
 ) -> txn_results::ChangeEnvelopeOutcome {
     let projection_error = if committed.replayed {
         None
@@ -513,7 +513,7 @@ fn change_envelope_applied_entry(
 /// batch outcome per envelope honestly: the offender carries its own error; the
 /// siblings carry the abort cause.
 fn change_envelope_abort_entries(
-    envelopes: &[eg_types::change_envelope::ChangeEnvelope],
+    envelopes: &[medulla_types::change_envelope::ChangeEnvelope],
     failing_index: usize,
     error: &str,
 ) -> Vec<txn_results::ChangeEnvelopeOutcome> {
@@ -560,12 +560,12 @@ pub(super) async fn route_change_envelope_ops(
     }
 }
 
-/// EG-ORCH-VOCAB-R801.3 — the request-boundary check of one envelope's
+/// MEDULLA-ORCH-VOCAB-R801.3 — the request-boundary check of one envelope's
 /// harness-component writes against the live graph (see
 /// `crate::server::harness_admission` for the rules). Runs under the graph
 /// write lock, before the durable commit.
 fn harness_boundary_envelope(
-    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    envelope: &medulla_types::change_envelope::ChangeEnvelope,
     core: &Arc<crate::graph::GraphCore>,
 ) -> Result<(), String> {
     let mut state = crate::server::harness_admission::HarnessBoundaryState::default();
@@ -574,7 +574,7 @@ fn harness_boundary_envelope(
 
 pub(super) async fn apply_one_change_envelope(
     ctx: GraphOpRouting<'_>,
-    envelope: eg_types::change_envelope::ChangeEnvelope,
+    envelope: medulla_types::change_envelope::ChangeEnvelope,
 ) -> Response {
     #[cfg(feature = "redb")]
     {
@@ -589,7 +589,7 @@ pub(super) async fn apply_one_change_envelope(
 #[cfg(feature = "redb")]
 pub(super) async fn apply_repository_change_envelope(
     ctx: GraphOpRouting<'_>,
-    envelope: eg_types::change_envelope::ChangeEnvelope,
+    envelope: medulla_types::change_envelope::ChangeEnvelope,
     source_budget: Option<crate::redb_store::enrichment_budget::SourceBudgetAuthority>,
 ) -> Response {
     apply_one_change_envelope_inner(ctx, envelope, source_budget).await
@@ -597,7 +597,7 @@ pub(super) async fn apply_repository_change_envelope(
 
 async fn apply_one_change_envelope_inner(
     ctx: GraphOpRouting<'_>,
-    envelope: eg_types::change_envelope::ChangeEnvelope,
+    envelope: medulla_types::change_envelope::ChangeEnvelope,
     #[cfg(feature = "redb")] source_budget: Option<
         crate::redb_store::enrichment_budget::SourceBudgetAuthority,
     >,
@@ -636,7 +636,7 @@ async fn apply_one_change_envelope_inner(
     }
 
     let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
-    // EG-ORCH-VOCAB-R801.3: the harness-component writes of this envelope are
+    // MEDULLA-ORCH-VOCAB-R801.3: the harness-component writes of this envelope are
     // graph-relative (a supersession must name the CURRENT version, a
     // published version must not mutate), so they are verified under the
     // write lock, before any durable work.
@@ -711,10 +711,10 @@ async fn apply_one_change_envelope_inner(
             // Keep a declared admission code (e.g. INVALID_ARGUMENT from
             // `ChangeEnvelope::validate`) first so `Response::err` keeps it and its
             // detail; an uncoded storage failure is reported as INTERNAL with its
-            // detail, not as an unclassified refusal (spec: EG-DURABLE-KERNEL-R043.8).
+            // detail, not as an unclassified refusal (spec: MEDULLA-DURABLE-KERNEL-R043.8).
             return Response::err(
                 req_id,
-                eg_types::contract::classify_refusal(
+                medulla_types::contract::classify_refusal(
                     "INTERNAL",
                     "ApplyChangeEnvelope atomic commit failed: ",
                     &error,
@@ -737,7 +737,7 @@ async fn apply_one_change_envelope_inner(
 async fn prepare_change_envelope_commit(
     backend: Option<&Arc<dyn crate::server::persistence::PersistenceBackend>>,
     graph_fname: &str,
-    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    envelope: &medulla_types::change_envelope::ChangeEnvelope,
     current_version: u64,
 ) -> Result<
     (
@@ -761,7 +761,7 @@ async fn prepare_change_envelope_commit(
 async fn change_envelope_is_known_replay(
     backend: &Arc<dyn crate::server::persistence::PersistenceBackend>,
     graph_fname: &str,
-    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    envelope: &medulla_types::change_envelope::ChangeEnvelope,
 ) -> Result<bool, String> {
     let record = backend
         .read_change_envelope(graph_fname, &envelope.envelope_id)
@@ -776,7 +776,7 @@ async fn change_envelope_is_known_replay(
 }
 
 fn validate_change_envelope_version(
-    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    envelope: &medulla_types::change_envelope::ChangeEnvelope,
     current_version: u64,
     known_replay: bool,
 ) -> Result<(), String> {
@@ -795,7 +795,7 @@ fn validate_change_envelope_version(
 
 async fn apply_change_envelope_batch(
     ctx: GraphOpRouting<'_>,
-    envelopes: Vec<eg_types::change_envelope::ChangeEnvelope>,
+    envelopes: Vec<medulla_types::change_envelope::ChangeEnvelope>,
 ) -> Response {
     let req_id = ctx.req_id;
     let graph_name = ctx.graph_name;
@@ -820,7 +820,7 @@ async fn apply_change_envelope_batch(
             );
         }
     }
-    // EG-ORCH-VOCAB-R801.3: the harness-component writes of the batch are
+    // MEDULLA-ORCH-VOCAB-R801.3: the harness-component writes of the batch are
     // graph-relative, so they are verified under the write lock, before the
     // atomic commit. ONE boundary state spans the batch, in envelope order,
     // so a supersession may name a version written by an earlier envelope of
@@ -891,7 +891,7 @@ async fn read_change_envelope(
         {
             Response::ok(
                 req_id,
-                ResultPayload::of::<eg_types::result_contract::query::GetChangeEnvelope>(Some(
+                ResultPayload::of::<medulla_types::result_contract::query::GetChangeEnvelope>(Some(
                     record,
                 )),
             )
@@ -899,7 +899,7 @@ async fn read_change_envelope(
         Ok(Some(_)) => Response::err(req_id, "ACCESS_DENIED: envelope tenant mismatch"),
         Ok(None) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::query::GetChangeEnvelope>(None),
+            ResultPayload::of::<medulla_types::result_contract::query::GetChangeEnvelope>(None),
         ),
         Err(_) => change_read_failure(req_id, "change-envelope read failed"),
     }
@@ -922,7 +922,7 @@ async fn read_content_version(
     {
         Ok(version) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::query::GetContentVersion>(&version),
+            ResultPayload::of_ref::<medulla_types::result_contract::query::GetContentVersion>(&version),
         ),
         Err(_) => change_read_failure(req_id, "content-version read failed"),
     }
@@ -946,7 +946,7 @@ async fn read_change_cursor(
     {
         Ok(cursor) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::query::GetChangeCursor>(&cursor),
+            ResultPayload::of_ref::<medulla_types::result_contract::query::GetChangeCursor>(&cursor),
         ),
         Err(_) => change_read_failure(req_id, "change-cursor read failed"),
     }
@@ -966,7 +966,7 @@ mod error_contract_tests {
             let response = change_read_failure(29, detail);
             assert_eq!(response.error.as_deref(), Some("ENGINE_UNAVAILABLE"));
             assert_eq!(response.error_detail.as_deref(), Some(detail));
-            assert!(eg_capabilities::error_routing::method_allows_error(
+            assert!(medulla_capabilities::error_routing::method_allows_error(
                 method,
                 "ENGINE_UNAVAILABLE"
             ));

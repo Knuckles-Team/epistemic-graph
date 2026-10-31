@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# BUG-CX-136 — changed-source KISS gate for epistemic-graph.
+# BUG-CX-136 — changed-source KISS gate for medulla.
 #
 # KISS has two dangerous defaults for this repository: it can write a
 # self-calibrated .kissconfig, and its Rust config only becomes authoritative
@@ -86,7 +86,7 @@ cd "$ROOT" || die "could not enter repository root"
 
 # Use a scratch parent so the NUL-delimited changed-path manifest cannot
 # collide with a repository path materialized below it.
-SCRATCH_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/eg-kiss-staged.XXXXXX")" || \
+SCRATCH_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/medulla-kiss-staged.XXXXXX")" || \
   die "could not create staged-source directory"
 STAGED_ROOT="$SCRATCH_ROOT/index"
 HEAD_ROOT="$SCRATCH_ROOT/head"
@@ -174,7 +174,7 @@ try:
     from scanner_contract import load_contract
     value = load_contract(root / "pyproject.toml").kiss_version
 except Exception as exc:
-    print(f"invalid [tool.epistemic_graph.scanners] KISS contract: {exc}", file=sys.stderr)
+    print(f"invalid [tool.medulla.scanners] KISS contract: {exc}", file=sys.stderr)
     raise SystemExit(2)
 print(value.strip())
 PY

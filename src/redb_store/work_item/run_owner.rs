@@ -2,7 +2,7 @@
 
 use super::*;
 
-pub(super) use eg_types::work_item_read::RUN_ADMISSION_REQUEST as ADMISSION_REQUEST;
+pub(super) use medulla_types::work_item_read::RUN_ADMISSION_REQUEST as ADMISSION_REQUEST;
 
 pub(super) fn work_item_id(graph: &str, tenant: &str, run_id: &str) -> Result<String, String> {
     use sha2::{Digest, Sha256};
@@ -19,7 +19,7 @@ pub(super) fn work_item_id(graph: &str, tenant: &str, run_id: &str) -> Result<St
 
 pub(super) fn admit_owner(
     graph: &str,
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
     actor: Option<&str>,
 ) -> Result<Option<serde_json::Value>, String> {
     let Some(run_id) = request.run_id.as_deref() else {
@@ -74,9 +74,9 @@ pub(crate) fn read_admission(
     run_id: &str,
     actor: &str,
     crypto: DurableCrypto<'_>,
-) -> Result<Option<eg_types::work_item_read::RunWorkItemView>, String> {
-    use eg_types::native_control::SubmitWorkItemRequest;
-    use eg_types::work_item_read::{validate_work_item_get, RunWorkItemView, WorkItemView};
+) -> Result<Option<medulla_types::work_item_read::RunWorkItemView>, String> {
+    use medulla_types::native_control::SubmitWorkItemRequest;
+    use medulla_types::work_item_read::{validate_work_item_get, RunWorkItemView, WorkItemView};
     validate_work_item_get(tenant, run_id)?;
     let id = work_item_id(graph, tenant, run_id)?;
     let handle = shard.graph(graph)?;
@@ -95,7 +95,7 @@ pub(crate) fn read_admission(
     };
     let unavailable = format!(
         "{}: immutable original submission is unavailable",
-        eg_types::contract::ServerErrorCode::RunAdmissionUnavailable
+        medulla_types::contract::ServerErrorCode::RunAdmissionUnavailable
     );
     let unavailable = unavailable.as_str();
     let admission: SubmitWorkItemRequest =
@@ -136,7 +136,7 @@ pub(super) fn validate_completion_owner(
     if !owned(row, graph, tenant, run, id, actor) || work_item_id(graph, tenant, run)? != id {
         return Err("run completion owner mismatch".into());
     }
-    let admission: eg_types::native_control::SubmitWorkItemRequest = serde_json::from_value(
+    let admission: medulla_types::native_control::SubmitWorkItemRequest = serde_json::from_value(
         row.get(ADMISSION_REQUEST)
             .cloned()
             .ok_or("missing run admission")?,
@@ -154,17 +154,17 @@ pub(super) fn validate_completion_owner(
 
 #[allow(clippy::too_many_arguments)]
 fn project_completion(
-    scope: &eg_types::MutationScopeIdentity,
+    scope: &medulla_types::MutationScopeIdentity,
     tenant: &str,
     run: &str,
     id: &str,
     status: &str,
     batch: &str,
     digest: &str,
-    receipt: &eg_types::MutationBatchRecord,
-    records: &[eg_types::MutationOutboxRecord],
-) -> Result<eg_types::run_completion::CommittedRunCompletion, String> {
-    use eg_types::run_completion::*;
+    receipt: &medulla_types::MutationBatchRecord,
+    records: &[medulla_types::MutationOutboxRecord],
+) -> Result<medulla_types::run_completion::CommittedRunCompletion, String> {
+    use medulla_types::run_completion::*;
     let mut matching = records
         .iter()
         .filter(|r| r.intent.topic == RUN_COMPLETION_TOPIC);
@@ -198,7 +198,7 @@ fn project_completion(
 }
 
 fn validate_completion_payload(
-    payload: &eg_types::run_completion::RunCompletionPayload,
+    payload: &medulla_types::run_completion::RunCompletionPayload,
     tenant: &str,
     run: &str,
     id: &str,
@@ -219,14 +219,14 @@ fn validate_completion_payload(
 }
 
 fn validate_completion_event(
-    scope: &eg_types::MutationScopeIdentity,
+    scope: &medulla_types::MutationScopeIdentity,
     batch: &str,
     digest: &str,
-    receipt: &eg_types::MutationBatchRecord,
-    event: &eg_types::MutationOutboxRecord,
+    receipt: &medulla_types::MutationBatchRecord,
+    event: &medulla_types::MutationOutboxRecord,
 ) -> Result<(), String> {
     use sha2::{Digest, Sha256};
-    if event.schema_version != eg_types::mutation_batch::MUTATION_BATCH_VERSION
+    if event.schema_version != medulla_types::mutation_batch::MUTATION_BATCH_VERSION
         || &event.identity != scope
         || event.batch_id != batch
         || event.intent.key != batch
@@ -238,12 +238,12 @@ fn validate_completion_event(
 }
 
 fn validate_completion_ledger(
-    scope: &eg_types::MutationScopeIdentity,
+    scope: &medulla_types::MutationScopeIdentity,
     batch: &str,
-    receipt: &eg_types::MutationBatchRecord,
-    event: &eg_types::MutationOutboxRecord,
+    receipt: &medulla_types::MutationBatchRecord,
+    event: &medulla_types::MutationOutboxRecord,
 ) -> Result<(), String> {
-    if receipt.status != eg_types::MutationBatchStatus::Committed
+    if receipt.status != medulla_types::MutationBatchStatus::Committed
         || &receipt.identity != scope
         || receipt.batch.batch_id != batch
         || receipt.batch.outbox.get(event.ordinal as usize) != Some(&event.intent)
@@ -256,24 +256,24 @@ fn validate_completion_ledger(
 
 /// Project a row binding through the same immutable ledger and outbox snapshot.
 pub(super) fn completion_from_snapshot(
-    snapshot: &eg_storage::ScopedRead<'_, eg_storage::GraphShardOwner>,
+    snapshot: &medulla_storage::ScopedRead<'_, medulla_storage::GraphShardOwner>,
     row: &serde_json::Map<String, serde_json::Value>,
     tenant: &str,
     run_id: &str,
     id: &str,
-) -> Result<Option<eg_types::run_completion::CommittedRunCompletion>, String> {
+) -> Result<Option<medulla_types::run_completion::CommittedRunCompletion>, String> {
     Ok(
         match (
-            row.get(eg_types::run_completion::RUN_COMPLETION_BATCH),
-            row.get(eg_types::run_completion::RUN_COMPLETION_DIGEST),
+            row.get(medulla_types::run_completion::RUN_COMPLETION_BATCH),
+            row.get(medulla_types::run_completion::RUN_COMPLETION_DIGEST),
         ) {
             (None, None) => None,
             (Some(batch), Some(digest)) => {
                 let batch = batch.as_str().ok_or("invalid run completion batch")?;
                 let digest = digest.as_str().ok_or("invalid run completion digest")?;
-                let receipt = eg_transaction::read_ledger(snapshot, batch)?
+                let receipt = medulla_transaction::read_ledger(snapshot, batch)?
                     .ok_or("missing run completion receipt")?;
-                let records = eg_transaction::read_outbox(snapshot, batch)?;
+                let records = medulla_transaction::read_outbox(snapshot, batch)?;
                 Some(project_completion(
                     snapshot.scope(),
                     tenant,

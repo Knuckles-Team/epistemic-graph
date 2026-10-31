@@ -1,4 +1,4 @@
-//! Cross-shard READ gauntlet (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-2).
+//! Cross-shard READ gauntlet (CONCEPT:MEDULLA-KG.sharding.placement-catalog, DIST-P2-2).
 //!
 //! Spins a live one-node, two-group cluster (the SAME `bring_up` pattern
 //! [`super::xshard_harness`]/[`super::placement_harness`] use) and proves:
@@ -59,7 +59,7 @@ async fn bring_up(
 async fn start_read_scenario(
     scenario: &str,
 ) -> (Arc<MultiRaft>, Arc<RwLock<crate::server::ServerState>>) {
-    let dir = fixture::fresh_dir("eg-xread", scenario);
+    let dir = fixture::fresh_dir("medulla-xread", scenario);
     let backend = fixture::open_backend(&dir).expect("open redb");
     bring_up(&dir, backend.clone()).await
 }
@@ -168,7 +168,7 @@ async fn read_cross_shard_routes_each_leg_via_the_placement_catalog() {
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = fixture::fresh_dir("eg-xread", "catalog-routing");
+    let dir = fixture::fresh_dir("medulla-xread", "catalog-routing");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
 
@@ -239,7 +239,7 @@ async fn read_cross_shard_errors_loudly_on_a_leg_whose_group_is_not_running_here
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = fixture::fresh_dir("eg-xread", "unreachable");
+    let dir = fixture::fresh_dir("medulla-xread", "unreachable");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
 

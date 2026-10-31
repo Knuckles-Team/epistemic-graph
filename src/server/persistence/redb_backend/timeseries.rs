@@ -1,14 +1,14 @@
 use super::*;
 
-// ── Time-series STARTUP RECONCILIATION (CONCEPT:EG-KG.backend.ts-startup-reconcile, L16) ──────────────
-// EG-P0-4 (see `handlers::txn::commit_cross_modal_txn`'s doc comment) replays a
+// ── Time-series STARTUP RECONCILIATION (CONCEPT:MEDULLA-KG.backend.ts-startup-reconcile, L16) ──────────────
+// MEDULLA-P0-4 (see `handlers::txn::commit_cross_modal_txn`'s doc comment) replays a
 // cross-modal-committed measurement into the served `series.redb` immediately after the
 // the authoritative-shard commit succeeds, but documents one residual: a crash strictly
 // BETWEEN those two commits leaves the measurement durable + authoritative in
 // after its SERIES-table commit may not be reflected in the served store.
 // The pass below closes that window: run ONCE at boot, after both stores are open —
 // as POST-BIND background maintenance (`server::boot_maintenance::
-// spawn_post_bind_maintenance`, EG-DURABLE-KERNEL-R006.4), never on the
+// spawn_post_bind_maintenance`, MEDULLA-DURABLE-KERNEL-R006.4), never on the
 // pre-listener critical path — so a prior crash's residual never lingers.
 #[cfg(feature = "tsdb")]
 #[derive(Default)]
@@ -26,14 +26,14 @@ pub struct TsReconcileReport {
 }
 
 #[cfg(feature = "tsdb")]
-fn source_meta<R: eg_tsdb::store::SeriesTableReader>(
+fn source_meta<R: medulla_tsdb::store::SeriesTableReader>(
     rtx: &R,
     series_id: &str,
-) -> Result<eg_tsdb::store::SeriesMeta, String> {
-    if eg_tsdb::store::SeriesKey::decode(series_id).is_none() {
+) -> Result<medulla_tsdb::store::SeriesMeta, String> {
+    if medulla_tsdb::store::SeriesKey::decode(series_id).is_none() {
         return Err("durable time-series key is not canonically scoped".to_string());
     }
-    eg_tsdb::store::meta_in_rtx(rtx, series_id)
+    medulla_tsdb::store::meta_in_rtx(rtx, series_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| {
             format!("durable time-series '{series_id}' has no meta row in the scan that named it")
@@ -42,22 +42,22 @@ fn source_meta<R: eg_tsdb::store::SeriesTableReader>(
 
 #[cfg(feature = "tsdb")]
 fn projection_is_current(
-    tsdb_store: &eg_tsdb::store::SeriesStore,
+    tsdb_store: &medulla_tsdb::store::SeriesStore,
     series_id: &str,
-    source_cursor: &eg_tsdb::store::ProjectionCursor,
+    source_cursor: &medulla_tsdb::store::ProjectionCursor,
 ) -> Result<bool, String> {
     let projection = tsdb_store
         .projection_health_by_storage_key(series_id)
         .map_err(|e| e.to_string())?;
-    Ok(projection.status == eg_tsdb::store::ProjectionStatus::Ready
+    Ok(projection.status == medulla_tsdb::store::ProjectionStatus::Ready
         && projection.cursor.as_ref() == Some(source_cursor))
 }
 
 #[cfg(feature = "tsdb")]
 fn served_meta_matches(
-    tsdb_store: &eg_tsdb::store::SeriesStore,
+    tsdb_store: &medulla_tsdb::store::SeriesStore,
     series_id: &str,
-    source_meta: &eg_tsdb::store::SeriesMeta,
+    source_meta: &medulla_tsdb::store::SeriesMeta,
 ) -> Result<bool, String> {
     let served_meta = tsdb_store.meta(series_id).map_err(|e| e.to_string())?;
     Ok(served_meta.as_ref().is_some_and(|served| {
@@ -71,9 +71,9 @@ fn served_meta_matches(
 
 #[cfg(feature = "tsdb")]
 fn mark_ready(
-    tsdb_store: &eg_tsdb::store::SeriesStore,
+    tsdb_store: &medulla_tsdb::store::SeriesStore,
     series_id: &str,
-    source_meta: &eg_tsdb::store::SeriesMeta,
+    source_meta: &medulla_tsdb::store::SeriesMeta,
     report: &mut TsReconcileReport,
 ) -> Result<(), String> {
     tsdb_store
@@ -84,14 +84,14 @@ fn mark_ready(
 }
 
 #[cfg(feature = "tsdb")]
-fn reconcile_series<R: eg_tsdb::store::SeriesTableReader>(
+fn reconcile_series<R: medulla_tsdb::store::SeriesTableReader>(
     rtx: &R,
-    tsdb_store: &eg_tsdb::store::SeriesStore,
+    tsdb_store: &medulla_tsdb::store::SeriesStore,
     series_id: &str,
     report: &mut TsReconcileReport,
 ) -> Result<(), String> {
     let graph_meta = source_meta(rtx, series_id)?;
-    let source_cursor = eg_tsdb::store::ProjectionCursor::from(&graph_meta);
+    let source_cursor = medulla_tsdb::store::ProjectionCursor::from(&graph_meta);
     if projection_is_current(tsdb_store, series_id, &source_cursor)? {
         return Ok(());
     }
@@ -99,11 +99,11 @@ fn reconcile_series<R: eg_tsdb::store::SeriesTableReader>(
         return mark_ready(tsdb_store, series_id, &graph_meta, report);
     }
     report.series_examined += 1;
-    let graph_points = eg_tsdb::store::range_in_rtx(
+    let graph_points = medulla_tsdb::store::range_in_rtx(
         rtx,
         series_id,
-        eg_tsdb::point::Ts::MIN,
-        eg_tsdb::point::Ts::MAX,
+        medulla_tsdb::point::Ts::MIN,
+        medulla_tsdb::point::Ts::MAX,
     )
     .map_err(|e| e.to_string())?;
     let served_points = tsdb_store.scan_all(series_id).map_err(|e| e.to_string())?;
@@ -128,7 +128,7 @@ fn reconcile_series<R: eg_tsdb::store::SeriesTableReader>(
     tracing::warn!(
         "startup reconciliation: a scoped series was durable in the authoritative shard \
          but {} point(s) had not reached the served time-series store (a crash \
-         between the two EG-P0-4 commits) — replayed",
+         between the two MEDULLA-P0-4 commits) — replayed",
         missing.len()
     );
     Ok(())
@@ -137,12 +137,12 @@ fn reconcile_series<R: eg_tsdb::store::SeriesTableReader>(
 #[cfg(feature = "tsdb")]
 fn reconcile_shard(
     shard: &Shard,
-    tsdb_store: &eg_tsdb::store::SeriesStore,
+    tsdb_store: &medulla_tsdb::store::SeriesStore,
     report: &mut TsReconcileReport,
 ) -> Result<(), String> {
     let rtx = shard.control_read()?;
-    let series_ids = eg_tsdb::store::list_series_in_rtx(&rtx).map_err(|e| e.to_string())?;
-    // Start-of-pass visibility (EG-DURABLE-KERNEL-R006.4): even a zero-work
+    let series_ids = medulla_tsdb::store::list_series_in_rtx(&rtx).map_err(|e| e.to_string())?;
+    // Start-of-pass visibility (MEDULLA-DURABLE-KERNEL-R006.4): even a zero-work
     // boot logs now — a multi-minute full replay used to be invisible.
     tracing::info!(
         series = series_ids.len(),
@@ -156,9 +156,9 @@ fn reconcile_shard(
 
 #[cfg(feature = "tsdb")]
 impl RedbBackend {
-    /// Startup reconciliation (CONCEPT:EG-KG.backend.ts-startup-reconcile, L16): scan every shard's
+    /// Startup reconciliation (CONCEPT:MEDULLA-KG.backend.ts-startup-reconcile, L16): scan every shard's
     /// authoritative shard's SERIES tables — the atomic copy a cross-modal commit
-    /// writes (EG-P0-4) — and replay into `tsdb_store` (the served `series.redb`) any
+    /// writes (MEDULLA-P0-4) — and replay into `tsdb_store` (the served `series.redb`) any
     /// measurement durable there but not yet reflected in the served store.
     ///
     /// **Idempotent + duplicate-free.** For each series, a durable projection cursor
@@ -176,24 +176,24 @@ impl RedbBackend {
     /// Read-only against each authoritative shard: uses the SAME shared `Weak<Shard>` handle the
     /// snapshot-read path (`read_node_blocking`) upgrades, so this never opens the
     /// file a SECOND time (redb's exclusive per-process file lock would reject that) —
-    /// see `eg_tsdb::store::{list_series_in_rtx, meta_in_rtx, range_in_rtx}`, the read-only
+    /// see `medulla_tsdb::store::{list_series_in_rtx, meta_in_rtx, range_in_rtx}`, the read-only
     /// counterparts of `append_batch_in_wtx` extracted for exactly this caller.
     ///
-    /// Runs ONCE at boot as POST-BIND background maintenance (EG-DURABLE-KERNEL-
+    /// Runs ONCE at boot as POST-BIND background maintenance (MEDULLA-DURABLE-KERNEL-
     /// R006.4) — residual closing, not a serving precondition.
     pub async fn reconcile_time_series(
         &self,
-        tsdb_store: &eg_tsdb::store::SeriesStore,
+        tsdb_store: &medulla_tsdb::store::SeriesStore,
     ) -> Result<TsReconcileReport, String> {
         self.reconcile_time_series_sync(tsdb_store)
     }
 
     /// The synchronous core of [`Self::reconcile_time_series`]: pure redb I/O
     /// with no await points, so the post-bind maintenance task runs it off the
-    /// reactor through the blocking-task boundary (EG-DURABLE-KERNEL-R006.4).
+    /// reactor through the blocking-task boundary (MEDULLA-DURABLE-KERNEL-R006.4).
     pub(crate) fn reconcile_time_series_sync(
         &self,
-        tsdb_store: &eg_tsdb::store::SeriesStore,
+        tsdb_store: &medulla_tsdb::store::SeriesStore,
     ) -> Result<TsReconcileReport, String> {
         let mut report = TsReconcileReport::default();
         for writer in &self.shards {
@@ -209,10 +209,10 @@ impl RedbBackend {
     }
 }
 
-/// Exact multiset point-diff (CONCEPT:EG-KG.backend.ts-startup-reconcile): the points present in `authoritative`
+/// Exact multiset point-diff (CONCEPT:MEDULLA-KG.backend.ts-startup-reconcile): the points present in `authoritative`
 /// but not already accounted for in `served`, respecting multiplicity (two points sharing
 /// a timestamp are legitimate siblings, not duplicates of one another — see
-/// `eg_tsdb::store`'s `Chunk::insert` doc comment). A naive "skip the first `served.len()`
+/// `medulla_tsdb::store`'s `Chunk::insert` doc comment). A naive "skip the first `served.len()`
 /// points of a merged/sorted scan" is WRONG here: two measurement batches that touch the
 /// SAME time bucket can interleave within that bucket's sorted point list regardless of
 /// which batch replayed to the served store first, so the served store's points are not
@@ -223,12 +223,12 @@ impl RedbBackend {
 /// semantically meaningful — comparison here.
 #[cfg(feature = "tsdb")]
 fn missing_points(
-    authoritative: Vec<eg_tsdb::point::Point>,
-    served: Vec<eg_tsdb::point::Point>,
-) -> Vec<eg_tsdb::point::Point> {
+    authoritative: Vec<medulla_tsdb::point::Point>,
+    served: Vec<medulla_tsdb::point::Point>,
+) -> Vec<medulla_tsdb::point::Point> {
     use std::collections::HashMap;
 
-    fn key(p: &eg_tsdb::point::Point) -> (i64, Vec<u64>) {
+    fn key(p: &medulla_tsdb::point::Point) -> (i64, Vec<u64>) {
         (p.ts, p.values.iter().map(|v| v.to_bits()).collect())
     }
 

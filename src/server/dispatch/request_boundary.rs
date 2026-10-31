@@ -45,7 +45,7 @@ pub(super) use saga::{begin_session_control_saga, finalize_dispatch_response};
 pub(super) use screen::decode_screen_observation;
 
 /// Dispatch a single request to the appropriate handler, recording
-/// per-operation request counters and latency (CONCEPT:EG-KG.txn.per-graph-write-isolation).
+/// per-operation request counters and latency (CONCEPT:MEDULLA-KG.txn.per-graph-write-isolation).
 pub async fn dispatch(state: &Arc<RwLock<ServerState>>, req: Request) -> Response {
     dispatch_with_context(state, req, None).await
 }
@@ -94,7 +94,7 @@ pub(super) fn append_native_work_item_ops(ops: &mut Vec<&'static str>, available
             "GetWorkItem",
             "ListWorkItems",
             "GetWorkItemOutcome",
-            // graph-os EG-2: native control leases share the WorkItem kernel.
+            // graph-os MEDULLA-2: native control leases share the WorkItem kernel.
             "IssueHostStartGrant",
             "IssueControlLease",
             "TransitionControlLease",
@@ -166,8 +166,8 @@ pub(super) async fn dispatch_with_context(
     req: Request,
     context: Option<VerifiedRequestContext>,
 ) -> Response {
-    // CONCEPT:EG-OS.observability.slow-query-descriptor — slow-query descriptor, captured BEFORE the method is moved
-    // into `dispatch_inner`. `None` (zero cost) unless EPISTEMIC_GRAPH_SLOW_QUERY_MS
+    // CONCEPT:MEDULLA-OS.observability.slow-query-descriptor — slow-query descriptor, captured BEFORE the method is moved
+    // into `dispatch_inner`. `None` (zero cost) unless MEDULLA_SLOW_QUERY_MS
     // enabled it AND this is a query method.
     let method: &'static str = (&req.method).into();
     let slow = crate::slow_query::describe(&req.method);
@@ -218,7 +218,7 @@ pub(super) async fn dispatch_resource_stats(
     {
         Ok(snapshot) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::coordination::ResourceStatsPage>(
+            ResultPayload::of::<medulla_types::result_contract::coordination::ResourceStatsPage>(
                 snapshot,
             ),
         ),
@@ -341,7 +341,7 @@ async fn dispatch_preamble_checks(
         verified_context,
         super::elevation::ElevationStampAuthority::of(state_machine_authorized),
     );
-    let method_policy = eg_capabilities::policy(&req.method);
+    let method_policy = medulla_capabilities::policy(&req.method);
     let action = method_policy.authz_action;
     let identity_bootstrap =
         compute_identity_bootstrap(state, &req, verified_context, state_machine_authorized).await;
@@ -369,7 +369,7 @@ async fn dispatch_preamble_checks(
     // dispatched by the engine to itself; a caller may never name one. The
     // carrier half of the rule lives in `ChangeEnvelope::validate`.
     // The capability row's `Stability::Internal` flag is the one source.
-    if let Some(refusal) = eg_capabilities::engine_internal_refusal(&req.method)
+    if let Some(refusal) = medulla_capabilities::engine_internal_refusal(&req.method)
         .filter(|_| !state_machine_authorized)
     {
         return Err(Response::err(req.id, refusal));
@@ -467,7 +467,7 @@ async fn dispatch_inner(
     #[cfg(not(feature = "raft"))]
     let state_machine_authorized = false;
 
-    // ── Scope + admin enforcement (CONCEPT:EG-KG.compute.feature, EG-P0-6) ────────────────
+    // ── Scope + admin enforcement (CONCEPT:MEDULLA-KG.compute.feature, MEDULLA-P0-6) ────────────────
     // A verified context must carry the capability ledger's action scope.
     // Additionally gates EVERY method whose policy declares a system-wide
     // admin `authz_action` (RegisterIdentity/RbacAdmin/ApplyMultisigMutation, the
@@ -476,7 +476,7 @@ async fn dispatch_inner(
     // `authz_action` string (`access::is_admin_authz_action`), NEVER a second
     // hardcoded method-name list here. Checked ONCE, before the method match, so
     // every current AND future admin-tier method is covered without a dispatch.rs
-    // edit. Runs only when the `server` feature (which pulls in `eg-capabilities`)
+    // edit. Runs only when the `server` feature (which pulls in `medulla-capabilities`)
     // is active -- always true for this binary.
     let (req, authority) =
         match dispatch_preamble_checks(state, req, &verified_context, state_machine_authorized)
