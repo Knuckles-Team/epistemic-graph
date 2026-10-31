@@ -22,6 +22,7 @@
     "EG-ORCH-VOCAB-R003.4",
     "EG-ORCH-VOCAB-R003.5",
     "EG-ORCH-VOCAB-R003.6",
+    "EG-ORCH-VOCAB-R003.6.1",
     "EG-ORCH-VOCAB-R003.7",
     "EG-ORCH-VOCAB-R004",
     "EG-ORCH-VOCAB-R004.1",
@@ -105,8 +106,15 @@
     "EG-ORCH-VOCAB-R009.18",
     "EG-ORCH-VOCAB-R013.7",
     "EG-ORCH-VOCAB-R003.8",
+    "EG-ORCH-VOCAB-R003.8.1",
+    "EG-ORCH-VOCAB-R003.8.2",
+    "EG-ORCH-VOCAB-R003.8.3",
+    "EG-ORCH-VOCAB-R003.8.4",
     "EG-ORCH-VOCAB-R012.7",
     "EG-ORCH-VOCAB-R004.6",
+    "EG-ORCH-VOCAB-R004.6.1",
+    "EG-ORCH-VOCAB-R004.6.2",
+    "EG-ORCH-VOCAB-R004.6.3",
     "EG-ORCH-VOCAB-R012.8",
     "EG-ORCH-VOCAB-R012.9",
     "EG-ORCH-VOCAB-R005.100",
@@ -140,8 +148,22 @@
     "EG-ORCH-VOCAB-R800.6",
     "EG-ORCH-VOCAB-R004.700",
     "EG-ORCH-VOCAB-R004.701",
+    "EG-ORCH-VOCAB-R009.18.1",
+    "EG-ORCH-VOCAB-R009.18.2",
+    "EG-ORCH-VOCAB-R009.18.3",
+    "EG-ORCH-VOCAB-R009.18.4",
+    "EG-ORCH-VOCAB-R009.101.1",
+    "EG-ORCH-VOCAB-R009.101.2",
     "EG-ORCH-VOCAB-R009.700",
     "EG-ORCH-VOCAB-R009.701",
+    "EG-ORCH-VOCAB-R012.7.1",
+    "EG-ORCH-VOCAB-R012.7.2",
+    "EG-ORCH-VOCAB-R012.7.3",
+    "EG-ORCH-VOCAB-R012.7.4",
+    "EG-ORCH-VOCAB-R013.7.1",
+    "EG-ORCH-VOCAB-R013.7.2",
+    "EG-ORCH-VOCAB-R013.7.3",
+    "EG-ORCH-VOCAB-R616.2.1",
     "EG-ORCH-VOCAB-R801",
     "EG-ORCH-VOCAB-R801.1",
     "EG-ORCH-VOCAB-R801.2",
@@ -149,13 +171,22 @@
     "EG-ORCH-VOCAB-R801.4",
     "EG-ORCH-VOCAB-R801.5",
     "EG-ORCH-VOCAB-R801.6",
+    "EG-ORCH-VOCAB-R801.7",
     "EG-ORCH-VOCAB-R802",
     "EG-ORCH-VOCAB-R802.1",
     "EG-ORCH-VOCAB-R802.2",
     "EG-ORCH-VOCAB-R802.3",
     "EG-ORCH-VOCAB-R802.4",
     "EG-ORCH-VOCAB-R802.5",
-    "EG-ORCH-VOCAB-R802.6"
+    "EG-ORCH-VOCAB-R802.6",
+    "EG-ORCH-VOCAB-R803",
+    "EG-ORCH-VOCAB-R804",
+    "EG-ORCH-VOCAB-R805",
+    "EG-ORCH-VOCAB-R806",
+    "EG-ORCH-VOCAB-R807",
+    "EG-ORCH-VOCAB-R808",
+    "EG-ORCH-VOCAB-R809",
+    "EG-ORCH-VOCAB-R810"
   ],
   "requirements": [
     {
@@ -378,7 +409,17 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R003.6",
-      "title": "Wire the Agent Library projection to emit membership",
+      "title": "Project Agent Library entries into membership facts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R003.6.1"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R003.6.1",
+      "title": "Run the Agent Library projection worker",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -448,7 +489,7 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R004.4",
-      "title": "Project `GuardrailRule` components",
+      "title": "Project `GuardrailRule` components as best practices",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -603,7 +644,7 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R006.5",
-      "title": "Project template topology facts to `swarm:feeds`",
+      "title": "Project template topology to `swarm:feeds`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -635,28 +676,28 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R007.1",
-      "title": "Expand a task's steps into assembly tasks",
+      "title": "Expand a task into assembly tasks by step",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R007.2",
-      "title": "Project the assembled graph back",
+      "title": "Project the committed assembly back into the graph",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R007.3",
-      "title": "Add the composed read",
+      "title": "Answer the composed read from one committed assembly",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R007.4",
-      "title": "Enforce slot agent-kind constraints before assembly selection",
+      "title": "Enforce slot agent-kind constraints before selection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -687,7 +728,7 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R008.2",
-      "title": "Regenerate ontology artifacts",
+      "title": "Keep the generated-artifact ledger in step with the ontology files",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -884,7 +925,7 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R009.15",
-      "title": "Refuse a shape-invalid RunTrace write",
+      "title": "Refuse a shape-invalid `RunTrace` write",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -902,7 +943,7 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R009.17",
-      "title": "Prove the ingestion hot path",
+      "title": "Prove the ingestion hot path through the Python client",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -926,42 +967,42 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R010.1",
-      "title": "Query success rate",
+      "title": "Query harness_success_rate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R010.2",
-      "title": "Query cost per solved task",
+      "title": "Query harness_cost_per_solved_task",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R010.3",
-      "title": "Query overflow rate",
+      "title": "Query harness_overflow_rate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R010.4",
-      "title": "Query peak-to-budget ratio",
+      "title": "Query harness_mean_peak_ratio",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R010.5",
-      "title": "Query mechanism counts",
+      "title": "Query harness_mechanism_counts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R010.6",
-      "title": "Query competency question",
+      "title": "Name the cheapest configuration per solved task",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1054,35 +1095,35 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R011.7",
-      "title": "Build the measured-fact envelope",
+      "title": "Build the measured-fact change envelope",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R011.8",
-      "title": "Refuse a measured fact without evidence",
+      "title": "Refuse a measured fact without run evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R011.9",
-      "title": "Replace a fact by a newer measurement",
+      "title": "Replace a measured fact through the champion pointer",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R011.10",
-      "title": "Apply the envelope through the governed path",
+      "title": "Apply the evaluation result once through the governed path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R011.11",
-      "title": "Prove the loop closes",
+      "title": "Prove the loop closes through `HarnessConfig`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1107,49 +1148,49 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R012.1",
-      "title": "Model",
+      "title": "Model: spec node kinds",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.2",
-      "title": "Behavior",
+      "title": "Behaviour: classify a spec file by named rule",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.3",
-      "title": "Wiring",
+      "title": "Wiring: index spec folders on the durable repository route",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.4",
-      "title": "Refusal",
+      "title": "Refusal: an unknown file is not guessed",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.5",
-      "title": "Evidence",
+      "title": "Evidence: each node records its deciding rule",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: spec folder yields five kinds",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R013",
-      "title": "Run trace step record with request, argument and result digests (rollup)",
+      "title": "Run trace step records with request, argument and result digests (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1165,84 +1206,161 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R013.1",
-      "title": "Model",
+      "title": "Model: step record",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R013.2",
-      "title": "Behavior",
+      "title": "Behaviour: one canonical step digest recipe",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R013.3",
-      "title": "Wiring",
+      "title": "Wiring: validate step records on the run-trace write",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R013.4",
-      "title": "Refusal",
+      "title": "Refusal: bad digest and bad step order",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R013.5",
-      "title": "Evidence",
+      "title": "Evidence: ordered steps with the writing actor",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R013.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: first divergence is step two",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.18",
-      "title": "Use one run observation window for model and width adjustments",
+      "title": "Run observation window for model and width adjustment (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R009.18.1",
+        "EG-ORCH-VOCAB-R009.18.2",
+        "EG-ORCH-VOCAB-R009.18.3",
+        "EG-ORCH-VOCAB-R009.18.4"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R013.7",
       "title": "Source-pinned walkthrough artifact and graph-bound execution notes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R013.7.1",
+        "EG-ORCH-VOCAB-R013.7.2",
+        "EG-ORCH-VOCAB-R013.7.3"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R003.8",
-      "title": "Successful-team promotion, safe similarity reuse, and typed handlers",
+      "title": "Reuse successful teams by safe similarity with typed handlers",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R003.8.1",
+        "EG-ORCH-VOCAB-R003.8.2",
+        "EG-ORCH-VOCAB-R003.8.3",
+        "EG-ORCH-VOCAB-R003.8.4"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R003.8.1",
+      "title": "Model: signature and handler bindings",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R003.8.2",
+      "title": "Behaviour: similarity score with knobs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R003.8.3",
+      "title": "Wiring: promote on success and constrain assembly",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R003.8.4",
+      "title": "Refusal and evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.7",
-      "title": "Synthesize reviewed repository policy with invariant-guarded activation",
+      "title": "Synthesize policy candidates and activate them behind review",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R012.7.1",
+        "EG-ORCH-VOCAB-R012.7.2",
+        "EG-ORCH-VOCAB-R012.7.3",
+        "EG-ORCH-VOCAB-R012.7.4"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R004.6",
       "title": "Persist and query capability gaps and enhancements by task class",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R004.6.1",
+        "EG-ORCH-VOCAB-R004.6.2",
+        "EG-ORCH-VOCAB-R004.6.3"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R004.6.1",
+      "title": "Model: gap and enhancement nodes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R004.6.2",
+      "title": "Behaviour and wiring: governed write with deduplication",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R004.6.3",
+      "title": "Query by task class with exact or descendant match",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.8",
-      "title": "Bind active policy to reviewed normative files without graph writes",
+      "title": "Bind active policy to reviewed repository files",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1256,24 +1374,28 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R005.100",
-      "title": "Nested inputs use declared projection and shielding",
+      "title": "Project nested step inputs through a declared shield",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.100",
-      "title": "Correlate trace records and export reads",
+      "title": "Correlated trace export read",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.101",
-      "title": "Index, browse, and search harness sessions by tenant and full manifest",
+      "title": "Index and search harness sessions by tenant and manifest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R009.101.1",
+        "EG-ORCH-VOCAB-R009.101.2"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R010.100",
@@ -1284,14 +1406,14 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R010.101",
-      "title": "Index project/agent token and cost totals with finite latency",
+      "title": "Index project and agent token and cost totals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R616",
-      "title": "Agent, team, prompt and workflow specs are graph facts synthesized from capability search (rollup)",
+      "title": "Capability search drafts agent, team, prompt and workflow revisions (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1306,42 +1428,46 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R616.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the types are defined once elsewhere",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the types are defined once elsewhere"
     },
     {
       "id": "EG-ORCH-VOCAB-R616.2",
-      "title": "Behavior",
+      "title": "Behaviour: draft a team or workflow from capability search",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R616.2.1"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R616.3",
-      "title": "Wiring",
+      "title": "Wiring: synthesis proposes and assemble decides",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R616.4",
-      "title": "Refusal",
+      "title": "Refusal: a draft that fails its shape",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R616.5",
-      "title": "Evidence",
+      "title": "Evidence: capabilities, budget and shape result",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R616.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: synthesis over a 10,000-skill catalog",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1361,28 +1487,28 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R750.750",
-      "title": "Model: Organization runtime, agent market, digital twin and lifecycle records",
+      "title": "Model: organization, market, twin and lifecycle records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R750.751",
-      "title": "Behavior: Organization runtime, agent market, digital twin and lifecycle records",
+      "title": "Behaviour: recruit, allocate, replay and move state",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R750.752",
-      "title": "Refusal: Organization runtime, agent market, digital twin and lifecycle records",
+      "title": "Refusal: four organization faults",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R750.753",
-      "title": "Hot-path proof: Organization runtime, agent market, digital twin and lifecycle records",
+      "title": "Hot-path proof: twin capture and served journey",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1402,28 +1528,28 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R751.750",
-      "title": "Model: Team composition, evolution, specialization discovery and social systems",
+      "title": "Model: team, specialist, population and social records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R751.751",
-      "title": "Behavior: Team composition, evolution, specialization discovery and social systems",
+      "title": "Behaviour: score teams and promote specialists",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R751.752",
-      "title": "Refusal: Team composition, evolution, specialization discovery and social systems",
+      "title": "Refusal: three team faults",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R751.753",
-      "title": "Hot-path proof: Team composition, evolution, specialization discovery and social systems",
+      "title": "Hot-path proof: team scoring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1445,70 +1571,168 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R800.1",
-      "title": "Model",
+      "title": "Model: prompt template and workflow pattern",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R800.2",
-      "title": "Behavior",
+      "title": "Behaviour: typed rendering and pattern selection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R800.3",
-      "title": "Wiring",
+      "title": "Wiring: definitions are read by assembly and revised by version",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R800.4",
-      "title": "Refusal",
+      "title": "Refusal: four definition faults",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R800.5",
-      "title": "Evidence",
+      "title": "Evidence: revision history and render digest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R800.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: render budget",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R004.700",
-      "title": "Policy and rule documents ingest as guardrail scope: model and behavior",
+      "title": "Parse policy and rule documents into guardrail scope: model and behaviour",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R004.701",
-      "title": "Policy and rule documents ingest as guardrail scope: refusal, evidence and hot-path proof",
+      "title": "Parse policy and rule documents: refusal and proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.18.1",
+      "title": "Model: observation window record",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.18.2",
+      "title": "Behaviour and refusal: ingest a window",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.18.3",
+      "title": "Wiring: producer and consumer of windows",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.18.4",
+      "title": "Evidence: before and after trace facts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.101.1",
+      "title": "Index a batch of harness sessions",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.101.2",
+      "title": "Search harness sessions across the full manifest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.700",
-      "title": "Durable execution units mirror into the run-trace vocabulary: model and behavior",
+      "title": "Mirror durable run units as run-trace nodes: model and behaviour",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.701",
-      "title": "Durable execution units mirror into the run-trace vocabulary: refusal, evidence and hot-path proof",
+      "title": "Mirror durable run units as run-trace nodes: refusal and proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R012.7.1",
+      "title": "Model: policy candidate with source spans",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R012.7.2",
+      "title": "Wiring: synthesize on repository index",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R012.7.3",
+      "title": "Activation: invariant guard, review and atomic publish",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R012.7.4",
+      "title": "Evidence: decisions record the active policy revision",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R013.7.1",
+      "title": "Model: walkthrough manifest",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R013.7.2",
+      "title": "Refusal: validate the manifest on write",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R013.7.3",
+      "title": "Evidence: independent readback and artifact digest",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R616.2.1",
+      "title": "Export and import a team as OWL",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1516,24 +1740,19 @@
     {
       "id": "EG-ORCH-VOCAB-R801",
       "title": "Versioned harness components as graph facts (rollup)",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "70de3b70bbdc"
       ],
-      "verified_by": [
-        "crates/eg-types/src/orchestration/mod.rs:488",
-        "crates/eg-types/tests/harness_components.rs:141",
-        "crates/eg-types/tests/harness_components.rs:209",
-        "crates/eg-types/tests/harness_components.rs:32",
-        "crates/eg-types/tests/harness_components.rs:70"
-      ],
+      "verified_by": [],
       "rollup_of": [
         "EG-ORCH-VOCAB-R801.1",
         "EG-ORCH-VOCAB-R801.2",
         "EG-ORCH-VOCAB-R801.3",
         "EG-ORCH-VOCAB-R801.4",
         "EG-ORCH-VOCAB-R801.5",
-        "EG-ORCH-VOCAB-R801.6"
+        "EG-ORCH-VOCAB-R801.6",
+        "EG-ORCH-VOCAB-R801.7"
       ]
     },
     {
@@ -1602,6 +1821,13 @@
       "verified_by": [
         "tests/orchestration/test_harness_components_served.py:63"
       ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R801.7",
+      "title": "Harness component and adoption chains become revision subjects",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R802",
@@ -1691,6 +1917,62 @@
       "verified_by": [
         "tests/orchestration/test_harness_lessons_served.py:154"
       ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R803",
+      "title": "Serve the five run trace queries as one method",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R804",
+      "title": "Tenant telemetry snapshot read method",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R805",
+      "title": "Per-turn timing observations in the session usage result",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R806",
+      "title": "Policy activation method with review receipt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R807",
+      "title": "Indexed agent-session query method",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R808",
+      "title": "AgentDefinition carries a knowledge scope",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R809",
+      "title": "Lossless versioned workflow RDF export and import",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R810",
+      "title": "Store run-bound visual observation records",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }

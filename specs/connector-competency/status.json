@@ -275,6 +275,10 @@
     "EG-CQ-CONN-R067.4",
     "EG-CQ-CONN-R067.5",
     "EG-CQ-CONN-R067.6",
+    "EG-CQ-CONN-R067.7",
+    "EG-CQ-CONN-R067.8",
+    "EG-CQ-CONN-R067.9",
+    "EG-CQ-CONN-R067.10",
     "EG-CQ-CONN-R068",
     "EG-CQ-CONN-R068.1",
     "EG-CQ-CONN-R068.2",
@@ -302,6 +306,7 @@
     "EG-CQ-CONN-R068.24",
     "EG-CQ-CONN-R068.25",
     "EG-CQ-CONN-R068.26",
+    "EG-CQ-CONN-R068.27",
     "EG-CQ-CONN-R069",
     "EG-CQ-CONN-R069.1",
     "EG-CQ-CONN-R069.2",
@@ -326,6 +331,9 @@
     "EG-CQ-CONN-R069.21",
     "EG-CQ-CONN-R069.22",
     "EG-CQ-CONN-R069.23",
+    "EG-CQ-CONN-R069.24",
+    "EG-CQ-CONN-R069.25",
+    "EG-CQ-CONN-R069.26",
     "EG-CQ-CONN-R070",
     "EG-CQ-CONN-R070.1",
     "EG-CQ-CONN-R070.2",
@@ -433,7 +441,11 @@
     "EG-CQ-CONN-R085.3",
     "EG-CQ-CONN-R085.4",
     "EG-CQ-CONN-R085.5",
-    "EG-CQ-CONN-R085.6"
+    "EG-CQ-CONN-R085.6",
+    "EG-CQ-CONN-R086",
+    "EG-CQ-CONN-R087",
+    "EG-CQ-CONN-R088",
+    "EG-CQ-CONN-R089"
   ],
   "requirements": [
     {
@@ -464,10 +476,11 @@
     },
     {
       "id": "EG-CQ-CONN-R001.3",
-      "title": "ansible-tower acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R002",
@@ -497,10 +510,11 @@
     },
     {
       "id": "EG-CQ-CONN-R002.3",
-      "title": "archimate acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R003",
@@ -534,10 +548,11 @@
     },
     {
       "id": "EG-CQ-CONN-R003.3",
-      "title": "archivebox acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R004",
@@ -567,17 +582,24 @@
     },
     {
       "id": "EG-CQ-CONN-R004.3",
-      "title": "aris acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R005",
       "title": "arr competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:140",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:178"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R005.1",
         "EG-CQ-CONN-R005.2",
@@ -610,12 +632,13 @@
     },
     {
       "id": "EG-CQ-CONN-R005.3",
-      "title": "arr acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_vocab.rs:1574"
-      ]
+      ],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R006",
@@ -645,17 +668,24 @@
     },
     {
       "id": "EG-CQ-CONN-R006.3",
-      "title": "atlassian acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R007",
       "title": "audiobookshelf competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:230",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:280"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R007.1",
         "EG-CQ-CONN-R007.2",
@@ -688,19 +718,26 @@
     },
     {
       "id": "EG-CQ-CONN-R007.3",
-      "title": "audiobookshelf acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_vocab.rs:1595"
-      ]
+      ],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R008",
       "title": "audio-transcriber competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1149",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1190"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R008.1",
         "EG-CQ-CONN-R008.2",
@@ -733,12 +770,13 @@
     },
     {
       "id": "EG-CQ-CONN-R008.3",
-      "title": "audio-transcriber acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_vocab.rs:1615"
-      ]
+      ],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R009",
@@ -768,10 +806,11 @@
     },
     {
       "id": "EG-CQ-CONN-R009.3",
-      "title": "caddy acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R010",
@@ -801,10 +840,11 @@
     },
     {
       "id": "EG-CQ-CONN-R010.3",
-      "title": "camunda acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R011",
@@ -834,10 +874,11 @@
     },
     {
       "id": "EG-CQ-CONN-R011.3",
-      "title": "ciso-assistant acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R012",
@@ -872,10 +913,11 @@
     },
     {
       "id": "EG-CQ-CONN-R012.3",
-      "title": "clarity acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R013",
@@ -909,17 +951,24 @@
     },
     {
       "id": "EG-CQ-CONN-R013.3",
-      "title": "container-manager acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R014",
       "title": "data-science competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1024",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:989"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R014.1",
         "EG-CQ-CONN-R014.2",
@@ -952,12 +1001,13 @@
     },
     {
       "id": "EG-CQ-CONN-R014.3",
-      "title": "data-science acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_vocab.rs:1635"
-      ]
+      ],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R015",
@@ -987,17 +1037,24 @@
     },
     {
       "id": "EG-CQ-CONN-R015.3",
-      "title": "dockerhub acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R016",
-      "title": "documentdb competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "title": "documentdb competency (rollup)",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:785",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:835"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R016.1",
         "EG-CQ-CONN-R016.2",
@@ -1030,16 +1087,17 @@
     },
     {
       "id": "EG-CQ-CONN-R016.3",
-      "title": "documentdb acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_vocab.rs:1652"
-      ]
+      ],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R017",
-      "title": "egeria competency rollup",
+      "title": "egeria competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1069,14 +1127,15 @@
     },
     {
       "id": "EG-CQ-CONN-R017.3",
-      "title": "egeria acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R018",
-      "title": "emerald-exchange competency rollup",
+      "title": "emerald-exchange competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1102,14 +1161,15 @@
     },
     {
       "id": "EG-CQ-CONN-R018.3",
-      "title": "emerald-exchange acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R019",
-      "title": "erpnext competency rollup",
+      "title": "erpnext competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1135,10 +1195,11 @@
     },
     {
       "id": "EG-CQ-CONN-R019.3",
-      "title": "erpnext acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R020",
@@ -1194,7 +1255,7 @@
     },
     {
       "id": "EG-CQ-CONN-R021",
-      "title": "firefly-iii competency rollup",
+      "title": "firefly-iii competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1220,14 +1281,15 @@
     },
     {
       "id": "EG-CQ-CONN-R021.3",
-      "title": "firefly-iii acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R022",
-      "title": "freshrss competency rollup",
+      "title": "freshrss competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1258,14 +1320,15 @@
     },
     {
       "id": "EG-CQ-CONN-R022.3",
-      "title": "freshrss acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R023",
-      "title": "github competency rollup",
+      "title": "github competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1291,14 +1354,15 @@
     },
     {
       "id": "EG-CQ-CONN-R023.3",
-      "title": "github acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R024",
-      "title": "gitlab competency rollup",
+      "title": "gitlab competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1324,14 +1388,15 @@
     },
     {
       "id": "EG-CQ-CONN-R024.3",
-      "title": "gitlab acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R025",
-      "title": "gramps competency rollup",
+      "title": "gramps competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1357,14 +1422,15 @@
     },
     {
       "id": "EG-CQ-CONN-R025.3",
-      "title": "gramps acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R026",
-      "title": "home-assistant competency rollup",
+      "title": "home-assistant competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1394,14 +1460,15 @@
     },
     {
       "id": "EG-CQ-CONN-R026.3",
-      "title": "home-assistant acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R027",
-      "title": "jellyfin competency rollup",
+      "title": "jellyfin competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1432,14 +1499,15 @@
     },
     {
       "id": "EG-CQ-CONN-R027.3",
-      "title": "jellyfin acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R028",
-      "title": "jena competency rollup",
+      "title": "jena competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1465,14 +1533,15 @@
     },
     {
       "id": "EG-CQ-CONN-R028.3",
-      "title": "jena acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R029",
-      "title": "kafka competency rollup",
+      "title": "kafka competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1498,14 +1567,15 @@
     },
     {
       "id": "EG-CQ-CONN-R029.3",
-      "title": "kafka acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R030",
-      "title": "keycloak competency rollup",
+      "title": "keycloak competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1535,14 +1605,15 @@
     },
     {
       "id": "EG-CQ-CONN-R030.3",
-      "title": "keycloak acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R031",
-      "title": "langfuse competency rollup",
+      "title": "langfuse competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1568,14 +1639,15 @@
     },
     {
       "id": "EG-CQ-CONN-R031.3",
-      "title": "langfuse acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R032",
-      "title": "leanix competency rollup",
+      "title": "leanix competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1601,14 +1673,15 @@
     },
     {
       "id": "EG-CQ-CONN-R032.3",
-      "title": "leanix acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R033",
-      "title": "legal-peripherals competency rollup",
+      "title": "legal-peripherals competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1634,14 +1707,15 @@
     },
     {
       "id": "EG-CQ-CONN-R033.3",
-      "title": "legal-peripherals acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R034",
-      "title": "lgtm competency rollup",
+      "title": "lgtm competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1667,14 +1741,15 @@
     },
     {
       "id": "EG-CQ-CONN-R034.3",
-      "title": "lgtm acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R035",
-      "title": "listmonk competency rollup",
+      "title": "listmonk competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1700,14 +1775,15 @@
     },
     {
       "id": "EG-CQ-CONN-R035.3",
-      "title": "listmonk acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R036",
-      "title": "mattermost competency rollup",
+      "title": "mattermost competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1733,14 +1809,15 @@
     },
     {
       "id": "EG-CQ-CONN-R036.3",
-      "title": "mattermost acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R037",
-      "title": "mealie competency rollup",
+      "title": "mealie competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1766,17 +1843,24 @@
     },
     {
       "id": "EG-CQ-CONN-R037.3",
-      "title": "mealie acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R038",
-      "title": "media-downloader competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "title": "media-downloader competency (rollup)",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:375",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:413"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R038.1",
         "EG-CQ-CONN-R038.2",
@@ -1809,19 +1893,26 @@
     },
     {
       "id": "EG-CQ-CONN-R038.3",
-      "title": "media-downloader acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_vocab.rs:1669"
-      ]
+      ],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R039",
-      "title": "microsoft competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "title": "microsoft competency (rollup)",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d8a48968fc3d",
+        "f4de9d310511"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency.rs:1074",
+        "crates/eg-rdf/tests/connector_competency.rs:343"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R039.1",
         "EG-CQ-CONN-R039.2",
@@ -1852,14 +1943,15 @@
     },
     {
       "id": "EG-CQ-CONN-R039.3",
-      "title": "microsoft acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R040",
-      "title": "nextcloud competency rollup",
+      "title": "nextcloud competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1885,17 +1977,24 @@
     },
     {
       "id": "EG-CQ-CONN-R040.3",
-      "title": "nextcloud acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R041",
-      "title": "objectstore competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "title": "objectstore competency (rollup)",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:893",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:951"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R041.1",
         "EG-CQ-CONN-R041.2",
@@ -1928,16 +2027,17 @@
     },
     {
       "id": "EG-CQ-CONN-R041.3",
-      "title": "objectstore acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_vocab.rs:1690"
-      ]
+      ],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R042",
-      "title": "okta competency rollup",
+      "title": "okta competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1967,14 +2067,15 @@
     },
     {
       "id": "EG-CQ-CONN-R042.3",
-      "title": "okta acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R043",
-      "title": "onetrust competency rollup",
+      "title": "onetrust competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2000,14 +2101,15 @@
     },
     {
       "id": "EG-CQ-CONN-R043.3",
-      "title": "onetrust acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R044",
-      "title": "openbao competency rollup",
+      "title": "openbao competency (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2033,10 +2135,11 @@
     },
     {
       "id": "EG-CQ-CONN-R044.3",
-      "title": "openbao acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R045",
@@ -2071,10 +2174,11 @@
     },
     {
       "id": "EG-CQ-CONN-R045.3",
-      "title": "owncast acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R046",
@@ -2104,10 +2208,11 @@
     },
     {
       "id": "EG-CQ-CONN-R046.3",
-      "title": "paperless-ngx acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R047",
@@ -2137,10 +2242,11 @@
     },
     {
       "id": "EG-CQ-CONN-R047.3",
-      "title": "plane acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R048",
@@ -2170,10 +2276,11 @@
     },
     {
       "id": "EG-CQ-CONN-R048.3",
-      "title": "portainer acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R049",
@@ -2203,17 +2310,24 @@
     },
     {
       "id": "EG-CQ-CONN-R049.3",
-      "title": "postiz acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R050",
       "title": "pulselink competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1240",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1281"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R050.1",
         "EG-CQ-CONN-R050.2",
@@ -2246,19 +2360,26 @@
     },
     {
       "id": "EG-CQ-CONN-R050.3",
-      "title": "pulselink acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_vocab.rs:1707"
-      ]
+      ],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R051",
       "title": "qbittorrent competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:505",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:544"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R051.1",
         "EG-CQ-CONN-R051.2",
@@ -2291,12 +2412,13 @@
     },
     {
       "id": "EG-CQ-CONN-R051.3",
-      "title": "qbittorrent acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_vocab.rs:1724"
-      ]
+      ],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R052",
@@ -2326,17 +2448,27 @@
     },
     {
       "id": "EG-CQ-CONN-R052.3",
-      "title": "repository-manager acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R053",
       "title": "rom-manager competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c",
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:74",
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:84",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:595",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:629"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R053.1",
         "EG-CQ-CONN-R053.2",
@@ -2373,19 +2505,25 @@
     },
     {
       "id": "EG-CQ-CONN-R053.3",
-      "title": "rom-manager acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_vocab.rs:1745"
-      ]
+      ],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R054",
       "title": "salesforce competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:109",
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:98"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R054.1",
         "EG-CQ-CONN-R054.2",
@@ -2416,17 +2554,27 @@
     },
     {
       "id": "EG-CQ-CONN-R054.3",
-      "title": "salesforce acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R055",
       "title": "scholarx competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c",
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:120",
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:129",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1421",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1454"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R055.1",
         "EG-CQ-CONN-R055.2",
@@ -2463,19 +2611,29 @@
     },
     {
       "id": "EG-CQ-CONN-R055.3",
-      "title": "scholarx acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_vocab.rs:1765"
-      ]
+      ],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R056",
       "title": "searxng competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c",
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:139",
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:148",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1486",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1534"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R056.1",
         "EG-CQ-CONN-R056.2",
@@ -2512,19 +2670,25 @@
     },
     {
       "id": "EG-CQ-CONN-R056.3",
-      "title": "searxng acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_vocab.rs:1782"
-      ]
+      ],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R057",
       "title": "servicenow competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:158",
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:169"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R057.1",
         "EG-CQ-CONN-R057.2",
@@ -2555,17 +2719,27 @@
     },
     {
       "id": "EG-CQ-CONN-R057.3",
-      "title": "servicenow acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R058",
       "title": "sql competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c",
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:179",
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:188",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:681",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:734"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R058.1",
         "EG-CQ-CONN-R058.2",
@@ -2602,19 +2776,25 @@
     },
     {
       "id": "EG-CQ-CONN-R058.3",
-      "title": "sql acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_vocab.rs:1799"
-      ]
+      ],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R059",
       "title": "stirlingpdf competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:198",
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:208"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R059.1",
         "EG-CQ-CONN-R059.2",
@@ -2645,17 +2825,23 @@
     },
     {
       "id": "EG-CQ-CONN-R059.3",
-      "title": "stirlingpdf acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R060",
       "title": "systems-manager competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:222",
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:233"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R060.1",
         "EG-CQ-CONN-R060.2",
@@ -2686,17 +2872,23 @@
     },
     {
       "id": "EG-CQ-CONN-R060.3",
-      "title": "systems-manager acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R061",
       "title": "technitium-dns competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:248",
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:259"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R061.1",
         "EG-CQ-CONN-R061.2",
@@ -2727,17 +2919,23 @@
     },
     {
       "id": "EG-CQ-CONN-R061.3",
-      "title": "technitium-dns acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R062",
       "title": "tunnel-manager competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:269",
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:280"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R062.1",
         "EG-CQ-CONN-R062.2",
@@ -2768,17 +2966,23 @@
     },
     {
       "id": "EG-CQ-CONN-R062.3",
-      "title": "tunnel-manager acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R063",
       "title": "twenty competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:298",
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:309"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R063.1",
         "EG-CQ-CONN-R063.2",
@@ -2809,10 +3013,11 @@
     },
     {
       "id": "EG-CQ-CONN-R063.3",
-      "title": "twenty acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R064",
@@ -2875,9 +3080,18 @@
     {
       "id": "EG-CQ-CONN-R065",
       "title": "vector competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c",
+        "75dd94362178",
+        "e67475c17e3b"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:340",
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:349",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1065",
+        "crates/eg-rdf/tests/connector_competency_vocab.rs:1114"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R065.1",
         "EG-CQ-CONN-R065.2",
@@ -2914,19 +3128,25 @@
     },
     {
       "id": "EG-CQ-CONN-R065.3",
-      "title": "vector acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-rdf/tests/connector_competency_vocab.rs:1816"
-      ]
+      ],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R066",
       "title": "wger competency rollup",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "556a40fd795c"
+      ],
+      "verified_by": [
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:360",
+        "crates/eg-core/tests/connector_competency_c4_abstentions.rs:371"
+      ],
       "rollup_of": [
         "EG-CQ-CONN-R066.1",
         "EG-CQ-CONN-R066.2",
@@ -2957,14 +3177,15 @@
     },
     {
       "id": "EG-CQ-CONN-R066.3",
-      "title": "wger acceptance test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: collapsed into the table-driven served test",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "collapsed into the table-driven served test"
     },
     {
       "id": "EG-CQ-CONN-R067",
-      "title": "Contract kinds rollup",
+      "title": "Contract kinds and the served competency harness rollup",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2974,7 +3195,11 @@
         "EG-CQ-CONN-R067.3",
         "EG-CQ-CONN-R067.4",
         "EG-CQ-CONN-R067.5",
-        "EG-CQ-CONN-R067.6"
+        "EG-CQ-CONN-R067.6",
+        "EG-CQ-CONN-R067.7",
+        "EG-CQ-CONN-R067.8",
+        "EG-CQ-CONN-R067.9",
+        "EG-CQ-CONN-R067.10"
       ]
     },
     {
@@ -3007,7 +3232,7 @@
     },
     {
       "id": "EG-CQ-CONN-R067.5",
-      "title": "virtual graph over a relational or document store contract answers at query time",
+      "title": "Virtual graph over a relational or document store answers at query time",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3020,8 +3245,36 @@
       "verified_by": []
     },
     {
+      "id": "EG-CQ-CONN-R067.7",
+      "title": "Case table schema and loader",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R067.8",
+      "title": "Fixture contract source",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R067.9",
+      "title": "Table-driven served acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R067.10",
+      "title": "Abstention variants of the served acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-CQ-CONN-R068",
-      "title": "infrastructure-v1.ttl additions rollup",
+      "title": "infrastructure-v1 additions rollup",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3051,7 +3304,8 @@
         "EG-CQ-CONN-R068.23",
         "EG-CQ-CONN-R068.24",
         "EG-CQ-CONN-R068.25",
-        "EG-CQ-CONN-R068.26"
+        "EG-CQ-CONN-R068.26",
+        "EG-CQ-CONN-R068.27"
       ]
     },
     {
@@ -3253,8 +3507,15 @@
       "verified_by": []
     },
     {
+      "id": "EG-CQ-CONN-R068.27",
+      "title": "stackInEnvironment",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-CQ-CONN-R069",
-      "title": "sdlc_lifecycle-v1.ttl additions plus software-v1 canonical reuse rollup",
+      "title": "sdlc_lifecycle-v1 additions rollup",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3281,7 +3542,10 @@
         "EG-CQ-CONN-R069.20",
         "EG-CQ-CONN-R069.21",
         "EG-CQ-CONN-R069.22",
-        "EG-CQ-CONN-R069.23"
+        "EG-CQ-CONN-R069.23",
+        "EG-CQ-CONN-R069.24",
+        "EG-CQ-CONN-R069.25",
+        "EG-CQ-CONN-R069.26"
       ]
     },
     {
@@ -3502,8 +3766,29 @@
       ]
     },
     {
+      "id": "EG-CQ-CONN-R069.24",
+      "title": "cycleState",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.25",
+      "title": "pipelineStatus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.26",
+      "title": "pipelineRunOf",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-CQ-CONN-R070",
-      "title": "archimate-v1.ttl additions rollup",
+      "title": "archimate-v1 additions rollup",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3592,7 +3877,7 @@
     },
     {
       "id": "EG-CQ-CONN-R071",
-      "title": "documentation-v1.ttl additions rollup",
+      "title": "documentation-v1 additions (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3607,7 +3892,7 @@
     },
     {
       "id": "EG-CQ-CONN-R071.1",
-      "title": "shapes companion for documentation-v1",
+      "title": "Shapes companion for documentation-v1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3649,7 +3934,7 @@
     },
     {
       "id": "EG-CQ-CONN-R072",
-      "title": "process_intelligence-v1.ttl additions rollup",
+      "title": "process_intelligence-v1 additions (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3714,7 +3999,7 @@
     },
     {
       "id": "EG-CQ-CONN-R073",
-      "title": "government-v1.ttl additions rollup",
+      "title": "government-v1 additions (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3853,7 +4138,7 @@
     },
     {
       "id": "EG-CQ-CONN-R074",
-      "title": "core-foundation-v1.ttl additions rollup",
+      "title": "core-foundation-v1 additions (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3932,7 +4217,7 @@
     },
     {
       "id": "EG-CQ-CONN-R075",
-      "title": "finance-v1.ttl additions rollup",
+      "title": "finance-v1 additions (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3948,7 +4233,7 @@
     },
     {
       "id": "EG-CQ-CONN-R075.1",
-      "title": "shapes companion for finance-v1",
+      "title": "Shapes companion for finance-v1 is already registered; bind its test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -4122,7 +4407,7 @@
     },
     {
       "id": "EG-CQ-CONN-R077",
-      "title": "virtual_graph-v1.ttl additions rollup",
+      "title": "virtual_graph-v1 additions (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -4155,7 +4440,7 @@
     },
     {
       "id": "EG-CQ-CONN-R078",
-      "title": "identity-v1.ttl additions rollup",
+      "title": "identity-v1 additions (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -4169,17 +4454,18 @@
     },
     {
       "id": "EG-CQ-CONN-R078.1",
-      "title": "shapes companion for identity-v1",
+      "title": "Shapes companion for identity-v1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R078.2",
-      "title": "Application",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: `:Application` is already declared",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "`:Application` is already declared"
     },
     {
       "id": "EG-CQ-CONN-R078.3",
@@ -4204,7 +4490,7 @@
     },
     {
       "id": "EG-CQ-CONN-R079",
-      "title": "orchestration-v1.ttl additions rollup",
+      "title": "orchestration-v1 additions (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -4218,7 +4504,7 @@
     },
     {
       "id": "EG-CQ-CONN-R079.1",
-      "title": "shapes companion for orchestration-v1",
+      "title": "Shapes companion for orchestration-v1 is already registered; bind its test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -4269,7 +4555,7 @@
     },
     {
       "id": "EG-CQ-CONN-R080",
-      "title": "enterprise-v1.ttl additions rollup",
+      "title": "enterprise-v1 additions (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -4282,7 +4568,7 @@
     },
     {
       "id": "EG-CQ-CONN-R080.1",
-      "title": "shapes companion for enterprise-v1",
+      "title": "Shapes companion for enterprise-v1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -4310,7 +4596,7 @@
     },
     {
       "id": "EG-CQ-CONN-R081",
-      "title": "nutrition-v1.ttl additions rollup",
+      "title": "nutrition-v1 additions (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -4408,10 +4694,11 @@
     },
     {
       "id": "EG-CQ-CONN-R083",
-      "title": "erpnext, salesforce and twenty vocabulary (rollup, single row)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: commercial vocabulary is owned by the supply vocabulary spec",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "commercial vocabulary is owned by the supply vocabulary spec"
     },
     {
       "id": "EG-CQ-CONN-R084",
@@ -4469,14 +4756,14 @@
     },
     {
       "id": "EG-CQ-CONN-R084.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof for the pack questions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R085",
-      "title": "Competency check: a question spans a connector's live data and the ontology (rollup)",
+      "title": "A question spans a connector's live data and the ontology (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -4491,42 +4778,72 @@
     },
     {
       "id": "EG-CQ-CONN-R085.1",
-      "title": "Model",
+      "title": "Model: the connector auto-onboard fixture",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R085.2",
-      "title": "Behavior",
+      "title": "Behavior: a parent-term question returns native and live connector rows",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R085.3",
-      "title": "Wiring",
+      "title": "Wiring: the check uses the production import and scan",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R085.4",
-      "title": "Refusal",
+      "title": "Refusal: orphaned ontology and held source abstain by name",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R085.5",
-      "title": "Evidence",
+      "title": "Evidence: the answer cites digest, revision and fetch time, and lists the load set",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-CQ-CONN-R085.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: an onboarded fixture connector answers a cross-ontology live question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R086",
+      "title": "RETIRED: duplicate of the served competency harness",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "duplicate of the served competency harness"
+    },
+    {
+      "id": "EG-CQ-CONN-R087",
+      "title": "Declare the web-resource change link",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R088",
+      "title": "RETIRED: duplicate of the served competency harness",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "duplicate of the served competency harness"
+    },
+    {
+      "id": "EG-CQ-CONN-R089",
+      "title": "Served vocabulary coverage test for the modules of R071 to R081",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

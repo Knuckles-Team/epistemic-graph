@@ -111,15 +111,38 @@
     "EG-MEDIA-VOCAB-R033",
     "EG-MEDIA-VOCAB-R002.5",
     "EG-MEDIA-VOCAB-R001.100",
+    "EG-MEDIA-VOCAB-R001.100.1",
+    "EG-MEDIA-VOCAB-R001.100.2",
+    "EG-MEDIA-VOCAB-R001.100.3",
     "EG-MEDIA-VOCAB-R001.101",
+    "EG-MEDIA-VOCAB-R001.101.1",
+    "EG-MEDIA-VOCAB-R001.101.2",
+    "EG-MEDIA-VOCAB-R001.101.3",
+    "EG-MEDIA-VOCAB-R001.101.4",
+    "EG-MEDIA-VOCAB-R001.101.5",
+    "EG-MEDIA-VOCAB-R001.101.6",
     "EG-MEDIA-VOCAB-R001.102",
+    "EG-MEDIA-VOCAB-R001.102.1",
+    "EG-MEDIA-VOCAB-R001.102.2",
+    "EG-MEDIA-VOCAB-R001.102.3",
+    "EG-MEDIA-VOCAB-R001.102.4",
+    "EG-MEDIA-VOCAB-R002.5.1",
+    "EG-MEDIA-VOCAB-R002.5.2",
+    "EG-MEDIA-VOCAB-R002.5.3",
+    "EG-MEDIA-VOCAB-R002.5.4",
+    "EG-MEDIA-VOCAB-R002.5.5",
     "EG-MEDIA-VOCAB-R650",
     "EG-MEDIA-VOCAB-R650.1",
     "EG-MEDIA-VOCAB-R650.2",
     "EG-MEDIA-VOCAB-R650.3",
     "EG-MEDIA-VOCAB-R650.4",
     "EG-MEDIA-VOCAB-R650.5",
-    "EG-MEDIA-VOCAB-R650.6"
+    "EG-MEDIA-VOCAB-R650.6",
+    "EG-MEDIA-VOCAB-R651",
+    "EG-MEDIA-VOCAB-R652",
+    "EG-MEDIA-VOCAB-R653",
+    "EG-MEDIA-VOCAB-R654",
+    "EG-MEDIA-VOCAB-R655"
   ],
   "requirements": [
     {
@@ -1433,28 +1456,180 @@
     },
     {
       "id": "EG-MEDIA-VOCAB-R002.5",
-      "title": "Receipt-bound paper facts; citation edges",
+      "title": "Receipt-bound paper facts and citation edges (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-MEDIA-VOCAB-R002.5.1",
+        "EG-MEDIA-VOCAB-R002.5.2",
+        "EG-MEDIA-VOCAB-R002.5.3",
+        "EG-MEDIA-VOCAB-R002.5.4",
+        "EG-MEDIA-VOCAB-R002.5.5"
+      ]
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.100",
+      "title": "Provenanced media tags and authorized media search (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-MEDIA-VOCAB-R001.100.1",
+        "EG-MEDIA-VOCAB-R001.100.2",
+        "EG-MEDIA-VOCAB-R001.100.3"
+      ]
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.100.1",
+      "title": "Tag vocabulary",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-R001.100",
-      "title": "Provenanced object/context tags and authorized media search",
+      "id": "EG-MEDIA-VOCAB-R001.100.2",
+      "title": "Tag ingest mapping",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.100.3",
+      "title": "Authorized search and served proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-MEDIA-VOCAB-R001.101",
-      "title": "Meeting transcript revisions and provider-bound summary context",
+      "title": "Meeting transcript revisions and bound summary context (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-MEDIA-VOCAB-R001.101.1",
+        "EG-MEDIA-VOCAB-R001.101.2",
+        "EG-MEDIA-VOCAB-R001.101.3",
+        "EG-MEDIA-VOCAB-R001.101.4",
+        "EG-MEDIA-VOCAB-R001.101.5",
+        "EG-MEDIA-VOCAB-R001.101.6"
+      ]
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.101.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.101.2",
+      "title": "Revision behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.101.3",
+      "title": "Revision wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.101.4",
+      "title": "Summary context",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.101.5",
+      "title": "Summary commit",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.101.6",
+      "title": "Refusals, evidence and served proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-MEDIA-VOCAB-R001.102",
-      "title": "Bookmark semantic search and authorized relation projection",
+      "title": "Bookmark semantic search and authorized relations (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-MEDIA-VOCAB-R001.102.1",
+        "EG-MEDIA-VOCAB-R001.102.2",
+        "EG-MEDIA-VOCAB-R001.102.3",
+        "EG-MEDIA-VOCAB-R001.102.4"
+      ]
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.102.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.102.2",
+      "title": "Search",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.102.3",
+      "title": "Relations",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.102.4",
+      "title": "Refusals, evidence and served proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R002.5.1",
+      "title": "Identity and receipt checks",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R002.5.2",
+      "title": "Mapping and provenance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R002.5.3",
+      "title": "Citation edges",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R002.5.4",
+      "title": "Vocabulary reconciliation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R002.5.5",
+      "title": "Refusals and served proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1512,6 +1687,41 @@
     {
       "id": "EG-MEDIA-VOCAB-R650.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R651",
+      "title": "Engagement metric name and value",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R652",
+      "title": "announcesStream link",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R653",
+      "title": "totalAmount covers purchase invoices",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R654",
+      "title": "Transcript segments carry storage, event and narrative time",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R655",
+      "title": "Food composition and nutrient reference types",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

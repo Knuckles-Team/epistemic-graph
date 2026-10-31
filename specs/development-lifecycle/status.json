@@ -32,6 +32,8 @@
     "EG-SDLC-R004.4",
     "EG-SDLC-R004.5",
     "EG-SDLC-R004.6",
+    "EG-SDLC-R004.7",
+    "EG-SDLC-R004.8",
     "EG-SDLC-R005",
     "EG-SDLC-R005.1",
     "EG-SDLC-R005.2",
@@ -45,7 +47,13 @@
     "EG-SDLC-R006.3",
     "EG-SDLC-R006.4",
     "EG-SDLC-R006.5",
-    "EG-SDLC-R006.6"
+    "EG-SDLC-R006.6",
+    "EG-SDLC-R006.7",
+    "EG-SDLC-R007",
+    "EG-SDLC-R008",
+    "EG-SDLC-R009",
+    "EG-SDLC-R010",
+    "EG-SDLC-R011"
   ],
   "requirements": [
     {
@@ -65,7 +73,7 @@
     },
     {
       "id": "EG-SDLC-R001.1",
-      "title": "Model",
+      "title": "Model: lifecycle kinds, edges and shapes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -83,7 +91,7 @@
     },
     {
       "id": "EG-SDLC-R001.3",
-      "title": "Wiring",
+      "title": "Wiring: derive edges when a changeset is accepted or a commit is indexed",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -112,7 +120,7 @@
     },
     {
       "id": "EG-SDLC-R001.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: served derivation and nightly budget",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -156,28 +164,28 @@
     },
     {
       "id": "EG-SDLC-R002.3",
-      "title": "Wiring",
+      "title": "Wiring: record releases and deployments through served methods",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SDLC-R002.4",
-      "title": "Refusal",
+      "title": "Refusal: unknown head and duplicate version",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SDLC-R002.5",
-      "title": "Evidence",
+      "title": "Evidence: sealed release records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SDLC-R002.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: served deployment records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -221,28 +229,28 @@
     },
     {
       "id": "EG-SDLC-R003.3",
-      "title": "Wiring",
+      "title": "Wiring: intake callers file defects",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SDLC-R003.4",
-      "title": "Refusal",
+      "title": "Refusal: illegal status move and unverified fix",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SDLC-R003.5",
-      "title": "Evidence",
+      "title": "Evidence: symptom list per defect",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SDLC-R003.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: served intake",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -259,7 +267,9 @@
         "EG-SDLC-R004.3",
         "EG-SDLC-R004.4",
         "EG-SDLC-R004.5",
-        "EG-SDLC-R004.6"
+        "EG-SDLC-R004.6",
+        "EG-SDLC-R004.7",
+        "EG-SDLC-R004.8"
       ]
     },
     {
@@ -286,28 +296,42 @@
     },
     {
       "id": "EG-SDLC-R004.3",
-      "title": "Wiring",
+      "title": "Wiring: `DefectTriage` question kind and `TriageDefect` method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SDLC-R004.4",
-      "title": "Refusal",
+      "title": "Refusal: unknown and closed defects",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SDLC-R004.5",
-      "title": "Evidence",
+      "title": "Evidence: premises and replay",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SDLC-R004.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: served triage journey",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SDLC-R004.7",
+      "title": "Model: triage knobs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SDLC-R004.8",
+      "title": "Behaviour: kernel in the numeric crate, bounded by knobs",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -351,28 +375,28 @@
     },
     {
       "id": "EG-SDLC-R005.3",
-      "title": "Wiring",
+      "title": "Wiring: `SpecStatus` method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SDLC-R005.4",
-      "title": "Refusal",
+      "title": "Refusal: unknown revision and absent spec tree",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SDLC-R005.5",
-      "title": "Evidence",
+      "title": "Evidence: landing changesets, test ids and generator equality",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SDLC-R005.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: served status journey",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -389,7 +413,8 @@
         "EG-SDLC-R006.3",
         "EG-SDLC-R006.4",
         "EG-SDLC-R006.5",
-        "EG-SDLC-R006.6"
+        "EG-SDLC-R006.6",
+        "EG-SDLC-R006.7"
       ]
     },
     {
@@ -416,28 +441,70 @@
     },
     {
       "id": "EG-SDLC-R006.3",
-      "title": "Wiring",
+      "title": "Wiring: `LifecycleTrace` method and four competency questions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SDLC-R006.4",
-      "title": "Refusal",
+      "title": "Refusal: kind, depth and tenant",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SDLC-R006.5",
-      "title": "Evidence",
+      "title": "Evidence: rules, versions and limits",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SDLC-R006.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: served trace journey",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SDLC-R006.7",
+      "title": "Model: trace limits are knobs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SDLC-R007",
+      "title": "Combined quality-gate script",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SDLC-R008",
+      "title": "Zero-backlog census gates",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SDLC-R009",
+      "title": "Governed documentation projection",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SDLC-R010",
+      "title": "Landing gate runs the complete test suite",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SDLC-R011",
+      "title": "Signal-killed test binaries rerun in isolation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

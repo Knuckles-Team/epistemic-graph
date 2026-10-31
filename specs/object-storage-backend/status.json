@@ -6,9 +6,13 @@
   "requirement_ids": [
     "EG-OBJECT-STORAGE-BACKEND-R001",
     "EG-OBJECT-STORAGE-BACKEND-R002",
+    "EG-OBJECT-STORAGE-BACKEND-R002.1",
     "EG-OBJECT-STORAGE-BACKEND-R003",
+    "EG-OBJECT-STORAGE-BACKEND-R003.1",
+    "EG-OBJECT-STORAGE-BACKEND-R003.2",
     "EG-OBJECT-STORAGE-BACKEND-R004",
-    "EG-OBJECT-STORAGE-BACKEND-R005"
+    "EG-OBJECT-STORAGE-BACKEND-R005",
+    "EG-OBJECT-STORAGE-BACKEND-R006"
   ],
   "requirements": [
     {
@@ -23,11 +27,39 @@
       "title": "Object-store read path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-OBJECT-STORAGE-BACKEND-R002.1"
+      ]
+    },
+    {
+      "id": "EG-OBJECT-STORAGE-BACKEND-R002.1",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-OBJECT-STORAGE-BACKEND-R003",
       "title": "Object-store commit path (commit before ack)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-OBJECT-STORAGE-BACKEND-R003.1",
+        "EG-OBJECT-STORAGE-BACKEND-R003.2"
+      ]
+    },
+    {
+      "id": "EG-OBJECT-STORAGE-BACKEND-R003.1",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-OBJECT-STORAGE-BACKEND-R003.2",
+      "title": "Graph copy from the redb store to the object-store root with a verified digest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -42,6 +74,13 @@
     {
       "id": "EG-OBJECT-STORAGE-BACKEND-R005",
       "title": "Comparative cost gate across releases",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-OBJECT-STORAGE-BACKEND-R006",
+      "title": "Archive segment put and get by sequence range",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

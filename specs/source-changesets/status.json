@@ -8,8 +8,12 @@
     "EG-SCM-R002",
     "EG-SCM-R002.1",
     "EG-SCM-R003",
+    "EG-SCM-R003.1",
     "EG-SCM-R004",
     "EG-SCM-R005",
+    "EG-SCM-R005.1",
+    "EG-SCM-R005.2",
+    "EG-SCM-R005.3",
     "EG-SCM-R006",
     "EG-SCM-R007",
     "EG-SCM-R008",
@@ -24,7 +28,8 @@
     "EG-SCM-R013.4",
     "EG-SCM-R013.5",
     "EG-SCM-R013.6",
-    "EG-SCM-R013.7"
+    "EG-SCM-R013.7",
+    "EG-SCM-R014"
   ],
   "requirements": [
     {
@@ -55,7 +60,17 @@
     },
     {
       "id": "EG-SCM-R003",
-      "title": "Lock-free acceptance",
+      "title": "Path-set acceptance and rebase",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SCM-R003.1"
+      ]
+    },
+    {
+      "id": "EG-SCM-R003.1",
+      "title": "Path-set acceptance calls the shared disjoint check",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -69,7 +84,33 @@
     },
     {
       "id": "EG-SCM-R005",
-      "title": "Derived history indexes",
+      "title": "Derived history indexes (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SCM-R005.1",
+        "EG-SCM-R005.2",
+        "EG-SCM-R005.3"
+      ]
+    },
+    {
+      "id": "EG-SCM-R005.1",
+      "title": "Path history",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SCM-R005.2",
+      "title": "Blame",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SCM-R005.3",
+      "title": "Ancestry skip lists",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -118,7 +159,7 @@
     },
     {
       "id": "EG-SCM-R012",
-      "title": "Agent-only principals and run provenance",
+      "title": "Agent principals and run provenance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -170,14 +211,14 @@
     },
     {
       "id": "EG-SCM-R013.4",
-      "title": "Wiring",
+      "title": "Wiring: SubmitSymbolEdit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SCM-R013.5",
-      "title": "Refusal",
+      "title": "Refusals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -192,6 +233,13 @@
     {
       "id": "EG-SCM-R013.7",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SCM-R014",
+      "title": "Served git export of wants and haves",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -49,6 +49,7 @@
     "EG-PLACEMENT-R004.5",
     "EG-PLACEMENT-R004.6",
     "EG-PLACEMENT-R001.15",
+    "EG-PLACEMENT-R001.16",
     "EG-PLACEMENT-R611",
     "EG-PLACEMENT-R611.1",
     "EG-PLACEMENT-R611.2",
@@ -57,6 +58,7 @@
     "EG-PLACEMENT-R611.5",
     "EG-PLACEMENT-R611.6",
     "EG-PLACEMENT-R002.600",
+    "EG-PLACEMENT-R611.7",
     "EG-PLACEMENT-R750",
     "EG-PLACEMENT-R750.750",
     "EG-PLACEMENT-R750.751",
@@ -78,7 +80,7 @@
   "requirements": [
     {
       "id": "EG-PLACEMENT-R001",
-      "title": "Deployment-placement question and assembled step graph go through the engine decision functionality (rollup)",
+      "title": "Deployment-placement question and assembled step graph (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -97,15 +99,17 @@
         "EG-PLACEMENT-R001.12",
         "EG-PLACEMENT-R001.13",
         "EG-PLACEMENT-R001.14",
-        "EG-PLACEMENT-R001.15"
+        "EG-PLACEMENT-R001.15",
+        "EG-PLACEMENT-R001.16"
       ]
     },
     {
       "id": "EG-PLACEMENT-R001.1",
-      "title": "Prerequisite (decision-engine): standalone topology Decide question",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: pointer to its owner",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "pointer to its owner"
     },
     {
       "id": "EG-PLACEMENT-R001.2",
@@ -148,7 +152,7 @@
     },
     {
       "id": "EG-PLACEMENT-R001.5",
-      "title": "Add the placement vocabulary and shape",
+      "title": "Placement vocabulary, shape and reader",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -167,42 +171,42 @@
     },
     {
       "id": "EG-PLACEMENT-R001.7",
-      "title": "Wire the kind into Decide",
+      "title": "Wiring: Placement kind in Decide",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R001.8",
-      "title": "Capacity premise reuse, no lease",
+      "title": "Evidence: capacity headroom premises, no lease",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R001.9",
-      "title": "Why-not for every non-chosen target",
+      "title": "Evidence: why-not for every non-chosen target",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R001.10",
-      "title": "Typed abstention",
+      "title": "Refusal: typed abstention",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R001.11",
-      "title": "Served contract test through the real dispatch",
+      "title": "Served contract proof through Decide",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R001.12",
-      "title": "Assembled step graph fixture",
+      "title": "Assembled step graph from the chosen target",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -216,14 +220,15 @@
     },
     {
       "id": "EG-PLACEMENT-R001.14",
-      "title": "Cross-repo (Arbora): correct R017 wording",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the owner row lives in arbora",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the owner row lives in arbora"
     },
     {
       "id": "EG-PLACEMENT-R002",
-      "title": "Ingest-worker policy has one authority: the engine decides, the worker asks and obeys (rollup)",
+      "title": "Ingest-worker policy has one authority: the engine decides, the worker asks (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -283,80 +288,88 @@
     },
     {
       "id": "EG-PLACEMENT-R002.4",
-      "title": "Admission returns a grant",
+      "title": "Consumer: admission returns a grant",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R002.5",
-      "title": "Routing is engine-side",
+      "title": "Routing is engine-side only",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R002.6",
-      "title": "Reword `EG-INGEST-WORKER-R001.2`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: a spec text edit, not a behaviour",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "a spec text edit, not a behaviour"
     },
     {
       "id": "EG-PLACEMENT-R002.7",
-      "title": "Reword `EG-INGEST-WORKER-R001.3`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: a spec text edit, not a behaviour",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "a spec text edit, not a behaviour"
     },
     {
       "id": "EG-PLACEMENT-R002.8",
-      "title": "Reword `EG-INGEST-WORKER-R001.6`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: a spec text edit, not a behaviour",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "a spec text edit, not a behaviour"
     },
     {
       "id": "EG-PLACEMENT-R002.9",
-      "title": "Reword `EG-INGEST-WORKER-R001.10`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: a spec text edit, not a behaviour",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "a spec text edit, not a behaviour"
     },
     {
       "id": "EG-PLACEMENT-R002.10",
-      "title": "Reword `EG-INGEST-WORKER-R001.11`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: a spec text edit, not a behaviour",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "a spec text edit, not a behaviour"
     },
     {
       "id": "EG-PLACEMENT-R002.11",
-      "title": "Reword `EG-INGEST-WORKER-R001.14`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: a spec text edit, not a behaviour",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "a spec text edit, not a behaviour"
     },
     {
       "id": "EG-PLACEMENT-R002.12",
-      "title": "Reword `EG-INGEST-WORKER-R001.15`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: a spec text edit, not a behaviour",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "a spec text edit, not a behaviour"
     },
     {
       "id": "EG-PLACEMENT-R002.14",
-      "title": "Fold the analytics pool knob into the same config",
+      "title": "Analytics pool size is a SchedulerConfig field",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R002.15",
-      "title": "Parity check that no duplicate policy remains",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: a text-grep gate, not engine behaviour",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "a text-grep gate, not engine behaviour"
     },
     {
       "id": "EG-PLACEMENT-R003",
@@ -441,7 +454,7 @@
     },
     {
       "id": "EG-PLACEMENT-R004",
-      "title": "Heavy compute routes to the host that declares the capability (rollup)",
+      "title": "Heavy compute claims route to the host that declares the capability (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -478,42 +491,49 @@
     },
     {
       "id": "EG-PLACEMENT-R004.3",
-      "title": "Wiring",
+      "title": "Wiring: claim_next filters by declared host capability",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R004.4",
-      "title": "Refusal",
+      "title": "Refusal: no capable host",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R004.5",
-      "title": "Evidence",
+      "title": "Evidence: routing premises and fact generation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R004.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path journey: backtest job lands on the declared host",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R001.15",
-      "title": "Capacity adjustment feasibility and applied-state reconciliation boundary",
+      "title": "Capacity adjustment is a decision-engine question (pointer)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R001.16",
+      "title": "Wiring: arbora placement flow",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R611",
-      "title": "Cluster discovery, placement routes and tenant client pooling follow the engine's placement authority (rollup)",
+      "title": "Tenant client pool and breaker follow the engine's placement authority (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -523,12 +543,13 @@
         "EG-PLACEMENT-R611.3",
         "EG-PLACEMENT-R611.4",
         "EG-PLACEMENT-R611.5",
-        "EG-PLACEMENT-R611.6"
+        "EG-PLACEMENT-R611.6",
+        "EG-PLACEMENT-R611.7"
       ]
     },
     {
       "id": "EG-PLACEMENT-R611.1",
-      "title": "Model",
+      "title": "Model: tenant pool and breaker",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -583,21 +604,28 @@
     },
     {
       "id": "EG-PLACEMENT-R611.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: route lookup and pool acquire",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R002.600",
-      "title": "The engine answers reserved-worker admission",
+      "title": "Integration proof: reserved-worker admission",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R611.7",
+      "title": "A node opens a tenant graph from the shared root only with a placement route",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R750",
-      "title": "Admission pacing, priority classes, cognitive scheduling and model capacity control (rollup)",
+      "title": "Claim pacing and priority classes in the job claim path (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -610,7 +638,7 @@
     },
     {
       "id": "EG-PLACEMENT-R750.750",
-      "title": "Model: Admission pacing, priority classes, cognitive scheduling and model capacity control",
+      "title": "Model: Admission pacing and priority classes",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0322f8735464"
@@ -621,7 +649,7 @@
     },
     {
       "id": "EG-PLACEMENT-R750.751",
-      "title": "Behavior: Admission pacing, priority classes, cognitive scheduling and model capacity control",
+      "title": "Behavior: Admission pacing and priority classes",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0322f8735464"
@@ -632,7 +660,7 @@
     },
     {
       "id": "EG-PLACEMENT-R750.752",
-      "title": "Refusal: Admission pacing, priority classes, cognitive scheduling and model capacity control",
+      "title": "Refusal: Admission pacing and priority classes",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0322f8735464"
@@ -643,14 +671,14 @@
     },
     {
       "id": "EG-PLACEMENT-R750.753",
-      "title": "Hot-path proof: Admission pacing, priority classes, cognitive scheduling and model capacity control",
+      "title": "Wiring and hot-path proof: pacer in claim_next",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R751",
-      "title": "Unified scheduling, leader election and cost-bounded resource allocation (rollup)",
+      "title": "Unified schedule ticks and daemon leadership (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -696,7 +724,7 @@
     },
     {
       "id": "EG-PLACEMENT-R751.753",
-      "title": "Hot-path proof: Unified scheduling, leader election and cost-bounded resource allocation",
+      "title": "Wiring and hot-path proof: tick loop of the executor",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -718,42 +746,42 @@
     },
     {
       "id": "EG-PLACEMENT-R700.1",
-      "title": "Model",
+      "title": "Model: host capacity, service spec, placement plan",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R700.2",
-      "title": "Behavior",
+      "title": "Behavior: bounded 0-1 program with a deterministic budget",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R700.3",
-      "title": "Wiring",
+      "title": "Wiring: PlacementPlan question in Decide",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R700.4",
-      "title": "Refusal",
+      "title": "Refusal: capability gap and capacity overrun",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R700.5",
-      "title": "Evidence",
+      "title": "Evidence: solver certificate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-PLACEMENT-R700.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path journey: capability gap abstains, feasible plan solves",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

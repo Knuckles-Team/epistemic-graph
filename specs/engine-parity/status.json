@@ -32,6 +32,7 @@
     "EG-ENGINE-PARITY-R007.1",
     "EG-ENGINE-PARITY-R007.2",
     "EG-ENGINE-PARITY-R007.3",
+    "EG-ENGINE-PARITY-R007.4",
     "EG-ENGINE-PARITY-R008",
     "EG-ENGINE-PARITY-R008.1",
     "EG-ENGINE-PARITY-R008.2",
@@ -88,7 +89,7 @@
   "requirements": [
     {
       "id": "EG-ENGINE-PARITY-R001",
-      "title": "Single committer with group commit and batched fsync (rollup)",
+      "title": "Group commit with a bounded enqueue wait (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -121,7 +122,7 @@
     },
     {
       "id": "EG-ENGINE-PARITY-R002",
-      "title": "Optimistic concurrency with read and write sets (rollup)",
+      "title": "Optimistic concurrency for user-table transactions (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -158,40 +159,39 @@
     },
     {
       "id": "EG-ENGINE-PARITY-R003",
-      "title": "Partitioned store files for parallel writers (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Shard writers already give each graph its own committer",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-ENGINE-PARITY-R003.1",
-        "EG-ENGINE-PARITY-R003.2",
-        "EG-ENGINE-PARITY-R003.3"
-      ]
+      "retired_reason": "Shard writers already give each graph its own committer"
     },
     {
       "id": "EG-ENGINE-PARITY-R003.1",
-      "title": "Model and behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Shard writers already give each graph its own committer",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Shard writers already give each graph its own committer"
     },
     {
       "id": "EG-ENGINE-PARITY-R003.2",
-      "title": "Wiring and refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Cross-shard batches already commit through the 2PC coordinator or refuse per graph",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Cross-shard batches already commit through the 2PC coordinator or refuse per graph"
     },
     {
       "id": "EG-ENGINE-PARITY-R003.3",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Shard writers already give each graph its own committer",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Shard writers already give each graph its own committer"
     },
     {
       "id": "EG-ENGINE-PARITY-R004",
-      "title": "Lock-free acceptance for disjoint keys (rollup)",
+      "title": "Disjoint transactions commit without a global lock (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -228,7 +228,7 @@
     },
     {
       "id": "EG-ENGINE-PARITY-R005",
-      "title": "Write throughput benchmark and targets (rollup)",
+      "title": "Write throughput benchmark suite and targets (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -301,7 +301,8 @@
       "rollup_of": [
         "EG-ENGINE-PARITY-R007.1",
         "EG-ENGINE-PARITY-R007.2",
-        "EG-ENGINE-PARITY-R007.3"
+        "EG-ENGINE-PARITY-R007.3",
+        "EG-ENGINE-PARITY-R007.4"
       ]
     },
     {
@@ -321,6 +322,13 @@
     {
       "id": "EG-ENGINE-PARITY-R007.3",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ENGINE-PARITY-R007.4",
+      "title": "Wiring: grant and revoke wire logins",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -393,7 +401,7 @@
     },
     {
       "id": "EG-ENGINE-PARITY-R010",
-      "title": "Secondary, partial and expression indexes (rollup)",
+      "title": "Partial and expression indexes on user tables (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -426,7 +434,7 @@
     },
     {
       "id": "EG-ENGINE-PARITY-R011",
-      "title": "Constraints: unique, foreign key, check and shapes (rollup)",
+      "title": "Constraints: unique, foreign key, check and not null (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -459,7 +467,7 @@
     },
     {
       "id": "EG-ENGINE-PARITY-R012",
-      "title": "Triggers as reactive rules (rollup)",
+      "title": "Triggers as statechart rules (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -492,7 +500,7 @@
     },
     {
       "id": "EG-ENGINE-PARITY-R013",
-      "title": "Sequences (rollup)",
+      "title": "Named sequences (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -525,7 +533,7 @@
     },
     {
       "id": "EG-ENGINE-PARITY-R014",
-      "title": "Views and materialized views as derived series (rollup)",
+      "title": "Views and materialized views over tables (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -558,7 +566,7 @@
     },
     {
       "id": "EG-ENGINE-PARITY-R015",
-      "title": "Change data capture by logical decoding (rollup)",
+      "title": "Change data capture for graph and table rows (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -591,7 +599,7 @@
     },
     {
       "id": "EG-ENGINE-PARITY-R016",
-      "title": "Point-in-time recovery from snapshots and the log (rollup)",
+      "title": "Point-in-time recovery from a backup bundle and archived batches (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -624,69 +632,67 @@
     },
     {
       "id": "EG-ENGINE-PARITY-R017",
-      "title": "Read replicas that follow the log (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Raft followers and the shared object-store root already give read scale",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-ENGINE-PARITY-R017.1",
-        "EG-ENGINE-PARITY-R017.2",
-        "EG-ENGINE-PARITY-R017.3"
-      ]
+      "retired_reason": "Raft followers and the shared object-store root already give read scale"
     },
     {
       "id": "EG-ENGINE-PARITY-R017.1",
-      "title": "Model and behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Raft followers and the shared object-store root already give read scale",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Raft followers and the shared object-store root already give read scale"
     },
     {
       "id": "EG-ENGINE-PARITY-R017.2",
-      "title": "Wiring and refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Raft followers and the shared object-store root already give read scale",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Raft followers and the shared object-store root already give read scale"
     },
     {
       "id": "EG-ENGINE-PARITY-R017.3",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Raft followers and the shared object-store root already give read scale",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Raft followers and the shared object-store root already give read scale"
     },
     {
       "id": "EG-ENGINE-PARITY-R018",
-      "title": "Columnar materialization of hot record classes (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: A second columnar copy breaks the one-engine rule",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-ENGINE-PARITY-R018.1",
-        "EG-ENGINE-PARITY-R018.2",
-        "EG-ENGINE-PARITY-R018.3"
-      ]
+      "retired_reason": "A second columnar copy breaks the one-engine rule"
     },
     {
       "id": "EG-ENGINE-PARITY-R018.1",
-      "title": "Model and behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: A second columnar copy breaks the one-engine rule",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "A second columnar copy breaks the one-engine rule"
     },
     {
       "id": "EG-ENGINE-PARITY-R018.2",
-      "title": "Wiring and refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: A second columnar copy breaks the one-engine rule",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "A second columnar copy breaks the one-engine rule"
     },
     {
       "id": "EG-ENGINE-PARITY-R018.3",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: A second columnar copy breaks the one-engine rule",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "A second columnar copy breaks the one-engine rule"
     },
     {
       "id": "EG-ENGINE-PARITY-R019",
@@ -723,7 +729,7 @@
     },
     {
       "id": "EG-ENGINE-PARITY-R020",
-      "title": "Demand gate, capability report and parity benchmark suite (rollup)",
+      "title": "Capability report (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -753,10 +759,11 @@
     },
     {
       "id": "EG-ENGINE-PARITY-R020.3",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: One benchmark file holds every workload",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "One benchmark file holds every workload"
     }
   ]
 }

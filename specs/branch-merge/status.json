@@ -10,19 +10,22 @@
     "EG-BRANCH-MERGE-R004",
     "EG-BRANCH-MERGE-R005",
     "EG-BRANCH-MERGE-R006",
-    "EG-BRANCH-MERGE-R007"
+    "EG-BRANCH-MERGE-R007",
+    "EG-BRANCH-MERGE-R008",
+    "EG-BRANCH-MERGE-R009",
+    "EG-BRANCH-MERGE-R010"
   ],
   "requirements": [
     {
       "id": "EG-BRANCH-MERGE-R001",
-      "title": "Typed branch model and create",
+      "title": "Typed branch model and CreateBranch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-BRANCH-MERGE-R002",
-      "title": "Branch-scoped mutations",
+      "title": "Branch-scoped mutations on one commit chain",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -58,6 +61,27 @@
     {
       "id": "EG-BRANCH-MERGE-R007",
       "title": "Atomic merge publication",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-BRANCH-MERGE-R008",
+      "title": "Line-level three-way merge for file blobs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-BRANCH-MERGE-R009",
+      "title": "Landing policy check at merge publish",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-BRANCH-MERGE-R010",
+      "title": "Line-granularity file merge for source changesets",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

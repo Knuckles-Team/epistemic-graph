@@ -29,6 +29,11 @@
     "EG-REPO-INGEST-R010",
     "EG-REPO-INGEST-R011",
     "EG-REPO-INGEST-R002.1",
+    "EG-REPO-INGEST-R002.1.1",
+    "EG-REPO-INGEST-R002.1.2",
+    "EG-REPO-INGEST-R002.1.3",
+    "EG-REPO-INGEST-R002.1.4",
+    "EG-REPO-INGEST-R002.1.5",
     "EG-REPO-INGEST-R006.1",
     "EG-REPO-INGEST-R006.2",
     "EG-REPO-INGEST-R006.3",
@@ -94,17 +99,25 @@
     "EG-REPO-INGEST-R652.6",
     "EG-REPO-INGEST-R002.650",
     "EG-REPO-INGEST-R002.651",
+    "EG-REPO-INGEST-R002.651.1",
+    "EG-REPO-INGEST-R002.651.2",
+    "EG-REPO-INGEST-R002.651.3",
+    "EG-REPO-INGEST-R002.651.4",
     "EG-REPO-INGEST-R002.652",
     "EG-REPO-INGEST-R002.653",
     "EG-REPO-INGEST-R002.654",
     "EG-REPO-INGEST-R002.655",
+    "EG-REPO-INGEST-R006.5",
+    "EG-REPO-INGEST-R006.6",
+    "EG-REPO-INGEST-R603.7",
     "EG-REPO-INGEST-R700",
     "EG-REPO-INGEST-R700.1",
     "EG-REPO-INGEST-R700.2",
     "EG-REPO-INGEST-R700.3",
     "EG-REPO-INGEST-R700.4",
     "EG-REPO-INGEST-R700.5",
-    "EG-REPO-INGEST-R700.6"
+    "EG-REPO-INGEST-R700.6",
+    "EG-REPO-INGEST-R801"
   ],
   "requirements": [
     {
@@ -122,7 +135,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R002",
-      "title": "SourceIngest is sole owner of migrated ingestion capabilities",
+      "title": "SourceIngest owns the ingest capabilities (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "06a13bef2738",
@@ -144,8 +157,8 @@
     },
     {
       "id": "EG-REPO-INGEST-R003",
-      "title": "Medulla is sole home for remaining migrated ingestion modules (rollup)",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: the migrated-root claim has no production caller and names no capability",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "0554e82ae743",
         "06a13bef2738",
@@ -154,123 +167,121 @@
         "a17a6c5ded2f"
       ],
       "verified_by": [],
-      "rollup_of": [
-        "EG-REPO-INGEST-R003.1",
-        "EG-REPO-INGEST-R003.2",
-        "EG-REPO-INGEST-R003.3",
-        "EG-REPO-INGEST-R003.4",
-        "EG-REPO-INGEST-R003.5",
-        "EG-REPO-INGEST-R003.6",
-        "EG-REPO-INGEST-R003.7",
-        "EG-REPO-INGEST-R003.8",
-        "EG-REPO-INGEST-R003.9",
-        "EG-REPO-INGEST-R003.10",
-        "EG-REPO-INGEST-R003.11"
-      ]
+      "retired_reason": "the migrated-root claim has no production caller and names no capability"
     },
     {
       "id": "EG-REPO-INGEST-R003.1",
-      "title": "Medulla is sole home for migrated standardization processing (excluding drift detection)",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: the migrated-root claim has no production caller and names no capability",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "06a13bef2738",
         "72c7dfa478ba",
         "ae0f93b6bf70",
         "e72ee15e11bb"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the migrated-root claim has no production caller and names no capability"
     },
     {
       "id": "EG-REPO-INGEST-R003.2",
-      "title": "Medulla owns the migrated infrastructure processing implementation",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: the migrated-root claim has no production caller and names no capability",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "06a13bef2738",
         "72c7dfa478ba",
         "f70de8c33b4f"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the migrated-root claim has no production caller and names no capability"
     },
     {
       "id": "EG-REPO-INGEST-R003.3",
-      "title": "Medulla is sole home for migrated quantum processing",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: the migrated-root claim has no production caller and names no capability",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "a17a6c5ded2f"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the migrated-root claim has no production caller and names no capability"
     },
     {
       "id": "EG-REPO-INGEST-R003.4",
-      "title": "Medulla is sole home for migrated security processing",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: the migrated-root claim has no production caller and names no capability",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "a17a6c5ded2f"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the migrated-root claim has no production caller and names no capability"
     },
     {
       "id": "EG-REPO-INGEST-R003.5",
-      "title": "Medulla is sole home for migrated enterprise protocol handling",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: the migrated-root claim has no production caller and names no capability",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "a17a6c5ded2f"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the migrated-root claim has no production caller and names no capability"
     },
     {
       "id": "EG-REPO-INGEST-R003.6",
-      "title": "Medulla is sole home for migrated ecosystem concept extraction",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: the migrated-root claim has no production caller and names no capability",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "06a13bef2738",
         "72c7dfa478ba",
         "f70de8c33b4f"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the migrated-root claim has no production caller and names no capability"
     },
     {
       "id": "EG-REPO-INGEST-R003.7",
-      "title": "Medulla is sole home for migrated trace-ontology observability",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: the migrated-root claim has no production caller and names no capability",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "0554e82ae743",
         "72c7dfa478ba",
         "fb19bf6ab789"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the migrated-root claim has no production caller and names no capability"
     },
     {
       "id": "EG-REPO-INGEST-R003.8",
-      "title": "Medulla is sole home for migrated self-ingestion observability",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: the migrated-root claim has no production caller and names no capability",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "77fa741ee191"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the migrated-root claim has no production caller and names no capability"
     },
     {
       "id": "EG-REPO-INGEST-R003.9",
-      "title": "Medulla is sole home for migrated audit-logging observability",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: the migrated-root claim has no production caller and names no capability",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "77fa741ee191"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the migrated-root claim has no production caller and names no capability"
     },
     {
       "id": "EG-REPO-INGEST-R003.10",
-      "title": "Medulla is sole home for migrated relational-authority governance",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: the migrated-root claim has no production caller and names no capability",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "77fa741ee191"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the migrated-root claim has no production caller and names no capability"
     },
     {
       "id": "EG-REPO-INGEST-R003.11",
-      "title": "Medulla is sole home for migrated placement-mining research",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: the migrated-root claim has no production caller and names no capability",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "0554e82ae743",
         "72c7dfa478ba",
@@ -278,7 +289,8 @@
         "fb19bf6ab789",
         "fd9e20bc998d"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the migrated-root claim has no production caller and names no capability"
     },
     {
       "id": "EG-REPO-INGEST-R004",
@@ -310,7 +322,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R006",
-      "title": "Native ingestion commits fast; heavy enrichment deferred",
+      "title": "Native ingestion commits fast; heavy enrichment is deferred (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "0554e82ae743",
@@ -321,7 +333,9 @@
         "EG-REPO-INGEST-R006.1",
         "EG-REPO-INGEST-R006.2",
         "EG-REPO-INGEST-R006.3",
-        "EG-REPO-INGEST-R006.4"
+        "EG-REPO-INGEST-R006.4",
+        "EG-REPO-INGEST-R006.5",
+        "EG-REPO-INGEST-R006.6"
       ]
     },
     {
@@ -374,7 +388,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R009.2",
-      "title": "Semantic-bridge projection of the nine relations onto typed triples",
+      "title": "Project the nine bridge relations onto typed triples",
       "delivery_state": "LANDED",
       "landed_in": [
         "1f5ba9350abb"
@@ -407,14 +421,56 @@
     },
     {
       "id": "EG-REPO-INGEST-R002.1",
-      "title": "Compile a skill document into a typed plan",
+      "title": "Compile a skill document into a typed task plan (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-REPO-INGEST-R002.1.1",
+        "EG-REPO-INGEST-R002.1.2",
+        "EG-REPO-INGEST-R002.1.3",
+        "EG-REPO-INGEST-R002.1.4",
+        "EG-REPO-INGEST-R002.1.5"
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.1.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.1.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.1.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.1.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.1.5",
+      "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R006.1",
-      "title": "Measure the daily paper target and admit bounded maintenance",
+      "title": "Measure the daily paper target",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -449,7 +505,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R002.101",
-      "title": "Bind graph-loaded workflow execution to durable hydration readback",
+      "title": "Bind graph-loaded workflow execution to hydration readback",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -614,7 +670,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R602",
-      "title": "Infrastructure definitions, HTTP routes and business capabilities link to the service that owns the code (rollup)",
+      "title": "Infrastructure definitions, HTTP routes and capabilities link to the owning service (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -687,7 +743,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R603",
-      "title": "Structural fingerprints keep incremental re-indexing to real structural change (rollup)",
+      "title": "Structural fingerprints keep re-indexing to real structural change (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -697,7 +753,8 @@
         "EG-REPO-INGEST-R603.3",
         "EG-REPO-INGEST-R603.4",
         "EG-REPO-INGEST-R603.5",
-        "EG-REPO-INGEST-R603.6"
+        "EG-REPO-INGEST-R603.6",
+        "EG-REPO-INGEST-R603.7"
       ]
     },
     {
@@ -891,7 +948,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R651",
-      "title": "External graph, event and package ingestion adapters (rollup)",
+      "title": "Change-data-capture, object-centric event log and reference adapters (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1005,42 +1062,97 @@
     },
     {
       "id": "EG-REPO-INGEST-R002.650",
-      "title": "Model: Hot-path contract for the migrated ingestion capabilities",
+      "title": "Model: ingest capability types",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R002.651",
-      "title": "Behavior: Hot-path contract for the migrated ingestion capabilities",
+      "title": "Behavior: ingest capabilities (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-REPO-INGEST-R002.651.1",
+        "EG-REPO-INGEST-R002.651.2",
+        "EG-REPO-INGEST-R002.651.3",
+        "EG-REPO-INGEST-R002.651.4"
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.651.1",
+      "title": "Envelope commit and idempotent replay",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.651.2",
+      "title": "Supersession edge",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.651.3",
+      "title": "Dead-letter park and redrive",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.651.4",
+      "title": "Process conformance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R002.652",
-      "title": "Wiring: Hot-path contract for the migrated ingestion capabilities",
+      "title": "Wiring: ingest capabilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R002.653",
-      "title": "Refusal: Hot-path contract for the migrated ingestion capabilities",
+      "title": "Refusal: ingest capabilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R002.654",
-      "title": "Evidence: Hot-path contract for the migrated ingestion capabilities",
+      "title": "Evidence: ingest capabilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R002.655",
-      "title": "Hot-path proof: Hot-path contract for the migrated ingestion capabilities",
+      "title": "Hot-path proof: ingest capabilities",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R006.5",
+      "title": "Branch-aware, blob-deduplicated repository indexing",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R006.6",
+      "title": "Schedule the paper intake job every six hours",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R603.7",
+      "title": "Source-binding identity separates cosmetic from structural change",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1114,6 +1226,13 @@
     {
       "id": "EG-REPO-INGEST-R700.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R801",
+      "title": "Ecosystem packages and architecture layers become typed nodes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

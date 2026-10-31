@@ -186,6 +186,9 @@
     "EG-TYPED-PACKS-R100.100",
     "EG-TYPED-PACKS-R100.101",
     "EG-TYPED-PACKS-R001.100",
+    "EG-TYPED-PACKS-R002.12",
+    "EG-TYPED-PACKS-R002.13",
+    "EG-TYPED-PACKS-R071.2",
     "EG-TYPED-PACKS-R072.100",
     "EG-TYPED-PACKS-R071.100",
     "EG-TYPED-PACKS-R101",
@@ -378,12 +381,22 @@
     "EG-TYPED-PACKS-R085.5.4",
     "EG-TYPED-PACKS-R085.6.1",
     "EG-TYPED-PACKS-R085.6.2",
-    "EG-TYPED-PACKS-R085.6.3"
+    "EG-TYPED-PACKS-R085.6.3",
+    "EG-TYPED-PACKS-R094.8",
+    "EG-TYPED-PACKS-R097.2.7.1",
+    "EG-TYPED-PACKS-R097.2.7.2",
+    "EG-TYPED-PACKS-R097.2.7.3",
+    "EG-TYPED-PACKS-R097.2.7.4",
+    "EG-TYPED-PACKS-R803.7",
+    "EG-TYPED-PACKS-R806",
+    "EG-TYPED-PACKS-R807",
+    "EG-TYPED-PACKS-R808",
+    "EG-TYPED-PACKS-R809"
   ],
   "requirements": [
     {
       "id": "EG-TYPED-PACKS-R001",
-      "title": "Connector pack contract types and golden digest vectors",
+      "title": "Connector pack contract types and golden digest vectors (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "b43f33569dd4",
@@ -407,35 +420,35 @@
     },
     {
       "id": "EG-TYPED-PACKS-R001.1",
-      "title": "Original pack index and entry types",
+      "title": "Pack index and entry types",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R001.2",
-      "title": "Original section and annotation types",
+      "title": "Section and annotation types",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R001.3",
-      "title": "Original pack and content operations",
+      "title": "Pack and content operations",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R001.4",
-      "title": "Original framed digest vectors",
+      "title": "Framed digest vectors",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R001.5",
-      "title": "All generated clients share the pack contract",
+      "title": "The Python client matches the pack contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -463,14 +476,14 @@
     },
     {
       "id": "EG-TYPED-PACKS-R001.9",
-      "title": "Generated prompt operation contract",
+      "title": "Prompt operation wire types",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R002",
-      "title": "Engine-owned body storage with guarded refcounts and reconciliation",
+      "title": "Engine-owned body storage with guarded refcounts and reconciliation (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "022736782512",
@@ -492,47 +505,49 @@
         "EG-TYPED-PACKS-R002.8",
         "EG-TYPED-PACKS-R002.9",
         "EG-TYPED-PACKS-R002.10",
-        "EG-TYPED-PACKS-R002.11"
+        "EG-TYPED-PACKS-R002.11",
+        "EG-TYPED-PACKS-R002.12",
+        "EG-TYPED-PACKS-R002.13"
       ]
     },
     {
       "id": "EG-TYPED-PACKS-R002.1",
-      "title": "Original engine body staging",
+      "title": "Body staging",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R002.2",
-      "title": "Original unchanged holder transition",
+      "title": "Unchanged holder transition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R002.3",
-      "title": "Original revised holder transition",
+      "title": "Revised holder transition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R002.4",
-      "title": "Original withdrawn holder transition",
+      "title": "Withdrawn holder transition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R002.5",
-      "title": "Original orphan grace and fault recovery",
+      "title": "Orphan grace and fault recovery",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R002.6",
-      "title": "Original verified body serving",
+      "title": "Verified body serving",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -560,7 +575,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R002.10",
-      "title": "Refusal before model dispatch",
+      "title": "Receipt verification before model dispatch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1126,7 +1141,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R045",
-      "title": "MCP ToolAnnotations hints captured as pack facts",
+      "title": "MCP ToolAnnotations hints captured as pack facts (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "db863f1e2afd"
@@ -1199,14 +1214,14 @@
     },
     {
       "id": "EG-TYPED-PACKS-R045.7",
-      "title": "No decision premise treats an unproven read-only claim as certified",
+      "title": "A read-only claim is certified only by a trusted declarer",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R045.8",
-      "title": "The generated contract and Python client carry the new fields",
+      "title": "The Python client carries the new fields",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1244,7 +1259,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R048",
-      "title": "ModelProfile cost, latency, modality and capability facts",
+      "title": "ModelProfile cost, latency, modality and capability facts (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "db863f1e2afd"
@@ -1439,16 +1454,17 @@
     },
     {
       "id": "EG-TYPED-PACKS-R060",
-      "title": "Manifest-read refusal precedes dependent import paths",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: duplicate of the manifest-read refusal",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "08a2b1958cc3"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "duplicate of the manifest-read refusal"
     },
     {
       "id": "EG-TYPED-PACKS-R061",
-      "title": "Bounded schema source catalog: 32 sources, 8 MiB",
+      "title": "Bounded schema source catalog: 32 sources, 2 MiB per document",
       "delivery_state": "LANDED",
       "landed_in": [
         "b43f33569dd4"
@@ -1486,7 +1502,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R065",
-      "title": "Medulla does not recompute the Graft SDK's contract-pin normalization",
+      "title": "Medulla does not recompute the connector SDK's contract-pin normalization",
       "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
@@ -1495,7 +1511,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R066",
-      "title": "OWL/rule classification over model and capability facts",
+      "title": "OWL and rule classification over model and capability facts (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "f50555aa6421"
@@ -1536,7 +1552,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R067",
-      "title": "Coordinated contract regeneration for new library methods",
+      "title": "A new library method lands with its descriptor and client model",
       "delivery_state": "LANDED",
       "landed_in": [
         "339e26cbbbca"
@@ -1556,19 +1572,17 @@
     },
     {
       "id": "EG-TYPED-PACKS-R069",
-      "title": "Branch-aware, blob-deduplicated repository indexing",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: repository indexing belongs to repository ingest",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
       "verified_by": [],
-      "rollup_of": [
-        "EG-TYPED-PACKS-R069.100"
-      ]
+      "retired_reason": "repository indexing belongs to repository ingest"
     },
     {
       "id": "EG-TYPED-PACKS-R070",
-      "title": "Committed contract artifacts match generated content, not size",
+      "title": "A committed fixture matches the type that produces it",
       "delivery_state": "LANDED",
       "landed_in": [
         "be0f1acb05c6"
@@ -1577,7 +1591,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R071",
-      "title": "Generated core ontology corpus as GraphSchema authority",
+      "title": "Generated core ontology corpus as GraphSchema authority (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "86787edc8a87",
@@ -1586,6 +1600,7 @@
       "verified_by": [],
       "rollup_of": [
         "EG-TYPED-PACKS-R071.1",
+        "EG-TYPED-PACKS-R071.2",
         "EG-TYPED-PACKS-R071.100"
       ]
     },
@@ -1606,50 +1621,50 @@
     },
     {
       "id": "EG-TYPED-PACKS-R071.1.1",
-      "title": "Model",
+      "title": "Crosswalk model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R071.1.2",
-      "title": "Behavior",
+      "title": "Crosswalk behaviour",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R071.1.3",
-      "title": "Wiring",
+      "title": "Crosswalk wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R071.1.4",
-      "title": "Refusal",
+      "title": "Crosswalk refusals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R071.1.5",
-      "title": "Evidence",
+      "title": "Crosswalk evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R071.1.6",
-      "title": "Hot-path proof",
+      "title": "Crosswalk hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R072",
-      "title": "Medulla/Graft SDK typed fleet-catalog authority, not SQL tables",
-      "delivery_state": "SPECIFIED",
+      "title": "Typed fleet-catalog authority",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "2a0d6eae0918",
         "90f5578ae2f4"
@@ -1674,7 +1689,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R074",
-      "title": "Least-privilege, per-pack projection grant with recorded failure",
+      "title": "Least-privilege per-pack projection grant with recorded failure",
       "delivery_state": "LANDED",
       "landed_in": [
         "90f5578ae2f4",
@@ -1684,23 +1699,25 @@
     },
     {
       "id": "EG-TYPED-PACKS-R075",
-      "title": "Landing gate runs the full integration test suite",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: Landing gate rules belong to the development lifecycle",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "90f5578ae2f4",
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Landing gate rules belong to the development lifecycle"
     },
     {
       "id": "EG-TYPED-PACKS-R076",
-      "title": "Signal-killed test binaries are detected and rerun in isolation",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: Signal-killed binary isolation belongs to the development lifecycle",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "90f5578ae2f4",
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Signal-killed binary isolation belongs to the development lifecycle"
     },
     {
       "id": "EG-TYPED-PACKS-R077",
@@ -1717,7 +1734,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R078",
-      "title": "Proven retrieval plan templates keyed by task class and digest",
+      "title": "Proven retrieval-plan templates keyed by task class and schema digest",
       "delivery_state": "LANDED",
       "landed_in": [
         "90f5578ae2f4",
@@ -1727,27 +1744,29 @@
     },
     {
       "id": "EG-TYPED-PACKS-R079",
-      "title": "Typed OHLCV bar-series contract",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: OHLCV bar series is finance vocabulary",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "532418b7e55b",
         "90f5578ae2f4"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "OHLCV bar series is finance vocabulary"
     },
     {
       "id": "EG-TYPED-PACKS-R080",
-      "title": "Exhaustive OpKind/PredKind printer and parser contract",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: OpKind and PredKind printer is query language",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "1b4fc2558151",
         "90f5578ae2f4"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "OpKind and PredKind printer is query language"
     },
     {
       "id": "EG-TYPED-PACKS-R081",
-      "title": "Ontology object model migrated into Medulla's kg/ontology package",
+      "title": "Core ontology object model lives in Medulla",
       "delivery_state": "LANDED",
       "landed_in": [
         "64b30a5187f3",
@@ -1757,7 +1776,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R082",
-      "title": "Medulla-generated types replace hand-written graph-schema DTOs",
+      "title": "Rust serde types replace hand-written graph-schema DTOs",
       "delivery_state": "LANDED",
       "landed_in": [
         "08a2b1958cc3",
@@ -1767,7 +1786,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R083",
-      "title": "Schema-drift SHACL rendering and contract store move into Medulla",
+      "title": "Schema-drift SHACL rendering and contract store live in Medulla",
       "delivery_state": "LANDED",
       "landed_in": [
         "90f5578ae2f4",
@@ -1789,27 +1808,19 @@
     },
     {
       "id": "EG-TYPED-PACKS-R085",
-      "title": "Identity domain operations with Argon2id and redacted views",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Identity domain belongs to the identity spec",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "0035f9fac382",
         "90f5578ae2f4"
       ],
       "verified_by": [],
-      "rollup_of": [
-        "EG-TYPED-PACKS-R085.1",
-        "EG-TYPED-PACKS-R085.3",
-        "EG-TYPED-PACKS-R085.2",
-        "EG-TYPED-PACKS-R085.7",
-        "EG-TYPED-PACKS-R085.4",
-        "EG-TYPED-PACKS-R085.5",
-        "EG-TYPED-PACKS-R085.6"
-      ]
+      "retired_reason": "Identity domain belongs to the identity spec"
     },
     {
       "id": "EG-TYPED-PACKS-R085.1",
-      "title": "Durable session record projection",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Session record projection moves to the identity spec",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-core/src/isolation/identity_store_tests.rs:465",
@@ -1817,45 +1828,40 @@
         "crates/eg-types/src/identity/tests/session_evidence.rs:128",
         "crates/eg-types/src/identity/tests/session_evidence.rs:142",
         "crates/eg-types/src/identity/tests/session_evidence.rs:34"
-      ]
+      ],
+      "retired_reason": "Session record projection moves to the identity spec"
     },
     {
       "id": "EG-TYPED-PACKS-R085.3",
-      "title": "Served session-liveness check by opaque session reference",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Session liveness moves to the identity spec",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Session liveness moves to the identity spec"
     },
     {
       "id": "EG-TYPED-PACKS-R085.2",
-      "title": "Remaining identity-domain qualification",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Remaining identity qualification belongs to the identity spec",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Remaining identity qualification belongs to the identity spec"
     },
     {
       "id": "EG-TYPED-PACKS-R085.7",
-      "title": "Rollup through R085.7.1–R085.7.3",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Session reference inspection moves to the identity spec",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-TYPED-PACKS-R085.7.1",
-        "EG-TYPED-PACKS-R085.7.2",
-        "EG-TYPED-PACKS-R085.7.3"
-      ]
+      "retired_reason": "Session reference inspection moves to the identity spec"
     },
     {
       "id": "EG-TYPED-PACKS-R085.4",
-      "title": "Rollup through R085.4.1–R085.4.3",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Session renewal moves to the identity spec",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-TYPED-PACKS-R085.4.1",
-        "EG-TYPED-PACKS-R085.4.2",
-        "EG-TYPED-PACKS-R085.4.3"
-      ]
+      "retired_reason": "Session renewal moves to the identity spec"
     },
     {
       "id": "EG-TYPED-PACKS-R086",
@@ -1937,13 +1943,14 @@
     },
     {
       "id": "EG-TYPED-PACKS-R091",
-      "title": "Food composition and nutrient reference types",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: Food and nutrient types are a media and personal vocabulary",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "90f5578ae2f4",
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Food and nutrient types are a media and personal vocabulary"
     },
     {
       "id": "EG-TYPED-PACKS-R092",
@@ -2004,7 +2011,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R094",
-      "title": "AgentComponent.content serves pack body bytes directly",
+      "title": "AgentComponent.Content serves pack body bytes (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "90f5578ae2f4",
@@ -2018,12 +2025,13 @@
         "EG-TYPED-PACKS-R094.4",
         "EG-TYPED-PACKS-R094.5",
         "EG-TYPED-PACKS-R094.6",
-        "EG-TYPED-PACKS-R094.7"
+        "EG-TYPED-PACKS-R094.7",
+        "EG-TYPED-PACKS-R094.8"
       ]
     },
     {
       "id": "EG-TYPED-PACKS-R094.1",
-      "title": "Original Stable content route",
+      "title": "Stable content route returns verified bytes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2051,7 +2059,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R094.5",
-      "title": "Served lossless round trip",
+      "title": "Served lossless blueprint round trip",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2072,13 +2080,14 @@
     },
     {
       "id": "EG-TYPED-PACKS-R095",
-      "title": "GraphSchema attach exposes snapshot staleness",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: Restates the static-attachment staleness row",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "90f5578ae2f4",
         "f4744679fab0"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Restates the static-attachment staleness row"
     },
     {
       "id": "EG-TYPED-PACKS-R096",
@@ -2092,7 +2101,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R097",
-      "title": "Domain vocabularies ship as typed domain packs",
+      "title": "Domain vocabularies ship as typed domain packs (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "6a1a0e46d99f",
@@ -2108,7 +2117,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R097.1",
-      "title": "HR domain vocabulary ships as a typed domain pack",
+      "title": "HR domain vocabulary as a typed domain pack",
       "delivery_state": "LANDED",
       "landed_in": [
         "6a1a0e46d99f"
@@ -2133,49 +2142,49 @@
     },
     {
       "id": "EG-TYPED-PACKS-R097.2.1",
-      "title": "Model",
+      "title": "Crosswalk coverage model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R097.2.2",
-      "title": "Behavior",
+      "title": "Crosswalk coverage behaviour",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R097.2.3",
-      "title": "Wiring",
+      "title": "Crosswalk coverage wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R097.2.4",
-      "title": "Refusal",
+      "title": "Crosswalk coverage refusals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R097.2.5",
-      "title": "Evidence",
+      "title": "Crosswalk coverage evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R097.2.6",
-      "title": "Hot-path proof",
+      "title": "Crosswalk coverage hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R098",
-      "title": "Ontology inspection method and inline data triples for validation",
+      "title": "Ontology inspection and inline data triples for validation",
       "delivery_state": "LANDED",
       "landed_in": [
         "90f5578ae2f4",
@@ -2200,7 +2209,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R100",
-      "title": "Skill packages are rendered on demand from graph content (rollup)",
+      "title": "Skill packages render on demand from graph content (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2219,77 +2228,86 @@
     },
     {
       "id": "EG-TYPED-PACKS-R100.1",
-      "title": "Model",
+      "title": "Rendered skill package model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R100.2",
-      "title": "Behavior",
+      "title": "Render a skill package from graph content",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R100.3",
-      "title": "Wiring",
+      "title": "Call rendering from the catalog listing",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R100.4",
-      "title": "Refusal",
+      "title": "Dangling ontology reference refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R100.5",
-      "title": "Evidence",
+      "title": "Rendered package evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R100.6",
-      "title": "Hot-path proof",
+      "title": "Rendered package hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R100.7",
-      "title": "Exact rendered-package validation gate",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Recorded-run validation of a rendered package is owned by the decision engine",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Recorded-run validation of a rendered package is owned by the decision engine"
     },
     {
       "id": "EG-TYPED-PACKS-R097.2.7",
-      "title": "Directional external-schema import and complete unmapped-term report",
+      "title": "Directional external-schema import and unmapped-term report (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R097.2.7.1",
+        "EG-TYPED-PACKS-R097.2.7.2",
+        "EG-TYPED-PACKS-R097.2.7.3",
+        "EG-TYPED-PACKS-R097.2.7.4"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R100.8",
-      "title": "Lossless versioned workflow RDF export/import",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Workflow RDF export belongs to the orchestration vocabulary",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Workflow RDF export belongs to the orchestration vocabulary"
     },
     {
       "id": "EG-TYPED-PACKS-R069.100",
-      "title": "Semantic fingerprint separates cosmetic from structural repository changes",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: fingerprint identity belongs to repository ingest",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "fingerprint identity belongs to repository ingest"
     },
     {
       "id": "EG-TYPED-PACKS-R100.100",
-      "title": "Lossless SKILL.md frontmatter and step editing round trip",
+      "title": "Lossless SKILL.md frontmatter and step editing",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2303,28 +2321,50 @@
     },
     {
       "id": "EG-TYPED-PACKS-R001.100",
-      "title": "Versioned nested prompt/tool schemas with incremental compatibility",
+      "title": "Versioned nested prompt and tool schemas with incremental compatibility",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R002.12",
+      "title": "Native-component projection",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R002.13",
+      "title": "Render receipt verification operation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R071.2",
+      "title": "Shipped modules extend core classes and never import core",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R072.100",
-      "title": "Workflow registration and invocation through typed registry",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Workflow registration lives in the decision-engine registry",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Workflow registration lives in the decision-engine registry"
     },
     {
       "id": "EG-TYPED-PACKS-R071.100",
-      "title": "Canonical shared hierarchical concept paths across repositories",
+      "title": "Canonical hierarchical concept paths",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R101",
-      "title": "Ingest mappings come from the connector's declaration and the pack ontology (rollup)",
+      "title": "Ingest mappings come from the connector declaration and the pack ontology (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2357,7 +2397,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R101.2",
-      "title": "Model",
+      "title": "Connector contract shapes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2480,42 +2520,42 @@
     },
     {
       "id": "EG-TYPED-PACKS-R102.2",
-      "title": "Behavior",
+      "title": "Surface node projection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R102.3",
-      "title": "Behavior",
+      "title": "Pack ontology extends core classes and never redeclares them",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R102.4",
-      "title": "Wiring",
+      "title": "Surface projection wiring and consumers",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R102.5",
-      "title": "Refusal",
+      "title": "Surface refusals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R102.6",
-      "title": "Evidence",
+      "title": "Surface evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R102.7",
-      "title": "Hot-path proof",
+      "title": "Surface hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2548,35 +2588,35 @@
     },
     {
       "id": "EG-TYPED-PACKS-R103.2",
-      "title": "Behavior",
+      "title": "Runtime ontology import behaviour",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R103.3",
-      "title": "Wiring",
+      "title": "Runtime ontology import wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R103.4",
-      "title": "Refusal",
+      "title": "Runtime ontology import refusals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R103.5",
-      "title": "Evidence",
+      "title": "Runtime ontology revision evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R103.6",
-      "title": "Hot-path proof",
+      "title": "Runtime ontology hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2610,45 +2650,57 @@
     },
     {
       "id": "EG-TYPED-PACKS-R104.2",
-      "title": "Behavior",
+      "title": "Seed graph import behaviour",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R104.3",
-      "title": "Wiring",
+      "title": "Seed graph import wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R104.4",
-      "title": "Refusal",
+      "title": "Seed graph refusals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R104.5",
-      "title": "Evidence",
+      "title": "Seed graph receipt",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R104.6",
-      "title": "Hot-path proof",
+      "title": "Seed graph hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R105",
-      "title": "A connector ontology joins the parent graph on import",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "title": "A connector ontology joins the core through subclass edges",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0b2f084f5f52",
+        "26446669b39b",
+        "29c97bd07041",
+        "4e3fe14320b3",
+        "52dbb35d88bb"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/pack/tests.rs:143",
+        "crates/eg-rdf/src/pack/tests.rs:158",
+        "crates/eg-rdf/tests/connector_parent_classes.rs:37",
+        "crates/eg-rdf/tests/connector_parent_classes.rs:90",
+        "crates/eg-rdf/tests/domain_modules_classes.rs:654"
+      ],
       "rollup_of": [
         "EG-TYPED-PACKS-R105.1",
         "EG-TYPED-PACKS-R105.2",
@@ -2678,10 +2730,11 @@
     },
     {
       "id": "EG-TYPED-PACKS-R105.2",
-      "title": "Stage two: the import edge, parent-class reads and enforcement",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Import-edge recording is dropped",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Import-edge recording is dropped"
     },
     {
       "id": "EG-TYPED-PACKS-R105.3",
@@ -2844,48 +2897,47 @@
     },
     {
       "id": "EG-TYPED-PACKS-R751",
-      "title": "Specialist registry, provider discovery, transactional install and capability contract (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: The registry nodes are catalog assets; install is a host operation",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-TYPED-PACKS-R751.750",
-        "EG-TYPED-PACKS-R751.751",
-        "EG-TYPED-PACKS-R751.752",
-        "EG-TYPED-PACKS-R751.753"
-      ]
+      "retired_reason": "The registry nodes are catalog assets; install is a host operation"
     },
     {
       "id": "EG-TYPED-PACKS-R751.750",
-      "title": "Model: Specialist registry, provider discovery, transactional install and capability contract",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Specialist and provider asset types are catalog classes; the capability contract moves to the connector contract owner",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Specialist and provider asset types are catalog classes; the capability contract moves to the connector contract owner"
     },
     {
       "id": "EG-TYPED-PACKS-R751.751",
-      "title": "Behavior: Specialist registry, provider discovery, transactional install and capability contract",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Transactional install is a host operation; discovery is a catalog query",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Transactional install is a host operation; discovery is a catalog query"
     },
     {
       "id": "EG-TYPED-PACKS-R751.752",
-      "title": "Refusal: Specialist registry, provider discovery, transactional install and capability contract",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Digest and marker refusals belong to the host install operation",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Digest and marker refusals belong to the host install operation"
     },
     {
       "id": "EG-TYPED-PACKS-R751.753",
-      "title": "Hot-path proof: Specialist registry, provider discovery, transactional install and capability contract",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Resolution is the ranked catalog function",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Resolution is the ranked catalog function"
     },
     {
       "id": "EG-TYPED-PACKS-R650",
-      "title": "Property types, value types, links, interfaces and object sets (rollup)",
+      "title": "Value types, link types and interfaces compile to enforced shapes (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2942,7 +2994,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R651",
-      "title": "Governed edits, reverts, write-back and sync conflict resolution (rollup)",
+      "title": "Ontology edits are an append-only chain with exact inversion (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2999,7 +3051,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R652",
-      "title": "Markings, classification claims and restricted views (rollup)",
+      "title": "Classification claims, propagation and promotion (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3113,14 +3165,14 @@
     },
     {
       "id": "EG-TYPED-PACKS-R097.700",
-      "title": "Domain pack manifest, mapping language, loader and promotion bridge: model and behavior",
+      "title": "Domain pack manifest, mapping language, loader and promotion bridge",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R097.701",
-      "title": "Domain pack manifest, mapping language, loader and promotion bridge: refusal, evidence and hot-path proof",
+      "title": "Domain pack refusals, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3157,14 +3209,14 @@
     },
     {
       "id": "EG-TYPED-PACKS-R711",
-      "title": "Process, lifecycle, temporal and harness shape artifacts are generated: model and behavior",
+      "title": "Process, lifecycle, temporal and harness shape artifacts are rendered from typed Rust: model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R713",
-      "title": "Process, lifecycle, temporal and harness shape artifacts are generated: refusal, evidence and hot-path proof",
+      "title": "Process, lifecycle, temporal and harness shape artifacts are rendered from typed Rust: refusal, evidence and proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3185,60 +3237,59 @@
     },
     {
       "id": "EG-TYPED-PACKS-R800",
-      "title": "Typed record models for packs, evidence bundles, manifests and goals (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: pack records already have typed, digest-checked models",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-TYPED-PACKS-R800.1",
-        "EG-TYPED-PACKS-R800.2",
-        "EG-TYPED-PACKS-R800.3",
-        "EG-TYPED-PACKS-R800.4",
-        "EG-TYPED-PACKS-R800.5",
-        "EG-TYPED-PACKS-R800.6"
-      ]
+      "retired_reason": "pack records already have typed, digest-checked models"
     },
     {
       "id": "EG-TYPED-PACKS-R800.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: pack records already have typed, digest-checked models",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "pack records already have typed, digest-checked models"
     },
     {
       "id": "EG-TYPED-PACKS-R800.2",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: pack records already have typed, digest-checked models",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "pack records already have typed, digest-checked models"
     },
     {
       "id": "EG-TYPED-PACKS-R800.3",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: pack records already have typed, digest-checked models",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "pack records already have typed, digest-checked models"
     },
     {
       "id": "EG-TYPED-PACKS-R800.4",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: pack records already have typed, digest-checked models",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "pack records already have typed, digest-checked models"
     },
     {
       "id": "EG-TYPED-PACKS-R800.5",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: pack records already have typed, digest-checked models",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "pack records already have typed, digest-checked models"
     },
     {
       "id": "EG-TYPED-PACKS-R800.6",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: pack records already have typed, digest-checked models",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "pack records already have typed, digest-checked models"
     },
     {
       "id": "EG-TYPED-PACKS-R801",
@@ -3393,7 +3444,8 @@
         "EG-TYPED-PACKS-R803.3",
         "EG-TYPED-PACKS-R803.4",
         "EG-TYPED-PACKS-R803.5",
-        "EG-TYPED-PACKS-R803.6"
+        "EG-TYPED-PACKS-R803.6",
+        "EG-TYPED-PACKS-R803.7"
       ]
     },
     {
@@ -3407,21 +3459,21 @@
     },
     {
       "id": "EG-TYPED-PACKS-R803.2",
-      "title": "Behavior",
+      "title": "Column scan behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R803.3",
-      "title": "Wiring",
+      "title": "Job wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R803.4",
-      "title": "Refusal",
+      "title": "Refusals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3464,7 +3516,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R804.2",
-      "title": "Behavior",
+      "title": "Diff and impact behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3478,7 +3530,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R804.4",
-      "title": "Refusal",
+      "title": "Refusals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3525,7 +3577,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R805.2",
-      "title": "Behavior",
+      "title": "Contract check behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3539,7 +3591,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R805.4",
-      "title": "Refusal",
+      "title": "Refusals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3702,7 +3754,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R108",
-      "title": "The metadata catalog also governs agents, the business, workflows and knowledge graphs (rollup)",
+      "title": "The metadata catalog also governs agents, the business, workflows, knowledge graphs and specialists (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3896,28 +3948,19 @@
     },
     {
       "id": "EG-TYPED-PACKS-R085.5",
-      "title": "Rollup through R085.5.1–R085.5.4",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Approval keys move to the identity spec",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-TYPED-PACKS-R085.5.1",
-        "EG-TYPED-PACKS-R085.5.2",
-        "EG-TYPED-PACKS-R085.5.3",
-        "EG-TYPED-PACKS-R085.5.4"
-      ]
+      "retired_reason": "Approval keys move to the identity spec"
     },
     {
       "id": "EG-TYPED-PACKS-R085.6",
-      "title": "Rollup through R085.6.1–R085.6.3",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Credential observation moves to the identity spec",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-TYPED-PACKS-R085.6.1",
-        "EG-TYPED-PACKS-R085.6.2",
-        "EG-TYPED-PACKS-R085.6.3"
-      ]
+      "retired_reason": "Credential observation moves to the identity spec"
     },
     {
       "id": "EG-TYPED-PACKS-R085.7.1",
@@ -3935,19 +3978,21 @@
     },
     {
       "id": "EG-TYPED-PACKS-R085.7.2",
-      "title": "Durable reference snapshots",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Session reference inspection moves to the identity spec",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-core/src/isolation/identity_store_tests/session_evidence.rs:6"
-      ]
+      ],
+      "retired_reason": "Session reference inspection moves to the identity spec"
     },
     {
       "id": "EG-TYPED-PACKS-R085.7.3",
-      "title": "Reference contract and served qualification",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Session reference inspection moves to the identity spec",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Session reference inspection moves to the identity spec"
     },
     {
       "id": "EG-TYPED-PACKS-R085.4.1",
@@ -3967,12 +4012,13 @@
     },
     {
       "id": "EG-TYPED-PACKS-R085.4.2",
-      "title": "Durable renewal CAS",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Durable renewal compare-and-set moves to the identity spec",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-core/src/isolation/identity_store_tests/session_evidence.rs:161"
-      ]
+      ],
+      "retired_reason": "Durable renewal compare-and-set moves to the identity spec"
     },
     {
       "id": "EG-TYPED-PACKS-R085.4.3",
@@ -4005,28 +4051,31 @@
     },
     {
       "id": "EG-TYPED-PACKS-R085.5.2",
-      "title": "Durable approval-key evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Approval keys move to the identity spec",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-core/src/isolation/identity_store_tests/approval_keys.rs:63"
-      ]
+      ],
+      "retired_reason": "Approval keys move to the identity spec"
     },
     {
       "id": "EG-TYPED-PACKS-R085.5.3",
-      "title": "Approval-key request stamping",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Approval keys move to the identity spec",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "src/server/dispatch/identity_store/tests/approval_keys.rs:4"
-      ]
+      ],
+      "retired_reason": "Approval keys move to the identity spec"
     },
     {
       "id": "EG-TYPED-PACKS-R085.5.4",
-      "title": "Approval-key served qualification",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Approval keys move to the identity spec",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Approval keys move to the identity spec"
     },
     {
       "id": "EG-TYPED-PACKS-R085.6.1",
@@ -4043,16 +4092,88 @@
     },
     {
       "id": "EG-TYPED-PACKS-R085.6.2",
-      "title": "Durable observation revision",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Credential observation moves to the identity spec",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-core/src/isolation/identity_store_tests/session_evidence.rs:7"
-      ]
+      ],
+      "retired_reason": "Credential observation moves to the identity spec"
     },
     {
       "id": "EG-TYPED-PACKS-R085.6.3",
-      "title": "Observation contract and served qualification",
+      "title": "RETIRED: Credential observation moves to the identity spec",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "Credential observation moves to the identity spec"
+    },
+    {
+      "id": "EG-TYPED-PACKS-R094.8",
+      "title": "Record the source-effect receipt on the component revision",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R097.2.7.1",
+      "title": "External term mapping and coverage model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R097.2.7.2",
+      "title": "External term coverage behaviour",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R097.2.7.3",
+      "title": "External schema import wiring and refusals",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R097.2.7.4",
+      "title": "External schema import hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R803.7",
+      "title": "Document chunk wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R806",
+      "title": "Serve schema drift records and repair approval as methods",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R807",
+      "title": "Connector conformance evidence record and read method",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R808",
+      "title": "Operator-selected schema import with digest check and readback",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R809",
+      "title": "Served canonical hash of a Turtle payload",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

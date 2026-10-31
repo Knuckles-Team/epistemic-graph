@@ -31,6 +31,7 @@
     "EG-SRC-AUTH-R004.4",
     "EG-SRC-AUTH-R004.5",
     "EG-SRC-AUTH-R004.6",
+    "EG-SRC-AUTH-R004.6.1",
     "EG-SRC-AUTH-R004.7",
     "EG-SRC-AUTH-R005",
     "EG-SRC-AUTH-R005.1",
@@ -56,6 +57,7 @@
     "EG-SRC-AUTH-R009.1",
     "EG-SRC-AUTH-R009.2",
     "EG-SRC-AUTH-R009.3",
+    "EG-SRC-AUTH-R009.4",
     "EG-SRC-AUTH-R010",
     "EG-SRC-AUTH-R010.1",
     "EG-SRC-AUTH-R010.2",
@@ -76,7 +78,8 @@
     "EG-SRC-AUTH-R800.3",
     "EG-SRC-AUTH-R800.4",
     "EG-SRC-AUTH-R800.5",
-    "EG-SRC-AUTH-R800.6"
+    "EG-SRC-AUTH-R800.6",
+    "EG-SRC-AUTH-R801"
   ],
   "requirements": [
     {
@@ -259,7 +262,7 @@
     },
     {
       "id": "EG-SRC-AUTH-R003",
-      "title": "Who may assert authority (rollup)",
+      "title": "Only an operator may assert source authority (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -295,7 +298,7 @@
     },
     {
       "id": "EG-SRC-AUTH-R003.3",
-      "title": "`AttachApproved` accepts an authority candidate. The approval lease binds its digest",
+      "title": "AttachApproved accepts an authority candidate bound to its digest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -395,7 +398,17 @@
     },
     {
       "id": "EG-SRC-AUTH-R004.6",
-      "title": "Build the `ConnectedSources` view from the owner-scoped foreign catalog",
+      "title": "Build the ConnectedSources view from the owner-scoped foreign catalog",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SRC-AUTH-R004.6.1"
+      ]
+    },
+    {
+      "id": "EG-SRC-AUTH-R004.6.1",
+      "title": "Serve SourceCoverage and create the first production caller of select_sources",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -605,17 +618,18 @@
     },
     {
       "id": "EG-SRC-AUTH-R007.4",
-      "title": "Wire the audit into the cross-source report's `sources_used`",
+      "title": "Wire the audit into the report's sources_used",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SRC-AUTH-R007.5",
-      "title": "Print the block in the served intent tool",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Intent-tool block owned by arbora",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Intent-tool block owned by arbora"
     },
     {
       "id": "EG-SRC-AUTH-R008",
@@ -664,7 +678,8 @@
       "rollup_of": [
         "EG-SRC-AUTH-R009.1",
         "EG-SRC-AUTH-R009.2",
-        "EG-SRC-AUTH-R009.3"
+        "EG-SRC-AUTH-R009.3",
+        "EG-SRC-AUTH-R009.4"
       ]
     },
     {
@@ -691,7 +706,15 @@
     },
     {
       "id": "EG-SRC-AUTH-R009.3",
-      "title": "Re-point `EG-CQ-XSRC-R001.1` and `R001.2` to this spec and mark them delivered by `R001.*` and `R002.*`",
+      "title": "RETIRED: Spec re-pointing edit",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "Spec re-pointing edit"
+    },
+    {
+      "id": "EG-SRC-AUTH-R009.4",
+      "title": "Served decisive test: swapping two ranks changes sources_used",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -736,7 +759,7 @@
     },
     {
       "id": "EG-SRC-AUTH-R010.3",
-      "title": "Wiring",
+      "title": "Wire source roles into the served selection call",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -765,7 +788,7 @@
     },
     {
       "id": "EG-SRC-AUTH-R010.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof for source roles",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -810,7 +833,7 @@
     },
     {
       "id": "EG-SRC-AUTH-R011.3",
-      "title": "Wiring",
+      "title": "Stamp the trust mark in the mutation gateway",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -839,64 +862,70 @@
     },
     {
       "id": "EG-SRC-AUTH-R011.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof for the trust mark",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-SRC-AUTH-R800",
-      "title": "Concept id allocation, lineage and relational authority registry (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Concept id registry misfiled in source authority",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-SRC-AUTH-R800.1",
-        "EG-SRC-AUTH-R800.2",
-        "EG-SRC-AUTH-R800.3",
-        "EG-SRC-AUTH-R800.4",
-        "EG-SRC-AUTH-R800.5",
-        "EG-SRC-AUTH-R800.6"
-      ]
+      "retired_reason": "Concept id registry misfiled in source authority"
     },
     {
       "id": "EG-SRC-AUTH-R800.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Duplicate of the identifier registry",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Duplicate of the identifier registry"
     },
     {
       "id": "EG-SRC-AUTH-R800.2",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Duplicate of the identifier registry",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Duplicate of the identifier registry"
     },
     {
       "id": "EG-SRC-AUTH-R800.3",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Duplicate of the identifier registry",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Duplicate of the identifier registry"
     },
     {
       "id": "EG-SRC-AUTH-R800.4",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Duplicate of the identifier registry",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Duplicate of the identifier registry"
     },
     {
       "id": "EG-SRC-AUTH-R800.5",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Duplicate of the identifier registry",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Duplicate of the identifier registry"
     },
     {
       "id": "EG-SRC-AUTH-R800.6",
-      "title": "Hot-path proof",
+      "title": "RETIRED: Duplicate of the identifier registry",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "Duplicate of the identifier registry"
+    },
+    {
+      "id": "EG-SRC-AUTH-R801",
+      "title": "Reviewed policy source bound to the active policy",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
