@@ -2,12 +2,12 @@ use super::*;
 use crate::server::persistence::writer_reply::await_writer_reply;
 
 impl RedbBackend {
-    /// The shard that owns `graph_fname` (stable routing, CONCEPT:EG-KG.backend.sharded-k-way-durable / EG-031).
+    /// The shard that owns `graph_fname` (stable routing, CONCEPT:MEDULLA-KG.backend.sharded-k-way-durable / MEDULLA-031).
     ///
     /// Routing seam: when a tenant catalog is attached AND holds an explicit entry for
     /// this graph, the catalog's shard wins (M3 rebalanceable placement). Otherwise —
     /// no catalog, or a graph the catalog has no entry for — this is the unchanged
-    /// EG-026 `FNV-1a(graph_fname) % K`. `resolve_shard` folds both cases + clamps to
+    /// MEDULLA-026 `FNV-1a(graph_fname) % K`. `resolve_shard` folds both cases + clamps to
     /// the live shard count, so the override can never index out of range.
     pub(super) fn shard_for(&self, graph_fname: &str) -> &ShardWriter {
         let idx = match &self.catalog {
@@ -84,7 +84,7 @@ impl RedbBackend {
     /// §ADR-2 decision 1: **raft group *g* owns redb shard *g***). A group's durable log +
     /// vote + applied-state (keyed `(group_id, …)`) live in THIS shard's file, co-located
     /// with the graph data of every graph the router maps to the group — so one group's
-    /// apply loop is one shard's single writer, and the EG-KG.storage.one-fsync-covers-raft
+    /// apply loop is one shard's single writer, and the MEDULLA-KG.storage.one-fsync-covers-raft
     /// coalescing holds per group. Group ids are not required to be dense `0..K` (the
     /// harness uses 100/200), so the mapping is `group_id % K`; under the production
     /// `configure_group_ring` (`0..K`) with K == N it reduces to the identity `g → shard g`.
@@ -94,12 +94,12 @@ impl RedbBackend {
         &self.shards[(group_id as usize) % self.shards.len()]
     }
 
-    /// Number of durable shards K (CONCEPT:EG-KG.backend.sharded-k-way-durable).
+    /// Number of durable shards K (CONCEPT:MEDULLA-KG.backend.sharded-k-way-durable).
     pub fn shard_count(&self) -> usize {
         self.shards.len()
     }
 
-    /// The persist dir this store lives in (CONCEPT:EG-KG.sharding.reshard-on-restore) — derived from shard 0's
+    /// The persist dir this store lives in (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore) — derived from shard 0's
     /// file path parent. Used by the live restore RPC to stage a rebuilt copy beside the
     /// running store (an in-place restore needs the engine stopped — the file lock).
     pub fn persist_dir(&self) -> Option<std::path::PathBuf> {

@@ -1,6 +1,6 @@
 """Host-start typed client transport, not issuer or live admission proof."""
 
-# spec: EG-DURABLE-KERNEL-R030.1.1
+# spec: MEDULLA-DURABLE-KERNEL-R030.1.1
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ from typing import Any, cast
 import pytest
 from _client_send_stub import CapturingEngine
 
-from epistemic_graph.client import (
+from medulla.client import (
     ControlLeaseClient,
-    EpistemicGraphClient,
+    MedullaClient,
     _control_lease_view,
 )
 
@@ -97,7 +97,7 @@ def test_dedicated_issue_sends_binding_without_caller_provenance() -> None:
     engine = CapturingEngine(
         {"outcome": "issued", "lease": issued, "changed_work_item_ids": ["host-1"]}
     )
-    client = ControlLeaseClient(cast(EpistemicGraphClient, engine))
+    client = ControlLeaseClient(cast(MedullaClient, engine))
     answer = asyncio.run(
         client.issue_host_start(
             tenant="tenant-a",

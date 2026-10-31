@@ -14,7 +14,7 @@ use super::{
 pub(super) fn staged_commit_error(req_id: u64, error: &str) -> Response {
     Response::err(
         req_id,
-        eg_types::contract::classify_refusal(
+        medulla_types::contract::classify_refusal(
             "INTERNAL",
             "staged MutationBatch durable commit failed: ",
             error,
@@ -271,7 +271,7 @@ pub(super) fn mutation_snapshot_max_bytes() -> usize {
     static MAX: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     *MAX.get_or_init(|| {
         let automatic = crate::autosize::detect_capacity().mutation_snapshot_bytes();
-        if let Ok(value) = std::env::var("EPISTEMIC_GRAPH_MUTATION_SNAPSHOT_MAX_BYTES") {
+        if let Ok(value) = std::env::var("MEDULLA_MUTATION_SNAPSHOT_MAX_BYTES") {
             if let Ok(parsed) = value.trim().parse::<usize>() {
                 return crate::autosize::bound_explicit(parsed, automatic);
             }
@@ -323,7 +323,7 @@ pub(super) fn prepublish_success(core: &GraphCore, method: &Method) -> Option<Re
                 Ok(result) => result,
                 Err(error) => {
                     tracing::warn!(
-                        target: "epistemic_graph::mutation",
+                        target: "medulla::mutation",
                         %error,
                         "BatchUpdate preview failed; falling back to the \
                          full-snapshot runtime-result commit path"
@@ -331,14 +331,14 @@ pub(super) fn prepublish_success(core: &GraphCore, method: &Method) -> Option<Re
                     return None;
                 }
             };
-            match eg_types::result_contract::transactions::BatchUpdateReport::decode(&result)
+            match medulla_types::result_contract::transactions::BatchUpdateReport::decode(&result)
                 .and_then(
-                    ResultPayload::of::<eg_types::result_contract::transactions::BatchUpdate>,
+                    ResultPayload::of::<medulla_types::result_contract::transactions::BatchUpdate>,
                 ) {
                 Ok(payload) => Some(payload),
                 Err(error) => {
                     tracing::warn!(
-                        target: "epistemic_graph::mutation",
+                        target: "medulla::mutation",
                         %error,
                         "BatchUpdate preview summary failed to decode; falling back \
                          to the full-snapshot runtime-result commit path"

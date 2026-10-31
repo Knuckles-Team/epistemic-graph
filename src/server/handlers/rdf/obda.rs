@@ -1,10 +1,10 @@
 use crate::protocol::{Response, ResultPayload};
 
-/// OBDA / R2RML virtual-graph query (CONCEPT:EG-KG.query.r2rml-virtual-graph /
-/// CONCEPT:EG-KG.query.obda-query-rewrite). Registers each of `tables` as a foreign
-/// [`eg_rdf::obda::ObdaSource`] backed by the engine's own SQL user-table store
+/// OBDA / R2RML virtual-graph query (CONCEPT:MEDULLA-KG.query.r2rml-virtual-graph /
+/// CONCEPT:MEDULLA-KG.query.obda-query-rewrite). Registers each of `tables` as a foreign
+/// [`medulla_rdf::obda::ObdaSource`] backed by the engine's own SQL user-table store
 /// ([`crate::server::sql_tables::user_table_store`]), parses `mapping` (auto-detecting
-/// standard R2RML Turtle vs. the compact EG-101 textual form), and runs `query` through
+/// standard R2RML Turtle vs. the compact MEDULLA-101 textual form), and runs `query` through
 /// the OBDA query-rewrite path: only the query-relevant columns are scanned from the
 /// table(s), only the query-relevant triples are materialized into a TRANSIENT view —
 /// the user table itself is never mutated, and nothing is persisted into any graph.
@@ -33,37 +33,37 @@ pub(super) async fn handle_sparql_virtual(
     match out {
         Ok(Ok(result)) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::reasoning::SparqlVirtual>(&result),
+            ResultPayload::of_ref::<medulla_types::result_contract::reasoning::SparqlVirtual>(&result),
         ),
         Ok(Err(msg)) => Response::err(req_id, format!("SparqlVirtual error: {msg}")),
         Err(e) => Response::err(req_id, format!("SparqlVirtual task join error: {e}")),
     }
 }
 
-/// A [`eg_rdf::obda::ObdaSource`] backed by one table of the caller's TENANT-shared
-/// [`eg_query::TableStore`], opened through an authorized [`AuthorizedTable`]
-/// (CONCEPT:NE-046 — EG-WIRE-CATALOG; CONCEPT:EG-KG.query.r2rml-virtual-graph). Bridges
-/// the SQL-side typed [`eg_query::Cell`] to the OBDA seam's lexical `String` columns
+/// A [`medulla_rdf::obda::ObdaSource`] backed by one table of the caller's TENANT-shared
+/// [`medulla_query::TableStore`], opened through an authorized [`AuthorizedTable`]
+/// (CONCEPT:NE-046 — MEDULLA-WIRE-CATALOG; CONCEPT:MEDULLA-KG.query.r2rml-virtual-graph). Bridges
+/// the SQL-side typed [`medulla_query::Cell`] to the OBDA seam's lexical `String` columns
 /// (R2RML templates/literal object maps consume the lexical form; typed SQL
 /// round-tripping through a `rr:datatype` object map is a documented follow-up,
-/// mirrored from the EG-101 `ObdaSource` contract). Rows come from
+/// mirrored from the MEDULLA-101 `ObdaSource` contract). Rows come from
 /// `AuthorizedTable::select`, so the table's row-level predicate (if declared)
 /// already constrained them before this layer ever sees them; THIS layer then still
 /// applies BOTH the `needed`-column projection AND the pushed-down row-level
-/// `filters` (CONCEPT:EG-KG.query.obda-predicate-pushdown) when handing rows back, so
+/// `filters` (CONCEPT:MEDULLA-KG.query.obda-predicate-pushdown) when handing rows back, so
 /// the OBDA-side pushdown contract (only query-relevant rows/columns end up in a
 /// materialized triple) holds even though the underlying scan itself is not
 /// column/predicate-pushed.
 #[cfg(feature = "obda")]
 struct TableStoreSource {
-    schema: eg_query::TableSchema,
-    rows: Vec<Vec<eg_query::Cell>>,
+    schema: medulla_query::TableSchema,
+    rows: Vec<Vec<medulla_query::Cell>>,
 }
 
 #[cfg(feature = "obda")]
 impl TableStoreSource {
     /// Open `table` through the ACL's authorized read path
-    /// (CONCEPT:NE-046 — EG-WIRE-CATALOG): `Select`-authorizes `authority` for
+    /// (CONCEPT:NE-046 — MEDULLA-WIRE-CATALOG): `Select`-authorizes `authority` for
     /// `table` (the SAME generic denial whether it doesn't exist or simply isn't
     /// granted — no existence leak through the OBDA surface) and returns its
     /// RLS-filtered rows.
@@ -86,8 +86,8 @@ impl TableStoreSource {
     /// The lexical form of one cell (R2RML templates/literal object maps consume a
     /// string; `Null` yields no lexical value so a template/column referencing it
     /// correctly omits the triple, per the OBDA `expand_template`/`term_for` contract).
-    fn lexical(cell: &eg_query::Cell) -> Option<String> {
-        use eg_query::Cell;
+    fn lexical(cell: &medulla_query::Cell) -> Option<String> {
+        use medulla_query::Cell;
         match cell {
             Cell::Null => None,
             Cell::Int(i) => Some(i.to_string()),
@@ -117,7 +117,7 @@ fn hex_lexical(bytes: &[u8]) -> String {
 }
 
 #[cfg(feature = "obda")]
-impl eg_rdf::obda::ObdaSource for TableStoreSource {
+impl medulla_rdf::obda::ObdaSource for TableStoreSource {
     fn columns(&self) -> Vec<String> {
         self.schema
             .columns()
@@ -129,19 +129,19 @@ impl eg_rdf::obda::ObdaSource for TableStoreSource {
     fn scan(
         &self,
         needed: &std::collections::BTreeSet<String>,
-        filters: &[eg_rdf::obda::ObdaFilter],
-    ) -> Result<Vec<eg_rdf::obda::ForeignRow>, String> {
+        filters: &[medulla_rdf::obda::ObdaFilter],
+    ) -> Result<Vec<medulla_rdf::obda::ForeignRow>, String> {
         let cols = self.schema.columns();
         let mut out = Vec::with_capacity(self.rows.len());
         for row in &self.rows {
             // Build the full lexical row first — a pushed FILTER may reference a column the
             // query does not PROJECT, so it must be visible for the predicate check.
-            let full: eg_rdf::obda::ForeignRow = cols
+            let full: medulla_rdf::obda::ForeignRow = cols
                 .iter()
                 .zip(row.iter())
                 .filter_map(|(col, cell)| Self::lexical(cell).map(|v| (col.name.clone(), v)))
                 .collect();
-            // Row-level predicate pushdown (CONCEPT:EG-KG.query.obda-predicate-pushdown): drop
+            // Row-level predicate pushdown (CONCEPT:MEDULLA-KG.query.obda-predicate-pushdown): drop
             // any row the pushed-down FILTERs exclude BEFORE projecting — the internal-table
             // analogue of a SQL WHERE (closing the "pushdown stopped at column projection" gap).
             if !filters
@@ -151,7 +151,7 @@ impl eg_rdf::obda::ObdaSource for TableStoreSource {
                 continue;
             }
             // Projection pushdown: keep only the query-relevant columns.
-            let projected: eg_rdf::obda::ForeignRow = if needed.is_empty() {
+            let projected: medulla_rdf::obda::ForeignRow = if needed.is_empty() {
                 full
             } else {
                 full.into_iter()
@@ -164,7 +164,7 @@ impl eg_rdf::obda::ObdaSource for TableStoreSource {
     }
 }
 
-/// The blocking half of [`handle_sparql_virtual`]: build the [`eg_rdf::obda::ObdaSourceRegistry`]
+/// The blocking half of [`handle_sparql_virtual`]: build the [`medulla_rdf::obda::ObdaSourceRegistry`]
 /// from `tables`, parse `mapping`, run the OBDA query-rewrite, and project the SPARQL
 /// result to the wire shape. Split out (not `async`) so it runs on the blocking pool —
 /// the table scan + SPARQL evaluation are both synchronous CPU/redb-read work.
@@ -177,32 +177,32 @@ fn sparql_virtual(
     tables: &[String],
     external_sources: &[crate::protocol::ObdaExternalSource],
 ) -> Result<crate::protocol::SparqlResult, String> {
-    let mut reg = eg_rdf::obda::ObdaSourceRegistry::new();
+    let mut reg = medulla_rdf::obda::ObdaSourceRegistry::new();
     for table in tables {
         let src = TableStoreSource::load(authority, persist_dir, table)?;
         reg.register(table.clone(), std::sync::Arc::new(src));
     }
-    // W4.11 — register each LIVE external relational source (CONCEPT:EG-KG.query.obda-predicate-pushdown).
+    // W4.11 — register each LIVE external relational source (CONCEPT:MEDULLA-KG.query.obda-predicate-pushdown).
     // The query's projection + row-level FILTERs are pushed into a real SELECT … WHERE ….
     register_table_sources(&mut reg, external_sources)?;
 
     // Auto-detect standard R2RML Turtle (carries the `rr:` namespace) vs. the compact
-    // EG-101 textual mapping form (`SOURCE`/`SUBJECT`/… directives).
+    // MEDULLA-101 textual mapping form (`SOURCE`/`SUBJECT`/… directives).
     let vg = if mapping.contains("r2rml#") || mapping.contains("TriplesMap") {
-        eg_rdf::obda::parse_r2rml_turtle(mapping)?
+        medulla_rdf::obda::parse_r2rml_turtle(mapping)?
     } else {
-        eg_rdf::obda::parse_mapping(mapping)?
+        medulla_rdf::obda::parse_mapping(mapping)?
     };
 
-    let proj = eg_rdf::sparql::Projection::raw();
-    let outcome = eg_rdf::obda::run_outcome_virtual(&vg, &reg, query, &proj)?;
+    let proj = medulla_rdf::sparql::Projection::raw();
+    let outcome = medulla_rdf::obda::run_outcome_virtual(&vg, &reg, query, &proj)?;
     let (vars, rows) = match outcome {
-        eg_rdf::sparql::QueryOutcome::Solutions(res) => res.to_rows(),
-        eg_rdf::sparql::QueryOutcome::Boolean(b) => {
+        medulla_rdf::sparql::QueryOutcome::Solutions(res) => res.to_rows(),
+        medulla_rdf::sparql::QueryOutcome::Boolean(b) => {
             (vec!["_ask".to_string()], vec![vec![Some(b.to_string())]])
         }
         #[cfg(feature = "rdf")]
-        eg_rdf::sparql::QueryOutcome::Graph(_) => (Vec::new(), Vec::new()),
+        medulla_rdf::sparql::QueryOutcome::Graph(_) => (Vec::new(), Vec::new()),
     };
     // OBDA answers are rewritten scans over foreign tables, not graph triples, so
     // there is no graph witness to attach (EH-197 proofs are `Sparql`-only).
@@ -219,7 +219,7 @@ fn sparql_virtual(
 /// batch has been inspected, so a request containing any refused source cannot execute a query.
 #[cfg(feature = "obda")]
 fn register_table_sources(
-    registry: &mut eg_rdf::obda::ObdaSourceRegistry,
+    registry: &mut medulla_rdf::obda::ObdaSourceRegistry,
     external_sources: &[crate::protocol::ObdaExternalSource],
 ) -> Result<(), String> {
     let mut refused = Vec::new();
@@ -242,7 +242,7 @@ fn register_table_sources(
 }
 
 // ── external relational OBDA source + SPARQL→SQL predicate pushdown (W4.11) ──────────────────
-//   CONCEPT:EG-KG.query.obda-predicate-pushdown — a live external Postgres/MySQL table exposed
+//   CONCEPT:MEDULLA-KG.query.obda-predicate-pushdown — a live external Postgres/MySQL table exposed
 //   as a virtual RDF graph, with the query's column projection AND row-level FILTERs pushed
 //   down into a real `SELECT … WHERE …`. The SQL-generation (`render_obda_select`) is a PURE
 //   function proven by unit tests ("assert the pushdown via the query plan"); execution goes
@@ -251,9 +251,9 @@ fn register_table_sources(
 
 /// The SQL dialect an external OBDA source speaks — selects identifier quoting + the
 /// lexical-cast form so every SELECTed column comes back as text (the `ForeignRow` currency).
-/// One owner for SQL text sent across a federation boundary: [`eg_plan::sql_text`].
+/// One owner for SQL text sent across a federation boundary: [`medulla_plan::sql_text`].
 #[cfg(feature = "obda")]
-pub(super) type ObdaSqlDialect = eg_plan::sql_text::SqlDialect;
+pub(super) type ObdaSqlDialect = medulla_plan::sql_text::SqlDialect;
 
 /// Infer the dialect from a DSN scheme (`postgres://…` / `mysql://…`).
 #[cfg(feature = "obda")]
@@ -263,17 +263,17 @@ fn obda_dialect(dsn: &str) -> Result<ObdaSqlDialect, String> {
     })
 }
 
-/// CONCEPT:EG-KG.query.obda-predicate-pushdown — executes a rendered READ-ONLY `SELECT` against
+/// CONCEPT:MEDULLA-KG.query.obda-predicate-pushdown — executes a rendered READ-ONLY `SELECT` against
 /// an external relational database and returns each row as column→lexical-string. The seam that
 /// lets the SQL-generation + pushdown logic be unit-tested with a MOCK executor (no live DB)
 /// while a real `federation-sql` executor connects to the fleet's Postgres/MySQL.
 #[cfg(feature = "obda")]
 pub(super) trait ObdaSqlExecutor: Send + Sync {
-    fn run_select(&self, sql: &str) -> Result<Vec<eg_rdf::obda::ForeignRow>, String>;
+    fn run_select(&self, sql: &str) -> Result<Vec<medulla_rdf::obda::ForeignRow>, String>;
 }
 
-/// An [`eg_rdf::obda::ObdaSource`] backed by a table in an EXTERNAL relational database
-/// (CONCEPT:EG-KG.query.obda-predicate-pushdown). On `scan` it renders the projection- and
+/// An [`medulla_rdf::obda::ObdaSource`] backed by a table in an EXTERNAL relational database
+/// (CONCEPT:MEDULLA-KG.query.obda-predicate-pushdown). On `scan` it renders the projection- and
 /// FILTER-pushed `SELECT … WHERE …` for its dialect and runs it through the [`ObdaSqlExecutor`].
 #[cfg(feature = "obda")]
 pub(super) struct SqlObdaSource {
@@ -287,7 +287,7 @@ impl SqlObdaSource {
     /// Build a live external source over `table` reachable at `dsn` (the `federation-sql`
     /// path). A build without `federation-sql` returns a clean "rebuild" error.
     ///
-    /// `EG-UNIFIED-DATA-PLANE-R002.2`: `dsn` runs through the same SSRF-sensitive
+    /// `MEDULLA-UNIFIED-DATA-PLANE-R002.2`: `dsn` runs through the same SSRF-sensitive
     /// destination gate the SQL federation producer path (`R002.1`,
     /// `src/server/foreign_catalog.rs`) already runs before registration, so an OBDA
     /// external source whose DSN names a disallowed destination is refused here —
@@ -295,9 +295,9 @@ impl SqlObdaSource {
     /// failing the first time `run_select` dials out.
     fn connect(dsn: &str, table: &str) -> Result<Self, String> {
         let dialect = obda_dialect(dsn)?;
-        eg_plan::sql_text::validate_identifier(table).map_err(|e| format!("obda: {e}"))?;
+        medulla_plan::sql_text::validate_identifier(table).map_err(|e| format!("obda: {e}"))?;
         #[cfg(feature = "federation-sql")]
-        eg_plan::federation_ssrf::check_sql_dsn(dsn)?;
+        medulla_plan::federation_ssrf::check_sql_dsn(dsn)?;
         let executor = federation_sql_executor(dsn)?;
         Ok(Self {
             table: table.to_string(),
@@ -308,12 +308,12 @@ impl SqlObdaSource {
 }
 
 #[cfg(feature = "obda")]
-impl eg_rdf::obda::ObdaSource for SqlObdaSource {
+impl medulla_rdf::obda::ObdaSource for SqlObdaSource {
     fn scan(
         &self,
         needed: &std::collections::BTreeSet<String>,
-        filters: &[eg_rdf::obda::ObdaFilter],
-    ) -> Result<Vec<eg_rdf::obda::ForeignRow>, String> {
+        filters: &[medulla_rdf::obda::ObdaFilter],
+    ) -> Result<Vec<medulla_rdf::obda::ForeignRow>, String> {
         let sql = render_obda_select(&self.table, needed, filters, self.dialect)?;
         self.executor.run_select(&sql)
     }
@@ -321,9 +321,9 @@ impl eg_rdf::obda::ObdaSource for SqlObdaSource {
     fn scan_ordered_distinct(
         &self,
         needed: &std::collections::BTreeSet<String>,
-        filters: &[eg_rdf::obda::ObdaFilter],
-        order: &eg_rdf::obda::ObdaOrder,
-    ) -> Option<Result<Vec<eg_rdf::obda::ForeignRow>, String>> {
+        filters: &[medulla_rdf::obda::ObdaFilter],
+        order: &medulla_rdf::obda::ObdaOrder,
+    ) -> Option<Result<Vec<medulla_rdf::obda::ForeignRow>, String>> {
         if self.dialect != ObdaSqlDialect::Postgres {
             return None;
         }
@@ -335,12 +335,12 @@ impl eg_rdf::obda::ObdaSource for SqlObdaSource {
             Ok(rows) => rows,
             Err(error) => return Some(Err(error)),
         };
-        if rows.len() == 1 && rows[0].get("eg_obda_status").map(String::as_str) == Some("invalid") {
+        if rows.len() == 1 && rows[0].get("medulla_obda_status").map(String::as_str) == Some("invalid") {
             return None;
         }
         let mut out = Vec::with_capacity(rows.len());
         for mut row in rows {
-            match row.remove("eg_obda_status").as_deref() {
+            match row.remove("medulla_obda_status").as_deref() {
                 Some("ok") => out.push(row),
                 _ => return Some(Err("obda: ordered DISTINCT status is invalid".into())),
             }
@@ -368,11 +368,11 @@ impl eg_rdf::obda::ObdaSource for SqlObdaSource {
                 "obda: DISTINCT count did not return exactly one row".into()
             ));
         }
-        match rows[0].get("eg_obda_status").map(String::as_str) {
+        match rows[0].get("medulla_obda_status").map(String::as_str) {
             Some("invalid") => None,
             Some("ok") => Some(
                 rows[0]
-                    .get("eg_obda_count")
+                    .get("medulla_obda_count")
                     .ok_or_else(|| "obda: DISTINCT count column missing".to_string())
                     .and_then(|value| {
                         value
@@ -406,7 +406,7 @@ fn render_obda_invalid_key_cte<'a>(
         return Err("obda: key preflight requires projected columns".into());
     }
     Ok(format!(
-        "eg_bad AS (SELECT EXISTS (SELECT 1 FROM {} WHERE {}) AS bad)",
+        "medulla_bad AS (SELECT EXISTS (SELECT 1 FROM {} WHERE {}) AS bad)",
         quote(table, dialect)?,
         predicates.join(" OR ")
     ))
@@ -418,15 +418,15 @@ fn render_obda_invalid_key_cte<'a>(
 fn render_obda_lexical_distinct(
     table: &str,
     needed: &std::collections::BTreeSet<String>,
-    filters: &[eg_rdf::obda::ObdaFilter],
+    filters: &[medulla_rdf::obda::ObdaFilter],
 ) -> Result<String, String> {
     if needed.is_empty() {
         return Err("obda: DISTINCT requires projected columns".into());
     }
-    if needed.contains("eg_obda_status") {
+    if needed.contains("medulla_obda_status") {
         return Err("obda: DISTINCT column collides with reserved status".into());
     }
-    if matches!(table, "eg_bad" | "eg_page" | "eg_obda_rows") {
+    if matches!(table, "medulla_bad" | "medulla_page" | "medulla_obda_rows") {
         return Err("obda: DISTINCT table collides with reserved SQL alias".into());
     }
     let dialect = ObdaSqlDialect::Postgres;
@@ -457,8 +457,8 @@ fn render_obda_lexical_distinct(
 fn render_obda_ordered_distinct(
     table: &str,
     needed: &std::collections::BTreeSet<String>,
-    filters: &[eg_rdf::obda::ObdaFilter],
-    order: &eg_rdf::obda::ObdaOrder,
+    filters: &[medulla_rdf::obda::ObdaFilter],
+    order: &medulla_rdf::obda::ObdaOrder,
 ) -> Result<String, String> {
     if !needed.contains(&order.column) {
         return Err("obda: ordered DISTINCT requires a projected ordering column".into());
@@ -497,11 +497,11 @@ fn render_obda_ordered_distinct(
         .collect::<Result<Vec<_>, String>>()?
         .join(", ");
     Ok(format!(
-        "WITH {bad}, eg_page AS ({distinct} ORDER BY {order_columns} LIMIT {length} OFFSET {start}) \
-         SELECT 'ok'::text AS \"eg_obda_status\", {projected_columns} FROM eg_page \
-         WHERE NOT (SELECT bad FROM eg_bad) \
-         UNION ALL SELECT 'invalid'::text AS \"eg_obda_status\", {null_columns} \
-         WHERE (SELECT bad FROM eg_bad) ORDER BY {order_columns}"
+        "WITH {bad}, medulla_page AS ({distinct} ORDER BY {order_columns} LIMIT {length} OFFSET {start}) \
+         SELECT 'ok'::text AS \"medulla_obda_status\", {projected_columns} FROM medulla_page \
+         WHERE NOT (SELECT bad FROM medulla_bad) \
+         UNION ALL SELECT 'invalid'::text AS \"medulla_obda_status\", {null_columns} \
+         WHERE (SELECT bad FROM medulla_bad) ORDER BY {order_columns}"
     ))
 }
 
@@ -516,15 +516,15 @@ fn render_obda_distinct_count(
     let bad = render_obda_invalid_key_cte(table, needed.iter().map(String::as_str))?;
     Ok(format!(
         "WITH {bad} SELECT \
-         CASE WHEN (SELECT bad FROM eg_bad) THEN 'invalid' ELSE 'ok' END::text AS \"eg_obda_status\", \
-         CASE WHEN (SELECT bad FROM eg_bad) THEN NULL::text \
-         ELSE (SELECT COUNT(*)::text FROM ({distinct}) AS eg_obda_rows) END AS \"eg_obda_count\""
+         CASE WHEN (SELECT bad FROM medulla_bad) THEN 'invalid' ELSE 'ok' END::text AS \"medulla_obda_status\", \
+         CASE WHEN (SELECT bad FROM medulla_bad) THEN NULL::text \
+         ELSE (SELECT COUNT(*)::text FROM ({distinct}) AS medulla_obda_rows) END AS \"medulla_obda_count\""
     ))
 }
 
-/// CONCEPT:EG-KG.query.obda-predicate-pushdown — render the read-only `SELECT` a [`SqlObdaSource`]
+/// CONCEPT:MEDULLA-KG.query.obda-predicate-pushdown — render the read-only `SELECT` a [`SqlObdaSource`]
 /// issues: the `needed` columns each CAST to text (so the result is uniformly lexical), plus a
-/// `WHERE` built from the pushed-down [`eg_rdf::obda::ObdaFilter`]s — the row-level pushdown.
+/// `WHERE` built from the pushed-down [`medulla_rdf::obda::ObdaFilter`]s — the row-level pushdown.
 /// Identifiers are validated + quoted and every literal is safely rendered, so the SQL carries
 /// no injection surface (and `federation-sql` re-validates the whole statement before running).
 /// This is a PURE function — the unit tests assert its `WHERE` clause ("the query plan").
@@ -532,7 +532,7 @@ fn render_obda_distinct_count(
 pub(super) fn render_obda_select(
     table: &str,
     needed: &std::collections::BTreeSet<String>,
-    filters: &[eg_rdf::obda::ObdaFilter],
+    filters: &[medulla_rdf::obda::ObdaFilter],
     dialect: ObdaSqlDialect,
 ) -> Result<String, String> {
     if needed.is_empty() {
@@ -573,15 +573,15 @@ fn render_select_item(col: &str, dialect: ObdaSqlDialect) -> Result<String, Stri
     })
 }
 
-/// Render one pushed-down [`eg_rdf::obda::ObdaFilter`] as a SQL predicate over the NATIVE
+/// Render one pushed-down [`medulla_rdf::obda::ObdaFilter`] as a SQL predicate over the NATIVE
 /// (un-cast) column, so a numeric comparison runs against the numeric column type. An `In`
 /// filter (a semi-join key batch) renders `col IN ('k1', …)`.
 #[cfg(feature = "obda")]
 fn render_obda_filter(
-    f: &eg_rdf::obda::ObdaFilter,
+    f: &medulla_rdf::obda::ObdaFilter,
     dialect: ObdaSqlDialect,
 ) -> Result<String, String> {
-    use eg_rdf::obda::ObdaCompare;
+    use medulla_rdf::obda::ObdaCompare;
     let col = quote(&f.column, dialect)?;
     let op = match f.op {
         ObdaCompare::Eq => "=",
@@ -612,18 +612,18 @@ fn render_in_list(col: &str, values: &[String], dialect: ObdaSqlDialect) -> Resu
 /// Validate + quote an identifier through the shared renderer, with the OBDA error prefix.
 #[cfg(feature = "obda")]
 fn quote(ident: &str, dialect: ObdaSqlDialect) -> Result<String, String> {
-    eg_plan::sql_text::quote_identifier(ident, dialect).map_err(|e| format!("obda: {e}"))
+    medulla_plan::sql_text::quote_identifier(ident, dialect).map_err(|e| format!("obda: {e}"))
 }
 
 /// Render a literal through the shared renderer, with the OBDA error prefix.
 #[cfg(feature = "obda")]
 fn literal(value: &str, numeric: bool, dialect: ObdaSqlDialect) -> Result<String, String> {
-    eg_plan::sql_text::render_literal(value, numeric, dialect).map_err(|e| format!("obda: {e}"))
+    medulla_plan::sql_text::render_literal(value, numeric, dialect).map_err(|e| format!("obda: {e}"))
 }
 
 /// Build the LIVE `federation-sql` executor for `dsn`, or a clean "rebuild with federation-sql"
 /// error when the feature is off (the wire variant + rewrite still exist — only the driver is
-/// absent, exactly like `eg_plan::federation::SqlSource`'s not-built placeholder).
+/// absent, exactly like `medulla_plan::federation::SqlSource`'s not-built placeholder).
 #[cfg(all(feature = "obda", feature = "federation-sql"))]
 fn federation_sql_executor(dsn: &str) -> Result<std::sync::Arc<dyn ObdaSqlExecutor>, String> {
     Ok(std::sync::Arc::new(FederationSqlExecutor {
@@ -640,8 +640,8 @@ fn federation_sql_executor(_dsn: &str) -> Result<std::sync::Arc<dyn ObdaSqlExecu
     )
 }
 
-/// The live executor: reuses `eg_plan::federation`'s SSRF-validated, read-only,
-/// timeout+row-bounded column fetch (CONCEPT:EG-KG.query.query-federation) to run the rendered
+/// The live executor: reuses `medulla_plan::federation`'s SSRF-validated, read-only,
+/// timeout+row-bounded column fetch (CONCEPT:MEDULLA-KG.query.query-federation) to run the rendered
 /// SELECT against the external database.
 #[cfg(all(feature = "obda", feature = "federation-sql"))]
 struct FederationSqlExecutor {
@@ -650,24 +650,24 @@ struct FederationSqlExecutor {
 
 #[cfg(all(feature = "obda", feature = "federation-sql"))]
 impl ObdaSqlExecutor for FederationSqlExecutor {
-    fn run_select(&self, sql: &str) -> Result<Vec<eg_rdf::obda::ForeignRow>, String> {
-        eg_plan::federation::fetch_sql_columns(&self.dsn, sql)
+    fn run_select(&self, sql: &str) -> Result<Vec<medulla_rdf::obda::ForeignRow>, String> {
+        medulla_plan::federation::fetch_sql_columns(&self.dsn, sql)
     }
 }
 
-/// `EG-UNIFIED-DATA-PLANE-R002.2`: an OBDA external source's DSN runs through the same
+/// `MEDULLA-UNIFIED-DATA-PLANE-R002.2`: an OBDA external source's DSN runs through the same
 /// SSRF-sensitive destination gate the SQL federation producer path (`R002.1`) runs at
 /// registration time, not only when `run_select` later dials out.
 #[cfg(all(test, feature = "obda", feature = "federation-sql"))]
 mod outbound_verification_tests {
     use super::{register_table_sources, SqlObdaSource};
 
-    // spec: EG-FEDERATED-QUERY-R043
-    // spec: EG-UNIFIED-DATA-PLANE-R002.2
+    // spec: MEDULLA-FEDERATED-QUERY-R043
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R002.2
     #[test]
     fn a_disallowed_obda_destination_is_refused_before_registration() {
         let _allow = crate::test_support::FederationAllowGuard::blocking("");
-        // Same fixture `crates/eg-plan/src/federation_ssrf.rs` already proves is
+        // Same fixture `crates/medulla-plan/src/federation_ssrf.rs` already proves is
         // refused: loopback on a non-default port, no allow-list entry.
         let Err(err) = SqlObdaSource::connect("postgres://u@127.0.0.1:5433/db", "people") else {
             panic!("a disallowed OBDA destination must be refused");
@@ -678,18 +678,18 @@ mod outbound_verification_tests {
     #[test]
     fn an_allowed_obda_destination_still_connects() {
         let _allow = crate::test_support::FederationAllowGuard::blocking("127.0.0.1:5432");
-        // Same fixture `crates/eg-plan/src/federation_ssrf.rs` already proves is
+        // Same fixture `crates/medulla-plan/src/federation_ssrf.rs` already proves is
         // admitted: loopback with an explicit exact allowlist entry. `connect` only
         // validates and stores the DSN here; it dials lazily inside `run_select`.
         SqlObdaSource::connect("postgres://u@127.0.0.1:5432/db", "people")
             .expect("an allowed OBDA destination must still connect");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R002.2
+    // spec: MEDULLA-UNIFIED-DATA-PLANE-R002.2
     #[test]
     fn a_refused_source_does_not_skip_later_allowed_registration() {
         let _allow = crate::test_support::FederationAllowGuard::blocking("127.0.0.1:5432");
-        let mut registry = eg_rdf::obda::ObdaSourceRegistry::new();
+        let mut registry = medulla_rdf::obda::ObdaSourceRegistry::new();
         let sources = vec![
             crate::protocol::ObdaExternalSource {
                 name: "blocked".into(),
@@ -716,7 +716,7 @@ mod ordered_distinct_tests {
         render_obda_distinct_count, render_obda_invalid_key_cte, render_obda_ordered_distinct,
         ObdaSqlDialect, ObdaSqlExecutor, SqlObdaSource,
     };
-    use eg_rdf::obda::{ObdaOrder, ObdaSource};
+    use medulla_rdf::obda::{ObdaOrder, ObdaSource};
     use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
 
@@ -729,16 +729,16 @@ mod ordered_distinct_tests {
     }
 
     impl RecordingExecutor {
-        fn response_rows(&self, sql: &str) -> Vec<eg_rdf::obda::ForeignRow> {
+        fn response_rows(&self, sql: &str) -> Vec<medulla_rdf::obda::ForeignRow> {
             if self.invalid_key {
-                return vec![[("eg_obda_status".into(), "invalid".into())]
+                return vec![[("medulla_obda_status".into(), "invalid".into())]
                     .into_iter()
                     .collect()];
             }
-            if sql.contains("eg_obda_count") {
+            if sql.contains("medulla_obda_count") {
                 return vec![[
-                    ("eg_obda_status".into(), "ok".into()),
-                    ("eg_obda_count".into(), "3".into()),
+                    ("medulla_obda_status".into(), "ok".into()),
+                    ("medulla_obda_count".into(), "3".into()),
                 ]
                 .into_iter()
                 .collect()];
@@ -752,7 +752,7 @@ mod ordered_distinct_tests {
                 "ok"
             };
             vec![[
-                ("eg_obda_status".into(), status.into()),
+                ("medulla_obda_status".into(), status.into()),
                 ("id".into(), "a".into()),
             ]
             .into_iter()
@@ -761,7 +761,7 @@ mod ordered_distinct_tests {
     }
 
     impl ObdaSqlExecutor for RecordingExecutor {
-        fn run_select(&self, sql: &str) -> Result<Vec<eg_rdf::obda::ForeignRow>, String> {
+        fn run_select(&self, sql: &str) -> Result<Vec<medulla_rdf::obda::ForeignRow>, String> {
             self.queries.lock().unwrap().push(sql.to_string());
             Ok(self.response_rows(sql))
         }
@@ -778,8 +778,8 @@ mod ordered_distinct_tests {
         };
         let page = render_obda_ordered_distinct("people", &needed, &[], &order).unwrap();
         let count = render_obda_distinct_count("people", &needed).unwrap();
-        assert!(page.starts_with("WITH eg_bad AS ("), "{page}");
-        assert!(page.contains("eg_page AS (SELECT DISTINCT"), "{page}");
+        assert!(page.starts_with("WITH medulla_bad AS ("), "{page}");
+        assert!(page.contains("medulla_page AS (SELECT DISTINCT"), "{page}");
         assert!(page.contains("\"id\"::text COLLATE \"C\" AS \"id\""));
         assert!(page.contains("\"name\" IS NOT NULL AND \"name\"::text <> ''"));
         assert!(page.contains("ORDER BY \"id\" ASC, \"name\" ASC LIMIT 7 OFFSET 4"));
@@ -794,7 +794,7 @@ mod ordered_distinct_tests {
     fn invalid_key_guard_is_in_same_statement_and_rejects_bad_identifiers() {
         let probe = render_obda_invalid_key_cte("people", ["id", "name"]).unwrap();
         assert!(
-            probe.starts_with("eg_bad AS (SELECT EXISTS (SELECT 1"),
+            probe.starts_with("medulla_bad AS (SELECT EXISTS (SELECT 1"),
             "{probe}"
         );
         assert!(probe.contains("\"id\"::text !~ '^[A-Za-z0-9._~-]+$'"));
@@ -837,9 +837,9 @@ mod ordered_distinct_tests {
             .is_ok());
         assert_eq!(source.scan_distinct_count(&needed).unwrap().unwrap(), 3);
         assert_eq!(valid.queries.lock().unwrap().len(), 2);
-        assert!(render_obda_ordered_distinct("eg_bad", &needed, &[], &order).is_err());
-        assert!(render_obda_distinct_count("eg_page", &needed).is_err());
-        let reserved = BTreeSet::from(["eg_obda_status".into()]);
+        assert!(render_obda_ordered_distinct("medulla_bad", &needed, &[], &order).is_err());
+        assert!(render_obda_distinct_count("medulla_page", &needed).is_err());
+        let reserved = BTreeSet::from(["medulla_obda_status".into()]);
         assert!(render_obda_distinct_count("people", &reserved).is_err());
     }
 

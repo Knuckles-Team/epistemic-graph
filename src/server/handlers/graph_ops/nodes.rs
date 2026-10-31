@@ -3,7 +3,7 @@ use super::*;
 use super::terminal::GraphOpsContext;
 
 /// Intelligent overload backstop for the `GetNodes` full-graph dump
-/// (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation). Given the graph's node `count` and the configured `cap`,
+/// (CONCEPT:MEDULLA-KG.ingest.resets-socket-so-assimilation). Given the graph's node `count` and the configured `cap`,
 /// returns `Some(error_message)` when the dump would exceed the cap (so the
 /// handler can refuse with a typed `RESULT_TOO_LARGE` error instead of building
 /// a gigabyte-scale frame that resets the client connection), or `None` when the
@@ -16,7 +16,7 @@ fn oversize_dump_error(count: usize, cap: usize) -> Option<String> {
             "RESULT_TOO_LARGE: GetNodes would return {count} nodes (> cap {cap}); \
              the full-graph dump is refused to protect the connection. Use a \
              bounded query instead (get_nodes_by_label(label, limit) or \
-             paginate), or raise EPISTEMIC_GRAPH_MAX_RESPONSE_NODES."
+             paginate), or raise MEDULLA_MAX_RESPONSE_NODES."
         ))
     } else {
         None
@@ -44,18 +44,18 @@ fn handle_get_node_properties_batch(
     // [id, properties_msgpack | nil] in input order — one round-trip for N
     // nodes; nil preserves which ids were absent. serde_bytes keeps the
     // property blobs as MessagePack `bin`, not int arrays.
-    let out: Vec<(String, Option<eg_types::types::PropertyBlob>)> = node_ids
+    let out: Vec<(String, Option<medulla_types::types::PropertyBlob>)> = node_ids
         .into_iter()
         .map(|id| {
             let props = g
                 .get_node_properties(&id)
-                .map(eg_types::types::PropertyBlob);
+                .map(medulla_types::types::PropertyBlob);
             (id, props)
         })
         .collect();
     Response::ok(
         req_id,
-        ResultPayload::of_ref::<eg_types::result_contract::graph::GetNodePropertiesBatch>(&out),
+        ResultPayload::of_ref::<medulla_types::result_contract::graph::GetNodePropertiesBatch>(&out),
     )
 }
 
@@ -76,7 +76,7 @@ fn handle_has_nodes_batch(req_id: u64, core: &Arc<GraphCore>, node_ids: &[String
     let out: Vec<bool> = node_ids.iter().map(|id| g.has_node(id)).collect();
     Response::ok(
         req_id,
-        ResultPayload::of_ref::<eg_types::result_contract::graph::HasNodesBatch>(&out),
+        ResultPayload::of_ref::<medulla_types::result_contract::graph::HasNodesBatch>(&out),
     )
 }
 
@@ -108,7 +108,7 @@ fn handle_get_node_properties(
     });
     Response::ok(
         req_id,
-        ResultPayload::of_encoded_or_null::<eg_types::result_contract::graph::GetNodeProperties>(
+        ResultPayload::of_encoded_or_null::<medulla_types::result_contract::graph::GetNodeProperties>(
             props,
         ),
     )
@@ -156,7 +156,7 @@ pub(super) async fn try_handle_node_reads(
         }
         Method::GetNodes => {
             let g = core;
-            // Intelligent overload backstop (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation): a `GetNodes` is an
+            // Intelligent overload backstop (CONCEPT:MEDULLA-KG.ingest.resets-socket-so-assimilation): a `GetNodes` is an
             // UNBOUNDED full-graph dump. On a large graph (e.g. `__commons__` with
             // 166K+ nodes carrying 1024-dim embeddings) materializing every node's
             // properties into ONE response frame is a gigabyte-scale payload that
@@ -171,7 +171,7 @@ pub(super) async fn try_handle_node_reads(
                 .get_nodes()
                 .into_iter()
                 .map(|(k, p)| {
-                    let val = eg_types::msgpack::decode_property_value(&p)
+                    let val = medulla_types::msgpack::decode_property_value(&p)
                         .unwrap_or(serde_json::json!({}));
                     (k, val)
                 })
@@ -188,7 +188,7 @@ pub(super) async fn try_handle_node_reads(
                 .get_nodes_by_label_page(&label, after.as_deref(), limit)
                 .into_iter()
                 .map(|(k, p)| {
-                    let val = eg_types::msgpack::decode_property_value(&p)
+                    let val = medulla_types::msgpack::decode_property_value(&p)
                         .unwrap_or(serde_json::json!({}));
                     (k, val)
                 })
@@ -198,7 +198,7 @@ pub(super) async fn try_handle_node_reads(
         Method::GetNodeProperties { node_id } => {
             handle_get_node_properties(req_id, core, raw_core, read_authority, &node_id)
         }
-        // CompareAndSetNodeFields/ClaimNext (CONCEPT:EG-P0-2 bypass guard, L11):
+        // CompareAndSetNodeFields/ClaimNext (CONCEPT:MEDULLA-P0-2 bypass guard, L11):
         // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
         other => return ControlFlow::Continue(other),
     })
@@ -219,12 +219,12 @@ pub(super) async fn try_handle_node_gateway_claims(
             "ClaimNext is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
                  through try_handle_gateway before it ever reaches this terminal handler"
         ),
-        // ── Message broker admin + data (CONCEPT:EG-KG.compute.message-broker-exchanges) ─────────────────
+        // ── Message broker admin + data (CONCEPT:MEDULLA-KG.compute.message-broker-exchanges) ─────────────────
         // Built on the KG-2.303 queue: exchanges/bindings are nodes on this target
         // graph; publish routes + enqueues; consume/ack REUSE ClaimNext + CAS above.
         // Same handler home + precedent as ClaimNext. Gated `broker`; a slim build
         // drops the variants (they fall to the catch-all "not available").
-        // Broker/stream admin+data family (CONCEPT:EG-P0-2 bypass guard, L11):
+        // Broker/stream admin+data family (CONCEPT:MEDULLA-P0-2 bypass guard, L11):
         // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above. `StreamRead`/
         // `StreamCommittedOffset` are pure reads (not in GATEWAY_ROUTED) and keep
         // their normal arms below.
@@ -252,16 +252,16 @@ pub(super) async fn try_handle_node_batch(
             Response::ok(req_id, ResultPayload::Ids(g.node_ids()))
         }
         Method::MatchOntologyTerms { query } => {
-            // CONCEPT:EG-ORCH.routing.lexical-capability-escalation — lexical capability gate; cached aho-corasick scan.
+            // CONCEPT:MEDULLA-ORCH.routing.lexical-capability-escalation — lexical capability gate; cached aho-corasick scan.
             let g = core;
             Response::ok(
                 req_id,
-                ResultPayload::of::<eg_types::result_contract::compute::MatchOntologyTerms>(
+                ResultPayload::of::<medulla_types::result_contract::compute::MatchOntologyTerms>(
                     g.match_ontology_terms(&query),
                 ),
             )
         }
-        // AddEmbedding (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED — see
+        // AddEmbedding (CONCEPT:MEDULLA-P0-2 bypass guard, L11): GATEWAY_ROUTED — see
         // the AddNode/RemoveNode comment above.
         other => return ControlFlow::Continue(other),
     })
@@ -308,7 +308,7 @@ mod tests {
         #[derive(Debug)]
         struct FixedReadThrough(Vec<u8>);
 
-        impl eg_core::read_through::ReadThrough for FixedReadThrough {
+        impl medulla_core::read_through::ReadThrough for FixedReadThrough {
             fn read_node_blob(&self, node_id: &str) -> Option<Vec<u8>> {
                 (node_id == "shared-node").then(|| self.0.clone())
             }

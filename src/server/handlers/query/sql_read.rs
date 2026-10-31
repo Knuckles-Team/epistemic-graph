@@ -63,7 +63,7 @@ fn sql_tenant_store(
     authority: &crate::server::access::CarrierAuthority,
     persist_dir: &std::path::Path,
     req_id: u64,
-) -> Result<eg_query::TableStore, Response> {
+) -> Result<medulla_query::TableStore, Response> {
     crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)
         .map_err(|error| Response::err(req_id, sql_refusal(error)))
 }
@@ -157,8 +157,8 @@ pub(crate) async fn handle_sql(
         query: query.clone(),
         params_msgpack,
     };
-    match eg_query::classify(&query) {
-        Ok(kind) if !matches!(kind, eg_query::StatementKind::Read) => Ok(exec_sql_write(
+    match medulla_query::classify(&query) {
+        Ok(kind) if !matches!(kind, medulla_query::StatementKind::Read) => Ok(exec_sql_write(
             req_id,
             SqlWriteScope {
                 graph_name: ctx.graph_name,
@@ -199,7 +199,7 @@ pub(crate) async fn handle_sql(
 #[cfg(all(feature = "query", feature = "result-cache"))]
 pub(crate) struct CacheSlot {
     pub(crate) hash: u128,
-    pub(crate) dep: Option<eg_core::dep_scope::DepSet>,
+    pub(crate) dep: Option<medulla_core::dep_scope::DepSet>,
     pub(crate) version: u64,
 }
 
@@ -208,7 +208,7 @@ impl CacheSlot {
     /// Store `payload` under this slot.
     pub(crate) fn store(&self, core: &GraphCore, payload: &ResultPayload) {
         match &self.dep {
-            Some(deps) => eg_core::result_cache::cache_dep_result(
+            Some(deps) => medulla_core::result_cache::cache_dep_result(
                 core.result_cache(),
                 self.hash,
                 0,
@@ -216,7 +216,7 @@ impl CacheSlot {
                 deps.clone(),
                 payload,
             ),
-            None => eg_core::result_cache::cache_result(
+            None => medulla_core::result_cache::cache_result(
                 core.result_cache(),
                 self.hash,
                 self.version,
@@ -256,7 +256,7 @@ pub(crate) fn served_cache_hash(
 pub(crate) fn cached_payload(
     core: &GraphCore,
     hash: u128,
-    dep: &Option<eg_core::dep_scope::DepSet>,
+    dep: &Option<medulla_core::dep_scope::DepSet>,
 ) -> Option<Vec<u8>> {
     match dep {
         Some(_) => core.result_cache().get_dep(hash, 0, core.dep_probe()),
@@ -291,7 +291,7 @@ where
         },
         Ok(Err(message)) => Response::err(
             req_id,
-            eg_types::contract::classify_refusal(
+            medulla_types::contract::classify_refusal(
                 "INVALID_ARGUMENT",
                 &format!("{label} error: "),
                 &message,
@@ -304,10 +304,10 @@ where
 #[cfg(feature = "query")]
 pub(crate) async fn handle_unified_query(
     ctx: &QueryHandlerCtx<'_>,
-    plan: eg_plan::Plan,
-    foreign_execution: Option<eg_types::foreign_read::ForeignReadExecutionRef>,
-    foreign_executions: eg_types::contract::BoundedVec<
-        eg_types::foreign_read::ForeignReadExecutionRef,
+    plan: medulla_plan::Plan,
+    foreign_execution: Option<medulla_types::foreign_read::ForeignReadExecutionRef>,
+    foreign_executions: medulla_types::contract::BoundedVec<
+        medulla_types::foreign_read::ForeignReadExecutionRef,
         16,
     >,
 ) -> Result<Response, Method> {
@@ -330,7 +330,7 @@ pub(crate) async fn handle_unified_query(
                 ));
             }
         };
-        let expected = eg_types::contract::Digest256::sha256(&bytes);
+        let expected = medulla_types::contract::Digest256::sha256(&bytes);
         if foreign_execution
             .iter()
             .chain(foreign_executions.as_slice())
@@ -359,11 +359,11 @@ pub(crate) async fn handle_unified_query(
     // ONE cross-modal plan (CONCEPT:AU-KG.compute.vector/209): filter (DataFusion) →
     // traverse (BFS) → rank (kNN) over ONE consistent off-lock snapshot, run on the
     // blocking pool. Version-keyed, RLS-aware result cache
-    // (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231) keyed on the
+    // (CONCEPT:MEDULLA-KG.coordination.distributed-cache-coherence × KG-2.231) keyed on the
     // plan bytes + the verified legs; a plan whose reads reduce to a dependency set (labels,
     // edge types, row visibility, the embedding generation — EH-393) is cached in the
     // dependency-scoped namespace
-    // (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation, W1.6/P7) so it
+    // (CONCEPT:MEDULLA-KG.coordination.dependency-scoped-cache-invalidation, W1.6/P7) so it
     // survives writes disjoint from it. A plan whose legs read state outside the graph
     // version (the decision log, a foreign source without a fresh watermark — EH-400) is
     // never cached; a fresh foreign source's watermark joins the key.
@@ -396,7 +396,7 @@ pub(crate) async fn handle_unified_query(
     );
     #[cfg(not(feature = "result-cache"))]
     let _ = version;
-    // CONCEPT:EG-KG.query.served-vector-index-binding / served-text-index-binding — push the
+    // CONCEPT:MEDULLA-KG.query.served-vector-index-binding / served-text-index-binding — push the
     // vector kNN AND lexical legs down into the LIVE persistent indexes instead
     // of cloning/rebuilding them per request, via the shared off-lock runner.
     let result = run_unified_off_lock(state, req_id, &core, snap, plan, legs).await;
@@ -428,7 +428,7 @@ pub(super) async fn catalog_sql_response(
 ) -> Response {
     let read_only =
         crate::server::handlers::decide::read_only_relations(state, &authority, &query).await;
-    let cancel = eg_query::CancellationToken::new();
+    let cancel = medulla_query::CancellationToken::new();
     let _cancel_guard = crate::server::request_cancel::register(req_id, cancel.clone());
     let timeout_task = crate::server::request_cancel::spawn_timeout(cancel.clone());
     let cancel_for_task = cancel.clone();
@@ -440,7 +440,7 @@ pub(super) async fn catalog_sql_response(
             read_only.as_deref(),
             &graph,
         )?;
-        eg_query::exec_sql_typed_with_tables_cancellable(
+        medulla_query::exec_sql_typed_with_tables_cancellable(
             &snap,
             authorized.store(),
             &query,

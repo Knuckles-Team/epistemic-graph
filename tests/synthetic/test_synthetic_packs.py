@@ -13,13 +13,13 @@ from typing import get_args
 
 import pytest
 
-from epistemic_graph.connector_pack import pack_digest as client_pack_digest
-from epistemic_graph.generated.connector_pack import (
+from medulla.connector_pack import pack_digest as client_pack_digest
+from medulla.generated.connector_pack import (
     McpCatalogSnapshotBinding,
     PackEntry,
 )
-from epistemic_graph.testing.synthetic.packs.catalogue import all_malformed
-from epistemic_graph.testing.synthetic.packs.generate import Profile, generate_pack
+from medulla.testing.synthetic.packs.catalogue import all_malformed
+from medulla.testing.synthetic.packs.generate import Profile, generate_pack
 
 pytestmark = pytest.mark.no_engine
 

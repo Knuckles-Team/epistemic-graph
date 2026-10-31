@@ -20,8 +20,8 @@ use super::manifest::{
     MAX_BLOB_GC_TRACKED_DIGESTS,
 };
 use super::{CAS_BLOBS, CAS_HOLDERS};
-use eg_storage::{BlobOwner, BlobSharedWrite};
-use eg_transaction::AdmittedOwnerWrite;
+use medulla_storage::{BlobOwner, BlobSharedWrite};
+use medulla_transaction::AdmittedOwnerWrite;
 use redb::ReadableTable;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;

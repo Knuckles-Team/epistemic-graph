@@ -3,12 +3,12 @@
 //! The validated Turtle source is authoritative graph control state in
 //! [`GraphCore`]. It therefore participates in the same staged MutationBatch,
 //! redb transaction, recovery image, and Raft snapshot as the rows it governs.
-//! This module only compiles that source into eg-shacl's native guard at the
+//! This module only compiles that source into medulla-shacl's native guard at the
 //! write boundary; it owns no process-global or pre-commit policy mirror.
 //!
 //! [`check_native_write`] (W4.13) extends the same registered policy to direct
 //! property-graph writes (Cypher / native `GraphCore` mutations), gated by the
-//! `EPISTEMIC_GRAPH_ICV_NATIVE_WRITES` env var. It is a TWO-level opt-in — the
+//! `MEDULLA_ICV_NATIVE_WRITES` env var. It is a TWO-level opt-in — the
 //! process-wide gate, AND the graph's authoritative schema-source set — and
 //! deliberately NOT fail-closed like the RDF path: a graph that never
 //! registered a policy is simply not opted in, so its native writes are
@@ -17,9 +17,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
-use eg_rdf::guard::{GuardRejection, WriteGuard};
-use eg_rdf::oxrdf::{Graph, Triple};
-use eg_shacl::policy::{IcvPolicy, IcvPolicyRegistry};
+use medulla_rdf::guard::{GuardRejection, WriteGuard};
+use medulla_rdf::oxrdf::{Graph, Triple};
+use medulla_shacl::policy::{IcvPolicy, IcvPolicyRegistry};
 
 use crate::graph::{GraphCore, GraphSchemaSource, SchemaSourceOrigin, OPERATOR_SOURCE_ID};
 
@@ -107,14 +107,14 @@ impl WriteGuard for CoreIcvGuard<'_> {
         let Some(core) = self.resolve(graph) else {
             return Err(GuardRejection {
                 graph: graph.map(str::to_string),
-                message: "EG-KG.ontology.rdf-update-guard: graph authority is not loaded"
+                message: "MEDULLA-KG.ontology.rdf-update-guard: graph authority is not loaded"
                     .to_string(),
                 details: serde_json::json!({"reason": "graph_authority_required"}),
             });
         };
         let policy = compiled_policy(core).map_err(|_| GuardRejection {
             graph: graph.map(str::to_string),
-            message: "EG-KG.ontology.rdf-update-guard: authoritative integrity policy is invalid"
+            message: "MEDULLA-KG.ontology.rdf-update-guard: authoritative integrity policy is invalid"
                 .to_string(),
             details: serde_json::json!({"reason": "integrity_policy_invalid"}),
         })?;
@@ -133,10 +133,10 @@ pub(crate) fn check_before_write(
     removals: &[Triple],
 ) -> Result<(), GuardRejection> {
     let exported =
-        eg_rdf::mapping::export_triples(core, graph_name).map_err(|error| GuardRejection {
+        medulla_rdf::mapping::export_triples(core, graph_name).map_err(|error| GuardRejection {
             graph: Some(graph_name.to_string()),
             message: format!(
-                "EG-KG.ontology.rdf-update-guard: could not read the base graph to evaluate ICV: {error}"
+                "MEDULLA-KG.ontology.rdf-update-guard: could not read the base graph to evaluate ICV: {error}"
             ),
             details: serde_json::Value::Null,
         })?;
@@ -153,7 +153,7 @@ pub(crate) fn check_before_write(
 fn native_write_gate_enabled() -> bool {
     static GATE: OnceLock<bool> = OnceLock::new();
     *GATE.get_or_init(|| {
-        std::env::var("EPISTEMIC_GRAPH_ICV_NATIVE_WRITES")
+        std::env::var("MEDULLA_ICV_NATIVE_WRITES")
             .map(|v| matches!(v.trim(), "1" | "true" | "yes" | "on"))
             .unwrap_or(false)
     })
@@ -161,7 +161,7 @@ fn native_write_gate_enabled() -> bool {
 
 /// Enforce a graph's registered integrity policy on a native (non-RDF) write —
 /// a Cypher mutation or any other direct `GraphCore` change — when the
-/// `EPISTEMIC_GRAPH_ICV_NATIVE_WRITES` gate is on. `before`/`after` are the
+/// `MEDULLA_ICV_NATIVE_WRITES` gate is on. `before`/`after` are the
 /// pre- and post-mutation graph images (the commit path's authoritative base
 /// and its staged copy). A rejection carries the same witness-bearing
 /// [`GuardRejection`] shape the RDF write path returns.
@@ -191,10 +191,10 @@ fn check_native_write_gated(
         return Ok(());
     };
     let export = |core: &GraphCore, label: &str| -> Result<Vec<Triple>, GuardRejection> {
-        eg_rdf::mapping::export_triples(core, graph_name).map_err(|error| GuardRejection {
+        medulla_rdf::mapping::export_triples(core, graph_name).map_err(|error| GuardRejection {
             graph: Some(graph_name.to_string()),
             message: format!(
-                "EG-KG.ontology.rdf-update-guard: could not read the {label} graph image to evaluate ICV: {error}"
+                "MEDULLA-KG.ontology.rdf-update-guard: could not read the {label} graph image to evaluate ICV: {error}"
             ),
             details: serde_json::Value::Null,
         })
@@ -214,7 +214,7 @@ fn check_native_write_gated(
     }
     let icv_policy = compiled_policy(before).map_err(|_| GuardRejection {
         graph: Some(graph_name.to_string()),
-        message: "EG-KG.ontology.rdf-update-guard: authoritative integrity policy is invalid"
+        message: "MEDULLA-KG.ontology.rdf-update-guard: authoritative integrity policy is invalid"
             .to_string(),
         details: serde_json::json!({"reason": "integrity_policy_invalid"}),
     })?;
@@ -248,7 +248,7 @@ ex:PersonShape a sh:NodeShape ;
 "#;
 
     fn triple(s: &str, p: &str, o: &str) -> Triple {
-        use eg_rdf::oxrdf::NamedNode;
+        use medulla_rdf::oxrdf::NamedNode;
         Triple::new(
             NamedNode::new_unchecked(s),
             NamedNode::new_unchecked(p),
@@ -378,7 +378,7 @@ ex:PersonShape a sh:NodeShape ;
         format!("<{iri}>")
     }
 
-    /// A single property cell in the `eg_rdf::mapping` convention: an object with
+    /// A single property cell in the `medulla_rdf::mapping` convention: an object with
     /// a `value` (and, unused here, optional `datatype`/`lang`) — NOT a bare JSON
     /// string, which `cell_to_literal` would silently skip on export.
     fn cell(value: &str) -> serde_json::Value {
@@ -485,7 +485,7 @@ ex:PersonShape a sh:NodeShape ;
     #[test]
     fn native_write_unaffected_when_gate_disabled() {
         // The public entry point reads the real (unset-by-default) env gate.
-        // No test in this binary sets EPISTEMIC_GRAPH_ICV_NATIVE_WRITES, so this
+        // No test in this binary sets MEDULLA_ICV_NATIVE_WRITES, so this
         // proves the default-off posture even on an opted-in graph with a
         // violating change.
         let before = GraphCore::new();
@@ -526,7 +526,7 @@ ex:PersonShape a sh:NodeShape ;
         assert!(check_native_write_gated(true, "graph", &before, &after).is_ok());
     }
 
-    /// EH-382 bench (revives the eg-core-verify A11 measurement, where every write
+    /// EH-382 bench (revives the medulla-core-verify A11 measurement, where every write
     /// recomposed: 1.55 s against 2.66 ms for a cache-hit clone). After the first
     /// compile of an attached schema, the per-write policy is served from the
     /// compiled cache, so a write costs a digest and a shapes clone, not a

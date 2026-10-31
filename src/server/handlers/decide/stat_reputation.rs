@@ -12,7 +12,7 @@
 //!   re-read from the record's own inputs.
 //!
 //! What counts is the outcome aggregate's ONE label rule
-//! ([`eg_numeric::decision::aggregate::label_use`]): an observation (not a claim), at
+//! ([`medulla_numeric::decision::aggregate::label_use`]): an observation (not a claim), at
 //! or above the fidelity floor, by an evaluator that is neither the selected agent, its
 //! lease holder nor the decider — so a self-report never moves a reputation.
 //! Visibility is the log's (EH-066, EH-395 ruling): only records the caller may
@@ -23,25 +23,25 @@
 
 use std::collections::BTreeMap;
 
-use eg_numeric::calibration::ProperScores;
-use eg_numeric::decision::aggregate::{label_use, LabelUse};
-use eg_numeric::decision::features::FeatureMatrix;
-use eg_numeric::decision::track_record::{
+use medulla_numeric::calibration::ProperScores;
+use medulla_numeric::decision::aggregate::{label_use, LabelUse};
+use medulla_numeric::decision::features::FeatureMatrix;
+use medulla_numeric::decision::track_record::{
     executed_forecast, track_records, ResolvedForecast, TrackRecord,
 };
-use eg_numeric::detkernel::Level;
-use eg_numeric::risk::{
+use medulla_numeric::detkernel::Level;
+use medulla_numeric::risk::{
     anchored_reliability, learn_reputation, ConcentrationBounds, Estimate, Observation, Reputation,
     ReputationRules, SampleGate, SubjectReputation,
 };
-use eg_plan::exec::LearnedReliability;
-use eg_query::ColumnType;
-use eg_types::agent_component::AgentComponentKind;
-use eg_types::decision::statistical::head::DecisionHeadBody;
-use eg_types::decision::statistical::log::{DecisionLogEntry, StoredEvaluation};
-use eg_types::decision::statistical::{FeatureMatrixRef, StatisticalErrorCode};
-use eg_types::decision::QuantScaleTag;
-use eg_types::decision::TraceFidelityLevel;
+use medulla_plan::exec::LearnedReliability;
+use medulla_query::ColumnType;
+use medulla_types::agent_component::AgentComponentKind;
+use medulla_types::decision::statistical::head::DecisionHeadBody;
+use medulla_types::decision::statistical::log::{DecisionLogEntry, StoredEvaluation};
+use medulla_types::decision::statistical::{FeatureMatrixRef, StatisticalErrorCode};
+use medulla_types::decision::QuantScaleTag;
+use medulla_types::decision::TraceFidelityLevel;
 use serde_json::Value;
 
 use super::stat_log::{executed_option, joined, LogReader, MAX_LOG_ROWS};
@@ -287,7 +287,7 @@ fn gather_slates(
 
 fn rules(now_ms: u64) -> Result<ReputationRules, String> {
     let policy = default_statistical_policy();
-    let render = |e: eg_numeric::detkernel::StatError| e.to_string();
+    let render = |e: medulla_numeric::detkernel::StatError| e.to_string();
     Ok(ReputationRules {
         half_life_ms: Some(HALF_LIFE_MS),
         now_ms,

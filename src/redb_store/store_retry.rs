@@ -1,11 +1,11 @@
 use super::store_prelude::*;
 use super::*;
 
-pub(crate) fn durable_msgpack_limits() -> eg_types::msgpack::MsgpackLimits {
-    eg_types::msgpack::MsgpackLimits::new(
+pub(crate) fn durable_msgpack_limits() -> medulla_types::msgpack::MsgpackLimits {
+    medulla_types::msgpack::MsgpackLimits::new(
         MAX_DURABLE_MSGPACK_BYTES,
         MAX_DURABLE_MSGPACK_ITEMS,
-        eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        medulla_types::msgpack::DEFAULT_MAX_DEPTH,
     )
 }
 
@@ -235,30 +235,30 @@ pub(crate) fn mutation_operations_retry_match(
 /// case the kernel must replay rather than refuse.
 #[cfg(test)]
 pub(crate) fn fixture_operation_envelope(
-    identity: &eg_types::MutationScopeIdentity,
+    identity: &medulla_types::MutationScopeIdentity,
     actor: &str,
     request_id: u64,
     idempotency_key: &str,
-) -> eg_types::mutation_batch::MutationEnvelope {
+) -> medulla_types::mutation_batch::MutationEnvelope {
     let method =
-        eg_types::contract::MethodId::new(eg_types::mutation_batch::BATCH_COMPILED_METHODS)
+        medulla_types::contract::MethodId::new(medulla_types::mutation_batch::BATCH_COMPILED_METHODS)
             .expect("the reserved batch method id is canonical");
-    eg_types::mutation_batch::MutationEnvelope::for_scope(
-        eg_types::mutation_batch::CompiledScope {
+    medulla_types::mutation_batch::MutationEnvelope::for_scope(
+        medulla_types::mutation_batch::CompiledScope {
             identity,
             actor,
             serving_principal: actor,
             request_id,
             idempotency_key,
-            nonce: eg_types::contract::Nonce::minted(),
+            nonce: medulla_types::contract::Nonce::minted(),
             now_ms: 0,
         },
-        eg_types::mutation_batch::CompiledOperation {
-            method_schema_id: eg_types::mutation_batch::method_schema_id(&method)
+        medulla_types::mutation_batch::CompiledOperation {
+            method_schema_id: medulla_types::mutation_batch::method_schema_id(&method)
                 .expect("a reserved batch method has a derived schema id"),
             method,
-            method_schema_digest: eg_types::contract::Digest256::from_bytes([0_u8; 32]),
-            canonical_payload_digest: eg_types::contract::Digest256::from_bytes([1_u8; 32]),
+            method_schema_digest: medulla_types::contract::Digest256::from_bytes([0_u8; 32]),
+            canonical_payload_digest: medulla_types::contract::Digest256::from_bytes([1_u8; 32]),
         },
     )
     .expect("a fixture scope mints a valid operation envelope")

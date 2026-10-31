@@ -1,15 +1,15 @@
 //! EH-406: one error-budget AIMD step on one durable capacity cell.
 //!
-//! The pure step (`eg_types::capacity_throttle::apply_error_budget`) decides;
+//! The pure step (`medulla_types::capacity_throttle::apply_error_budget`) decides;
 //! this writes its result in the same admitted group the capacity ledger uses
 //! for every other cell change. Only the throttle's ceiling, cursor and
 //! history move: the declared capacity, reserved floor, epoch and policy are
 //! the operator's (`UpdateCapacityCell`) and are written back unchanged, and a
 //! narrowed ceiling never touches a lease already held.
 
-use eg_types::capacity_lease::CapacityCell;
-use eg_types::capacity_throttle::apply_error_budget;
-use eg_types::native_control::{
+use medulla_types::capacity_lease::CapacityCell;
+use medulla_types::capacity_throttle::apply_error_budget;
+use medulla_types::native_control::{
     CapacityThrottleRequest, CapacityThrottleResult, NativeControlSchemaVersion,
 };
 

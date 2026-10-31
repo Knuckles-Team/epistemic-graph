@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
-"""Fold the eg-pyengine in-process engine binding into the medulla wheel.
+"""Fold the medulla-pyengine in-process engine binding into the medulla wheel.
 
 There is exactly ONE published package — ``medulla`` — and the
 in-process engine binding ships INSIDE its wheel as a native
-``epistemic_graph.engine`` extension (``.abi3.so`` on Unix or ``.pyd`` on
-Windows), the module ``epistemic_graph.embedded``'s ``EmbeddedTransport``
+``medulla.engine`` extension (``.abi3.so`` on Unix or ``.pyd`` on
+Windows), the module ``medulla.embedded``'s ``EmbeddedTransport``
 imports (``docs/architecture/unified-inprocess-engine.md``). There is NO
-separately published ``eg-pyengine`` package.
+separately published ``medulla-pyengine`` package.
 
 The main ``medulla`` wheel is a maturin ``bindings="bin"`` wheel (it
-ships the ``epistemic-graph-server`` binary, no pyo3). The engine binding is a
-SEPARATE maturin pyo3 cdylib build (``crates/eg-pyengine --features python``).
+ships the ``medulla-server`` binary, no pyo3). The engine binding is a
+SEPARATE maturin pyo3 cdylib build (``crates/medulla-pyengine --features python``).
 This script takes the already-built engine wheel, lifts its compiled
 extension, and injects it into the server wheel as package data under the
-existing ``epistemic_graph`` package — recomputing ``RECORD`` so the wheel
+existing ``medulla`` package — recomputing ``RECORD`` so the wheel
 stays valid. The server wheel is rewritten in place.
 
 This is a near-mechanical copy of ``scripts/inject_numeric_kernel.py`` (the
-proven pattern for ``crates/eg-numeric``'s Surface-A kernel): same
+proven pattern for ``crates/medulla-numeric``'s Surface-A kernel): same
 ``RECORD``-rewrite / mode-preservation zip surgery, nothing engine-specific
 about the mechanism itself — only the target module basename changes
 (``numeric`` -> ``engine``). The two injections compose freely and may run in
@@ -29,7 +29,7 @@ Usage::
     python scripts/inject_pyengine.py <server_wheel> <engine_wheel>
 
 Both paths point at real ``.whl`` files. On success the server wheel contains
-the platform-native extension and ``import epistemic_graph.engine`` works
+the platform-native extension and ``import medulla.engine`` works
 from the installed wheel.
 """
 
@@ -43,7 +43,7 @@ import sys
 import zipfile
 from pathlib import Path
 
-TARGET_PACKAGE = "epistemic_graph"
+TARGET_PACKAGE = "medulla"
 EXTENSION_SUFFIXES = (".so", ".pyd")
 
 
@@ -57,10 +57,10 @@ def _find_kernel_extension(engine_whl: Path) -> tuple[bytes, int, str]:
 
     Maturin names the pyo3 extension ``engine.abi3.so`` on Unix and
     ``engine.pyd`` (or an ABI-tagged equivalent) on Windows, inside a
-    top-level ``engine`` package (``crates/eg-pyengine/pyproject.toml``'s
-    ``module-name = "epistemic_graph.engine"``). We preserve that
+    top-level ``engine`` package (``crates/medulla-pyengine/pyproject.toml``'s
+    ``module-name = "medulla.engine"``). We preserve that
     platform-native basename when re-homing the extension under
-    ``epistemic_graph``.
+    ``medulla``.
 
     We also lift its mode (the high 16 bits of the zip ``external_attr``) so
     the re-homed extension keeps sane permissions in the rewritten wheel.
@@ -122,9 +122,9 @@ def inject(server_whl: Path, engine_whl: Path) -> None:
     # Read every entry AS ZipInfo (not just name->bytes) so we can faithfully copy
     # each file's unix mode (external_attr high 16 bits), compression, and timestamp
     # into the rewritten wheel. Dropping external_attr is what previously stripped the
-    # 0755 executable bit off ``*.data/scripts/epistemic-graph-server`` in the numeric
+    # 0755 executable bit off ``*.data/scripts/medulla-server`` in the numeric
     # kernel's inject path — pip then installed a non-executable console binary and
-    # ``epistemic-graph-server --help`` died with "Permission denied". Same fix, same
+    # ``medulla-server --help`` died with "Permission denied". Same fix, same
     # transport-agnostic surgery, reused here verbatim.
     with zipfile.ZipFile(server_whl) as z:
         infos = z.infolist()

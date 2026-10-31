@@ -197,10 +197,10 @@ mod consensus_admin_route_tests {
     #[test]
     fn identity_mutations_share_the_commons_order_across_caller_graphs_and_tenants() {
         let method = Method::Identity {
-            op: eg_types::identity::IdentityOp::User(eg_types::identity::UserOp::SetStatus {
-                request: eg_types::identity::UserStatusChange {
+            op: medulla_types::identity::IdentityOp::User(medulla_types::identity::UserOp::SetStatus {
+                request: medulla_types::identity::UserStatusChange {
                     principal_id: "usr:route-test".to_string(),
-                    status: eg_types::identity::UserStatus::Disabled,
+                    status: medulla_types::identity::UserStatus::Disabled,
                 },
             }),
             stamp: None,
@@ -292,7 +292,7 @@ mod consensus_admin_route_tests {
 pub(super) struct NativeProposal<'a> {
     pub(super) state: &'a Arc<RwLock<ServerState>>,
     pub(super) request_id: u64,
-    pub(super) attempt_nonce: Option<eg_types::contract::Nonce>,
+    pub(super) attempt_nonce: Option<medulla_types::contract::Nonce>,
     pub(super) authority: &'a CarrierAuthority,
     pub(super) server_secret: &'a str,
     pub(super) graph_name: &'a str,
@@ -323,7 +323,7 @@ fn native_coordination_for(method: &Method) -> NativeCoordination {
     if matches!(
         method,
         Method::AnalyticsJob {
-            op: eg_types::jobs::JobOp::WorkerPublish { .. }
+            op: medulla_types::jobs::JobOp::WorkerPublish { .. }
         }
     ) {
         return NativeCoordination::JobPublication;

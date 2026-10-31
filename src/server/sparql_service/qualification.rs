@@ -1,7 +1,7 @@
 //! CA-12 qualification tests: a REAL `SERVICE` query against the LIVE Fuseki instance
 //! (`services/apache-jena`), through the exact code path production traffic uses
-//! (`server::sparql_http::ServiceClient` implementing `eg_rdf::sparql::RemoteSparql`,
-//! dispatched by `eg_rdf::sparql::execute`'s `SERVICE` evaluation).
+//! (`server::sparql_http::ServiceClient` implementing `medulla_rdf::sparql::RemoteSparql`,
+//! dispatched by `medulla_rdf::sparql::execute`'s `SERVICE` evaluation).
 //!
 //! ## Fixture
 //!
@@ -36,29 +36,29 @@
 //! no such variable set, and no route to that host) stays green:
 //!
 //! ```text
-//! EPISTEMIC_GRAPH_FUSEKI_QUAL_ENDPOINT="http://<fuseki-host>/ca12qual/sparql" \
-//! EPISTEMIC_GRAPH_FUSEKI_QUAL_ALLOW_HOST="<fuseki-host>" \
+//! MEDULLA_FUSEKI_QUAL_ENDPOINT="http://<fuseki-host>/ca12qual/sparql" \
+//! MEDULLA_FUSEKI_QUAL_ALLOW_HOST="<fuseki-host>" \
 //!   cargo test --target-dir ./target-isolated -j 12 --features full,sparql-fuseki \
-//!   -p epistemic-graph --lib server::sparql_service::qualification -- --ignored
+//!   -p medulla-engine --lib server::sparql_service::qualification -- --ignored
 //! ```
 //!
 //! (The other, non-live tests below build their `ServiceClient` directly via the test-only
 //! `ServiceClient::with_allow` constructor and a `.example` RFC 2606 placeholder host,
-//! rather than any real hostname or the `SERVICE_ALLOW_ENV`/`EPISTEMIC_GRAPH_FUSEKI_QUAL_*`
+//! rather than any real hostname or the `SERVICE_ALLOW_ENV`/`MEDULLA_FUSEKI_QUAL_*`
 //! process environment variables, so they run safely in parallel with each other and with
 //! `server::sparql_service`'s own env-based tests — no shared mutable global state, and
 //! nothing live-network-dependent about them.)
 
-use eg_core::graph::GraphView;
-use eg_rdf::sparql::{execute, Dataset, Projection, QueryOutcome, RemoteSparql};
+use medulla_core::graph::GraphView;
+use medulla_rdf::sparql::{execute, Dataset, Projection, QueryOutcome, RemoteSparql};
 
 use crate::server::sparql_http::ServiceClient;
 
 /// Env var carrying the live qualification-test dataset's full SPARQL endpoint URL (e.g.
 /// `http://<fuseki-host>/ca12qual/sparql`). See module docs for how to run the live test.
-const FUSEKI_QUAL_ENDPOINT_ENV: &str = "EPISTEMIC_GRAPH_FUSEKI_QUAL_ENDPOINT";
+const FUSEKI_QUAL_ENDPOINT_ENV: &str = "MEDULLA_FUSEKI_QUAL_ENDPOINT";
 /// Env var carrying the bare host to allowlist for that endpoint (e.g. `<fuseki-host>`).
-const FUSEKI_QUAL_ALLOW_HOST_ENV: &str = "EPISTEMIC_GRAPH_FUSEKI_QUAL_ALLOW_HOST";
+const FUSEKI_QUAL_ALLOW_HOST_ENV: &str = "MEDULLA_FUSEKI_QUAL_ALLOW_HOST";
 
 /// Positive P1/D1: a live `SERVICE` query against Fuseki, filtered locally in eg's own
 /// evaluator (the remote side returns every `role` triple; the `FILTER` proves the join
@@ -128,7 +128,7 @@ fn live_service_query_returns_real_filtered_rows_from_fuseki() {
 /// since `check_endpoint` rejects on the allowlist-membership STRING check before any DNS
 /// resolution or network I/O happens, so the target need not be reachable, or even
 /// Fuseki-shaped, to prove the guard fires.
-// spec: EG-FEDERATED-QUERY-R050
+// spec: MEDULLA-FEDERATED-QUERY-R050
 #[test]
 fn disallowed_host_is_refused_by_name_not_silently_emptied() {
     let client = ServiceClient::with_allow(vec!["allowed-elsewhere.example".to_string()]);

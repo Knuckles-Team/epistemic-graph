@@ -8,7 +8,7 @@ const DISCOVER_SEM_WEIGHT: f32 = 0.6;
 const DISCOVER_KW_WEIGHT: f32 = 0.4;
 
 /// Read a node's human-readable `(name, description, type)` triple from its
-/// MessagePack property blob (CONCEPT:EG-KG.retrieval.one-round-trip-discovery), used to hydrate `Discover` hits.
+/// MessagePack property blob (CONCEPT:MEDULLA-KG.retrieval.one-round-trip-discovery), used to hydrate `Discover` hits.
 /// `name` falls back to the node id, `type` falls back to a `node_type` field, and
 /// a missing/undecodable blob yields `(id, "", "")` — so the op never fails on a
 /// text-less node, it just returns what it can.
@@ -67,7 +67,7 @@ fn normalized_keywords(keywords: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// One-round-trip hybrid discovery (CONCEPT:EG-KG.retrieval.one-round-trip-discovery).
+/// One-round-trip hybrid discovery (CONCEPT:MEDULLA-KG.retrieval.one-round-trip-discovery).
 ///
 /// Ranks nodes by BOTH lexical keyword overlap (over `name`/`description`/`type`)
 /// AND semantic similarity to `query_embedding`, returning the top-`k` hydrated
@@ -153,11 +153,11 @@ fn discover(
     });
     ranked.truncate(k);
 
-    let results: Vec<eg_types::ingestion_wire::DiscoverHit> = ranked
+    let results: Vec<medulla_types::ingestion_wire::DiscoverHit> = ranked
         .into_iter()
         .map(|(id, score)| {
             let (name, description, node_type) = node_text(core, &id);
-            eg_types::ingestion_wire::DiscoverHit {
+            medulla_types::ingestion_wire::DiscoverHit {
                 id,
                 name,
                 description,
@@ -169,7 +169,7 @@ fn discover(
 
     Response::ok(
         req_id,
-        ResultPayload::of::<eg_types::result_contract::ingestion::Discover>(results),
+        ResultPayload::of::<medulla_types::result_contract::ingestion::Discover>(results),
     )
 }
 
@@ -181,7 +181,7 @@ async fn handle_semantic_search(
     query_embedding: Vec<f32>,
     n_results: usize,
 ) -> Response {
-    // CONCEPT:EG-KG.txn.per-graph-write-isolation / Phase C-D — the HNSW index is now maintained
+    // CONCEPT:MEDULLA-KG.txn.per-graph-write-isolation / Phase C-D — the HNSW index is now maintained
     // incrementally, so the ANN query is O(log n): hold the embedding read
     // lock only for the query itself (no whole-store clone, no per-query
     // index rebuild — at most a one-time lazy rebuild after load). The
@@ -217,7 +217,7 @@ async fn handle_semantic_search(
     {
         Ok(weighted_results) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::ingestion::SemanticSearch>(
+            ResultPayload::of_ref::<medulla_types::result_contract::ingestion::SemanticSearch>(
                 &weighted_results,
             ),
         ),
@@ -298,16 +298,16 @@ pub(super) async fn try_handle_semantic_compute(
             k,
             ..
         } => discover(core, &keywords, &query_embedding, k, req_id),
-        // CONCEPT:EG-KG.compute.l2-normalize-batch-vectors — kernel-backed in-engine batch L2-normalize (compute-near-data).
-        // The `numeric` feature links the pure eg-numeric kernel (faer/ndarray, no Python-extension FFI);
-        // a no-numeric build (e.g. `pi`) has no eg-numeric, so the op reports it's absent.
+        // CONCEPT:MEDULLA-KG.compute.l2-normalize-batch-vectors — kernel-backed in-engine batch L2-normalize (compute-near-data).
+        // The `numeric` feature links the pure medulla-numeric kernel (faer/ndarray, no Python-extension FFI);
+        // a no-numeric build (e.g. `pi`) has no medulla-numeric, so the op reports it's absent.
         Method::BatchL2Normalize { vectors } => {
             #[cfg(feature = "numeric")]
             {
-                let out = eg_numeric::linalg::batch_l2_normalize(&vectors);
+                let out = medulla_numeric::linalg::batch_l2_normalize(&vectors);
                 Response::ok(
                     req_id,
-                    ResultPayload::of::<eg_types::result_contract::compute::BatchL2Normalize>(out),
+                    ResultPayload::of::<medulla_types::result_contract::compute::BatchL2Normalize>(out),
                 )
             }
             #[cfg(not(feature = "numeric"))]
@@ -315,12 +315,12 @@ pub(super) async fn try_handle_semantic_compute(
                 let _ = vectors;
                 Response::err(
                     req_id,
-                    "BatchL2Normalize requires the `numeric` feature (eg-numeric kernel)."
+                    "BatchL2Normalize requires the `numeric` feature (medulla-numeric kernel)."
                         .to_string(),
                 )
             }
         }
-        // AddEdge/RemoveEdge (CONCEPT:EG-P0-2 bypass guard): GATEWAY_ROUTED — see
+        // AddEdge/RemoveEdge (CONCEPT:MEDULLA-P0-2 bypass guard): GATEWAY_ROUTED — see
         // the AddNode/RemoveNode comment above for why these are structurally
         // unreachable here, not merely undocumented.
         other => return ControlFlow::Continue(other),

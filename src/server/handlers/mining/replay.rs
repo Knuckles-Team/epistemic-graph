@@ -3,7 +3,7 @@ use super::{
     association::*, classic::*, entity::*, input::*, insight::*, process::*, vector::*,
     writeback::*,
 };
-use eg_compute::mining::{
+use medulla_compute::mining::{
     anomaly, association, causal_impact,
     classify::{self, FittedClassifier},
     cluster, community, entity_resolution, forecast, ontology_gap, process_mining, reduce,

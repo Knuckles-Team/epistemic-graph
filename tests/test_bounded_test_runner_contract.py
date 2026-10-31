@@ -54,8 +54,8 @@ def test_r820_gate_preserves_all_feature_selection_and_no_fail_fast():
     assert "bounded_test_runner.py" in source
     assert "--workspace --all-features --no-fail-fast" in source
     assert "r820-all-features-workspace" in source
-    assert "EG_ALL_FEATURE_SUITE_TIMEOUT" in source
-    assert "EG_ALL_FEATURE_TEST_TIMEOUT" in source
+    assert "MEDULLA_ALL_FEATURE_SUITE_TIMEOUT" in source
+    assert "MEDULLA_ALL_FEATURE_TEST_TIMEOUT" in source
 
 
 def test_constrained_gate_routes_every_test_phase_through_runner():
@@ -64,9 +64,9 @@ def test_constrained_gate_routes_every_test_phase_through_runner():
     # Test phases use bounded_test; compiles use bounded_build (same runner).
     assert source.count("bounded_test ") + source.count("bounded_build ") >= 6
     assert "timeout -k" not in source
-    assert "EG_CONSTRAINED_TEST_TIMEOUT" in source
-    assert "EG_CONSTRAINED_TERM_GRACE" in source
-    assert "EG_CONSTRAINED_KILL_GRACE" in source
+    assert "MEDULLA_CONSTRAINED_TEST_TIMEOUT" in source
+    assert "MEDULLA_CONSTRAINED_TERM_GRACE" in source
+    assert "MEDULLA_CONSTRAINED_KILL_GRACE" in source
 
 
 def test_constrained_gate_kafka_proofs_are_exact_and_short_bounded():
@@ -85,9 +85,9 @@ def test_constrained_gate_never_charges_compilation_to_the_test_contract():
     import re
 
     source = CONSTRAINED_GATE.read_text(encoding="utf-8")
-    assert 'TIMEOUT_SECS="${EG_CONSTRAINED_TIMEOUT:-1200}"' in source
-    assert 'TEST_TIMEOUT_SECS="${EG_CONSTRAINED_TEST_TIMEOUT:-900}"' in source
-    assert 'BUILD_TIMEOUT_SECS="${EG_CONSTRAINED_BUILD_TIMEOUT:-' in source
+    assert 'TIMEOUT_SECS="${MEDULLA_CONSTRAINED_TIMEOUT:-1200}"' in source
+    assert 'TEST_TIMEOUT_SECS="${MEDULLA_CONSTRAINED_TEST_TIMEOUT:-900}"' in source
+    assert 'BUILD_TIMEOUT_SECS="${MEDULLA_CONSTRAINED_BUILD_TIMEOUT:-' in source
     assert '--suite-timeout "$BUILD_TIMEOUT_SECS"' in source
     invocations = re.findall(
         r"(bounded_\w+) \"[^\"]+\" (?:taskset -c \"\$CORES\" )?cargo test([^\n;]*)",

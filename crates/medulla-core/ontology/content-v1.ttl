@@ -1,0 +1,108 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://knuckles.team/kg/content> a owl:Ontology ;
+    rdfs:label "Content Channel Ontology" ;
+    rdfs:comment "Content-channel concepts: feeds and articles, research papers, search queries and results, social posts and channels, email campaigns and mailing lists, and message channels with chat. Reuses CreativeWork, Document, Message, Person, Team and the search terms from the core and retrieval modules (MEDULLA-MEDIA-VOCAB-R002)." ;
+    owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/retrieval> .
+
+# --- content vocab lane A ---
+# The `cv:` names in the spec rows are documentation prefixes for this module's
+# section of the shared `:` namespace (specs/media-and-personal-vocabulary/
+# plan.md, "Vocabulary"); every IRI stays in `:` like the other ontology files,
+# and the existing core/retrieval terms are reused, never redeclared.
+
+# R002.1: feeds, articles and research papers.
+
+:Feed a owl:Class ;
+    rdfs:label "Feed" ;
+    rdfs:comment "A feed of articles, for example an RSS feed (FreshRSS feed)." ;
+    rdfs:subClassOf :CreativeWork .
+
+:FeedSubscription a owl:Class ;
+    rdfs:label "Feed Subscription" ;
+    rdfs:comment "One reader's subscription to a feed (FreshRSS subscription)." .
+
+:ofFeed a owl:ObjectProperty ;
+    rdfs:label "of feed" ;
+    rdfs:comment "Links a feed subscription to the feed it subscribes to." ;
+    rdfs:domain :FeedSubscription ;
+    rdfs:range :Feed .
+
+:Article a owl:Class ;
+    rdfs:label "Article" ;
+    rdfs:comment "A feed article or web article; the content document a feed delivers." ;
+    rdfs:subClassOf :Document .
+
+:ResearchPaper a owl:Class ;
+    rdfs:label "Research Paper" ;
+    rdfs:comment "A research paper with its identifiers and citation count (ScholarX paper)." ;
+    rdfs:seeAlso bibo:AcademicArticle ;
+    rdfs:subClassOf :Document .
+
+# R002.2: social posts, publishing channels, email campaigns and lists.
+# SearchQuery, SearchResult and SearchEngine are reused from retrieval-v1
+# without redeclaration. The social, email and message classes and their
+# scalar properties are declared once, in media-v1 (media vocab lane B);
+# this module adds only the links between them.
+
+:metricOf a owl:ObjectProperty ;
+    rdfs:label "metric of" ;
+    rdfs:comment "Links an engagement metric to the social post it measures." ;
+    rdfs:domain :EngagementMetric ;
+    rdfs:range :SocialPost .
+
+:channelOf a owl:ObjectProperty ;
+    rdfs:label "channel of" ;
+    rdfs:comment "Links a social post to the publishing channel it was posted on." ;
+    rdfs:domain :SocialPost ;
+    rdfs:range :PublishingChannel .
+
+:sentToList a owl:ObjectProperty ;
+    rdfs:label "sent to list" ;
+    rdfs:comment "Links an email campaign to a mailing list it was sent to." ;
+    rdfs:domain :EmailCampaign ;
+    rdfs:range :MailingList .
+
+# R002.4: shared content properties.
+
+:feedUrl a owl:DatatypeProperty ;
+    rdfs:label "feed URL" ;
+    rdfs:comment "The URL a feed or feed subscription is read from." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :Feed :FeedSubscription ) ] ;
+    rdfs:range xsd:string .
+
+:isRead a owl:DatatypeProperty ;
+    rdfs:label "is read" ;
+    rdfs:comment "True once the reader has read the article (FreshRSS read state)." ;
+    rdfs:domain :Article ;
+    rdfs:range xsd:boolean .
+
+:resultUrl a owl:DatatypeProperty ;
+    rdfs:label "result URL" ;
+    rdfs:comment "The source URL of one search result as returned by the engine." ;
+    rdfs:domain :SearchResult ;
+    rdfs:range xsd:string .
+
+# R003.1: cross-source identity key. Article identity uses its class-scoped
+# normalised canonical URL; a URL join does not create owl:sameAs between a
+# document and the search results or posts that reference it. No global
+# inverse-functionality is declared.
+
+:canonicalUrl a owl:DatatypeProperty ;
+    rdfs:label "canonical URL" ;
+    rdfs:comment "The normalised document URL of an article or search result, and the shared target URL a post or campaign links to. Normalisation: scheme and host lower-cased, tracking parameters and fragment stripped. Shared target URLs support joins without identifying the result, post, campaign and document as one entity." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :Article :SearchResult :SocialPost :EmailCampaign ) ] ;
+    rdfs:range xsd:string .
+
+# R013.1: the per-feed unread count (FreshRSS unread-count).
+
+:unreadCount a owl:DatatypeProperty ;
+    rdfs:label "unread count" ;
+    rdfs:comment "The number of unread articles a feed currently has (FreshRSS per-stream unread count)." ;
+    rdfs:domain :Feed ;
+    rdfs:range xsd:nonNegativeInteger .

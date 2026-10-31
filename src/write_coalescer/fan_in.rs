@@ -1,5 +1,5 @@
 //! Pipelined producer fan-in over one [`GraphWriter`]
-//! (CONCEPT:EG-KG.txn.write-path-benchmarks).
+//! (CONCEPT:MEDULLA-KG.txn.write-path-benchmarks).
 
 use std::sync::Arc;
 

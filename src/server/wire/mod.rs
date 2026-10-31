@@ -1,9 +1,9 @@
-//! Wire-agnostic SQL execution core (CONCEPT:EG-KG.compute.subsystems-reference) — the multi-wire keystone.
+//! Wire-agnostic SQL execution core (CONCEPT:MEDULLA-KG.compute.subsystems-reference) — the multi-wire keystone.
 //!
 //! ## What this is
 //! This module extracts the WIRE-NEUTRAL half of a database wire protocol out of the
 //! Postgres shim (`crate::server::pgwire`) so that EVERY present and future wire
-//! (Postgres today; SQLite/MySQL/MSSQL in Phase J — EG-075/076/077; an AMQP/broker
+//! (Postgres today; SQLite/MySQL/MSSQL in Phase J — MEDULLA-075/076/077; an AMQP/broker
 //! wire in Phase Y) reuses ONE `classify → dispatch → exec` path against the engine.
 //!
 //! The split is:
@@ -37,7 +37,7 @@
 //!      returned [`WireOutcome`] / [`WireError`] into its own wire bytes.
 //!
 //! NOTHING in the classify/dispatch/exec/txn/durability path is reimplemented — the
-//! new wire only adds framing + encoding. This is the EG-074 promise.
+//! new wire only adds framing + encoding. This is the MEDULLA-074 promise.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -45,7 +45,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 
-use eg_query::{
+use medulla_query::{
     AlterTableAction, AlterTablePlan, AnnIndexPlan, Column, ColumnType, ContinuousAggPlan,
     CopyFormat, CopyPlan, CreateFunctionPlan, CreateTablePlan, CreateViewPlan, DeleteNodes,
     DeleteNodesJoin, DeleteTable, DropFunctionPlan, DropTablePlan, DropViewPlan, HypertablePlan,
@@ -62,7 +62,7 @@ use crate::server::ServerState;
 
 // ── wire-neutral currency ────────────────────────────────────────────────────
 
-/// A wire-NEUTRAL execution error (CONCEPT:EG-KG.compute.subsystems-reference): a SQLSTATE `code` + a `message`.
+/// A wire-NEUTRAL execution error (CONCEPT:MEDULLA-KG.compute.subsystems-reference): a SQLSTATE `code` + a `message`.
 /// Each wire maps this to its own error frame. Postgres maps it 1:1 to a
 /// `PgWireError::UserError(ErrorInfo{ severity:"ERROR", code, message })`, so the
 /// exact SQLSTATE and text a client sees are preserved byte-for-byte.
@@ -86,7 +86,7 @@ impl std::error::Error for WireError {}
 /// The wire-neutral result alias for the execution core.
 pub type WireResult<T> = Result<T, WireError>;
 
-/// The wire-NEUTRAL outcome of executing one statement (CONCEPT:EG-KG.compute.subsystems-reference). Each wire
+/// The wire-NEUTRAL outcome of executing one statement (CONCEPT:MEDULLA-KG.compute.subsystems-reference). Each wire
 /// encodes this into its own protocol bytes; the core never constructs
 /// protocol-specific responses.
 #[derive(Debug)]
@@ -136,7 +136,7 @@ impl WireOutcome {
     }
 }
 
-/// The wire-agnostic contract every wire drives (CONCEPT:EG-KG.compute.subsystems-reference). A wire owns its
+/// The wire-agnostic contract every wire drives (CONCEPT:MEDULLA-KG.compute.subsystems-reference). A wire owns its
 /// framing/auth/encoding; the query semantics live entirely behind this trait.
 #[async_trait]
 pub trait WireProtocol: Send + Sync {
@@ -169,7 +169,7 @@ pub(crate) fn user_err(msg: impl Into<String>) -> WireError {
     }
 }
 
-/// The "current transaction is aborted" error (SQLSTATE 25P02, CONCEPT:EG-KG.compute.kg-transaction-is-pinned) —
+/// The "current transaction is aborted" error (SQLSTATE 25P02, CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned) —
 /// what a SQL client is told for every statement issued inside a failed transaction
 /// block until it is ended with COMMIT/ROLLBACK.
 pub(crate) fn aborted_txn_err() -> WireError {
@@ -195,7 +195,7 @@ fn run_commit_reject_mixed_xmodal(has_table_ops: bool, has_xmodal: bool) -> Wire
 }
 
 /// Map a standard SQL isolation-level spelling onto the engine's ACTUAL
-/// levels (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005). `SERIALIZABLE` maps 1:1 (this engine really has
+/// levels (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-005). `SERIALIZABLE` maps 1:1 (this engine really has
 /// one). `REPEATABLE READ` / `READ COMMITTED` / `READ UNCOMMITTED` all map
 /// onto `Snapshot` — never a downgrade: Postgres' OWN `REPEATABLE READ`
 /// already IS snapshot isolation (not the stricter textbook definition), and
@@ -225,7 +225,7 @@ fn parse_sql_isolation_level(text: &str) -> WireResult<crate::server::txn::Isola
 }
 
 /// Extract an inline `ISOLATION LEVEL <level>` clause from a `BEGIN`/`START
-/// TRANSACTION` statement's raw text (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005). `eg_query::classify`
+/// TRANSACTION` statement's raw text (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-005). `medulla_query::classify`
 /// already accepts `Statement::StartTransaction { .. }` regardless of its
 /// `modes` (a `sqlparser` field it discards — see `classify.rs`, owned by a
 /// different track), so the clause parses fine there but is never surfaced;
@@ -246,7 +246,7 @@ fn parse_begin_isolation_clause(
 
 /// Best-effort extraction of `<col> = '<value>'` equality filters on a
 /// label-shaped column (`type`/`label`/`labels`) from a read statement's raw
-/// SQL text (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005 auto predicate tracking). This mirrors the ONE
+/// SQL text (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-005 auto predicate tracking). This mirrors the ONE
 /// predicate shape [`crate::server::txn::PredicateRead`] can express
 /// (`get_nodes_by_label`), so a SQL `SERIALIZABLE` transaction's own reads
 /// seed genuine phantom protection for exactly the reads the engine's
@@ -334,12 +334,12 @@ fn extract_quoted_value(
 }
 
 /// Resolve a classify `ColumnDef` (raw SQL type spelling) into a store [`Column`].
-pub(crate) fn to_store_columns(cols: &[eg_query::ColumnDef]) -> WireResult<Vec<Column>> {
-    eg_query::columns_from_defs(cols).map_err(user_err)
+pub(crate) fn to_store_columns(cols: &[medulla_query::ColumnDef]) -> WireResult<Vec<Column>> {
+    medulla_query::columns_from_defs(cols).map_err(user_err)
 }
 
-/// Lower a decoded `ALTER TABLE` plan into the matching buffered [`TxnOp`] (CONCEPT:EG-KG.query.register-user-tables-alongside
-/// ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog the rest), so a `BEGIN … ALTER … COMMIT` applies it in the
+/// Lower a decoded `ALTER TABLE` plan into the matching buffered [`TxnOp`] (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside
+/// ADD COLUMN + CONCEPT:MEDULLA-KG.query.rename-table-moves-catalog the rest), so a `BEGIN … ALTER … COMMIT` applies it in the
 /// SAME redb write txn as the surrounding statements.
 pub(crate) fn alter_txn_op(plan: AlterTablePlan) -> WireResult<TxnOp> {
     let table = plan.name;
@@ -377,7 +377,7 @@ pub(crate) fn alter_txn_op(plan: AlterTablePlan) -> WireResult<TxnOp> {
 
 /// Authorize (and, for `Insert`/`Update`/`Delete`, RLS-rewrite in place) every op
 /// in a buffered [`TableTxn`] BEFORE it may reach `TableStore::commit_txn_batch`
-/// (CONCEPT:NE-046 — EG-WIRE-CATALOG). A `TableTxn` commits as ONE atomic redb
+/// (CONCEPT:NE-046 — MEDULLA-WIRE-CATALOG). A `TableTxn` commits as ONE atomic redb
 /// write mixing potentially heterogeneous ops across DIFFERENT tables (e.g. a
 /// `BEGIN … CREATE TABLE … ; INSERT … ; COMMIT` block), so authorization must be
 /// resolved for the WHOLE batch up front: a denial on any single op returns
@@ -739,7 +739,7 @@ fn authorize_update_op(
     authority: &CarrierAuthority,
     table: &str,
     set: &mut serde_json::Map<String, serde_json::Value>,
-    selector: &mut eg_types::RowPredicate,
+    selector: &mut medulla_types::RowPredicate,
     provisional_creates: &std::collections::HashMap<
         String,
         crate::server::sql_catalog_acl::ProvisionalCreateAuthority,
@@ -763,7 +763,7 @@ fn authorize_delete_op(
     source: &crate::server::sql_catalog_acl::SqlSourceAuthorityWrite<'_, '_>,
     authority: &CarrierAuthority,
     table: &str,
-    selector: &mut eg_types::RowPredicate,
+    selector: &mut medulla_types::RowPredicate,
     provisional_creates: &std::collections::HashMap<
         String,
         crate::server::sql_catalog_acl::ProvisionalCreateAuthority,
@@ -793,12 +793,12 @@ fn authorize_delete_op(
 pub(crate) fn committed_sql_replay_receipt(
     store: &TableStore,
     authority: &CarrierAuthority,
-    batch: &eg_types::MutationBatch,
-) -> Result<Option<eg_types::mutation_batch::MutationBatchRecord>, String> {
+    batch: &medulla_types::MutationBatch,
+) -> Result<Option<medulla_types::mutation_batch::MutationBatchRecord>, String> {
     let Some(record) = store.mutation_batch(&batch.identity, &batch.batch_id)? else {
         return Ok(None);
     };
-    if record.status != eg_types::mutation_batch::MutationBatchStatus::Committed {
+    if record.status != medulla_types::mutation_batch::MutationBatchStatus::Committed {
         return Ok(None);
     }
     if sql_operation_digest(&record.batch)? != sql_operation_digest(batch)? {
@@ -816,8 +816,8 @@ pub(crate) fn committed_sql_replay_receipt(
 
 /// The stable operation identity digest of one compiled SQL batch.
 fn sql_operation_digest(
-    batch: &eg_types::MutationBatch,
-) -> Result<eg_types::contract::Digest256, String> {
+    batch: &medulla_types::MutationBatch,
+) -> Result<medulla_types::contract::Digest256, String> {
     batch
         .envelope
         .operation()
@@ -835,7 +835,7 @@ type SqlTableCommitIdentity = (
     String,
     u64,
     uuid::Uuid,
-    Option<eg_types::contract::Nonce>,
+    Option<medulla_types::contract::Nonce>,
 );
 type SqlTableCommit = (TableStore, TableTxn, SqlTableCommitIdentity);
 const SQL_OWNER_REPAIR_PENDING: &str = "SQL_OWNER_REPAIR_PENDING";
@@ -944,9 +944,9 @@ fn commit_table_txn_under_source(
         .result_msgpack
         .as_deref()
         .ok_or_else(|| "committed SQL MutationBatch has no result".to_string())?;
-    eg_types::msgpack::decode_bounded::<usize>(
+    medulla_types::msgpack::decode_bounded::<usize>(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(64, 1, 1),
+        medulla_types::msgpack::MsgpackLimits::new(64, 1, 1),
     )
     .map_err(|_| "committed SQL result is corrupt".to_string())
 }
@@ -968,7 +968,7 @@ pub(crate) fn col_type_of(v: &serde_json::Value) -> PgColType {
 /// nameable list) yields `id` followed by the property columns in `prop_cols`
 /// order. Both paths compute this from the SAME inputs so they agree.
 pub(crate) fn returning_projection(sql: &str, prop_cols: &[String]) -> Vec<String> {
-    if let Some(named) = eg_query::returning_columns(sql) {
+    if let Some(named) = medulla_query::returning_columns(sql) {
         return named;
     }
     // `RETURNING *` (or unnameable): `id` + every known property column.
@@ -1021,7 +1021,7 @@ pub(crate) fn returning_result(
     TypedQueryResult { columns, rows }
 }
 
-/// A single-column, single-row text result (CONCEPT:EG-KG.query.continuous-aggregate-lowering) — the shape a scalar
+/// A single-column, single-row text result (CONCEPT:MEDULLA-KG.query.continuous-aggregate-lowering) — the shape a scalar
 /// set-returning function like `create_hypertable(...)` returns to a client.
 pub(crate) fn single_text_result(col: &str, val: &str) -> TypedQueryResult {
     TypedQueryResult {
@@ -1035,7 +1035,7 @@ pub(crate) fn single_text_result(col: &str, val: &str) -> TypedQueryResult {
 
 // ── per-connection copy + transaction state ───────────────────────────────────
 
-/// Per-connection `COPY … FROM STDIN` state (CONCEPT:EG-KG.query.register-each-user-table): the resolved target,
+/// Per-connection `COPY … FROM STDIN` state (CONCEPT:MEDULLA-KG.query.register-each-user-table): the resolved target,
 /// the streamed bytes accumulated across copy frames, and the decode format. Lives in
 /// [`WireSession::copy`] between the copy-in response and the wire's copy-done hook.
 pub struct CopyState {
@@ -1076,7 +1076,7 @@ impl CopyState {
     }
 }
 
-/// The buffered graph-node ops of an OPEN wire transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned).
+/// The buffered graph-node ops of an OPEN wire transaction (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned).
 /// Compiled into one authoritative `MutationBatch` at `COMMIT`; dropped on `ROLLBACK`.
 #[derive(Default)]
 struct GraphTxnBuffer {
@@ -1084,7 +1084,7 @@ struct GraphTxnBuffer {
 }
 
 /// One buffered graph-node mutation inside an open wire transaction
-/// (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). Resolved (against a read-your-own-writes overlaid snapshot)
+/// (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned). Resolved (against a read-your-own-writes overlaid snapshot)
 /// at statement time and compiled at `COMMIT`. Carries exactly what the RYOW
 /// overlay and canonical durable `Method` need.
 enum NodeOp {
@@ -1102,7 +1102,7 @@ enum NodeOp {
     Remove { id: String },
 }
 
-/// The CROSS-MODAL write-set staged inside an open wire transaction (CONCEPT:EG-KG.txn.isolation-ryow-begin-set).
+/// The CROSS-MODAL write-set staged inside an open wire transaction (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set).
 /// Parallel to the graph-node [`GraphTxnBuffer`] + user-table `TableTxn` buffers, this
 /// holds the NON-graph-topology modalities a pgwire `SET EMBEDDING` / `INSERT INTO
 /// series` / `SPARQL UPDATE` / `SPARQL CONSTRUCT` statement stages while a `BEGIN` is
@@ -1137,7 +1137,7 @@ impl XmodalStaged {
 
 // ── the shared session core ────────────────────────────────────────────────────
 
-/// A per-connection, wire-agnostic SQL session (CONCEPT:EG-KG.compute.subsystems-reference). Holds the shared
+/// A per-connection, wire-agnostic SQL session (CONCEPT:MEDULLA-KG.compute.subsystems-reference). Holds the shared
 /// `ServerState`, the current target graph (mutated by `SET graph = …`), the
 /// authenticated actor, and the open mixed-store transaction buffers. One instance
 /// per connection so the `SET graph` selection is connection-scoped. Shared by every
@@ -1153,7 +1153,7 @@ pub struct WireSession {
     /// already chose one).
     startup_resolved: std::sync::atomic::AtomicBool,
     /// The authenticated actor (engine `agent_id`) for this connection
-    /// (CONCEPT:EG-KG.query.concept-13). `None` means no authenticated wire identity
+    /// (CONCEPT:MEDULLA-KG.query.concept-13). `None` means no authenticated wire identity
     /// has been mapped. Latched only from a verified request or the server-owned
     /// authority produced after a native wire cryptographic proof succeeds.
     actor: parking_lot::Mutex<Option<String>>,
@@ -1163,28 +1163,28 @@ pub struct WireSession {
     /// The current request's authenticated transport nonce. Native SQL login
     /// has no envelope nonce and leaves this empty; signed mutation requests
     /// replace it before their statement is dispatched.
-    attempt_nonce: parking_lot::Mutex<Option<eg_types::contract::Nonce>>,
-    /// The OPEN multi-statement transaction's buffered user-table ops (CONCEPT:EG-KG.query.register-each-user-table),
+    attempt_nonce: parking_lot::Mutex<Option<medulla_types::contract::Nonce>>,
+    /// The OPEN multi-statement transaction's buffered user-table ops (CONCEPT:MEDULLA-KG.query.register-each-user-table),
     /// or `None` when no `BEGIN` is active. `COMMIT` applies the buffer in ONE redb
     /// write txn; `ROLLBACK` drops it. Scoped per connection.
     txn: parking_lot::Mutex<Option<TableTxn>>,
-    /// The OPEN transaction's buffered GRAPH-NODE ops (CONCEPT:EG-KG.compute.kg-transaction-is-pinned), committed as
+    /// The OPEN transaction's buffered GRAPH-NODE ops (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned), committed as
     /// one authoritative MutationBatch before RAM publication. Empty when no
     /// `BEGIN` is active or the txn touched no nodes.
     graph_txn: parking_lot::Mutex<GraphTxnBuffer>,
     /// The graph a mixed-store transaction is pinned to, captured at `BEGIN`
-    /// (CONCEPT:EG-KG.compute.kg-transaction-is-pinned / KG-2.207): a txn stays within ONE graph / redb shard, so
+    /// (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned / KG-2.207): a txn stays within ONE graph / redb shard, so
     /// `SET graph` is rejected while a txn is open. `None` when no txn is active.
     txn_graph: parking_lot::Mutex<Option<String>>,
-    /// Whether the OPEN transaction has entered the ABORTED state (CONCEPT:EG-KG.compute.kg-transaction-is-pinned):
+    /// Whether the OPEN transaction has entered the ABORTED state (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned):
     /// a statement inside the txn errored, so every subsequent statement except
     /// `COMMIT`/`ROLLBACK` is rejected with SQLSTATE 25P02 until the block ends.
     /// Cleared on `BEGIN`/`COMMIT`/`ROLLBACK`.
     txn_failed: parking_lot::Mutex<bool>,
-    /// In-flight `COPY … FROM STDIN` state (CONCEPT:EG-KG.query.register-each-user-table), set between the copy-in
+    /// In-flight `COPY … FROM STDIN` state (CONCEPT:MEDULLA-KG.query.register-each-user-table), set between the copy-in
     /// response and the wire's copy-done/copy-fail hook.
     copy: parking_lot::Mutex<Option<CopyState>>,
-    /// The OPEN transaction's staged CROSS-MODAL write-set (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) — vectors,
+    /// The OPEN transaction's staged CROSS-MODAL write-set (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set) — vectors,
     /// measurements, and lowered OWL/CONSTRUCT methods from the pgwire cross-modal
     /// statements. Empty when no `BEGIN` is active or the txn touched no cross-modal
     /// modality; when non-empty at `COMMIT` the whole txn commits atomically through the
@@ -1192,7 +1192,7 @@ pub struct WireSession {
     #[cfg(feature = "query")]
     xmodal: parking_lot::Mutex<XmodalStaged>,
     /// The isolation level resolved for the CURRENTLY open (or most recently
-    /// closed) transaction (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005): from an inline
+    /// closed) transaction (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-005): from an inline
     /// `BEGIN … ISOLATION LEVEL …`, else a prior bare `SET TRANSACTION ISOLATION
     /// LEVEL …`, else the session default, else `Snapshot`. Deliberately NOT
     /// reset by `take_txn()` — the COMMIT path reads it AFTER `take_txn()` has
@@ -1202,7 +1202,7 @@ pub struct WireSession {
     /// exactly as strong as a single statement needs).
     txn_isolation: parking_lot::Mutex<crate::server::txn::IsolationLevel>,
     /// The pinned graph's `core.version()` as of this transaction's ACTUAL
-    /// `BEGIN` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005 correctness). `GraphTxnState`'s OCC coarse guard
+    /// `BEGIN` (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-005 correctness). `GraphTxnState`'s OCC coarse guard
     /// (`validate()`: "if `core.version()` is unchanged since begin, skip
     /// both the read-set AND the predicate re-check") is worthless if
     /// `begin_version` is re-derived as `core.version()` FRESH at commit
@@ -1217,15 +1217,15 @@ pub struct WireSession {
     /// is correct there). Reset by `begin_txn()`.
     txn_begin_version: parking_lot::Mutex<Option<u64>>,
     /// Session-level isolation default from `SET SESSION CHARACTERISTICS AS
-    /// TRANSACTION ISOLATION LEVEL …` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005). Applied to every
+    /// TRANSACTION ISOLATION LEVEL …` (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-005). Applied to every
     /// subsequent `BEGIN` that does not name a level explicitly. `None` means
     /// the engine default (`Snapshot`).
     session_isolation_default: parking_lot::Mutex<Option<crate::server::txn::IsolationLevel>>,
     /// A bare `SET TRANSACTION ISOLATION LEVEL …` issued OUTSIDE an open
-    /// transaction (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005, matching Postgres: it applies to the
+    /// transaction (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-005, matching Postgres: it applies to the
     /// NEXT transaction only). Consumed (and cleared) by the next `BEGIN`.
     pending_isolation: parking_lot::Mutex<Option<crate::server::txn::IsolationLevel>>,
-    /// Predicate reads this OPEN transaction's own reads performed (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005
+    /// Predicate reads this OPEN transaction's own reads performed (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-005
     /// auto predicate tracking), fingerprinted AT READ TIME (never deferred to
     /// commit — see [`crate::server::txn::GraphTxnState::add_predicate_read`]'s
     /// doc for why the timing matters) and captured only while `txn_isolation`
@@ -1236,15 +1236,15 @@ pub struct WireSession {
     /// the read shape the engine's predicate machinery can express, instead of
     /// silently behaving like `Snapshot`. Reset by `begin_txn()`.
     serializable_predicate_reads: parking_lot::Mutex<Vec<(crate::server::txn::PredicateRead, u64)>>,
-    /// The OPEN transaction's table-store statement replay log (CONCEPT:EG-TXN.mixed-commit-intent — NE-004):
+    /// The OPEN transaction's table-store statement replay log (CONCEPT:MEDULLA-TXN.mixed-commit-intent — NE-004):
     /// one entry per buffered table DML/DDL statement (or decoded `COPY`
     /// batch), in order. Used ONLY when a transaction mixes graph-node ops
     /// with table ops, to durably record how to rebuild the table-side
-    /// `TableTxn` on crash recovery (`eg_query::TxnOp` is not `Serialize`).
+    /// `TableTxn` on crash recovery (`medulla_query::TxnOp` is not `Serialize`).
     /// Reset by `begin_txn()`.
     txn_replay_log: parking_lot::Mutex<Vec<crate::server::txn_intent::ReplayStep>>,
     /// Set once this connection has swept its owner's leftover commit-intent
-    /// files (CONCEPT:EG-TXN.mixed-commit-intent — NE-004 crash recovery). Checked lazily on first use rather
+    /// files (CONCEPT:MEDULLA-TXN.mixed-commit-intent — NE-004 crash recovery). Checked lazily on first use rather
     /// than at connection setup so it costs nothing on a connection that never
     /// touches a mixed transaction.
     recovered_intents: std::sync::atomic::AtomicBool,
@@ -1252,7 +1252,7 @@ pub struct WireSession {
 
 /// Explicit, self-documenting choice of the version [`WireSession::commit_graph_methods_with_op`]
 /// and [`WireSession::new_txn_state`] use as `GraphTxnState`'s OCC baseline
-/// (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005 residue sweep, NE-071 / EG-OCC-SWEEP).
+/// (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-005 residue sweep, NE-071 / MEDULLA-OCC-SWEEP).
 ///
 /// This boundary used to be a bare `begin_version: Option<u64>` resolved with
 /// `begin_version.unwrap_or_else(|| core.version())`. That pattern is exactly
@@ -1300,7 +1300,7 @@ impl TxnBeginVersion {
 
 impl WireSession {
     /// Resolve this session's captured BEGIN-time version for a REAL open
-    /// transaction's commit (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-071). `None` here means
+    /// transaction's commit (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-071). `None` here means
     /// `begin_txn()`'s best-effort capture (see [`Self::txn_begin_version`]'s
     /// doc) could not resolve the pinned graph at `BEGIN` time — which almost
     /// always means the commit path's own `graph_core` lookup is about to
@@ -1375,7 +1375,7 @@ impl WireSession {
             }
         })?;
 
-        let policy = eg_capabilities::policy(&request.method);
+        let policy = medulla_capabilities::policy(&request.method);
         if !context.allows_method(policy.authz_action, policy.mutates) {
             crate::metrics::access_denied();
             return Err(WireError {
@@ -1494,7 +1494,7 @@ impl WireSession {
         let authority = self.carrier_authority()?;
         use sha2::{Digest, Sha256};
         let mut digest = Sha256::new();
-        digest.update(b"epistemic-graph/wire-signed-operation\0");
+        digest.update(b"medulla/wire-signed-operation\0");
         digest.update(authority.owner_scope().as_bytes());
         digest.update([0]);
         digest.update(authority.idempotency_key().as_bytes());
@@ -1539,7 +1539,7 @@ impl WireSession {
 
     /// The verified carrier authority plus the configured persistence directory —
     /// the two inputs every `sql_catalog_acl` entry point needs (CONCEPT:NE-046 —
-    /// EG-WIRE-CATALOG). Resolving both together here keeps the "persistence
+    /// MEDULLA-WIRE-CATALOG). Resolving both together here keeps the "persistence
     /// directory is mandatory" error identical across every call site that used
     /// to read it out of [`Self::user_table_store`] individually.
     async fn catalog_authority(&self) -> WireResult<(CarrierAuthority, std::path::PathBuf)> {
@@ -1551,7 +1551,7 @@ impl WireSession {
     }
 
     /// Resolve this connection's TENANT-shared SQL catalog (CONCEPT:NE-046 —
-    /// EG-WIRE-CATALOG). A verified carrier and the
+    /// MEDULLA-WIRE-CATALOG). A verified carrier and the
     /// served engine's configured persistence directory are both mandatory.
     ///
     /// This performs NO per-table authorization of its own — same contract
@@ -1621,17 +1621,17 @@ impl WireSession {
         }
     }
 
-    /// Buffer a graph-node op into the open transaction's node buffer (CONCEPT:EG-KG.compute.kg-transaction-is-pinned).
+    /// Buffer a graph-node op into the open transaction's node buffer (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned).
     fn buffer_node(&self, op: NodeOp) {
         self.graph_txn.lock().ops.push(op);
     }
 
-    /// Whether the OPEN transaction is in the ABORTED state (CONCEPT:EG-KG.compute.kg-transaction-is-pinned).
+    /// Whether the OPEN transaction is in the ABORTED state (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned).
     fn txn_aborted(&self) -> bool {
         *self.txn_failed.lock()
     }
 
-    /// Open a fresh transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned): reset both buffers + the aborted
+    /// Open a fresh transaction (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned): reset both buffers + the aborted
     /// flag and pin the txn to the current graph (a txn stays within one shard).
     fn begin_txn(&self) {
         *self.txn.lock() = Some(TableTxn::new());
@@ -1651,7 +1651,7 @@ impl WireSession {
         self.txn_replay_log.lock().clear();
     }
 
-    /// Drain the open transaction's staged CROSS-MODAL write-set (CONCEPT:EG-KG.txn.isolation-ryow-begin-set),
+    /// Drain the open transaction's staged CROSS-MODAL write-set (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set),
     /// leaving it empty. Called by `COMMIT` (to hand the modalities to the shared
     /// cross-modal commit) and `ROLLBACK` (drain-and-drop).
     #[cfg(feature = "query")]
@@ -1659,7 +1659,7 @@ impl WireSession {
         std::mem::take(&mut self.xmodal.lock())
     }
 
-    /// End the OPEN transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned): drop both buffers, the pinned
+    /// End the OPEN transaction (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned): drop both buffers, the pinned
     /// graph, and the aborted flag. Shared by COMMIT and ROLLBACK. Returns the
     /// user-table `TableTxn` (if any) and the buffered node ops, so COMMIT can
     /// apply them.
@@ -1672,7 +1672,7 @@ impl WireSession {
     }
 
     /// Append a copy-in data frame's bytes into the per-connection copy buffer
-    /// (CONCEPT:EG-KG.query.register-each-user-table). The wire's copy-data hook calls this; a frame with no COPY in
+    /// (CONCEPT:MEDULLA-KG.query.register-each-user-table). The wire's copy-data hook calls this; a frame with no COPY in
     /// progress is a protocol error.
     pub(crate) fn append_copy_data(&self, data: &[u8]) -> WireResult<()> {
         if let Some(state) = self.copy.lock().as_mut() {
@@ -1683,7 +1683,7 @@ impl WireSession {
         }
     }
 
-    /// Take the in-flight copy state (CONCEPT:EG-KG.query.register-each-user-table) at copy-done, leaving `None`.
+    /// Take the in-flight copy state (CONCEPT:MEDULLA-KG.query.register-each-user-table) at copy-done, leaving `None`.
     pub(crate) fn take_copy_state(&self) -> Option<CopyState> {
         self.copy.lock().take()
     }
@@ -1709,7 +1709,7 @@ impl WireSession {
         if name.is_empty() {
             return Some(Err(user_err("SET graph requires a graph name")));
         }
-        // CONCEPT:EG-KG.compute.kg-transaction-is-pinned / KG-2.207 — a transaction is pinned to ONE graph (redb
+        // CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned / KG-2.207 — a transaction is pinned to ONE graph (redb
         // shard) at BEGIN; switching graphs mid-txn would split a supposedly-atomic
         // commit across shards, so reject it.
         if self.in_txn() {
@@ -1723,9 +1723,9 @@ impl WireSession {
 
     /// Resolve `SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL …`
     /// (the session default for every future `BEGIN`) or `SET TRANSACTION
-    /// ISOLATION LEVEL …` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005: applies to the CURRENTLY open
+    /// ISOLATION LEVEL …` (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-005: applies to the CURRENTLY open
     /// transaction if one exists, else to the NEXT `BEGIN` — matching
-    /// Postgres). Neither has a `sqlparser` AST arm `eg_query::classify`
+    /// Postgres). Neither has a `sqlparser` AST arm `medulla_query::classify`
     /// recognizes (no `Statement::SetTransaction`/`Statement::SetSessionParam`
     /// case — everything unmatched falls to its `other => Err(...)`
     /// catch-all), so — exactly like `try_set_graph` above — these are
@@ -1776,7 +1776,7 @@ impl WireSession {
     }
 
     /// Enforce the engine ACL for this connection's authenticated actor against
-    /// `graph` at the requested `access` level (CONCEPT:EG-KG.query.concept-13).
+    /// `graph` at the requested `access` level (CONCEPT:MEDULLA-KG.query.concept-13).
     /// Unbound and unprovisioned actors are denied.
     async fn check_access(&self, graph: &str, access: AccessLevel) -> WireResult<()> {
         let actor = self.verified_actor()?;
@@ -1815,7 +1815,7 @@ impl WireSession {
         let core = self.graph_core(graph).await?;
         let mut snap = core.analysis_snapshot();
         let in_txn = self.in_txn();
-        // CONCEPT:EG-KG.compute.kg-transaction-is-pinned — read-your-own-writes: overlay this connection's buffered
+        // CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned — read-your-own-writes: overlay this connection's buffered
         // graph-node ops onto the snapshot so a SELECT (or a candidate-id / RETURNING
         // read) issued INSIDE an open transaction observes the transaction's own
         // uncommitted inserts/updates/deletes. Off-txn reads are byte-for-byte
@@ -1825,7 +1825,7 @@ impl WireSession {
         }
         #[cfg(feature = "security")]
         self.filter_view_for_verified_actor(&mut snap).await?;
-        // CONCEPT:NE-046 (EG-WIRE-CATALOG) / CONCEPT:EG-KG.query.register-user-tables-alongside —
+        // CONCEPT:NE-046 (MEDULLA-WIRE-CATALOG) / CONCEPT:MEDULLA-KG.query.register-user-tables-alongside —
         // register the CALLER'S AUTHORIZED user tables alongside the graph
         // projection so a SELECT can read a user table, JOIN it to `nodes`/`edges`,
         // or both in ONE plan — but ONLY the tables `authority` may Select from. See
@@ -1870,14 +1870,14 @@ impl WireSession {
         // served-context cache anyway (its buffered writes aren't reflected in
         // `version()`).
         tokio::task::spawn_blocking(move || {
-            eg_query::exec_sql_typed_with_tables(&snap, projection.store(), &sql)
+            medulla_query::exec_sql_typed_with_tables(&snap, projection.store(), &sql)
         })
         .await
         .map_err(|e| user_err(format!("query task failed: {e}")))?
         .map_err(|msg| user_err(format!("SQL error: {msg}")))
     }
 
-    /// Replay this connection's buffered graph-node ops onto `view` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned),
+    /// Replay this connection's buffered graph-node ops onto `view` (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned),
     /// in statement order, so a read over `view` reflects the open transaction's own
     /// writes. Never touches the live `GraphCore`.
     fn apply_node_buffer(&self, view: &mut crate::graph::GraphView) {
@@ -1897,7 +1897,7 @@ impl WireSession {
     }
 
     /// Build a read-your-own-writes overlaid snapshot of `graph` for the OPEN
-    /// transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned) — the live snapshot plus every buffered node op.
+    /// transaction (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned) — the live snapshot plus every buffered node op.
     /// Used to resolve RETURNING rows / ON CONFLICT checks against the txn's own
     /// uncommitted state.
     async fn overlaid_snapshot(&self, graph: &str) -> WireResult<crate::graph::GraphView> {
@@ -2067,7 +2067,7 @@ impl WireSession {
             StatementKind::PropertyGraphDdlRequiresCatalogAdmission(_)
         ) {
             let authority = self.carrier_authority()?;
-            let statement = eg_query::sql::parse_property_graph_ddl(sql, authority.tenant_scope())
+            let statement = medulla_query::sql::parse_property_graph_ddl(sql, authority.tenant_scope())
                 .map_err(user_err)?;
             let (op, tag) = PropertyGraphTxnOp::from_statement(statement, authority.agent_id());
             self.buffer(TxnOp::PropertyGraphDdl(op));
@@ -2079,7 +2079,7 @@ impl WireSession {
         Ok(self.try_buffer_catalog_statement(kind))
     }
 
-    /// The classify → read/write dispatch (CONCEPT:EG-KG.query.describe / EG-049), factored out
+    /// The classify → read/write dispatch (CONCEPT:MEDULLA-KG.query.describe / MEDULLA-049), factored out
     /// of [`WireSession::execute`] so the caller can latch the aborted-txn state on a
     /// returned error. When `in_txn`, graph-node and user-table DML buffer instead of
     /// applying; otherwise behavior is the immediate path.
@@ -2095,30 +2095,30 @@ impl WireSession {
                 let result = self.run_read(graph, sql.to_string()).await?;
                 Ok(WireOutcome::Rows(result))
             }
-            // ── graph-node DML (CONCEPT:EG-KG.compute.kg-transaction-is-pinned): buffer when in a txn ──────────────
+            // ── graph-node DML (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned): buffer when in a txn ──────────────
             StatementKind::InsertNodes(ins) if in_txn => self.buffer_insert(graph, sql, ins).await,
             StatementKind::InsertNodes(ins) => self.run_insert(graph, sql, ins).await,
             StatementKind::UpdateNodes(upd) if in_txn => self.buffer_update(graph, sql, upd).await,
             StatementKind::UpdateNodes(upd) => self.run_update(graph, sql, upd).await,
             StatementKind::DeleteNodes(del) if in_txn => self.buffer_delete(graph, sql, del).await,
             StatementKind::DeleteNodes(del) => self.run_delete(graph, sql, del).await,
-            // ── arbitrary user-defined relational tables (CONCEPT:EG-KG.query.register-user-tables-alongside/EG-020) ───
+            // ── arbitrary user-defined relational tables (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside/MEDULLA-020) ───
             StatementKind::CreateTable(plan) => self.run_create_table(graph, sql, plan).await,
             StatementKind::DropTable(plan) => self.run_drop_table(graph, sql, plan).await,
-            // CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog the rest — staged into the txn.
+            // CONCEPT:MEDULLA-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:MEDULLA-KG.query.rename-table-moves-catalog the rest — staged into the txn.
             StatementKind::AlterTable(plan) => self.run_alter_table(graph, sql, plan).await,
             StatementKind::InsertTable(ins) => self.run_insert_table(graph, sql, ins).await,
             StatementKind::InsertSelect(ins) => self.run_insert_select(graph, sql, ins).await,
             StatementKind::UpdateTable(upd) => self.run_update_table(graph, sql, upd).await,
             StatementKind::DeleteTable(del) => self.run_delete_table(graph, sql, del).await,
-            // CONCEPT:EG-KG.query.insert-into-nodes-select — INSERT INTO nodes … SELECT (facade dispatch).
+            // CONCEPT:MEDULLA-KG.query.insert-into-nodes-select — INSERT INTO nodes … SELECT (facade dispatch).
             StatementKind::InsertNodesSelect(ins) if in_txn => {
                 self.buffer_insert_nodes_select(graph, sql, ins).await
             }
             StatementKind::InsertNodesSelect(ins) => {
                 self.run_insert_nodes_select(graph, sql, ins).await
             }
-            // CONCEPT:EG-KG.query.update-delete-from — UPDATE nodes … FROM … / DELETE FROM nodes … USING … .
+            // CONCEPT:MEDULLA-KG.query.update-delete-from — UPDATE nodes … FROM … / DELETE FROM nodes … USING … .
             StatementKind::UpdateNodesJoin(upd) if in_txn => {
                 self.buffer_update_nodes_join(graph, sql, upd).await
             }
@@ -2131,10 +2131,10 @@ impl WireSession {
             StatementKind::DeleteNodesJoin(del) => {
                 self.run_delete_nodes_join(graph, sql, del).await
             }
-            // CONCEPT:EG-KG.query.create-drop-view — CREATE/DROP VIEW over the durable view catalog.
+            // CONCEPT:MEDULLA-KG.query.create-drop-view — CREATE/DROP VIEW over the durable view catalog.
             StatementKind::CreateView(plan) => self.run_create_view(graph, sql, plan).await,
             StatementKind::DropView(plan) => self.run_drop_view(graph, sql, plan).await,
-            // CONCEPT:EG-KG.query.create-drop-extension-over — CREATE/DROP EXTENSION over the durable extension catalog.
+            // CONCEPT:MEDULLA-KG.query.create-drop-extension-over — CREATE/DROP EXTENSION over the durable extension catalog.
             StatementKind::CreateExtension {
                 name,
                 if_not_exists,
@@ -2145,24 +2145,24 @@ impl WireSession {
             StatementKind::DropExtension { name, if_exists } => {
                 self.run_drop_extension(graph, sql, name, if_exists).await
             }
-            // CONCEPT:EG-KG.query.create-drop-function — CREATE/DROP FUNCTION over the durable function catalog.
+            // CONCEPT:MEDULLA-KG.query.create-drop-function — CREATE/DROP FUNCTION over the durable function catalog.
             StatementKind::CreateFunction(plan) => self.run_create_function(graph, sql, plan).await,
             StatementKind::DropFunction(plan) => self.run_drop_function(graph, sql, plan).await,
-            // CONCEPT:EG-KG.query.real-ann-top-k — pgvector ANN index registration.
+            // CONCEPT:MEDULLA-KG.query.real-ann-top-k — pgvector ANN index registration.
             StatementKind::CreateAnnIndex(plan) => {
                 self.run_create_ann_index(graph, sql, plan).await
             }
             StatementKind::DropAnnIndex { name, if_exists } => {
                 self.run_drop_ann_index(graph, sql, name, if_exists).await
             }
-            // CONCEPT:EG-KG.query.continuous-aggregate-lowering — TimescaleDB hypertable + continuous aggregate.
+            // CONCEPT:MEDULLA-KG.query.continuous-aggregate-lowering — TimescaleDB hypertable + continuous aggregate.
             StatementKind::CreateHypertable(plan) => {
                 self.run_create_hypertable(graph, sql, plan).await
             }
             StatementKind::CreateContinuousAggregate(plan) => {
                 self.run_create_continuous_aggregate(graph, sql, plan).await
             }
-            // `COPY … FROM STDIN` (CONCEPT:EG-KG.query.register-each-user-table): switch into copy-in mode; the
+            // `COPY … FROM STDIN` (CONCEPT:MEDULLA-KG.query.register-each-user-table): switch into copy-in mode; the
             // streamed rows are ingested by the wire's copy-done hook.
             StatementKind::CopyIn(plan) => self.start_copy(plan).await,
             // SQL/PGQ, plus the transaction-control kinds handled before dispatch.
@@ -2221,7 +2221,7 @@ impl WireSession {
         let authority = self.carrier_authority()?;
         let tenant = authority.tenant_scope().to_string();
         let actor = authority.agent_id().to_string();
-        let statement = eg_query::sql::parse_property_graph_ddl(sql, &tenant).map_err(user_err)?;
+        let statement = medulla_query::sql::parse_property_graph_ddl(sql, &tenant).map_err(user_err)?;
         let (op, tag) = PropertyGraphTxnOp::from_statement(statement, &actor);
         let mut txn = TableTxn::new();
         txn.push(TxnOp::PropertyGraphDdl(op));
@@ -2238,7 +2238,7 @@ impl WireSession {
     ) -> WireResult<WireOutcome> {
         let authority = self.carrier_authority()?;
         let tenant = authority.tenant_scope().to_string();
-        let statement = eg_query::sql::parse_property_graph_privilege(sql).map_err(user_err)?;
+        let statement = medulla_query::sql::parse_property_graph_privilege(sql).map_err(user_err)?;
         let store = self.user_table_store().await?;
         let record = store
             .property_graph(&tenant, &statement.name)
@@ -2262,7 +2262,7 @@ impl WireSession {
     /// over `Method::Sql` (whose catalog is per-principal) is not visible here.
     async fn lower_graph_table_read(
         &self,
-        query: &eg_query::sql::GraphTableQuery,
+        query: &medulla_query::sql::GraphTableQuery,
     ) -> WireResult<String> {
         let (authority, persist_dir) = self.catalog_authority().await?;
         let query = query.clone();
@@ -2298,7 +2298,7 @@ impl WireSession {
         self.dispatch_kind(graph, sql, kind, in_txn).await
     }
 
-    /// `COMMIT` a wire transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned).
+    /// `COMMIT` a wire transaction (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned).
     /// Graph-node and cross-modal operations commit through the graph
     /// MutationBatch kernel; user-table/catalog operations commit through the
     /// SQL MutationBatch kernel — two INDEPENDENT redb authorities. A
@@ -2306,7 +2306,7 @@ impl WireSession {
     /// rejected before either commits (see the `has_table_ops && has_xmodal`
     /// guard below — that combination stays unimplemented). A transaction
     /// that mixes plain GRAPH-NODE ops with user-table ops is fully
-    /// supported and atomic across the two stores (CONCEPT:EG-TXN.mixed-commit-intent — NE-004):
+    /// supported and atomic across the two stores (CONCEPT:MEDULLA-TXN.mixed-commit-intent — NE-004):
     /// [`Self::commit_mixed_txn`] commits them through a durable commit-intent
     /// record with idempotent crash recovery, never landing one durably
     /// without the other even across a process crash between the two commits.
@@ -2362,7 +2362,7 @@ impl WireSession {
         Some(WireOutcome::TxnEnd { tag: "ROLLBACK" })
     }
 
-    /// An aborted transaction (a statement inside it errored, CONCEPT:EG-KG.compute.kg-transaction-is-pinned) commits
+    /// An aborted transaction (a statement inside it errored, CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned) commits
     /// as a ROLLBACK — nothing is applied. A `COMMIT` with no open transaction is a
     /// no-op (Postgres-compatible).
     async fn run_commit(&self) -> WireResult<WireOutcome> {
@@ -2371,7 +2371,7 @@ impl WireSession {
         }
         // The graph a txn was pinned to at BEGIN (node ops are scoped to it).
         let graph = self.txn_graph.lock().clone();
-        // Drain the staged cross-modal write-set (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) BEFORE the buffers.
+        // Drain the staged cross-modal write-set (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set) BEFORE the buffers.
         #[cfg(feature = "query")]
         let xmodal = self.take_xmodal();
         #[cfg(feature = "query")]
@@ -2398,7 +2398,7 @@ impl WireSession {
         // guards and the docs immediately below).
         run_commit_reject_mixed_xmodal(has_table_ops, has_xmodal)?;
 
-        // ── EG-372 cross-modal COMMIT: when the txn staged any cross-modal modality
+        // ── MEDULLA-372 cross-modal COMMIT: when the txn staged any cross-modal modality
         // (vector / measurement / OWL / CONSTRUCT), hand the WHOLE txn — graph nodes
         // PLUS every cross-modal modality — to the SHARED RPC cross-modal commit so all
         // land atomically in ONE redb WriteTransaction (the SAME seam the RPC
@@ -2455,7 +2455,7 @@ impl WireSession {
         Ok(WireOutcome::TxnEnd { tag: "COMMIT" })
     }
 
-    /// EG-372 cross-modal COMMIT (the `has_xmodal` arm of [`Self::run_commit`]): when
+    /// MEDULLA-372 cross-modal COMMIT (the `has_xmodal` arm of [`Self::run_commit`]): when
     /// the txn staged any cross-modal modality (vector / measurement / OWL /
     /// CONSTRUCT), hand the WHOLE txn — graph nodes PLUS every cross-modal modality —
     /// to the SHARED RPC cross-modal commit so all land atomically in ONE redb
@@ -2501,7 +2501,7 @@ impl WireSession {
         Ok(WireOutcome::TxnEnd { tag: "COMMIT" })
     }
 
-    /// The `node_id` a buffered graph-node method targets (CONCEPT:EG-TXN.mixed-commit-intent — NE-004
+    /// The `node_id` a buffered graph-node method targets (CONCEPT:MEDULLA-TXN.mixed-commit-intent — NE-004
     /// compensation). `Self::node_ops_to_methods` only ever produces `AddNode`
     /// / `CompareAndSetNodeFields` / `RemoveNode`, so those are the only
     /// variants this needs to recognize.
@@ -2515,7 +2515,7 @@ impl WireSession {
     }
 
     /// Snapshot the pre-txn durable state of every node `methods` targets, and
-    /// build the inverse write that restores it (CONCEPT:EG-TXN.mixed-commit-intent — NE-004). MUST be called
+    /// build the inverse write that restores it (CONCEPT:MEDULLA-TXN.mixed-commit-intent — NE-004). MUST be called
     /// BEFORE the graph side commits, so it always sees the true
     /// pre-transaction image (a node present becomes an `AddNode` full
     /// overwrite restoring its EXACT prior property blob; a node absent
@@ -2551,7 +2551,7 @@ impl WireSession {
     }
 
     /// Commit a transaction that staged BOTH graph-node ops AND user-table ops
-    /// (CONCEPT:EG-TXN.mixed-commit-intent — NE-004). Graph and user tables live in two INDEPENDENT redb
+    /// (CONCEPT:MEDULLA-TXN.mixed-commit-intent — NE-004). Graph and user tables live in two INDEPENDENT redb
     /// databases — a separate redb file per owner for tables (see
     /// `crate::server::sql_tables`'s module doc; that per-owner catalog
     /// layout is a file this track does not own, and folding the two stores
@@ -2787,7 +2787,7 @@ impl WireSession {
         .await
     }
 
-    /// Replay one recorded table-side step (CONCEPT:EG-TXN.mixed-commit-intent — NE-004) into the scratch `self.txn`
+    /// Replay one recorded table-side step (CONCEPT:MEDULLA-TXN.mixed-commit-intent — NE-004) into the scratch `self.txn`
     /// buffer `replay_table_steps_and_commit` set up. A `Sql` step re-runs the
     /// original literal statement through the commit-free table-buffering leaf
     /// (re-deriving the exact same `TxnOp` without entering dispatch or creating
@@ -2811,7 +2811,7 @@ impl WireSession {
     ) -> WireResult<()> {
         match step {
             crate::server::txn_intent::ReplayStep::Sql(sql) => {
-                let kind = eg_query::classify(sql).map_err(user_err)?;
+                let kind = medulla_query::classify(sql).map_err(user_err)?;
                 self.try_buffer_transaction_table_statement(graph, sql, &kind)
                     .await?
                     .map(|_| ())
@@ -2835,7 +2835,7 @@ impl WireSession {
     }
 
     /// Lazily sweep this connection's owner directory for a leftover
-    /// commit-intent left by a crash (CONCEPT:EG-TXN.mixed-commit-intent — NE-004 crash recovery), resolving each
+    /// commit-intent left by a crash (CONCEPT:MEDULLA-TXN.mixed-commit-intent — NE-004 crash recovery), resolving each
     /// exactly like a live synchronous table-commit rejection would. Runs at
     /// most once per connection (cheap after the first call: a
     /// directory-listing miss when there is nothing to recover).
@@ -2893,10 +2893,10 @@ impl WireSession {
         Ok(())
     }
 
-    /// `COPY <table> [(cols…)] FROM STDIN` (CONCEPT:EG-KG.query.register-each-user-table): resolve the target schema,
+    /// `COPY <table> [(cols…)] FROM STDIN` (CONCEPT:MEDULLA-KG.query.register-each-user-table): resolve the target schema,
     /// stash the copy state, and return a copy-in outcome so the wire streams rows.
     ///
-    /// CONCEPT:NE-046 (EG-WIRE-CATALOG) — a COPY loads rows, so it is authorized for
+    /// CONCEPT:NE-046 (MEDULLA-WIRE-CATALOG) — a COPY loads rows, so it is authorized for
     /// [`crate::server::sql_catalog_acl::SqlPrivilege::Insert`] on `plan.table`
     /// through the SAME authorized-open path `run_insert_table` uses, HERE (before
     /// copy-in mode even begins) rather than only at the eventual
@@ -2948,7 +2948,7 @@ impl WireSession {
         })
     }
 
-    /// `CREATE TABLE` (CONCEPT:EG-KG.query.register-user-tables-alongside): record the schema in the durable redb table
+    /// `CREATE TABLE` (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside): record the schema in the durable redb table
     /// catalog. The whole DDL commits (commit-before-ack) before the tag is returned.
     async fn run_create_table(
         &self,
@@ -2966,7 +2966,7 @@ impl WireSession {
         Ok(WireOutcome::command("CREATE TABLE"))
     }
 
-    /// `DROP TABLE` (CONCEPT:EG-KG.query.register-user-tables-alongside): remove the catalog entry + every row.
+    /// `DROP TABLE` (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside): remove the catalog entry + every row.
     async fn run_drop_table(
         &self,
         graph: &str,
@@ -2982,7 +2982,7 @@ impl WireSession {
         Ok(WireOutcome::command("DROP TABLE"))
     }
 
-    /// CONCEPT:EG-KG.query.create-drop-view — `CREATE [OR REPLACE] VIEW name AS SELECT …`: persist the view
+    /// CONCEPT:MEDULLA-KG.query.create-drop-view — `CREATE [OR REPLACE] VIEW name AS SELECT …`: persist the view
     /// text in the durable view catalog (commit-before-ack); `build_ctx` expands it on read.
     async fn run_create_view(
         &self,
@@ -3000,7 +3000,7 @@ impl WireSession {
         Ok(WireOutcome::command("CREATE VIEW"))
     }
 
-    /// CONCEPT:EG-KG.query.create-drop-view — `DROP VIEW [IF EXISTS] name`.
+    /// CONCEPT:MEDULLA-KG.query.create-drop-view — `DROP VIEW [IF EXISTS] name`.
     async fn run_drop_view(
         &self,
         graph: &str,
@@ -3016,7 +3016,7 @@ impl WireSession {
         Ok(WireOutcome::command("DROP VIEW"))
     }
 
-    /// CONCEPT:EG-KG.query.create-drop-extension-over — `CREATE EXTENSION [IF NOT EXISTS] name`: record the enablement
+    /// CONCEPT:MEDULLA-KG.query.create-drop-extension-over — `CREATE EXTENSION [IF NOT EXISTS] name`: record the enablement
     /// in the durable extension catalog (commit-before-ack) so a client's setup script
     /// proceeds; the extension's concrete surface lands in its own later item.
     async fn run_create_extension(
@@ -3035,7 +3035,7 @@ impl WireSession {
         Ok(WireOutcome::command("CREATE EXTENSION"))
     }
 
-    /// CONCEPT:EG-KG.query.create-drop-extension-over — `DROP EXTENSION [IF EXISTS] name`.
+    /// CONCEPT:MEDULLA-KG.query.create-drop-extension-over — `DROP EXTENSION [IF EXISTS] name`.
     async fn run_drop_extension(
         &self,
         graph: &str,
@@ -3049,7 +3049,7 @@ impl WireSession {
         Ok(WireOutcome::command("DROP EXTENSION"))
     }
 
-    /// CONCEPT:EG-KG.query.create-drop-function — `CREATE [OR REPLACE] FUNCTION … LANGUAGE sql`: persist the SQL
+    /// CONCEPT:MEDULLA-KG.query.create-drop-function — `CREATE [OR REPLACE] FUNCTION … LANGUAGE sql`: persist the SQL
     /// stored function in the durable function catalog (commit-before-ack). A later
     /// `SELECT fn(args)` / `FROM fn(args)` expands it during the read path.
     async fn run_create_function(
@@ -3067,7 +3067,7 @@ impl WireSession {
         Ok(WireOutcome::command("CREATE FUNCTION"))
     }
 
-    /// CONCEPT:EG-KG.query.create-drop-function — `DROP FUNCTION [IF EXISTS] name`.
+    /// CONCEPT:MEDULLA-KG.query.create-drop-function — `DROP FUNCTION [IF EXISTS] name`.
     async fn run_drop_function(
         &self,
         graph: &str,
@@ -3083,7 +3083,7 @@ impl WireSession {
         Ok(WireOutcome::command("DROP FUNCTION"))
     }
 
-    /// CONCEPT:EG-KG.query.real-ann-top-k — persist a pgvector ANN index definition
+    /// CONCEPT:MEDULLA-KG.query.real-ann-top-k — persist a pgvector ANN index definition
     /// through the authoritative SQL MutationBatch kernel before acknowledging it.
     async fn run_create_ann_index(
         &self,
@@ -3127,7 +3127,7 @@ impl WireSession {
         Ok(WireOutcome::command("DROP INDEX"))
     }
 
-    /// CONCEPT:EG-KG.query.continuous-aggregate-lowering — persist native
+    /// CONCEPT:MEDULLA-KG.query.continuous-aggregate-lowering — persist native
     /// hypertable metadata after validating the table and timestamp column.
     async fn run_create_hypertable(
         &self,
@@ -3147,7 +3147,7 @@ impl WireSession {
         )))
     }
 
-    /// CONCEPT:EG-KG.query.continuous-aggregate-lowering — lower a continuous
+    /// CONCEPT:MEDULLA-KG.query.continuous-aggregate-lowering — lower a continuous
     /// aggregate onto the authoritative durable view catalog.
     async fn run_create_continuous_aggregate(
         &self,
@@ -3235,9 +3235,9 @@ impl WireSession {
         Ok(Some((method, affected)))
     }
 
-    /// CONCEPT:EG-KG.query.insert-into-nodes-select — `INSERT INTO nodes (cols…) SELECT …`: run the SELECT through the
+    /// CONCEPT:MEDULLA-KG.query.insert-into-nodes-select — `INSERT INTO nodes (cols…) SELECT …`: run the SELECT through the
     /// read path, then materialize each row as a node (the `id` column → node id, the rest
-    /// → properties), honoring `ON CONFLICT` (CONCEPT:EG-KG.query.delete-returning-sees-row). RETURNING optional.
+    /// → properties), honoring `ON CONFLICT` (CONCEPT:MEDULLA-KG.query.delete-returning-sees-row). RETURNING optional.
     async fn run_insert_nodes_select(
         &self,
         graph: &str,
@@ -3306,7 +3306,7 @@ impl WireSession {
         }
     }
 
-    /// CONCEPT:EG-KG.query.update-delete-from — `UPDATE nodes SET … FROM … WHERE …`: the classifier rendered a
+    /// CONCEPT:MEDULLA-KG.query.update-delete-from — `UPDATE nodes SET … FROM … WHERE …`: the classifier rendered a
     /// resolution `SELECT nodes.id, <set-exprs…> FROM …`; each row gives the matched id
     /// plus its per-row SET values. Applied via the serializable merge under the guard.
     async fn run_update_nodes_join(
@@ -3365,7 +3365,7 @@ impl WireSession {
         }
     }
 
-    /// CONCEPT:EG-KG.query.update-delete-from — `DELETE FROM nodes USING … WHERE …`: the classifier rendered a
+    /// CONCEPT:MEDULLA-KG.query.update-delete-from — `DELETE FROM nodes USING … WHERE …`: the classifier rendered a
     /// resolution `SELECT nodes.id FROM … USING …`; remove each resolved node.
     async fn run_delete_nodes_join(
         &self,
@@ -3406,7 +3406,7 @@ impl WireSession {
         }
     }
 
-    /// `ALTER TABLE …` (CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog DROP/RENAME COLUMN,
+    /// `ALTER TABLE …` (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:MEDULLA-KG.query.rename-table-moves-catalog DROP/RENAME COLUMN,
     /// RENAME TABLE, ALTER COLUMN TYPE, DROP CONSTRAINT). Lowered to a single buffered
     /// [`TxnOp`] and applied in one redb write txn (atomic row migration).
     async fn run_alter_table(
@@ -3422,7 +3422,7 @@ impl WireSession {
         Ok(WireOutcome::command("ALTER TABLE"))
     }
 
-    /// `INSERT INTO <user_table> … VALUES …` (CONCEPT:EG-KG.query.register-user-tables-alongside). Commit-before-ack.
+    /// `INSERT INTO <user_table> … VALUES …` (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside). Commit-before-ack.
     async fn run_insert_table(
         &self,
         graph: &str,
@@ -3439,7 +3439,7 @@ impl WireSession {
         Ok(WireOutcome::command_rows("INSERT", n))
     }
 
-    /// `INSERT INTO <user_table> (cols…) SELECT …` (CONCEPT:EG-KG.query.register-user-tables-alongside). Runs the SELECT
+    /// `INSERT INTO <user_table> (cols…) SELECT …` (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside). Runs the SELECT
     /// through the SAME DataFusion path (so it can JOIN user tables AND the graph),
     /// then durably inserts the projected rows. The SELECT result column COUNT must
     /// match the insert column list.
@@ -3467,8 +3467,8 @@ impl WireSession {
         Ok(WireOutcome::command_rows("INSERT", n))
     }
 
-    /// `UPDATE <user_table> SET … WHERE <predicate>` (CONCEPT:EG-KG.query.register-user-tables-alongside, compound
-    /// predicate CONCEPT:EG-KG.query.compound-predicate-decode). The store evaluates the predicate per row inside
+    /// `UPDATE <user_table> SET … WHERE <predicate>` (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside, compound
+    /// predicate CONCEPT:MEDULLA-KG.query.compound-predicate-decode). The store evaluates the predicate per row inside
     /// its redb write transaction (serializable).
     async fn run_update_table(
         &self,
@@ -3486,8 +3486,8 @@ impl WireSession {
         Ok(WireOutcome::command_rows("UPDATE", n))
     }
 
-    /// `DELETE FROM <user_table> WHERE <predicate>` (CONCEPT:EG-KG.query.register-user-tables-alongside, compound
-    /// predicate CONCEPT:EG-KG.query.compound-predicate-decode).
+    /// `DELETE FROM <user_table> WHERE <predicate>` (CONCEPT:MEDULLA-KG.query.register-user-tables-alongside, compound
+    /// predicate CONCEPT:MEDULLA-KG.query.compound-predicate-decode).
     async fn run_delete_table(
         &self,
         graph: &str,
@@ -3504,7 +3504,7 @@ impl WireSession {
     }
 
     /// Resolve the candidate node ids a WHERE selects. `Id` is the fast path (one id,
-    /// only included if the node exists). `Predicate` (CONCEPT:EG-KG.query.compound-predicate-decode) re-runs the
+    /// only included if the node exists). `Predicate` (CONCEPT:MEDULLA-KG.query.compound-predicate-decode) re-runs the
     /// WHERE text through the SAME DataFusion read path as a `SELECT id FROM nodes
     /// WHERE …`, so any compound `AND`/`OR`/`IN`/`BETWEEN`/range predicate the read
     /// surface understands resolves the candidate set. These ids are then re-checked
@@ -3551,7 +3551,7 @@ impl WireSession {
     ) -> WireResult<serde_json::Map<String, serde_json::Value>> {
         let core = self.graph_core(graph).await?;
         match core.get_node_properties(id) {
-            Some(blob) => Ok(eg_types::msgpack::decode_property_object(&blob).unwrap_or_default()),
+            Some(blob) => Ok(medulla_types::msgpack::decode_property_object(&blob).unwrap_or_default()),
             None => Ok(serde_json::Map::new()),
         }
     }
@@ -3568,7 +3568,7 @@ impl WireSession {
         sql: &str,
     ) -> WireResult<(Vec<String>, std::collections::HashMap<String, PgColType>)> {
         let type_map = self.column_types(graph).await?;
-        let cols = if eg_query::returning_columns(sql).is_some() {
+        let cols = if medulla_query::returning_columns(sql).is_some() {
             returning_projection(sql, &[])
         } else {
             let mut prop_cols: Vec<String> = type_map.keys().cloned().collect();
@@ -3578,7 +3578,7 @@ impl WireSession {
         Ok((cols, type_map))
     }
 
-    // ── buffered graph-node DML inside an open transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned) ──────
+    // ── buffered graph-node DML inside an open transaction (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned) ──────
     // These mirror the immediate `run_*` node-DML methods but BUFFER a `NodeOp`
     // instead of applying it — the buffer is replayed atomically at COMMIT
     // (`run_commit`). Candidate-id / SELECT resolution runs immediately over a
@@ -3586,7 +3586,7 @@ impl WireSession {
     // so an in-txn statement sees earlier statements' buffered writes. RETURNING is
     // resolved against the post-buffer overlaid snapshot.
 
-    /// Buffered `INSERT INTO nodes …` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned).
+    /// Buffered `INSERT INTO nodes …` (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned).
     async fn buffer_insert(
         &self,
         graph: &str,
@@ -3618,7 +3618,7 @@ impl WireSession {
         }
     }
 
-    /// Buffered `UPDATE nodes SET … WHERE …` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). Candidate ids resolve
+    /// Buffered `UPDATE nodes SET … WHERE …` (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned). Candidate ids resolve
     /// over the RYOW overlay; each becomes an unconditional-merge `Cas`. RETURNING
     /// reads back the post-update rows from the overlaid snapshot (which now includes
     /// the just-buffered merges).
@@ -3653,7 +3653,7 @@ impl WireSession {
         }
     }
 
-    /// Buffered `DELETE FROM nodes WHERE …` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). RETURNING captures the
+    /// Buffered `DELETE FROM nodes WHERE …` (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned). RETURNING captures the
     /// rows from the overlaid snapshot BEFORE the removes are buffered (they are gone
     /// after).
     async fn buffer_delete(
@@ -3734,7 +3734,7 @@ impl WireSession {
         Ok(Some(returning.then_some((node_id, props))))
     }
 
-    /// Buffered `INSERT INTO nodes … SELECT …` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). The SELECT resolves
+    /// Buffered `INSERT INTO nodes … SELECT …` (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned). The SELECT resolves
     /// over the RYOW overlay; `ON CONFLICT` is evaluated against the txn's own evolving
     /// buffered state (a local overlaid view advanced per row), so a conflict against a
     /// row inserted earlier in the SAME transaction is honored.
@@ -3797,7 +3797,7 @@ impl WireSession {
         }
     }
 
-    /// Buffered `UPDATE nodes SET … FROM … WHERE …` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). The resolution
+    /// Buffered `UPDATE nodes SET … FROM … WHERE …` (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned). The resolution
     /// SELECT resolves over the RYOW overlay; each matched id becomes an
     /// unconditional-merge `Cas`. Duplicate ids from the join are applied once.
     async fn buffer_update_nodes_join(
@@ -3843,7 +3843,7 @@ impl WireSession {
         }
     }
 
-    /// Buffered `DELETE FROM nodes USING … WHERE …` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). RETURNING
+    /// Buffered `DELETE FROM nodes USING … WHERE …` (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned). RETURNING
     /// captures rows from the overlaid snapshot before the removes are buffered.
     async fn buffer_delete_nodes_join(
         &self,
@@ -3919,7 +3919,7 @@ impl WireSession {
         }
     }
 
-    /// `UPDATE nodes SET … WHERE …` (CONCEPT:EG-KG.query.follow-up). Resolves the matched ids,
+    /// `UPDATE nodes SET … WHERE …` (CONCEPT:MEDULLA-KG.query.follow-up). Resolves the matched ids,
     /// then for each runs `compare_and_set_fields` with EMPTY conditions (an
     /// unconditional merge of the SET map — a single atomic read-modify-write per
     /// node under the topology write guard) and durably records the resulting
@@ -3967,7 +3967,7 @@ impl WireSession {
         }
     }
 
-    /// `DELETE FROM nodes WHERE …` (CONCEPT:EG-KG.query.follow-up). Resolves the matched ids
+    /// `DELETE FROM nodes WHERE …` (CONCEPT:MEDULLA-KG.query.follow-up). Resolves the matched ids
     /// (capturing each node's properties FIRST when RETURNING is requested, since
     /// the row is gone after removal), removes each via `remove_node` (the same
     /// write path `Method::RemoveNode` dispatch uses) under its one-shot txn, and
@@ -4042,13 +4042,13 @@ impl WireSession {
     /// that caller key directly, so a fresh nonce replays without a second
     /// apply.
     ///
-    /// `isolation` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005): when `Serializable`, this drains and
+    /// `isolation` (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-005): when `Serializable`, this drains and
     /// attaches this connection's [`WireSession::serializable_predicate_reads`]
     /// (each already fingerprinted AT READ TIME — see `execute()`'s read
     /// hook) so the commit gets genuine phantom protection for the reads this
     /// txn actually performed, instead of silently behaving like `Snapshot`.
     ///
-    /// `begin_version` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005 correctness, NE-071): the wire
+    /// `begin_version` (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-005 correctness, NE-071): the wire
     /// transaction's REAL begin-time `core.version()` (see
     /// [`WireSession::txn_begin_version`]'s doc) — pass
     /// [`TxnBeginVersion::Begin`] with the captured value for a
@@ -4234,7 +4234,7 @@ impl WireSession {
     /// compiler and is never stored as plaintext coordinator metadata.
     ///
     /// Native and recovery commits use the SAME `operation_id` on every retry
-    /// (CONCEPT:EG-TXN.mixed-commit-intent — NE-004). Signed direct autocommit
+    /// (CONCEPT:MEDULLA-TXN.mixed-commit-intent — NE-004). Signed direct autocommit
     /// requests use their verified caller key; signed CREATE intents persist a
     /// deterministic operation id derived from that key. Both paths feed the
     /// `TableStore::commit_txn_batch` replay identity.
@@ -4313,7 +4313,7 @@ impl WireSession {
     }
 
     /// Build a `column name → PgColType` map for the current graph by sampling node
-    /// property blobs (CONCEPT:EG-KG.query.describe describe support). Used to resolve the type
+    /// property blobs (CONCEPT:MEDULLA-KG.query.describe describe support). Used to resolve the type
     /// of a parameter that sits opposite a property column (`WHERE rank > $1`), and
     /// to type a RETURNING result column, WITHOUT a DataFusion round-trip. Schema-
     /// on-read: the first non-null value seen for a column wins (matching the
@@ -4327,7 +4327,7 @@ impl WireSession {
             std::collections::HashMap::new();
         map.insert("id".to_string(), PgColType::Text);
         for (_, blob) in core.get_nodes() {
-            let Ok(obj) = eg_types::msgpack::decode_property_object(&blob) else {
+            let Ok(obj) = medulla_types::msgpack::decode_property_object(&blob) else {
                 continue;
             };
             for (k, v) in obj {
@@ -4340,8 +4340,8 @@ impl WireSession {
         Ok(map)
     }
 
-    // ── pgwire CROSS-MODAL transaction seam (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) ──────────────────────
-    // The PGWIRE TEXT entrypoint for the EG-359..363 in-txn cross-modal seam. These
+    // ── pgwire CROSS-MODAL transaction seam (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set) ──────────────────────
+    // The PGWIRE TEXT entrypoint for the MEDULLA-359..363 in-txn cross-modal seam. These
     // recognize the cross-modal verbs (`UQL …`, `SET EMBEDDING FOR …`, `INSERT INTO
     // series …`, `SPARQL UPDATE …`, `SPARQL CONSTRUCT …`) and route them onto the
     // EXISTING RPC machinery — the `src/server/txn.rs` `GraphTxnState` staging fields +
@@ -4349,9 +4349,9 @@ impl WireSession {
     // `BEGIN … <mutate> … <UQL read> … COMMIT` gets read-your-own-writes across
     // OWL+vector+graph and commits every modality atomically. No plan/txn logic is
     // duplicated here; the wire is a thin parser/router. Because it lives on the SHARED
-    // `WireSession` core it lights up for the whole EG-074 multi-wire family.
+    // `WireSession` core it lights up for the whole MEDULLA-074 multi-wire family.
 
-    /// Lower buffered graph-node ops (CONCEPT:EG-KG.compute.kg-transaction-is-pinned) to the durable `Method`s that both
+    /// Lower buffered graph-node ops (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned) to the durable `Method`s that both
     /// the in-txn UQL overlay and the cross-modal COMMIT consume, so the NodeOp→Method
     /// mapping is never re-derived.
     #[cfg(feature = "query")]
@@ -4388,7 +4388,7 @@ impl WireSession {
         Ok(methods)
     }
 
-    /// Detect a cross-modal verb (CONCEPT:EG-KG.txn.isolation-ryow-begin-set). Cheap prefix classification only —
+    /// Detect a cross-modal verb (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set). Cheap prefix classification only —
     /// the heavy parse (vector literal, series tuple, SPARQL) happens in
     /// [`WireSession::exec_crossmodal`] so a parse error becomes a clean `WireError`.
     #[cfg(feature = "query")]
@@ -4431,7 +4431,7 @@ impl WireSession {
         }
     }
 
-    /// Execute a detected cross-modal verb (CONCEPT:EG-KG.txn.isolation-ryow-begin-set). A UQL read runs over the
+    /// Execute a detected cross-modal verb (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set). A UQL read runs over the
     /// RYOW overlay (in a txn) or the committed snapshot (off-txn); a cross-modal write
     /// stages into the open txn's [`XmodalStaged`] buffer, or — off-txn — auto-commits as
     /// ONE atomic cross-modal statement so the seam is seamless at both surfaces.
@@ -4535,7 +4535,7 @@ impl WireSession {
     /// immediately after `methods` commits, so a lone `SPARQL UPDATE INSERT
     /// DATA { ... }` statement (no explicit `BEGIN`/`COMMIT TRANSACTION`) —
     /// the common case, and what a bare `simple_query` always is — gets the
-    /// TBox exemption exactly like the native `eg_rdf::update::insert_triple`
+    /// TBox exemption exactly like the native `medulla_rdf::update::insert_triple`
     /// path does. The IN-TXN branch stages `methods` for a LATER, SEPARATE
     /// commit this seam does not yet track `schema_refs` through (a larger,
     /// separately-scoped change — the ids are dropped, fail-closed: a node
@@ -4575,18 +4575,18 @@ impl WireSession {
         }
     }
 
-    /// Run a UQL unified cross-modal read over the current graph (CONCEPT:EG-KG.txn.isolation-ryow-begin-set). In a
+    /// Run a UQL unified cross-modal read over the current graph (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set). In a
     /// txn the committed snapshot is OVERLAID with the txn's staged graph writes (the
     /// wire node buffer + lowered OWL/CONSTRUCT methods) and staged vectors, giving
     /// read-your-own-writes; off-txn it reads the committed store (the overlay is empty).
     /// Reuses the EXTRACTED `run_unified` executor + `overlay_write_set`/`semantic_overlay`
-    /// — no plan logic duplicated. In-txn tsdb read-your-own-writes (CONCEPT:EG-KG.query.txn-tsdb-read-your) is
+    /// — no plan logic duplicated. In-txn tsdb read-your-own-writes (CONCEPT:MEDULLA-KG.query.txn-tsdb-read-your) is
     /// wired too: the txn's staged, uncommitted `measurements` are overlaid into `Op::TsScan`
     /// via a `StagedSeries` so an in-txn UQL reads its own points; off-txn `TsScan` reads
     /// committed series only.
     #[cfg(feature = "query")]
     async fn exec_uql(&self, graph: &str, text: &str, in_txn: bool) -> WireResult<WireOutcome> {
-        let plan = eg_plan::uql::parse(text).map_err(|e| user_err(e.render(text)))?;
+        let plan = medulla_plan::uql::parse(text).map_err(|e| user_err(e.render(text)))?;
         #[cfg(feature = "tsdb")]
         let tsdb_scope = if crate::server::handlers::query::plan_needs_tsdb(&plan.ops) {
             let authority = self.carrier_authority()?;
@@ -4607,11 +4607,11 @@ impl WireSession {
         } else {
             (Vec::new(), Vec::new())
         };
-        // CONCEPT:EG-KG.query.txn-tsdb-read-your — build the in-txn staged-series RYOW overlay from the wire txn's
+        // CONCEPT:MEDULLA-KG.query.txn-tsdb-read-your — build the in-txn staged-series RYOW overlay from the wire txn's
         // staged, uncommitted measurements (empty off-txn ⇒ committed series only).
         #[cfg(feature = "tsdb")]
         let staged_series = {
-            let mut staged = eg_plan::StagedSeries::new();
+            let mut staged = medulla_plan::StagedSeries::new();
             if in_txn {
                 for m in &self.xmodal.lock().measurements {
                     staged.push_points(&m.series, m.points.iter().cloned());
@@ -4629,7 +4629,7 @@ impl WireSession {
             Some((tenant, graph)) => (Some(tenant), Some(graph)),
             None => (None, None),
         };
-        // CONCEPT:EG-KG.query.closure-backed-source — the session's owner-scoped foreign
+        // CONCEPT:MEDULLA-KG.query.closure-backed-source — the session's owner-scoped foreign
         // registry (EH-373): a wire-path `FOREIGN "<name>"` / `Named` `ForeignScan` leg
         // resolves only sources the session's verified principal registered or was
         // explicitly granted (EH-378).
@@ -4641,7 +4641,7 @@ impl WireSession {
                 .resolve_for_plan(&plan.ops, carrier.as_ref(), &s.isolation)
                 .map_err(user_err)?
         };
-        // CONCEPT:EG-KG.query.served-vector-index-binding / served-text-index-binding — push the
+        // CONCEPT:MEDULLA-KG.query.served-vector-index-binding / served-text-index-binding — push the
         // vector + lexical legs into the LIVE persistent indexes via a guard/adapter built
         // INSIDE the off-lock closure, instead of pre-cloning the whole `SemanticStore` here
         // (see `handlers::query`'s `UnifiedQuery` arm for the full rationale). The
@@ -4672,9 +4672,9 @@ impl WireSession {
     }
 
     /// Build a fresh single-statement [`crate::server::txn::GraphTxnState`] pinned to
-    /// `graph` for an off-txn cross-modal auto-commit (CONCEPT:EG-KG.txn.isolation-ryow-begin-set).
+    /// `graph` for an off-txn cross-modal auto-commit (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set).
     ///
-    /// `isolation` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005): the OPEN wire transaction's resolved
+    /// `isolation` (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost — NE-005): the OPEN wire transaction's resolved
     /// level for the has-xmodal `COMMIT` path, or `Snapshot` for an off-txn
     /// single-statement auto-commit (a lone statement is already fully
     /// protected by the per-node OCC check regardless of declared level —
@@ -4724,7 +4724,7 @@ impl WireSession {
         mut measurement: crate::server::txn::StagedMeasurement,
     ) -> WireResult<crate::server::txn::StagedMeasurement> {
         let authority = self.carrier_authority()?;
-        measurement.series = eg_tsdb::store::SeriesKey::new(
+        measurement.series = medulla_tsdb::store::SeriesKey::new(
             authority.tenant_scope(),
             authority.namespace("timeseries-graph", graph),
             measurement.series,
@@ -4734,7 +4734,7 @@ impl WireSession {
     }
 
     /// Commit an assembled [`crate::server::txn::GraphTxnState`] through the SHARED RPC
-    /// cross-modal commit (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) — the SAME `commit_cross_modal_txn` the RPC
+    /// cross-modal commit (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set) — the SAME `commit_cross_modal_txn` the RPC
     /// `Method::Commit` drives, so graph + vector + OWL modalities land atomically in ONE
     /// authoritative redb transaction. Used by both
     /// the off-txn auto-commit and the wire `COMMIT` of a cross-modal txn.
@@ -4768,7 +4768,7 @@ impl WireSession {
         Ok(())
     }
 
-    /// The pgwire CROSS-MODAL transaction seam (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) of [`Self::execute`]:
+    /// The pgwire CROSS-MODAL transaction seam (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set) of [`Self::execute`]:
     /// recognize the cross-modal verbs BEFORE the SQL classifier (a UQL query / a
     /// `SET EMBEDDING` / an `INSERT INTO series` / a `SPARQL …` statement is not SQL)
     /// and route them onto the committed RPC seam, wrapped in the same aborted-txn
@@ -4894,7 +4894,7 @@ impl WireSession {
 
     /// The tail of [`Self::execute`]: dispatch the classified statement, latching
     /// the transaction into the aborted state on any error so subsequent
-    /// statements are rejected with 25P02 (CONCEPT:EG-KG.compute.kg-transaction-is-pinned), and — on
+    /// statements are rejected with 25P02 (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned), and — on
     /// success — recording this statement's literal SQL into the replay log when it
     /// buffered a NEW table op (NE-004: compared against the table-op count before
     /// dispatch, so a crash-recovered mixed transaction can rebuild its `TableTxn`).
@@ -4910,8 +4910,8 @@ impl WireSession {
         } else {
             0
         };
-        // CONCEPT:EG-OS.observability.slow-query-descriptor — slow-query timing for the wire SQL path (psql/BI/ORM).
-        // `None` (zero cost) unless EPISTEMIC_GRAPH_SLOW_QUERY_MS is set.
+        // CONCEPT:MEDULLA-OS.observability.slow-query-descriptor — slow-query timing for the wire SQL path (psql/BI/ORM).
+        // `None` (zero cost) unless MEDULLA_SLOW_QUERY_MS is set.
         let slow = crate::slow_query::describe_sql(sql);
         let slow_start = slow.as_ref().map(|_| std::time::Instant::now());
 
@@ -4936,7 +4936,7 @@ impl WireSession {
     }
 }
 
-/// A detected cross-modal wire statement (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) — the parser/router output of
+/// A detected cross-modal wire statement (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set) — the parser/router output of
 /// [`WireSession::detect_crossmodal`]. Carries the raw statement text; the heavy parse
 /// happens in [`WireSession::exec_crossmodal`].
 #[cfg(feature = "query")]
@@ -4998,7 +4998,7 @@ fn uql_rows_to_result(rows: Vec<(String, Option<f32>)>) -> TypedQueryResult {
     TypedQueryResult { columns, rows }
 }
 
-/// Parse `SET EMBEDDING FOR <id> = <vector>` (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) into `(node_id, embedding)`.
+/// Parse `SET EMBEDDING FOR <id> = <vector>` (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set) into `(node_id, embedding)`.
 /// `<id>` and `<vector>` may be single/double-quoted; `<vector>` is a `[a, b, c]` literal.
 #[cfg(feature = "query")]
 fn parse_set_embedding(sql: &str) -> WireResult<(String, Vec<f32>)> {
@@ -5042,7 +5042,7 @@ fn parse_set_embedding(sql: &str) -> WireResult<(String, Vec<f32>)> {
     Ok((id, out))
 }
 
-/// Parse `INSERT INTO series (cols) VALUES (vals)` (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) into a
+/// Parse `INSERT INTO series (cols) VALUES (vals)` (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set) into a
 /// [`crate::server::txn::StagedMeasurement`] — one point. Columns `id`/`series`,
 /// `ts`/`time`, `value`/`val` (any order); values may be quoted.
 #[cfg(feature = "query")]
@@ -5150,7 +5150,7 @@ impl WireProtocol for WireSession {
         *self.graph.lock() = db.clone();
     }
 
-    /// The shared SQL execution core for every wire (CONCEPT:EG-KG.compute.subsystems-reference / KG-2.197).
+    /// The shared SQL execution core for every wire (CONCEPT:MEDULLA-KG.compute.subsystems-reference / KG-2.197).
     /// `sql` is already a complete literal statement (any wire-specific parameter form
     /// has been substituted before calling). Classifies and routes:
     ///   * `SET graph = …` → connection-scoped graph switch.
@@ -5181,7 +5181,7 @@ impl WireProtocol for WireSession {
         // when there is nothing to recover (a directory-listing miss).
         self.recover_owner_intents_once().await?;
 
-        // ── pgwire CROSS-MODAL transaction seam (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) ──────────────────
+        // ── pgwire CROSS-MODAL transaction seam (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set) ──────────────────
         // Recognize the cross-modal verbs BEFORE the SQL classifier (a UQL query / a
         // `SET EMBEDDING` / an `INSERT INTO series` / a `SPARQL …` statement is not SQL)
         // and route them onto the committed RPC seam. The same aborted-txn gate,
@@ -5191,9 +5191,9 @@ impl WireProtocol for WireSession {
             return res;
         }
 
-        let kind = eg_query::classify(sql).map_err(user_err)?;
+        let kind = medulla_query::classify(sql).map_err(user_err)?;
 
-        // ── transaction control (CONCEPT:EG-KG.query.register-each-user-table / EG-049) — no graph access needed ──
+        // ── transaction control (CONCEPT:MEDULLA-KG.query.register-each-user-table / MEDULLA-049) — no graph access needed ──
         // BEGIN/COMMIT/ROLLBACK report a txn-status change so the wire reports the
         // correct in-transaction status to the driver.
         match &kind {
@@ -5203,7 +5203,7 @@ impl WireProtocol for WireSession {
             _ => {}
         }
 
-        // ── aborted-transaction gate (CONCEPT:EG-KG.compute.kg-transaction-is-pinned) ──────────────────────────────
+        // ── aborted-transaction gate (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned) ──────────────────────────────
         // Once a statement inside an open txn has errored, every subsequent statement
         // except COMMIT/ROLLBACK (handled above) is rejected with 25P02 until the
         // block ends — matching Postgres' failed-transaction semantics.
@@ -5212,13 +5212,13 @@ impl WireProtocol for WireSession {
         }
 
         // Enforce the engine ACL under the connection's authenticated actor
-        // (CONCEPT:EG-KG.query.concept-13) BEFORE touching the graph: a read needs Read access, any
+        // (CONCEPT:MEDULLA-KG.query.concept-13) BEFORE touching the graph: a read needs Read access, any
         // DML needs Write. The authenticated actor must exist in durable policy.
         self.check_access_for_kind(&graph, &kind).await?;
 
         // While a transaction is OPEN, buffer BOTH user-table DDL/DML (into `txn`)
         // and graph-node DML (into `graph_txn`); the buffers are applied at COMMIT.
-        // Reads run immediately but over a read-your-own-writes overlay (CONCEPT:EG-KG.compute.kg-transaction-is-pinned)
+        // Reads run immediately but over a read-your-own-writes overlay (CONCEPT:MEDULLA-KG.compute.kg-transaction-is-pinned)
         // so they observe the txn's own buffered writes.
         let in_txn = self.in_txn();
 
@@ -5259,16 +5259,16 @@ mod ne_004_ne_005_tests {
     use super::*;
     use crate::protocol::{GraphType, Method};
 
-    const SECRET: &str = "eg-txn-atomicity-test-secret";
+    const SECRET: &str = "medulla-txn-atomicity-test-secret";
     const AGENT: &str = "txn-test-agent";
 
     fn ensure_env() {
         static ONCE: std::sync::Once = std::sync::Once::new();
         ONCE.call_once(|| {
-            std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-            std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
-            std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-            // EPISTEMIC_GRAPH_ENCRYPTION_KEY is deliberately NOT set here. It used to
+            std::env::set_var("MEDULLA_AUDIENCE", "medulla-test");
+            std::env::set_var("MEDULLA_TENANT", "tenant-shared");
+            std::env::set_var("MEDULLA_POLICY_VERSION", "policy-test");
+            // MEDULLA_ENCRYPTION_KEY is deliberately NOT set here. It used to
             // be, through this `Once` and holding NOTHING, and to a value different
             // from the six other modules' -- so this `Once` could change the ambient
             // at-rest key in the middle of ANOTHER test's body no matter what guard
@@ -5293,8 +5293,8 @@ mod ne_004_ne_005_tests {
         crate::server::test_state_with_services(
             SECRET,
             test_isolation(&[AGENT]),
-            "eg-wire-txn-atomicity-test",
-            "eg-wire-txn-atomicity-tsdb-test",
+            "medulla-wire-txn-atomicity-test",
+            "medulla-wire-txn-atomicity-tsdb-test",
         )
     }
 
@@ -5459,7 +5459,7 @@ mod ne_004_ne_005_tests {
 
     /// NE-004, DoD item 2: an injected failure AT the table-commit step
     /// (here, a natural one — the target table does not exist, which
-    /// `eg_query::classify` cannot detect syntactically, only the table
+    /// `medulla_query::classify` cannot detect syntactically, only the table
     /// store's own commit-time schema lookup can) leaves ZERO graph writes
     /// applied. The graph side already landed durably by the time the table
     /// commit is attempted; this proves the synchronous COMPENSATION path
@@ -5918,7 +5918,7 @@ mod ne_004_ne_005_tests {
             .expect("Snapshot does NOT catch this write skew — both commit");
     }
 
-    /// NE-071 (EG-OCC-SWEEP) regression guard: a wire multi-statement
+    /// NE-071 (MEDULLA-OCC-SWEEP) regression guard: a wire multi-statement
     /// `BEGIN ISOLATION LEVEL SERIALIZABLE … COMMIT` transaction whose
     /// captured predicate read-set is invalidated by a concurrent phantom
     /// insert landing WHILE the transaction is open MUST reject the commit.
@@ -6008,7 +6008,7 @@ mod ne_004_ne_005_tests {
 
 #[cfg(all(test, feature = "query"))]
 mod wired_catalog_tests {
-    //! NE-046 (EG-WIRE-CATALOG) wiring tests. `sql_catalog_acl.rs`'s own 13
+    //! NE-046 (MEDULLA-WIRE-CATALOG) wiring tests. `sql_catalog_acl.rs`'s own 13
     //! tests already prove the ACL primitives (ownership/grants/RLS)
     //! are correct in isolation; these drive the REAL wire `execute()`
     //! dispatch instead — the buffered `TxnOp`/`TableTxn` commit path
@@ -6021,16 +6021,16 @@ mod wired_catalog_tests {
     use crate::server::auth::VerifiedRequestContext;
     use crate::server::sql_catalog_acl::{self, SqlPrivilege};
 
-    const SECRET: &str = "eg-wired-catalog-test-secret";
+    const SECRET: &str = "medulla-wired-catalog-test-secret";
     const CREATOR: &str = "wired-catalog-graph-creator";
 
     fn ensure_env() {
         static ONCE: std::sync::Once = std::sync::Once::new();
         ONCE.call_once(|| {
-            std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-            std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
-            std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-            // EPISTEMIC_GRAPH_ENCRYPTION_KEY is deliberately NOT set here. It used to
+            std::env::set_var("MEDULLA_AUDIENCE", "medulla-test");
+            std::env::set_var("MEDULLA_TENANT", "tenant-shared");
+            std::env::set_var("MEDULLA_POLICY_VERSION", "policy-test");
+            // MEDULLA_ENCRYPTION_KEY is deliberately NOT set here. It used to
             // be, through this `Once` and holding NOTHING, and to a value different
             // from the six other modules' -- so this `Once` could change the ambient
             // at-rest key in the middle of ANOTHER test's body no matter what guard
@@ -6056,8 +6056,8 @@ mod wired_catalog_tests {
         crate::server::test_state_with_services(
             SECRET,
             test_isolation(agents),
-            "eg-wired-catalog-test",
-            "eg-wired-catalog-tsdb-test",
+            "medulla-wired-catalog-test",
+            "medulla-wired-catalog-tsdb-test",
         )
     }
 
@@ -7162,7 +7162,7 @@ mod wired_catalog_tests {
         assert!(store
             .property_graph(
                 &canonical_tenant,
-                &eg_query::tables::SqlName::new(vec![eg_query::tables::SqlIdentifier::unquoted(
+                &medulla_query::tables::SqlName::new(vec![medulla_query::tables::SqlIdentifier::unquoted(
                     "social"
                 )
                 .unwrap(),])
@@ -7286,7 +7286,7 @@ mod property_graph_dispatch_tests {
     use super::*;
 
     fn classify_kind(sql: &str) -> StatementKind {
-        eg_query::classify(sql).expect("statement classifies")
+        medulla_query::classify(sql).expect("statement classifies")
     }
 
     /// Property-graph DDL now buffers inside `BEGIN`; privilege DCL stays

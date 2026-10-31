@@ -24,7 +24,7 @@ use super::audit::{append_audit_entry_with_line, fresh_attempt_id, verify_audit,
 use super::shard::{Shard, ShardWrite};
 use super::{AUDIT, AUDIT_REQUESTS};
 use crate::audit::Hash;
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 use sha2::{Digest, Sha256};
 
 /// Refused: the request declares no audit class.

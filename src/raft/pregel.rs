@@ -1,4 +1,4 @@
-//! Distributed graph compute — a Pregel/GAS vertex-centric engine (CONCEPT:EG-KG.storage.feature).
+//! Distributed graph compute — a Pregel/GAS vertex-centric engine (CONCEPT:MEDULLA-KG.storage.feature).
 //!
 //! Runs PageRank / connected-components / BFS ACROSS a set of graphs that span
 //! multiple Raft groups/shards, by gather-apply-scatter SUPERSTEPS with message
@@ -38,7 +38,7 @@
 //! [`incremental_connected_components`] recomputes ONLY the vertices a delta touched
 //! (the changed vertices + their neighborhood), reusing the prior labeling as the seed;
 //! the result equals a from-scratch run (the test asserts `incremental == from_scratch`).
-//! Named [`MatView`]s (CONCEPT:EG-KG.storage.feature) persist a distributed-compute result and refresh
+//! Named [`MatView`]s (CONCEPT:MEDULLA-KG.storage.feature) persist a distributed-compute result and refresh
 //! incrementally; they live in the redb durable tier (see `super::store` / the handler).
 
 #![cfg(feature = "compute-dist")]
@@ -59,7 +59,7 @@ use crate::server::ServerState;
 /// vertex, owned by the shard that declares it first in the `graphs` order).
 pub type VertexId = String;
 
-/// The gathered, partitioned topology for a distributed run (CONCEPT:EG-KG.storage.feature). Holds:
+/// The gathered, partitioned topology for a distributed run (CONCEPT:MEDULLA-KG.storage.feature). Holds:
 ///
 /// * `owner` — which shard each vertex is OWNED by (the routing table: a message to a
 ///   vertex is delivered to its owning shard, the cross-shard hop). One graph = one
@@ -115,7 +115,7 @@ impl PartitionBuilder {
         }
     }
 
-    fn add_view(&mut self, shard_idx: usize, view: &eg_core::graph::GraphView) {
+    fn add_view(&mut self, shard_idx: usize, view: &medulla_core::graph::GraphView) {
         for id in view.node_map.keys() {
             if let std::collections::hash_map::Entry::Vacant(entry) = self.owner.entry(id.clone()) {
                 entry.insert(shard_idx);
@@ -204,13 +204,13 @@ async fn gather_shards(
     // per-CORE cache, so distinct shards never collide) instead of re-decoding
     // every node of every shard on every job.
     #[cfg(feature = "security")]
-    let mut snaps: Vec<std::sync::Arc<eg_core::graph::GraphView>> = Vec::with_capacity(cores.len());
+    let mut snaps: Vec<std::sync::Arc<medulla_core::graph::GraphView>> = Vec::with_capacity(cores.len());
     #[cfg(feature = "security")]
     for core in &cores {
         snaps.push(read_authority.cached_filter_view(core));
     }
     #[cfg(not(feature = "security"))]
-    let mut snaps: Vec<eg_core::graph::GraphView> = Vec::with_capacity(cores.len());
+    let mut snaps: Vec<medulla_core::graph::GraphView> = Vec::with_capacity(cores.len());
     #[cfg(not(feature = "security"))]
     for core in cores {
         let mut view = core.analysis_snapshot();
@@ -225,7 +225,7 @@ async fn gather_shards(
     Ok(builder.finish())
 }
 
-pub use eg_types::compute_result::distributed::{DistResult, LabelRows, ScoreRows};
+pub use medulla_types::compute_result::distributed::{DistResult, LabelRows, ScoreRows};
 
 /// Run a distributed graph algorithm across `graphs` (each a shard), returning the
 /// per-vertex result over the UNION. The cross-shard superstep coordinator: gather the
@@ -493,7 +493,7 @@ fn distributed_bfs(part: &Partitioning, source: &str) -> LabelRows {
     sorted_label_rows(level)
 }
 
-// ── Incremental / streaming connected components (CONCEPT:EG-KG.storage.feature) ────────────
+// ── Incremental / streaming connected components (CONCEPT:MEDULLA-KG.storage.feature) ────────────
 
 fn incremental_seed_labels<'a>(
     vertices: &'a [VertexId],
@@ -558,10 +558,10 @@ pub(crate) async fn incremental_connected_components(
     )))
 }
 
-// ── Materialized views (CONCEPT:EG-KG.storage.feature) ──────────────────────────────────────
+// ── Materialized views (CONCEPT:MEDULLA-KG.storage.feature) ──────────────────────────────────────
 
 /// A named, incrementally-maintained materialized view of a distributed-compute result
-/// (CONCEPT:EG-KG.storage.feature). Persisted in the redb durable tier so it survives restart; the
+/// (CONCEPT:MEDULLA-KG.storage.feature). Persisted in the redb durable tier so it survives restart; the
 /// handler refreshes it incrementally on a delta. The definition (graphs + algo) is
 /// stored alongside the rows so a `RefreshMatView` can recompute without re-specifying.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
@@ -572,7 +572,7 @@ pub struct MatView {
     pub result: DistResult,
 }
 
-/// A flat map of named materialized views the engine maintains (CONCEPT:EG-KG.storage.feature). The
+/// A flat map of named materialized views the engine maintains (CONCEPT:MEDULLA-KG.storage.feature). The
 /// in-RAM index; the durable copy lives in redb (the handler persists + reloads). The
 /// `BTreeMap` keeps a deterministic order for listing.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]

@@ -1,4 +1,4 @@
-//! EG-DURABLE-KERNEL-R006.2: startup open has a time budget that holds on a
+//! MEDULLA-DURABLE-KERNEL-R006.2: startup open has a time budget that holds on a
 //! loaded host. One scenario, two checks:
 //!
 //! * The REGRESSION GATE (the default tests): one process, run serially, with
@@ -13,7 +13,7 @@
 //! table validation, recovery scan or skip, bind, ledger). A missed limit
 //! prints them, so a slow open is diagnosable from the test output.
 //!
-//! The directory defaults to the system temp dir; set `EG_BUDGET_DIR` to a
+//! The directory defaults to the system temp dir; set `MEDULLA_BUDGET_DIR` to a
 //! real-disk path (tmpfs fsyncs are free and would hide the cost under test).
 #![cfg(feature = "redb")]
 
@@ -21,9 +21,9 @@
 #[allow(dead_code)]
 mod test_rendezvous;
 
-use epistemic_graph::protocol::Method;
-use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-use epistemic_graph::server::persistence::PersistenceBackend;
+use medulla::protocol::Method;
+use medulla::server::persistence::redb_backend::RedbBackend;
+use medulla::server::persistence::PersistenceBackend;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -32,7 +32,7 @@ const SHARDS: usize = 8;
 const FSYNC_WRITERS: usize = 16;
 const CPU_BURNERS: usize = 32;
 const STRESS_COPIES: usize = 10;
-const STRESS_CHILD: &str = "EG_SHARD_OPEN_STRESS_CHILD";
+const STRESS_CHILD: &str = "MEDULLA_SHARD_OPEN_STRESS_CHILD";
 
 // Each scenario owns the process-wide tracing buffer and its background load.
 static SCENARIO_LOCK: Mutex<()> = Mutex::new(());
@@ -47,7 +47,7 @@ struct Limits {
 
 /// Regression gate: about 2x the single-process R820 numbers under the load
 /// above (fresh 1.55-1.82 s, small reopen 0.61-0.83 s, populated marker
-/// reopen 1.00-1.12 s). Measurements: plans/eg-shard-open-latency-2026-10-23.md.
+/// reopen 1.00-1.12 s). Measurements: plans/medulla-shard-open-latency-2026-10-23.md.
 const GATE: Limits = Limits {
     label: "gate",
     fresh: Duration::from_secs(4),
@@ -193,7 +193,7 @@ fn finish(limits: &Limits, failures: Vec<String>) {
 }
 
 fn scratch(prefix: &str) -> tempfile::TempDir {
-    let base = std::env::var("EG_BUDGET_DIR")
+    let base = std::env::var("MEDULLA_BUDGET_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir());
     std::fs::create_dir_all(&base).unwrap();
@@ -238,7 +238,7 @@ fn small_scenario(limits: &Limits) -> Vec<String> {
     let phase_log = PhaseLog::get();
     let scratch = scratch("shard-open-budget-");
     let dir = scratch.path().join("store").to_string_lossy().to_string();
-    std::env::set_var("EPISTEMIC_GRAPH_REDB_SHARDS", SHARDS.to_string());
+    std::env::set_var("MEDULLA_REDB_SHARDS", SHARDS.to_string());
 
     let load = Load::start(scratch.path());
 
@@ -367,7 +367,7 @@ fn populated_scenario(limits: &Limits) -> Vec<String> {
     failures
 }
 
-// spec: EG-DURABLE-KERNEL-R006.2
+// spec: MEDULLA-DURABLE-KERNEL-R006.2
 #[test]
 fn shard_open_stays_within_budget_under_load() {
     finish(&GATE, small_scenario(&GATE));
@@ -376,8 +376,8 @@ fn shard_open_stays_within_budget_under_load() {
 /// R006.3: reopening a populated store (~300 MB) takes the clean-shutdown
 /// marker fast path and stays inside the gate under load; with the markers
 /// removed the full scan still runs and the store still opens.
-// spec: EG-DURABLE-KERNEL-R006.3
-// spec: EG-DURABLE-KERNEL-R006.2
+// spec: MEDULLA-DURABLE-KERNEL-R006.3
+// spec: MEDULLA-DURABLE-KERNEL-R006.2
 #[test]
 fn populated_reopen_hits_the_marker_fast_path() {
     finish(&GATE, populated_scenario(&GATE));
@@ -385,7 +385,7 @@ fn populated_reopen_hits_the_marker_fast_path() {
 
 /// R006.1: the sidecar stores open with the shards, and a refused open leaves
 /// the persist dir without any sidecar file that attempt created.
-// spec: EG-DURABLE-KERNEL-R006.1
+// spec: MEDULLA-DURABLE-KERNEL-R006.1
 #[test]
 fn sidecars_open_with_the_shards_and_a_refusal_leaves_none() {
     let scratch = tempfile::tempdir().unwrap();
@@ -420,7 +420,7 @@ fn sidecars_open_with_the_shards_and_a_refusal_leaves_none() {
 
 /// A sidecar failure after the admin store opened must clean that store and
 /// its close marker, while preserving every pre-existing sidecar artifact.
-// spec: EG-DURABLE-KERNEL-R006.1
+// spec: MEDULLA-DURABLE-KERNEL-R006.1
 #[test]
 fn sidecar_failure_cleans_new_artifacts_and_preserves_existing_markers() {
     let scratch = tempfile::tempdir().unwrap();
@@ -439,7 +439,7 @@ fn sidecar_failure_cleans_new_artifacts_and_preserves_existing_markers() {
 
 /// A competing backend startup must refuse before its cleanup snapshot can
 /// mistake another opener's newly created sidecar for its own.
-// spec: EG-DURABLE-KERNEL-R006.1
+// spec: MEDULLA-DURABLE-KERNEL-R006.1
 #[test]
 fn competing_backend_startup_preserves_the_other_openers_files() {
     let scratch = tempfile::tempdir().unwrap();
@@ -460,12 +460,12 @@ fn competing_backend_startup_preserves_the_other_openers_files() {
     assert_eq!(std::fs::read_dir(scratch.path()).unwrap().count(), 1);
 }
 
-// spec: EG-DURABLE-KERNEL-R006.1
+// spec: MEDULLA-DURABLE-KERNEL-R006.1
 #[test]
 fn backend_startup_coexists_with_the_engine_lifetime_lock() {
     let scratch = tempfile::tempdir().unwrap();
     let directory = scratch.path().to_string_lossy().to_string();
-    let lifetime_lock = eg_core::persist_lock::acquire(&directory).unwrap();
+    let lifetime_lock = medulla_core::persist_lock::acquire(&directory).unwrap();
     let backend = RedbBackend::open_with_shards(directory, 64, 1).unwrap();
     backend.shutdown();
     drop(backend);
@@ -473,7 +473,7 @@ fn backend_startup_coexists_with_the_engine_lifetime_lock() {
 }
 
 /// Child half of the stress check: runs only when the parent sets
-/// `EG_SHARD_OPEN_STRESS_CHILD`, so the default run treats it as a no-op.
+/// `MEDULLA_SHARD_OPEN_STRESS_CHILD`, so the default run treats it as a no-op.
 #[test]
 fn shard_open_stress_child() {
     if std::env::var_os(STRESS_CHILD).is_none() {
@@ -487,7 +487,7 @@ fn shard_open_stress_child() {
 /// STRESS CHECK, not the regression gate: ten copies of the scenario run in
 /// parallel child processes, each with its own load threads, under the loose
 /// stress limits.
-// spec: EG-DURABLE-KERNEL-R006.2
+// spec: MEDULLA-DURABLE-KERNEL-R006.2
 #[test]
 #[ignore = "stress check, not the regression gate: ten parallel copies, about 1 h on R820; run with --ignored"]
 fn shard_open_stress_ten_parallel_copies() {

@@ -19,7 +19,7 @@ pub(super) const MANIFEST_READ_ERROR: &str = "segment manifest is unavailable";
 pub(super) const MANIFEST_BOUNDS_ERROR: &str = "segment manifests exceed recovery bounds";
 pub(super) const MAX_MANIFEST_FILES: usize = 16_384;
 pub(super) const MAX_MANIFEST_TOTAL_BYTES: usize = MAX_SNAPSHOT_BYTES;
-pub(super) const MAX_MANIFEST_TOTAL_ITEMS: usize = eg_types::msgpack::MAX_PROPERTY_ITEMS;
+pub(super) const MAX_MANIFEST_TOTAL_ITEMS: usize = medulla_types::msgpack::MAX_PROPERTY_ITEMS;
 
 /// BUG-210 durable path for one stream's segment manifest list:
 /// `{persist_dir}/obs/segments/<sanitized-stream>.msgpack`.
@@ -63,10 +63,10 @@ pub(super) fn load_segment_manifests(obs_base: &Path) -> Result<LoadedSegmentMan
         });
     };
     let names = segment_manifest_names(&directory)?;
-    let limits = eg_types::msgpack::MsgpackLimits::new(
-        eg_types::msgpack::MAX_PROPERTY_BYTES,
-        eg_types::msgpack::MAX_PROPERTY_ITEMS,
-        eg_types::msgpack::DEFAULT_MAX_DEPTH,
+    let limits = medulla_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MAX_PROPERTY_BYTES,
+        medulla_types::msgpack::MAX_PROPERTY_ITEMS,
+        medulla_types::msgpack::DEFAULT_MAX_DEPTH,
     );
     let mut manifests = Vec::new();
     let mut positions: HashMap<String, Vec<usize>> = HashMap::new();
@@ -78,7 +78,7 @@ pub(super) fn load_segment_manifests(obs_base: &Path) -> Result<LoadedSegmentMan
             .ok_or_else(|| MANIFEST_READ_ERROR.to_string())?;
         include_manifest_budget(&mut total_bytes, bytes.len(), MAX_MANIFEST_TOTAL_BYTES)?;
         let stream_manifests: Vec<SegmentManifest> =
-            eg_types::msgpack::decode_bounded(&bytes, limits)
+            medulla_types::msgpack::decode_bounded(&bytes, limits)
                 .map_err(|_| "segment manifest is invalid or exceeds its bounds".to_string())?;
         include_manifest_budget(
             &mut total_items,

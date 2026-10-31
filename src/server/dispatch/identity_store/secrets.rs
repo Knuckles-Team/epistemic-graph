@@ -40,7 +40,7 @@ pub(super) fn hash_password(password: &str) -> Result<String, String> {
 /// costs the same whether or not the account exists.
 fn dummy_hash() -> &'static str {
     static DUMMY: OnceLock<String> = OnceLock::new();
-    DUMMY.get_or_init(|| hash_password("eg-identity-dummy-password").unwrap_or_default())
+    DUMMY.get_or_init(|| hash_password("medulla-identity-dummy-password").unwrap_or_default())
 }
 
 /// Whether `candidate` matches `stored` (or the dummy hash when `None`, which

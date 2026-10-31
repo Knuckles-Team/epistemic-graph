@@ -1,9 +1,9 @@
 //! Shared server and feature-gated imports for private analytics-job modules.
 
 #[cfg(feature = "program-optimization")]
-pub(super) use eg_modality::{Classification, OpaqueRef, PolicyEnvelope};
+pub(super) use medulla_modality::{Classification, OpaqueRef, PolicyEnvelope};
 #[cfg(feature = "program-optimization")]
-pub(super) use eg_program::{
+pub(super) use medulla_program::{
     NativeCompiler, OptimizationRequest, ProgramModality, ProgramRevisionIdentity,
 };
 

@@ -1,0 +1,498 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://knuckles.team/kg/dataplatform> a owl:Ontology ;
+    rdfs:label "Data Platform and Machine Learning Ontology" ;
+    rdfs:comment "Data platform and machine-learning concepts aligned to the W3C Data Catalog Vocabulary (catalog, dataset, distribution, data service), PROV-O (entity, activity, derivation) and the ML-Schema community vocabulary (experiment, run, model evaluation, hyperparameter setting, implementation). Reuses Dataset, Model, Metric, Artifact and Collection from the core (MEDULLA-TYPED-PACKS-R105.7)." ;
+    dcterms:source "W3C DCAT; W3C PROV-O; W3C ML-Schema" ;
+    owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/orchestration>, <http://knuckles.team/kg/service_operations> .
+
+:DataCatalog a owl:Class ;
+    rdfs:label "Data Catalog" ;
+    rdfs:comment "DCAT catalog: a curated collection of dataset descriptions." ;
+    skos:altLabel "Catalog", "Data Catalogue", "Iceberg Catalog" ;
+    rdfs:subClassOf :Collection .
+
+:DatasetVersion a owl:Class ;
+    rdfs:label "Dataset Version" ;
+    rdfs:comment "A dataset at a given version (DCAT dataset with dcterms:hasVersion)." ;
+    skos:altLabel "Versioned Dataset" ;
+    rdfs:subClassOf :Dataset .
+
+:DatasetSplit a owl:Class ;
+    rdfs:label "Dataset Split" ;
+    rdfs:comment "A named subset of a dataset used for one purpose (train, validation, test)." ;
+    skos:altLabel "Train Test Split" ;
+    rdfs:subClassOf :Dataset .
+
+:Distribution a owl:Class ;
+    rdfs:label "Distribution" ;
+    rdfs:comment "DCAT distribution: one accessible form of a dataset." ;
+    skos:altLabel "Dataset Distribution" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:DataAsset a owl:Class ;
+    rdfs:label "Data Asset" ;
+    rdfs:comment "A governed data resource that a catalog describes." ;
+    skos:altLabel "Governed Data Asset" ;
+    rdfs:subClassOf :Dataset .
+
+:Schema a owl:Class ;
+    rdfs:label "Schema" ;
+    rdfs:comment "The structure of a table or dataset: its columns and types." ;
+    skos:altLabel "Table Schema", "Data Schema" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:SchemaVersion a owl:Class ;
+    rdfs:label "Schema Version" ;
+    rdfs:comment "A schema at a given version." ;
+    skos:altLabel "Iceberg Schema Version" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Table a owl:Class ;
+    rdfs:label "Table" ;
+    rdfs:comment "A tabular dataset made of rows and columns." ;
+    skos:altLabel "Data Table", "Iceberg Table" ;
+    rdfs:subClassOf :Dataset .
+
+:Column a owl:Class ;
+    rdfs:label "Column" ;
+    rdfs:comment "One named, typed field of a table schema." ;
+    skos:altLabel "Table Column", "Field" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Database a owl:Class ;
+    rdfs:label "Database" ;
+    rdfs:comment "A database instance managed as a configuration item." ;
+    skos:altLabel "Database Instance" ;
+    rdfs:subClassOf :ConfigurationItem .
+
+:Warehouse a owl:Class ;
+    rdfs:label "Warehouse" ;
+    rdfs:comment "A data warehouse or lakehouse that holds tables." ;
+    skos:altLabel "Lake Warehouse", "Data Warehouse", "Lakehouse" ;
+    rdfs:subClassOf :ConfigurationItem .
+
+:StorageContainer a owl:Class ;
+    rdfs:label "Storage Container" ;
+    rdfs:comment "A named container of stored objects: a bucket or an object store." ;
+    skos:altLabel "Bucket", "Object Store", "Blob Container" ;
+    rdfs:subClassOf :ConfigurationItem .
+
+:Snapshot a owl:Class ;
+    rdfs:label "Snapshot" ;
+    rdfs:comment "The state of a table or dataset at one point in time (PROV entity at a time)." ;
+    skos:altLabel "Table Snapshot", "Iceberg Snapshot" ;
+    rdfs:subClassOf :Artifact .
+
+:Partition a owl:Class ;
+    rdfs:label "Partition" ;
+    rdfs:comment "A division of a table or a log topic." ;
+    skos:altLabel "Topic Partition", "Table Partition" ;
+    rdfs:subClassOf :Dataset .
+
+:DataPipeline a owl:Class ;
+    rdfs:label "Data Pipeline" ;
+    rdfs:comment "A defined sequence of transformations that moves and prepares data." ;
+    skos:altLabel "ETL Pipeline", "Data Flow" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:Transformation a owl:Class ;
+    rdfs:label "Transformation" ;
+    rdfs:comment "PROV activity definition that derives one dataset from another." ;
+    skos:altLabel "Transform", "Data Transform" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:TransformationRun a owl:Class ;
+    rdfs:label "Transformation Run" ;
+    rdfs:comment "One execution of a transformation." ;
+    skos:altLabel "Transform Run" ;
+    rdfs:subClassOf :RunEvent, bfo:0000015 .
+
+:Notebook a owl:Class ;
+    rdfs:label "Notebook" ;
+    rdfs:comment "A computational notebook that mixes code, results and narrative." ;
+    skos:altLabel "Computational Notebook" ;
+    rdfs:subClassOf :Document .
+
+:ModelVersion a owl:Class ;
+    rdfs:label "Model Version" ;
+    rdfs:comment "A model at a given version, trained once." ;
+    skos:altLabel "Trained Model Version" ;
+    rdfs:subClassOf :Model, bfo:0000031 .
+
+:ModelArtifact a owl:Class ;
+    rdfs:label "Model Artifact" ;
+    rdfs:comment "The serialised form of a trained model: weights and configuration." ;
+    skos:altLabel "Model Weights", "Serialised Model", "Checkpoint" ;
+    rdfs:subClassOf :Artifact .
+
+:ModelEvaluation a owl:Class ;
+    rdfs:label "Model Evaluation" ;
+    rdfs:comment "ML-Schema model evaluation: measures of a model version against a dataset." ;
+    skos:altLabel "Evaluation Result", "Cross Validation Result" ;
+    rdfs:subClassOf :Assessment, bfo:0000031 .
+
+:Experiment a owl:Class ;
+    rdfs:label "Experiment" ;
+    rdfs:comment "ML-Schema experiment: a set of runs that test one hypothesis." ;
+    skos:altLabel "ML Experiment" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:ExperimentRun a owl:Class ;
+    rdfs:label "Experiment Run" ;
+    rdfs:comment "ML-Schema run: one execution of an implementation with a hyperparameter setting." ;
+    skos:altLabel "Training Run", "Dataset Run" ;
+    rdfs:subClassOf :RunEvent, bfo:0000015 .
+
+:MLFeature a owl:Class ;
+    rdfs:label "ML Feature" ;
+    rdfs:comment "An input variable a model learns from." ;
+    skos:altLabel "Model Feature", "Feature Variable" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:HyperParameterSetting a owl:Class ;
+    rdfs:label "Hyper-Parameter Setting" ;
+    rdfs:comment "ML-Schema hyperparameter setting: the configured value set of one run." ;
+    skos:altLabel "Hyperparameter Config", "Hyperparameter Configuration" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Score a owl:Class ;
+    rdfs:label "Score" ;
+    rdfs:comment "A named evaluation value attached to a run, trace or output." ;
+    skos:altLabel "Evaluation Score" ;
+    rdfs:subClassOf :Metric .
+
+:ScoreDefinition a owl:Class ;
+    rdfs:label "Score Definition" ;
+    rdfs:comment "The configuration of a score: its name, type and range." ;
+    skos:altLabel "Score Config", "Score Configuration" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Embedding a owl:Class ;
+    rdfs:label "Embedding" ;
+    rdfs:comment "A vector representation of an entity." ;
+    skos:altLabel "Vector Embedding" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:VectorIndex a owl:Class ;
+    rdfs:label "Vector Index" ;
+    rdfs:comment "A store that indexes embeddings for similarity search." ;
+    skos:altLabel "Vector Backend", "Vector Store" ;
+    rdfs:subClassOf :ConfigurationItem .
+
+:StreamSubscription a owl:Class ;
+    rdfs:label "Stream Subscription" ;
+    rdfs:comment "A consumer that reads a stream topic." ;
+    skos:altLabel "Consumer", "Stream Consumer" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:ChangeDataCapture a owl:Class ;
+    rdfs:label "Change Data Capture" ;
+    rdfs:comment "A change stream that publishes the changes of a database." ;
+    skos:altLabel "CDC Connector", "Replication Slot", "Change Stream" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:RdfGraph a owl:Class ;
+    rdfs:label "RDF Graph" ;
+    rdfs:comment "A named graph of RDF statements held in a dataset." ;
+    skos:altLabel "Named Graph" ;
+    rdfs:subClassOf :Dataset .
+
+:Corpus a owl:Class ;
+    rdfs:label "Corpus" ;
+    rdfs:comment "A body of documents assembled for training or retrieval." ;
+    skos:altLabel "Document Corpus", "Text Corpus" ;
+    rdfs:subClassOf :Dataset .
+
+:inCatalog a owl:ObjectProperty ;
+    rdfs:label "in catalog" ;
+    rdfs:comment "Links a dataset to the catalog that describes it." ;
+    rdfs:domain :Dataset ;
+    rdfs:range :DataCatalog ;
+    rdfs:subPropertyOf :partOf .
+
+:hasDistribution a owl:ObjectProperty ;
+    rdfs:label "has distribution" ;
+    rdfs:comment "Links a dataset to a distribution of it." ;
+    rdfs:domain :Dataset ;
+    rdfs:range :Distribution .
+
+:hasSchema a owl:ObjectProperty ;
+    rdfs:label "has schema" ;
+    rdfs:comment "Links a table to its schema." ;
+    rdfs:domain :Table ;
+    rdfs:range :Schema .
+
+:hasColumn a owl:ObjectProperty ;
+    rdfs:label "has column" ;
+    rdfs:comment "Links a schema to a column it declares." ;
+    rdfs:domain :Schema ;
+    rdfs:range :Column ;
+    rdfs:subPropertyOf :hasPart .
+
+:versionOf a owl:ObjectProperty ;
+    rdfs:label "version of" ;
+    rdfs:comment "Shared version relation; module-specific sub-properties carry their domain and range." .
+
+:dataplatformVersionOf a owl:ObjectProperty ;
+    rdfs:label "versionOf (data platform)" ;
+    rdfs:comment "The data-platform meaning of the shared kg:versionOf: links a dataset, schema or model version to the thing it versions." ;
+    rdfs:subPropertyOf :versionOf ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :DatasetVersion :SchemaVersion :ModelVersion ) ] ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( :Dataset :Schema :Model ) ] .
+
+:snapshotOf a owl:ObjectProperty ;
+    rdfs:label "snapshot of" ;
+    rdfs:comment "Links a snapshot to the table or dataset it captures." ;
+    rdfs:domain :Snapshot ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( :Table :Dataset ) ] .
+
+:partitionOf a owl:ObjectProperty ;
+    rdfs:label "partition of" ;
+    rdfs:comment "Links a partition to the table or dataset it divides." ;
+    rdfs:domain :Partition ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( :Table :Dataset ) ] ;
+    rdfs:subPropertyOf :partOf .
+
+:storedIn a owl:ObjectProperty ;
+    rdfs:label "stored in" ;
+    rdfs:comment "Links a dataset to the storage container that holds it." ;
+    rdfs:domain :Dataset ;
+    rdfs:range :StorageContainer .
+
+:transformationOf a owl:ObjectProperty ;
+    rdfs:label "transformation of" ;
+    rdfs:comment "Links a transformation to the pipeline it belongs to." ;
+    rdfs:domain :Transformation ;
+    rdfs:range :DataPipeline ;
+    rdfs:subPropertyOf :partOf .
+
+:runOfTransformation a owl:ObjectProperty ;
+    rdfs:label "run of transformation" ;
+    rdfs:comment "Links a transformation run to the transformation it executes." ;
+    rdfs:domain :TransformationRun ;
+    rdfs:range :Transformation .
+
+:readsDataset a owl:ObjectProperty ;
+    rdfs:label "reads dataset" ;
+    rdfs:comment "Links a transformation run to a dataset it reads." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :TransformationRun :ExperimentRun ) ] ;
+    rdfs:range :Dataset .
+
+:writesDataset a owl:ObjectProperty ;
+    rdfs:label "writes dataset" ;
+    rdfs:comment "Links a transformation run to a dataset it writes." ;
+    rdfs:domain :TransformationRun ;
+    rdfs:range :Dataset .
+
+:runOfExperiment a owl:ObjectProperty ;
+    rdfs:label "run of experiment" ;
+    rdfs:comment "Links a run to its experiment." ;
+    rdfs:domain :ExperimentRun ;
+    rdfs:range :Experiment ;
+    rdfs:subPropertyOf :partOf .
+
+:producesModelVersion a owl:ObjectProperty ;
+    rdfs:label "produces model version" ;
+    rdfs:comment "Links a run to the model version it trains." ;
+    rdfs:domain :ExperimentRun ;
+    rdfs:range :ModelVersion .
+
+:trainedOn a owl:ObjectProperty ;
+    rdfs:label "trained on" ;
+    rdfs:comment "Links a model version to the dataset it was trained on." ;
+    rdfs:domain :ModelVersion ;
+    rdfs:range :Dataset .
+
+:usesFeature a owl:ObjectProperty ;
+    rdfs:label "uses feature" ;
+    rdfs:comment "Links a model version to a feature it consumes." ;
+    rdfs:domain :ModelVersion ;
+    rdfs:range :MLFeature .
+
+:hasModelArtifact a owl:ObjectProperty ;
+    rdfs:label "has model artifact" ;
+    rdfs:comment "Links a model version to its serialised artifact." ;
+    rdfs:domain :ModelVersion ;
+    rdfs:range :ModelArtifact .
+
+:evaluatesModel a owl:ObjectProperty ;
+    rdfs:label "evaluates model" ;
+    rdfs:comment "Links a model evaluation to the model version it measures." ;
+    rdfs:domain :ModelEvaluation ;
+    rdfs:range :ModelVersion .
+
+:evaluatedOn a owl:ObjectProperty ;
+    rdfs:label "evaluated on" ;
+    rdfs:comment "Links a model evaluation to the dataset it ran against." ;
+    rdfs:domain :ModelEvaluation ;
+    rdfs:range :Dataset .
+
+:configuredWith a owl:ObjectProperty ;
+    rdfs:label "configured with" ;
+    rdfs:comment "Links a run to its hyperparameter setting." ;
+    rdfs:domain :ExperimentRun ;
+    rdfs:range :HyperParameterSetting .
+
+:scoresRun a owl:ObjectProperty ;
+    rdfs:label "scores run" ;
+    rdfs:comment "Links a score to the run it evaluates." ;
+    rdfs:domain :Score ;
+    rdfs:range :ExperimentRun .
+
+:definedBy a owl:ObjectProperty ;
+    rdfs:label "defined by" ;
+    rdfs:comment "Links a score to its definition." ;
+    rdfs:domain :Score ;
+    rdfs:range :ScoreDefinition .
+
+:embeddingOf a owl:ObjectProperty ;
+    rdfs:label "embedding of" ;
+    rdfs:comment "Links an embedding to the entity it represents." ;
+    rdfs:domain :Embedding ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( :Document :Dataset ) ] .
+
+:embeddingIn a owl:ObjectProperty ;
+    rdfs:label "embedding in" ;
+    rdfs:comment "Links an embedding to the vector index that holds it." ;
+    rdfs:domain :Embedding ;
+    rdfs:range :VectorIndex ;
+    rdfs:subPropertyOf :partOf .
+
+# Connector competency vocabulary: data platform (MEDULLA-CQ-CONN-vocab: connector competency terms)
+
+:DocumentCollection a owl:Class ;
+    rdfs:label "Document Collection" ;
+    rdfs:comment "A named collection of schemaless documents in a document store (MongoDB or DocumentDB collection)." ;
+    rdfs:subClassOf :Dataset .
+
+:FieldProfile a owl:Class ;
+    rdfs:label "Field Profile" ;
+    rdfs:comment "The observed presence of one field across the documents of a collection." ;
+    rdfs:subClassOf :Observation .
+
+:isPrimaryKey a owl:DatatypeProperty ;
+    rdfs:label "is primary key" ;
+    rdfs:comment "True when the column is part of the primary key of its table." ;
+    rdfs:domain :Column ;
+    rdfs:range xsd:boolean .
+
+:referencesTable a owl:ObjectProperty ;
+    rdfs:label "references table" ;
+    rdfs:comment "Links a column to the table its foreign key points at." ;
+    rdfs:domain :Column ;
+    rdfs:range :Table .
+
+:documentCount a owl:DatatypeProperty ;
+    rdfs:label "document count" ;
+    rdfs:comment "Number of documents in a document collection." ;
+    rdfs:domain :DocumentCollection ;
+    rdfs:range xsd:integer .
+
+:profiledCollection a owl:ObjectProperty ;
+    rdfs:label "profiled collection" ;
+    rdfs:comment "Links a field profile to the collection it describes." ;
+    rdfs:domain :FieldProfile ;
+    rdfs:range :DocumentCollection .
+
+:fieldName a owl:DatatypeProperty ;
+    rdfs:label "field name" ;
+    rdfs:comment "The name of the profiled field." ;
+    rdfs:domain :FieldProfile ;
+    rdfs:range xsd:string .
+
+:fieldPresenceCount a owl:DatatypeProperty ;
+    rdfs:label "field presence count" ;
+    rdfs:comment "Number of documents of the collection that carry the field." ;
+    rdfs:domain :FieldProfile ;
+    rdfs:range xsd:integer .
+
+:lastWriteAt a owl:DatatypeProperty ;
+    rdfs:label "last write at" ;
+    rdfs:comment "Time of the latest write to a dataset." ;
+    rdfs:domain :Dataset ;
+    rdfs:range xsd:dateTime .
+
+:duplicateOf a owl:ObjectProperty ;
+    rdfs:label "duplicate of" ;
+    rdfs:comment "Links a document collection to the relational table whose content it duplicates." ;
+    rdfs:domain :DocumentCollection ;
+    rdfs:range :Table .
+
+:totalSizeBytes a owl:DatatypeProperty ;
+    rdfs:label "total size bytes" ;
+    rdfs:comment "Total stored bytes of a storage container." ;
+    rdfs:domain :StorageContainer ;
+    rdfs:range xsd:integer .
+
+:storedInContainer a owl:ObjectProperty ;
+    rdfs:label "stored in container" ;
+    rdfs:comment "Links a stored blob to the bucket that holds it." ;
+    rdfs:domain :Blob ;
+    rdfs:range :StorageContainer .
+
+:sizeBytes a owl:DatatypeProperty ;
+    rdfs:label "size bytes" ;
+    rdfs:comment "Size of a stored blob in bytes." ;
+    rdfs:domain :Blob ;
+    rdfs:range xsd:integer .
+
+:lastReadAt a owl:DatatypeProperty ;
+    rdfs:label "last read at" ;
+    rdfs:comment "Time a stored blob was last read." ;
+    rdfs:domain :Blob ;
+    rdfs:range xsd:dateTime .
+
+:backedByBlob a owl:ObjectProperty ;
+    rdfs:label "backed by blob" ;
+    rdfs:comment "Links a model artifact or distribution to the stored blob that holds its bytes." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :ModelArtifact :Distribution ) ] ;
+    rdfs:range :Blob .
+
+:validationMetric a owl:DatatypeProperty ;
+    rdfs:label "validation metric" ;
+    rdfs:comment "Value of the validation metric a model evaluation measured." ;
+    rdfs:domain :ModelEvaluation ;
+    rdfs:range xsd:decimal .
+
+:baselineMetric a owl:DatatypeProperty ;
+    rdfs:label "baseline metric" ;
+    rdfs:comment "Value of the same metric for the baseline run." ;
+    rdfs:domain :ModelEvaluation ;
+    rdfs:range xsd:decimal .
+
+:fineTunedFrom a owl:ObjectProperty ;
+    rdfs:label "fine-tuned from" ;
+    rdfs:comment "Links a fine-tuned model version to the model version it started from." ;
+    rdfs:domain :ModelVersion ;
+    rdfs:range :ModelVersion .
+
+:vectorCount a owl:DatatypeProperty ;
+    rdfs:label "vector count" ;
+    rdfs:comment "Number of vectors a vector index holds." ;
+    rdfs:domain :VectorIndex ;
+    rdfs:range xsd:integer .
+
+:indexDimension a owl:DatatypeProperty ;
+    rdfs:label "index dimension" ;
+    rdfs:comment "Dimension of the vectors a vector index stores." ;
+    rdfs:domain :VectorIndex ;
+    rdfs:range xsd:integer .
+
+:indexedWithModel a owl:ObjectProperty ;
+    rdfs:label "indexed with model" ;
+    rdfs:comment "Links a vector index to the embedding model that produced its vectors." ;
+    rdfs:domain :VectorIndex ;
+    rdfs:range :EmbeddingModel .
+
+:embeddingDimension a owl:DatatypeProperty ;
+    rdfs:label "embedding dimension" ;
+    rdfs:comment "Output dimension of an embedding model." ;
+    rdfs:domain :EmbeddingModel ;
+    rdfs:range xsd:integer .

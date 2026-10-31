@@ -1,23 +1,23 @@
-# EG-OBJECT-STORAGE-BACKEND test-spec
+# MEDULLA-OBJECT-STORAGE-BACKEND test-spec
 
 ## Positive
 
 - `test_object_storage_backend_spec.py::test_backend_spec_roundtrip_and_refusals`. Both backend
   variants round-trip. A missing secret reference refuses. An unknown variant refuses. An
-  unknown layout refuses. Each refusal is typed. *(EG-OBJECT-STORAGE-BACKEND-R001)*
+  unknown layout refuses. Each refusal is typed. *(MEDULLA-OBJECT-STORAGE-BACKEND-R001)*
 - `test_object_storage_reads.py::test_versioned_reads_and_corruption_refusal`. Reads at three
   versions each equal that version's write set. A corrupted segment refuses with a typed error
-  that names the version. Earlier versions stay readable. *(EG-OBJECT-STORAGE-BACKEND-R002)*
+  that names the version. Earlier versions stay readable. *(MEDULLA-OBJECT-STORAGE-BACKEND-R002)*
 - `test_object_storage_commits.py::test_commit_before_ack_and_partial_publish`. A commit acks
   only after the manifest publish. An interrupted publish reopens the graph at the prior whole
   version. A concurrent CAS loss yields exactly one head.
-  *(EG-OBJECT-STORAGE-BACKEND-R003)*
+  *(MEDULLA-OBJECT-STORAGE-BACKEND-R003)*
 - `test_object_storage_shared_root.py::test_multi_node_cold_open_and_rejoin`. Two nodes open the
   same root. They serve identical state. A node that drops local state rejoins within the
-  bounded re-fetch. *(EG-OBJECT-STORAGE-BACKEND-R004)*
+  bounded re-fetch. *(MEDULLA-OBJECT-STORAGE-BACKEND-R004)*
 - `test_comparative_cost_gate.py::test_regression_guard_and_claim_eligibility`. The stamped
   JSONL records all four dimensions for a clean run. An injected fixed-cost regression fails the
-  release guard. *(EG-OBJECT-STORAGE-BACKEND-R005)*
+  release guard. *(MEDULLA-OBJECT-STORAGE-BACKEND-R005)*
 
 ## Negative
 
@@ -44,15 +44,15 @@
 - Clippy, test, jscpd, CCCC, dupehound, KISS gates pass on the new binding and harness.
 - The no-duplicate-authority check confirms the object-store binding shares the store-authority
   chokepoint.
-- Release proof follows EG-CONTRACT. Exact-head CI receipts record in this directory.
+- Release proof follows MEDULLA-CONTRACT. Exact-head CI receipts record in this directory.
 
 ## Test bindings
 
 Each row's acceptance test binds its ID where the test lands. The lines below record the planned
 homes now. The spec-trailers gate resolves the spec PR's trailer. No delivery is claimed.
 
-- `# spec: EG-OBJECT-STORAGE-BACKEND-R001` — `tests/test_object_storage_backend_spec.py`
-- `# spec: EG-OBJECT-STORAGE-BACKEND-R002` — `tests/test_object_storage_reads.py`
-- `# spec: EG-OBJECT-STORAGE-BACKEND-R003` — `tests/test_object_storage_commits.py`
-- `# spec: EG-OBJECT-STORAGE-BACKEND-R004` — `tests/test_object_storage_shared_root.py`
-- `# spec: EG-OBJECT-STORAGE-BACKEND-R005` — `tests/test_comparative_cost_gate.py`
+- `# spec: MEDULLA-OBJECT-STORAGE-BACKEND-R001` — `tests/test_object_storage_backend_spec.py`
+- `# spec: MEDULLA-OBJECT-STORAGE-BACKEND-R002` — `tests/test_object_storage_reads.py`
+- `# spec: MEDULLA-OBJECT-STORAGE-BACKEND-R003` — `tests/test_object_storage_commits.py`
+- `# spec: MEDULLA-OBJECT-STORAGE-BACKEND-R004` — `tests/test_object_storage_shared_root.py`
+- `# spec: MEDULLA-OBJECT-STORAGE-BACKEND-R005` — `tests/test_comparative_cost_gate.py`

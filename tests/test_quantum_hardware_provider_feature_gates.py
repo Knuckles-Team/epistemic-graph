@@ -1,6 +1,6 @@
 """Quantum hardware provider adapters stay behind their own Cargo features.
 
-Static-assertion checks over the eg-quantum-hardware crate manifest, its
+Static-assertion checks over the medulla-quantum-hardware crate manifest, its
 module gates in ``src/lib.rs``, and the root package's ``quantum-hardware``
 facade feature. They do not replace the native clippy (dead-code) and
 provider test-suite evidence.
@@ -15,10 +15,10 @@ import tomllib
 pytestmark = pytest.mark.no_engine
 
 REPO = Path(__file__).resolve().parents[1]
-CRATE = REPO / "crates" / "eg-quantum-hardware"
+CRATE = REPO / "crates" / "medulla-quantum-hardware"
 PROVIDERS = ("ibm", "braket", "azure")
 
-# Every module of eg-quantum-hardware exists solely to serve the ibm/braket/
+# Every module of medulla-quantum-hardware exists solely to serve the ibm/braket/
 # azure provider adapters, so the whole set compiles under the same gate as
 # the adapters themselves. `registry` owns the impl_hardware_backend macro,
 # its re-export, and the HardwareResult alias.
@@ -41,7 +41,7 @@ def _gated_modules(source: str) -> set[str]:
     }
 
 
-@pytest.mark.spec("EG-CONTRACT-R042")
+@pytest.mark.spec("MEDULLA-CONTRACT-R042")
 def test_provider_adapters_are_feature_gated_and_off_by_default() -> None:
     # (1) Crate manifest: the three providers are opt-in features, and a
     # default build enables none of them (the network dependencies stay
@@ -71,6 +71,6 @@ def test_provider_adapters_are_feature_gated_and_off_by_default() -> None:
     # providers together.
     root = tomllib.loads((REPO / "Cargo.toml").read_text(encoding="utf-8"))
     facade = root["features"]["quantum-hardware"]
-    assert "dep:eg-quantum-hardware" in facade
+    assert "dep:medulla-quantum-hardware" in facade
     for provider in PROVIDERS:
-        assert f"eg-quantum-hardware/{provider}" in facade
+        assert f"medulla-quantum-hardware/{provider}" in facade

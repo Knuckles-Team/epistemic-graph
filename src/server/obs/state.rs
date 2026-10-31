@@ -8,9 +8,9 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 use crate::server::blob::store::{ChunkStore, RedbChunkStore};
-use eg_text::TextIndex;
-use eg_tsdb::point::Point;
-use eg_tsdb::store::SeriesStore;
+use medulla_text::TextIndex;
+use medulla_tsdb::point::Point;
+use medulla_tsdb::store::SeriesStore;
 
 use super::manifests::{
     load_segment_manifests, record_segment_manifest, LoadedSegmentManifests, SegmentManifestUsage,
@@ -67,7 +67,7 @@ fn open_obs_state_blocking(
         }
         None => {
             // A repeated clock tick must not alias another live store.
-            let base = crate::server::unique_temp_dir("eg-obs");
+            let base = crate::server::unique_temp_dir("medulla-obs");
             let series = SeriesStore::open_in_dir(
                 &base,
                 crate::store_authority::process_verifier(),
@@ -97,9 +97,9 @@ fn open_obs_state_blocking(
     let traces = match obs_base.as_deref() {
         Some(base) => match load_traces_snapshot(base)? {
             Some(traces) => traces,
-            None => eg_tsdb::traces::SpanStore::new(),
+            None => medulla_tsdb::traces::SpanStore::new(),
         },
-        None => eg_tsdb::traces::SpanStore::new(),
+        None => medulla_tsdb::traces::SpanStore::new(),
     };
     Ok(ObsState {
         series: Arc::new(series),
@@ -144,10 +144,10 @@ impl ObsState {
         Self::open_with_blob_store(persist_dir, flush_threshold, None).await
     }
 
-    /// CONCEPT:EG-OS.observability.trace-assembly — the distributed-trace span store handle, used by the trace
+    /// CONCEPT:MEDULLA-OS.observability.trace-assembly — the distributed-trace span store handle, used by the trace
     /// facade (`src/server/traces`) to ingest spans and serve trace search/assembly.
     #[cfg(feature = "traces")]
-    pub fn trace_store(&self) -> Arc<eg_tsdb::traces::SpanStore> {
+    pub fn trace_store(&self) -> Arc<medulla_tsdb::traces::SpanStore> {
         self.traces.clone()
     }
 
@@ -254,8 +254,8 @@ impl ObsState {
     }
 
     /// BM25 search a stream's text index — returns `(doc_id, score)` hits. The
-    /// query-back surface tests + a future EG-162 search endpoint use.
-    pub fn search(&self, stream: &str, query: &str, k: usize) -> Vec<eg_text::TextHit> {
+    /// query-back surface tests + a future MEDULLA-162 search endpoint use.
+    pub fn search(&self, stream: &str, query: &str, k: usize) -> Vec<medulla_text::TextHit> {
         let mut indices = self.indices.lock();
         match indices.get_mut(stream) {
             Some(ix) => ix.search(query, k),
@@ -264,7 +264,7 @@ impl ObsState {
     }
 
     /// The durable time-series store handle — used by the PromQL facade
-    /// (CONCEPT:EG-KG.query.prometheus-http-query-api) to resolve selectors / enumerate labels over the same series
+    /// (CONCEPT:MEDULLA-KG.query.prometheus-http-query-api) to resolve selectors / enumerate labels over the same series
     /// the log ingest lands in.
     pub fn series_store(&self) -> Arc<SeriesStore> {
         self.series.clone()

@@ -204,7 +204,7 @@ pub(super) fn decode_consensus_prepared(
 pub(super) fn consensus_participant_id(coordinator_id: &str, graph_name: &str) -> u64 {
     use sha2::{Digest, Sha256};
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph-consensus-participant-v1\0");
+    digest.update(b"medulla-consensus-participant-v1\0");
     digest.update((coordinator_id.len() as u64).to_be_bytes());
     digest.update(coordinator_id.as_bytes());
     digest.update((graph_name.len() as u64).to_be_bytes());

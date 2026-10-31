@@ -1,5 +1,5 @@
 //! Per-graph write coalescer — turns N concurrent single-op writes to ONE graph
-//! into ONE topology-lock acquisition per batch (CONCEPT:EG-KG.sharding.per-graph-write-coalescer).
+//! into ONE topology-lock acquisition per batch (CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer).
 //!
 //! ## Why
 //! Every structural write to a graph (`add_node`/`add_edge`/CAS/…) opens a one-shot
@@ -508,7 +508,7 @@ impl<W> CoalescerRegistryState<W> {
 /// Per-graph write coalescer: a bounded channel + one drain worker over a graph's
 /// [`GraphCore`]. Cloneable via `Arc`; held in [`WriteCoalescerRegistry`].
 pub struct GraphWriter {
-    // CONCEPT:EG-KG.compute.parse-resolve-span — the channel carries the op's enqueue `Instant` alongside it so
+    // CONCEPT:MEDULLA-KG.compute.parse-resolve-span — the channel carries the op's enqueue `Instant` alongside it so
     // the worker can record `write_lock_wait` = (lock acquired − enqueued). Stamped in
     // `try_enqueue`, so producer call sites can measure the true enqueue→acquire
     // wait without an unordered overflow path.
@@ -548,7 +548,7 @@ impl GraphWriter {
     ///   An accepted queue ticket is the sole authority for this graph's write order,
     ///   so an overflow path cannot overtake work already admitted ahead of it.
     pub fn try_enqueue(&self, op: WriteOp) -> Result<(), WriteOp> {
-        // CONCEPT:EG-KG.compute.parse-resolve-span — stamp the enqueue instant here (the moment the producer
+        // CONCEPT:MEDULLA-KG.compute.parse-resolve-span — stamp the enqueue instant here (the moment the producer
         // hands the op off) so the worker measures the true enqueue→acquire wait.
         let queued_bytes = op.approx_bytes();
         let tx = &self.tx;
@@ -575,7 +575,7 @@ async fn run_worker(
     config: CoalescerConfig,
     stats: Arc<BatchStats>,
 ) {
-    // CONCEPT:EG-KG.compute.parse-resolve-span — each entry carries its enqueue instant (set by `try_enqueue`).
+    // CONCEPT:MEDULLA-KG.compute.parse-resolve-span — each entry carries its enqueue instant (set by `try_enqueue`).
     let mut batch: Vec<(Instant, WriteOp)> = Vec::with_capacity(config.max_batch);
     let mut next_ticket = 0u64;
     while receive_batch(
@@ -634,7 +634,7 @@ fn apply_batch(
         reply: oneshot::Sender<WriteOutcome>,
     ) {
         // Capture the property blob BEFORE deletion (W1.6/P7,
-        // CONCEPT:EG-KG.storage.incremental-index-stamp) so incremental index maintenance removes
+        // CONCEPT:MEDULLA-KG.storage.incremental-index-stamp) so incremental index maintenance removes
         // the id from exactly its label/property postings, and the dependency clock bumps
         // exactly the label/key dimensions it touched, instead of a coarse drop/floor. The
         // node is gone from the property store the instant `txn.remove_node` runs.
@@ -780,12 +780,12 @@ fn apply_batch(
         return;
     }
     let n = batch.len();
-    // CONCEPT:EG-KG.compute.parse-resolve-span — span the batch apply so the hot write path is a trace span
+    // CONCEPT:MEDULLA-KG.compute.parse-resolve-span — span the batch apply so the hot write path is a trace span
     // carrying the graph + batch size (mirrors the AST/ANN phase spans).
     let _span = tracing::debug_span!("write_coalescer.apply_batch", graph = graph_name, batch = n)
         .entered();
     let mut txn = core.txn(); // ← the SINGLE lock acquisition for the whole batch.
-                              // CONCEPT:EG-KG.compute.parse-resolve-span — the topology write lock is now HELD. Record each op's wait
+                              // CONCEPT:MEDULLA-KG.compute.parse-resolve-span — the topology write lock is now HELD. Record each op's wait
                               // (enqueue → acquire) = the starvation it paid behind the firehose, then time the
                               // hold window (acquire → release) = the contention readers/other writers block on.
     let acquired = Instant::now();
@@ -795,9 +795,9 @@ fn apply_batch(
             acquired.saturating_duration_since(*enqueued).as_secs_f64(),
         );
     }
-    // CONCEPT:EG-KG.storage.write-changeset — collect the per-WriteOp delta for this batch so the
+    // CONCEPT:MEDULLA-KG.storage.write-changeset — collect the per-WriteOp delta for this batch so the
     // heavy secondary indexes can be maintained incrementally under this SAME lock.
-    // CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal — a content-derived
+    // CONCEPT:MEDULLA-KG.storage.incremental-text / .incremental-temporal — a content-derived
     // server index (text/temporal) is registered on this graph, so capture each
     // added/updated node's property blob into the ChangeSet. The adapter reads its
     // field from the captured blob rather than re-reading `core` under this batch's
@@ -808,7 +808,7 @@ fn apply_batch(
     for (_, op) in batch {
         apply_op(core, &mut txn, &mut change, capture_content, op);
     }
-    // CONCEPT:EG-KG.storage.write-changeset — maintain the heavy secondary indexes (vector today;
+    // CONCEPT:MEDULLA-KG.storage.write-changeset — maintain the heavy secondary indexes (vector today;
     // text/temporal/derived-OWL via the same seam in future) BEFORE releasing the
     // topology lock, so a concurrent hybrid read sees the topology mutation and the
     // index moves together — never a torn index.
@@ -821,7 +821,7 @@ fn apply_batch(
         );
     }
     drop(txn); // release the lock; reads + the next batch can proceed.
-               // CONCEPT:EG-KG.compute.parse-resolve-span — hold = acquire → release: the window readers were blocked.
+               // CONCEPT:MEDULLA-KG.compute.parse-resolve-span — hold = acquire → release: the window readers were blocked.
     crate::metrics::observe_write_lock_hold(graph_name, acquired.elapsed().as_secs_f64());
     record_flush(stats, n);
     crate::metrics::write_batch_committed(graph_name, n);
@@ -859,7 +859,7 @@ impl WriteCoalescerRegistry {
         })
     }
 
-    /// Drop the cached writer for `graph_name` (CONCEPT:EG-KG.backend.many-repeated-create-delete). Called by
+    /// Drop the cached writer for `graph_name` (CONCEPT:MEDULLA-KG.backend.many-repeated-create-delete). Called by
     /// `DeleteGraph` so a same-name recreate does NOT inherit the deleted
     /// incarnation's writer — whose worker task owns an `Arc<GraphCore>` of the OLD,
     /// now-orphaned core. Without this, `writer_for` would return the stale writer
@@ -1290,7 +1290,7 @@ mod tests {
     }
 
     /// After a delete (`remove`) + recreate, a write to the SAME name must land on the
-    /// NEW core, never the deleted incarnation's orphaned core (CONCEPT:EG-KG.backend.many-repeated-create-delete).
+    /// NEW core, never the deleted incarnation's orphaned core (CONCEPT:MEDULLA-KG.backend.many-repeated-create-delete).
     /// Without `remove`, `writer_for` returns the stale writer (it is name-keyed and
     /// ignores the new core) and the write lands on the old core — the tenant-churn
     /// corruption.
@@ -1334,7 +1334,7 @@ mod tests {
     }
 
     /// A RemoveNode batch drives the incremental index-maintenance seam
-    /// (CONCEPT:EG-KG.storage.write-changeset / .incremental-ann): the removed node's embedding
+    /// (CONCEPT:MEDULLA-KG.storage.write-changeset / .incremental-ann): the removed node's embedding
     /// is tombstoned under the SAME topology lock, so a later kNN search never
     /// returns it. Uses a second op as a barrier — the single worker drains batches
     /// sequentially, so awaiting a later op guarantees the earlier batch's index
@@ -1380,7 +1380,7 @@ mod tests {
         );
     }
 
-    /// Concurrency coherence (CONCEPT:EG-KG.storage.write-changeset): kNN reads running
+    /// Concurrency coherence (CONCEPT:MEDULLA-KG.storage.write-changeset): kNN reads running
     /// CONCURRENTLY with a stream of node removals NEVER observe a torn index — under
     /// one read guard, every hit's vector is still present in the store. Maintenance
     /// runs under the batch topology lock and mutates the vector store under its own

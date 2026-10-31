@@ -22,7 +22,7 @@ pub(super) struct CarrierNativeCommand<'a> {
     pub(super) multi: &'a Arc<crate::raft::multi::MultiRaft>,
     pub(super) authority: &'a CarrierAuthority,
     pub(super) request_id: u64,
-    pub(super) attempt_nonce: Option<eg_types::contract::Nonce>,
+    pub(super) attempt_nonce: Option<medulla_types::contract::Nonce>,
     pub(super) batch_id: String,
     pub(super) graph_name: String,
     pub(super) graph_type: crate::protocol::GraphType,

@@ -1,0 +1,70 @@
+# Recorded virtual-graph mapping for the `postiz` connector
+# (postiz-agent; MEDULLA-MEDIA-VOCAB-R017.2, MEDULLA-CQ-CONN-R049). The rows are the
+# `Connector mapping tables` entry for postiz in
+# specs/media-and-personal-vocabulary/plan.md (operation -> class/property ->
+# contract kind), written as `vg:VirtualMapping` rows over the `vg:` vocabulary
+# in virtual_graph-v1.ttl. Every ontology IRI stays in `:`; terms are reused
+# from media-v1, content-v1, retrieval-v1 and personal-v1, never redeclared.
+# The metadata contract is the discovery of the recorded response
+# (postiz_response.json, same directory); vg:contentDigest is sha256 over its bytes.
+# `postiz_analytics` (EngagementMetric) is not read-mapped here: no metric-value property is declared, so no row claims one. Notifications are out of scope; uploads and video are effect only.
+
+@prefix :    <http://knuckles.team/kg#> .
+@prefix vg:  <http://knuckles.team/kg/virtual-graph#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix f:   <urn:eg-media-vocab:postiz/> .
+
+f:connection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:declaredCapability "read" ;
+    vg:endpointRef [ a vg:EndpointRef ; vg:url "https://mcp.example.invalid/postiz" ] .
+
+f:contract a vg:MetadataContract ;
+    vg:contractSource f:connection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:0deee4e11ce704bd49dbc474f14d7459deb3af920e7bf432da2fcc3b992466d5" ;
+    vg:discoveredEntity "Post", "Channel" ;
+    vg:discoveredField "channel", "id", "name", "platform", "publishedAt", "scheduledAt", "state" ;
+    vg:discoveredOperation "postiz_posts/postiz_list_posts", "postiz_integrations/postiz_list_integrations" .
+
+# postiz_list_posts: the posts and the channel each belongs to
+f:row-post a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :SocialPost ;
+    vg:mapsEntity "Post" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :postState ;
+        vg:field "state"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :socialScheduledAt ;
+        vg:field "scheduledAt"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :publishedAt ;
+        vg:field "publishedAt"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :channelOf ;
+        vg:field "channel"
+    ] .
+
+# postiz_list_integrations: the publishing channels
+f:row-channel a vg:VirtualMapping ;
+    vg:mapsContract f:contract ;
+    vg:mapsOntologyClass :PublishingChannel ;
+    vg:mapsEntity "Channel" ;
+    vg:keyField "id" ;
+    vg:approved "true"^^xsd:boolean ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate :platform ;
+        vg:field "platform"
+    ], [
+        a vg:PredicateFieldPair ;
+        vg:predicate :title ;
+        vg:field "name"
+    ] .

@@ -1,4 +1,4 @@
-# EG-PLACEMENT implementation tasks
+# MEDULLA-PLACEMENT implementation tasks
 
 Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
 
@@ -23,13 +23,13 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
 - [x] **T19 - R002.3:** Pure grant sizing and typed zero-capacity refusal; served admission remains R075.
 - [ ] **T20 - R002.4:** Admission returns a grant.
 - [ ] **T21 - R002.5:** Routing is engine-side.
-- [ ] **T22 - R002.6:** Reword `EG-INGEST-WORKER-R001.2`.
-- [ ] **T23 - R002.7:** Reword `EG-INGEST-WORKER-R001.3`.
-- [ ] **T24 - R002.8:** Reword `EG-INGEST-WORKER-R001.6`.
-- [ ] **T25 - R002.9:** Reword `EG-INGEST-WORKER-R001.10`.
-- [ ] **T26 - R002.10:** Reword `EG-INGEST-WORKER-R001.11`.
-- [ ] **T27 - R002.11:** Reword `EG-INGEST-WORKER-R001.14`.
-- [ ] **T28 - R002.12:** Reword `EG-INGEST-WORKER-R001.15`.
+- [ ] **T22 - R002.6:** Reword `MEDULLA-INGEST-WORKER-R001.2`.
+- [ ] **T23 - R002.7:** Reword `MEDULLA-INGEST-WORKER-R001.3`.
+- [ ] **T24 - R002.8:** Reword `MEDULLA-INGEST-WORKER-R001.6`.
+- [ ] **T25 - R002.9:** Reword `MEDULLA-INGEST-WORKER-R001.10`.
+- [ ] **T26 - R002.10:** Reword `MEDULLA-INGEST-WORKER-R001.11`.
+- [ ] **T27 - R002.11:** Reword `MEDULLA-INGEST-WORKER-R001.14`.
+- [ ] **T28 - R002.12:** Reword `MEDULLA-INGEST-WORKER-R001.15`.
 - [ ] **T29 - R002.13:** Cross-repo (connector Graft SDK repository): no policy constants in the worker.
 - [ ] **T30 - R002.14:** Fold the analytics pool knob into the same config.
 - [ ] **T31 - R002.15:** Parity check that no duplicate policy remains.
@@ -42,16 +42,16 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
 - [ ] **T38 - R003.6:** Cap is counted after hashing; verify deterministic behavior on bounded fixtures.
 
 Order: R003 (independent, smallest), R002.1-R002.5 with the durable-kernel rows, then R002 rewordings; R001.1 (decision-engine R111.1) before R001.2-R001.11; R001.12-R001.14 last.
-- [ ] **EG-PLACEMENT-R004:** Heavy compute routes to the host that declares the capability.
-- [ ] **EG-PLACEMENT-R004.1:** Model. Add `HostCapability{host_iri, capability, headroom}` and `RoutingFact{job_class, required_capability}` in `crates/eg-types/src/decision/statistical/placement.rs`. The capability set is closed and declared by the host.
-- [ ] **EG-PLACEMENT-R004.2:** Behavior. Add `route_heavy_job(job_class, hosts)` returning hosts that declare the required capability, ordered by headroom. Ordering is a named replaceable default `most_headroom_first`.
-- [ ] **EG-PLACEMENT-R004.3:** Wiring. The behavior attaches at `crates/eg-jobs/src/store.rs:773` inside `claim_next` (`store.rs:736`), where worker capabilities already filter the ready queue. The production caller `crates/eg-quantum-jobs/src/job.rs:275` passes an empty capability list, so this row passes the declared capabilities from the topology facts.
-- [ ] **EG-PLACEMENT-R004.4:** Refusal. When no host declares the capability, the engine must refuse with `no_capable_host` naming the capability. It must not fall back to any host.
-- [ ] **EG-PLACEMENT-R004.5:** Evidence. Each routing decision must record `required_capability` and the candidate host list. It must also record the topology fact generation.
-- [ ] **EG-PLACEMENT-R004.6:** Hot-path proof. The entry point is the served job submit and worker claim wire methods. The test `tests/jobs/test_capability_claim_served.py::test_backtest_job_lands_on_declared_host` submits a heavy job. It passes through the wired `claim_next` and observes the claim on the host that declares the capability.
+- [ ] **MEDULLA-PLACEMENT-R004:** Heavy compute routes to the host that declares the capability.
+- [ ] **MEDULLA-PLACEMENT-R004.1:** Model. Add `HostCapability{host_iri, capability, headroom}` and `RoutingFact{job_class, required_capability}` in `crates/medulla-types/src/decision/statistical/placement.rs`. The capability set is closed and declared by the host.
+- [ ] **MEDULLA-PLACEMENT-R004.2:** Behavior. Add `route_heavy_job(job_class, hosts)` returning hosts that declare the required capability, ordered by headroom. Ordering is a named replaceable default `most_headroom_first`.
+- [ ] **MEDULLA-PLACEMENT-R004.3:** Wiring. The behavior attaches at `crates/medulla-jobs/src/store.rs:773` inside `claim_next` (`store.rs:736`), where worker capabilities already filter the ready queue. The production caller `crates/medulla-quantum-jobs/src/job.rs:275` passes an empty capability list, so this row passes the declared capabilities from the topology facts.
+- [ ] **MEDULLA-PLACEMENT-R004.4:** Refusal. When no host declares the capability, the engine must refuse with `no_capable_host` naming the capability. It must not fall back to any host.
+- [ ] **MEDULLA-PLACEMENT-R004.5:** Evidence. Each routing decision must record `required_capability` and the candidate host list. It must also record the topology fact generation.
+- [ ] **MEDULLA-PLACEMENT-R004.6:** Hot-path proof. The entry point is the served job submit and worker claim wire methods. The test `tests/jobs/test_capability_claim_served.py::test_backtest_job_lands_on_declared_host` submits a heavy job. It passes through the wired `claim_next` and observes the claim on the host that declares the capability.
 
 <!-- spec-definition-patch:owner-batch-20261012-placement-and-worker-policy -->
 ## Owner definition tasks — 2026-10-12
 
-- [ ] **`EG-PLACEMENT-R001.15`:** Define typed read-only capacity feasibility input/verdict and refusal rules using R112 premises and R001.6. Arbora must define proposal, actuation and independent applied-state readback receipt APIs before the row can claim a closed loop.
+- [ ] **`MEDULLA-PLACEMENT-R001.15`:** Define typed read-only capacity feasibility input/verdict and refusal rules using R112 premises and R001.6. Arbora must define proposal, actuation and independent applied-state readback receipt APIs before the row can claim a closed loop.
 <!-- /spec-definition-patch -->

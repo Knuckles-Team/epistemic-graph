@@ -4,14 +4,14 @@
 //! module only flips its admission state under the existing Agent Library
 //! mutation kernel after an exact current-head and body-digest CAS.
 
-use eg_types::agent_library::AgentLibraryMutationContext;
-use eg_types::connector_pack::{
+use medulla_types::agent_library::AgentLibraryMutationContext;
+use medulla_types::connector_pack::{
     ConnectorPackSourceApprovalResult, PackHeadRef, PackSourceApproval,
     CONNECTOR_PACK_SCHEMA_VERSION,
 };
-use eg_types::contract::{Digest256, ResourceId};
-use eg_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
-use eg_types::protocol::Method;
+use medulla_types::contract::{Digest256, ResourceId};
+use medulla_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
+use medulla_types::protocol::Method;
 use redb::ReadableTable;
 
 use super::admitted::{PackOwnerWrite, PackWriteEffects, PackWriteIdentity, PackWriteStaged};
@@ -34,8 +34,8 @@ impl AgentLibraryStore {
         expected_head: &PackHeadRef,
         contract_digest: Digest256,
     ) -> Result<ConnectorPackSourceApprovalResult, String> {
-        eg_types::agent_library::validate_key(&context.tenant_id, connector.as_str())?;
-        eg_types::connector_pack::validate_connector(connector)?;
+        medulla_types::agent_library::validate_key(&context.tenant_id, connector.as_str())?;
+        medulla_types::connector_pack::validate_connector(connector)?;
         if contract_iri.is_empty() || resource_uri.is_empty() {
             return Err("SOURCE_REGISTRATION_NOT_FOUND: source selector is empty".to_string());
         }
@@ -93,8 +93,8 @@ impl AgentLibraryStore {
                 CONNECTOR_PACK_SCHEMA_VERSION, receipt.schema_version
             ));
         }
-        eg_types::agent_library::validate_key(&receipt.tenant_id, receipt.connector.as_str())?;
-        eg_types::connector_pack::validate_connector(&receipt.connector)?;
+        medulla_types::agent_library::validate_key(&receipt.tenant_id, receipt.connector.as_str())?;
+        medulla_types::connector_pack::validate_connector(&receipt.connector)?;
         if receipt.registration.approval != PackSourceApproval::Approved {
             return Err("SOURCE_APPROVAL_NOT_ADMITTED: registration is not approved".to_string());
         }
@@ -103,7 +103,7 @@ impl AgentLibraryStore {
         }
 
         let read = self.read()?;
-        let heads = read.open_owner_table(eg_storage::CONNECTOR_PACK_HEADS)?;
+        let heads = read.open_owner_table(medulla_storage::CONNECTOR_PACK_HEADS)?;
         let head_row = heads
             .get((receipt.tenant_id.as_str(), receipt.connector.as_str()))
             .map_err(|error| error.to_string())?
@@ -118,7 +118,7 @@ impl AgentLibraryStore {
             return Err("PACK_HEAD_CONFLICT: source approval receipt is stale".to_string());
         }
 
-        let members = read.open_owner_table(eg_storage::CONNECTOR_PACK_MEMBERS)?;
+        let members = read.open_owner_table(medulla_storage::CONNECTOR_PACK_MEMBERS)?;
         let mut current_member = None;
         for row in members
             .range((receipt.tenant_id.as_str(), receipt.connector.as_str(), "")..)
@@ -144,7 +144,7 @@ impl AgentLibraryStore {
             )
         })?;
         if member.last_record_id != head.head.record_id
-            || member.lifecycle != eg_types::agent_library::AgentLibraryLifecycle::Published
+            || member.lifecycle != medulla_types::agent_library::AgentLibraryLifecycle::Published
         {
             return Err(
                 "SOURCE_REGISTRATION_NOT_FOUND: source member is not on the current published head"
@@ -242,7 +242,7 @@ fn apply_source_approval(
         ));
     }
 
-    let mut members = write.open_table(eg_storage::CONNECTOR_PACK_MEMBERS)?;
+    let mut members = write.open_table(medulla_storage::CONNECTOR_PACK_MEMBERS)?;
     let mut member = current_member(&mut members, tenant, connector, resource_uri, &head)?;
     if member.body_sha256 != contract_digest {
         return Err(format!(
@@ -267,7 +267,7 @@ fn apply_source_approval(
     if registration.approval == PackSourceApproval::Held {
         registration.approval = PackSourceApproval::Approved;
         member.source_registrations[registration_index] = registration.clone();
-        let bytes = eg_storage::encode_bounded(&member, "connector pack member")?;
+        let bytes = medulla_storage::encode_bounded(&member, "connector pack member")?;
         members
             .insert(
                 (tenant, connector.as_str(), member.uri.as_str()),
@@ -293,7 +293,7 @@ fn current_head(
     tenant: &str,
     connector: &ResourceId,
 ) -> Result<ConnectorPackHeadRow, String> {
-    let heads = write.open_table(eg_storage::CONNECTOR_PACK_HEADS)?;
+    let heads = write.open_table(medulla_storage::CONNECTOR_PACK_HEADS)?;
     let row = heads
         .get((tenant, connector.as_str()))
         .map_err(|error| error.to_string())?
@@ -323,7 +323,7 @@ fn current_member(
         let member: ConnectorPackMemberRow =
             crate::server::persistence::agent_row::decode(value.value(), "connector pack member")?;
         if member.last_record_id != head.head.record_id
-            || member.lifecycle != eg_types::agent_library::AgentLibraryLifecycle::Published
+            || member.lifecycle != medulla_types::agent_library::AgentLibraryLifecycle::Published
         {
             return Err(
                 "SOURCE_REGISTRATION_NOT_FOUND: source member is not on the current published head"

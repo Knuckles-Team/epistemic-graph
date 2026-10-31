@@ -1,11 +1,11 @@
-# EG-CQ-ORCH — Orchestration competency questions
+# MEDULLA-CQ-ORCH — Orchestration competency questions
 
 Owner: Medulla. Cross-repo IDs: Arbora (intent-surface probes, rollup R009), Meristem (none required).
 Public provenance: none; spec-only change.
 
 ## Purpose and user stories
 
-Exit gate: "How can I execute task XYZ?" is answered when it decomposes into seven separately answerable questions, each answered by one query over the ontology from real connected data, and a composed answer carries all seven parts with provenance, served through the engine's assembly (`graph.assemble()` / AgentAssemble, `EG-DECISION-ENGINE-R036`). It is not a second planner.
+Exit gate: "How can I execute task XYZ?" is answered when it decomposes into seven separately answerable questions, each answered by one query over the ontology from real connected data, and a composed answer carries all seven parts with provenance, served through the engine's assembly (`graph.assemble()` / AgentAssemble, `MEDULLA-DECISION-ENGINE-R036`). It is not a second planner.
 
 Questions (verbatim):
 
@@ -37,7 +37,7 @@ Owned: ontology gaps, SHACL shapes, source-authority mappings, fixtures and acce
 
 | Requirement | Design section | Test ID | Evidence |
 |---|---|---|---|
-| EG-CQ-ORCH-R001..R009 | design.md Q1..Q9 | each rollup's acceptance child | PENDING |
+| MEDULLA-CQ-ORCH-R001..R009 | design.md Q1..Q9 | each rollup's acceptance child | PENDING |
 
 ## Open questions
 
@@ -51,7 +51,7 @@ What is ingested from a connected source is its **ontology and access contract**
 <!-- spec-definition-patch:owner-batch-20261012-orchestration-competency -->
 ## Reviewed owner residuals — 2026-10-12
 
-### `EG-CQ-ORCH-R010.7` — GRAPHOS:20
+### `MEDULLA-CQ-ORCH-R010.7` — GRAPHOS:20
 
 Original objective: Before planning, query graph architecture and wiring. Report design differences. Each feature names its hot-path attach point. Refuse plans with unwired features.
 
@@ -59,7 +59,7 @@ Medulla-owned residual: No cited contract requires architecture/wiring compariso
 
 Producer/consumer boundary: Medulla served impact view and capability query feed Meristem study-gap proposals. Meristem proposals feed Medulla planning admission. The preplanning comparison and unwired-feature refusal edge are absent.
 
-Preserve existing coverage: `EG-CQ-ORCH-R010.1`, `EG-CQ-ORCH-R010.2`, `EG-CQ-ORCH-R010.3`, `EG-CQ-ORCH-R010.4`, `EG-CQ-ORCH-R010.5`, `EG-CQ-ORCH-R010.6`, `AU-HARNESS-R019.5`, `AU-HARNESS-R019.6`, `AU-HARNESS-R019.7`.
+Preserve existing coverage: `MEDULLA-CQ-ORCH-R010.1`, `MEDULLA-CQ-ORCH-R010.2`, `MEDULLA-CQ-ORCH-R010.3`, `MEDULLA-CQ-ORCH-R010.4`, `MEDULLA-CQ-ORCH-R010.5`, `MEDULLA-CQ-ORCH-R010.6`, `MERISTEM-HARNESS-R019.5`, `MERISTEM-HARNESS-R019.6`, `MERISTEM-HARNESS-R019.7`.
 
 Owner source hash: `bbc3f62e74bc899e49191e1d9bf324afe5e6dc2553df9e8d8651aae1311a8418`. This definition adds no Meristem/Arbora/Graft SDK implementation or acceptance claim.
 <!-- /spec-definition-patch -->

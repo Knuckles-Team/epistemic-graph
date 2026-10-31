@@ -1,0 +1,49 @@
+# medulla-shex — pure-Rust ShEx (Shape Expressions) Core validation engine (CONCEPT:MEDULLA-133).
+#
+# The complement to medulla-shacl (CONCEPT:MEDULLA-132): where SHACL constrains an RDF graph with
+# an RDF shapes graph, ShEx validates that focus nodes conform to *shape expressions*.
+# Sits in the DAG ABOVE medulla-rdf (it reuses medulla-rdf's re-exported oxrdf term/graph model —
+# the data graph is an `oxrdf::Graph`), a NON-LEAF leaf-crate: its ONLY graph dependency
+# is medulla-rdf (feature `rdf`, which links oxrdf/oxttl — all pure Rust). medulla-rdf does NOT
+# depend on medulla-shex, so there is no DAG cycle.
+#
+# Pi contract: pure-Rust, no C/native dep. `regex` (for string `pattern` facets) is
+# already in the tree via medulla-rdf's `sparql` feature (CONCEPT:MEDULLA-053) so it pins the SAME
+# crate — no new download. `serde_json` (the ShExJ abstract-syntax parser) is likewise
+# already resolved across the workspace. Folded into the engine's `shex` serving feature
+# (which implies `rdf`) by the orchestrator.
+[package]
+name = "medulla-shex"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Pure-Rust ShEx (Shape Expressions) Core validation engine for the medulla-engine engine (CONCEPT:MEDULLA-133) — parses a ShExJ schema (node constraints: nodeKind/datatype/string+numeric facets/value sets; triple constraints with cardinality; EachOf/OneOf/AND/OR/NOT combinators; shape references; CLOSED/EXTRA) and validates focus nodes of an RDF data graph against a shape map, producing a serde-serializable ShexReport. Reuses medulla-rdf's oxrdf term/graph model; NO C/native deps."
+license = "MIT"
+
+[lib]
+name = "medulla_shex"
+
+[dependencies]
+# The RDF term/graph model (oxrdf) + Turtle/N-Triples parse, re-exported by medulla-rdf.
+# The data graph is an `medulla_rdf::oxrdf::Graph`.
+medulla-rdf = { path = "../medulla-rdf", features = ["rdf"] }
+serde = { version = "1", features = ["derive"] }
+# The ShExJ (JSON abstract-syntax) schema parser. Unlike medulla-shacl (whose shapes graph is
+# RDF Turtle), a ShEx schema is most robustly consumed as ShExJ, so serde_json is a
+# first-class (not dev) dependency here. Already resolved across the workspace.
+serde_json = "1"
+# `pattern` string-facet regex. Pure-Rust, already pulled by medulla-rdf's `sparql` feature
+# (MEDULLA-053), so this pins the SAME crate — no new dependency in a `full` build.
+regex = "1"
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/pi/node/full build links none of it and `NodeResult` carries no
+# new required trait. See `src/contract.rs`.
+medulla-modality = { path = "../medulla-modality", optional = true }
+
+[features]
+default = []
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for NodeResult` +
+# the `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded
+# into any tier aggregate (pi/node/full) — it is a capability-discovery/testing seam,
+# not a serving feature. `cargo test -p medulla-shex --features contract` runs the suite.
+contract = ["dep:medulla-modality"]

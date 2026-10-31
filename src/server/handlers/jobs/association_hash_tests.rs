@@ -10,7 +10,7 @@ fn fixture_authority() -> CarrierAuthority {
             principal: "association-hash-test".into(),
             agent_id: "association-hash-test".into(),
             tenant: "association-hash-tenant".into(),
-            audience: "epistemic-graph".into(),
+            audience: "medulla".into(),
             policy_version: "test".into(),
             ..Default::default()
         },
@@ -30,7 +30,7 @@ fn mapped_transactions(raw: Vec<Vec<String>>) -> Vec<Vec<String>> {
     }
 }
 
-// spec: EG-PLACEMENT-R003.6
+// spec: MEDULLA-PLACEMENT-R003.6
 #[test]
 fn thirty_one_raw_fixture_labels_produce_distinct_deterministic_opaque_refs() {
     let labels: Vec<String> = (0..31).map(|i| format!("raw fixture label {i}")).collect();
@@ -49,7 +49,7 @@ fn thirty_one_raw_fixture_labels_produce_distinct_deterministic_opaque_refs() {
     }
 }
 
-// spec: EG-PLACEMENT-R003.6
+// spec: MEDULLA-PLACEMENT-R003.6
 #[test]
 fn repeated_raw_label_counts_once_within_and_across_transactions() {
     let mut labels: Vec<String> = (0..31).map(|i| format!("raw fixture label {i}")).collect();

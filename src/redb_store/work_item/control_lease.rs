@@ -1,19 +1,19 @@
-//! Native control-lease rows (graph-os EG-2). Issue and transition run inside
+//! Native control-lease rows (graph-os MEDULLA-2). Issue and transition run inside
 //! the SAME durable WorkItem MutationBatch transaction as the WorkItem
 //! transitions (replicated, audited, idempotent under the caller's key), and
 //! write through the same row writer, so the revision the reads project is the
 //! one [`write_work_item_props`] maintains.
 //!
 //! The lifecycle rules and the row shape are owned by
-//! [`eg_types::control_lease`]; this module only reads and writes rows.
+//! [`medulla_types::control_lease`]; this module only reads and writes rows.
 
-use eg_types::control_lease::{
+use medulla_types::control_lease::{
     is_tenant_control_lease, validate_control_lease_get, ControlLeaseIssueOutcome,
     ControlLeaseIssued, ControlLeasePage, ControlLeaseTarget, ControlLeaseTransition,
     ControlLeaseTransitionOutcome, ControlLeaseView, IssueControlLeaseRequest,
     ListControlLeasesRequest, TransitionControlLeaseRequest,
 };
-use eg_types::result_contract::coordination::{IssueControlLease, TransitionControlLease};
+use medulla_types::result_contract::coordination::{IssueControlLease, TransitionControlLease};
 
 use super::*;
 
@@ -108,7 +108,7 @@ pub(crate) fn apply_transition_control_lease_row(
         return transition_result(ControlLeaseTransitionOutcome::NotFound, None, false);
     };
     let current = ControlLeaseView::from_row(&request.lease_id, &row)?;
-    if current.kind == eg_types::host_start::HOST_START_KIND
+    if current.kind == medulla_types::host_start::HOST_START_KIND
         && request.to == ControlLeaseTarget::Consumed
     {
         return Err(

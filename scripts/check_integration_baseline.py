@@ -4,7 +4,7 @@
 Why this exists
 ---------------
 Until 2026-08-21 this suite could not run at all. ``conftest.py``'s
-``start_epistemic_graph_server`` falls back to ``cargo build --features full``
+``start_medulla_server`` falls back to ``cargo build --features full``
 INSIDE a fixture, and fixture setup runs inside pytest-timeout's per-test 60s
 window, so a cold target produced ~500 ``Timeout (>60.0s)`` errors — every one
 of them about the build, none about the code. The gate reported catastrophe and

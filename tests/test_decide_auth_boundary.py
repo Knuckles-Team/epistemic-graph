@@ -1,4 +1,4 @@
-"""EG-CONTRACT-R002.1/.2: the served ``Decide`` auth-boundary and pack journey.
+"""MEDULLA-CONTRACT-R002.1/.2: the served ``Decide`` auth-boundary and pack journey.
 
 ``Decide`` is refused when the request's own ``tenant_id`` does not match the
 tenant the engine verified the caller's session for
@@ -14,7 +14,7 @@ That check had no test anywhere in this repository before R002.1 -- not a
 Rust unit test, and no served Python test at all exercised ``Decide`` or
 ``DecisionLog`` against a live engine (checked: no ``tests/served_*.{py,rs}``
 file names ``Decide``). R002.1 proved the refusal side end-to-end through the
-generated sender (``epistemic_graph.decision_client.DecisionClient``, over
+generated sender (``medulla.decision_client.DecisionClient``, over
 the installed wire client, no source-tree import) against the real server
 binary this suite's session fixture starts, not an in-process reasoning
 check.
@@ -27,7 +27,7 @@ and a served Agent Library pack journey (bind an importer, publish a pack
 through the Blob CAS, import it, then read its status back) against the same
 live engine, reusing ``tests/test_connector_pack_planted.py``'s served
 helpers rather than duplicating them. The "no source-tree imports" wheel
-install assertion from the full EG-CONTRACT-R002 acceptance text is left for
+install assertion from the full MEDULLA-CONTRACT-R002 acceptance text is left for
 a further slice.
 """
 
@@ -41,10 +41,10 @@ import pytest
 from conftest import TEST_TENANT, request_context
 from test_connector_pack_planted import IMPORTER, _bind, _import, _pack_op
 
-from epistemic_graph import decision_client as dc
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.testing.synthetic.packs.malformed import base_spec
-from epistemic_graph.testing.synthetic.packs.spec import assemble
+from medulla import decision_client as dc
+from medulla.client import MedullaClient
+from medulla.testing.synthetic.packs.malformed import base_spec
+from medulla.testing.synthetic.packs.spec import assemble
 
 #: A structurally valid, semantically empty DecideRequest: the tenant check
 #: in `serve()` runs before any candidate/feature resolution, so a minimal
@@ -67,7 +67,7 @@ def _request_for_tenant(tenant_id: str) -> dict[str, object]:
 
 async def _decide_as_verified_session(tenant_id: str) -> object:
     socket_path = os.environ["GRAPH_SERVICE_SOCKET"]
-    client = await EpistemicGraphClient.connect(
+    client = await MedullaClient.connect(
         socket_path=socket_path,
         verified_context=request_context(),
     )
@@ -78,7 +78,7 @@ async def _decide_as_verified_session(tenant_id: str) -> object:
         await client.close()
 
 
-@pytest.mark.spec("EG-CONTRACT-R002.1")
+@pytest.mark.spec("MEDULLA-CONTRACT-R002.1")
 def test_decide_refuses_a_request_tenant_that_does_not_match_the_verified_session() -> (
     None
 ):
@@ -97,7 +97,7 @@ def test_decide_refuses_a_request_tenant_that_does_not_match_the_verified_sessio
     assert "tenant" in message.lower(), message
 
 
-@pytest.mark.spec("EG-CONTRACT-R002.2")
+@pytest.mark.spec("MEDULLA-CONTRACT-R002.2")
 def test_decide_passes_the_tenant_check_for_a_matching_request_tenant() -> None:
     """A session verified for ``TEST_TENANT`` MAY ``Decide`` for its own
     tenant: the auth-boundary check in ``serve()`` does not refuse it. The
@@ -116,12 +116,12 @@ def test_decide_passes_the_tenant_check_for_a_matching_request_tenant() -> None:
 
 async def _pack_journey(connector: str) -> dict[str, Any]:
     """Publish, import and read back one well-formed pack against the live
-    engine: the served Agent Library journey named by EG-CONTRACT-R002's
+    engine: the served Agent Library journey named by MEDULLA-CONTRACT-R002's
     acceptance text. Reuses ``test_connector_pack_planted``'s served helpers
     (``_bind``/``_import``/``_pack_op``) instead of duplicating its
     bind/upload/import wire sequence."""
     socket_path = os.environ["GRAPH_SERVICE_SOCKET"]
-    client = await EpistemicGraphClient.connect(
+    client = await MedullaClient.connect(
         socket_path=socket_path,
         verified_context=request_context(),
     )
@@ -142,9 +142,9 @@ async def _pack_journey(connector: str) -> dict[str, Any]:
         await client.close()
 
 
-@pytest.mark.spec("EG-CONTRACT-R002.2")
+@pytest.mark.spec("MEDULLA-CONTRACT-R002.2")
 def test_served_pack_publish_import_and_status_journey() -> None:
-    """The Agent Library pack journey from EG-CONTRACT-R002's acceptance
+    """The Agent Library pack journey from MEDULLA-CONTRACT-R002's acceptance
     text -- publishing (bind + upload through the Blob CAS), importing, then
     reading a pack back -- against the real engine this suite's session
     fixture starts, through the generated sender, not an in-process check."""

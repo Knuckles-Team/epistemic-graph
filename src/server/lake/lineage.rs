@@ -1,13 +1,13 @@
-//! OpenLineage `RunEvent` construction + (optional) HTTP export (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns,
+//! OpenLineage `RunEvent` construction + (optional) HTTP export (CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns,
 //! INT-P2-3) for the lake materialization tier.
 //!
 //! Every `LakeManager` materialize/compact/delete run builds one OpenLineage
 //! `RunEvent` — the spec's job/run/dataset shape (`openlineage.io/spec/…/OpenLineage.json`)
 //! — carrying:
-//!  * a **job** (`epistemic-graph.lake` / `materialize.<namespace>.<table>`),
+//!  * a **job** (`medulla.lake` / `materialize.<namespace>.<table>`),
 //!  * a **run** (a stable, deterministic `runId`),
 //!  * an **input dataset** (the tsdb series the rows were drained from, when known —
-//!    `epistemic-graph.tsdb` / `<series_id>`), and
+//!    `medulla.tsdb` / `<series_id>`), and
 //!  * an **output dataset** (`<namespace>` / `<namespace>.<table>`) carrying the
 //!    canonical `schema` (`SchemaDatasetFacet`), `dataSource` (`DatasourceDatasetFacet`)
 //!    and `outputStatistics` (`OutputStatisticsOutputDatasetFacet`) facets, a
@@ -18,7 +18,7 @@
 //!    correlation OpenLineage's custom-facet extensibility model is FOR.
 //!
 //! Dependency-free (no `chrono`/`uuid` — a hand-rolled ISO-8601 formatter + an FNV
-//! hash-derived UUID-shaped run id, mirroring `eg_lake::stable_table_id`'s own
+//! hash-derived UUID-shaped run id, mirroring `medulla_lake::stable_table_id`'s own
 //! convention). The (optional) HTTP push reuses the SAME pure-Rust `ureq` client
 //! `sparql-service`/`federation-search`/`otel-export` already link — no new HTTP dep.
 
@@ -26,18 +26,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
-use eg_lake::schema::LakeSchema;
+use medulla_lake::schema::LakeSchema;
 
 use super::LakeOp;
 
 /// Env var carrying an OpenLineage HTTP collector base endpoint (e.g. a Marquez
 /// instance, `http://marquez:5000`). Unset ⇒ events are still built + kept in the
 /// in-memory ring + traced, but never pushed over HTTP.
-pub const OPENLINEAGE_URL_ENV: &str = "EPISTEMIC_GRAPH_OPENLINEAGE_URL";
+pub const OPENLINEAGE_URL_ENV: &str = "MEDULLA_OPENLINEAGE_URL";
 /// The `producer` OpenLineage stamps on every event this tier emits.
-const PRODUCER: &str = "https://github.com/Knuckles-Team/epistemic-graph/tree/main/crates/eg-lake";
+const PRODUCER: &str = "https://github.com/Knuckles-Team/medulla/tree/main/crates/medulla-lake";
 const SCHEMA_URL: &str = "https://openlineage.io/spec/1-0-5/OpenLineage.json#/$defs/RunEvent";
-const JOB_NAMESPACE: &str = "epistemic-graph.lake";
+const JOB_NAMESPACE: &str = "medulla.lake";
 
 /// Wall-clock now, epoch milliseconds.
 pub fn now_ms() -> u64 {
@@ -71,7 +71,7 @@ fn iso8601_ms(epoch_ms: u64) -> String {
 }
 
 /// A deterministic, UUID-shaped run id derived from the table + lsn (FNV-1a 64,
-/// mirroring `eg_lake`'s own `stable_table_id` convention) — stable across a retry so
+/// mirroring `medulla_lake`'s own `stable_table_id` convention) — stable across a retry so
 /// pushing the SAME event twice doesn't mint two "different" runs, and avoids a `uuid`
 /// dependency.
 fn run_id(namespace: &str, table: &str, lsn: u64) -> String {
@@ -192,7 +192,7 @@ pub fn build_run_event(
                     "_producer": PRODUCER,
                     "_schemaURL": "https://openlineage.io/spec/facets/1-0-0/DocumentationJobFacet.json#/$defs/DocumentationJobFacet",
                     "description": format!(
-                        "eg-lake LTAP materialization of {namespace}.{table} (op={})",
+                        "medulla-lake LTAP materialization of {namespace}.{table} (op={})",
                         op.as_str()
                     ),
                 },
@@ -233,7 +233,7 @@ pub fn maybe_push_http(event: &Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_lake::schema::{LakeField, LakeType};
+    use medulla_lake::schema::{LakeField, LakeType};
 
     #[test]
     fn iso8601_formats_epoch_correctly() {
@@ -268,10 +268,10 @@ mod tests {
             "lake://engine/sensor1",
             42,
             42,
-            Some(("epistemic-graph.tsdb", "sensor1")),
+            Some(("medulla.tsdb", "sensor1")),
         );
         assert_eq!(ev["eventType"], "COMPLETE");
-        assert_eq!(ev["job"]["namespace"], "epistemic-graph.lake");
+        assert_eq!(ev["job"]["namespace"], "medulla.lake");
         assert_eq!(ev["job"]["name"], "materialize.engine.sensor1");
         assert!(ev["run"]["runId"].as_str().unwrap().len() == 36);
         assert_eq!(ev["inputs"][0]["name"], "sensor1");

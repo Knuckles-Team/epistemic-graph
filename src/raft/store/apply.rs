@@ -1,6 +1,6 @@
 use super::*;
 
-impl EgStore {
+impl MedullaStore {
     /// Apply ONE committed request to the engine. Every ordinary method is staged
     /// against the authoritative image and committed as one state-backed
     /// MutationBatch before RAM publication. A ChangeEnvelope invokes its richer
@@ -52,7 +52,7 @@ impl EgStore {
         })
     }
 
-    /// Phase 2 of `apply_request` (CX WB1-EG-01 CCN reduction): resolve the
+    /// Phase 2 of `apply_request` (CX WB1-MEDULLA-01 CCN reduction): resolve the
     /// target graph, validate the graph method is a deterministic durable
     /// mutation, then try the `ChangeEnvelope` fast path before falling through
     /// to the ordinary stage-and-commit pipeline. Pure extract-method from
@@ -109,7 +109,7 @@ impl EgStore {
         )
         .await
     }
-    /// `ChangeEnvelope` fast path of `apply_request` (CX WB1-EG-01 CCN
+    /// `ChangeEnvelope` fast path of `apply_request` (CX WB1-MEDULLA-01 CCN
     /// reduction). `Ok(Some(response))` / `Ok(None)` follow the same
     /// early-exit-as-value convention as `try_apply_native_command`. Pure
     /// extract-method, byte-identical behaviour: ChangeEnvelope is one atomic

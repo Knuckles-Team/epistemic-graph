@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Fetch the model and speech sample that eg-asr-whisper's real-model unit and
+# Fetch the model and speech sample that medulla-asr-whisper's real-model unit and
 # integration tests need, and print the two environment assignments they read.
 #
 #   export $(scripts/fetch_whisper_test_fixture.sh)
-#   cargo test -p eg-asr-whisper -- --nocapture
+#   cargo test -p medulla-asr-whisper -- --nocapture
 #
 # When the variables are unset the tests FAIL; they never skip.
 #
@@ -16,7 +16,7 @@
 # itself never downloads a model (GOC-36 owns acquisition); this script is test
 # tooling only.
 #
-# Optional argument: cache directory (default: $XDG_CACHE_HOME/eg-whisper-test).
+# Optional argument: cache directory (default: $XDG_CACHE_HOME/medulla-whisper-test).
 set -euo pipefail
 
 MODEL_REVISION=5359861c739e955e79d9a303bcbc70fb988958b1
@@ -24,7 +24,7 @@ MODEL_SHA256=921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f
 WAV_TAG=v1.7.6
 WAV_SHA256=59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e
 
-dest="${1:-${XDG_CACHE_HOME:-$HOME/.cache}/eg-whisper-test}"
+dest="${1:-${XDG_CACHE_HOME:-$HOME/.cache}/medulla-whisper-test}"
 mkdir -p "$dest"
 
 # fetch <url> <sha256> <path>: download to a .part file, verify, then rename.
@@ -45,5 +45,5 @@ fetch "https://huggingface.co/ggerganov/whisper.cpp/resolve/$MODEL_REVISION/ggml
 fetch "https://raw.githubusercontent.com/ggml-org/whisper.cpp/$WAV_TAG/samples/jfk.wav" \
   "$WAV_SHA256" "$wav"
 
-printf 'EG_ASR_TEST_MODEL_PATH=%s\n' "$model"
-printf 'EG_ASR_TEST_WAV_PATH=%s\n' "$wav"
+printf 'MEDULLA_ASR_TEST_MODEL_PATH=%s\n' "$model"
+printf 'MEDULLA_ASR_TEST_WAV_PATH=%s\n' "$wav"

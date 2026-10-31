@@ -2,11 +2,11 @@
 //! `AddNode` + `GetNodeProperties` op (unified-binary program, workstream W-A;
 //! see `docs/architecture/unified-inprocess-engine.md`).
 //!
-//! Both arms call the IDENTICAL `epistemic_graph::graph::GraphCore` mutation —
+//! Both arms call the IDENTICAL `medulla::graph::GraphCore` mutation —
 //! the only variable is the transport in between:
 //!
 //!   * `inprocess`  — calls `GraphCore::add_node` / `get_node_properties`
-//!     directly. This is exactly what `crates/eg-pyengine`'s pyo3 boundary does
+//!     directly. This is exactly what `crates/medulla-pyengine`'s pyo3 boundary does
 //!     inside `Python::detach` (this bench does not spin up a Python
 //!     interpreter; it isolates the transport delta the embedding removes, not
 //!     the pyo3 arg-marshaling cost itself — see the design doc's "what this
@@ -18,7 +18,7 @@
 //!     `GraphCore`, and framed back. ONE persistent connection is reused
 //!     across every sample (never reconnecting mid-benchmark), matching how
 //!     the real client/server keep one long-lived connection
-//!     (`epistemic_graph.client`'s `_ensure_connection`) — so this isolates
+//!     (`medulla.client`'s `_ensure_connection`) — so this isolates
 //!     per-request framing/socket cost, not connection setup.
 //!
 //! Deliberately NOT measured here: the `eg2.` authenticated envelope (HMAC
@@ -47,8 +47,8 @@ use std::cell::Cell;
 use std::sync::Arc;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use epistemic_graph::graph::GraphCore;
-use epistemic_graph::protocol::Method;
+use medulla::graph::GraphCore;
+use medulla::protocol::Method;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::runtime::Builder;

@@ -1,6 +1,6 @@
-# Image for the native epistemic-graph-server executable.
+# Image for the native medulla-server executable.
 #
-# Stage 1 installs the built `epistemic-graph-server` wheel (staged in docker/wheels by the
+# Stage 1 installs the built `medulla-server` wheel (staged in docker/wheels by the
 # release workflow, else the exact published release). The final stage is a slim base carrying
 # only the binary.
 #
@@ -19,28 +19,28 @@ RUN set -eu; \
     else \
       uv pip install --python /opt/venv/bin/python "medulla-stem==${EGS_VERSION}"; \
     fi; \
-    /opt/venv/bin/epistemic-graph-server --help >/dev/null; \
-    cp "$(readlink -f /opt/venv/bin/epistemic-graph-server)" /epistemic-graph-server
+    /opt/venv/bin/medulla-server --help >/dev/null; \
+    cp "$(readlink -f /opt/venv/bin/medulla-server)" /medulla-server
 
 FROM debian:bookworm-slim AS runtime
 LABEL org.opencontainers.image.title="medulla-stem" \
       org.opencontainers.image.description="Native Medulla server executable" \
       org.opencontainers.image.source="https://github.com/Knuckles-Team/medulla"
-ENV GRAPH_SERVICE_PERSIST_DIR=/var/lib/epistemic-graph/data \
+ENV GRAPH_SERVICE_PERSIST_DIR=/var/lib/medulla/data \
     GRAPH_SERVICE_TCP_ADDR=127.0.0.1:9100 \
     GRAPH_SERVICE_METRICS_ADDR=127.0.0.1:9101
 RUN groupadd --system --gid 10001 epistemic \
     && useradd --system --uid 10001 --gid epistemic \
-        --home-dir /var/lib/epistemic-graph --shell /usr/sbin/nologin epistemic \
-    && mkdir -p /var/lib/epistemic-graph/data \
-    && chown -R epistemic:epistemic /var/lib/epistemic-graph
-COPY --from=builder /epistemic-graph-server /usr/local/bin/epistemic-graph-server
-VOLUME ["/var/lib/epistemic-graph/data"]
+        --home-dir /var/lib/medulla --shell /usr/sbin/nologin epistemic \
+    && mkdir -p /var/lib/medulla/data \
+    && chown -R epistemic:epistemic /var/lib/medulla
+COPY --from=builder /medulla-server /usr/local/bin/medulla-server
+VOLUME ["/var/lib/medulla/data"]
 EXPOSE 9100 9101
 # The runtime has no interpreter: probe the TCP port with bash.
 HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=5 \
     CMD ["bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9100"]
-WORKDIR /var/lib/epistemic-graph
+WORKDIR /var/lib/medulla
 USER 10001:10001
 # Loopback-only by default; routable deployments set GRAPH_SERVICE_TCP_ADDR with TLS/mTLS and an auth secret.
-ENTRYPOINT ["epistemic-graph-server"]
+ENTRYPOINT ["medulla-server"]

@@ -4,7 +4,7 @@
 //! Before anything is staged, the handler reads the named approval lease from
 //! the request graph's native control-lease rows (tenant-bound: another
 //! tenant's lease is simply not visible) and checks it with
-//! [`eg_types::graph_schema::approval::verify_schema_approval`] against the
+//! [`medulla_types::graph_schema::approval::verify_schema_approval`] against the
 //! exact candidate digest. Only then does the attach enter the ordinary
 //! GraphSchema gateway commit (audit, CDC, ordering, full entering-schema
 //! validation), under the reserved `approved:` key with an `Approved` origin
@@ -12,8 +12,8 @@
 
 use std::sync::Arc;
 
-use eg_types::graph_schema::approval::{approved_candidate_digest, verify_schema_approval};
-use eg_types::graph_schema::GraphSchemaOp;
+use medulla_types::graph_schema::approval::{approved_candidate_digest, verify_schema_approval};
+use medulla_types::graph_schema::GraphSchemaOp;
 
 use crate::protocol::{Method, Response};
 use crate::server::mutation::{MutationCtx, MutationPlan};
@@ -86,9 +86,9 @@ fn validate(
     sources.attach_dynamic(op.source_token().to_string(), source(op)?)?;
     super::compose::validate_entering_schema(&sources)?;
     let current = core.schema_sources().composed_digest().to_hex();
-    crate::protocol::ResultPayload::of::<eg_types::result_contract::reasoning::GraphSchema>(
-        eg_types::graph_schema::GraphSchemaCommitted {
-            schema_version: eg_types::graph_schema::GRAPH_SCHEMA_RESULT_SCHEMA_VERSION,
+    crate::protocol::ResultPayload::of::<medulla_types::result_contract::reasoning::GraphSchema>(
+        medulla_types::graph_schema::GraphSchemaCommitted {
+            schema_version: medulla_types::graph_schema::GRAPH_SCHEMA_RESULT_SCHEMA_VERSION,
             graph: graph_name.to_string(),
             composed_digest: current,
             graph_version: core.version(),
@@ -102,7 +102,7 @@ async fn read_lease(
     ctx: &MutationCtx<'_>,
     tenant_id: &str,
     lease_id: &str,
-) -> Result<Option<eg_types::control_lease::ControlLeaseView>, String> {
+) -> Result<Option<medulla_types::control_lease::ControlLeaseView>, String> {
     let backend = ctx
         .persistence
         .and_then(|backend| backend.as_redb())
@@ -123,14 +123,14 @@ async fn read_lease(
     _ctx: &MutationCtx<'_>,
     _tenant_id: &str,
     _lease_id: &str,
-) -> Result<Option<eg_types::control_lease::ControlLeaseView>, String> {
+) -> Result<Option<medulla_types::control_lease::ControlLeaseView>, String> {
     Err(approval_store_unavailable())
 }
 
 fn approval_store_unavailable() -> String {
     format!(
         "{}: this engine build holds no native approval leases",
-        eg_types::graph_schema::GraphSchemaErrorCode::ApprovalRequired.as_str()
+        medulla_types::graph_schema::GraphSchemaErrorCode::ApprovalRequired.as_str()
     )
 }
 
@@ -153,9 +153,9 @@ pub(super) fn source(op: &GraphSchemaOp) -> Result<crate::graph::GraphSchemaSour
         _ => return Err("approved schema source needs a repair operation".to_string()),
     };
     let name = source_id
-        .strip_prefix(eg_types::graph_schema::approval::APPROVED_SOURCE_PREFIX)
+        .strip_prefix(medulla_types::graph_schema::approval::APPROVED_SOURCE_PREFIX)
         .ok_or_else(|| "approved schema source id lacks its namespace".to_string())?;
-    let shapes = eg_types::graph_schema::repair::render_repair_shapes(name, contract);
+    let shapes = medulla_types::graph_schema::repair::render_repair_shapes(name, contract);
     crate::graph::GraphSchemaSource::new(
         crate::graph::SchemaSourceOrigin::Approved {
             name: name.to_string(),

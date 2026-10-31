@@ -12,7 +12,7 @@
 //! * **Fleet event streams are written only by the fleet event authority.** A
 //!   write to a `fleet.`-prefixed broker stream (declare, publish, trim, commit
 //!   offset) needs the exact `fleet:events` scope (or its `fleet:*` wildcard, or
-//!   `kg:admin`); a coarse `kg:write` is not enough (graph-os EG-5).
+//!   `kg:admin`); a coarse `kg:write` is not enough (graph-os MEDULLA-5).
 //!
 //! Replicated state-machine applies are exempt (the proposing request was
 //! checked); the caller skips this module for them.
@@ -99,7 +99,7 @@ fn governance_body_tenants(method: &Method) -> Vec<&str> {
         // EH-558: sealed-record retirement names its tenant in the body too.
         Method::RetireSealedRecord { request } => vec![request.tenant.as_str()],
         // EH-348 work-market writes share the kernel and its tenant rule.
-        other => eg_types::work_market::market_write_scope(other)
+        other => medulla_types::work_market::market_write_scope(other)
             .map(|(tenant, _)| vec![tenant])
             .unwrap_or_default(),
     }

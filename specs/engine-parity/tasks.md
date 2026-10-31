@@ -1,86 +1,86 @@
-# EG-ENGINE-PARITY — Implementation tasks
+# MEDULLA-ENGINE-PARITY — Implementation tasks
 
 Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Rows: [requirements.md](requirements.md).
 
 Demand gate (R020): a rollup enters the work queue only with a named consumer. The consumer of each rollup is listed in plan.md "Consumers". Compile slot: Medulla only, one cargo lane host-wide at a time.
 
-- [ ] `EG-ENGINE-PARITY-R001` — Single committer with group commit and batched fsync (rollup).
-- [ ] `EG-ENGINE-PARITY-R001.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R001.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R001.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R002` — Optimistic concurrency with read and write sets (rollup).
-- [ ] `EG-ENGINE-PARITY-R002.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R002.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R002.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R003` — Partitioned store files for parallel writers (rollup).
-- [ ] `EG-ENGINE-PARITY-R003.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R003.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R003.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R004` — Lock-free acceptance for disjoint keys (rollup).
-- [ ] `EG-ENGINE-PARITY-R004.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R004.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R004.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R005` — Write throughput benchmark and targets (rollup).
-- [ ] `EG-ENGINE-PARITY-R005.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R005.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R005.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R006` — PostgreSQL wire protocol front end (rollup).
-- [ ] `EG-ENGINE-PARITY-R006.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R006.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R006.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R007` — Wire authentication mapped to engine principals and row security (rollup).
-- [ ] `EG-ENGINE-PARITY-R007.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R007.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R007.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R008` — Catalog views for outside tools (rollup).
-- [ ] `EG-ENGINE-PARITY-R008.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R008.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R008.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R009` — SQL dialect compatibility matrix (rollup).
-- [ ] `EG-ENGINE-PARITY-R009.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R009.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R009.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R010` — Secondary, partial and expression indexes (rollup).
-- [ ] `EG-ENGINE-PARITY-R010.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R010.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R010.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R011` — Constraints: unique, foreign key, check and shapes (rollup).
-- [ ] `EG-ENGINE-PARITY-R011.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R011.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R011.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R012` — Triggers as reactive rules (rollup).
-- [ ] `EG-ENGINE-PARITY-R012.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R012.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R012.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R013` — Sequences (rollup).
-- [ ] `EG-ENGINE-PARITY-R013.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R013.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R013.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R014` — Views and materialized views as derived series (rollup).
-- [ ] `EG-ENGINE-PARITY-R014.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R014.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R014.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R015` — Change data capture by logical decoding (rollup).
-- [ ] `EG-ENGINE-PARITY-R015.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R015.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R015.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R016` — Point-in-time recovery from snapshots and the log (rollup).
-- [ ] `EG-ENGINE-PARITY-R016.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R016.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R016.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R017` — Read replicas that follow the log (rollup).
-- [ ] `EG-ENGINE-PARITY-R017.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R017.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R017.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R018` — Columnar materialization of hot record classes (rollup).
-- [ ] `EG-ENGINE-PARITY-R018.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R018.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R018.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R019` — Outside PostgreSQL databases are sources only (rollup).
-- [ ] `EG-ENGINE-PARITY-R019.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R019.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R019.3` — Hot-path proof.
-- [ ] `EG-ENGINE-PARITY-R020` — Demand gate, capability report and parity benchmark suite (rollup).
-- [ ] `EG-ENGINE-PARITY-R020.1` — Model and behavior.
-- [ ] `EG-ENGINE-PARITY-R020.2` — Wiring and refusal.
-- [ ] `EG-ENGINE-PARITY-R020.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R001` — Single committer with group commit and batched fsync (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R001.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R001.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R001.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R002` — Optimistic concurrency with read and write sets (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R002.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R002.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R002.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R003` — Partitioned store files for parallel writers (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R003.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R003.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R003.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R004` — Lock-free acceptance for disjoint keys (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R004.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R004.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R004.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R005` — Write throughput benchmark and targets (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R005.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R005.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R005.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R006` — PostgreSQL wire protocol front end (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R006.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R006.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R006.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R007` — Wire authentication mapped to engine principals and row security (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R007.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R007.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R007.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R008` — Catalog views for outside tools (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R008.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R008.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R008.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R009` — SQL dialect compatibility matrix (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R009.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R009.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R009.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R010` — Secondary, partial and expression indexes (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R010.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R010.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R010.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R011` — Constraints: unique, foreign key, check and shapes (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R011.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R011.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R011.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R012` — Triggers as reactive rules (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R012.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R012.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R012.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R013` — Sequences (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R013.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R013.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R013.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R014` — Views and materialized views as derived series (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R014.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R014.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R014.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R015` — Change data capture by logical decoding (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R015.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R015.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R015.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R016` — Point-in-time recovery from snapshots and the log (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R016.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R016.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R016.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R017` — Read replicas that follow the log (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R017.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R017.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R017.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R018` — Columnar materialization of hot record classes (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R018.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R018.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R018.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R019` — Outside PostgreSQL databases are sources only (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R019.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R019.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R019.3` — Hot-path proof.
+- [ ] `MEDULLA-ENGINE-PARITY-R020` — Demand gate, capability report and parity benchmark suite (rollup).
+- [ ] `MEDULLA-ENGINE-PARITY-R020.1` — Model and behavior.
+- [ ] `MEDULLA-ENGINE-PARITY-R020.2` — Wiring and refusal.
+- [ ] `MEDULLA-ENGINE-PARITY-R020.3` — Hot-path proof.

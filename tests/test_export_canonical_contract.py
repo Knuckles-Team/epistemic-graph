@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-pytestmark = [pytest.mark.no_engine, pytest.mark.spec("EG-CONTRACT-R006.3")]
+pytestmark = [pytest.mark.no_engine, pytest.mark.spec("MEDULLA-CONTRACT-R006.3")]
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -85,7 +85,7 @@ def test_failed_generator_never_exports(exporter, monkeypatch, tmp_path):
         "/secret",
         "contract/../../secret.json",
         "source.rs",
-        "epistemic_graph/generated/key.pem",
+        "medulla/generated/key.pem",
     ],
 )
 def test_path_allowlist_refuses_non_contracts(exporter, name):
@@ -121,7 +121,7 @@ def test_workflow_preserves_failed_parity():
     upload = job["steps"][-1]
     assert parity["if"] == "${{ !cancelled() }}"
     assert (
-        parity["run"] == "cargo run -q --locked -p eg-capabilities --features contract "
+        parity["run"] == "cargo run -q --locked -p medulla-capabilities --features contract "
         "--bin gen_contract -- --check"
     )
     assert "steps.engine-contract-preflight.outcome == 'failure'" in export["if"]

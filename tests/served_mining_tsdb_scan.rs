@@ -1,4 +1,4 @@
-//! PLAN-SOURCED MINING `TsScan` (CONCEPT:EG-KG.mining.tsdb-typed-absent, W0.6) — proof that
+//! PLAN-SOURCED MINING `TsScan` (CONCEPT:MEDULLA-KG.mining.tsdb-typed-absent, W0.6) — proof that
 //! a `graph_mine` plan containing an `Op::TsScan` leg reads the REAL committed series store
 //! against a LIVE in-process server, instead of silently degrading to an empty result.
 //!
@@ -25,9 +25,9 @@ mod test_support;
 
 use std::sync::Arc;
 
-use eg_plan::{Op, Plan};
-use eg_tsdb::store::SeriesStore;
-use epistemic_graph::protocol::{AnomalyAlgorithm, Method, Response, ResultPayload, SvmKernel};
+use medulla_plan::{Op, Plan};
+use medulla_tsdb::store::SeriesStore;
+use medulla::protocol::{AnomalyAlgorithm, Method, Response, ResultPayload, SvmKernel};
 
 const SECRET: &str = "served-mining-tsdb-scan-secret";
 
@@ -51,13 +51,13 @@ fn pack_points(points: &[(i64, Vec<f64>)]) -> Vec<u8> {
     rmp_serde::to_vec_named(&points.to_vec()).unwrap()
 }
 
-fn req(id: u64, method: Method) -> epistemic_graph::protocol::Request {
+fn req(id: u64, method: Method) -> medulla::protocol::Request {
     test_support::commons_request(SECRET, id, method)
 }
 
 async fn dispatch(
     state: &test_support::SharedState,
-    request: epistemic_graph::protocol::Request,
+    request: medulla::protocol::Request,
 ) -> Response {
     test_support::dispatch(state, request).await
 }
@@ -131,7 +131,7 @@ fn json_result(resp: &Response) -> serde_json::Value {
     }
 }
 
-/// CONCEPT:EG-KG.mining.tsdb-typed-absent — a served, plan-sourced `MineAnomaly` whose plan
+/// CONCEPT:MEDULLA-KG.mining.tsdb-typed-absent — a served, plan-sourced `MineAnomaly` whose plan
 /// is `Op::TsScan` returns every seeded point as a real feature row, and correctly flags the
 /// seeded outlier, once a live tsdb store is bound.
 #[tokio::test]
@@ -153,7 +153,7 @@ async fn plan_sourced_mining_tsscan_returns_real_rows() {
     );
 }
 
-/// CONCEPT:EG-KG.mining.tsdb-typed-absent — running the IDENTICAL plan-sourced mining call
+/// CONCEPT:MEDULLA-KG.mining.tsdb-typed-absent — running the IDENTICAL plan-sourced mining call
 /// a second time (same server, same store) proves the result isn't a one-shot fluke: the
 /// binding is a real, stable server-lifetime wire, not a fresh store that happens to work once.
 #[tokio::test]
@@ -176,7 +176,7 @@ async fn plan_sourced_mining_tsscan_repeatable_across_requests() {
     }
 }
 
-/// CONCEPT:EG-KG.mining.tsdb-typed-absent — the SAME `TsScan`-bearing plan against a server
+/// CONCEPT:MEDULLA-KG.mining.tsdb-typed-absent — the SAME `TsScan`-bearing plan against a server
 /// with NO tsdb store configured is a TYPED ERROR, never the old silent-empty success. This
 /// is the regression the fix specifically closes: before it, `gather_plan_rows` unconditionally
 /// bound `TsdbLegBind { tsdb: None, .. }`, so this exact call would have returned `n_rows: 0`

@@ -1,6 +1,6 @@
 //! Cross-modal atomic commit: blob refs, vectors, measurements and projection
 //! rows written into the SAME shard transaction as the graph rows
-//! (CONCEPT:EG-KG.backend.cross-modal-atomic-commit).
+//! (CONCEPT:MEDULLA-KG.backend.cross-modal-atomic-commit).
 //!
 //! # A cross-modal commit is a scope GROUP
 //!
@@ -23,11 +23,11 @@
 //! measurement and the node it annotates cannot be one member's rows, but they
 //! must be one fsync.
 //!
-//! # The eg-tsdb seam
+//! # The medulla-tsdb seam
 //!
-//! Measurement rows reach `eg-tsdb` through its `SeriesTableWriter` trait,
+//! Measurement rows reach `medulla-tsdb` through its `SeriesTableWriter` trait,
 //! which this path satisfies with `AdmittedOwnerWrite<'_, GraphShardOwner>`
-//! (the control member) -- eg-tsdb never opens a database, it only turns an
+//! (the control member) -- medulla-tsdb never opens a database, it only turns an
 //! already-authorized admission into a table handle.
 //!
 //! # Table-handle discipline
@@ -42,14 +42,14 @@
 
 use super::*;
 
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 
 use super::shard::{Shard, ShardWrite};
 
-/// One node's vector upsert for a cross-modal commit (CONCEPT:EG-KG.txn.reader-never-sees-node).
+/// One node's vector upsert for a cross-modal commit (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node).
 pub type VectorUpsert = (String, Vec<f32>);
 
-/// A blob-reference for a cross-modal commit (CONCEPT:EG-KG.txn.reader-never-sees-node): a `(node_id, digest)`
+/// A blob-reference for a cross-modal commit (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node): a `(node_id, digest)`
 /// pair recorded as a durable graph-side link to an already-stored blob. The blob
 /// BYTES live in the content-addressed `blob.redb` (pre-uploaded); THIS is the durable
 /// graph pointer that must land atomically with the node/vector/property.
@@ -148,7 +148,7 @@ pub(crate) fn apply_crossmodal_vectors(
         None => crate::compute::semantic::SemanticStore::default(),
     };
     for (node_id, embedding) in vectors {
-        // CONCEPT:EG-KG.compute.rank-dim-mismatch-guard (BUG-007): a rejected write bails via `?`
+        // CONCEPT:MEDULLA-KG.compute.rank-dim-mismatch-guard (BUG-007): a rejected write bails via `?`
         // BEFORE `store` is reserialized/inserted below, so a mid-batch mismatch
         // never reaches durable storage -- `store` here is a scratch decode, not
         // the live in-RAM store, discarded on this early return. Any error here
@@ -167,7 +167,7 @@ pub(crate) fn apply_crossmodal_vectors(
 /// `series_chunks`/`series_meta` on the CONTROL member of this group.
 ///
 /// Those tables are file-wide -- their keys carry no graph component -- so they
-/// are the file's rows, not the graph's, and eg-tsdb reaches them through
+/// are the file's rows, not the graph's, and medulla-tsdb reaches them through
 /// `SeriesTableWriter for AdmittedOwnerWrite<'_, GraphShardOwner>` using the
 /// shared chunk encoding. That is what makes a measurement atomic WITH the
 /// graph modalities: the same admitted group, and therefore the same fsync.
@@ -179,17 +179,17 @@ pub(crate) fn apply_crossmodal_measurements(
     for (series, n_fields, bucket_ns, field_names, points) in measurements {
         // Persistence accepts only the authority-scoped key produced at the
         // verified carrier boundary; it never derives or guesses a tenant.
-        if eg_tsdb::store::SeriesKey::decode(series).is_none() {
+        if medulla_tsdb::store::SeriesKey::decode(series).is_none() {
             return Err("time-series key is not canonically scoped".to_string());
         }
-        let points: Vec<eg_tsdb::point::Point> = points
+        let points: Vec<medulla_tsdb::point::Point> = points
             .iter()
-            .map(|(ts, values)| eg_tsdb::point::Point {
+            .map(|(ts, values)| medulla_tsdb::point::Point {
                 ts: *ts,
                 values: values.clone(),
             })
             .collect();
-        eg_tsdb::store::append_batch_in_wtx(
+        medulla_tsdb::store::append_batch_in_wtx(
             write.control(),
             series,
             *n_fields,
@@ -202,7 +202,7 @@ pub(crate) fn apply_crossmodal_measurements(
     Ok(())
 }
 
-/// A build without the `tsdb` feature has no series tables and no eg-tsdb
+/// A build without the `tsdb` feature has no series tables and no medulla-tsdb
 /// dependency, so a measurement here has no durable home -- error rather than
 /// silently drop it. The staging handler is `tsdb`-gated, so in practice this is
 /// never non-empty.
@@ -384,7 +384,7 @@ pub(crate) struct CrossModalStaged<'a> {
     pub methods: &'a [Method],
     pub vectors: &'a [VectorUpsert],
     pub blob_refs: &'a [BlobRefRow],
-    /// Staged time-series measurement batches (CONCEPT:EG-KG.backend.cross-modal-atomic-commit). Each lands in the
+    /// Staged time-series measurement batches (CONCEPT:MEDULLA-KG.backend.cross-modal-atomic-commit). Each lands in the
     /// SAME admitted group as the graph/vector/blob writes, into
     /// `series_chunks`/`series_meta` in THIS shard (not a separate
     /// `series.redb`), so a measurement and the node it annotates are durable
@@ -392,7 +392,7 @@ pub(crate) struct CrossModalStaged<'a> {
     pub measurements: &'a [crate::MeasurementBatch],
 }
 
-/// **Cross-modal ACID commit (CONCEPT:EG-KG.txn.reader-never-sees-node)** -- land a graph + vector + blob-ref +
+/// **Cross-modal ACID commit (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node)** -- land a graph + vector + blob-ref +
 /// property + measurement write-set for ONE graph in ONE admitted scope group,
 /// all-or-nothing.
 ///
@@ -406,15 +406,15 @@ pub(crate) struct CrossModalStaged<'a> {
 ///     reserialize), on the graph member;
 ///   * **blob refs** → a `__blob__` reserved property on the node carrying the
 ///     digest, written into `nodes`, on the graph member;
-///   * **measurements** (CONCEPT:EG-KG.backend.cross-modal-atomic-commit) → each time-series batch is appended into
-///     `series_chunks`/`series_meta` via the shared eg-tsdb chunk encoding, on
+///   * **measurements** (CONCEPT:MEDULLA-KG.backend.cross-modal-atomic-commit) → each time-series batch is appended into
+///     `series_chunks`/`series_meta` via the shared medulla-tsdb chunk encoding, on
 ///     the CONTROL member, because those tables are file-wide. `tsdb`-gated; a
 ///     slim redb-only build errors on a non-empty batch. This shard copy is the
 ///     atomic/authoritative one; the caller
 ///     (`handlers::txn::commit_cross_modal_txn`) additionally replays the same
 ///     batch into the SERVED `series.redb` right after this call returns `Ok`, so
 ///     it is actually reachable through the public `Ts*`/`Op::TsScan` read path
-///     (CONCEPT:EG-KG.backend.ts-served-materialize, EG-P0-4) -- see that
+///     (CONCEPT:MEDULLA-KG.backend.ts-served-materialize, MEDULLA-P0-4) -- see that
 ///     function's doc comment for the exact guarantee and the one remaining
 ///     non-atomic boundary.
 ///
@@ -440,7 +440,7 @@ pub(crate) fn commit_crossmodal(
     op_id: &str,
     committed_at_ms: u64,
     crypto: DurableCrypto<'_>,
-    // O(1) audit-chain tail cache (CONCEPT:EG-KG.storage.embedded-store), shared with the group-commit path.
+    // O(1) audit-chain tail cache (CONCEPT:MEDULLA-KG.storage.embedded-store), shared with the group-commit path.
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
 ) -> Result<(), String> {
     // A cold graph binds FIRST, in its own transaction: binding opens and

@@ -1,261 +1,261 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-CQ-XSRC",
+  "spec_id": "MEDULLA-CQ-XSRC",
   "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "EG-CQ-XSRC-R001",
-    "EG-CQ-XSRC-R001.1",
-    "EG-CQ-XSRC-R001.2",
-    "EG-CQ-XSRC-R001.3",
-    "EG-CQ-XSRC-R001.4",
-    "EG-CQ-XSRC-R002",
-    "EG-CQ-XSRC-R002.1",
-    "EG-CQ-XSRC-R002.2",
-    "EG-CQ-XSRC-R002.3",
-    "EG-CQ-XSRC-R002.4",
-    "EG-CQ-XSRC-R002.5",
-    "EG-CQ-XSRC-R002.6",
-    "EG-CQ-XSRC-R002.7",
-    "EG-CQ-XSRC-R003",
-    "EG-CQ-XSRC-R003.1",
-    "EG-CQ-XSRC-R003.2",
-    "EG-CQ-XSRC-R003.3",
-    "EG-CQ-XSRC-R003.4",
-    "EG-CQ-XSRC-R003.5",
-    "EG-CQ-XSRC-R004",
-    "EG-CQ-XSRC-R004.1",
-    "EG-CQ-XSRC-R004.2",
-    "EG-CQ-XSRC-R004.3",
-    "EG-CQ-XSRC-R004.4",
-    "EG-CQ-XSRC-R004.5",
-    "EG-CQ-XSRC-R005",
-    "EG-CQ-XSRC-R005.1",
-    "EG-CQ-XSRC-R005.2",
-    "EG-CQ-XSRC-R005.3",
-    "EG-CQ-XSRC-R005.4",
-    "EG-CQ-XSRC-R005.5",
-    "EG-CQ-XSRC-R006",
-    "EG-CQ-XSRC-R006.1",
-    "EG-CQ-XSRC-R006.2",
-    "EG-CQ-XSRC-R006.3",
-    "EG-CQ-XSRC-R006.4",
-    "EG-CQ-XSRC-R006.5",
-    "EG-CQ-XSRC-R007",
-    "EG-CQ-XSRC-R007.1",
-    "EG-CQ-XSRC-R007.2",
-    "EG-CQ-XSRC-R007.3",
-    "EG-CQ-XSRC-R007.4",
-    "EG-CQ-XSRC-R008",
-    "EG-CQ-XSRC-R008.1",
-    "EG-CQ-XSRC-R008.1.1",
-    "EG-CQ-XSRC-R008.1.2",
-    "EG-CQ-XSRC-R008.2",
-    "EG-CQ-XSRC-R008.2.1",
-    "EG-CQ-XSRC-R008.2.2",
-    "EG-CQ-XSRC-R008.2.3",
-    "EG-CQ-XSRC-R008.2.4",
-    "EG-CQ-XSRC-R008.3",
-    "EG-CQ-XSRC-R008.3.1",
-    "EG-CQ-XSRC-R008.3.2",
-    "EG-CQ-XSRC-R008.3.3",
-    "EG-CQ-XSRC-R008.3.4",
-    "EG-CQ-XSRC-R009",
-    "EG-CQ-XSRC-R009.1",
-    "EG-CQ-XSRC-R009.2",
-    "EG-CQ-XSRC-R009.3",
-    "EG-CQ-XSRC-R009.4",
-    "EG-CQ-XSRC-R009.5"
+    "MEDULLA-CQ-XSRC-R001",
+    "MEDULLA-CQ-XSRC-R001.1",
+    "MEDULLA-CQ-XSRC-R001.2",
+    "MEDULLA-CQ-XSRC-R001.3",
+    "MEDULLA-CQ-XSRC-R001.4",
+    "MEDULLA-CQ-XSRC-R002",
+    "MEDULLA-CQ-XSRC-R002.1",
+    "MEDULLA-CQ-XSRC-R002.2",
+    "MEDULLA-CQ-XSRC-R002.3",
+    "MEDULLA-CQ-XSRC-R002.4",
+    "MEDULLA-CQ-XSRC-R002.5",
+    "MEDULLA-CQ-XSRC-R002.6",
+    "MEDULLA-CQ-XSRC-R002.7",
+    "MEDULLA-CQ-XSRC-R003",
+    "MEDULLA-CQ-XSRC-R003.1",
+    "MEDULLA-CQ-XSRC-R003.2",
+    "MEDULLA-CQ-XSRC-R003.3",
+    "MEDULLA-CQ-XSRC-R003.4",
+    "MEDULLA-CQ-XSRC-R003.5",
+    "MEDULLA-CQ-XSRC-R004",
+    "MEDULLA-CQ-XSRC-R004.1",
+    "MEDULLA-CQ-XSRC-R004.2",
+    "MEDULLA-CQ-XSRC-R004.3",
+    "MEDULLA-CQ-XSRC-R004.4",
+    "MEDULLA-CQ-XSRC-R004.5",
+    "MEDULLA-CQ-XSRC-R005",
+    "MEDULLA-CQ-XSRC-R005.1",
+    "MEDULLA-CQ-XSRC-R005.2",
+    "MEDULLA-CQ-XSRC-R005.3",
+    "MEDULLA-CQ-XSRC-R005.4",
+    "MEDULLA-CQ-XSRC-R005.5",
+    "MEDULLA-CQ-XSRC-R006",
+    "MEDULLA-CQ-XSRC-R006.1",
+    "MEDULLA-CQ-XSRC-R006.2",
+    "MEDULLA-CQ-XSRC-R006.3",
+    "MEDULLA-CQ-XSRC-R006.4",
+    "MEDULLA-CQ-XSRC-R006.5",
+    "MEDULLA-CQ-XSRC-R007",
+    "MEDULLA-CQ-XSRC-R007.1",
+    "MEDULLA-CQ-XSRC-R007.2",
+    "MEDULLA-CQ-XSRC-R007.3",
+    "MEDULLA-CQ-XSRC-R007.4",
+    "MEDULLA-CQ-XSRC-R008",
+    "MEDULLA-CQ-XSRC-R008.1",
+    "MEDULLA-CQ-XSRC-R008.1.1",
+    "MEDULLA-CQ-XSRC-R008.1.2",
+    "MEDULLA-CQ-XSRC-R008.2",
+    "MEDULLA-CQ-XSRC-R008.2.1",
+    "MEDULLA-CQ-XSRC-R008.2.2",
+    "MEDULLA-CQ-XSRC-R008.2.3",
+    "MEDULLA-CQ-XSRC-R008.2.4",
+    "MEDULLA-CQ-XSRC-R008.3",
+    "MEDULLA-CQ-XSRC-R008.3.1",
+    "MEDULLA-CQ-XSRC-R008.3.2",
+    "MEDULLA-CQ-XSRC-R008.3.3",
+    "MEDULLA-CQ-XSRC-R008.3.4",
+    "MEDULLA-CQ-XSRC-R009",
+    "MEDULLA-CQ-XSRC-R009.1",
+    "MEDULLA-CQ-XSRC-R009.2",
+    "MEDULLA-CQ-XSRC-R009.3",
+    "MEDULLA-CQ-XSRC-R009.4",
+    "MEDULLA-CQ-XSRC-R009.5"
   ],
   "requirements": [
     {
-      "id": "EG-CQ-XSRC-R001",
+      "id": "MEDULLA-CQ-XSRC-R001",
       "title": "Concept-to-source authority is declared in the ontology (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-XSRC-R001.1",
-        "EG-CQ-XSRC-R001.2",
-        "EG-CQ-XSRC-R001.3",
-        "EG-CQ-XSRC-R001.4"
+        "MEDULLA-CQ-XSRC-R001.1",
+        "MEDULLA-CQ-XSRC-R001.2",
+        "MEDULLA-CQ-XSRC-R001.3",
+        "MEDULLA-CQ-XSRC-R001.4"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R001.1",
+      "id": "MEDULLA-CQ-XSRC-R001.1",
       "title": "Add `vg:SourceAuthority`, `vg:authoritativeSource`, `vg:authorityFor` and `vg:authorityRank` to the virtual-graph vocabulary",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/virtual_graph_authority.rs:17"
+        "crates/medulla-rdf/tests/virtual_graph_authority.rs:17"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R001.2",
+      "id": "MEDULLA-CQ-XSRC-R001.2",
       "title": "SHACL shape: a `vg:SourceAuthority` names exactly one connected source, one class and one rank",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R001.3",
+      "id": "MEDULLA-CQ-XSRC-R001.3",
       "title": "Authority applies through subclass entailment",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R001.4",
+      "id": "MEDULLA-CQ-XSRC-R001.4",
       "title": "Authority records the approval of its mapping",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R002",
+      "id": "MEDULLA-CQ-XSRC-R002",
       "title": "Supply-chain concepts and the sources that are authoritative for them (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-XSRC-R002.1",
-        "EG-CQ-XSRC-R002.2",
-        "EG-CQ-XSRC-R002.3",
-        "EG-CQ-XSRC-R002.4",
-        "EG-CQ-XSRC-R002.5",
-        "EG-CQ-XSRC-R002.6",
-        "EG-CQ-XSRC-R002.7"
+        "MEDULLA-CQ-XSRC-R002.1",
+        "MEDULLA-CQ-XSRC-R002.2",
+        "MEDULLA-CQ-XSRC-R002.3",
+        "MEDULLA-CQ-XSRC-R002.4",
+        "MEDULLA-CQ-XSRC-R002.5",
+        "MEDULLA-CQ-XSRC-R002.6",
+        "MEDULLA-CQ-XSRC-R002.7"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R002.1",
+      "id": "MEDULLA-CQ-XSRC-R002.1",
       "title": "Add `:Supplier` as a subclass of `:Vendor`, and `:SupplyChainItem` with `:suppliesItem`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:122",
-        "crates/eg-rdf/tests/supply_chain_reasoning.rs:26"
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:122",
+        "crates/medulla-rdf/tests/supply_chain_reasoning.rs:26"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R002.2",
+      "id": "MEDULLA-CQ-XSRC-R002.2",
       "title": "Add `:SoftwareComponent`, `:ComponentVersion` and `:publishedBy`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "9421614f7ae7"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_reasoning.rs:38"
+        "crates/medulla-rdf/tests/supply_chain_reasoning.rs:38"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R002.3",
+      "id": "MEDULLA-CQ-XSRC-R002.3",
       "title": "Add `:Vulnerability` and `:affectsComponent`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:385"
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:385"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R002.4",
+      "id": "MEDULLA-CQ-XSRC-R002.4",
       "title": "SHACL shape for supplier and component",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R002.5",
+      "id": "MEDULLA-CQ-XSRC-R002.5",
       "title": "Source-authority mapping: suppliers and purchase items",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R002.6",
+      "id": "MEDULLA-CQ-XSRC-R002.6",
       "title": "Source-authority mapping: software components and vulnerabilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R002.7",
+      "id": "MEDULLA-CQ-XSRC-R002.7",
       "title": "Virtual mapping fixture: erpnext supplier table to `:Supplier`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R003",
+      "id": "MEDULLA-CQ-XSRC-R003",
       "title": "Service concepts and the sources that are authoritative for them (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-XSRC-R003.1",
-        "EG-CQ-XSRC-R003.2",
-        "EG-CQ-XSRC-R003.3",
-        "EG-CQ-XSRC-R003.4",
-        "EG-CQ-XSRC-R003.5"
+        "MEDULLA-CQ-XSRC-R003.1",
+        "MEDULLA-CQ-XSRC-R003.2",
+        "MEDULLA-CQ-XSRC-R003.3",
+        "MEDULLA-CQ-XSRC-R003.4",
+        "MEDULLA-CQ-XSRC-R003.5"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R003.1",
+      "id": "MEDULLA-CQ-XSRC-R003.1",
       "title": "Source-authority mapping: `:Service` health",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R003.2",
+      "id": "MEDULLA-CQ-XSRC-R003.2",
       "title": "Source-authority mapping: deployed workloads and images",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R003.3",
+      "id": "MEDULLA-CQ-XSRC-R003.3",
       "title": "Source-authority mapping: business capabilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R003.4",
+      "id": "MEDULLA-CQ-XSRC-R003.4",
       "title": "Virtual mapping fixture: uptime monitor to `:Service`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R003.5",
+      "id": "MEDULLA-CQ-XSRC-R003.5",
       "title": "Virtual mapping fixture: container-manager workload to `:Service` and `:ContainerImage`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R004",
+      "id": "MEDULLA-CQ-XSRC-R004",
       "title": "Linking relation between a supply-chain entity and a service, with entity resolution across sources (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-XSRC-R004.1",
-        "EG-CQ-XSRC-R004.2",
-        "EG-CQ-XSRC-R004.3",
-        "EG-CQ-XSRC-R004.4",
-        "EG-CQ-XSRC-R004.5"
+        "MEDULLA-CQ-XSRC-R004.1",
+        "MEDULLA-CQ-XSRC-R004.2",
+        "MEDULLA-CQ-XSRC-R004.3",
+        "MEDULLA-CQ-XSRC-R004.4",
+        "MEDULLA-CQ-XSRC-R004.5"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R004.1",
+      "id": "MEDULLA-CQ-XSRC-R004.1",
       "title": "Add `:usesComponent` (service to component version) and `:suppliesService`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -263,321 +263,321 @@
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:470",
-        "crates/eg-rdf/tests/supply_chain_reasoning.rs:54"
+        "crates/medulla-rdf/tests/supply_chain_declarations.rs:470",
+        "crates/medulla-rdf/tests/supply_chain_reasoning.rs:54"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R004.2",
+      "id": "MEDULLA-CQ-XSRC-R004.2",
       "title": "SHACL shape: `:usesComponent` domain and range",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R004.3",
+      "id": "MEDULLA-CQ-XSRC-R004.3",
       "title": "Resolve a vendor in erpnext, leanix and dockerhub to one `:Supplier`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-types/src/entity_link_proposal.rs:173",
-        "crates/eg-types/src/entity_link_proposal.rs:186",
-        "crates/eg-types/src/entity_link_proposal.rs:203"
+        "crates/medulla-types/src/entity_link_proposal.rs:173",
+        "crates/medulla-types/src/entity_link_proposal.rs:186",
+        "crates/medulla-types/src/entity_link_proposal.rs:203"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R004.4",
+      "id": "MEDULLA-CQ-XSRC-R004.4",
       "title": "Resolve a service in uptime, container-manager and the CMDB to one `:Service`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R004.5",
+      "id": "MEDULLA-CQ-XSRC-R004.5",
       "title": "Query-time link: a join may only cross an approved `owl:sameAs`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R005",
+      "id": "MEDULLA-CQ-XSRC-R005",
       "title": "The federated query is planned from the ontology's source declarations (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-XSRC-R005.1",
-        "EG-CQ-XSRC-R005.2",
-        "EG-CQ-XSRC-R005.3",
-        "EG-CQ-XSRC-R005.4",
-        "EG-CQ-XSRC-R005.5"
+        "MEDULLA-CQ-XSRC-R005.1",
+        "MEDULLA-CQ-XSRC-R005.2",
+        "MEDULLA-CQ-XSRC-R005.3",
+        "MEDULLA-CQ-XSRC-R005.4",
+        "MEDULLA-CQ-XSRC-R005.5"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R005.1",
+      "id": "MEDULLA-CQ-XSRC-R005.1",
       "title": "`select_sources` orders candidate mappings by `vg:authorityRank`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0179af31daf9"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/source_selection/tests.rs:71"
+        "crates/medulla-rdf/src/source_selection/tests.rs:71"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R005.2",
+      "id": "MEDULLA-CQ-XSRC-R005.2",
       "title": "Query fixture: the supply-chain impact query over classes only",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:207"
+        "crates/medulla-rdf/tests/xsrc_supply_chain_query.rs:207"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R005.3",
+      "id": "MEDULLA-CQ-XSRC-R005.3",
       "title": "The plan is derived, not authored: planned sources equal the declared authorities",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:221"
+        "crates/medulla-rdf/tests/xsrc_supply_chain_query.rs:221"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R005.4",
+      "id": "MEDULLA-CQ-XSRC-R005.4",
       "title": "An unconnected authoritative source yields a typed abstention, not a silent fallback",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/virtual_graph_authority.rs:55"
+        "crates/medulla-rdf/tests/virtual_graph_authority.rs:55"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R005.5",
+      "id": "MEDULLA-CQ-XSRC-R005.5",
       "title": "`EXPLAIN` shows the authority premise for each planned source",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R006",
+      "id": "MEDULLA-CQ-XSRC-R006",
       "title": "The unified report shape (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-XSRC-R006.1",
-        "EG-CQ-XSRC-R006.2",
-        "EG-CQ-XSRC-R006.3",
-        "EG-CQ-XSRC-R006.4",
-        "EG-CQ-XSRC-R006.5"
+        "MEDULLA-CQ-XSRC-R006.1",
+        "MEDULLA-CQ-XSRC-R006.2",
+        "MEDULLA-CQ-XSRC-R006.3",
+        "MEDULLA-CQ-XSRC-R006.4",
+        "MEDULLA-CQ-XSRC-R006.5"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R006.1",
+      "id": "MEDULLA-CQ-XSRC-R006.1",
       "title": "Add the typed `SupplyChainImpactReport` model",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-types/src/supply_chain_report.rs:285",
-        "crates/eg-types/src/supply_chain_report.rs:323"
+        "crates/medulla-types/src/supply_chain_report.rs:285",
+        "crates/medulla-types/src/supply_chain_report.rs:323"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R006.2",
+      "id": "MEDULLA-CQ-XSRC-R006.2",
       "title": "Report carries freshness per source",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R006.3",
+      "id": "MEDULLA-CQ-XSRC-R006.3",
       "title": "Report abstention variants",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R006.4",
+      "id": "MEDULLA-CQ-XSRC-R006.4",
       "title": "Assemble the report from the federated rows",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-types/src/supply_chain_report.rs:348"
+        "crates/medulla-types/src/supply_chain_report.rs:348"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R006.5",
+      "id": "MEDULLA-CQ-XSRC-R006.5",
       "title": "Serve the report through Arbora",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/supply_chain_impact.rs:98"
+        "crates/medulla-rdf/src/supply_chain_impact.rs:98"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R007",
+      "id": "MEDULLA-CQ-XSRC-R007",
       "title": "End-to-end acceptance from real connected data (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-XSRC-R007.1",
-        "EG-CQ-XSRC-R007.2",
-        "EG-CQ-XSRC-R007.3",
-        "EG-CQ-XSRC-R007.4"
+        "MEDULLA-CQ-XSRC-R007.1",
+        "MEDULLA-CQ-XSRC-R007.2",
+        "MEDULLA-CQ-XSRC-R007.3",
+        "MEDULLA-CQ-XSRC-R007.4"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R007.1",
+      "id": "MEDULLA-CQ-XSRC-R007.1",
       "title": "Acceptance on recorded connector responses",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/xsrc_supply_chain_acceptance.rs:82"
+        "crates/medulla-rdf/tests/xsrc_supply_chain_acceptance.rs:82"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R007.2",
+      "id": "MEDULLA-CQ-XSRC-R007.2",
       "title": "Acceptance against the live connected sources",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R007.3",
+      "id": "MEDULLA-CQ-XSRC-R007.3",
       "title": "Acceptance with the procurement source not connected",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R007.4",
+      "id": "MEDULLA-CQ-XSRC-R007.4",
       "title": "Decisive test: changing only the ontology's authority declaration changes the sources used",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R008",
+      "id": "MEDULLA-CQ-XSRC-R008",
       "title": "Generalization: three more cross-source questions of the same shape (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-XSRC-R008.1",
-        "EG-CQ-XSRC-R008.2",
-        "EG-CQ-XSRC-R008.3"
+        "MEDULLA-CQ-XSRC-R008.1",
+        "MEDULLA-CQ-XSRC-R008.2",
+        "MEDULLA-CQ-XSRC-R008.3"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R008.1",
+      "id": "MEDULLA-CQ-XSRC-R008.1",
       "title": "Which services are exposed by a vulnerability in an image we deploy? (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-XSRC-R008.1.1",
-        "EG-CQ-XSRC-R008.1.2"
+        "MEDULLA-CQ-XSRC-R008.1.1",
+        "MEDULLA-CQ-XSRC-R008.1.2"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R008.1.1",
+      "id": "MEDULLA-CQ-XSRC-R008.1.1",
       "title": "Query fixture and authority rows: vulnerable deployed image to exposed service",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:279"
+        "crates/medulla-rdf/tests/xsrc_supply_chain_query.rs:279"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R008.1.2",
+      "id": "MEDULLA-CQ-XSRC-R008.1.2",
       "title": "Acceptance: exposed services listed with image, vulnerability and sources",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R008.2",
+      "id": "MEDULLA-CQ-XSRC-R008.2",
       "title": "Which business capabilities depend on a host that is over its temperature or capacity limit? (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-XSRC-R008.2.1",
-        "EG-CQ-XSRC-R008.2.2",
-        "EG-CQ-XSRC-R008.2.3",
-        "EG-CQ-XSRC-R008.2.4"
+        "MEDULLA-CQ-XSRC-R008.2.1",
+        "MEDULLA-CQ-XSRC-R008.2.2",
+        "MEDULLA-CQ-XSRC-R008.2.3",
+        "MEDULLA-CQ-XSRC-R008.2.4"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R008.2.1",
+      "id": "MEDULLA-CQ-XSRC-R008.2.1",
       "title": "Add a host limit-breach term to the ontology",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/infrastructure_host_limits.rs:18"
+        "crates/medulla-rdf/tests/infrastructure_host_limits.rs:18"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R008.2.2",
+      "id": "MEDULLA-CQ-XSRC-R008.2.2",
       "title": "SHACL shape: a limit-bearing host carries both reading and limit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R008.2.3",
+      "id": "MEDULLA-CQ-XSRC-R008.2.3",
       "title": "Authority rows and query fixture: capability to service to host over a limit",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:322"
+        "crates/medulla-rdf/tests/xsrc_supply_chain_query.rs:322"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R008.2.4",
+      "id": "MEDULLA-CQ-XSRC-R008.2.4",
       "title": "Acceptance: capabilities at risk listed with the host, reading and limit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R008.3",
+      "id": "MEDULLA-CQ-XSRC-R008.3",
       "title": "Which open incidents or changes touch a service a customer contract depends on? (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-XSRC-R008.3.1",
-        "EG-CQ-XSRC-R008.3.2",
-        "EG-CQ-XSRC-R008.3.3",
-        "EG-CQ-XSRC-R008.3.4"
+        "MEDULLA-CQ-XSRC-R008.3.1",
+        "MEDULLA-CQ-XSRC-R008.3.2",
+        "MEDULLA-CQ-XSRC-R008.3.3",
+        "MEDULLA-CQ-XSRC-R008.3.4"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R008.3.1",
+      "id": "MEDULLA-CQ-XSRC-R008.3.1",
       "title": "Add `:CustomerContract` and `:coversService`; reuse canonical `kg:Change`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -585,78 +585,78 @@
         "8fd835eb199a"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/commercial_declarations.rs:89"
+        "crates/medulla-rdf/tests/commercial_declarations.rs:89"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R008.3.2",
+      "id": "MEDULLA-CQ-XSRC-R008.3.2",
       "title": "SHACL shape: a contract names a customer and at least one service",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R008.3.3",
+      "id": "MEDULLA-CQ-XSRC-R008.3.3",
       "title": "Authority rows and query fixture: open incident or change to service to contract",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "a8cf7ea3564f"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/xsrc_supply_chain_query.rs:355"
+        "crates/medulla-rdf/tests/xsrc_supply_chain_query.rs:355"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R008.3.4",
+      "id": "MEDULLA-CQ-XSRC-R008.3.4",
       "title": "Acceptance: open incidents and changes listed with the service and contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R009",
+      "id": "MEDULLA-CQ-XSRC-R009",
       "title": "Acceptance: high-confidence agent claims against a new external report (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CQ-XSRC-R009.1",
-        "EG-CQ-XSRC-R009.2",
-        "EG-CQ-XSRC-R009.3",
-        "EG-CQ-XSRC-R009.4",
-        "EG-CQ-XSRC-R009.5"
+        "MEDULLA-CQ-XSRC-R009.1",
+        "MEDULLA-CQ-XSRC-R009.2",
+        "MEDULLA-CQ-XSRC-R009.3",
+        "MEDULLA-CQ-XSRC-R009.4",
+        "MEDULLA-CQ-XSRC-R009.5"
       ]
     },
     {
-      "id": "EG-CQ-XSRC-R009.1",
+      "id": "MEDULLA-CQ-XSRC-R009.1",
       "title": "Query fixture: claims that touch the report",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R009.2",
+      "id": "MEDULLA-CQ-XSRC-R009.2",
       "title": "Evidence clustering",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R009.3",
+      "id": "MEDULLA-CQ-XSRC-R009.3",
       "title": "Contradiction decay analysis",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R009.4",
+      "id": "MEDULLA-CQ-XSRC-R009.4",
       "title": "Served acceptance through arbora",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CQ-XSRC-R009.5",
+      "id": "MEDULLA-CQ-XSRC-R009.5",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

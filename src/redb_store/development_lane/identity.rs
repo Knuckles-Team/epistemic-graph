@@ -11,7 +11,7 @@ use crate::epistemic_operations::{
     DevelopmentLaneHold, DevelopmentLaneIntent, DevelopmentLaneReserveRequest,
 };
 use crate::protocol::Method;
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 
 pub(super) fn hold_immutable_equal(
     row: &DurableLaneHold,

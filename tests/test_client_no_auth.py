@@ -1,4 +1,4 @@
-"""EG-IDENTITY-R003.1: explicit anonymous local wire, without invented claims."""
+"""MEDULLA-IDENTITY-R003.1: explicit anonymous local wire, without invented claims."""
 
 import asyncio
 import contextlib
@@ -9,7 +9,7 @@ import msgpack
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import EpistemicGraphClient
+from medulla.client import MedullaClient
 
 pytestmark = pytest.mark.no_engine
 
@@ -53,10 +53,10 @@ async def _server():
 def test_anonymous_wire_and_verified_default(monkeypatch):
     async def run():
         async with _server() as (address, frames):
-            anonymous = await EpistemicGraphClient.connect(
+            anonymous = await MedullaClient.connect(
                 tcp_addr=address, auth_mode="none"
             )
-            authenticated = await EpistemicGraphClient.connect(
+            authenticated = await MedullaClient.connect(
                 tcp_addr=address,
                 auth_secret="synthetic-test-secret",
                 verified_context=request_context(),
@@ -113,7 +113,7 @@ def test_anonymous_wire_and_verified_default(monkeypatch):
 )
 def test_anonymous_rejects_mixed_authority_before_connect(kwargs):
     with pytest.raises(ValueError):
-        asyncio.run(EpistemicGraphClient.connect(auth_mode="none", **kwargs))
+        asyncio.run(MedullaClient.connect(auth_mode="none", **kwargs))
 
 
 @pytest.mark.parametrize(
@@ -131,7 +131,7 @@ def test_anonymous_rejects_mixed_authority_before_connect(kwargs):
 )
 def test_anonymous_rejects_nonlocal_target_before_connect(address):
     with pytest.raises(ValueError, match="literal loopback"):
-        asyncio.run(EpistemicGraphClient.connect(auth_mode="none", tcp_addr=address))
+        asyncio.run(MedullaClient.connect(auth_mode="none", tcp_addr=address))
 
 
 def test_anonymous_loopback_transport():
@@ -147,7 +147,7 @@ def test_anonymous_loopback_transport():
         server = await asyncio.start_server(serve, "127.0.0.1", 0)
         try:
             port = server.sockets[0].getsockname()[1]
-            client = await EpistemicGraphClient.connect(
+            client = await MedullaClient.connect(
                 auth_mode="none", tcp_addr=f"127.0.0.1:{port}"
             )
             assert not client.authenticated
@@ -164,10 +164,10 @@ def test_anonymous_loopback_transport():
 def test_default_still_requires_credentials(monkeypatch):
     monkeypatch.delenv("GRAPH_SERVICE_AUTH_SECRET", raising=False)
     with pytest.raises(ValueError, match="authentication secret"):
-        asyncio.run(EpistemicGraphClient.connect())
+        asyncio.run(MedullaClient.connect())
     with pytest.raises(ValueError, match="auth_mode"):
         asyncio.run(
-            EpistemicGraphClient.connect(
+            MedullaClient.connect(
                 auth_mode=cast(Literal["authenticated", "none"], "auto")
             )
         )
@@ -195,7 +195,7 @@ def test_anonymous_requires_matching_server_without_retry():
                 tasks.discard(task)
 
         server = await asyncio.start_server(reject, "127.0.0.1", 0)
-        client = await EpistemicGraphClient.connect(
+        client = await MedullaClient.connect(
             auth_mode="none", tcp_addr=f"127.0.0.1:{server.sockets[0].getsockname()[1]}"
         )
         try:
@@ -220,9 +220,9 @@ def test_none_rejects_tls_and_environment_does_not_select_none(monkeypatch):
     monkeypatch.setenv("GRAPH_SERVICE_AUTH_MODE", "none")
     monkeypatch.delenv("GRAPH_SERVICE_AUTH_SECRET", raising=False)
     with pytest.raises(ValueError, match="authentication secret"):
-        asyncio.run(EpistemicGraphClient.connect())
+        asyncio.run(MedullaClient.connect())
     with pytest.raises(ValueError, match="plaintext"):
-        asyncio.run(EpistemicGraphClient.connect(auth_mode="none", tls=True))
+        asyncio.run(MedullaClient.connect(auth_mode="none", tls=True))
 
 
 @pytest.mark.parametrize(
@@ -230,7 +230,7 @@ def test_none_rejects_tls_and_environment_does_not_select_none(monkeypatch):
 )
 def test_anonymous_rejects_invalid_replay_metadata(key):
     with pytest.raises(ValueError, match="idempotency key"):
-        EpistemicGraphClient._anonymous_correlation(key)
+        MedullaClient._anonymous_correlation(key)
 
 
 def test_anonymous_highlevel_changes_carry_replay_and_local_namespace():
@@ -238,7 +238,7 @@ def test_anonymous_highlevel_changes_carry_replay_and_local_namespace():
 
     async def run():
         async with _server() as (address, frames):
-            client = await EpistemicGraphClient.connect(
+            client = await MedullaClient.connect(
                 auth_mode="none", tcp_addr=address
             )
             try:
@@ -267,10 +267,10 @@ def test_anonymous_highlevel_changes_carry_replay_and_local_namespace():
 
 
 def test_generated_authentication_method_preserves_closed_enum():
-    """EG-IDENTITY-R003.1 adds none without weakening authenticated contracts."""
+    """MEDULLA-IDENTITY-R003.1 adds none without weakening authenticated contracts."""
     from enum import Enum
 
-    from epistemic_graph.generated.models import RequestContextAuthenticationMethod
+    from medulla.generated.models import RequestContextAuthenticationMethod
 
     assert isinstance(RequestContextAuthenticationMethod, type)
     assert issubclass(RequestContextAuthenticationMethod, Enum)
@@ -313,7 +313,7 @@ def test_connection_authority_refactor_preserves_refusal_order(
 ):
     monkeypatch.delenv("GRAPH_SERVICE_AUTH_SECRET", raising=False)
     with pytest.raises(error, match=message):
-        asyncio.run(EpistemicGraphClient.connect(**kwargs))
+        asyncio.run(MedullaClient.connect(**kwargs))
 
 
 @pytest.mark.parametrize(
@@ -329,7 +329,7 @@ def test_connection_authority_refactor_preserves_refusal_order(
 def test_connection_tls_hostname_refactor_preserves_precedence(
     monkeypatch, explicit, environment, expected
 ):
-    from epistemic_graph.client import _connection_tls_server_hostname
+    from medulla.client import _connection_tls_server_hostname
 
     monkeypatch.setenv("GRAPH_SERVICE_TLS_SERVER_NAME", environment)
     assert _connection_tls_server_hostname(explicit) == expected

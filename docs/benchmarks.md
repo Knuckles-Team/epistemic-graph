@@ -25,7 +25,7 @@ That is sub-millisecond round-trip including Python (de)serialisation, i.e.
 ~5,000 sequential ops/sec on a single connection. Throughput scales with
 connection pooling (`pool.py`) and shard fan-out (`ShardRouter`); concurrent
 clients are bounded server-side by the in-flight semaphore
-(`EPISTEMIC_GRAPH_MAX_INFLIGHT`, default cgroup-aware auto-sized capacity) which sheds excess load with a
+(`MEDULLA_MAX_INFLIGHT`, default cgroup-aware auto-sized capacity) which sheds excess load with a
 `BUSY` response rather than queueing unbounded work.
 
 ## Multi-shard scaling (measured) — CONCEPT:AU-KG.query.vendor-agnostic-traversal P3
@@ -84,8 +84,8 @@ durability/HA picture has changed with the redb-authoritative flip and the clust
 tier — see [the master-of-all engine](architecture/engine.md).)
 
 - **Two ways to scale out.** *Client-side sharding* (any tier): independent
-  `epistemic-graph-server` processes, each its own graph universe, with the Python
-  `ShardRouter` (`epistemic_graph/pool.py`) mapping a graph name to a shard by
+  `medulla-server` processes, each its own graph universe, with the Python
+  `ShardRouter` (`medulla/pool.py`) mapping a graph name to a shard by
   an engine-authoritative placement route. *Server-side multi-Raft*
   (`cluster` feature): the engine replicates its authoritative store across nodes, with
   online resharding (re-point ownership, not copy rows) and cross-shard 2PC for
@@ -119,28 +119,28 @@ tier — see [the master-of-all engine](architecture/engine.md).)
 Two complementary layers fuzz the query surface:
 
 - **Structured, VALID pipelines (STABLE, in the `cargo test` gate).** The proptest
-  harness `crates/eg-plan/tests/fuzz_pipelines.rs`
-  (CONCEPT:EG-KG.query.pipeline-fuzz + EG-KG.query.concurrency-chaos-fuzz) generates
+  harness `crates/medulla-plan/tests/fuzz_pipelines.rs`
+  (CONCEPT:MEDULLA-KG.query.pipeline-fuzz + MEDULLA-KG.query.concurrency-chaos-fuzz) generates
   random but *valid* UQL pipelines up to 16 stages over 512 cases and asserts the
   invariants a unified query engine must never violate (no panic/error, unique ids,
   trailing `LIMIT` bound, determinism), plus a concurrency-chaos variant. It runs on
   stable with no extra toolchain:
 
   ```sh
-  cargo test -p eg-plan --test fuzz_pipelines
+  cargo test -p medulla-plan --test fuzz_pipelines
   ```
 
 - **Unstructured, ARBITRARY bytes (nightly, out of the standard gate).** A
-  `cargo-fuzz`/libFuzzer target at `crates/eg-plan/fuzz/`
-  (CONCEPT:EG-KG.query.uql-libfuzzer-parse-target) feeds arbitrary bytes to
-  `eg_plan::uql::parse`, shaking out lexer/parser panics or hangs on malformed input.
+  `cargo-fuzz`/libFuzzer target at `crates/medulla-plan/fuzz/`
+  (CONCEPT:MEDULLA-KG.query.uql-libfuzzer-parse-target) feeds arbitrary bytes to
+  `medulla_plan::uql::parse`, shaking out lexer/parser panics or hangs on malformed input.
   The fuzz crate is a **detached workspace** (its own `[workspace]` table) so it never
   rides the stable `cargo test` gate — libFuzzer needs the nightly toolchain + the
   fuzzing sanitizer runtime that `cargo-fuzz` injects:
 
   ```sh
   cargo install cargo-fuzz            # once
-  cd crates/eg-plan/fuzz
+  cd crates/medulla-plan/fuzz
   cargo +nightly fuzz run uql_parse -- -runs=10000   # short smoke
   cargo +nightly fuzz run uql_parse                  # open-ended soak
   ```
@@ -183,8 +183,8 @@ Reproduce:
 
 ```bash
 # in-process size sweep + selective-filter cost-opt ablation + cold/warm reopen + recall gate
-cargo bench -p eg-plan --features "query,owl,text,timeseries" --bench hybrid_queries
-EG_BENCH_ABLATION=1 cargo bench -p eg-plan --features query --bench hybrid_queries   # filter-pushdown win
+cargo bench -p medulla-plan --features "query,owl,text,timeseries" --bench hybrid_queries
+MEDULLA_BENCH_ABLATION=1 cargo bench -p medulla-plan --features query --bench hybrid_queries   # filter-pushdown win
 cargo bench --features full --bench cold_warm_reopen                                  # redb reopen cold vs warm
 python3 scripts/bench_gate.py                                                         # p50 + recall@k gate
 # live cold-vs-warm + warm-fork + KV cross-restart drivers: see the workspace report
@@ -205,7 +205,7 @@ deployment**: it re-anchors on a fixed 10ms interval (100 anchor commits/sec)
 and mutates one of the anchored nodes every tick so the window's Merkle root
 changes EVERY time — a real durable commit every tick, never the free
 unchanged-root skip path `provenance_anchor_commit` takes when nothing
-changed. A real deployment's `EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS` is
+changed. A real deployment's `MEDULLA_PROVENANCE_ANCHOR_SECS` is
 **seconds**, not milliseconds — 3,000×+ less frequent than this stress test —
 and most ticks hit the free skip path because the provenance window is not
 churning every 10ms.
@@ -234,7 +234,7 @@ seam `read_node_blocking` already uses) and never touches the writer's
 command channel. Only `provenance_anchor_commit`'s own commit touches the
 writer thread, and its cost is O(1) in window size; it opens zero
 transactions when the computed root is unchanged since the last anchor (the
-overwhelmingly common case at any `EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS`
+overwhelmingly common case at any `MEDULLA_PROVENANCE_ANCHOR_SECS`
 realistic cadence, since most ticks see no new provenance nodes). The
 measured numbers above are consistent with (do not contradict) this design:
 even a maximally-aggressive 100-commits/sec synthetic stress, run back to

@@ -6,8 +6,8 @@ from typing import Any, cast
 import pytest
 from _client_fixtures import RecordingTransport, SentCall
 
-import epistemic_graph
-from epistemic_graph.client import EpistemicGraphClient, ServerRegistryClient
+import medulla
+from medulla.client import MedullaClient, ServerRegistryClient
 
 pytestmark = pytest.mark.no_engine
 
@@ -67,7 +67,7 @@ class _RegistryTransport:
 
 def test_page_uses_only_the_generated_native_registry_method() -> None:
     transport = _RegistryTransport()
-    client = ServerRegistryClient(cast(EpistemicGraphClient, transport))
+    client = ServerRegistryClient(cast(MedullaClient, transport))
     page = asyncio.run(client.page(limit=1))
     assert [entry.name for entry in page.entries] == ["alpha"]
     assert transport.calls == [
@@ -77,7 +77,7 @@ def test_page_uses_only_the_generated_native_registry_method() -> None:
 
 def test_list_all_exhausts_one_revision_and_digest_fenced_snapshot() -> None:
     transport = _RegistryTransport()
-    client = ServerRegistryClient(cast(EpistemicGraphClient, transport))
+    client = ServerRegistryClient(cast(MedullaClient, transport))
     entries = asyncio.run(client.list_all(page_size=1))
     assert [entry.name for entry in entries] == ["alpha", "bravo"]
     assert len(transport.calls) == 2
@@ -101,8 +101,8 @@ def test_registry_types_and_client_are_wheel_root_exports() -> None:
         "RegisteredServerView",
         "ServerRegistryClient",
     ):
-        assert name in epistemic_graph.__all__
-        assert getattr(epistemic_graph, name) is not None
+        assert name in medulla.__all__
+        assert getattr(medulla, name) is not None
 
 
 class _RegisterTransport(RecordingTransport):
@@ -112,7 +112,7 @@ class _RegisterTransport(RecordingTransport):
 
 def test_register_sends_the_typed_transport_and_desired_state() -> None:
     transport = _RegisterTransport()
-    client = ServerRegistryClient(cast(EpistemicGraphClient, transport))
+    client = ServerRegistryClient(cast(MedullaClient, transport))
     assert asyncio.run(
         client.register(
             "alpha",
@@ -129,6 +129,6 @@ def test_register_sends_the_typed_transport_and_desired_state() -> None:
 
 
 def test_registered_server_view_carries_the_typed_registration_claim() -> None:
-    view = epistemic_graph.RegisteredServerView.model_validate(_entry("alpha"))
+    view = medulla.RegisteredServerView.model_validate(_entry("alpha"))
     assert view.transport == "stdio"
     assert view.desired == "enabled"

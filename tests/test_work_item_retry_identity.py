@@ -9,7 +9,7 @@ import msgpack
 import pytest
 from _client_fixtures import unused_reader, unused_writer
 
-from epistemic_graph.client import EpistemicGraphClient
+from medulla.client import MedullaClient
 
 pytestmark = pytest.mark.no_engine
 
@@ -125,7 +125,7 @@ def _decode_envelope(request: dict[str, Any]) -> dict[str, Any]:
     return json.loads(bytes.fromhex(token.removeprefix("eg2.")).decode("utf-8"))
 
 
-# spec: EG-DURABLE-KERNEL-R028.4
+# spec: MEDULLA-DURABLE-KERNEL-R028.4
 @pytest.mark.parametrize("run_id", [None, "run-fixture"])
 @pytest.mark.asyncio
 async def test_work_item_retries_bind_stable_keys_to_signed_wire(
@@ -135,12 +135,12 @@ async def test_work_item_retries_bind_stable_keys_to_signed_wire(
     """Exercise WorkItemClient -> generated helper -> real signed request.
 
     The fake round-trip returns native-shaped results but receives the complete
-    MessagePack request built by ``EpistemicGraphClient._send``. Repeating a
+    MessagePack request built by ``MedullaClient._send``. Repeating a
     Submit or Claim with a stable key therefore checks the transport boundary
     where a fresh request id previously changed the durable envelope identity.
     """
 
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -239,7 +239,7 @@ async def test_work_item_retries_bind_stable_keys_to_signed_wire(
 
 @pytest.mark.asyncio
 async def test_work_item_retry_key_validation_rejects_blank_values() -> None:
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -271,10 +271,10 @@ async def test_work_item_retry_key_validation_rejects_blank_values() -> None:
         )
 
 
-# spec: EG-DURABLE-KERNEL-R028.4
+# spec: MEDULLA-DURABLE-KERNEL-R028.4
 @pytest.mark.asyncio
 async def test_run_owned_submission_keeps_closed_request_validation() -> None:
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",

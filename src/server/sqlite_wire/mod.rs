@@ -1,6 +1,6 @@
-//! SQLite-compatible served surface (CONCEPT:EG-KG.query.concept-3) — Phase J of the Universal-DB
+//! SQLite-compatible served surface (CONCEPT:MEDULLA-KG.query.concept-3) — Phase J of the Universal-DB
 //! multi-wire program. The SECOND consumer of the wire-agnostic execution core
-//! (CONCEPT:EG-KG.compute.subsystems-reference), after the Postgres shim (`crate::server::pgwire`).
+//! (CONCEPT:MEDULLA-KG.compute.subsystems-reference), after the Postgres shim (`crate::server::pgwire`).
 //!
 //! ## Why this is not a "wire" like the others
 //! SQLite has **no client/server wire protocol** — it is an embedded library that
@@ -19,14 +19,14 @@
 //!      a || b` / `PRAGMA` statements work against the engine.
 //!
 //!   2. **`.db` file export/import** — producing / loading a real SQLite database file.
-//!      SHIPPED as `CONCEPT:EG-KG.query.eg-feature`/`CONCEPT:EG-KG.query.full-protocol` behind the SEPARATE `sqlite-file`
+//!      SHIPPED as `CONCEPT:MEDULLA-KG.query.medulla-feature`/`CONCEPT:MEDULLA-KG.query.full-protocol` behind the SEPARATE `sqlite-file`
 //!      feature (`src/server/handlers/sqlite_file.rs` + the `ImportSqliteFile`/
 //!      `ExportSqliteFile` methods). It reimplements the SQLite b-tree page format from
-//!      scratch in `eg-sqlite-format` (a pure-Rust reader + bulk-load writer — NO rusqlite,
+//!      scratch in `medulla-sqlite-format` (a pure-Rust reader + bulk-load writer — NO rusqlite,
 //!      NO libsqlite3-sys, NO C toolchain), so BOTH the `sqlite-wire` surface here AND the
 //!      `.db` file leg stay pure-Rust and the Pi contract holds everywhere.
 //!
-//! ## The wire-neutral promise (CONCEPT:EG-KG.compute.subsystems-reference)
+//! ## The wire-neutral promise (CONCEPT:MEDULLA-KG.compute.subsystems-reference)
 //! NOTHING about SQL classification, read execution (DataFusion), the graph write path,
 //! transactions, ACL, or durability is reimplemented here. This module is purely: the
 //! TCP framing (newline-delimited JSON), the SQLite-dialect rewrite, and the encoding of
@@ -48,11 +48,11 @@
 //! Column `type` is reported as the SQLite storage-class name (`INTEGER`/`REAL`/`TEXT`)
 //! so a SQLite-minded client sees familiar types.
 //!
-//! ## `.db` file export/import — SHIPPED (CONCEPT:EG-KG.query.eg-feature/EG-332)
+//! ## `.db` file export/import — SHIPPED (CONCEPT:MEDULLA-KG.query.medulla-feature/MEDULLA-332)
 //! Delivered in `src/server/handlers/sqlite_file.rs` behind the `sqlite-file` feature:
 //! import reads a `.db`'s tables+rows into the `TableStore`; export writes a `TableStore`
 //! selection out to a valid `sqlite3`-readable `.db`. The SQLite b-tree page format is
-//! serialized WITHOUT any C dependency by the pure-Rust `eg-sqlite-format` crate (reader +
+//! serialized WITHOUT any C dependency by the pure-Rust `medulla-sqlite-format` crate (reader +
 //! bottom-up bulk-load writer), whose output passes a real `sqlite3 PRAGMA integrity_check`
 //! — so the whole `sqlite-file` leg is pure-Rust and the Pi contract is preserved.
 
@@ -62,7 +62,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
-use eg_query::PgColType;
+use medulla_query::PgColType;
 use serde::Deserialize;
 
 use crate::protocol::{Method, Request};
@@ -75,10 +75,10 @@ pub use dialect::{translate_sqlite_sql, Translated};
 
 /// Env var carrying the bind address (`host:port`) for the SQLite-dialect served
 /// surface. Unset → no listener (opt-in), matching every other interop endpoint.
-pub const SQLITE_ADDR_ENV: &str = "EPISTEMIC_GRAPH_SQLITE_ADDR";
+pub const SQLITE_ADDR_ENV: &str = "MEDULLA_SQLITE_ADDR";
 /// Env var: the default graph a fresh connection runs against until a `SET graph`
 /// overrides it. Defaults to `__commons__`.
-pub const SQLITE_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_SQLITE_GRAPH";
+pub const SQLITE_GRAPH_ENV: &str = "MEDULLA_SQLITE_GRAPH";
 
 #[derive(Deserialize)]
 struct SignedSqliteRequest {
@@ -98,7 +98,7 @@ const MAX_LINE_BYTES: u64 = 8 * 1024 * 1024;
 /// One [`WireSession`] per accepted connection (so `SET graph` / transaction state stays
 /// isolated per connection), exactly like a pgwire connection. Runs until the process
 /// exits. Spawned by `main.rs` only when built `--features sqlite-wire` AND
-/// `EPISTEMIC_GRAPH_SQLITE_ADDR` is set.
+/// `MEDULLA_SQLITE_ADDR` is set.
 pub async fn serve(listener: TcpListener, state: Arc<RwLock<ServerState>>) {
     let persist_dir = state.read().await.persist_dir.clone();
     if crate::server::sql_tables::validate_served_configuration(

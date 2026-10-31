@@ -1,4 +1,4 @@
-// EG-UNIFIED-DATA-PLANE-R651.7: the enrichment write-set links every chunk and
+// MEDULLA-UNIFIED-DATA-PLANE-R651.7: the enrichment write-set links every chunk and
 // vector to its Document, replays an enriched digest and supersedes an old one.
 
 use super::*;
@@ -41,7 +41,7 @@ fn plan_for<'a>(
     }
 }
 
-// spec: EG-UNIFIED-DATA-PLANE-R651.7.2
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R651.7.2
 #[test]
 fn links_chunks_vectors_and_facts() {
     let text = "# Page\n\n".to_string() + &"A sentence about chunking. ".repeat(30);
@@ -68,7 +68,7 @@ fn links_chunks_vectors_and_facts() {
     else {
         panic!("first chunk node");
     };
-    let chunk = eg_types::msgpack::decode_property_value(properties_msgpack).unwrap();
+    let chunk = medulla_types::msgpack::decode_property_value(properties_msgpack).unwrap();
     assert_eq!(chunk["fetch_backend"], "archivebox");
     assert_eq!(chunk["url"], "https://example.org/a");
     assert_eq!(chunk["heading_path"], "Page");
@@ -110,7 +110,7 @@ fn links_chunks_vectors_and_facts() {
     assert_ne!(receipt2.enrichment_id, receipt.enrichment_id);
 }
 
-// spec: EG-UNIFIED-DATA-PLANE-R651.7.4
+// spec: MEDULLA-UNIFIED-DATA-PLANE-R651.7.4
 #[test]
 fn refuses_missing_text_and_unknown_backend() {
     let empty = rmp_serde::to_vec_named(&json!({"type": "Document", "text": "  "})).unwrap();

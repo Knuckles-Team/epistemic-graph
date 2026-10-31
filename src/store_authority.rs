@@ -1,7 +1,7 @@
 //! The one composition-root scope-grant authority for every kernel-owned
 //! durable store this binary opens (RF-RULING-004).
 //!
-//! `eg_storage::StorageKernel` never interprets proof bytes: it asks a
+//! `medulla_storage::StorageKernel` never interprets proof bytes: it asks a
 //! [`ScopeGrantVerifier`] the composition root supplies whether a principal is
 //! entitled to serve one exact logical scope on one exact physical file under
 //! one exact layout. This binary IS that root, so this module is where that
@@ -27,7 +27,7 @@
 //! It does NOT bind the SCOPE, and that is a deliberate, recorded limit rather
 //! than an oversight. A courier-held proof is authenticated once at `open` and
 //! then re-presented for every scope the store binds LATER --
-//! `eg_tsdb::SeriesStore` keeps its proof precisely so a new series' scope can
+//! `medulla_tsdb::SeriesStore` keeps its proof precisely so a new series' scope can
 //! be authenticated long after `open` returned (`SeriesStore::scope_handle`) --
 //! so a one-scope-per-proof rule would refuse every series after the first.
 //! Binding the scope at MINT time is not available either: the domain crates
@@ -44,10 +44,10 @@
 //! be a second grant authority for the same files, which is the shape
 //! RF-RULING-004 forbids.
 
-use eg_storage::{
+use medulla_storage::{
     BlobSharedServiceVerifier, OwnerLayout, PhysicalStoreIdentity, ScopeGrantVerifier,
 };
-use eg_types::MutationScopeIdentity;
+use medulla_types::MutationScopeIdentity;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -69,7 +69,7 @@ const GRANT_ID_BYTES: usize = 16;
 /// not be derived from the per-process secret.
 ///
 /// The value is `principal:sha256:` + SHA-256("epistemic-graph:engine"), because
-/// `MutationBatch::validate` (`eg-types` `validate_principal`) accepts ONLY that
+/// `MutationBatch::validate` (`medulla-types` `validate_principal`) accepts ONLY that
 /// opaque-digest form: a readable principal string is unrepresentable in a batch,
 /// so a store bound under one could never commit a maintenance mutation. It is
 /// the same construction `server::mutation_batch::digest::principal_fingerprint`
@@ -108,7 +108,7 @@ pub fn process_authority() -> &'static Arc<EngineScopeAuthority> {
 
 /// The same authority as an owned trait object, for the stores whose `open`
 /// takes `Arc<dyn ScopeGrantVerifier>` because they authenticate a new scope
-/// lazily, long after `open` returned (`eg_tsdb::SeriesStore`).
+/// lazily, long after `open` returned (`medulla_tsdb::SeriesStore`).
 pub fn process_verifier() -> Arc<dyn ScopeGrantVerifier> {
     Arc::clone(process_authority()) as Arc<dyn ScopeGrantVerifier>
 }
@@ -276,7 +276,7 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 /// Open an EPHEMERAL SQL catalog at a fresh temp path under THIS process's own
 /// grant authority, returning the store and the file it owns.
 ///
-/// `eg_query::TableStore::open_temp` is compiled only under that crate's
+/// `medulla_query::TableStore::open_temp` is compiled only under that crate's
 /// `cfg(test)` or its off-by-default `dev-scope-grant` feature, because
 /// RF-RULING-004 forbids a domain crate from carrying a scope-grant verifier of
 /// its own. This binary IS a composition root, so its ephemeral SQL stores are
@@ -286,12 +286,12 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 /// The caller owns the returned path: an ephemeral store is a real redb file and
 /// nothing else removes it (see `server::wire::EphemeralStoreGuard`).
 #[cfg(feature = "query")]
-pub fn open_ephemeral_sql_store() -> Result<(eg_query::TableStore, std::path::PathBuf), String> {
+pub fn open_ephemeral_sql_store() -> Result<(medulla_query::TableStore, std::path::PathBuf), String> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static EPHEMERAL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let ordinal = EPHEMERAL_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!(
-        "eg_root_sql_tables_{}_{}_{ordinal}.redb",
+        "medulla_root_sql_tables_{}_{}_{ordinal}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -299,7 +299,7 @@ pub fn open_ephemeral_sql_store() -> Result<(eg_query::TableStore, std::path::Pa
             .unwrap_or(0),
     ));
     let authority = process_authority();
-    let store = eg_query::TableStore::open(
+    let store = medulla_query::TableStore::open(
         &path,
         process_verifier(),
         authority.principal(),
@@ -315,7 +315,7 @@ mod tests {
     fn scope() -> MutationScopeIdentity {
         MutationScopeIdentity::fixed_native(
             "native",
-            eg_types::mutation_batch::DurabilityDomain::ControlPlane,
+            medulla_types::mutation_batch::DurabilityDomain::ControlPlane,
             "a",
             "test:v1",
         )
@@ -333,7 +333,7 @@ mod tests {
     fn other_scope() -> MutationScopeIdentity {
         MutationScopeIdentity::fixed_native(
             "native",
-            eg_types::mutation_batch::DurabilityDomain::ControlPlane,
+            medulla_types::mutation_batch::DurabilityDomain::ControlPlane,
             "b",
             "test:v1",
         )
@@ -381,7 +381,7 @@ mod tests {
     /// The recorded limit, asserted so it cannot change silently: a grant is NOT
     /// pinned to one serving scope, because a courier-held proof authenticates
     /// new scopes on its own store long after `open` returned
-    /// (`eg_tsdb::SeriesStore::scope_handle`). The scope is bounded by the
+    /// (`medulla_tsdb::SeriesStore::scope_handle`). The scope is bounded by the
     /// kernel's `layout.accepts` check against the store's persisted manifest,
     /// not by the proof. Every OTHER dimension is pinned -- see the two tests
     /// above and `a_proof_presented_for_another_principal_is_rejected`.

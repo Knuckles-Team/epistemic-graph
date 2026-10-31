@@ -29,7 +29,7 @@ export PYTHONDONTWRITEBYTECODE=1
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/eg-wheel-privacy-gate.XXXXXX")"
+WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/medulla-wheel-privacy-gate.XXXXXX")"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 # release-build.yml runs "Configure identity-neutral Rust source paths" BEFORE
@@ -61,8 +61,8 @@ echo "=== build primary server wheel (debug, full+ast-extended) ==="
 maturin build --locked --no-default-features --features full,ast-extended \
   --out "$WORKDIR/dist-primary"
 
-echo "=== build eg-numeric kernel wheel (debug, feature python) ==="
-maturin build -m crates/eg-numeric/Cargo.toml --features python \
+echo "=== build medulla-numeric kernel wheel (debug, feature python) ==="
+maturin build -m crates/medulla-numeric/Cargo.toml --features python \
   --out "$WORKDIR/numdist-primary"
 
 SERVER_WHEEL=$(ls "$WORKDIR"/dist-primary/medulla-*.whl)

@@ -5,7 +5,7 @@ import json
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from epistemic_graph.generated import models
+from medulla.generated import models
 
 pytestmark = pytest.mark.no_engine
 

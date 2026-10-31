@@ -19,7 +19,7 @@ use openraft::BasicNode;
 
 use super::super::network::{self, GroupRpc, GroupRpcReply, MembershipChange, MembershipOutcome};
 use super::super::xread::ReadPageService;
-use super::{EgRaft, GroupId, MultiRaft, NodeId};
+use super::{MedullaRaft, GroupId, MultiRaft, NodeId};
 
 /// How long one membership change keeps following a moving leader.
 const FOLLOW_BUDGET: Duration = Duration::from_secs(60);
@@ -43,7 +43,7 @@ enum Route {
 
 impl MultiRaft {
     /// Attach `new_node` (reachable at `addr`) to group `gid` as a NON-VOTING LEARNER
-    /// (CONCEPT:EG-KG.storage.kg-kg-2): the leader registers `addr` with its peer
+    /// (CONCEPT:MEDULLA-KG.storage.kg-kg-2): the leader registers `addr` with its peer
     /// pool, starts replicating, and BLOCKS until the learner's log is caught up.
     /// The voter set is untouched; promote with [`Self::change_group_voters`] or use
     /// [`Self::add_group_member`]. Callable on any member: it follows the leader.
@@ -115,7 +115,7 @@ impl MultiRaft {
     }
 
     /// This node's handle on group `gid`.
-    async fn group_raft(&self, gid: GroupId) -> Result<EgRaft, String> {
+    async fn group_raft(&self, gid: GroupId) -> Result<MedullaRaft, String> {
         self.groups
             .read()
             .await
@@ -125,7 +125,7 @@ impl MultiRaft {
     }
 
     /// Resolve the group's current leader and its committed address.
-    async fn route(&self, raft: &EgRaft) -> Route {
+    async fn route(&self, raft: &MedullaRaft) -> Route {
         let Some(leader) = raft.current_leader().await else {
             return Route::Unsettled;
         };
@@ -144,7 +144,7 @@ impl MultiRaft {
     /// A replica that has lost leadership answers [`MembershipOutcome::LeaderMoved`].
     async fn apply_membership(
         &self,
-        raft: &EgRaft,
+        raft: &MedullaRaft,
         gid: GroupId,
         change: MembershipChange,
     ) -> Result<MembershipOutcome, String> {
@@ -173,7 +173,7 @@ impl MultiRaft {
     /// change cannot make openraft refuse the next one as "already undergoing a
     /// configuration change". Errors when `deadline` passes first.
     async fn wait_membership_committed(
-        raft: &EgRaft,
+        raft: &MedullaRaft,
         gid: GroupId,
         deadline: Duration,
     ) -> Result<(), String> {
@@ -209,7 +209,7 @@ impl MultiRaft {
     }
 }
 
-fn committed_voters(raft: &EgRaft) -> BTreeSet<NodeId> {
+fn committed_voters(raft: &MedullaRaft) -> BTreeSet<NodeId> {
     let metrics = raft.metrics();
     let watched = metrics.borrow_watched();
     watched.membership_config.voter_ids().collect()
@@ -219,7 +219,7 @@ fn committed_voters(raft: &EgRaft) -> BTreeSet<NodeId> {
 /// this node's manager (it owns peer registration); everything else goes to the
 /// group's replica as before.
 pub(super) async fn serve_one(
-    groups: &tokio::sync::RwLock<std::collections::BTreeMap<GroupId, EgRaft>>,
+    groups: &tokio::sync::RwLock<std::collections::BTreeMap<GroupId, MedullaRaft>>,
     owner: &MembershipOwner,
     rpc: GroupRpc,
     read_service: &ReadPageService,

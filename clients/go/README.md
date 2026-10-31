@@ -1,23 +1,23 @@
-# Medulla — thin Go client (CONCEPT:EG-KG.ingest.broker-streams-namespaces)
+# Medulla — thin Go client (CONCEPT:MEDULLA-KG.ingest.broker-streams-namespaces)
 
 A **deliberately thin** Go client for the Program-B engine `Method`s that had no client
 surface. It is **not a full SDK** — the canonical, full-featured client is the Python one
-in [`epistemic_graph/client.py`](../../epistemic_graph/client.py). This binding covers
+in [`medulla/client.py`](../../medulla/client.py). This binding covers
 only the new wire ops from B1.7:
 
 | Domain | Methods | Engine concept |
 |--------|---------|----------------|
-| Broker admin | `DeclareExchange` `DeleteExchange` `DeclareQueue` `BindQueue` `UnbindQueue` | EG-275/276/277/278 |
-| Broker publish | `Publish` `PublishEx` `PublishConfirmed` `PublishIdempotent` | EG-275/279/284/314 |
-| Broker consume | `BrokerConsume` `BrokerAck` `BrokerReject` `BrokerAckTag` `BrokerNackTag` `BrokerRenewTag` `SweepExpired` | EG-KG.compute.groups-qos-prefetch-honoring/276/284 |
-| Streams | `StreamDeclare` `StreamPublish` `StreamRead` `StreamTrim` `StreamCommitOffset` `StreamCommittedOffset` | EG-283 |
-| RBAC admin | `RbacAddRole` `RbacRemoveRole` `RbacAddGrant` `RbacRemoveGrant` `RbacList` | EG-KG.compute.feature |
+| Broker admin | `DeclareExchange` `DeleteExchange` `DeclareQueue` `BindQueue` `UnbindQueue` | MEDULLA-275/276/277/278 |
+| Broker publish | `Publish` `PublishEx` `PublishConfirmed` `PublishIdempotent` | MEDULLA-275/279/284/314 |
+| Broker consume | `BrokerConsume` `BrokerAck` `BrokerReject` `BrokerAckTag` `BrokerNackTag` `BrokerRenewTag` `SweepExpired` | MEDULLA-KG.compute.groups-qos-prefetch-honoring/276/284 |
+| Streams | `StreamDeclare` `StreamPublish` `StreamRead` `StreamTrim` `StreamCommitOffset` `StreamCommittedOffset` | MEDULLA-283 |
+| RBAC admin | `RbacAddRole` `RbacRemoveRole` `RbacAddGrant` `RbacRemoveGrant` `RbacList` | MEDULLA-KG.compute.feature |
 | Identity security | `RegisterIdentity` `BootstrapSystemIdentity` `ApplyMultisigMutation` | Signed current-context operations |
-| Ops | `Backup(destination, label)` `Restore(source, targetShards)` | EG-090 |
-| NL→query | `NlQuery` | EG-080 |
+| Ops | `Backup(destination, label)` `Restore(source, targetShards)` | MEDULLA-090 |
+| NL→query | `NlQuery` | MEDULLA-080 |
 
 > **Generated-from-the-Method-list.** Every method maps 1:1 to a Rust `Method`
-> variant in [`crates/eg-types/src/protocol.rs`](../../crates/eg-types/src/protocol.rs),
+> variant in [`crates/medulla-types/src/protocol.rs`](../../crates/medulla-types/src/protocol.rs),
 > using the exact serde field names that enum destructures. The full graph / vector /
 > RDF / SQL API is intentionally omitted — use the Python client for that.
 
@@ -33,7 +33,7 @@ Same framed-MessagePack transport as the Python client:
   missing claims, empty or duplicate list entries, malformed delegation, and
   implicitly omitted `Roles`, `Scopes`, or `Delegation` slices before connecting.
 - **Canonical body:** the MAC covers the engine's canonical re-derivation of the
-  body, computed by the embedded `eg_method_codec.wasm` run through wazero (see the
+  body, computed by the embedded `medulla_method_codec.wasm` run through wazero (see the
   [wire contract](https://github.com/Knuckles-Team/medulla/blob/main/docs/interfaces/clients.md#wire-contract-all-three)). `vectors_test.go` replays every contract method-body vector
   through the signer.
 - **Correlation:** this client holds ONE connection and serializes each round-trip under
@@ -70,7 +70,7 @@ func main() {
 		Graph:      "agent:planner",
 		Context: &epg.RequestContextClaims{
 			Principal: "service:graph-client", Tenant: "tenant:default",
-			Audience: "epistemic-graph" // OIDC audience value, unchanged by the rename, AgentID: "service:graph-client",
+			Audience: "medulla" // OIDC audience value, unchanged by the rename, AgentID: "service:graph-client",
 			Roles: []string{"graph-client"},
 			Scopes: []string{"graph:read", "graph:write"},
 			PolicyVersion: "policy:current", Delegation: []string{},

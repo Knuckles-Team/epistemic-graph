@@ -41,7 +41,7 @@ async fn compact_at(
     h: &Harness,
     policy: &ComponentDependency,
     now_ms: u64,
-) -> eg_types::decision::statistical::log::DecisionLogCompacted {
+) -> medulla_types::decision::statistical::log::DecisionLogCompacted {
     let state = h.state.read().await;
     let retention = super::super::stat_retention::Retention::of(&state, &verified());
     let ctx = super::super::stat_executor::ExecutionContext {
@@ -61,7 +61,7 @@ async fn compact_at(
     .unwrap()
 }
 
-// spec: EG-DECISION-ENGINE-R066.1
+// spec: MEDULLA-DECISION-ENGINE-R066.1
 #[cfg(feature = "blob")]
 #[tokio::test]
 async fn library_records_survive_every_retention_window() {
@@ -69,7 +69,7 @@ async fn library_records_survive_every_retention_window() {
     let record = library_record(&h).await;
     assert!(matches!(
         record.candidate_source,
-        eg_types::decision::CandidateSourceRecord::AgentLibrary { .. }
+        medulla_types::decision::CandidateSourceRecord::AgentLibrary { .. }
     ));
     let entry = commit_record(&h, record).await;
     let before = serde_json::to_vec(&entry).unwrap();
@@ -86,11 +86,11 @@ async fn library_records_survive_every_retention_window() {
         log_tests::verify_log(&h, &entry.record.record_id)
             .await
             .unwrap(),
-        eg_types::decision::statistical::log::DecisionLogVerification::Verified { .. }
+        medulla_types::decision::statistical::log::DecisionLogVerification::Verified { .. }
     ));
 }
 
-// spec: EG-DECISION-ENGINE-R066.2
+// spec: MEDULLA-DECISION-ENGINE-R066.2
 #[cfg(all(feature = "blob", feature = "query"))]
 #[tokio::test]
 async fn graph_inputs_expire_at_the_configured_boundaries() {
@@ -122,11 +122,11 @@ async fn graph_inputs_expire_at_the_configured_boundaries() {
         log_tests::verify_log(&h, &entry.record.record_id)
             .await
             .unwrap(),
-        eg_types::decision::statistical::log::DecisionLogVerification::InputsRetired { .. }
+        medulla_types::decision::statistical::log::DecisionLogVerification::InputsRetired { .. }
     ));
 }
 
-// spec: EG-DECISION-ENGINE-R066.3
+// spec: MEDULLA-DECISION-ENGINE-R066.3
 #[tokio::test]
 async fn evaluate_only_leaves_no_committed_records() {
     let h = Harness::new().await;

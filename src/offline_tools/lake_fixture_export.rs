@@ -1,8 +1,8 @@
-//! `epistemic-graph-server lake-fixture-export` — write a small, deterministic fixture table's REAL Delta +
+//! `medulla-server lake-fixture-export` — write a small, deterministic fixture table's REAL Delta +
 //! Iceberg artifacts (Parquet data files, `_delta_log`, `metadata.json`, Avro
-//! manifests) straight to a plain local directory, via the SAME `eg-lake` production
+//! manifests) straight to a plain local directory, via the SAME `medulla-lake` production
 //! write calls `src/server/lake::LakeManager::materialize_batch` makes against the
-//! blob CAS (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns, W4.8).
+//! blob CAS (CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns, W4.8).
 //!
 //! Exists so the Python read-parity test suite
 //! (`tests/test_lake_iceberg_delta_parity.py`) can point a real, unmodified
@@ -15,7 +15,7 @@
 //! generation.
 //!
 //! ```text
-//! epistemic-graph-server lake-fixture-export <output-dir>
+//! medulla-server lake-fixture-export <output-dir>
 //! ```
 //! Prints one line of JSON to stdout: the table's real filesystem `location`, the
 //! CURRENT `metadata_location`, and the exact row values written — the single source
@@ -24,9 +24,9 @@
 use std::fs;
 use std::path::Path;
 
-use eg_lake::schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
-use eg_lake::snapshot::Lsn;
-use eg_lake::LakeTable;
+use medulla_lake::schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
+use medulla_lake::snapshot::Lsn;
+use medulla_lake::LakeTable;
 
 const NAMESPACE: &str = "lake_parity_test";
 const TABLE: &str = "fixture_table";
@@ -175,7 +175,7 @@ fn commit(
     let manifests = candidate
         .iceberg_manifests()
         .map_err(|error| format!("build iceberg avro manifests: {error}"))?;
-    eg_lake::record_iceberg_commit(&mut candidate, ts_ms);
+    medulla_lake::record_iceberg_commit(&mut candidate, ts_ms);
     let ib = candidate.iceberg(ts_ms);
     let artifacts = vec![
         (format!("{location}/{rel_path}"), bytes),
@@ -207,7 +207,7 @@ pub(crate) fn run(argv: Vec<std::ffi::OsString>) {
         .get(1)
         .map(|a| a.to_string_lossy().into_owned())
         .unwrap_or_else(|| {
-            eprintln!("usage: epistemic-graph-server lake-fixture-export <output-dir>");
+            eprintln!("usage: medulla-server lake-fixture-export <output-dir>");
             std::process::exit(2);
         });
     let location = Path::new(&out_dir)

@@ -103,8 +103,8 @@ async fn authenticated_work_item_commit_carries_nonce_and_stable_key() {
     });
     let persistence: Arc<dyn PersistenceBackend> = probe.clone();
     let core = Arc::new(GraphCore::new());
-    let nonce = eg_types::contract::Nonce::from_bytes([0x42; 32]);
-    let retry_nonce = eg_types::contract::Nonce::from_bytes([0x43; 32]);
+    let nonce = medulla_types::contract::Nonce::from_bytes([0x42; 32]);
+    let retry_nonce = medulla_types::contract::Nonce::from_bytes([0x43; 32]);
     let stable_key = "signed-work-item-operation";
     let method = || Method::RenewWorkItemLease {
         tenant: "tenant:authenticated".into(),
@@ -362,7 +362,7 @@ fn change_envelope_projection_failure_never_partially_publishes() {
             sanitizer_version: "sanitizer-v1".into(),
             sanitized_payload_digest: "b".repeat(64),
         },
-        material_class: eg_types::change_envelope::MaterialClass::Attested,
+        material_class: medulla_types::change_envelope::MaterialClass::Attested,
         commit_seq: None,
         commit_descriptor_ref: None,
     };
@@ -595,7 +595,7 @@ fn named_domain(line: &str) -> Option<String> {
 /// The variants of one `MethodWriteFamily`, read from the family declaration
 /// next to the enum, so a family edit is visible to this golden too.
 fn family_variants(family: &str) -> Vec<String> {
-    let source = include_str!("../../../crates/eg-types/src/protocol/method/families.rs");
+    let source = include_str!("../../../crates/medulla-types/src/protocol/method/families.rs");
     let mut pending: Vec<String> = Vec::new();
     for line in code_lines(function_body(source, "fn write_family")) {
         for token in line.match_indices("Self::") {
@@ -703,7 +703,7 @@ fn classifier_source_map_agrees_with_domain_for() {
 }
 
 /// EH-319 regression: `KvPut`, `BlobBegin`, `SqlSourceBatch` and the Broker
-/// family are wire-unconditional -- `eg-capabilities` forces their `eg-types`
+/// family are wire-unconditional -- `medulla-capabilities` forces their `medulla-types`
 /// features on for ANY `server` build (see `write_classification.rs`'s module
 /// doc for the full mechanism) -- so `domain_for` must classify them correctly
 /// with NO `#[cfg]` gate of its own needed for these constructions to compile,
@@ -939,7 +939,7 @@ fn owner_store_batch_names_the_serving_principal_and_carries_the_caller_actor() 
 #[cfg(feature = "redb")]
 fn compile_sql_source_dirty_batch(
     request_id: u64,
-    attempt_nonce: eg_types::contract::Nonce,
+    attempt_nonce: medulla_types::contract::Nonce,
     expected_version: u64,
 ) -> (Method, MutationBatch) {
     let method = Method::Sql {
@@ -977,29 +977,29 @@ fn sql_catalog_compile_declares_one_retry_stable_typed_source_dirty_intent() {
     use sha2::Digest as _;
 
     let (method, first) =
-        compile_sql_source_dirty_batch(11, eg_types::contract::Nonce::from_bytes([11; 32]), 0);
+        compile_sql_source_dirty_batch(11, medulla_types::contract::Nonce::from_bytes([11; 32]), 0);
     let (_, retry) =
-        compile_sql_source_dirty_batch(12, eg_types::contract::Nonce::from_bytes([12; 32]), 1);
+        compile_sql_source_dirty_batch(12, medulla_types::contract::Nonce::from_bytes([12; 32]), 1);
     let source_dirty = first
         .outbox
         .iter()
-        .filter(|intent| intent.topic == eg_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC)
+        .filter(|intent| intent.topic == medulla_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC)
         .collect::<Vec<_>>();
     assert_eq!(source_dirty.len(), 1);
-    let decoded = eg_types::semantic_index::SemanticSourceDirtyIntent::from_canonical_cbor(
+    let decoded = medulla_types::semantic_index::SemanticSourceDirtyIntent::from_canonical_cbor(
         &source_dirty[0].payload,
     )
     .unwrap();
     assert_eq!(
         decoded.source_scope_digest,
-        eg_types::semantic_index::SemanticDigest::from_bytes(
+        medulla_types::semantic_index::SemanticDigest::from_bytes(
             *first.identity.binding_digest().as_bytes()
         )
     );
     let encoded_method = rmp_serde::to_vec_named(&method).unwrap();
     assert_eq!(
         decoded.input_digest,
-        eg_types::semantic_index::SemanticDigest::from_bytes(
+        medulla_types::semantic_index::SemanticDigest::from_bytes(
             sha2::Sha256::digest(encoded_method).into()
         )
     );
@@ -1008,7 +1008,7 @@ fn sql_catalog_compile_declares_one_retry_stable_typed_source_dirty_intent() {
     let retry_source_dirty = retry
         .outbox
         .iter()
-        .find(|intent| intent.topic == eg_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC)
+        .find(|intent| intent.topic == medulla_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC)
         .unwrap();
     assert_eq!(
         retry_source_dirty.payload, source_dirty[0].payload,
@@ -1043,27 +1043,27 @@ fn sql_catalog_compile_declares_one_retry_stable_typed_source_dirty_intent() {
     assert!(non_sql
         .outbox
         .iter()
-        .all(|intent| { intent.topic != eg_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC }));
+        .all(|intent| { intent.topic != medulla_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC }));
 }
 
 #[cfg(all(feature = "query", feature = "redb"))]
 #[test]
 fn sql_source_rows_receipt_version_and_dirty_intent_commit_and_replay_atomically() {
-    let (store, _path) = eg_query::TableStore::open_temp().unwrap();
-    let mut txn = eg_query::TableTxn::new();
-    txn.push(eg_query::TxnOp::CreateTable {
-        schema: eg_query::TableSchema::new(
+    let (store, _path) = medulla_query::TableStore::open_temp().unwrap();
+    let mut txn = medulla_query::TableTxn::new();
+    txn.push(medulla_query::TxnOp::CreateTable {
+        schema: medulla_query::TableSchema::new(
             "semantic_dirty_rows",
-            vec![eg_query::Column::new(
+            vec![medulla_query::Column::new(
                 "id",
-                eg_query::ColumnType::BigInt,
+                medulla_query::ColumnType::BigInt,
                 false,
                 true,
             )],
         ),
         if_not_exists: false,
     });
-    let nonce = eg_types::contract::Nonce::from_bytes([21; 32]);
+    let nonce = medulla_types::contract::Nonce::from_bytes([21; 32]);
     let (_, first) = compile_sql_source_dirty_batch(21, nonce, 0);
     let committed = store.commit_txn_batch(&txn, &first, 21).unwrap();
     assert!(!committed.replayed);
@@ -1084,7 +1084,7 @@ fn sql_source_rows_receipt_version_and_dirty_intent_commit_and_replay_atomically
     assert_eq!(durable_outbox.len(), first.outbox.len());
     let dirty = durable_outbox
         .iter()
-        .find(|record| record.intent.topic == eg_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC)
+        .find(|record| record.intent.topic == medulla_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC)
         .expect("the SQL owner transaction persists its typed source-dirty intent");
     assert_eq!(dirty.committed_version, committed.record.committed_version);
 
@@ -1093,7 +1093,7 @@ fn sql_source_rows_receipt_version_and_dirty_intent_commit_and_replay_atomically
     assert!(error.contains("REPLAY_NONCE_CONSUMED"), "{error}");
 
     let (_, retry) =
-        compile_sql_source_dirty_batch(23, eg_types::contract::Nonce::from_bytes([23; 32]), 1);
+        compile_sql_source_dirty_batch(23, medulla_types::contract::Nonce::from_bytes([23; 32]), 1);
     let replayed = store.commit_txn_batch(&txn, &retry, 23).unwrap();
     assert!(replayed.replayed);
     assert_eq!(replayed.record.committed_version, dirty.committed_version);
@@ -1121,10 +1121,10 @@ fn sql_source_rows_receipt_version_and_dirty_intent_commit_and_replay_atomically
 #[cfg(all(feature = "kv", feature = "redb"))]
 #[test]
 fn served_owner_store_batch_commits_and_its_actor_survives_in_the_ledger() {
-    use eg_storage::{KvOwner, PhysicalStoreIdentity, StorageKernel};
-    use eg_transaction::{Begin, MutationKernel};
+    use medulla_storage::{KvOwner, PhysicalStoreIdentity, StorageKernel};
+    use medulla_transaction::{Begin, MutationKernel};
 
-    let dir = crate::test_support::temp_dir("eg-mb", "owner-principal");
+    let dir = crate::test_support::temp_dir("medulla-mb", "owner-principal");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("kv.redb");
 
@@ -1138,11 +1138,11 @@ fn served_owner_store_batch_commits_and_its_actor_survives_in_the_ledger() {
     let (kernel, owner_authority) = kernel.into_read_and_mutation_authority().unwrap();
     let mutations = MutationKernel::new(owner_authority);
 
-    let identity = eg_types::MutationScopeIdentity::native(
-        eg_types::ScopeTenantId::new("tenant-a".to_string()).unwrap(),
+    let identity = medulla_types::MutationScopeIdentity::native(
+        medulla_types::ScopeTenantId::new("tenant-a".to_string()).unwrap(),
         crate::mutation_batch::DurabilityDomain::KvStore,
-        eg_types::LogicalName::new("kv-scope-a".to_string()).unwrap(),
-        eg_types::IncarnationId::new(crate::server::mutation_batch::COMPILED_BATCH_INCARNATION)
+        medulla_types::LogicalName::new("kv-scope-a".to_string()).unwrap(),
+        medulla_types::IncarnationId::new(crate::server::mutation_batch::COMPILED_BATCH_INCARNATION)
             .unwrap(),
     )
     .unwrap();
@@ -1200,7 +1200,7 @@ fn served_owner_store_batch_commits_and_its_actor_survives_in_the_ledger() {
     mutations.commit(write, &batch).unwrap();
 
     let read = kernel.read_scope(&owner).unwrap();
-    let record = eg_transaction::read_ledger(&read, "kv-served")
+    let record = medulla_transaction::read_ledger(&read, "kv-served")
         .unwrap()
         .expect("the committed batch has a durable receipt");
     assert_eq!(
@@ -1393,7 +1393,7 @@ impl PersistenceBackend for DurableVersion {
 /// authoritative read now brings the projection up to the durable version, so
 /// the next stamped write agrees with the kernel. A projection ahead of its
 /// authority is still refused.
-// spec: EG-DURABLE-KERNEL-R031.2
+// spec: MEDULLA-DURABLE-KERNEL-R031.2
 #[tokio::test]
 async fn the_authoritative_version_accounts_a_durable_write_the_projection_missed() {
     let core = GraphCore::new();

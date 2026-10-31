@@ -1,10 +1,10 @@
 use super::*;
 
-// ── EXPLAIN surfaces (CONCEPT:EG-KG.query.plan-dag, E5 phase 4) ──────────────
+// ── EXPLAIN surfaces (CONCEPT:MEDULLA-KG.query.plan-dag, E5 phase 4) ──────────────
 #[cfg(feature = "query")]
 pub(crate) async fn handle_explain_plan(
     ctx: &QueryHandlerCtx<'_>,
-    plan: eg_plan::Plan,
+    plan: medulla_plan::Plan,
 ) -> Result<Response, Method> {
     let req_id = ctx.req_id;
     let caller = ctx.caller;
@@ -34,7 +34,7 @@ pub(crate) async fn handle_explain_plan(
         Ok(Ok(result)) => result_response::<query_results::ExplainPlan>(req_id, &result),
         Ok(Err(msg)) => Response::err(
             req_id,
-            eg_types::contract::classify_refusal("INVALID_ARGUMENT", "ExplainPlan error: ", &msg),
+            medulla_types::contract::classify_refusal("INVALID_ARGUMENT", "ExplainPlan error: ", &msg),
         ),
         Err(resp) => resp,
     };
@@ -44,7 +44,7 @@ pub(crate) async fn handle_explain_plan(
 #[cfg(feature = "query")]
 pub(crate) async fn handle_explain_provenance(
     ctx: &QueryHandlerCtx<'_>,
-    plan: eg_plan::Plan,
+    plan: medulla_plan::Plan,
 ) -> Result<Response, Method> {
     let req_id = ctx.req_id;
     let caller = ctx.caller;
@@ -71,7 +71,7 @@ pub(crate) async fn handle_explain_provenance(
         Ok(Ok(result)) => result_response::<query_results::ExplainProvenance>(req_id, &result),
         Ok(Err(msg)) => Response::err(
             req_id,
-            eg_types::contract::classify_refusal(
+            medulla_types::contract::classify_refusal(
                 "INVALID_ARGUMENT",
                 "ExplainProvenance error: ",
                 &msg,
@@ -82,7 +82,7 @@ pub(crate) async fn handle_explain_provenance(
     Ok(resp)
 }
 
-// CONCEPT:EG-KB-CURRENCY — ID-seeded sibling of `ExplainProvenance`: same
+// CONCEPT:MEDULLA-KB-CURRENCY — ID-seeded sibling of `ExplainProvenance`: same
 // per-row epistemic wire shape, no `Op` plan needed.
 #[cfg(feature = "query")]
 pub(crate) async fn handle_explain_provenance_by_ids(
@@ -111,7 +111,7 @@ pub(crate) async fn handle_explain_provenance_by_ids(
         Ok(Ok(result)) => result_response::<query_results::ExplainProvenanceByIds>(req_id, &result),
         Ok(Err(msg)) => Response::err(
             req_id,
-            eg_types::contract::classify_refusal(
+            medulla_types::contract::classify_refusal(
                 "INVALID_ARGUMENT",
                 "ExplainProvenanceByIds error: ",
                 &msg,
@@ -125,7 +125,7 @@ pub(crate) async fn handle_explain_provenance_by_ids(
 #[cfg(feature = "query")]
 pub(crate) async fn handle_explain_policy(
     ctx: &QueryHandlerCtx<'_>,
-    plan: eg_plan::Plan,
+    plan: medulla_plan::Plan,
 ) -> Result<Response, Method> {
     let req_id = ctx.req_id;
     let caller = ctx.caller;
@@ -156,7 +156,7 @@ pub(crate) async fn handle_explain_policy(
         Ok(Ok(result)) => result_response::<query_results::ExplainPolicy>(req_id, &result),
         Ok(Err(msg)) => Response::err(
             req_id,
-            eg_types::contract::classify_refusal("INVALID_ARGUMENT", "ExplainPolicy error: ", &msg),
+            medulla_types::contract::classify_refusal("INVALID_ARGUMENT", "ExplainPolicy error: ", &msg),
         ),
         Err(resp) => resp,
     };
@@ -165,7 +165,7 @@ pub(crate) async fn handle_explain_policy(
 
 // L51: redaction-aware arm. Handles BOTH `disclosure_level: None` (byte-for-
 // byte the classic path below) AND `Some(_)` (routes through
-// `eg_epistemic::redact::explain_belief_redacted_capped` under the caller's
+// `medulla_epistemic::redact::explain_belief_redacted_capped` under the caller's
 // own RLS actor). Mutually exclusive with the arm below via `cfg` — exactly
 // one of the two is ever compiled for a given `Method::ExplainBelief` pattern.
 #[cfg(feature = "epistemic-redaction")]
@@ -332,7 +332,7 @@ pub(crate) async fn handle_recompute_materialization(
             ));
         };
         let result = crate::protocol::RecomputeMaterializationResult {
-            id: eg_epistemic::projection_identity(&derived_id),
+            id: medulla_epistemic::projection_identity(&derived_id),
             depends_on: Vec::new(),
             generating_activity: None,
             status: "Queued".to_string(),
@@ -494,7 +494,7 @@ pub(crate) async fn handle_resolve_conflict(
         Ok(Ok(result)) => result_response::<query_results::ResolveConflict>(req_id, &result),
         Ok(Err(msg)) => Response::err(
             req_id,
-            eg_types::contract::classify_refusal(
+            medulla_types::contract::classify_refusal(
                 "INVALID_ARGUMENT",
                 "ResolveConflict error: ",
                 &msg,
@@ -505,7 +505,7 @@ pub(crate) async fn handle_resolve_conflict(
     Ok(resp)
 }
 
-// X-1 (CONCEPT:EG-X1): the multimodal-evidence citation resolver. Gated
+// X-1 (CONCEPT:MEDULLA-X1): the multimodal-evidence citation resolver. Gated
 // `evidence-graph` at the handler; the wire `Method` variant itself is gated
 // only `epistemic` (see its doc comment), so a build with `epistemic` but not
 // `evidence-graph` falls through to the not-built catch-all. SURPASS
@@ -589,7 +589,7 @@ pub(crate) async fn handle_causal_estimate(
         Ok(Ok(result)) => result_response::<query_results::CausalEstimate>(req_id, &result),
         Ok(Err(msg)) => Response::err(
             req_id,
-            eg_types::contract::classify_refusal(
+            medulla_types::contract::classify_refusal(
                 "INVALID_ARGUMENT",
                 "CausalEstimate error: ",
                 &msg,
@@ -620,7 +620,7 @@ pub(crate) async fn handle_causal_counterfactual(
         Ok(Ok(result)) => result_response::<query_results::CausalCounterfactual>(req_id, &result),
         Ok(Err(msg)) => Response::err(
             req_id,
-            eg_types::contract::classify_refusal(
+            medulla_types::contract::classify_refusal(
                 "INVALID_ARGUMENT",
                 "CausalCounterfactual error: ",
                 &msg,

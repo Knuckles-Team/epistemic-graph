@@ -1,4 +1,4 @@
-//! Data-mining ops (CONCEPT:EG-KG.mining.frequent-itemset-mining): association-rule
+//! Data-mining ops (CONCEPT:MEDULLA-KG.mining.frequent-itemset-mining): association-rule
 //! mining over EITHER explicit transactions OR a graph-derived transaction source
 //! (compute-near-data), with optional KG write-back of the mined rules.
 //!
@@ -55,27 +55,27 @@ pub(crate) use vector::{
 pub(crate) use writeback::WritebackOptions;
 
 #[cfg(test)]
-use eg_compute::mining::classify::FittedClassifier;
+use medulla_compute::mining::classify::FittedClassifier;
 
 /// Handle a `Mine*` method. `Err(method)` hands a non-mining method back to the
-/// dispatcher (routing fall-through). (CONCEPT:EG-KG.query.dispatch-convention.)
+/// dispatcher (routing fall-through). (CONCEPT:MEDULLA-KG.query.dispatch-convention.)
 pub(crate) fn try_handle(
     req_id: u64,
     core: Arc<GraphCore>,
     read_authority: Option<&crate::server::access::GraphReadAuthority>,
-    // CONCEPT:EG-KG.mining.tsdb-typed-absent — the graph this request is scoped to, and the
+    // CONCEPT:MEDULLA-KG.mining.tsdb-typed-absent — the graph this request is scoped to, and the
     // server's live tsdb store handle, both needed ONLY to bind a plan-sourced `Op::TsScan`
     // leg for `MineClassifyFit` (the one Mine* method NOT routed through
     // `graph_ops::try_handle_gateway`, which binds the same pair for the gateway-routed
     // Mine* methods). `dispatch_graph_op_inner` is the sole caller with both in scope.
     #[cfg(all(feature = "query", feature = "tsdb"))] graph_name: &str,
     #[cfg(all(feature = "query", feature = "tsdb"))] tsdb_store: Option<
-        &Arc<eg_tsdb::store::SeriesStore>,
+        &Arc<medulla_tsdb::store::SeriesStore>,
     >,
     method: Method,
 ) -> Result<Response, Method> {
     match method {
-        // Every writeback-capable Mine* method (CONCEPT:EG-P0-2 bypass guard,
+        // Every writeback-capable Mine* method (CONCEPT:MEDULLA-P0-2 bypass guard,
         // L11) is now `mutation::GATEWAY_ROUTED` (runtime-conditional on
         // `writeback`) — `dispatch_graph_op` routes it through
         // `graph_ops::try_handle_gateway` BEFORE this handler is ever reached
@@ -157,7 +157,7 @@ pub(crate) fn try_handle(
     }
 }
 
-/// Test-only dispatch shim (CONCEPT:EG-P0-2 bypass guard, L11): this module's
+/// Test-only dispatch shim (CONCEPT:MEDULLA-P0-2 bypass guard, L11): this module's
 /// white-box unit tests exercise `handle_*` business logic directly against a
 /// `Method` value WITHOUT going through `dispatch_graph_op`/`graph_ops::
 /// try_handle_gateway`/`commit_conditional_mutation` at all, so they never see
@@ -188,7 +188,7 @@ fn dispatch_vector_families_for_test(
     core: Arc<GraphCore>,
     method: Method,
 ) -> Result<Response, Method> {
-    // No live server wiring in this harness (CONCEPT:EG-KG.mining.tsdb-typed-absent) — a
+    // No live server wiring in this harness (CONCEPT:MEDULLA-KG.mining.tsdb-typed-absent) — a
     // `TsScan`-bearing plan run through this shim is a typed error, exactly as it would be
     // against a real server with no tsdb store configured. None of this module's own tests
     // exercise a `TsScan` leg, so this is otherwise inert.
@@ -925,7 +925,7 @@ mod tests {
         assert_eq!(cluster_nodes.len() as u64, written);
     }
 
-    /// The headline fused example (CONCEPT:EG-KG.mining.fused-plan-source, Phase 5):
+    /// The headline fused example (CONCEPT:MEDULLA-KG.mining.fused-plan-source, Phase 5):
     /// vector-retrieve a neighborhood via an upstream `Op::Rank` PLAN — no
     /// `VectorSource` label spec at all — cluster the retrieved rows, and write
     /// `:Cluster` nodes back, all in ONE `MineCluster` call. Proves
@@ -1188,10 +1188,10 @@ mod tests {
             vec![9.1, 8.8],
         ];
         let y = vec![0, 0, 1, 1];
-        let model = eg_compute::mining::classify::fit(
+        let model = medulla_compute::mining::classify::fit(
             &x,
             &y,
-            eg_compute::mining::classify::Algorithm::GaussianNb,
+            medulla_compute::mining::classify::Algorithm::GaussianNb,
         )
         .unwrap();
         for (id, e) in [("p0", [0.1f32, 0.0]), ("p1", [9.0, 9.1])] {
@@ -1836,8 +1836,8 @@ mod tests {
 
     /// Assert `as_claim=true` materialized `:Claim` (+ `:Evidence` + `:Activity`)
     /// objects: the claim has `validation_state="unvalidated"`, a confidence in
-    /// `[0,1]`, a `SUPPORTS` in-edge the `eg_epistemic` belief layer recognizes +
-    /// propagates over, AND the CONCEPT:EG-P3-1 universal writeback-lineage tuple
+    /// `[0,1]`, a `SUPPORTS` in-edge the `medulla_epistemic` belief layer recognizes +
+    /// propagates over, AND the CONCEPT:MEDULLA-P3-1 universal writeback-lineage tuple
     /// (input-snapshot version, algo family/code/env version, an honest `null`
     /// calibration slot, `invalidation_deps`, and a `GENERATED_BY` edge to an
     /// `:Activity` node). Returns `(first claim id, its stored confidence)` for the
@@ -1856,7 +1856,7 @@ mod tests {
         );
         assert!(
             !core.get_nodes_by_label("Activity", 0).is_empty(),
-            "as_claim=true must materialize an Activity node (CONCEPT:EG-P3-1)"
+            "as_claim=true must materialize an Activity node (CONCEPT:MEDULLA-P3-1)"
         );
         let (claim_id, blob) = &claims[0];
         let props: serde_json::Value = rmp_serde::from_slice(blob).unwrap();
@@ -1867,7 +1867,7 @@ mod tests {
             (0.0..=1.0).contains(&conf),
             "claim confidence {conf} out of [0,1]"
         );
-        // CONCEPT:EG-P3-1 — the universal writeback-lineage tuple.
+        // CONCEPT:MEDULLA-P3-1 — the universal writeback-lineage tuple.
         assert!(props["input_snapshot_version"].as_u64().is_some());
         assert!(props["algo_family"].as_str().is_some());
         assert!(props["algo_code_version"].as_str().is_some());
@@ -1884,27 +1884,27 @@ mod tests {
         // The DERIVED/SUPPORTS edge is understood verbatim by the epistemic layer;
         // the DERIVED/GENERATED_BY edge is NOT (it stays epistemically neutral).
         let view = core.analysis_snapshot();
-        let bg = eg_epistemic::BeliefGraph::from_graph_view(&view);
+        let bg = medulla_epistemic::BeliefGraph::from_graph_view(&view);
         let ins = bg
             .in_edges
             .get(claim_id)
             .expect("claim must have supporters");
         assert!(
             ins.iter()
-                .any(|(_, k)| matches!(k, eg_epistemic::EdgeKind::Supports)),
+                .any(|(_, k)| matches!(k, medulla_epistemic::EdgeKind::Supports)),
             "claim must carry a SUPPORTS in-edge"
         );
         assert!(
             ins.iter().all(|(_, k)| !matches!(
                 k,
-                eg_epistemic::EdgeKind::Contradicts | eg_epistemic::EdgeKind::Attacks
+                medulla_epistemic::EdgeKind::Contradicts | medulla_epistemic::EdgeKind::Attacks
             )),
             "as_claim writeback must never self-contradict"
         );
-        let bs = eg_epistemic::propagate_confidence(
+        let bs = medulla_epistemic::propagate_confidence(
             &bg,
             claim_id,
-            &eg_epistemic::AuthorityPolicy::default(),
+            &medulla_epistemic::AuthorityPolicy::default(),
         );
         assert!((0.0..=1.0).contains(&bs.confidence));
 
@@ -2233,15 +2233,15 @@ mod tests {
         );
     }
 
-    /// The first E1↔E6 end-to-end proof (CONCEPT:EG-KG.epistemic.epistemic-substrate):
+    /// The first E1↔E6 end-to-end proof (CONCEPT:MEDULLA-KG.epistemic.epistemic-substrate):
     /// two `MineAssociate` runs over OVERLAPPING data with DISTINCT provenance
     /// corroborate the SAME `:Claim` with a SECOND `:Evidence`; building a
-    /// `BeliefGraph::from_graph_view` and running `eg_epistemic::propagate_confidence`
+    /// `BeliefGraph::from_graph_view` and running `medulla_epistemic::propagate_confidence`
     /// shows two corroborating runs raise the belief above a single one.
     #[test]
     #[cfg(feature = "epistemic")]
     fn corroboration_two_runs_raise_belief_above_one() {
-        use eg_epistemic::{propagate_confidence, AuthorityPolicy, BeliefGraph};
+        use medulla_epistemic::{propagate_confidence, AuthorityPolicy, BeliefGraph};
         let core = Arc::new(GraphCore::new());
         // Two owner labels (CartA / CartB) whose baskets BOTH yield {milk, bread}.
         for c in ["ca1", "ca2"] {
@@ -2311,10 +2311,10 @@ mod tests {
             vec![9.1, 8.8],
         ];
         let y = vec![0, 0, 1, 1];
-        let model = eg_compute::mining::classify::fit(
+        let model = medulla_compute::mining::classify::fit(
             &x,
             &y,
-            eg_compute::mining::classify::Algorithm::GaussianNb,
+            medulla_compute::mining::classify::Algorithm::GaussianNb,
         )
         .unwrap();
         let build = |core: &GraphCore| {

@@ -10,7 +10,7 @@ pub(super) struct CommitSlice {
     methods: Vec<Method>,
 }
 
-/// Commit a MULTI-GRAPH staged transaction (CONCEPT:EG-KG.txn.routes-cross-shard-txn — Lane N wire). Builds a
+/// Commit a MULTI-GRAPH staged transaction (CONCEPT:MEDULLA-KG.txn.routes-cross-shard-txn — Lane N wire). Builds a
 /// per-graph slice from the default-graph write-set + each `extra_writes` graph
 /// (validating existence + Write access on each), then:
 ///
@@ -201,7 +201,7 @@ pub(super) async fn commit_recoverable_slices(
     .await
 }
 
-/// Route a cross-shard multi-graph txn through the 2PC coordinator (CONCEPT:EG-KG.txn.routes-cross-shard-txn).
+/// Route a cross-shard multi-graph txn through the 2PC coordinator (CONCEPT:MEDULLA-KG.txn.routes-cross-shard-txn).
 #[cfg(feature = "raft")]
 pub(super) async fn commit_cross_shard(
     state: &Arc<RwLock<ServerState>>,
@@ -227,7 +227,7 @@ pub(super) async fn commit_cross_shard(
     // `build_consensus_transaction_fanout` already captures for its own participant
     // fanout) alongside the slice, so `CrossShardCoordinator::prepare_participant`
     // can reject a participant whose placement moved between when this slice was
-    // built and when it durably prepares (CONCEPT:EG-KG.txn.harness-crash "stale/
+    // built and when it durably prepares (CONCEPT:MEDULLA-KG.txn.harness-crash "stale/
     // fenced participant" gap).
     let mut x_slices: Vec<GraphSlice> = Vec::with_capacity(slices.len());
     for s in slices {
@@ -255,7 +255,7 @@ pub(super) async fn commit_cross_shard(
 }
 
 /// Apply each graph's slice locally through a deterministic child MutationBatch
-/// (CONCEPT:EG-KG.txn.routes-cross-shard-txn — the single-group / single-node
+/// (CONCEPT:MEDULLA-KG.txn.routes-cross-shard-txn — the single-group / single-node
 /// multi-graph path), subordinate to the prepared/committed transaction receipt opened
 /// by [`commit`]. Used when the span collapses to one Raft group or no cluster is
 /// active. Returns `Bool(true)`.
