@@ -105,9 +105,7 @@ def verify_installed(payload: dict[str, str]) -> dict:
         raise ValueError("installed smoke requires an isolated virtual environment")
     prefix = Path(sys.prefix).resolve()
     binary = Path(sysconfig.get_path("scripts")) / "medulla-server"
-    module_path = (
-        Path(sysconfig.get_path("purelib")) / "medulla_server/__init__.py"
-    )
+    module_path = Path(sysconfig.get_path("purelib")) / "medulla_server/__init__.py"
     if not binary.resolve().is_relative_to(
         prefix
     ) or not module_path.resolve().is_relative_to(prefix):

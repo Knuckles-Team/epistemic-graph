@@ -65,9 +65,7 @@ def _make_wheel(
 
 _BASE_MEMBERS = {
     "medulla/__init__.py": b"print('hello')\n",
-    "medulla/server.exe": b"\x00" * 32
-    + b"NATIVE-BINARY-PAYLOAD"
-    + b"\x00" * 32,
+    "medulla/server.exe": b"\x00" * 32 + b"NATIVE-BINARY-PAYLOAD" + b"\x00" * 32,
     "medulla-9.9.9.dist-info/METADATA": b"Metadata-Version: 2.3\nName: medulla\n",
 }
 
@@ -244,10 +242,7 @@ def test_container_only_difference_is_classified_separately_from_content(
         compare(primary_dir, reproduction_dir)
 
     out = capsys.readouterr().out
-    assert (
-        "CONTAINER-ONLY (decompressed bytes IDENTICAL): medulla/server.exe"
-        in out
-    )
+    assert "CONTAINER-ONLY (decompressed bytes IDENTICAL): medulla/server.exe" in out
     assert "CONTENT DIFFERS: medulla/server.exe" not in out
     assert "members ONLY in reproduction (1):" in out
     assert "medulla/README-EXTRA.txt" in out

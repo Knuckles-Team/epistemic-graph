@@ -615,9 +615,7 @@ def iceberg_server(tmp_path_factory, iceberg_oauth_fixture):
         "MEDULLA_TENANT": ICEBERG_TENANT,
         "MEDULLA_POLICY_VERSION": "policy:test",
         "MEDULLA_SECURITY_STATE_DIR": state_dir,
-        "MEDULLA_SIGNER_KEYS_JSON": json.dumps(
-            {"service:test-suite": "test-key"}
-        ),
+        "MEDULLA_SIGNER_KEYS_JSON": json.dumps({"service:test-suite": "test-key"}),
         "GRAPH_SERVICE_PERSIST_DIR": str(persist_dir),
         # This fixture validates Iceberg authentication and routing, not sharding.
         # One shard keeps its cold-start cost bounded without changing that surface.

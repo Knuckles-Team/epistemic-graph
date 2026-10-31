@@ -16,11 +16,11 @@ from pathlib import Path
 # and for the overlay setup to run afterward as one clearly-scoped block.
 from .client import (
     EngineResponseError,
-    MedullaClient,
     KnowledgeStreamBatch,
     KnowledgeStreamClient,
     KnowledgeStreamCursor,
     KnowledgeStreamQuery,
+    MedullaClient,
     ModalityApplyOutcome,
     ModalityAuthority,
     RequestContextClaims,

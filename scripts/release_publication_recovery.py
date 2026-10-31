@@ -140,9 +140,7 @@ def unpack(archive: Path, destination: Path, expected: dict) -> Path:
     require(digest(target) == expected["sha256"], "wheel digest mismatch")
     with zipfile.ZipFile(target) as wheel:
         receipts = [
-            i
-            for i in wheel.infolist()
-            if i.filename == "medulla/contract/receipt.json"
+            i for i in wheel.infolist() if i.filename == "medulla/contract/receipt.json"
         ]
         require(len(receipts) == 1, "missing/duplicate contract receipt")
         require(

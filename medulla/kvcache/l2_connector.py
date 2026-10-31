@@ -165,7 +165,9 @@ class RemoteKVL2Connector:
         self._next_id = count(1)
         self._id_lock = threading.Lock()
         self._closed = False
-        self._pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="medulla-l2")
+        self._pool = ThreadPoolExecutor(
+            max_workers=workers, thread_name_prefix="medulla-l2"
+        )
         logger.info(
             "RemoteKVL2Connector ready (workers=%d)",
             workers,

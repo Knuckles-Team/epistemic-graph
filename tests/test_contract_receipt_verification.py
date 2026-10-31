@@ -312,13 +312,8 @@ def _installed_package(venv, distribution, checkout):
     assert all(
         Path(path).resolve().is_relative_to(venv) for path in package.__path__
     ), "package search path is source-linked outside candidate venv"
-    assert (
-        package_root == Path(str(distribution.locate_file("medulla"))).resolve()
-    )
-    assert (
-        root
-        == Path(str(distribution.locate_file("medulla/contract"))).resolve()
-    )
+    assert package_root == Path(str(distribution.locate_file("medulla"))).resolve()
+    assert root == Path(str(distribution.locate_file("medulla/contract"))).resolve()
     assert not root.is_relative_to(Path(checkout).resolve())
     return package_root, root, contract
 
@@ -410,9 +405,7 @@ def _qualify_installed_contract(config: dict) -> dict:
     for name, digest in before.items():
         assert (
             hashlib.sha256(
-                package_root.joinpath(
-                    name.removeprefix("medulla/")
-                ).read_bytes()
+                package_root.joinpath(name.removeprefix("medulla/")).read_bytes()
             ).hexdigest()
             == digest
         )
@@ -470,7 +463,9 @@ class InstalledReceiptQualification(unittest.TestCase):
                 os.environ.get(name), f"required qualification input: {name}"
             )
         config = {
-            "wheel_path": str(Path(os.environ["MEDULLA_CONTRACT_WHEEL_PATH"]).resolve()),
+            "wheel_path": str(
+                Path(os.environ["MEDULLA_CONTRACT_WHEEL_PATH"]).resolve()
+            ),
             "wheel_sha256": os.environ["MEDULLA_CONTRACT_WHEEL_SHA256"],
             "expected_digest": os.environ["MEDULLA_CONTRACT_EXPECTED_DIGEST"],
             "checkout": str(_ROOT),
@@ -480,9 +475,17 @@ class InstalledReceiptQualification(unittest.TestCase):
             + "\nimport json, sys\n"
             + "print(json.dumps(_qualify_installed_contract(json.load(sys.stdin))))\n"
         )
-        with tempfile.TemporaryDirectory(prefix="medulla-installed-qualification-") as temp:
+        with tempfile.TemporaryDirectory(
+            prefix="medulla-installed-qualification-"
+        ) as temp:
             result = subprocess.run(
-                [os.environ["MEDULLA_CONTRACT_INSTALLED_PYTHON"], "-I", "-B", "-c", script],
+                [
+                    os.environ["MEDULLA_CONTRACT_INSTALLED_PYTHON"],
+                    "-I",
+                    "-B",
+                    "-c",
+                    script,
+                ],
                 input=json.dumps(config),
                 text=True,
                 capture_output=True,
@@ -534,9 +537,9 @@ class ReceiptVerifier(unittest.TestCase):
                 for name, data in files.items()
             },
         }
-        self.receipt["artifact_digests"]["medulla/contract_errors.py"] = (
-            hashlib.sha256(_errors_source().encode()).hexdigest()
-        )
+        self.receipt["artifact_digests"]["medulla/contract_errors.py"] = hashlib.sha256(
+            _errors_source().encode()
+        ).hexdigest()
         # Bind a repository-only artifact that deliberately does not exist here.
         self.receipt["artifact_digests"]["contract/schemas/example.json"] = (
             hashlib.sha256(files["schemas/example.json"]).hexdigest()

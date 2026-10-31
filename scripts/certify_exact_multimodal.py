@@ -1748,8 +1748,7 @@ def _run(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Certify four served modalities on one exact Medulla "
-        "artifact."
+        description="Certify four served modalities on one exact Medulla artifact."
     )
     parser.add_argument("--binary", required=True)
     parser.add_argument("--binary-sha256", required=True)

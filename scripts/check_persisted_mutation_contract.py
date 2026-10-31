@@ -1205,7 +1205,9 @@ def mutation_inventory_sources() -> dict[str, str]:
     dispatch = read_compiler_family("src/server/dispatch.rs")
     raft = read_compiler_family("src/raft/mod.rs")
     blob_store = read_compiler_family("src/server/blob/store.rs")
-    blob_shared = read_compiler_family("crates/medulla-storage/src/owner/blob_shared.rs")
+    blob_shared = read_compiler_family(
+        "crates/medulla-storage/src/owner/blob_shared.rs"
+    )
 
     return {
         "cargo": read("Cargo.toml"),

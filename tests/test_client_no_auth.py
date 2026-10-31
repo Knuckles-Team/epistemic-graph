@@ -53,9 +53,7 @@ async def _server():
 def test_anonymous_wire_and_verified_default(monkeypatch):
     async def run():
         async with _server() as (address, frames):
-            anonymous = await MedullaClient.connect(
-                tcp_addr=address, auth_mode="none"
-            )
+            anonymous = await MedullaClient.connect(tcp_addr=address, auth_mode="none")
             authenticated = await MedullaClient.connect(
                 tcp_addr=address,
                 auth_secret="synthetic-test-secret",
@@ -238,9 +236,7 @@ def test_anonymous_highlevel_changes_carry_replay_and_local_namespace():
 
     async def run():
         async with _server() as (address, frames):
-            client = await MedullaClient.connect(
-                auth_mode="none", tcp_addr=address
-            )
+            client = await MedullaClient.connect(auth_mode="none", tcp_addr=address)
             try:
                 original = _envelope()
                 await client.changes.apply(original)

@@ -205,9 +205,7 @@ def test_a_wheel_with_the_engine_kernel_passes_when_required(tmp_path: Path) -> 
 def test_a_windows_wheel_is_accepted(tmp_path: Path) -> None:
     """`.pyd` kernel + no POSIX mode bits is a valid wheel."""
     members = _complete_members()
-    members["medulla/numeric.pyd"] = members.pop(
-        "medulla/numeric.abi3.so"
-    )
+    members["medulla/numeric.pyd"] = members.pop("medulla/numeric.abi3.so")
     wheel = _build_wheel(tmp_path / "windows.whl", members=members)
     assert check_wheel(wheel) == []
 

@@ -23,9 +23,7 @@ def wheel(directory: Path, name="medulla-stem", version="2.27.10", scripts=1):
             f"Name: {name}\nVersion: {version}\n",
         )
         if scripts:
-            z.writestr(
-                "medulla_stem.data/scripts/medulla-server", b"test fixture"
-            )
+            z.writestr("medulla_stem.data/scripts/medulla-server", b"test fixture")
         if scripts > 1:
             z.writestr("medulla_stem.data/scripts/other", b"test fixture")
     return path

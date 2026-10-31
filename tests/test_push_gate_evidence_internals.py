@@ -51,7 +51,9 @@ pytestmark = pytest.mark.no_engine
 
 
 def test_extract_cargo_short_and_long_package_flags():
-    packages, _, _ = _extract_cargo(["-p", "medulla-core", "--package", "medulla-server"])
+    packages, _, _ = _extract_cargo(
+        ["-p", "medulla-core", "--package", "medulla-server"]
+    )
     assert packages == ("medulla-core", "medulla-server")
 
 
