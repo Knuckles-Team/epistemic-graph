@@ -1,4 +1,4 @@
-"""EG-DURABLE-KERNEL-R008: raft unit tests pass under cluster features and run
+"""MEDULLA-DURABLE-KERNEL-R008: raft unit tests pass under cluster features and run
 in CI.
 
 Collected by the existing python-suite job. This checks parses the release
@@ -28,7 +28,7 @@ def _run_tokens(step: dict) -> list[str]:
     return shlex.split(step.get("run", ""), comments=True)
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R008")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R008")
 def test_ci_runs_on_every_push_and_pull_request(release_workflow: dict) -> None:
     # YAML 1.1 parses the bare `on:` key as boolean True.
     triggers = release_workflow[True]
@@ -36,7 +36,7 @@ def test_ci_runs_on_every_push_and_pull_request(release_workflow: dict) -> None:
     assert "pull_request" in triggers
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R008")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R008")
 def test_gates_variants_job_builds_and_tests_raft_under_cluster_features(
     release_workflow: dict,
 ) -> None:
@@ -54,7 +54,7 @@ def test_gates_variants_job_builds_and_tests_raft_under_cluster_features(
     assert {"cluster", "harness", "calvin"} <= features
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R008")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R008")
 def test_gates_variants_job_runs_txn_reconcile_ack_lost_retry(
     release_workflow: dict,
 ) -> None:

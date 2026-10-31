@@ -4,11 +4,11 @@
 //! rollback pops it; both append an audited event. A pointer that moved since
 //! it was read is refused, never overwritten.
 
-use eg_types::contract::BoundedVec;
-use eg_types::decision::statistical::retrieval_pointer::{
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::statistical::retrieval_pointer::{
     PointerEvent, PointerState, PointerTransition, MAX_POINTER_HISTORY,
 };
-use eg_types::decision::statistical::StatisticalErrorCode;
+use medulla_types::decision::statistical::StatisticalErrorCode;
 
 use super::stat_support::refusal;
 use crate::server::persistence::agent_library::AgentLibraryStore;

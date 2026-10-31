@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use eg_types::identity::*;
+use medulla_types::identity::*;
 use tokio::sync::RwLock;
 
 use crate::isolation::{AccessLevel, AgentIdentity, AgentRole, IsolationLayer};
@@ -44,7 +44,7 @@ fn apply_identity(layer: &mut IsolationLayer, op: IdentityOp, principal: &str, s
             &op,
             &stamp,
             authoritative_now_ms(),
-            &eg_capabilities::scopes::ScopeRegistry,
+            &medulla_capabilities::scopes::ScopeRegistry,
         )
         .expect("fixture identity operation");
 }
@@ -203,7 +203,7 @@ async fn check_subjects(principal: &str, alias: Option<&str>, replicated: bool) 
     let context = VerifiedRequestContext::from_verified_claims_with_nonce(
         context.claims().clone(),
         context.idempotency_key().to_string(),
-        Some(eg_types::contract::Nonce::from_bytes([7; 32])),
+        Some(medulla_types::contract::Nonce::from_bytes([7; 32])),
     );
     for subject in &principals {
         assert_access(&state.read().await.isolation, subject, false);

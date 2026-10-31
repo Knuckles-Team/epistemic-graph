@@ -14,15 +14,15 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import EpistemicGraphClient, ObdaClient, RdfClient
+from medulla.client import MedullaClient, ObdaClient, RdfClient
 
 # Fake-client unit tests only -- never needs the shared native engine (see
-# conftest.py's session-scoped `start_epistemic_graph_server` fixture, which this
+# conftest.py's session-scoped `start_medulla_server` fixture, which this
 # marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeLowLevelClient(EpistemicGraphClient):
+class _FakeLowLevelClient(MedullaClient):
     """Records every `_send` call and returns a canned `SparqlResult`-shaped payload."""
 
     def __init__(self, result: Any) -> None:
@@ -41,8 +41,8 @@ class _FakeLowLevelClient(EpistemicGraphClient):
         return self.result
 
 
-class _FakeClient(EpistemicGraphClient):
-    """Stands in for `EpistemicGraphClient`: exposes `.rdf`, the one namespace
+class _FakeClient(MedullaClient):
+    """Stands in for `MedullaClient`: exposes `.rdf`, the one namespace
     `ObdaClient` reaches through."""
 
     def __init__(self, result: Any) -> None:

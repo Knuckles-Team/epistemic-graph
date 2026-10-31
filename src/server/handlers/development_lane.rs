@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::persistence::PersistenceBackend;
-use eg_types::result_contract::coordination;
+use medulla_types::result_contract::coordination;
 
 /// Already-authorized graph and placement context for one development-lane op.
 pub(crate) struct HandleContext<'a> {

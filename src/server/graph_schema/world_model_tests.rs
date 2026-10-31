@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 use std::time::Instant;
 
-use eg_rdf::oxrdf::Triple;
+use medulla_rdf::oxrdf::Triple;
 
 use super::compose::validate_and_compose;
 use super::test_support::{
@@ -35,17 +35,17 @@ const LIFE_IRI: &str = "http://knuckles.team/kg/life";
 const WORLD_MODEL_MODULES: &[(&str, &str, &[&str])] = &[
     (
         "life",
-        include_str!("../../../crates/eg-core/ontology/life-v1.ttl"),
+        include_str!("../../../crates/medulla-core/ontology/life-v1.ttl"),
         &[CORE_IRI],
     ),
     (
         "environment",
-        include_str!("../../../crates/eg-core/ontology/environment-v1.ttl"),
+        include_str!("../../../crates/medulla-core/ontology/environment-v1.ttl"),
         &[CORE_IRI, LIFE_IRI],
     ),
     (
         "nutrition",
-        include_str!("../../../crates/eg-core/ontology/nutrition-v1.ttl"),
+        include_str!("../../../crates/medulla-core/ontology/nutrition-v1.ttl"),
         &[CORE_IRI, LIFE_IRI],
     ),
 ];
@@ -60,7 +60,7 @@ const WIRED_MODULES: &[&str] = &[
     "core:nutrition@1",
 ];
 /// Search steps the shipped corpus's full-ABox tableau check needed before the world
-/// model (< 10⁶, measured by eg-reasoning 2026-09-22); the world model must not push
+/// model (< 10⁶, measured by medulla-reasoning 2026-09-22); the world model must not push
 /// the corpus past it.
 const CORPUS_ABOX_STEPS: u64 = 1_000_000;
 
@@ -97,13 +97,13 @@ fn fixture_triples() -> Vec<Triple> {
 
 /// OWL 2 RL materialization (subclass, sub-property, domain/range, inverse, chains) of
 /// the wired modules plus the fixture.
-fn materialized() -> eg_rdf::rules::RuleReasonResult {
+fn materialized() -> medulla_rdf::rules::RuleReasonResult {
     let triples = fixture_triples();
-    let ontology = eg_rdf::owl::parse_ontology(&triples);
-    eg_rdf::rules::reason_triples(&triples, &ontology, &Default::default())
+    let ontology = medulla_rdf::owl::parse_ontology(&triples);
+    medulla_rdf::rules::reason_triples(&triples, &ontology, &Default::default())
 }
 
-// spec: EG-TYPED-PACKS-R073
+// spec: MEDULLA-TYPED-PACKS-R073
 #[test]
 fn world_model_modules_are_core_modules_within_the_catalog_bound() {
     assert_core_catalog(&["life", "environment", "nutrition", "world-model-shapes"]);
@@ -112,19 +112,19 @@ fn world_model_modules_are_core_modules_within_the_catalog_bound() {
 /// EH-355 budgets with the world model in the corpus: the restore-path terminology
 /// check stays consistent and the full-ABox entry check is decided within the step
 /// budget the pre-world-model corpus needed. Timings are printed for the WRAPUP
-/// (eg-reasoning measured 2.6 s terminology, 2.7 s full ABox on R820).
-// spec: EG-FEDERATED-QUERY-R001
-// spec: EG-FEDERATED-QUERY-R010
+/// (medulla-reasoning measured 2.6 s terminology, 2.7 s full ABox on R820).
+// spec: MEDULLA-FEDERATED-QUERY-R001
+// spec: MEDULLA-FEDERATED-QUERY-R010
 #[test]
 fn full_corpus_stays_within_the_recorded_reasoning_budgets() {
     let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();
     let started = Instant::now();
-    let terminology = eg_rdf::tableau::reason_dl_terminology(&composed.ontology);
+    let terminology = medulla_rdf::tableau::reason_dl_terminology(&composed.ontology);
     let terminology_elapsed = started.elapsed();
     assert!(terminology.consistent);
     let started = Instant::now();
-    let budget = eg_rdf::owl::DerivationBudget::new(CORPUS_ABOX_STEPS);
-    let abox = eg_rdf::tableau::abox_consistency_within(&composed.ontology, budget);
+    let budget = medulla_rdf::owl::DerivationBudget::new(CORPUS_ABOX_STEPS);
+    let abox = medulla_rdf::tableau::abox_consistency_within(&composed.ontology, budget);
     let abox_elapsed = started.elapsed();
     assert_eq!(abox, Ok(true));
     eprintln!(
@@ -137,7 +137,7 @@ fn full_corpus_stays_within_the_recorded_reasoning_budgets() {
 #[test]
 fn world_model_classes_sit_under_the_bfo_categories() {
     let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();
-    let classification = eg_rdf::owl::Reasoner::from_triples(&composed.ontology).classify();
+    let classification = medulla_rdf::owl::Reasoner::from_triples(&composed.ontology).classify();
     let bfo = |id: &str| format!("<http://purl.obolibrary.org/obo/BFO_{id}>");
     let placed = [
         ("Organism", "0000030"),
@@ -193,10 +193,10 @@ fn a_nutritional_requirement_is_borne_by_an_organism_that_requires_its_nutrient(
 
     // A requirement (or a clinical condition) nobody named a bearer for is still
     // borne by SOME organism.
-    let dl = eg_rdf::tableau::parse_dl_ontology(&fixture_triples());
+    let dl = medulla_rdf::tableau::parse_dl_ontology(&fixture_triples());
     for unbound in ["bareNeed", "flu"] {
         let individual = format!("<http://example.org/world#{unbound}>");
-        assert!(eg_rdf::tableau::is_instance(
+        assert!(medulla_rdf::tableau::is_instance(
             &dl,
             &individual,
             BORNE_BY_ORGANISM
@@ -206,9 +206,9 @@ fn a_nutritional_requirement_is_borne_by_an_organism_that_requires_its_nutrient(
 
 #[test]
 fn a_weather_event_occurs_in_a_weather_system_and_its_region() {
-    let dl = eg_rdf::tableau::parse_dl_ontology(&fixture_triples());
-    assert!(eg_rdf::tableau::is_instance(&dl, STORM, IN_WEATHER_SYSTEM));
-    assert!(eg_rdf::tableau::is_instance(&dl, STORM, BFO_PROCESS));
+    let dl = medulla_rdf::tableau::parse_dl_ontology(&fixture_triples());
+    assert!(medulla_rdf::tableau::is_instance(&dl, STORM, IN_WEATHER_SYSTEM));
+    assert!(medulla_rdf::tableau::is_instance(&dl, STORM, BFO_PROCESS));
     assert!(materialized().holds(&kg("occursIn"), &[STORM, BAVARIA]));
 }
 
@@ -216,7 +216,7 @@ fn a_weather_event_occurs_in_a_weather_system_and_its_region() {
 /// `AllDisjointClasses(IC, GDC, Process, TemporalRegion)` makes an individual typed
 /// both inconsistent (the tableau reads the n-ary axiom since EH-363) and the class
 /// intersection unsatisfiable (EL⁺/RL).
-// spec: EG-FEDERATED-QUERY-R012
+// spec: MEDULLA-FEDERATED-QUERY-R012
 #[test]
 fn a_taxon_is_never_an_organism() {
     let mut triples = fixture_triples();
@@ -224,8 +224,8 @@ fn a_taxon_is_never_an_organism() {
         "@prefix : <http://knuckles.team/kg#> . <http://example.org/world#vulpes> a :Organism .",
         "clash",
     ));
-    let dl = eg_rdf::tableau::parse_dl_ontology(&triples);
-    assert!(!eg_rdf::tableau::is_consistent(&dl));
+    let dl = medulla_rdf::tableau::parse_dl_ontology(&triples);
+    assert!(!medulla_rdf::tableau::is_consistent(&dl));
 
     let mut triples = fixture_triples();
     triples.extend(parse_scoped(
@@ -234,7 +234,7 @@ fn a_taxon_is_never_an_organism() {
          <http://example.org/world#TaxonOrganism> rdfs:subClassOf :Taxon, :Organism .",
         "clash",
     ));
-    let classification = eg_rdf::owl::Reasoner::from_triples(&triples).classify();
+    let classification = medulla_rdf::owl::Reasoner::from_triples(&triples).classify();
     assert!(classification
         .unsatisfiable
         .contains("<http://example.org/world#TaxonOrganism>"));
@@ -245,11 +245,11 @@ fn a_taxon_is_never_an_organism() {
 /// Mappings, not imports: every native class a world-model module declares carries at
 /// least one skos mapping to an external ontology or Wikidata, and each module imports
 /// only the EG documents it builds on.
-// spec: EG-TYPED-PACKS-R073
+// spec: MEDULLA-TYPED-PACKS-R073
 #[test]
 fn every_world_model_class_is_mapped_and_nothing_external_is_imported() {
     for (module, document, expected_imports) in WORLD_MODEL_MODULES {
-        let triples = eg_rdf::mapping::parse_turtle(document).unwrap();
+        let triples = medulla_rdf::mapping::parse_turtle(document).unwrap();
         let unmapped = unmapped_classes(&triples);
         assert!(
             unmapped.is_empty(),
@@ -269,8 +269,8 @@ fn every_world_model_class_is_mapped_and_nothing_external_is_imported() {
 /// record kind connectors ingest.
 #[test]
 fn world_model_shapes_are_their_own_document() {
-    let document = include_str!("../../../crates/eg-core/ontology/world_model-v1.shapes.ttl");
-    let triples = eg_rdf::mapping::parse_turtle(document).unwrap();
+    let document = include_str!("../../../crates/medulla-core/ontology/world_model-v1.shapes.ttl");
+    let triples = medulla_rdf::mapping::parse_turtle(document).unwrap();
     assert_eq!(triples.len(), 123);
     assert_shape_targets(
         &triples,
@@ -301,7 +301,7 @@ fn no_core_class_specialises_a_reference_term_kind() {
     .map(|local| format!("{KG}{local}"));
     let sources = GraphSchemaSources::default();
     for (source_id, document) in sources.ontologies() {
-        for triple in eg_rdf::mapping::parse_turtle(document).unwrap() {
+        for triple in medulla_rdf::mapping::parse_turtle(document).unwrap() {
             let specialises = triple.predicate.as_str() == RDFS_SUBCLASS_OF
                 && object_iri(&triple)
                     .is_some_and(|object| reference_kinds.iter().any(|kind| kind == object));
@@ -349,16 +349,16 @@ fn foundation_with(documents: &[&str]) -> Vec<Triple> {
 #[test]
 fn a_sub_process_is_accepted_and_a_participating_process_is_refused() {
     let composed = foundation_with(&[PROCESS_COMPOSITION]);
-    let classification = eg_rdf::owl::Reasoner::from_triples(&composed).classify();
+    let classification = medulla_rdf::owl::Reasoner::from_triples(&composed).classify();
     let stage = "<http://example.org/world#Stage>";
     assert!(!classification.unsatisfiable.contains(stage));
     let participating = "<http://example.org/world#ParticipatingProcess>";
     assert!(classification.unsatisfiable.contains(participating));
 
-    let dl = eg_rdf::tableau::parse_dl_ontology(&composed);
-    assert!(eg_rdf::tableau::is_consistent(&dl));
+    let dl = medulla_rdf::tableau::parse_dl_ontology(&composed);
+    assert!(medulla_rdf::tableau::is_consistent(&dl));
 
     let refused = foundation_with(&[PROCESS_COMPOSITION, PROCESS_AS_PARTICIPANT]);
-    let dl = eg_rdf::tableau::parse_dl_ontology(&refused);
-    assert!(!eg_rdf::tableau::is_consistent(&dl));
+    let dl = medulla_rdf::tableau::parse_dl_ontology(&refused);
+    assert!(!medulla_rdf::tableau::is_consistent(&dl));
 }

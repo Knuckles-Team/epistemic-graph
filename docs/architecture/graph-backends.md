@@ -41,7 +41,7 @@ plus mirrors.
 `engine.semantic_search()`), `iter_nodes_by_types()`/`get_node_data()` (via
 the Rust `GraphComputeEngine`'s compute + cache), and the `QueryRouter` —
 all ultimately call into the Medulla engine: the Rust-native
-`EpistemicGraph` (compute + in-mem cache + semantic + durable persistence),
+`Medulla` (compute + in-mem cache + semantic + durable persistence),
 **the** authority and system of record, serving all reads and acking all
 writes.
 
@@ -59,12 +59,12 @@ any data.
 ## Durability — the engine is redb-authoritative BY DEFAULT (CONCEPT:AU-KG.backend.backend-modes)
 
 **The engine is a durable source of truth out of the box — not a rebuildable
-cache.** As of "THE FLIP" (CONCEPT:AU-KG.backend.backend-modes), a stock `epistemic-graph-server`
+cache.** As of "THE FLIP" (CONCEPT:AU-KG.backend.backend-modes), a stock `medulla-server`
 built with the standard `--features full` includes the **`redb`** store, so its
-persist backend (`EPISTEMIC_GRAPH_PERSIST_BACKEND`) defaults to `redb` and runs in
+persist backend (`MEDULLA_PERSIST_BACKEND`) defaults to `redb` and runs in
 **authoritative mode** whenever a persist dir (`GRAPH_SERVICE_PERSIST_DIR`) is
 configured. An acked write survives a `kill -9`. The three guarantees that make
-"authoritative" safe (engine-side, CONCEPT:EG-KG.backend.authoritative-dispatch/EG-KG.storage.read-through-seam-exercised):
+"authoritative" safe (engine-side, CONCEPT:MEDULLA-KG.backend.authoritative-dispatch/MEDULLA-KG.storage.read-through-seam-exercised):
 
 - **Commit-before-ack** — a durable mutation is fsync-committed to redb *before*
   its response is acked, so an acked write is always on disk.
@@ -85,10 +85,10 @@ configured. An acked write survives a `kill -9`. The three guarantees that make
 
 To opt back into the pre-flip **rebuildable-cache** model — the engine as a fast
 in-memory cache over an external durable system-of-record (a `fanout` mirror) —
-set `EPISTEMIC_GRAPH_PERSIST_BACKEND=snapshot` on the engine; the local `.mp`
+set `MEDULLA_PERSIST_BACKEND=snapshot` on the engine; the local `.mp`
 snapshot + WAL then exist only for fast warm restart. (A build without the `redb`
 feature is non-authoritative and boots clean with no warning.) This is an
-**engine-side** setting (`epistemic-graph-server` env), independent of the
+**engine-side** setting (`medulla-server` env), independent of the
 agent-utilities-side `GRAPH_MIRROR_TARGETS` mirror selection below.
 
 ## Derived stores route to the engine, NOT a local DB (engine-only, CONCEPT:AU-KG.backend.cache-lives-as–2.248)
@@ -109,7 +109,7 @@ subset can't do `WHERE … IN $list` / unscoped `MATCH`).
 |---|---|---|---|
 | LLM card cache (`CardStore`) | `:CardCache` nodes | `cardcache:<ast_hash>` (keyed) | AU-KG.backend.cache-lives-as |
 | Registry graph (`IntelligencePipeline`) | engine graph nodes/edges via the active backend | `persist_to_ladybug=False` | AU-KG.compute.graph-builder |
-| Time-series memory | engine `client.timeseries.*` (eg-tsdb, `series.redb`) | series ids | AU-KG.memory.time-series-lives-one |
+| Time-series memory | engine `client.timeseries.*` (medulla-tsdb, `series.redb`) | series ids | AU-KG.memory.time-series-lives-one |
 | Write-back proposals (`ProposalQueue`) | `:WritebackProposal` nodes | `wbp:<target>:<seq>` + label scan | AU-KG.enrichment.proposals-live-as |
 | Code-health baselines | `:CodeHealthBaseline` nodes | `codehealthbaseline:<repo>` (keyed) | AU-KG.maintenance.only-no-file-cache |
 
@@ -222,7 +222,7 @@ requires pgvector; BM25 requires pg_search.
 | Variable | Default | Description |
 |---|---|---|
 | `GRAPH_MIRROR_TARGETS` | unset | JSON/list of mirror connection names (declared in `KG_CONNECTIONS`) that receive the fanned-out write stream. There is no engine-mode selector or read-authority selector to configure alongside it: the Medulla engine is unconditionally the read authority, and setting this list is the only thing that turns mirroring on |
-| `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for EpistemicGraph (`file` mode) / LadybugDB |
+| `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for Medulla (`file` mode) / LadybugDB |
 | `GRAPH_DB_URI` | — | Connection URI for Neo4j or PostgreSQL |
 | `GRAPH_DB_HOST` | `localhost` | Host for FalkorDB |
 | `GRAPH_DB_PORT` | `6379`/`7687` | Port for FalkorDB/Neo4j |
@@ -238,14 +238,14 @@ requires pgvector; BM25 requires pg_search.
 | `KG_CONNECTIONS` | — | JSON list of named connections for the multi-connection registry (CONCEPT:AU-KG.backend.multi-connection-registry). See below. |
 
 These are the **agent-utilities-side** (mirror-selection) variables. Engine
-durability is configured on the **`epistemic-graph-server`** process itself
+durability is configured on the **`medulla-server`** process itself
 (CONCEPT:AU-KG.backend.backend-modes) and is independent of `GRAPH_MIRROR_TARGETS`:
 
 | Variable (engine-side) | Default | Description |
 |---|---|---|
 | `GRAPH_SERVICE_PERSIST_DIR` | unset | Engine persist dir. Set ⇒ the engine is a durable source of truth; absent ⇒ in-memory only |
-| `EPISTEMIC_GRAPH_PERSIST_BACKEND` | `redb` | `redb` = durable authoritative store (default — THE FLIP); `snapshot` = opt-in rebuildable-cache (`.mp` + WAL) |
-| `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE` | (auto) | Defaults ON when the redb backend is active; rarely set by hand |
+| `MEDULLA_PERSIST_BACKEND` | `redb` | `redb` = durable authoritative store (default — THE FLIP); `snapshot` = opt-in rebuildable-cache (`.mp` + WAL) |
+| `MEDULLA_REDB_AUTHORITATIVE` | (auto) | Defaults ON when the redb backend is active; rarely set by hand |
 
 ## Multiple Connections at Once (CONCEPT:AU-KG.backend.multi-connection-registry)
 
@@ -303,7 +303,7 @@ openCypher. Each backend advertises a `cypher_support` tier:
 | neo4j, falkordb | `full` | native Cypher |
 | **Postgres via Apache AGE** (`backend: "age"`) | `full` | native openCypher (`count(r)`, aliases, multi-hop, `-[*1..2]->`, edge props) + pgvector |
 | Postgres regex transpiler (`backend: "postgresql"`) | `subset` | only the bounded operational subset the engine emits; fallback when the AGE extension is absent |
-| epistemic_graph (in-memory) | `subset` | AU-P0-2: label/property `MATCH` + a real `WHERE` predicate + aggregates/`DISTINCT` route to the engine's OWN native Cypher executor (`GraphComputeEngine.query_cypher`, its `eg-query` parser — still a bounded grammar, e.g. no comma-separated disjoint `MATCH` patterns or arbitrary function calls) instead of a client-side regex scan-and-eval; a rejected/unsupported shape raises (`CypherEngineError`/`NotImplementedError`) rather than silently returning `[]`. Two AU-specific shapes (the virtual `id` node-identity accessor; relationship-type traversal/merge, keyed by `rel_type` not the engine's `relationship`/`type`) stay on typed engine methods because native routing would give silently-wrong results. |
+| medulla (in-memory) | `subset` | AU-P0-2: label/property `MATCH` + a real `WHERE` predicate + aggregates/`DISTINCT` route to the engine's OWN native Cypher executor (`GraphComputeEngine.query_cypher`, its `medulla-query` parser — still a bounded grammar, e.g. no comma-separated disjoint `MATCH` patterns or arbitrary function calls) instead of a client-side regex scan-and-eval; a rejected/unsupported shape raises (`CypherEngineError`/`NotImplementedError`) rather than silently returning `[]`. Two AU-specific shapes (the virtual `id` node-identity accessor; relationship-type traversal/merge, keyed by `rel_type` not the engine's `relationship`/`type`) stay on typed engine methods because native routing would give silently-wrong results. |
 
 **Register Postgres connections as `age`** (not `postgresql`) when you want one
 query to run unchanged across neo4j + falkordb + postgres. `list_connections`
@@ -521,7 +521,7 @@ contended engine).
 
 On the engine (Rust): the `GetNodes` handler's `oversize_dump_error`
 (`handlers/graph_ops.rs`) checks the node count against
-`max_response_nodes()` (`EPISTEMIC_GRAPH_MAX_RESPONSE_NODES`, default
+`max_response_nodes()` (`MEDULLA_MAX_RESPONSE_NODES`, default
 50000, 0 = off); exceeding the cap returns `RESULT_TOO_LARGE` →
 `ResultTooLargeError`. Separately, `write_coalescer.apply_batch()` folds N
 writes into one `core.txn()` under the per-graph topology write lock.
@@ -546,35 +546,35 @@ writes into one `core.txn()` under the per-graph topology write lock.
   different: the engine may still be finishing that work, so it is counted once
   and returned immediately rather than replayed and multiplied across the retry
   budget.
-- **Engine response guard (EG-KG.ingest.resets-socket-so-assimilation, Medulla).** The engine itself caps
+- **Engine response guard (MEDULLA-KG.ingest.resets-socket-so-assimilation, Medulla).** The engine itself caps
   the unbounded full-graph dump: `oversize_dump_error` checks the cheap
   `node_count()` against `max_response_nodes()` (env
-  `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES`, default **50000**, `0` disables) **before**
+  `MEDULLA_MAX_RESPONSE_NODES`, default **50000**, `0` disables) **before**
   materializing, and returns `RESULT_TOO_LARGE:` (surfaced client-side as
   `ResultTooLargeError`). Only the `GetNodes` dump is capped — `GetNodesByLabel`
   and per-id reads stay bounded and uncapped.
 
-### The H1 finding — write-lock starvation (EG-011)
+### The H1 finding — write-lock starvation (MEDULLA-011)
 
 A profiling/stress run confirmed **H1**: under sustained ingestion every write
 funnels through the **`__commons__` per-graph topology write lock**, so it
 serializes and starves reads. Measured: a `semantic_search` that is **~0.02s
 idle** climbs to **~14s** under the ingestion firehose (and a single `nodes.add`
 to `__commons__` took ~13s), with the engine pinning roughly one core. Two
-histograms (CONCEPT:EG-KG.compute.parse-resolve-span, `epistemic_graph/src/metrics.rs`) make the gap
+histograms (CONCEPT:MEDULLA-KG.compute.parse-resolve-span, `medulla/src/metrics.rs`) make the gap
 observable:
 
 | metric (labelled `{graph}`) | measures |
 |---|---|
-| `epistemic_graph_write_lock_wait_seconds` | enqueue to lock acquired (the **starvation** cost) |
-| `epistemic_graph_write_lock_hold_seconds` | how long each coalesced batch holds the lock (the **contention** cost) |
+| `medulla_write_lock_wait_seconds` | enqueue to lock acquired (the **starvation** cost) |
+| `medulla_write_lock_hold_seconds` | how long each coalesced batch holds the lock (the **contention** cost) |
 
 <div class="admonition architecture" markdown>
 <p class="admonition-title">Write-lock contention and its fixes</p>
 
 Both the ingestion firehose (writes to `__commons__`) and `semantic_search`
 reads (0.02s idle to ~14s under load) contend on the same per-graph write
-lock, recorded as EG-011 wait-time (starvation) and hold-time (contention)
+lock, recorded as MEDULLA-011 wait-time (starvation) and hold-time (contention)
 histograms. Two fixes: the write-coalescer folds N writes into one
 transaction per batch (~57× fewer lock acquisitions), and splitting the
 control plane onto its own `__control__` engine graph gives it a distinct
@@ -583,7 +583,7 @@ can never starve it.
 
 </div>
 
-The fixes attack both axes: the **write-coalescer (EG-KG.sharding.per-graph-write-coalescer)** turns many
+The fixes attack both axes: the **write-coalescer (MEDULLA-KG.sharding.per-graph-write-coalescer)** turns many
 concurrent single-op writes into one lock acquisition per batch (~57× fewer
 acquisitions in the engine benchmark), and routing the scheduler/control plane
 onto a separate **`__control__`** engine graph gives it its own lock so ingestion

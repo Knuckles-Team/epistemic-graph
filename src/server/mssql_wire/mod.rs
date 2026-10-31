@@ -1,5 +1,5 @@
-//! MSSQL **TDS** (Tabular Data Stream) wire-protocol listener (CONCEPT:EG-KG.query.hand-rolled-tds-server) — the
-//! MSSQL adapter in the multi-wire family (CONCEPT:EG-KG.compute.subsystems-reference), a sibling of the Postgres
+//! MSSQL **TDS** (Tabular Data Stream) wire-protocol listener (CONCEPT:MEDULLA-KG.query.hand-rolled-tds-server) — the
+//! MSSQL adapter in the multi-wire family (CONCEPT:MEDULLA-KG.compute.subsystems-reference), a sibling of the Postgres
 //! shim (`crate::server::pgwire`). It lets SQL Server clients / drivers connect over
 //! the TDS protocol and run SQL against a graph, reusing the ONE shared
 //! `classify → dispatch → exec` core ([`crate::server::wire::WireSession`]) — this
@@ -21,7 +21,7 @@
 //!      RPC → an ERROR token (RPC/prepared statements are unsupported). A closed
 //!      socket ends the loop.
 //!
-//! ## Auth (CONCEPT:EG-KG.query.concept-13)
+//! ## Auth (CONCEPT:MEDULLA-KG.query.concept-13)
 //! A TDS `user` maps to an engine `agent_id`, exactly like pgwire. When
 //! `GRAPH_SERVICE_AUTH_SECRET` is required and the connection password must equal
 //! `hex(HMAC-SHA256(secret, "mssql:" || user))` (an authorized operator computes it
@@ -40,7 +40,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
-use eg_query::PgColType;
+use medulla_query::PgColType;
 
 use crate::server::broker_wire::{self, BrokerProtocol};
 use crate::server::wire::{WireError, WireOutcome, WireProtocol, WireSession};
@@ -55,13 +55,13 @@ use protocol::{
 
 /// Env var: when set (and the binary is built `--features mssql-wire`), the TDS
 /// listener binds this address (default `127.0.0.1:1433`). Unset → no listener.
-pub const MSSQL_ADDR_ENV: &str = "EPISTEMIC_GRAPH_MSSQL_ADDR";
+pub const MSSQL_ADDR_ENV: &str = "MEDULLA_MSSQL_ADDR";
 /// Env var: the default graph a fresh connection runs against when the LOGIN7
 /// `Database` field is not supplied. Defaults to `__commons__`.
-pub const MSSQL_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_MSSQL_GRAPH";
+pub const MSSQL_GRAPH_ENV: &str = "MEDULLA_MSSQL_GRAPH";
 
 /// The program name reported in the LOGINACK token + ERROR-token server name.
-const SERVER_NAME: &str = "epistemic-graph";
+const SERVER_NAME: &str = "medulla";
 /// The TDS error number used for engine (`WireError`) failures. SQLSTATE codes are
 /// alphanumeric and do not map to the TDS integer error number, so we report a fixed
 /// user-error-range number and carry the real SQLSTATE text in the message.
@@ -295,8 +295,8 @@ where
 }
 
 /// Bind `addr` and serve TDS connections until the process exits. Spawned by `main.rs`
-/// only when built `--features mssql-wire` AND `EPISTEMIC_GRAPH_MSSQL_ADDR` is set. The
-/// default graph is read once from `EPISTEMIC_GRAPH_MSSQL_GRAPH` (else `__commons__`);
+/// only when built `--features mssql-wire` AND `MEDULLA_MSSQL_ADDR` is set. The
+/// default graph is read once from `MEDULLA_MSSQL_GRAPH` (else `__commons__`);
 /// Authentication is mandatory and startup fails when the engine secret is absent.
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let default_graph =

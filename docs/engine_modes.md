@@ -58,9 +58,9 @@ Autostart starts the packaged main binary against the configured durable store.
 It is the same engine used for an explicitly managed single-node service. Two
 lifecycle behaviours make sharing safe:
 
-- **Reference-counted graceful shutdown** (CONCEPT:EG-KG.backend.tiny-shared). The accept loop selects the next
+- **Reference-counted graceful shutdown** (CONCEPT:MEDULLA-KG.backend.tiny-shared). The accept loop selects the next
   connection against a `ShutdownCoordinator` (an active-connection refcount + a `Notify`). With
-  `--idle-shutdown-secs N` (`EPISTEMIC_GRAPH_IDLE_SHUTDOWN_SECS`), the engine self-stops cleanly
+  `--idle-shutdown-secs N` (`MEDULLA_IDLE_SHUTDOWN_SECS`), the engine self-stops cleanly
   once the refcount has been zero for `N` seconds. So the auto-bundled daemon
   vanishes after its last client disconnects (robust to client crashes).
 - **Persistent lifecycle.** Absent or `0` ⇒ the engine never idle-stops: it runs forever like a
@@ -88,20 +88,20 @@ stateDiagram-v2
 ## Embedded in-process (the edge path)
 
 For a Pi or a single-process deployment that wants **no** Tokio server, socket, or HMAC at all, the
-`embedded` feature gives an `EmbeddedEngine` handle (CONCEPT:EG-KG.backend.engine-modes) that owns a `GraphRegistry` + the
+`embedded` feature gives an `EmbeddedEngine` handle (CONCEPT:MEDULLA-KG.backend.engine-modes) that owns a `GraphRegistry` + the
 redb durable store directly and exposes core ops as plain method calls — SQLite/DuckDB-style: open a
 persist dir, call ops. It drives the **same** `GraphCore` + redb-authoritative durable rows the socket
 dispatch does (via the canonical mutation applier + authoritative `redb_store`) — one core, two transports. This
 is the "100M agents, a local engine each" path: `--features "embedded redb"` builds with no Tokio
 runtime. Gated query/tsdb/rdf surfaces light up when those features are also compiled.
 
-The release wheel also contains `epistemic_graph.engine`, the Python in-process
+The release wheel also contains `medulla.engine`, the Python in-process
 binding. Its explicit `persist_dir=":memory:"` mode exposes graph creation and
 node operations without starting a service:
 
 ```python
 import msgpack
-from epistemic_graph.engine import Engine
+from medulla.engine import Engine
 
 engine = Engine(persist_dir=":memory:")
 engine.create_graph("demo")
@@ -121,7 +121,7 @@ configuration.
 | Symptom | Mode |
 |---------|------|
 | Agent Utilities `GRAPH_SERVICE_ENDPOINTS` contains a reachable endpoint | **remote** (or shared, if local) |
-| Multiple processes on one host, one `epistemic-graph-server` PID | **shared-local** |
+| Multiple processes on one host, one `medulla-server` PID | **shared-local** |
 | First process on a host, an engine appears under the socket | **autostart** (detached, supervised) |
 | No socket, calls go straight to the library | **embedded** |
 

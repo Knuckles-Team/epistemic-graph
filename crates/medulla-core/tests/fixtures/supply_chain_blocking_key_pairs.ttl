@@ -1,0 +1,61 @@
+# Supply-chain entity-resolution blocking keys with rank and exactness, plus
+# the two entity pairs MEDULLA-SUPPLY-VOCAB-R007.2 exercises over
+# EntityLinkProposal::assert_same_as: an exact digest-key pair (the digest is
+# an exact key) and a name-only pair (a name-only key is always a proposal,
+# never auto-approved). The key-set table itself (MEDULLA-SUPPLY-VOCAB-R007.1) is
+# supply_chain_blocking_keys.ttl; the sets here restate it with rank/exact
+# annotations for the R007.2 test.
+#
+# The key sets are fixture-local data (ex: namespace): no new core vocabulary.
+
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix ex:    <http://knuckles.team/test/blocking-keys#> .
+
+# --- The plan.md table ------------------------------------------------------
+
+ex:supplierKeys a ex:BlockingKeySet ;
+    ex:forConcept kg:Supplier ;
+    ex:hasKey [ ex:keyName "normalized legal name" ; ex:rank 1 ; ex:exact false ] ;
+    ex:hasKey [ ex:keyName "web domain" ; ex:rank 2 ; ex:exact false ] ;
+    ex:hasKey [ ex:keyName "namespace slug" ; ex:rank 3 ; ex:exact false ] .
+
+ex:serviceKeys a ex:BlockingKeySet ;
+    ex:forConcept infra:Service ;
+    ex:hasKey [ ex:keyName "normalized service name" ; ex:rank 1 ; ex:exact false ] ;
+    ex:hasKey [ ex:keyName "hostname from monitor URL" ; ex:rank 2 ; ex:exact false ] ;
+    ex:hasKey [ ex:keyName "namespace+name" ; ex:rank 3 ; ex:exact false ] .
+
+ex:hostKeys a ex:BlockingKeySet ;
+    ex:forConcept infra:Host ;
+    ex:hasKey [ ex:keyName "hostname" ; ex:rank 1 ; ex:exact false ] ;
+    ex:hasKey [ ex:keyName "BMC address" ; ex:rank 2 ; ex:exact false ] ;
+    ex:hasKey [ ex:keyName "serial number" ; ex:rank 3 ; ex:exact false ] .
+
+ex:containerImageKeys a ex:BlockingKeySet ;
+    ex:forConcept infra:ContainerImage ;
+    ex:hasKey [ ex:keyName "registry/repository:tag" ; ex:rank 1 ; ex:exact false ] ;
+    ex:hasKey [ ex:keyName "digest" ; ex:rank 2 ; ex:exact true ] .
+
+ex:customerKeys a ex:BlockingKeySet ;
+    ex:forConcept kg:Customer ;
+    ex:hasKey [ ex:keyName "normalized name" ; ex:rank 1 ; ex:exact false ] ;
+    ex:hasKey [ ex:keyName "domain" ; ex:rank 2 ; ex:exact false ] .
+
+# --- The pairs R007.2 exercises ----------------------------------------------
+
+# Exact-key pair: two image rows that share the digest, the one exact key in
+# the ContainerImage set.
+ex:scoutImage a infra:ContainerImage ;
+    ex:digestValue "sha256:5643834c2b86393f055bf1f670a8f003c8a224259362a80c79047b8eee7fd9f6" .
+
+ex:mirrorImage a infra:ContainerImage ;
+    ex:digestValue "sha256:5643834c2b86393f055bf1f670a8f003c8a224259362a80c79047b8eee7fd9f6" .
+
+# Name-only pair: two supplier rows that share the normalized legal name,
+# with no shared exact key (no Supplier key in the set is exact).
+ex:acmeRow a kg:Supplier ;
+    ex:legalName "Acme Corp" .
+
+ex:acmeAltRow a kg:Supplier ;
+    ex:legalName "Acme Corp" .

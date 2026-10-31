@@ -263,7 +263,7 @@ pub(crate) fn claim_not_claimed_payload(
     inflight: u32,
     changed_work_item_ids: Vec<String>,
 ) -> Result<crate::protocol::ResultPayload, String> {
-    crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::ClaimWorkItem>(
+    crate::protocol::ResultPayload::of::<medulla_types::result_contract::coordination::ClaimWorkItem>(
         ClaimWorkItemResult {
             schema_version: ClaimWorkItemResultSchemaVersion::V1,
             claimed: false,
@@ -405,7 +405,7 @@ fn apply_claimed_work_item(
         crypto,
     )?;
     changed_work_item_ids.push(node_id.clone());
-    crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::ClaimWorkItem>(
+    crate::protocol::ResultPayload::of::<medulla_types::result_contract::coordination::ClaimWorkItem>(
         ClaimWorkItemResult {
             schema_version: ClaimWorkItemResultSchemaVersion::V1,
             claimed: true,

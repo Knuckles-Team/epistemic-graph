@@ -1,4 +1,4 @@
-//! HIGH-VALUE USE-CASE SUITE #2 — codebase / repository intelligence (CONCEPT:EG-KG.query.usecase-codebase-intel).
+//! HIGH-VALUE USE-CASE SUITE #2 — codebase / repository intelligence (CONCEPT:MEDULLA-KG.query.usecase-codebase-intel).
 //!
 //! A repository is ingested as a code-structure GRAPH (File/Function nodes, CALLS/IMPORTS
 //! edges) + VECTOR embeddings of function signatures + a small language/framework OWL
@@ -9,7 +9,7 @@
 //!    entry point Y (graph traverse), CHANGED RECENTLY (bi-temporal AS OF), and MATCHING
 //!    ontology concept Z (OWL inference — e.g. a compiled-language function)."
 //!
-//! Driven through the REAL query engine (`eg_plan::execute` over a live `PlanCtx`). Each
+//! Driven through the REAL query engine (`medulla_plan::execute` over a live `PlanCtx`). Each
 //! leg is asserted to genuinely filter/rank: the call-graph leg excludes an equally-
 //! similar function OUTSIDE the neighborhood, OWL excludes a wrong-language function, and
 //! AS OF excludes a stale version (and re-includes it at an earlier instant).
@@ -18,10 +18,10 @@
 //! Module-gated on `query` + `owl-plan`; runs under `--features full`.
 #![cfg(all(feature = "query", feature = "owl-plan"))]
 
-use eg_core::compute::semantic::SemanticStore;
-use eg_core::graph::{GraphCore, GraphView};
-use eg_plan::{execute, Op, Plan, PlanCtx};
-use eg_types::wire::TimeAxis;
+use medulla_core::compute::semantic::SemanticStore;
+use medulla_core::graph::{GraphCore, GraphView};
+use medulla_plan::{execute, Op, Plan, PlanCtx};
+use medulla_types::wire::TimeAxis;
 use serde_json::json;
 
 fn blob(v: serde_json::Value) -> Vec<u8> {
@@ -92,7 +92,7 @@ fn build_repo() -> (GraphView, SemanticStore) {
     (core.analysis_snapshot(), s)
 }
 
-/// THE codebase-intelligence proof (CONCEPT:EG-KG.query.usecase-codebase-intel): a single fused plan =
+/// THE codebase-intelligence proof (CONCEPT:MEDULLA-KG.query.usecase-codebase-intel): a single fused plan =
 /// `Traverse(call-graph of the focal entry) → Rank(signature) → Reason<CompiledFunction>
 /// (OWL) → AsOf(recent)` returns exactly the sig-similar, call-related, recently-changed,
 /// compiled-language function — and every leg is shown to filter.

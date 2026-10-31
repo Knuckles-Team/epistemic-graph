@@ -21,7 +21,7 @@ from push_gate_evidence import (
 )
 
 # Pure/static test -- never needs the shared native engine (see
-# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# conftest.py's session-scoped `start_medulla_server` fixture,
 # which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
@@ -62,7 +62,7 @@ def _document(selection: Selection, *, status: str = "complete") -> dict[str, An
 def test_exact_reuse_requires_complete_success_and_identical_selection() -> None:
     selection = Selection.from_argv(
         "fixture-exact",
-        ["cargo", "test", "-p", "eg-core", "--all-features"],
+        ["cargo", "test", "-p", "medulla-core", "--all-features"],
         kind="cargo",
         environment={"CARGO_TARGET_DIR": "/tmp/eg", "CARGO_BUILD_JOBS": "2"},
     )
@@ -188,7 +188,7 @@ def test_cli_run_preserves_command_boundary(monkeypatch: pytest.MonkeyPatch) -> 
             "cargo",
             "test",
             "-p",
-            "eg-core",
+            "medulla-core",
         ],
     )
     monkeypatch.setattr(push_gate_evidence, "run_or_consume", fake_run_or_consume)
@@ -196,8 +196,8 @@ def test_cli_run_preserves_command_boundary(monkeypatch: pytest.MonkeyPatch) -> 
     assert push_gate_evidence._cli() == 17
     selection = captured["selection"]
     assert isinstance(selection, Selection)
-    assert selection.argv == ("cargo", "test", "-p", "eg-core")
-    assert captured["command"] == ("cargo", "test", "-p", "eg-core")
+    assert selection.argv == ("cargo", "test", "-p", "medulla-core")
+    assert captured["command"] == ("cargo", "test", "-p", "medulla-core")
     assert captured["produce_only"] is True
     assert captured["environment"] is None
 
@@ -253,7 +253,7 @@ def test_hostile_git_environment_cannot_redirect_fingerprint_or_private_gitdir(
     assert push_gate_evidence._git_directory() == expected_git_directory
 
 
-@pytest.mark.spec("EG-CONTRACT-R029")
+@pytest.mark.spec("MEDULLA-CONTRACT-R029")
 def test_local_build_environment_keeps_the_gate_tmpdir_short_and_run_independent() -> (
     None
 ):
@@ -261,7 +261,7 @@ def test_local_build_environment_keeps_the_gate_tmpdir_short_and_run_independent
     import tempfile
 
     tmp = push_gate_evidence.local_build_environment(
-        {"EG_RUN_NAME": "x" * 96, "EG_RUN_ID": "42"}
+        {"MEDULLA_RUN_NAME": "x" * 96, "MEDULLA_RUN_ID": "42"}
     )["TMPDIR"]
-    assert tmp == os.path.join(tempfile.gettempdir(), "eg-ci-gate-tmp")
+    assert tmp == os.path.join(tempfile.gettempdir(), "medulla-ci-gate-tmp")
     assert len(os.fsencode(tmp)) <= 108

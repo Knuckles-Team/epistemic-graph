@@ -4,7 +4,7 @@
 //! `server::access::read_rls_coverage_tests` (see that module) exhaustively
 //! partitions every non-mutating **protocol `Method`** into
 //! `RLS_ROUTED`/`NON_ROW_SCOPED`/`NOT_YET_AUDITED`. `Method::AnalyticsJob`
-//! itself never appears on that read side at all: `eg_capabilities`'s static
+//! itself never appears on that read side at all: `medulla_capabilities`'s static
 //! policy table classifies the WHOLE method `mutates: true` (a conservative
 //! upper bound, annotated "Status is a read; Submit/Cancel/Resume commit
 //! through the native jobs.redb MutationBatch gateway") because one wire
@@ -22,8 +22,8 @@
 //!  1. A live cross-check against an INDEPENDENTLY hand-maintained
 //!     classification table (mirrors `RLS_ROUTED`/`NON_ROW_SCOPED` in
 //!     `server::access`, and `RUNTIME_CONDITIONAL`/`ACCESS_RS_COVERAGE_GAP` in
-//!     `crates/eg-capabilities/tests/consistency.rs`) — so a variant added to
-//!     `eg_types::jobs::JobKind` without a matching classification entry HERE
+//!     `crates/medulla-capabilities/tests/consistency.rs`) — so a variant added to
+//!     `medulla_types::jobs::JobKind` without a matching classification entry HERE
 //!     fails a `cargo test`, independent of whatever the exhaustive match
 //!     itself decided.
 //!  2. A textual self-scan (mirrors `scripts/check_universal_read_rls.py`'s

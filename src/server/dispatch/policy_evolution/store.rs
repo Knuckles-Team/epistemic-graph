@@ -6,7 +6,7 @@
 //! defence in depth: a row whose body no longer hashes to its id is refused as
 //! tampered.
 
-use eg_types::policy_evolution::{
+use medulla_types::policy_evolution::{
     is_policy_evolution_row, PolicyEvolutionRecord, PolicyRecordView, PolicyRefusal,
     StoredPolicyRecord,
 };
@@ -29,7 +29,7 @@ pub(super) fn decode_view(
 ) -> Result<Option<PolicyRecordView>, PolicyRefusal> {
     let tampered = || PolicyRefusal::RecordTampered(record_id.to_string());
     let Ok(serde_json::Value::Object(row)) =
-        eg_types::msgpack::decode_property_value(properties_msgpack)
+        medulla_types::msgpack::decode_property_value(properties_msgpack)
     else {
         return Ok(None);
     };
@@ -77,7 +77,7 @@ impl RecordLookup for GraphRecords<'_> {
 
     fn trajectory_steps(&self, trajectory_id: &str) -> Option<u64> {
         let properties = self.core?.get_node_properties(trajectory_id)?;
-        let value = eg_types::msgpack::decode_property_value(&properties).ok()?;
+        let value = medulla_types::msgpack::decode_property_value(&properties).ok()?;
         (value.get("type")?.as_str()? == TRAJECTORY_NODE_TYPE)
             .then(|| value.get("step_count")?.as_u64())
             .flatten()
@@ -87,7 +87,7 @@ impl RecordLookup for GraphRecords<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_types::policy_evolution::ModelPolicyVersion;
+    use medulla_types::policy_evolution::ModelPolicyVersion;
 
     fn version() -> PolicyEvolutionRecord {
         let record: ModelPolicyVersion = serde_json::from_value(serde_json::json!({
@@ -124,7 +124,7 @@ mod tests {
     #[test]
     fn an_edited_record_is_refused_as_tampered() {
         let (id, blob) = row_blob(&version());
-        let mut node = eg_types::msgpack::decode_property_value(&blob).unwrap();
+        let mut node = medulla_types::msgpack::decode_property_value(&blob).unwrap();
         node["record"]["record"]["artifact_ref"] = serde_json::json!("artifacts:swapped");
         let edited = rmp_serde::to_vec_named(&node).unwrap();
         assert_eq!(

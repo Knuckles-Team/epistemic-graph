@@ -119,7 +119,7 @@ and quarantined before initialization or serving. They are never translated,
 interpreted as the live schema, or exposed through a current reader.
 
 The staged image limit is automatically sized from effective cgroup-aware RAM
-(bounded between 1 byte and 2 GiB). `EPISTEMIC_GRAPH_MUTATION_SNAPSHOT_MAX_BYTES`
+(bounded between 1 byte and 2 GiB). `MEDULLA_MUTATION_SNAPSHOT_MAX_BYTES`
 can set a positive explicit byte limit, but it is clamped to that automatic bound;
 zero and malformed values fail closed to the automatic bound. This is a capacity
 guard only and never changes the atomicity contract.

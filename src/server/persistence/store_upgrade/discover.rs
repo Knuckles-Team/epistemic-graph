@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use eg_storage::OwnerLayout;
+use medulla_storage::OwnerLayout;
 
 use super::super::durable_stores::{bundled_store_authority, BackupScope, DURABLE_STORES};
 

@@ -1,4 +1,4 @@
-# EG-BRANCH-MERGE plan
+# MEDULLA-BRANCH-MERGE plan
 
 ## Architecture
 
@@ -7,7 +7,7 @@ Branch state has exactly two homes. Both are existing surfaces.
 1. **Branch registration** — an owner-store lineage entry. It binds
    `(tenant, graph, name, base_engine_version, created_by, created_at)`. The owner-store layout
    lineage registry already records format and lineage state. It refuses unsupported layouts with
-   typed errors (EG-DURABLE-KERNEL-R003). Branch registrations are new rows in that registry.
+   typed errors (MEDULLA-DURABLE-KERNEL-R003). Branch registrations are new rows in that registry.
    They replicate with the rest of owner-store state.
 2. **Branch commit chain** — append-only commits with parent pointers. A branch head is an engine
    version. `main` and every branch are named heads over the same commit DAG. A branch is a
@@ -22,14 +22,14 @@ The publication uses the existing cross-modal transaction and raft path.
 
 | Need | Existing owner |
 |---|---|
-| Durable registry rows + typed layout refusal | owner-store layout lineage (EG-DURABLE-KERNEL-R003) |
-| Commit-before-ack durability, raft replication | existing commit/raft path; command sealing (EG-DURABLE-KERNEL-R009) |
-| Idempotency, tenant-scoped | tenant-scoped lifecycle idempotency (EG-DURABLE-KERNEL-R019) |
-| Edge identity | `(source, target, relation_type)` triple (EG-REPO-INGEST-R009.1) |
-| Constraint / ABox validation on adopted entities | schema-repair validation authorities (EG-DECISION-ENGINE-R102.1) |
+| Durable registry rows + typed layout refusal | owner-store layout lineage (MEDULLA-DURABLE-KERNEL-R003) |
+| Commit-before-ack durability, raft replication | existing commit/raft path; command sealing (MEDULLA-DURABLE-KERNEL-R009) |
+| Idempotency, tenant-scoped | tenant-scoped lifecycle idempotency (MEDULLA-DURABLE-KERNEL-R019) |
+| Edge identity | `(source, target, relation_type)` triple (MEDULLA-REPO-INGEST-R009.1) |
+| Constraint / ABox validation on adopted entities | schema-repair validation authorities (MEDULLA-DECISION-ENGINE-R102.1) |
 | Epistemic neighbourhood, source reliability | `WITH KNOWLEDGE` fields, source-reliability authority |
-| Off-lock snapshot reads, tenant RLS | snapshot read path (EG-DURABLE-KERNEL-R023/R029) |
-| Change-feed vocabulary | change-envelope records (EG-UNIFIED-DATA-PLANE-R008.1) |
+| Off-lock snapshot reads, tenant RLS | snapshot read path (MEDULLA-DURABLE-KERNEL-R023/R029) |
+| Change-feed vocabulary | change-envelope records (MEDULLA-UNIFIED-DATA-PLANE-R008.1) |
 
 No new store. No new consensus layer. No second writer authority.
 
@@ -68,4 +68,4 @@ other commit.
 
 Standard per-repo gates apply. Clippy, test, jscpd, CCCC, dupehound, KISS. The merge pass is new
 code. It passes the no-duplicate-authority check against the existing commit and
-merge-adjacent modules. Release proof follows EG-CONTRACT.
+merge-adjacent modules. Release proof follows MEDULLA-CONTRACT.

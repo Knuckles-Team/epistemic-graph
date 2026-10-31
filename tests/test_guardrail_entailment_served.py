@@ -14,12 +14,12 @@ import pytest
 from conftest import TEST_TENANT, request_context
 from test_canonical_body_served import _library_context, _skill_draft
 
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.generated import storage
+from medulla.client import MedullaClient
+from medulla.generated import storage
 
 
 async def _publish_rule(
-    client: EpistemicGraphClient, rule_id: str, task_class: str, generation: str
+    client: MedullaClient, rule_id: str, task_class: str, generation: str
 ) -> None:
     component = _skill_draft(rule_id)
     component.update(
@@ -46,10 +46,10 @@ async def _publish_rule(
     )
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R127.2.3")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R127.2.3")
 @pytest.mark.asyncio
 async def test_generated_guardrail_entailment_queries_published_rules() -> None:
-    client = await EpistemicGraphClient.connect(
+    client = await MedullaClient.connect(
         socket_path=os.environ["GRAPH_SERVICE_SOCKET"],
         verified_context=request_context(),
     )

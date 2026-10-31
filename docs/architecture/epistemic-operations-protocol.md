@@ -41,7 +41,7 @@ model, deprecated alias, fallback reader, or dual-version branch.
 
 The packaged v1 JSON Schema catalog feeds a deterministic parity gate, which
 produces the generated strict Pydantic DTOs, a digest + ordered-field
-manifest, the generated strict serde DTOs in `eg-types`, and the AU
+manifest, the generated strict serde DTOs in `medulla-types`, and the AU
 self-check + workspace cross-repo check. The generated Rust DTOs also feed
 the engine's own standalone manifest check.
 
@@ -64,7 +64,7 @@ Run the full workspace proof from agent-utilities:
 
 ```bash
 python3 scripts/check_epistemic_operations_protocol.py \
-  --epistemic-graph-root ../medulla
+  --medulla-root ../medulla
 ```
 
 An isolated agent-utilities CI checkout uses `--self-only`. After an intentional

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """SCALE-P2-1 real-engine soak/chaos runner — RUNS the workload against the actual
-Rust ``epistemic-graph-server`` binary (not a mock), then injects LOCAL faults.
+Rust ``medulla-server`` binary (not a mock), then injects LOCAL faults.
 
 This is the honest, single-box companion to agent-utilities'
 ``scripts/scale/loadgen.py`` (the SCALE-P2-1 harness): that harness's ``--engine
@@ -97,8 +97,8 @@ def _server_bin() -> Path:
     env_target = os.environ.get("CARGO_TARGET_DIR")
     candidates = []
     if env_target:
-        candidates.append(Path(env_target) / "release" / "epistemic-graph-server")
-    candidates.append(REPO / "target" / "release" / "epistemic-graph-server")
+        candidates.append(Path(env_target) / "release" / "medulla-server")
+    candidates.append(REPO / "target" / "release" / "medulla-server")
     for c in candidates:
         if c.exists():
             return c
@@ -159,7 +159,7 @@ def start_server(
         # Soak measures engine behavior, not auth — run unauthenticated like the
         # existing scripts/bench_*.py convention (explicit insecure opt-out).
         "GRAPH_SERVICE_AUTH_SECRET": "",
-        "EPISTEMIC_GRAPH_ALLOW_INSECURE": "1",
+        "MEDULLA_ALLOW_INSECURE": "1",
     }
     if persist_dir:
         env["GRAPH_SERVICE_PERSIST_DIR"] = persist_dir
@@ -194,13 +194,13 @@ def start_server(
 # Thin wire wrappers that target an EXPLICIT graph per call (the client's public
 # NodeClient wrappers are pinned to the connection's bound graph_name; the wire
 # protocol itself supports an explicit per-call `graph` override — see
-# EpistemicGraphClient._send — which is exactly what multi-tenant routing over
+# MedullaClient._send — which is exactly what multi-tenant routing over
 # ONE pooled connection needs).
 # --------------------------------------------------------------------------- #
 
 
 async def add_node(conn: Any, graph: str, node_id: str, props: dict[str, Any]) -> None:
-    from epistemic_graph.client import _pack_binary_msgpack
+    from medulla.client import _pack_binary_msgpack
 
     await conn._send(
         "AddNode",
@@ -223,7 +223,7 @@ async def get_node_properties(
 async def claim_next(
     conn: Any, graph: str, label: str, updates: dict[str, Any]
 ) -> tuple[str, dict[str, Any]] | None:
-    from epistemic_graph.client import _pack_binary_msgpack
+    from medulla.client import _pack_binary_msgpack
 
     raw = await conn._send(
         "ClaimNext",
@@ -253,7 +253,7 @@ async def compare_and_set(
     conditions: dict[str, Any],
     updates: dict[str, Any],
 ) -> bool:
-    from epistemic_graph.client import _pack_binary_msgpack
+    from medulla.client import _pack_binary_msgpack
 
     return await conn._send(
         "CompareAndSetNodeFields",
@@ -339,17 +339,17 @@ def _slo_pass(measured: dict[str, float], target: dict[str, float]) -> dict[str,
 
 # --------------------------------------------------------------------------- #
 # Connection pool — a handful of persistent connections, each pipelining many
-# concurrent in-flight requests (EG-KG.backend.framed-response); NOT one
+# concurrent in-flight requests (MEDULLA-KG.backend.framed-response); NOT one
 # connection per tenant/resident.
 # --------------------------------------------------------------------------- #
 
 
 async def open_pool(sock: str, n: int) -> list[Any]:
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import MedullaClient
 
     conns = []
     for _ in range(n):
-        c = await EpistemicGraphClient.connect(
+        c = await MedullaClient.connect(
             socket_path=sock, graph_name="__soak__", auth_secret=""
         )
         conns.append(c)
@@ -829,7 +829,7 @@ async def phase_hot_tenant(
 
 # --------------------------------------------------------------------------- #
 # Phase D: backpressure / admission shedding (its OWN ephemeral server so
-# EPISTEMIC_GRAPH_MAX_INFLIGHT can be pinned low enough to observe on one box)
+# MEDULLA_MAX_INFLIGHT can be pinned low enough to observe on one box)
 # --------------------------------------------------------------------------- #
 
 
@@ -841,7 +841,7 @@ async def phase_backpressure(
         handle = start_server(
             binary,
             sock,
-            env_overrides={"EPISTEMIC_GRAPH_MAX_INFLIGHT": str(max_inflight)},
+            env_overrides={"MEDULLA_MAX_INFLIGHT": str(max_inflight)},
         )
         try:
             conns = await open_pool(sock, 1)
@@ -900,7 +900,7 @@ async def phase_backpressure(
 
 # --------------------------------------------------------------------------- #
 # Phase E: per-graph eviction + durable read-through (its OWN ephemeral server
-# with a tiny EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH)
+# with a tiny MEDULLA_MAX_NODES_PER_GRAPH)
 # --------------------------------------------------------------------------- #
 
 
@@ -915,7 +915,7 @@ async def phase_eviction_read_through(
             binary,
             sock,
             persist_dir=persist_dir,
-            env_overrides={"EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH": str(node_cap)},
+            env_overrides={"MEDULLA_MAX_NODES_PER_GRAPH": str(node_cap)},
         )
         try:
             conns = await open_pool(sock, 1)

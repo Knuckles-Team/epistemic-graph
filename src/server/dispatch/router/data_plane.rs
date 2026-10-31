@@ -33,7 +33,7 @@ pub(super) async fn dispatch_transaction_methods(
         ..
     } = ctx;
     ControlFlow::Break(match method {
-        // ── Transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid — multi-op OCC ACID) ──────
+        // ── Transactions (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid — multi-op OCC ACID) ──────
         // Stateful + self-routing: a Txn* op targets the graph the txn was opened
         // against (resolved from `open_txns`), NOT necessarily `req.graph`, and
         // BeginTxn carries its own graph. So they are handled here (with `state`)
@@ -52,12 +52,12 @@ pub(super) async fn dispatch_transaction_methods(
         | Method::Commit { .. }
         | Method::Rollback { .. }) => dispatch_transaction_methods_arm_0(ctx, method).await,
 
-        // Extended cross-modal STAGING (CONCEPT:EG-KG.compute.eg-187, closing EG-360/361/362 at RPC) — the tsdb-measurement,
+        // Extended cross-modal STAGING (CONCEPT:MEDULLA-KG.compute.medulla-187, closing MEDULLA-360/361/362 at RPC) — the tsdb-measurement,
         // OWL-axiom and SPARQL-CONSTRUCT stage methods. `handlers::txn::try_handle` handles
         // them (feature-gated), but they carry their OWN `graph` (like `TxnAddEmbedding`),
         // so they route straight there — NO `BeginTxn` graph-default rewrite. Without these
         // arms the variants fell through to the graph-op "not available" catch-all, so an
-        // in-txn measurement/axiom/CONSTRUCT staged fine over pgwire (EG-372, which calls the
+        // in-txn measurement/axiom/CONSTRUCT staged fine over pgwire (MEDULLA-372, which calls the
         // stage fns directly) but ERRORED over the native RPC surface — a "seamless" leak
         // (docs/north_star.md). Each is `cfg`-gated to match its protocol variant, so a slim
         // build without the feature keeps the prior catch-all behavior.
@@ -71,14 +71,14 @@ pub(super) async fn dispatch_transaction_methods(
         method @ Method::TxnConstruct { .. } => {
             dispatch_transaction_methods_arm_3(ctx, method).await
         }
-        // Planner-writeback staging (CONCEPT:EG-KG.query.plan-dag, D7) — carries its OWN
+        // Planner-writeback staging (CONCEPT:MEDULLA-KG.query.plan-dag, D7) — carries its OWN
         // `graph` (like `TxnConstruct`), so it routes straight to the txn handler with NO
         // BeginTxn graph-default rewrite. `query`-gated to match its protocol variant.
         #[cfg(feature = "query")]
         method @ Method::TxnPlanWriteback { .. } => {
             dispatch_transaction_methods_arm_4(ctx, method).await
         }
-        // Materialize-belief staging (CONCEPT:EG-KG.epistemic.epistemic-substrate, D5) —
+        // Materialize-belief staging (CONCEPT:MEDULLA-KG.epistemic.epistemic-substrate, D5) —
         // carries its OWN `graph` (like `TxnPlanWriteback`), so it routes straight to the
         // txn handler with NO BeginTxn graph-default rewrite. `epistemic`-gated to match
         // its protocol variant.
@@ -115,7 +115,7 @@ pub(super) async fn dispatch_store_methods(
             ..
         } = ctx;
         ControlFlow::Break(match method {
-            // ── Blob (CONCEPT:EG-KG.storage.blob-namespace) ──────────────────────────────────
+            // ── Blob (CONCEPT:MEDULLA-KG.storage.blob-namespace) ──────────────────────────────────
             // Content-addressed, NOT graph-scoped: a blob is keyed by digest and may be
             // referenced across graphs, so route at the top level (like txn) before the
             // per-graph chain. The variants only exist with the `blob` feature; without
@@ -131,7 +131,7 @@ pub(super) async fn dispatch_store_methods(
             | Method::BlobUnref { .. }
             | Method::BlobGc) => dispatch_store_methods_arm_0(ctx, method).await,
 
-            // ── Key→Value (CONCEPT:EG-KG.storage.namespaced-kv-surface) ───────────────────────────────
+            // ── Key→Value (CONCEPT:MEDULLA-KG.storage.namespaced-kv-surface) ───────────────────────────────
             // Namespaced KV, NOT graph-scoped: a pair is keyed by (namespace, key) and
             // lives off the node/edge graph, so route at the top level (like blob/txn)
             // before the per-graph chain. The variants only exist with the `kv` feature;
@@ -143,7 +143,7 @@ pub(super) async fn dispatch_store_methods(
             | Method::KvScan { .. }
             | Method::KvCas { .. }) => dispatch_store_methods_arm_1(ctx, method).await,
 
-            // ── SQLite `.db` file import/export (CONCEPT:EG-KG.query.eg-feature/EG-332) ──
+            // ── SQLite `.db` file import/export (CONCEPT:MEDULLA-KG.query.medulla-feature/MEDULLA-332) ──
             // File-scoped, NOT graph-scoped: both ops target a filesystem `path` and move
             // rows through the verified caller's owner-scoped user-table store (behind `query`), so they
             // self-route here (like the Blob*/Kv* ops) BEFORE the per-graph chain. Gated
@@ -330,7 +330,7 @@ pub(super) async fn dispatch_streaming_methods(
             ..
         } = ctx;
         ControlFlow::Break(match method {
-            // ── Streaming / CDC / subscriptions (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230) ───
+            // ── Streaming / CDC / subscriptions (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions/230) ───
             // The reactive READ + REGISTER surface over the CDC hub on `state` (the WRITE
             // side — emitting changes — lives in the dispatch_graph_op write-side-effect
             // block). These are NOT graph-mutating (CdcRead/Watch/FiredTriggers tail a
@@ -349,7 +349,7 @@ pub(super) async fn dispatch_streaming_methods(
             | Method::ListTriggers { .. }
             | Method::FiredTriggers { .. }) => dispatch_streaming_methods_arm_0(ctx, method).await,
 
-            // ── Live CEP standing queries (CONCEPT:EG-KG.query.protocol-types) ───────────────
+            // ── Live CEP standing queries (CONCEPT:MEDULLA-KG.query.protocol-types) ───────────────
             // The PUSH half of the event-stream + CEP modality: register a CEP pattern once
             // (CepSubscribe), then long-poll the matches it detects as CDC changes flow
             // (CepPoll). The engine is fed by the CDC hub (the write side lives in the
@@ -686,7 +686,7 @@ pub(super) async fn dispatch_change_envelope_methods(
 ///
 /// Hands a method it does not own back as `ControlFlow::Continue`.
 /// The graph a natural-language method runs against: the method's own `graph`, or the
-/// request envelope's graph when that is empty (CONCEPT:EG-KG.query.core-query-input/EG-080).
+/// request envelope's graph when that is empty (CONCEPT:MEDULLA-KG.query.core-query-input/MEDULLA-080).
 fn nl_target_graph(graph: &str, req_graph: &str) -> String {
     if graph.is_empty() {
         req_graph.to_string()
@@ -730,7 +730,7 @@ pub(super) async fn dispatch_method_scoped_graph_methods(
         ..
     } = ctx;
     ControlFlow::Break(match method {
-        // ── Distributed OWL reasoning (CONCEPT:EG-KG.ontology.concept-13) ─────────────
+        // ── Distributed OWL reasoning (CONCEPT:MEDULLA-KG.ontology.concept-13) ─────────────
         // Cross-shard: reasons over the UNION of several graphs, so it self-routes
         // here (with `state` to gather each shard's snapshot) BEFORE the per-graph
         // chain — never through `dispatch_graph_op`, which targets a single `req.graph`.
@@ -766,13 +766,13 @@ pub(super) async fn dispatch_method_scoped_graph_methods(
             })
             .await
         }
-        // Natural-language query (CONCEPT:EG-KG.query.core-query-input/EG-080): the graph rides the METHOD
+        // Natural-language query (CONCEPT:MEDULLA-KG.query.core-query-input/MEDULLA-080): the graph rides the METHOD
         // (the `/nl` HTTP facade path has no request envelope), so route to the method's
         // `graph`, falling back to the request envelope's graph when it is empty. The
         // handler (behind `nl-query`) turns NL→UQL and runs the deterministic
         // UQL pipeline; a build without `nl-query` reaches the graph_ops
         // "not available" catch-all like any other feature-off method.
-        // `NlQueryExplain` (EG-FEDERATED-QUERY-R058.2.2.1) routes exactly like `NlQuery`.
+        // `NlQueryExplain` (MEDULLA-FEDERATED-QUERY-R058.2.2.1) routes exactly like `NlQuery`.
         Method::NlQuery { text, graph } => {
             let target = nl_target_graph(&graph, &req.graph);
             dispatch_nl_method(ctx, &target, Method::NlQuery { text, graph }).await
@@ -785,7 +785,7 @@ pub(super) async fn dispatch_method_scoped_graph_methods(
             let target = nl_target_graph(&graph, &req.graph);
             dispatch_nl_method(ctx, &target, Method::NlQueryPlan { text, graph }).await
         }
-        // Batched CROSS-GRAPH write (CONCEPT:EG-KG.storage.multi-graph-batch-write) — the
+        // Batched CROSS-GRAPH write (CONCEPT:MEDULLA-KG.storage.multi-graph-batch-write) — the
         // graphs ride the METHOD (one round-trip, many graphs), so like the txn/ts
         // self-routing ops it is handled HERE, BEFORE the single-`req.graph`
         // graph-op path. Each sub-batch fans through the normal per-graph write

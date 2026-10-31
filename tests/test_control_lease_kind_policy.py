@@ -21,10 +21,10 @@ from conftest import (
     strict_server_env,
 )
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
 SERVER_BIN = find_server_binary() or os.path.join(
-    os.path.dirname(__file__), "..", "target", "debug", "epistemic-graph-server"
+    os.path.dirname(__file__), "..", "target", "debug", "medulla-server"
 )
 SECRET = "test-lease-kind-policy-secret"  # sanitizer:ignore
 DEPUTY = "service:lease-deputy"
@@ -43,7 +43,7 @@ def policy_server(tmp_path_factory):
         **strict_server_env(
             str(runtime / "security"), auth_secret=SECRET, persist_dir=persist_dir
         ),
-        "EPISTEMIC_GRAPH_CONTROL_LEASE_KIND_POLICY_JSON": POLICY,
+        "MEDULLA_CONTROL_LEASE_KIND_POLICY_JSON": POLICY,
     }
     proc = subprocess.Popen(
         [SERVER_BIN, "--socket-path", sock],
@@ -84,7 +84,7 @@ def policy_server(tmp_path_factory):
 
 
 def _connect(sock, context):
-    return SyncEpistemicGraphClient.connect(
+    return SyncMedullaClient.connect(
         socket_path=sock,
         auth_secret=SECRET,
         graph_name="__commons__",

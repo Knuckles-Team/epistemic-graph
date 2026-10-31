@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from epistemic_graph import decision_stat as ds
+from medulla import decision_stat as ds
 
 pytestmark = pytest.mark.no_engine
 
-#: Also asserted by `eg_types::decision::statistical::features::tests`.
+#: Also asserted by `medulla_types::decision::statistical::features::tests`.
 GOLDEN_SCHEMA_DIGEST = (
     "sha256:37a7e0b16650a73226cf326a4c9697ebdf03f027dad9585e852418d7da76ed98"
 )
@@ -77,12 +77,12 @@ def test_body_json_preserves_constant_names_as_strings(constant: str) -> None:
     assert ds.decode_body(digest, attributes) == body
 
 
-# spec: EG-DECISION-ENGINE-R134.111.7
-# spec: EG-DECISION-ENGINE-R134.111.12
+# spec: MEDULLA-DECISION-ENGINE-R134.111.7
+# spec: MEDULLA-DECISION-ENGINE-R134.111.12
 def test_task_plan_feature_schema_export_is_the_engine_body_and_digest():
     """The exported schema is self-consistent: its digest is the body's digest
     under the same codec the engine uses, and its publish identity is stable."""
-    from epistemic_graph.decision_client import TASK_PLAN_FEATURE_SCHEMA as pin
+    from medulla.decision_client import TASK_PLAN_FEATURE_SCHEMA as pin
 
     assert pin["kind"] == "feature_schema"
     assert pin["component_id"] == "task-plan-features"

@@ -20,7 +20,7 @@ use crate::graph::GraphCore;
 use crate::registry::GraphHandle;
 use crate::server::ServerState;
 
-/// Enforce the per-tenant memory budgets ONCE (CONCEPT:EG-KG.compute.lane-v). For every tenant over
+/// Enforce the per-tenant memory budgets ONCE (CONCEPT:MEDULLA-KG.compute.lane-v). For every tenant over
 /// its effective budget (the smaller of its configured budget and its fair share of the
 /// global ceiling), reclaim memory from its COLDEST graphs until it is back under budget:
 ///
@@ -260,7 +260,7 @@ async fn hibernate_graph(
 }
 
 /// Evict one graph's LRU nodes down to `max_nodes` only after durable presence is
-/// confirmed (CONCEPT:EG-KG.storage.read-through-seam-exercised).
+/// confirmed (CONCEPT:MEDULLA-KG.storage.read-through-seam-exercised).
 async fn evict_graph_to(
     fname_graph: &str,
     core: &Arc<GraphCore>,

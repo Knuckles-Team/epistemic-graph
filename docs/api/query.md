@@ -266,7 +266,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Expl
 
 ## `ExplainEvidence`
 
-CONCEPT:EG-X1 multimodal-citation resolver; handler also gated `evidence-graph`
+CONCEPT:MEDULLA-X1 multimodal-citation resolver; handler also gated `evidence-graph`
 
 | Property | Value |
 |---|---|
@@ -388,7 +388,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Expl
 
 ## `ExplainProvenanceByIds`
 
-CONCEPT:EG-KB-CURRENCY — ID-seeded sibling of ExplainProvenance, same policy profile
+CONCEPT:MEDULLA-KB-CURRENCY — ID-seeded sibling of ExplainProvenance, same policy profile
 
 | Property | Value |
 |---|---|
@@ -573,7 +573,7 @@ runtime-conditional; ordinary writes stage through MutationBatch and cross-modal
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
 | `query` | string | yes |  |
-| `variables` | any | no | Optional GraphQL `$variables` — a JSON object bound at execution (CONCEPT:EG-KG.query.fragments-variables-directives variables, wired through the wire path as an EG-064 follow-up). The handler binds these via `execute_with_variables` (`@skip`/`@include` + `$var` args). `None` is encoded explicitly and means an empty binding. |
+| `variables` | any | no | Optional GraphQL `$variables` — a JSON object bound at execution (CONCEPT:MEDULLA-KG.query.fragments-variables-directives variables, wired through the wire path as an MEDULLA-064 follow-up). The handler binds these via `execute_with_variables` (`@skip`/`@include` + `$var` args). `None` is encoded explicitly and means an empty binding. |
 
 **Result**
 

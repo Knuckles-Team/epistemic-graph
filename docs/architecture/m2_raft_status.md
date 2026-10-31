@@ -8,7 +8,7 @@
 > this handoff.
 >
 > Scope: the multi-Raft follow-ups documented on
-> `CONCEPT:EG-KG.sharding.raft-resharding` — pooled per-peer connections,
+> `CONCEPT:MEDULLA-KG.sharding.raft-resharding` — pooled per-peer connections,
 > group-per-tenant-range routing, per-group snapshot scoping, leader balancing
 > across groups, heartbeat coalescing, and the openraft 0.10 storage/network
 > migration.
@@ -104,12 +104,12 @@ evidence, not a current live deployment, multi-host soak, or 1M certification.
 > All three remaining M2 items are now **implemented + lib-tested** on top of the base.
 > Single-group default behavior is unchanged — the full pre-existing `--lib raft` suite
 > (incl. the 3-node failover test + the nemesis gauntlets) stays green.
-> **Concept-ID note:** the original plan reserved EG-KG.storage.kg-kg-2 (R1) and KG-2.269 (R2). By the
+> **Concept-ID note:** the original plan reserved MEDULLA-KG.storage.kg-kg-2 (R1) and KG-2.269 (R2). By the
 > time this branch landed, **KG-2.269 had been claimed by another session** (`shard-commons`,
 > "Ingestion graph routing"), so the heartbeat work uses a fresh id. Final mapping:
-> **R3 = EG-KG.storage.kg-kg-2**, **R1 = EG-KG.sharding.multi-raft**, **R2 = EG-KG.storage.concept-2** (all reserved in the ledger).
+> **R3 = MEDULLA-KG.storage.kg-kg-2**, **R1 = MEDULLA-KG.sharding.multi-raft**, **R2 = MEDULLA-KG.storage.concept-2** (all reserved in the ledger).
 
-### R3. Per-group multi-NODE membership join — `CONCEPT:EG-KG.storage.kg-kg-2`
+### R3. Per-group multi-NODE membership join — `CONCEPT:MEDULLA-KG.storage.kg-kg-2`
 - **What:** a group can now be grown from a single-node bootstrap to span multiple
   NODES via the openraft add-learner → change-membership lifecycle, per group, over the
   shared listener.
@@ -126,7 +126,7 @@ evidence, not a current live deployment, multi-host soak, or 1M certification.
   `add_group_member`s both → membership becomes `[1,2,3]`, and a write through the leader
   replicates to the two freshly-joined voters.
 
-### R1. Leader balancing across groups — `CONCEPT:EG-KG.sharding.multi-raft`
+### R1. Leader balancing across groups — `CONCEPT:MEDULLA-KG.sharding.multi-raft`
 - **What:** `MultiRaft::rebalance_leaders()` spreads leadership so one node isn't leader
   for every group. EVERY node runs the pass (like a real cluster); per group it computes
   the deterministic round-robin target (`desired_leader(gid, sorted_voters)` — identical
@@ -150,7 +150,7 @@ evidence, not a current live deployment, multi-host soak, or 1M certification.
   target is node 2 (`7 % 3`), the first pass shows node 1 `yielded` + node 2 `elected`,
   periodic passes converge leadership to node 2, and a further pass is a no-op (idempotent).
 
-### R2. Heartbeat coalescing — `CONCEPT:EG-KG.storage.concept-2`
+### R2. Heartbeat coalescing — `CONCEPT:MEDULLA-KG.storage.concept-2`
 - **What:** same-destination Raft HEARTBEATS (empty-entries `AppendEntries`) across N
   groups coalesce into ONE batched frame to that peer instead of N frames per heartbeat
   interval; the batch rides the AU-KG.ontology.manage-arbitrary `PeerPool` (one connect-amortized round-trip).
@@ -181,13 +181,13 @@ reported 23 passing tests for that implementation record. This remains
 > Branch `feat/openraft-010-cluster`. Bumped openraft to **0.10** (pinned
 > `=0.10.0-alpha.26`, the line that carries `transfer_leader`) and migrated the whole
 > `src/raft/` API surface to the **v2 split-storage** model. The cooperative
-> yield-then-claim leader balancing (EG-KG.sharding.multi-raft) is **replaced** by the native graceful
+> yield-then-claim leader balancing (MEDULLA-KG.sharding.multi-raft) is **replaced** by the native graceful
 > handoff. See `docs/architecture/cluster_deployment.md` for the multi-node deploy.
 
 - **Storage = v2 split traits.** openraft 0.10 removed the combined `RaftStorage` + the
-  `Adaptor`. `EgStore` now implements **`RaftLogStorage`** (+ super-trait
+  `Adaptor`. `MedullaStore` now implements **`RaftLogStorage`** (+ super-trait
   `RaftLogReader`) AND **`RaftStateMachine`** (+ `RaftSnapshotBuilder`) on
-  `Arc<EgStore>`; `create_group` passes the SAME `Arc` as both (no adaptor). Every
+  `Arc<MedullaStore>`; `create_group` passes the SAME `Arc` as both (no adaptor). Every
   storage method returns `std::io::Error` (the 0.9 `StorageError`/`StorageIOError`
   constructors are gone); types use the `…Of<C>` aliases. `append` now signals
   durability via an `IOFlushed` callback (fired right after this repository's group-commit fsync);
@@ -233,7 +233,7 @@ validation remains the release gate:
   It observes current leaders, requires a one-slot load margin (equal loads are
   hysteresis), permits one automatic transfer per pass, enforces the existing 10 s
   per-group cooldown, and fails closed when current/target failure domains are equal
-  or unknown. `EPISTEMIC_GRAPH_RAFT_FAILURE_DOMAINS` can provide an explicit complete
+  or unknown. `MEDULLA_RAFT_FAILURE_DOMAINS` can provide an explicit complete
   node→domain map; absent that map, the advertised endpoint host is the safety domain.
 - Source fixtures cover the batch frame contract, durable-count reconciliation,
   deterministic domain parsing/safety, and existing single-node/cluster term and

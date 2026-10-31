@@ -1,11 +1,11 @@
-//! GraphQL cross-modal DURABLE-commit roundtrip (CONCEPT:EG-KG.query.facade-reconcile-hook).
+//! GraphQL cross-modal DURABLE-commit roundtrip (CONCEPT:MEDULLA-KG.query.facade-reconcile-hook).
 //!
-//! Proves the facade reconcile hook the `eg-graphql` crate left open (EG-383): a GraphQL
+//! Proves the facade reconcile hook the `medulla-graphql` crate left open (MEDULLA-383): a GraphQL
 //! cross-modal `commitTransaction`, routed through the facade carrier
 //! (`handlers::query.rs` `Method::GraphQl` → `handlers::txn::commit_graphql_cross_modal`),
 //! lands its staged modalities in the redb durable tier via `commit_cross_modal_txn` — the
 //! SAME committed machinery pgwire's `commit_txn_state` drives — so the write SURVIVES a
-//! reopen of the persist dir. Before EG-419 the crate committed graph+vector in-memory
+//! reopen of the persist dir. Before MEDULLA-419 the crate committed graph+vector in-memory
 //! only, so nothing would be on disk.
 //!
 //! Driven through the REAL `dispatch` shell over an in-process `ServerState` backed by a
@@ -23,9 +23,9 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use epistemic_graph::acl::RequestContextClaims;
-use epistemic_graph::protocol::{GraphType, Method, Request, Response, ResultPayload};
-use epistemic_graph::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
+use medulla::acl::RequestContextClaims;
+use medulla::protocol::{GraphType, Method, Request, Response, ResultPayload};
+use medulla::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
 
 const SECRET: &str = "gql-crossmodal-durable-secret";
 const GRAPH: &str = "gqlxmdurable"; // lowercase-alnum ⇒ sanitize() is identity ⇒ fname == GRAPH
@@ -42,7 +42,7 @@ fn signed_graphql_request(id: u64, query: &str, nonce: &str, idempotency_key: &s
     let context = RequestContextClaims {
         principal: common::TEST_AGENT.to_string(),
         tenant: "integration-test-tenant".to_string(),
-        audience: "epistemic-graph-integration-tests".to_string(),
+        audience: "medulla-integration-tests".to_string(),
         agent_id: common::TEST_AGENT.to_string(),
         roles: Vec::new(),
         scopes: vec!["*".to_string()],
@@ -118,15 +118,15 @@ async fn gql(state: &test_support::SharedState, id: u64, query: &str) -> serde_j
 #[tokio::test]
 async fn graphql_cross_modal_commit_survives_reopen() {
     // A unique, self-cleaning persist dir under the system temp dir (no tempfile dep).
-    let dir = test_support::fresh_dir("eg-gqlxm");
+    let dir = test_support::fresh_dir("medulla-gqlxm");
     let dir_s = dir.to_string_lossy().to_string();
 
     // A multi-op cross-modal Commit seals its recovery plan, so durability
     // REQUIRES a key: `crypto::resolve_txn_recovery_key` reads
-    // `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY` first and falls back to
-    // `EPISTEMIC_GRAPH_ENCRYPTION_KEY`, and with neither set `commitTransaction`
+    // `MEDULLA_TXN_RECOVERY_KEY` first and falls back to
+    // `MEDULLA_ENCRYPTION_KEY`, and with neither set `commitTransaction`
     // correctly refuses with "transaction durability requires
-    // EPISTEMIC_GRAPH_ENCRYPTION_KEY to be configured". This binary provisioned
+    // MEDULLA_ENCRYPTION_KEY to be configured". This binary provisioned
     // neither, so the refusal -- not the reopen behaviour this test names -- is
     // what it measured. `provision_encryption_key_once` is the shared helper for
     // exactly this (it is `Once`-guarded, so it is safe for both tests in this
@@ -190,7 +190,7 @@ async fn graphql_cross_modal_commit_survives_reopen() {
         serde_json::json!(true)
     );
 
-    // Commit — this is the DURABLE path (EG-419). Keep the signed body and
+    // Commit — this is the DURABLE path (MEDULLA-419). Keep the signed body and
     // stable key while changing only the verified nonce for the replay attempt.
     let commit_query =
         format!("mutation {{ commitTransaction(txnId: \"{txn_id}\") {{ committed }} }}");
@@ -307,7 +307,7 @@ async fn graphql_cross_modal_commit_survives_reopen() {
 /// a terminal rollback refuses a stale success after its handle is gone.
 #[tokio::test]
 async fn graphql_native_staging_consumes_nonce_and_replays_by_key() {
-    let dir = test_support::fresh_dir("eg-gqlxm-lifecycle");
+    let dir = test_support::fresh_dir("medulla-gqlxm-lifecycle");
     let dir_s = dir.to_string_lossy().to_string();
     let backend = test_support::open_redb_backend(dir_s.clone()).unwrap();
     let state = state_with(backend.clone(), dir_s);

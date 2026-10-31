@@ -14,12 +14,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use eg_types::change_envelope::{
+use medulla_types::change_envelope::{
     ChangeEnvelope, ContentVersion, ContentVersionPosition, MaterialClass, MaterialOperation,
     PolicyRecord, PrivacyAttestation, CHANGE_ENVELOPE_VERSION,
 };
-use eg_types::contract::Digest256;
-use eg_types::ingestion_wire::{ExtractedEdge, ExtractedNode, IndexResult};
+use medulla_types::contract::Digest256;
+use medulla_types::ingestion_wire::{ExtractedEdge, ExtractedNode, IndexResult};
 
 use crate::protocol::{Method, Response, ResultPayload};
 
@@ -59,7 +59,7 @@ pub(crate) const REDACTED_HOST_IDENTITY: &str = "[redacted: host identity]";
 /// refuse a whole repository batch, so the VALUE is replaced; the rule itself
 /// is unchanged and still screens every committed value.
 pub(crate) fn stored_value(value: &str) -> &str {
-    if eg_types::change_envelope::admits_repository_text(value) {
+    if medulla_types::change_envelope::admits_repository_text(value) {
         value
     } else {
         REDACTED_HOST_IDENTITY
@@ -156,18 +156,18 @@ impl IndexWriteSet {
 /// A batch commits as ONE atomic envelope or is refused whole with
 /// [`BATCH_TOO_LARGE`] so the source re-sizes it: past the mutation batch's
 /// operation budget, or when the committed batch record would not decode
-/// under the durable ledger's record budget (eg-storage: 64 MiB / 1M items;
+/// under the durable ledger's record budget (medulla-storage: 64 MiB / 1M items;
 /// each stored operation wraps its method in about ten more items).
 fn check_commit_budget(encoded: &[u8], operations: usize) -> Result<(), String> {
-    let limit = eg_types::mutation_batch::MAX_MUTATION_OPERATIONS;
+    let limit = medulla_types::mutation_batch::MAX_MUTATION_OPERATIONS;
     let items = MAX_WRITE_SET_ITEMS.saturating_sub(operations * RECORD_ITEMS_PER_OPERATION);
-    let record_budget = eg_types::msgpack::MsgpackLimits::new(
+    let record_budget = medulla_types::msgpack::MsgpackLimits::new(
         MAX_WRITE_SET_BYTES,
         items,
-        eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        medulla_types::msgpack::DEFAULT_MAX_DEPTH,
     );
     if operations <= limit
-        && eg_types::msgpack::validate_single_value(encoded, record_budget).is_ok()
+        && medulla_types::msgpack::validate_single_value(encoded, record_budget).is_ok()
     {
         return Ok(());
     }
@@ -217,7 +217,7 @@ pub(crate) fn build_envelope(
 pub(crate) fn build_envelope_with_outbox(
     ctx: &IndexCommitContext<'_>,
     write_set: IndexWriteSet,
-    outbox: Vec<eg_types::mutation_batch::MutationOutboxIntent>,
+    outbox: Vec<medulla_types::mutation_batch::MutationOutboxIntent>,
 ) -> Result<ChangeEnvelope, String> {
     let IndexWriteSet {
         envelope_id,
@@ -253,7 +253,7 @@ pub(crate) fn build_labelled_envelope(
 
 /// Wrap a compiled batch as the repository-snapshot envelope of `digest`.
 fn seal(
-    mutation: eg_types::mutation_batch::MutationBatch,
+    mutation: medulla_types::mutation_batch::MutationBatch,
     envelope_id: String,
     digest: &Digest256,
     tenant: &str,
@@ -297,7 +297,7 @@ fn seal(
 pub(crate) fn respond(request_id: u64, result: IndexResult) -> Response {
     Response::ok(
         request_id,
-        ResultPayload::of::<eg_types::result_contract::ingestion::IndexRepository>(result),
+        ResultPayload::of::<medulla_types::result_contract::ingestion::IndexRepository>(result),
     )
 }
 

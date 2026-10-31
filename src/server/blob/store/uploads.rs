@@ -7,8 +7,8 @@ use super::manifest::{
     MAX_BLOB_CHUNK_BYTES,
 };
 use super::{CAS_COUNTERS, CAS_UPLOADS};
-use eg_storage::{BlobOwner, BlobSharedWrite};
-use eg_transaction::AdmittedOwnerWrite;
+use medulla_storage::{BlobOwner, BlobSharedWrite};
+use medulla_transaction::AdmittedOwnerWrite;
 use redb::ReadableTable;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;

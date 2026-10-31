@@ -95,7 +95,7 @@ pub(super) async fn commit_staged_replay_probe(
         Ok(None) => None,
         Err(error) => Some(Response::err(
             ctx.req_id,
-            eg_types::contract::classify_refusal(
+            medulla_types::contract::classify_refusal(
                 "INTERNAL",
                 "MutationBatch status lookup failed: ",
                 &error,
@@ -110,7 +110,7 @@ async fn commit_staged_replay_found(
     methods: Vec<Method>,
     default_surface: crate::mutation_batch::MutationSurface,
     target: DurableBatchTarget<'_>,
-    record: eg_types::mutation_batch::MutationBatchRecord,
+    record: medulla_types::mutation_batch::MutationBatchRecord,
     prep: &CommitPrep,
 ) -> Option<Response> {
     let DurableBatchTarget {
@@ -146,7 +146,7 @@ async fn staged_replay_descriptor(
     ctx: &MutationCtx<'_>,
     persistence: &Arc<dyn PersistenceBackend>,
     fname: &str,
-    record: &eg_types::mutation_batch::MutationBatchRecord,
+    record: &medulla_types::mutation_batch::MutationBatchRecord,
 ) -> Result<(crate::mutation_batch::MutationStateDescriptor, u64), Response> {
     let mut descriptor = record.batch.authoritative_state.clone().ok_or_else(|| {
         Response::err(
@@ -218,7 +218,7 @@ pub(super) async fn commit_mutation_body_replay_response(
     ctx: &MutationCtx<'_>,
     persistence: &Arc<dyn PersistenceBackend>,
     fname: &str,
-    record: eg_types::mutation_batch::MutationBatchRecord,
+    record: medulla_types::mutation_batch::MutationBatchRecord,
     prep: &CommitPrep,
 ) -> Response {
     match persistence.read_authoritative_graph_snapshot(fname).await {
@@ -248,9 +248,9 @@ pub(super) async fn commit_mutation_body_replay_response(
         .as_deref()
         .ok_or_else(|| "committed MutationBatch has no durable result".to_string())
         .and_then(|bytes| {
-            eg_types::msgpack::decode_bounded(
+            medulla_types::msgpack::decode_bounded(
                 bytes,
-                eg_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
+                medulla_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
             )
             .map_err(|_| "committed MutationBatch result is corrupt".to_string())
         })
@@ -274,7 +274,7 @@ pub(super) async fn commit_row_replay_probe(
         Ok(None) => None,
         Err(error) => Some(Response::err(
             ctx.req_id,
-            eg_types::contract::classify_refusal(
+            medulla_types::contract::classify_refusal(
                 "INTERNAL",
                 "MutationBatch status lookup failed: ",
                 &error,

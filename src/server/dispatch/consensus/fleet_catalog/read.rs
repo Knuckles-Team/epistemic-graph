@@ -3,14 +3,14 @@
 
 use std::collections::BTreeMap;
 
-use eg_types::agent_component::AgentComponentEntry;
-use eg_types::contract::{BoundedVec, Digest256};
-use eg_types::fleet_catalog::{
+use medulla_types::agent_component::AgentComponentEntry;
+use medulla_types::contract::{BoundedVec, Digest256};
+use medulla_types::fleet_catalog::{
     FleetCatalogKind, FleetCatalogListRequest, FleetCatalogLookup, FleetCatalogLookupRequest,
     FleetCatalogPage, FleetCatalogRow, SkillType, FLEET_CATALOG_SCHEMA_VERSION,
     MAX_FLEET_SNAPSHOT_ROWS,
 };
-use eg_types::result_contract::cluster::{
+use medulla_types::result_contract::cluster::{
     FleetCatalogList, FleetCatalogLookupRows, ServerDesiredState,
 };
 

@@ -20,7 +20,7 @@ fn test_render_contains_recorded_series() {
     access_denied();
     busy_rejected();
     checkpoint_completed(0.02);
-    // CONCEPT:EG-OS.observability.write-lock-gap-histogram — write-lock-gap histograms register + render.
+    // CONCEPT:MEDULLA-OS.observability.write-lock-gap-histogram — write-lock-gap histograms register + render.
     observe_write_lock_wait("agent:metrics-test", 0.003);
     observe_write_lock_hold("agent:metrics-test", 0.0005);
     set_resource_stats(2, 1024, 2048, 3, 256, 10);
@@ -34,24 +34,24 @@ fn test_render_contains_recorded_series() {
     // test_graph_label_cardinality_is_bounded; here we only assert the metric
     // FAMILIES are registered + rendered (robust to the shared global registry).
     for needle in [
-        "epistemic_graph_requests_total{op=\"Ping\"}",
-        "epistemic_graph_request_duration_seconds_bucket{op=\"Ping\"",
-        "epistemic_graph_graph_ops_total",
-        "epistemic_graph_graph_nodes",
-        "epistemic_graph_graph_edges",
-        "epistemic_graph_auth_failures_total",
-        "epistemic_graph_access_denied_total",
-        "epistemic_graph_busy_rejections_total",
-        "epistemic_graph_checkpoint_duration_seconds_count",
-        "epistemic_graph_checkpoint_last_success_timestamp_seconds",
-        "epistemic_graph_write_lock_wait_seconds_bucket",
-        "epistemic_graph_write_lock_hold_seconds_bucket",
-        "epistemic_graph_effective_cpu_cores",
-        "epistemic_graph_effective_memory_limit_bytes",
-        "epistemic_graph_process_rss_bytes",
-        "epistemic_graph_write_coalescer_queue_depth",
-        "epistemic_graph_write_coalescer_queue_bytes",
-        "epistemic_graph_write_coalescer_operations_total",
+        "medulla_requests_total{op=\"Ping\"}",
+        "medulla_request_duration_seconds_bucket{op=\"Ping\"",
+        "medulla_graph_ops_total",
+        "medulla_graph_nodes",
+        "medulla_graph_edges",
+        "medulla_auth_failures_total",
+        "medulla_access_denied_total",
+        "medulla_busy_rejections_total",
+        "medulla_checkpoint_duration_seconds_count",
+        "medulla_checkpoint_last_success_timestamp_seconds",
+        "medulla_write_lock_wait_seconds_bucket",
+        "medulla_write_lock_hold_seconds_bucket",
+        "medulla_effective_cpu_cores",
+        "medulla_effective_memory_limit_bytes",
+        "medulla_process_rss_bytes",
+        "medulla_write_coalescer_queue_depth",
+        "medulla_write_coalescer_queue_bytes",
+        "medulla_write_coalescer_operations_total",
     ] {
         assert!(out.contains(needle), "missing {needle} in:\n{out}");
     }
@@ -66,7 +66,7 @@ fn test_graph_label_cardinality_is_bounded() {
     }
     let out = render();
     assert!(
-        out.contains("epistemic_graph_graph_ops_total{graph=\"__overflow__\"}"),
+        out.contains("medulla_graph_ops_total{graph=\"__overflow__\"}"),
         "expected overflow aggregation past the label cap"
     );
     // Deleting frees the slot and removes the series.
@@ -110,5 +110,5 @@ async fn test_http_exposition_endpoint() {
     stream.read_to_end(&mut out).await.unwrap();
     let text = String::from_utf8_lossy(&out);
     assert!(text.starts_with("HTTP/1.1 200 OK"), "got: {text}");
-    assert!(text.contains("epistemic_graph_requests_total"));
+    assert!(text.contains("medulla_requests_total"));
 }

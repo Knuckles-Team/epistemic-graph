@@ -38,14 +38,14 @@ optimization.
 
 | Page | What it covers |
 |---|---|
-| ★ [Analytics Program — one kernel, two surfaces](analytics_program.md) | The BLAS/LAPACK-free Rust numeric kernel (`eg-numeric`) that serves both Python-side array math and in-database analytics over engine-resident data. |
+| ★ [Analytics Program — one kernel, two surfaces](analytics_program.md) | The BLAS/LAPACK-free Rust numeric kernel (`medulla-numeric`) that serves both Python-side array math and in-database analytics over engine-resident data. |
 | ★ [Numeric kernel](numeric_kernel.md) | The kernel foundation of the Analytics Program — compiled kernel, Agent Utilities numeric surface, and native engine operators. |
 | ★ [Distributed analytics & incremental reasoning](distributed-analytics-reasoning.md) | Checked coordinator RPCs for leased/fenced remote workers, durable typed results, and outbox/cursor-driven TMS, conflict, causal, and materialization maintenance. |
 | ★ [Native program optimization](native-program-optimization.md) | The `submit_program_optimization` contract, 13 Rust-native optimizer families, evidence across all 14 modalities, governed runtime plan steps, evaluation-gated promotion. |
 | [Lakehouse LTAP interop](lakehouse_ltap.md) | The LTAP (Lakehouse-Transactional-Analytical Processing) superset: external engines read the store as open Parquet + Delta/Iceberg with zero ETL. |
 | [Data mining](../mining.md) | `graph_mine` / `/api/mining` — pattern and structure mining over engine-resident graphs. |
 | [Graph learning](../graphlearn.md) | `graph_learn` / `/api/graphlearn` — learned representations over the same substrate. |
-| [Analytics in UQL (EG-353)](../analytics_in_uql.md) | Analytics operators reachable directly from the [Unified Query Language](../uql.md). |
+| [Analytics in UQL (MEDULLA-353)](../analytics_in_uql.md) | Analytics operators reachable directly from the [Unified Query Language](../uql.md). |
 
 ## Distribution & scaling
 
@@ -88,7 +88,7 @@ distributed/durability claim.
 
 | Page | What it covers |
 |---|---|
-| [Distribution, Robotics & GPU tail (EG-3.x)](distribution_robotics_gpu.md) | The last features of Program B — all feature-gated into the opt-in `full-extras` layer; the default build links none of the heavy deps. |
+| [Distribution, Robotics & GPU tail (MEDULLA-3.x)](distribution_robotics_gpu.md) | The last features of Program B — all feature-gated into the opt-in `full-extras` layer; the default build links none of the heavy deps. |
 | [The unified in-process engine (PyO3) — design](unified-inprocess-engine.md) | Embedding the Rust engine in-process via PyO3 for the single-binary deployment shape. |
 
 ## Security, access & hardening

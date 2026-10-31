@@ -28,21 +28,21 @@ The repository pins CCCC 1.6.0, KISS 0.4.12, Dupehound 0.1.2 (`threshold 0.85`, 
 
 PACK-01: TP-01/02; PACK-02: TP-07/10; PACK-03: TP-05/06; PACK-04: TP-05/07; PACK-05: TP-01/04; PACK-06: TP-02/03/04; PACK-07: TP-08; PACK-08: TP-04/09/13; PACK-09: TP-10/11; PACK-10: TP-01/10/13; PACK-11: TP-06/07/08; PACK-12: TP-11/12 and all quality gates. Qualification requires the mapped tests and applicable gates to pass against an exact merged head.
 
-## Boundary and verification notes (EG-TYPED-PACKS-R020, R052, R060, R063, R082)
+## Boundary and verification notes (MEDULLA-TYPED-PACKS-R020, R052, R060, R063, R082)
 
 These five requirements are boundary or verify-against-existing-contract rows. They add no net-new pack behavior. Existing evidence covers each row; no new fixture is required.
 
 | ID | Note |
 |---|---|
-| EG-TYPED-PACKS-R020 | The tenant-profile administrative capability defect is owned and tested by the dependency that defines tenant profiles (see the ruled-decision table in `tasks.md`); no pack-write code path in this repository depends on it, so this spec's own release gate (TP-01..TP-13, scanner census) is the full proof that no corresponding change was made here. |
-| EG-TYPED-PACKS-R052 | Head-state projection for the first Agent Library outbox consumer waits on the general outbox reject/re-drive primitive (PACK-07, P7); per this row's own text, no pack-specific stand-in is shipped while that primitive is pending, so there is no placeholder code for this gate to find in this repository today. |
-| EG-TYPED-PACKS-R060 | Manifest-read refusal for an incompatible owner layout precedes any import path relying on it; this ordering is exercised by the same incompatible-layout refusal coverage TP-06 already asserts for owner-transaction recovery (lock release, no partial commit), so no import path may be added here ahead of that refusal. |
-| EG-TYPED-PACKS-R063 | Before any shared schema version bump, the affected agent-layer row types must be enumerated explicitly; TP-10's generated-contract fixpoint and committed-artifact comparison is the existing check this enumeration must pass, so a bump without an explicit per-type list fails TP-10 rather than passing silently. |
-| EG-TYPED-PACKS-R082 | TP-13 (migrate a representative ontology object, schema pack DTO and schema-drift candidate through Medulla typed/generated APIs, compare prior read/write behavior) is this row's Medulla-side proof; the hand-written-DTO modules it names (`models/knowledge_graph`, `models/schema_definition`, `models/evidence_bundle`, `models/knowledge_pack`, `models/codemap`, `models/graph`, `models/knowledge_base`, `schema_pack`, `schema_packs`) are owned by `Meristem`, so their migration and the `AU-SEMANTIC-R005` `kg/domain_packs` follow-on are cross-repo children delivered against that repository, consuming Medulla's generated types as the destination-copies-first side of the move. |
+| MEDULLA-TYPED-PACKS-R020 | The tenant-profile administrative capability defect is owned and tested by the dependency that defines tenant profiles (see the ruled-decision table in `tasks.md`); no pack-write code path in this repository depends on it, so this spec's own release gate (TP-01..TP-13, scanner census) is the full proof that no corresponding change was made here. |
+| MEDULLA-TYPED-PACKS-R052 | Head-state projection for the first Agent Library outbox consumer waits on the general outbox reject/re-drive primitive (PACK-07, P7); per this row's own text, no pack-specific stand-in is shipped while that primitive is pending, so there is no placeholder code for this gate to find in this repository today. |
+| MEDULLA-TYPED-PACKS-R060 | Manifest-read refusal for an incompatible owner layout precedes any import path relying on it; this ordering is exercised by the same incompatible-layout refusal coverage TP-06 already asserts for owner-transaction recovery (lock release, no partial commit), so no import path may be added here ahead of that refusal. |
+| MEDULLA-TYPED-PACKS-R063 | Before any shared schema version bump, the affected agent-layer row types must be enumerated explicitly; TP-10's generated-contract fixpoint and committed-artifact comparison is the existing check this enumeration must pass, so a bump without an explicit per-type list fails TP-10 rather than passing silently. |
+| MEDULLA-TYPED-PACKS-R082 | TP-13 (migrate a representative ontology object, schema pack DTO and schema-drift candidate through Medulla typed/generated APIs, compare prior read/write behavior) is this row's Medulla-side proof; the hand-written-DTO modules it names (`models/knowledge_graph`, `models/schema_definition`, `models/evidence_bundle`, `models/knowledge_pack`, `models/codemap`, `models/graph`, `models/knowledge_base`, `schema_pack`, `schema_packs`) are owned by `Meristem`, so their migration and the `MERISTEM-SEMANTIC-R005` `kg/domain_packs` follow-on are cross-repo children delivered against that repository, consuming Medulla's generated types as the destination-copies-first side of the move. |
 
-## Cross-cutting import-safety defect regression mapping (EG-TYPED-PACKS-R021)
+## Cross-cutting import-safety defect regression mapping (MEDULLA-TYPED-PACKS-R021)
 
-Every cross-cutting pack-import-safety defect is a named rule (G1-G21) in `epistemic_graph/testing/synthetic/packs/catalogue.py`'s `MUTATIONS` (TP-02/03/04 above), and each rule's every variant below has its own regression test case: one parametrized run of `tests/test_connector_pack_planted.py::test_planted_defect_is_refused_by_its_rule`, one per `MUTATIONS` entry, with the test id computed by that module's own `_case_id()` (a mutation function's `__name__`, or a case object's `f"{rule}_{variant}"` -- the two mutation sources in `MUTATIONS` use each form; `_case_id`'s docstring names both, and `pytest --collect-only tests/test_connector_pack_planted.py` lists the exact ids). The one documented exception is the tenant-profile administrative capability defect (EG-TYPED-PACKS-R020): it is fixed in, and tested by, the dependency that defines tenant profiles, not by this gate.
+Every cross-cutting pack-import-safety defect is a named rule (G1-G21) in `medulla/testing/synthetic/packs/catalogue.py`'s `MUTATIONS` (TP-02/03/04 above), and each rule's every variant below has its own regression test case: one parametrized run of `tests/test_connector_pack_planted.py::test_planted_defect_is_refused_by_its_rule`, one per `MUTATIONS` entry, with the test id computed by that module's own `_case_id()` (a mutation function's `__name__`, or a case object's `f"{rule}_{variant}"` -- the two mutation sources in `MUTATIONS` use each form; `_case_id`'s docstring names both, and `pytest --collect-only tests/test_connector_pack_planted.py` lists the exact ids). The one documented exception is the tenant-profile administrative capability defect (MEDULLA-TYPED-PACKS-R020): it is fixed in, and tested by, the dependency that defines tenant profiles, not by this gate.
 
 | Rule | Variants, each with its own regression case in `MUTATIONS` |
 |---|---|
@@ -72,15 +72,15 @@ Every row's regression test must pass against an exact merged head, as PACK-06/0
 
 | Repair | Requirement | Regression | Acceptance |
 | --- | --- | --- | --- |
-| TP-PARSE-IDENTITY | EG-TYPED-PACKS-R093.1 | Native public and bounded Turtle readers parse the same explicit and anonymous blank nodes independently. They then union the results. | Six subjects stay distinct across three parses. Same-document references remain equal. Composition retains explicit source labels and existing bounded refusal tests pass. |
-| TP-REPROJECT-IDENTITY | EG-TYPED-PACKS-R093.2 | Served reproject combines independent connector-pack members with reused blank labels. | Isolated member identities and repeatable composed digests; remains open until the served regression executes. |
+| TP-PARSE-IDENTITY | MEDULLA-TYPED-PACKS-R093.1 | Native public and bounded Turtle readers parse the same explicit and anonymous blank nodes independently. They then union the results. | Six subjects stay distinct across three parses. Same-document references remain equal. Composition retains explicit source labels and existing bounded refusal tests pass. |
+| TP-REPROJECT-IDENTITY | MEDULLA-TYPED-PACKS-R093.2 | Served reproject combines independent connector-pack members with reused blank labels. | Isolated member identities and repeatable composed digests; remains open until the served regression executes. |
 
 ## Capability annotation evidence
 
 | Requirement | Native regression | Result |
 | --- | --- | --- |
-| EG-TYPED-PACKS-R042.1 | `src/server/handlers/admin/connector_pack/import/capability_tests.rs::both_capability_fields_refuse_relative_and_invalid_scheme_claims` and `foreign_terms_warn_and_stay_only_in_the_declared_partition`: both typed fields accept native terms and retain exact foreign claims with warnings. Native typos, roots, wrong kinds, invalid schemes, and malformed typed lists refuse. | Eight production-module tests passed on 2026-10-11 with Rust 1.96.0 and cached `eg_types` and `serde_json` dependencies. Restoring the old scheme check makes the invalid-scheme test fail at `provides: 1vendor:search`. |
-| EG-TYPED-PACKS-R042.2 | `src/server/handlers/admin/connector_pack/tests/admin.rs::a_rejected_import_mutates_nothing_in_the_catalog`. `src/server/handlers/admin/connector_pack/tests/content_model.rs::capability_annotations_remain_declared_after_import`. | Both signed, served native regressions pass. Exact source, commands and results are in `../decision-engine/evidence/gr1080-native-20261011/final-native-results.json`. This focused slice does not verify the parent. |
+| MEDULLA-TYPED-PACKS-R042.1 | `src/server/handlers/admin/connector_pack/import/capability_tests.rs::both_capability_fields_refuse_relative_and_invalid_scheme_claims` and `foreign_terms_warn_and_stay_only_in_the_declared_partition`: both typed fields accept native terms and retain exact foreign claims with warnings. Native typos, roots, wrong kinds, invalid schemes, and malformed typed lists refuse. | Eight production-module tests passed on 2026-10-11 with Rust 1.96.0 and cached `medulla_types` and `serde_json` dependencies. Restoring the old scheme check makes the invalid-scheme test fail at `provides: 1vendor:search`. |
+| MEDULLA-TYPED-PACKS-R042.2 | `src/server/handlers/admin/connector_pack/tests/admin.rs::a_rejected_import_mutates_nothing_in_the_catalog`. `src/server/handlers/admin/connector_pack/tests/content_model.rs::capability_annotations_remain_declared_after_import`. | Both signed, served native regressions pass. Exact source, commands and results are in `../decision-engine/evidence/gr1080-native-20261011/final-native-results.json`. This focused slice does not verify the parent. |
 
 The native harness loads the unchanged production module path with `#[path]`; it uses no behavior substitutes. To repeat from the repository root with compatible cached Rust dependencies:
 
@@ -89,7 +89,7 @@ work=$(mktemp -d)
 printf '#[path = "%s/src/server/handlers/admin/connector_pack/import/annotations.rs"]\nmod annotations;\n' "$PWD" > "$work/native.rs"
 rustc --test --edition=2021 "$work/native.rs" \
   -L "dependency=$CACHED_RUST_DEPS" \
-  --extern "eg_types=$(find "$CACHED_RUST_DEPS" -name 'libeg_types-*.rlib' -print -quit)" \
+  --extern "medulla_types=$(find "$CACHED_RUST_DEPS" -name 'libeg_types-*.rlib' -print -quit)" \
   --extern "serde_json=$(find "$CACHED_RUST_DEPS" -name 'libserde_json-*.rlib' -print -quit)" \
   -o "$work/native-tests"
 "$work/native-tests" --nocapture
@@ -109,7 +109,7 @@ The R042.2 fixtures and R093.2 forced-reprojection fixture pass native execution
 their exact evidence is in the shared fixture-repair receipt linked above.
 Test bindings record the existing acceptance fixtures, independently of execution results.
 
-## Modality regression scope (EG-TYPED-PACKS-R043)
+## Modality regression scope (MEDULLA-TYPED-PACKS-R043)
 
 The following tests cover existing native validation and digest behavior. They do not establish complete PACK-09 acceptance.
 
@@ -126,23 +126,23 @@ These partial regressions intentionally carry no acceptance binding that would m
 
 ## Harness configuration evidence
 
-- `EG-TYPED-PACKS-R048.1`: `crates/eg-types/src/agent_component/facts.rs::tests::context_window_zero_is_refused`.
-- `EG-TYPED-PACKS-R048.2`: `crates/eg-types/src/agent_component/facts.rs::tests::measured_fact_requires_run_ref`.
-- `EG-TYPED-PACKS-R048.3`: `crates/eg-types/src/agent_component.rs::tests::absent_shell_proficiency_keeps_digest`.
-- `EG-TYPED-PACKS-R048.4`: `crates/eg-types/src/agent_component.rs::tests::measured_model_facts_change_digest`.
-- `EG-TYPED-PACKS-R048.5`: `tests/typed_packs/test_model_harness_facts.py::test_model_profile_round_trip`.
-- `EG-TYPED-PACKS-R066.1`: `crates/eg-core/tests/harness_shapes.rs::model_fact_shapes_reject_missing_run`.
-- `EG-TYPED-PACKS-R066.2`: `crates/eg-shacl/tests/swarm_topology_shapes.rs::shell_centric_must_be_boolean`.
-- `EG-TYPED-PACKS-R066.3`: `crates/eg-core/tests/swarm_topology_shapes.rs::shell_centric_inherits_or_is_absent`.
-- `EG-TYPED-PACKS-R045.1`: `crates/eg-types/src/connector_pack/annotations.rs::tests::new_fields_roundtrip`.
-- `EG-TYPED-PACKS-R045.2`: `crates/eg-types/src/connector_pack/annotations.rs::tests::absent_facts_take_safe_defaults`.
-- `EG-TYPED-PACKS-R045.3`: `crates/eg-types/src/connector_pack/digest.rs::tests::absent_new_fields_keep_golden_vectors`.
-- `EG-TYPED-PACKS-R045.4`: `src/server/handlers/admin/connector_pack/import/annotations.rs::tests::unknown_side_effect_is_refused`.
-- `EG-TYPED-PACKS-R045.5`: `src/server/handlers/admin/connector_pack/import/facts.rs::tests::mcp_hint_read_only_is_unproven`.
-- `EG-TYPED-PACKS-R045.6`: `src/server/handlers/decide/stat_tests/tool_subset_tests.rs::missing_schema_tokens_abstains`.
-- `EG-TYPED-PACKS-R045.7`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::mcp_hint_read_only_premise_is_unproven`.
-- `EG-TYPED-PACKS-R045.8`: `crates/eg-capabilities/src/contract/python/surfaces/tests.rs::pack_annotations_expose_harness_tool_facts`.
-- `EG-TYPED-PACKS-R045.9`: `tests/harness_config_tool_facts_served.rs::two_tool_pack_subset_respects_budget`.
+- `MEDULLA-TYPED-PACKS-R048.1`: `crates/medulla-types/src/agent_component/facts.rs::tests::context_window_zero_is_refused`.
+- `MEDULLA-TYPED-PACKS-R048.2`: `crates/medulla-types/src/agent_component/facts.rs::tests::measured_fact_requires_run_ref`.
+- `MEDULLA-TYPED-PACKS-R048.3`: `crates/medulla-types/src/agent_component.rs::tests::absent_shell_proficiency_keeps_digest`.
+- `MEDULLA-TYPED-PACKS-R048.4`: `crates/medulla-types/src/agent_component.rs::tests::measured_model_facts_change_digest`.
+- `MEDULLA-TYPED-PACKS-R048.5`: `tests/typed_packs/test_model_harness_facts.py::test_model_profile_round_trip`.
+- `MEDULLA-TYPED-PACKS-R066.1`: `crates/medulla-core/tests/harness_shapes.rs::model_fact_shapes_reject_missing_run`.
+- `MEDULLA-TYPED-PACKS-R066.2`: `crates/medulla-shacl/tests/swarm_topology_shapes.rs::shell_centric_must_be_boolean`.
+- `MEDULLA-TYPED-PACKS-R066.3`: `crates/medulla-core/tests/swarm_topology_shapes.rs::shell_centric_inherits_or_is_absent`.
+- `MEDULLA-TYPED-PACKS-R045.1`: `crates/medulla-types/src/connector_pack/annotations.rs::tests::new_fields_roundtrip`.
+- `MEDULLA-TYPED-PACKS-R045.2`: `crates/medulla-types/src/connector_pack/annotations.rs::tests::absent_facts_take_safe_defaults`.
+- `MEDULLA-TYPED-PACKS-R045.3`: `crates/medulla-types/src/connector_pack/digest.rs::tests::absent_new_fields_keep_golden_vectors`.
+- `MEDULLA-TYPED-PACKS-R045.4`: `src/server/handlers/admin/connector_pack/import/annotations.rs::tests::unknown_side_effect_is_refused`.
+- `MEDULLA-TYPED-PACKS-R045.5`: `src/server/handlers/admin/connector_pack/import/facts.rs::tests::mcp_hint_read_only_is_unproven`.
+- `MEDULLA-TYPED-PACKS-R045.6`: `src/server/handlers/decide/stat_tests/tool_subset_tests.rs::missing_schema_tokens_abstains`.
+- `MEDULLA-TYPED-PACKS-R045.7`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::mcp_hint_read_only_premise_is_unproven`.
+- `MEDULLA-TYPED-PACKS-R045.8`: `crates/medulla-capabilities/src/contract/python/surfaces/tests.rs::pack_annotations_expose_harness_tool_facts`.
+- `MEDULLA-TYPED-PACKS-R045.9`: `tests/harness_config_tool_facts_served.rs::two_tool_pack_subset_respects_budget`.
 
 ## Measured model producer tests (R048.3, R048.4)
 
@@ -215,33 +215,33 @@ Retain all original PACK and TP acceptance above, including every original R001/
 
 | ID | Positive proof | Negative or boundary proof | Proposed proving test |
 |---|---|---|---|
-| EG-TYPED-PACKS-R001.1 | Round-trip every original index and entry field. | Unknown kinds and malformed index fields refuse. | `tests/test_connector_pack_contract.py::test_pack_index_entry_contract` |
-| EG-TYPED-PACKS-R001.2 | Round-trip every section and annotation field without changing existing semantics. | Invalid section bounds and malformed typed annotations refuse. | `tests/test_connector_pack_contract.py::test_pack_section_annotation_contract` |
-| EG-TYPED-PACKS-R001.3 | Preserve ConnectorPackOp and AgentComponent.Content operation and result shapes. | Missing operations and incompatible result shapes fail qualification. | `tests/test_connector_pack_contract.py::test_pack_content_operation_contract` |
-| EG-TYPED-PACKS-R001.4 | Every published connector_pack_digest_vectors.json sample matches byte-for-byte. | Changing a framed input or expected digest fails. | `tests/test_connector_pack_contract.py::test_original_framed_digest_vectors` |
-| EG-TYPED-PACKS-R001.5 | The complete generated-client inventory shares the original wire shapes and golden bytes. | A stale client, omitted client or changed field fails. | `tests/test_connector_pack_contract.py::test_all_clients_share_pack_contract` |
-| EG-TYPED-PACKS-R001.6 | A typed object round-trips all identity and revision fields. | Changing a schema or body pin cannot preserve the old definition identity. | `crates/eg-types/src/agent_component.rs::tests::prompt_blueprint_identity` |
-| EG-TYPED-PACKS-R001.7 | Nested valid objects retain every admitted field and extension value. | Missing task, wrong field types, nonfinite numbers and oversized objects refuse. | `crates/eg-types/src/agent_component/facts.rs::tests::prompt_blueprint_schema_refusals` |
-| EG-TYPED-PACKS-R001.8 | Repeated identical inputs produce the same bytes and render digest. | A changed variable changes the result; invalid input produces no render result. | `crates/eg-compute/src/assemble/prompt.rs::tests::prompt_render_vectors` |
-| EG-TYPED-PACKS-R001.9 | Generated clients encode and decode every declared request, result and typed refusal. | Missing render provenance or an untyped fallback fails. | `tests/test_prompt_blueprint_contract.py::test_generated_prompt_contract` |
-| EG-TYPED-PACKS-R002.1 | Staged bytes use their verified SHA-256 address. | A digest mismatch refuses; staging alone exposes no component. | `tests/test_connector_pack_storage.py::test_body_staging` |
-| EG-TYPED-PACKS-R002.2 | An unchanged import keeps exact holder/refcount values. | Repeated identical import cannot increment or decrement a holder. | `tests/test_connector_pack_storage.py::test_unchanged_holder` |
-| EG-TYPED-PACKS-R002.3 | A revised component binds its new body and preserves historical revision holders. | A changed revision cannot orphan a body held by history. | `tests/test_connector_pack_storage.py::test_revised_holder` |
-| EG-TYPED-PACKS-R002.4 | A withdrawn component retains body access through a valid historical pin. | Withdrawal cannot reclaim a held historical body. | `tests/test_connector_pack_storage.py::test_withdrawn_holder` |
-| EG-TYPED-PACKS-R002.5 | A fault before owner commit leaves an orphan reclaimed only after its grace window. | An unexpired orphan or held body survives reconciliation and restart. | `tests/test_connector_pack_storage.py::test_orphan_grace_fault` |
-| EG-TYPED-PACKS-R002.6 | AgentComponent.Content returns the exact body of its pinned component revision. | Corrupt bytes and denied tenants refuse without leaking body data. | `tests/test_connector_pack_storage.py::test_verified_body_read` |
-| EG-TYPED-PACKS-R002.7 | A successful write has one revision and live holder with its exact body digest. | A fault before owner commit leaves only an unreferenced body subject to the existing grace rule. | `tests/test_prompt_blueprints_served.py::test_prompt_owner_commit` |
-| EG-TYPED-PACKS-R002.8 | Independent graph queries read the exact prompt revision and dependency links. | Replaying an old event cannot regress the visible revision. | `tests/test_prompt_blueprints_served.py::test_prompt_graph_projection` |
-| EG-TYPED-PACKS-R002.9 | A real generated-client request reaches the renderer and returns the pinned revision and expected bytes. | Invalid requests leave graph, body holders, head and render-result publication unchanged. | `tests/test_prompt_blueprints_served.py::test_prompt_render_route` |
-| EG-TYPED-PACKS-R002.10 | A valid served journey renders the pinned version and causes one observed model request. | Each invalid case yields a typed refusal and zero requests at the real model transport boundary. | `tests/test_prompt_blueprints_served.py::test_invalid_prompt_prevents_dispatch` |
-| EG-TYPED-PACKS-R002.11 | Current and historical revisions, graph links and verified body bytes survive restart. | A refused stale update leaves the previous durable head intact. | `tests/test_prompt_blueprints_served.py::test_prompt_restart_readback` |
-| EG-TYPED-PACKS-R094.1 | A generated Python client reads exact verified pack body bytes. | A refusal-only dispatch arm fails this acceptance. | `tests/test_connector_pack_content.py::test_stable_content_returns_body` |
-| EG-TYPED-PACKS-R094.2 | Export preserves nested extension values, nulls, arrays and exact numeric values. | An omitted field, changed revision or lost numeric precision fails. | `tests/test_prompt_blueprints_served.py::test_lossless_blueprint_export` |
-| EG-TYPED-PACKS-R094.3 | Changing one field creates one new revision and preserves every other field. | Concurrent writers cannot overwrite a newer head; reserved pack identities require pack admission. | `tests/test_prompt_blueprints_served.py::test_modified_blueprint_import` |
-| EG-TYPED-PACKS-R094.4 | Replay produces no extra revision, holder or outbox event. | A conflicting retry preserves the prior committed result. | `tests/test_prompt_blueprints_served.py::test_blueprint_retry_identity` |
-| EG-TYPED-PACKS-R094.5 | The new revision contains the one intended change and all unchanged values. | Stale import and denied-tenant cases preserve both historical and current readback. | `tests/test_prompt_blueprints_served.py::test_blueprint_roundtrip_restart` |
-| EG-TYPED-PACKS-R094.6 | Authorized graph adoption uses the normal publication boundary and records the source revision. | A proposal alone causes no active-head change, model dispatch or external write. | `tests/test_prompt_blueprints_served.py::test_prompt_proposal_has_no_authority` |
-| EG-TYPED-PACKS-R094.7 | A real authorized producer journey writes only the approved source and returns a bound receipt. | Absent producers leave this acceptance unfulfilled; graph persistence cannot substitute. | `tests/test_prompt_blueprints_served.py::test_approved_source_effect_dependency` |
+| MEDULLA-TYPED-PACKS-R001.1 | Round-trip every original index and entry field. | Unknown kinds and malformed index fields refuse. | `tests/test_connector_pack_contract.py::test_pack_index_entry_contract` |
+| MEDULLA-TYPED-PACKS-R001.2 | Round-trip every section and annotation field without changing existing semantics. | Invalid section bounds and malformed typed annotations refuse. | `tests/test_connector_pack_contract.py::test_pack_section_annotation_contract` |
+| MEDULLA-TYPED-PACKS-R001.3 | Preserve ConnectorPackOp and AgentComponent.Content operation and result shapes. | Missing operations and incompatible result shapes fail qualification. | `tests/test_connector_pack_contract.py::test_pack_content_operation_contract` |
+| MEDULLA-TYPED-PACKS-R001.4 | Every published connector_pack_digest_vectors.json sample matches byte-for-byte. | Changing a framed input or expected digest fails. | `tests/test_connector_pack_contract.py::test_original_framed_digest_vectors` |
+| MEDULLA-TYPED-PACKS-R001.5 | The complete generated-client inventory shares the original wire shapes and golden bytes. | A stale client, omitted client or changed field fails. | `tests/test_connector_pack_contract.py::test_all_clients_share_pack_contract` |
+| MEDULLA-TYPED-PACKS-R001.6 | A typed object round-trips all identity and revision fields. | Changing a schema or body pin cannot preserve the old definition identity. | `crates/medulla-types/src/agent_component.rs::tests::prompt_blueprint_identity` |
+| MEDULLA-TYPED-PACKS-R001.7 | Nested valid objects retain every admitted field and extension value. | Missing task, wrong field types, nonfinite numbers and oversized objects refuse. | `crates/medulla-types/src/agent_component/facts.rs::tests::prompt_blueprint_schema_refusals` |
+| MEDULLA-TYPED-PACKS-R001.8 | Repeated identical inputs produce the same bytes and render digest. | A changed variable changes the result; invalid input produces no render result. | `crates/medulla-compute/src/assemble/prompt.rs::tests::prompt_render_vectors` |
+| MEDULLA-TYPED-PACKS-R001.9 | Generated clients encode and decode every declared request, result and typed refusal. | Missing render provenance or an untyped fallback fails. | `tests/test_prompt_blueprint_contract.py::test_generated_prompt_contract` |
+| MEDULLA-TYPED-PACKS-R002.1 | Staged bytes use their verified SHA-256 address. | A digest mismatch refuses; staging alone exposes no component. | `tests/test_connector_pack_storage.py::test_body_staging` |
+| MEDULLA-TYPED-PACKS-R002.2 | An unchanged import keeps exact holder/refcount values. | Repeated identical import cannot increment or decrement a holder. | `tests/test_connector_pack_storage.py::test_unchanged_holder` |
+| MEDULLA-TYPED-PACKS-R002.3 | A revised component binds its new body and preserves historical revision holders. | A changed revision cannot orphan a body held by history. | `tests/test_connector_pack_storage.py::test_revised_holder` |
+| MEDULLA-TYPED-PACKS-R002.4 | A withdrawn component retains body access through a valid historical pin. | Withdrawal cannot reclaim a held historical body. | `tests/test_connector_pack_storage.py::test_withdrawn_holder` |
+| MEDULLA-TYPED-PACKS-R002.5 | A fault before owner commit leaves an orphan reclaimed only after its grace window. | An unexpired orphan or held body survives reconciliation and restart. | `tests/test_connector_pack_storage.py::test_orphan_grace_fault` |
+| MEDULLA-TYPED-PACKS-R002.6 | AgentComponent.Content returns the exact body of its pinned component revision. | Corrupt bytes and denied tenants refuse without leaking body data. | `tests/test_connector_pack_storage.py::test_verified_body_read` |
+| MEDULLA-TYPED-PACKS-R002.7 | A successful write has one revision and live holder with its exact body digest. | A fault before owner commit leaves only an unreferenced body subject to the existing grace rule. | `tests/test_prompt_blueprints_served.py::test_prompt_owner_commit` |
+| MEDULLA-TYPED-PACKS-R002.8 | Independent graph queries read the exact prompt revision and dependency links. | Replaying an old event cannot regress the visible revision. | `tests/test_prompt_blueprints_served.py::test_prompt_graph_projection` |
+| MEDULLA-TYPED-PACKS-R002.9 | A real generated-client request reaches the renderer and returns the pinned revision and expected bytes. | Invalid requests leave graph, body holders, head and render-result publication unchanged. | `tests/test_prompt_blueprints_served.py::test_prompt_render_route` |
+| MEDULLA-TYPED-PACKS-R002.10 | A valid served journey renders the pinned version and causes one observed model request. | Each invalid case yields a typed refusal and zero requests at the real model transport boundary. | `tests/test_prompt_blueprints_served.py::test_invalid_prompt_prevents_dispatch` |
+| MEDULLA-TYPED-PACKS-R002.11 | Current and historical revisions, graph links and verified body bytes survive restart. | A refused stale update leaves the previous durable head intact. | `tests/test_prompt_blueprints_served.py::test_prompt_restart_readback` |
+| MEDULLA-TYPED-PACKS-R094.1 | A generated Python client reads exact verified pack body bytes. | A refusal-only dispatch arm fails this acceptance. | `tests/test_connector_pack_content.py::test_stable_content_returns_body` |
+| MEDULLA-TYPED-PACKS-R094.2 | Export preserves nested extension values, nulls, arrays and exact numeric values. | An omitted field, changed revision or lost numeric precision fails. | `tests/test_prompt_blueprints_served.py::test_lossless_blueprint_export` |
+| MEDULLA-TYPED-PACKS-R094.3 | Changing one field creates one new revision and preserves every other field. | Concurrent writers cannot overwrite a newer head; reserved pack identities require pack admission. | `tests/test_prompt_blueprints_served.py::test_modified_blueprint_import` |
+| MEDULLA-TYPED-PACKS-R094.4 | Replay produces no extra revision, holder or outbox event. | A conflicting retry preserves the prior committed result. | `tests/test_prompt_blueprints_served.py::test_blueprint_retry_identity` |
+| MEDULLA-TYPED-PACKS-R094.5 | The new revision contains the one intended change and all unchanged values. | Stale import and denied-tenant cases preserve both historical and current readback. | `tests/test_prompt_blueprints_served.py::test_blueprint_roundtrip_restart` |
+| MEDULLA-TYPED-PACKS-R094.6 | Authorized graph adoption uses the normal publication boundary and records the source revision. | A proposal alone causes no active-head change, model dispatch or external write. | `tests/test_prompt_blueprints_served.py::test_prompt_proposal_has_no_authority` |
+| MEDULLA-TYPED-PACKS-R094.7 | A real authorized producer journey writes only the approved source and returns a bound receipt. | Absent producers leave this acceptance unfulfilled; graph persistence cannot substitute. | `tests/test_prompt_blueprints_served.py::test_approved_source_effect_dependency` |
 
 ### Deterministic fixtures and real served journey
 
@@ -283,7 +283,7 @@ Publish sanitized assertions; exclude credentials, private prompt content and ra
 
 R094.7 also requires the actual approved Graft SDK/Arbora source-effect producer journey.
 Use a disposable repository and prove exact-path/base-revision approval, conflict refusal and receipt-bound readback.
-Use [Graft SDK R004.5 through R004.12](https://github.com/Knuckles-Team/agent-connector-sdk/tree/0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734/specs/SDK-GOVERNED-WRITEBACK) and [Arbora R003.4 through R003.10](https://github.com/Knuckles-Team/graph-os/tree/86737b45aaceb2eebe29b3a98ada5a55f8b71955/specs/fleet-catalog-and-tools).
+Use [Graft SDK R004.5 through R004.12](https://github.com/Knuckles-Team/agent-connector-sdk/tree/0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734/specs/SCION-GOVERNED-WRITEBACK) and [Arbora R003.4 through R003.10](https://github.com/Knuckles-Team/graph-os/tree/86737b45aaceb2eebe29b3a98ada5a55f8b71955/specs/fleet-catalog-and-tools).
 Their merged definitions identify the exact contracts; this amendment has not run the source-effect journey.
 
 Pass the exact exported bytes through RepositorySourceEffectRequest inside Arbora RepositoryWriteBackParams.
@@ -314,9 +314,9 @@ Its existing valid/invalid model-transport acceptance is unchanged. Repository p
 
 All tests below are planned and unexecuted; they create no implementation or served receipts.
 
-- **`EG-TYPED-PACKS-R100.7`:** Matching exact-package passing validation evidence enables the catalog package. Require `run_set_complete=true` and canonical sorted unique run refs. Missing evidence, wrong tenant, candidate/package/graph/policy digest mismatch, incomplete run set, stale source or failed verdict refuses. The refusal leaves no publishable package. Re-run current dangling-ontology refusal. Hold positive Meristem receipt production and its pass criterion until Meristem defines the exact operation and rubric. Source record SHA-256: `96ff38761f9e21d52f608ba593c902aff4c93ca7b1ed13088ad39efd3e968a3a`.
-- **`EG-TYPED-PACKS-R097.2.7`:** Import a pinned schema with every supported term kind and mapped/unmapped examples. Independently read full coverage through `OntologyInspect` after commit/restart. Read class activation through `GraphSchemaClasses`. Verify the exact sorted `Mapped`/`Unmapped{NoDeclaredMapping}` report and provenance. Verify unmapped terms are not adopted, order/digest are deterministic, partial packs are admitted, and R071.1 reverse links remain unchanged. Each malformed, duplicate, unsupported-kind, kind-mismatch, stale or forged case refuses with pack head and active schema unchanged.
-- **`EG-TYPED-PACKS-R100.8`:** Export/import a workflow with named graphs, unknown predicates, typed and language-tagged literals, and ontology references. Preserve the canonical N-Quads SHA-256 digest and RDF graph isomorphism. Tampered digest, invalid RDF, unresolved references and unsupported serializer refuse without writes. Equal/older export refusal and newer export admission require a resolved stored-version baseline/order contract; positive end-to-end consumer remains held. Source record SHA-256: `620b1ae05d8e35696c7522f207672ef6f374525004d5488fe62fb4b27fc6cf5a`.
+- **`MEDULLA-TYPED-PACKS-R100.7`:** Matching exact-package passing validation evidence enables the catalog package. Require `run_set_complete=true` and canonical sorted unique run refs. Missing evidence, wrong tenant, candidate/package/graph/policy digest mismatch, incomplete run set, stale source or failed verdict refuses. The refusal leaves no publishable package. Re-run current dangling-ontology refusal. Hold positive Meristem receipt production and its pass criterion until Meristem defines the exact operation and rubric. Source record SHA-256: `96ff38761f9e21d52f608ba593c902aff4c93ca7b1ed13088ad39efd3e968a3a`.
+- **`MEDULLA-TYPED-PACKS-R097.2.7`:** Import a pinned schema with every supported term kind and mapped/unmapped examples. Independently read full coverage through `OntologyInspect` after commit/restart. Read class activation through `GraphSchemaClasses`. Verify the exact sorted `Mapped`/`Unmapped{NoDeclaredMapping}` report and provenance. Verify unmapped terms are not adopted, order/digest are deterministic, partial packs are admitted, and R071.1 reverse links remain unchanged. Each malformed, duplicate, unsupported-kind, kind-mismatch, stale or forged case refuses with pack head and active schema unchanged.
+- **`MEDULLA-TYPED-PACKS-R100.8`:** Export/import a workflow with named graphs, unknown predicates, typed and language-tagged literals, and ontology references. Preserve the canonical N-Quads SHA-256 digest and RDF graph isomorphism. Tampered digest, invalid RDF, unresolved references and unsupported serializer refuse without writes. Equal/older export refusal and newer export admission require a resolved stored-version baseline/order contract; positive end-to-end consumer remains held. Source record SHA-256: `620b1ae05d8e35696c7522f207672ef6f374525004d5488fe62fb4b27fc6cf5a`.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
@@ -324,72 +324,72 @@ All tests below are planned and unexecuted; they create no implementation or ser
 
 No test named here has run; names describe acceptance obligations, not evidence.
 
-- **`EG-TYPED-PACKS-R069.100` (AU:69; source `8ca81dc16448fefc73440f2eb9ea07b2e433f7e38075563f86800071029846e9`):** Exercise five outcomes. (1) Exact repeated full identity/profile is fully idempotent. (2) An identical blob at another branch/ref or normalized path writes a distinct source binding and provenance. This holds even when parsed content is reused. (3) A new commit with cosmetic-only content writes source revision/provenance but leaves semantic graph revision unchanged. (4) A parser/normalization-profile revision reparses the same raw blob and records the new profile binding. Graph mutation occurs only if the recomputed semantic fingerprint changes. (5) Structural token changes update both source binding and semantic graph revision. In every case, read back source-binding revision/digest separately from semantic graph revision. Unsupported language uses raw digest and is not classified cosmetic. A source identity plus profile key, not raw blob digest alone, determines full no-op. Producer/consumer boundary: RepositorySnapshotProvider -> Graft SDK transport -> generated IndexRepository -> Medulla parser/index mutation. R079 embedding dedupe is not structural-mutation suppression. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_repository_fingerprint_identity_served.py::test_source_identity_profile_drives_mutation_decision`, `tests/typed_packs/test_repository_fingerprint_identity_served.py::test_unsupported_language_uses_raw_digest_only`. No runtime/test receipt is asserted.
+- **`MEDULLA-TYPED-PACKS-R069.100` (AU:69; source `8ca81dc16448fefc73440f2eb9ea07b2e433f7e38075563f86800071029846e9`):** Exercise five outcomes. (1) Exact repeated full identity/profile is fully idempotent. (2) An identical blob at another branch/ref or normalized path writes a distinct source binding and provenance. This holds even when parsed content is reused. (3) A new commit with cosmetic-only content writes source revision/provenance but leaves semantic graph revision unchanged. (4) A parser/normalization-profile revision reparses the same raw blob and records the new profile binding. Graph mutation occurs only if the recomputed semantic fingerprint changes. (5) Structural token changes update both source binding and semantic graph revision. In every case, read back source-binding revision/digest separately from semantic graph revision. Unsupported language uses raw digest and is not classified cosmetic. A source identity plus profile key, not raw blob digest alone, determines full no-op. Producer/consumer boundary: RepositorySnapshotProvider -> Graft SDK transport -> generated IndexRepository -> Medulla parser/index mutation. R079 embedding dedupe is not structural-mutation suppression. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_repository_fingerprint_identity_served.py::test_source_identity_profile_drives_mutation_decision`, `tests/typed_packs/test_repository_fingerprint_identity_served.py::test_unsupported_language_uses_raw_digest_only`. No runtime/test receipt is asserted.
 
-- **`EG-TYPED-PACKS-R100.100` (AU:90; source `1b717c4a284896dbf8c7b4fb1f00ebba80fa6a75e930a020c5bc01706634f582`):** A served export/edit/reimport test changes one frontmatter value and one step. Assert all non-target byte ranges, custom fields, comments, spacing, ordering and CRLF/LF style remain identical. Malformed anchors, overlapping patches, stale source digest and unknown edit spans refuse without writes. A prompt-blueprint JSON roundtrip is not accepted as evidence. Producer/consumer boundary: Medulla owns skill parse/admission and R100 rendering; Graft SDK owns source transport/edit write-back. Do not substitute a prompt blueprint or whole-document normalization path. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_skill_lossless_edit_served.py::test_frontmatter_and_step_edits_preserve_unmodified_bytes`, `tests/typed_packs/test_skill_lossless_edit_served.py::test_stale_or_ambiguous_edit_refuses_before_write`. No runtime/test receipt is asserted.
+- **`MEDULLA-TYPED-PACKS-R100.100` (AU:90; source `1b717c4a284896dbf8c7b4fb1f00ebba80fa6a75e930a020c5bc01706634f582`):** A served export/edit/reimport test changes one frontmatter value and one step. Assert all non-target byte ranges, custom fields, comments, spacing, ordering and CRLF/LF style remain identical. Malformed anchors, overlapping patches, stale source digest and unknown edit spans refuse without writes. A prompt-blueprint JSON roundtrip is not accepted as evidence. Producer/consumer boundary: Medulla owns skill parse/admission and R100 rendering; Graft SDK owns source transport/edit write-back. Do not substitute a prompt blueprint or whole-document normalization path. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_skill_lossless_edit_served.py::test_frontmatter_and_step_edits_preserve_unmodified_bytes`, `tests/typed_packs/test_skill_lossless_edit_served.py::test_stale_or_ambiguous_edit_refuses_before_write`. No runtime/test receipt is asserted.
 
-- **`EG-TYPED-PACKS-R100.101` (AU:98; source `531cb0ba1accd9e88833249fb253a9f5f7a3c1a911f653b3c9a5bfc42341f978`):** Serve compatible upgrade, breaking upgrade without migration (refused before effects), and breaking upgrade with exact declared migration. Changing a consumer contract, package digest or migration receipt invalidates admission. Keep historical package readable and read back the admitted new version only after validation. Producer/consumer boundary: Medulla skill package read/admission -> Arbora invoke certification and consumer code; Arbora owns its invocation gate. Do not equate existing version/dependency pins with compatibility. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_skill_compatibility_admission_served.py::test_breaking_upgrade_requires_exact_consumer_migration`, `tests/typed_packs/test_skill_compatibility_admission_served.py::test_changed_consumer_contract_invalidates_admission`. No runtime/test receipt is asserted.
+- **`MEDULLA-TYPED-PACKS-R100.101` (AU:98; source `531cb0ba1accd9e88833249fb253a9f5f7a3c1a911f653b3c9a5bfc42341f978`):** Serve compatible upgrade, breaking upgrade without migration (refused before effects), and breaking upgrade with exact declared migration. Changing a consumer contract, package digest or migration receipt invalidates admission. Keep historical package readable and read back the admitted new version only after validation. Producer/consumer boundary: Medulla skill package read/admission -> Arbora invoke certification and consumer code; Arbora owns its invocation gate. Do not equate existing version/dependency pins with compatibility. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_skill_compatibility_admission_served.py::test_breaking_upgrade_requires_exact_consumer_migration`, `tests/typed_packs/test_skill_compatibility_admission_served.py::test_changed_consumer_contract_invalidates_admission`. No runtime/test receipt is asserted.
 
-- **`EG-TYPED-PACKS-R001.100` (AU:52; source `e03b25156a4f84d27c4afba63d0cd9e526b549b5905994a53664d193416d048c`):** Round-trip nested schemas and version metadata through generated clients and canonical digest vectors. Test additive optional-field evolution, required-field removal, incompatible type change, stale base digest and unknown nested fields. Verify Graft SDK authority remains separate and no tool dispatch occurs from pack admission. Producer/consumer boundary: Medulla ConnectorPack typed authority -> generated public pack APIs; Graft SDK retains tool compatibility and execution authority. Preserve R001 index/entry/section/annotation and digest contract. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_connector_nested_schema_served.py::test_nested_schema_evolution_preserves_digest`, `tests/typed_packs/test_connector_nested_schema_served.py::test_incompatible_nested_schema_refuses_before_dispatch`. No runtime/test receipt is asserted.
+- **`MEDULLA-TYPED-PACKS-R001.100` (AU:52; source `e03b25156a4f84d27c4afba63d0cd9e526b549b5905994a53664d193416d048c`):** Round-trip nested schemas and version metadata through generated clients and canonical digest vectors. Test additive optional-field evolution, required-field removal, incompatible type change, stale base digest and unknown nested fields. Verify Graft SDK authority remains separate and no tool dispatch occurs from pack admission. Producer/consumer boundary: Medulla ConnectorPack typed authority -> generated public pack APIs; Graft SDK retains tool compatibility and execution authority. Preserve R001 index/entry/section/annotation and digest contract. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_connector_nested_schema_served.py::test_nested_schema_evolution_preserves_digest`, `tests/typed_packs/test_connector_nested_schema_served.py::test_incompatible_nested_schema_refuses_before_dispatch`. No runtime/test receipt is asserted.
 
-- **`EG-TYPED-PACKS-R072.100` (AU:97; source `f73767d1a3fdba29a702254ed1db2c9904158b6136f6f4b38a3c9a0d3e4fcb03`):** Served registry tests register and read a workflow. Prove no eager Meristem engine initialization and one initialization on first invocation. Invoke by registry id. Refuse unknown/withdrawn/stale ids with no run. Read back registry and invocation receipt independently. Producer/consumer boundary: Medulla typed registry and SourceIngest R002 own durable registration; Meristem owns lazy client initialization/execution. Preserve ARBORA-HOST-R022 workflow-store semantics. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_workflow_registry_served.py::test_registration_is_lazy_and_invokes_exact_revision`, `tests/typed_packs/test_workflow_registry_served.py::test_unknown_withdrawn_or_stale_registry_id_refuses`. Owner prerequisite: AU-CONTROL-R037.5 fills only a requirement gap. It does not define lazy initialization timing, the first-use operation or the execution receipt. No exact Meristem companion requirement ID is identified. Keep that consumer as an explicit open dependency until its owner publishes the operation and receipt. No invocation evidence is claimed. No runtime/test receipt is asserted.
+- **`MEDULLA-TYPED-PACKS-R072.100` (AU:97; source `f73767d1a3fdba29a702254ed1db2c9904158b6136f6f4b38a3c9a0d3e4fcb03`):** Served registry tests register and read a workflow. Prove no eager Meristem engine initialization and one initialization on first invocation. Invoke by registry id. Refuse unknown/withdrawn/stale ids with no run. Read back registry and invocation receipt independently. Producer/consumer boundary: Medulla typed registry and SourceIngest R002 own durable registration; Meristem owns lazy client initialization/execution. Preserve ARBORA-HOST-R022 workflow-store semantics. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_workflow_registry_served.py::test_registration_is_lazy_and_invokes_exact_revision`, `tests/typed_packs/test_workflow_registry_served.py::test_unknown_withdrawn_or_stale_registry_id_refuses`. Owner prerequisite: MERISTEM-CONTROL-R037.5 fills only a requirement gap. It does not define lazy initialization timing, the first-use operation or the execution receipt. No exact Meristem companion requirement ID is identified. Keep that consumer as an explicit open dependency until its owner publishes the operation and receipt. No invocation evidence is claimed. No runtime/test receipt is asserted.
 
-- **`EG-TYPED-PACKS-R071.100` (EG:8; source `525e39d1d194ac8a820bbd741a1c261ceab0c7d564981c33c731c06c1eb641d8`):** Cross-repository fixtures admit a new unique path. They refuse duplicate canonical paths, alias collisions, incompatible parent assignments and stale vocabulary revisions. Read back canonical path and unchanged published IRIs. Retain R071 generated ontology authority and R001.4 digest vectors. Producer/consumer boundary: Medulla vocabulary validation owns canonical identity; repository producers submit proposed paths. Preserve existing published IRIs and federated query vocabulary. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_concept_path_admission_served.py::test_owner_approved_path_grammar_is_shared`, `tests/typed_packs/test_concept_path_admission_served.py::test_duplicate_or_conflicting_paths_refuse_without_iri_changes`. Owner decision hold: the canonical segment grammar is not approved for separators/escaping, Unicode normalization, case, or whitespace. Keep admission SPECIFIED until the vocabulary owner publishes one versioned grammar shared by producers; preserve existing published IRIs. No runtime/test receipt is asserted.
+- **`MEDULLA-TYPED-PACKS-R071.100` (EG:8; source `525e39d1d194ac8a820bbd741a1c261ceab0c7d564981c33c731c06c1eb641d8`):** Cross-repository fixtures admit a new unique path. They refuse duplicate canonical paths, alias collisions, incompatible parent assignments and stale vocabulary revisions. Read back canonical path and unchanged published IRIs. Retain R071 generated ontology authority and R001.4 digest vectors. Producer/consumer boundary: Medulla vocabulary validation owns canonical identity; repository producers submit proposed paths. Preserve existing published IRIs and federated query vocabulary. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_concept_path_admission_served.py::test_owner_approved_path_grammar_is_shared`, `tests/typed_packs/test_concept_path_admission_served.py::test_duplicate_or_conflicting_paths_refuse_without_iri_changes`. Owner decision hold: the canonical segment grammar is not approved for separators/escaping, Unicode normalization, case, or whitespace. Keep admission SPECIFIED until the vocabulary owner publishes one versioned grammar shared by producers; preserve existing published IRIs. No runtime/test receipt is asserted.
 <!-- /spec-definition-patch -->
 
 ## Connector packs as native RDF (R101, R102)
 
-- `EG-TYPED-PACKS-R101`: Rollup closes when every live child passes its proving test.
-- `EG-TYPED-PACKS-R101.1`: `crates/eg-core/tests/connector_pack_vocabulary.rs::contract_terms_resolve_with_domain_and_range`.
-- `EG-TYPED-PACKS-R101.2`: `crates/eg-shacl/tests/connector_pack_shapes.rs::each_contract_shape_accepts_valid_and_refuses_invalid`.
-- `EG-TYPED-PACKS-R101.3`: Retired; see R101.10 and R101.11.
-- `EG-TYPED-PACKS-R101.4`: Retired; see R101.10 and R101.11.
-- `EG-TYPED-PACKS-R101.5`: Retired; see R101.10 and R101.11.
-- `EG-TYPED-PACKS-R101.6`: Retired; see R101.10 and R101.11.
-- `EG-TYPED-PACKS-R101.7`: Retired; see R101.10 and R101.11.
-- `EG-TYPED-PACKS-R101.8`: Retired; see R101.10 and R101.11.
-- `EG-TYPED-PACKS-R101.9`: a served test imports a pack through `ConnectorPack.Import` and submits one mapped record through `SourceIngest`; the engine accepts it.
-- `EG-TYPED-PACKS-R101.10`: `src/server/handlers/admin/connector_pack/tests/scale.rs::the_selector_resolves_to_the_declared_class_and_field_map`; `src/server/handlers/admin/connector_pack/tests/scale.rs::relations_resolve_from_the_pack_ontology`.
-- `EG-TYPED-PACKS-R101.11`: `src/server/handlers/admin/connector_pack/tests/scale.rs::an_undeclared_type_is_refused_with_a_typed_error`.
-- `EG-TYPED-PACKS-R102`: Rollup closes when every child `.1` to `.7` passes its proving test.
-- `EG-TYPED-PACKS-R102.1`: `crates/eg-shacl/tests/connector_pack_shapes.rs::surface_shapes_accept_valid_and_refuse_invalid`.
-- `EG-TYPED-PACKS-R102.2`: `src/server/connector_pack_projection/surface_tests.rs::surface_nodes_follow_pack_head`.
-- `EG-TYPED-PACKS-R102.3`: `src/server/handlers/admin/connector_pack/import/contract_tests.rs::core_class_redeclaration_is_refused`.
-- `EG-TYPED-PACKS-R102.4`: `src/server/connector_pack_projection/surface_tests.rs::outbox_consumer_writes_surface_nodes`.
-- `EG-TYPED-PACKS-R102.5`: `src/server/handlers/admin/connector_pack/import/contract_tests.rs::surface_refusals_leave_state_unchanged`.
-- `EG-TYPED-PACKS-R102.6`: `src/server/connector_pack_projection/surface_tests.rs::surface_nodes_carry_pack_digest`.
-- `EG-TYPED-PACKS-R102.7`: `tests/typed_packs/test_connector_surface_rdf_served.py::test_surface_query_follows_pack_head`.
-- `EG-TYPED-PACKS-R103`: Rollup closes when every child `.1` to `.6` passes its proving test.
-- `EG-TYPED-PACKS-R103.1`: `crates/eg-types/src/graph_schema.rs::tests::ontology_import_ops_round_trip`.
-- `EG-TYPED-PACKS-R103.2`: `src/server/graph_schema/ontology_import_tests.rs::import_is_idempotent_by_digest_and_revises`.
-- `EG-TYPED-PACKS-R103.3`: `src/server/graph_schema/ontology_import_tests.rs::gateway_routes_ontology_import`.
-- `EG-TYPED-PACKS-R103.4`: `src/server/graph_schema/ontology_import_tests.rs::ontology_import_refusals_leave_schema_unchanged`.
-- `EG-TYPED-PACKS-R103.5`: `src/server/graph_schema/ontology_import_tests.rs::revision_records_digest_importer_and_classes`.
-- `EG-TYPED-PACKS-R103.6`: `tests/typed_packs/test_runtime_ontology_import_served.py::test_import_revise_withdraw_end_to_end`.
+- `MEDULLA-TYPED-PACKS-R101`: Rollup closes when every live child passes its proving test.
+- `MEDULLA-TYPED-PACKS-R101.1`: `crates/medulla-core/tests/connector_pack_vocabulary.rs::contract_terms_resolve_with_domain_and_range`.
+- `MEDULLA-TYPED-PACKS-R101.2`: `crates/medulla-shacl/tests/connector_pack_shapes.rs::each_contract_shape_accepts_valid_and_refuses_invalid`.
+- `MEDULLA-TYPED-PACKS-R101.3`: Retired; see R101.10 and R101.11.
+- `MEDULLA-TYPED-PACKS-R101.4`: Retired; see R101.10 and R101.11.
+- `MEDULLA-TYPED-PACKS-R101.5`: Retired; see R101.10 and R101.11.
+- `MEDULLA-TYPED-PACKS-R101.6`: Retired; see R101.10 and R101.11.
+- `MEDULLA-TYPED-PACKS-R101.7`: Retired; see R101.10 and R101.11.
+- `MEDULLA-TYPED-PACKS-R101.8`: Retired; see R101.10 and R101.11.
+- `MEDULLA-TYPED-PACKS-R101.9`: a served test imports a pack through `ConnectorPack.Import` and submits one mapped record through `SourceIngest`; the engine accepts it.
+- `MEDULLA-TYPED-PACKS-R101.10`: `src/server/handlers/admin/connector_pack/tests/scale.rs::the_selector_resolves_to_the_declared_class_and_field_map`; `src/server/handlers/admin/connector_pack/tests/scale.rs::relations_resolve_from_the_pack_ontology`.
+- `MEDULLA-TYPED-PACKS-R101.11`: `src/server/handlers/admin/connector_pack/tests/scale.rs::an_undeclared_type_is_refused_with_a_typed_error`.
+- `MEDULLA-TYPED-PACKS-R102`: Rollup closes when every child `.1` to `.7` passes its proving test.
+- `MEDULLA-TYPED-PACKS-R102.1`: `crates/medulla-shacl/tests/connector_pack_shapes.rs::surface_shapes_accept_valid_and_refuse_invalid`.
+- `MEDULLA-TYPED-PACKS-R102.2`: `src/server/connector_pack_projection/surface_tests.rs::surface_nodes_follow_pack_head`.
+- `MEDULLA-TYPED-PACKS-R102.3`: `src/server/handlers/admin/connector_pack/import/contract_tests.rs::core_class_redeclaration_is_refused`.
+- `MEDULLA-TYPED-PACKS-R102.4`: `src/server/connector_pack_projection/surface_tests.rs::outbox_consumer_writes_surface_nodes`.
+- `MEDULLA-TYPED-PACKS-R102.5`: `src/server/handlers/admin/connector_pack/import/contract_tests.rs::surface_refusals_leave_state_unchanged`.
+- `MEDULLA-TYPED-PACKS-R102.6`: `src/server/connector_pack_projection/surface_tests.rs::surface_nodes_carry_pack_digest`.
+- `MEDULLA-TYPED-PACKS-R102.7`: `tests/typed_packs/test_connector_surface_rdf_served.py::test_surface_query_follows_pack_head`.
+- `MEDULLA-TYPED-PACKS-R103`: Rollup closes when every child `.1` to `.6` passes its proving test.
+- `MEDULLA-TYPED-PACKS-R103.1`: `crates/medulla-types/src/graph_schema.rs::tests::ontology_import_ops_round_trip`.
+- `MEDULLA-TYPED-PACKS-R103.2`: `src/server/graph_schema/ontology_import_tests.rs::import_is_idempotent_by_digest_and_revises`.
+- `MEDULLA-TYPED-PACKS-R103.3`: `src/server/graph_schema/ontology_import_tests.rs::gateway_routes_ontology_import`.
+- `MEDULLA-TYPED-PACKS-R103.4`: `src/server/graph_schema/ontology_import_tests.rs::ontology_import_refusals_leave_schema_unchanged`.
+- `MEDULLA-TYPED-PACKS-R103.5`: `src/server/graph_schema/ontology_import_tests.rs::revision_records_digest_importer_and_classes`.
+- `MEDULLA-TYPED-PACKS-R103.6`: `tests/typed_packs/test_runtime_ontology_import_served.py::test_import_revise_withdraw_end_to_end`.
 
-## EG-TYPED-PACKS-R104 acceptance
+## MEDULLA-TYPED-PACKS-R104 acceptance
 
 | Case | Row | Proving test and observation |
 |---|---|---|
 
-| Model | `EG-TYPED-PACKS-R104.1` | `crates/eg-types/src/connector_pack/seed_graph.rs::tests::seed_import_round_trips`: A serde round trip keeps every field and rejects an unknown part key. |
+| Model | `MEDULLA-TYPED-PACKS-R104.1` | `crates/medulla-types/src/connector_pack/seed_graph.rs::tests::seed_import_round_trips`: A serde round trip keeps every field and rejects an unknown part key. |
 
-| Behavior | `EG-TYPED-PACKS-R104.2` | `src/server/handlers/admin/connector_pack/seed_tests.rs::changed_part_reimports_alone`: A second import with one changed part replaces that part and leaves the other two byte-identical. |
+| Behavior | `MEDULLA-TYPED-PACKS-R104.2` | `src/server/handlers/admin/connector_pack/seed_tests.rs::changed_part_reimports_alone`: A second import with one changed part replaces that part and leaves the other two byte-identical. |
 
-| Wiring | `EG-TYPED-PACKS-R104.3` | `src/server/handlers/admin/connector_pack/seed_tests.rs::served_import_projects_seed`: A served import with a seed body reaches `project_head` and writes the seed triples. |
+| Wiring | `MEDULLA-TYPED-PACKS-R104.3` | `src/server/handlers/admin/connector_pack/seed_tests.rs::served_import_projects_seed`: A served import with a seed body reaches `project_head` and writes the seed triples. |
 
-| Refusal | `EG-TYPED-PACKS-R104.4` | `src/server/handlers/admin/connector_pack/seed_tests.rs::seed_refusals_write_nothing`: Each case returns its code and the graph revision stays unchanged. |
+| Refusal | `MEDULLA-TYPED-PACKS-R104.4` | `src/server/handlers/admin/connector_pack/seed_tests.rs::seed_refusals_write_nothing`: Each case returns its code and the graph revision stays unchanged. |
 
-| Evidence | `EG-TYPED-PACKS-R104.5` | `src/server/handlers/admin/connector_pack/seed_tests.rs::receipt_names_part_outcomes`: A served SPARQL read finds the receipt and the `seed:fromSeed` link of one catalog object. |
+| Evidence | `MEDULLA-TYPED-PACKS-R104.5` | `src/server/handlers/admin/connector_pack/seed_tests.rs::receipt_names_part_outcomes`: A served SPARQL read finds the receipt and the `seed:fromSeed` link of one catalog object. |
 
-| Hot-path proof | `EG-TYPED-PACKS-R104.6` | `tests/connector_pack/test_seed_graph_served.py::test_seed_idempotent_and_partial_reimport`: The repeat returns `unchanged`, the change replaces only `catalog`, and the query sees the new objects. |
+| Hot-path proof | `MEDULLA-TYPED-PACKS-R104.6` | `tests/connector_pack/test_seed_graph_served.py::test_seed_idempotent_and_partial_reimport`: The repeat returns `unchanged`, the change replaces only `catalog`, and the query sees the new objects. |
 
 
-Hot-path proof for `EG-TYPED-PACKS-R104`: `tests/connector_pack/test_seed_graph_served.py::test_seed_idempotent_and_partial_reimport`.
+Hot-path proof for `MEDULLA-TYPED-PACKS-R104`: `tests/connector_pack/test_seed_graph_served.py::test_seed_idempotent_and_partial_reimport`.
 
 ## R085.3 session-liveness check
 
-`EG-TYPED-PACKS-R085.3`: served tests cover live, revoked and expired answers. Revoked covers single and revoke_all. Expired covers idle and absolute expiry under a fake clock. Further tests cover `not_session_bound` for API-key and external-identity callers. Others cover refusal of unknown and cross-tenant references, no token text on the wire, and no idle-expiry extension. All stay pending until the operation exists.
+`MEDULLA-TYPED-PACKS-R085.3`: served tests cover live, revoked and expired answers. Revoked covers single and revoke_all. Expired covers idle and absolute expiry under a fake clock. Further tests cover `not_session_bound` for API-key and external-identity callers. Others cover refusal of unknown and cross-tenant references, no token text on the wire, and no idle-expiry extension. All stay pending until the operation exists.
 
 ## R085.1 durable session projection
 
@@ -420,99 +420,99 @@ requires an error response with no result. Canonical artifact freshness passes. 
 
 | Row | Proving test |
 |---|---|
-| `EG-TYPED-PACKS-R801` | See each child. |
-| `EG-TYPED-PACKS-R801.1` | `crates/eg-types/tests/glossary.rs::term_round_trips_and_maps_to_skos` |
-| `EG-TYPED-PACKS-R801.2` | `crates/eg-core/tests/glossary.rs::alt_label_search_finds_term` |
-| `EG-TYPED-PACKS-R801.3` | `tests/test_glossary_served.py::test_import_scheme_and_bind_term` |
-| `EG-TYPED-PACKS-R801.4` | `tests/test_glossary_served.py::test_glossary_refusals` |
-| `EG-TYPED-PACKS-R801.5` | `tests/test_glossary_served.py::test_status_history_reads_back` |
-| `EG-TYPED-PACKS-R801.6` | `cargo bench --bench glossary_search` |
-| `EG-TYPED-PACKS-R802` | See each child. |
-| `EG-TYPED-PACKS-R802.1` | `crates/eg-types/tests/stewardship.rs::records_round_trip` |
-| `EG-TYPED-PACKS-R802.2` | `crates/eg-core/tests/stewardship.rs::most_specific_assignment_wins` |
-| `EG-TYPED-PACKS-R802.3` | `tests/test_stewardship_served.py::test_change_request_flow` |
-| `EG-TYPED-PACKS-R802.4` | `tests/test_stewardship_served.py::test_stewardship_refusals` |
-| `EG-TYPED-PACKS-R802.5` | `tests/test_stewardship_served.py::test_request_evidence_reads_back` |
-| `EG-TYPED-PACKS-R802.6` | `cargo bench --bench stewardship_resolve` |
-| `EG-TYPED-PACKS-R803` | See each child. |
-| `EG-TYPED-PACKS-R803.1` | `crates/eg-types/tests/sensitive_detect.rs::records_round_trip` |
-| `EG-TYPED-PACKS-R803.2` | `crates/eg-core/tests/sensitive_detect.rs::scan_proposes_claim_without_values` |
-| `EG-TYPED-PACKS-R803.3` | `tests/test_sensitive_detect_served.py::test_profile_job_proposes_claims` |
-| `EG-TYPED-PACKS-R803.4` | `tests/test_sensitive_detect_served.py::test_detector_refusals` |
-| `EG-TYPED-PACKS-R803.5` | `tests/test_sensitive_detect_served.py::test_claim_evidence_reads_back` |
-| `EG-TYPED-PACKS-R803.6` | `cargo bench --bench sensitive_detect` |
-| `EG-TYPED-PACKS-R804` | See each child. |
-| `EG-TYPED-PACKS-R804.1` | `crates/eg-types/tests/ontology_diff.rs::diff_round_trips` |
-| `EG-TYPED-PACKS-R804.2` | `crates/eg-core/tests/ontology_diff.rs::removed_class_reports_impact` |
-| `EG-TYPED-PACKS-R804.3` | `tests/test_ontology_diff_served.py::test_import_reports_impact` |
-| `EG-TYPED-PACKS-R804.4` | `tests/test_ontology_diff_served.py::test_diff_refusals` |
-| `EG-TYPED-PACKS-R804.5` | `tests/test_ontology_diff_served.py::test_impact_names_items` |
-| `EG-TYPED-PACKS-R804.6` | `cargo bench --bench ontology_diff` |
-| `EG-TYPED-PACKS-R805` | See each child. |
-| `EG-TYPED-PACKS-R805.1` | `crates/eg-types/tests/data_product.rs::records_round_trip` |
-| `EG-TYPED-PACKS-R805.2` | `crates/eg-core/tests/data_product.rs::breach_records_violation` |
-| `EG-TYPED-PACKS-R805.3` | `tests/test_data_product_served.py::test_request_grants_access` |
-| `EG-TYPED-PACKS-R805.4` | `tests/test_data_product_served.py::test_product_refusals` |
-| `EG-TYPED-PACKS-R805.5` | `tests/test_data_product_served.py::test_violation_evidence_reads_back` |
-| `EG-TYPED-PACKS-R805.6` | `cargo bench --bench data_contract_check` |
+| `MEDULLA-TYPED-PACKS-R801` | See each child. |
+| `MEDULLA-TYPED-PACKS-R801.1` | `crates/medulla-types/tests/glossary.rs::term_round_trips_and_maps_to_skos` |
+| `MEDULLA-TYPED-PACKS-R801.2` | `crates/medulla-core/tests/glossary.rs::alt_label_search_finds_term` |
+| `MEDULLA-TYPED-PACKS-R801.3` | `tests/test_glossary_served.py::test_import_scheme_and_bind_term` |
+| `MEDULLA-TYPED-PACKS-R801.4` | `tests/test_glossary_served.py::test_glossary_refusals` |
+| `MEDULLA-TYPED-PACKS-R801.5` | `tests/test_glossary_served.py::test_status_history_reads_back` |
+| `MEDULLA-TYPED-PACKS-R801.6` | `cargo bench --bench glossary_search` |
+| `MEDULLA-TYPED-PACKS-R802` | See each child. |
+| `MEDULLA-TYPED-PACKS-R802.1` | `crates/medulla-types/tests/stewardship.rs::records_round_trip` |
+| `MEDULLA-TYPED-PACKS-R802.2` | `crates/medulla-core/tests/stewardship.rs::most_specific_assignment_wins` |
+| `MEDULLA-TYPED-PACKS-R802.3` | `tests/test_stewardship_served.py::test_change_request_flow` |
+| `MEDULLA-TYPED-PACKS-R802.4` | `tests/test_stewardship_served.py::test_stewardship_refusals` |
+| `MEDULLA-TYPED-PACKS-R802.5` | `tests/test_stewardship_served.py::test_request_evidence_reads_back` |
+| `MEDULLA-TYPED-PACKS-R802.6` | `cargo bench --bench stewardship_resolve` |
+| `MEDULLA-TYPED-PACKS-R803` | See each child. |
+| `MEDULLA-TYPED-PACKS-R803.1` | `crates/medulla-types/tests/sensitive_detect.rs::records_round_trip` |
+| `MEDULLA-TYPED-PACKS-R803.2` | `crates/medulla-core/tests/sensitive_detect.rs::scan_proposes_claim_without_values` |
+| `MEDULLA-TYPED-PACKS-R803.3` | `tests/test_sensitive_detect_served.py::test_profile_job_proposes_claims` |
+| `MEDULLA-TYPED-PACKS-R803.4` | `tests/test_sensitive_detect_served.py::test_detector_refusals` |
+| `MEDULLA-TYPED-PACKS-R803.5` | `tests/test_sensitive_detect_served.py::test_claim_evidence_reads_back` |
+| `MEDULLA-TYPED-PACKS-R803.6` | `cargo bench --bench sensitive_detect` |
+| `MEDULLA-TYPED-PACKS-R804` | See each child. |
+| `MEDULLA-TYPED-PACKS-R804.1` | `crates/medulla-types/tests/ontology_diff.rs::diff_round_trips` |
+| `MEDULLA-TYPED-PACKS-R804.2` | `crates/medulla-core/tests/ontology_diff.rs::removed_class_reports_impact` |
+| `MEDULLA-TYPED-PACKS-R804.3` | `tests/test_ontology_diff_served.py::test_import_reports_impact` |
+| `MEDULLA-TYPED-PACKS-R804.4` | `tests/test_ontology_diff_served.py::test_diff_refusals` |
+| `MEDULLA-TYPED-PACKS-R804.5` | `tests/test_ontology_diff_served.py::test_impact_names_items` |
+| `MEDULLA-TYPED-PACKS-R804.6` | `cargo bench --bench ontology_diff` |
+| `MEDULLA-TYPED-PACKS-R805` | See each child. |
+| `MEDULLA-TYPED-PACKS-R805.1` | `crates/medulla-types/tests/data_product.rs::records_round_trip` |
+| `MEDULLA-TYPED-PACKS-R805.2` | `crates/medulla-core/tests/data_product.rs::breach_records_violation` |
+| `MEDULLA-TYPED-PACKS-R805.3` | `tests/test_data_product_served.py::test_request_grants_access` |
+| `MEDULLA-TYPED-PACKS-R805.4` | `tests/test_data_product_served.py::test_product_refusals` |
+| `MEDULLA-TYPED-PACKS-R805.5` | `tests/test_data_product_served.py::test_violation_evidence_reads_back` |
+| `MEDULLA-TYPED-PACKS-R805.6` | `cargo bench --bench data_contract_check` |
 
 ## Trust flags, critical data elements and model-proposed curation
 
 | Row | Proving test |
 |---|---|
-| `EG-TYPED-PACKS-R801.7` | `tests/test_glossary_served.py::test_proposed_description_needs_review` |
-| `EG-TYPED-PACKS-R802.7` | `tests/test_stewardship_served.py::test_deprecation_lowers_rank_and_notifies` |
-| `EG-TYPED-PACKS-R802.8` | `tests/test_stewardship_served.py::test_critical_element_gaps_reported` |
-| `EG-TYPED-PACKS-R805.7` | `tests/test_data_product_served.py::test_usage_cluster_yields_product_proposal` |
+| `MEDULLA-TYPED-PACKS-R801.7` | `tests/test_glossary_served.py::test_proposed_description_needs_review` |
+| `MEDULLA-TYPED-PACKS-R802.7` | `tests/test_stewardship_served.py::test_deprecation_lowers_rank_and_notifies` |
+| `MEDULLA-TYPED-PACKS-R802.8` | `tests/test_stewardship_served.py::test_critical_element_gaps_reported` |
+| `MEDULLA-TYPED-PACKS-R805.7` | `tests/test_data_product_served.py::test_usage_cluster_yields_product_proposal` |
 
-- `EG-TYPED-PACKS-R106`: See each child.
-- `EG-TYPED-PACKS-R106.1`: `crates/eg-rdf/tests/metadata_catalog_classes.rs::catalog_classes_roll_up_to_eg_core_and_align_to_w3c`, `crates/eg-rdf/tests/metadata_catalog_classes.rs::owner_steward_and_lineage_properties_specialise_prov`, `crates/eg-rdf/tests/metadata_catalog_classes.rs::catalog_shapes_accept_a_complete_catalog`, `crates/eg-rdf/tests/metadata_catalog_classes.rs::catalog_shapes_refuse_incomplete_or_open_vocabulary_records`.
-- `EG-TYPED-PACKS-R106.2`: `crates/eg-core/tests/connector_pack_surfaces.rs::every_asset_has_owner_term_lineage_and_class_link`.
-- `EG-TYPED-PACKS-R106.3`: `tests/typed_packs/test_connector_catalog_served.py::test_onboarding_batch_is_validated_and_found_by_catalog_search`.
-- `EG-TYPED-PACKS-R106.4`: `crates/eg-core/tests/connector_pack_surfaces.rs::unresolved_class_unowned_resource_and_missing_owner_are_reported`.
-- `EG-TYPED-PACKS-R106.5`: `tests/typed_packs/test_connector_catalog_served.py::test_asset_carries_digest_usage_freshness_and_class_counts`.
-- `EG-TYPED-PACKS-R106.6`: `tests/typed_packs/test_connector_catalog_served.py::test_catalog_search_finds_assets_with_owner_term_and_lineage`.
-- `EG-TYPED-PACKS-R106.7`: `tests/typed_packs/test_catalog_competency_queries.py::test_owner_lineage_term_and_class_queries_answer_from_the_graph`. Vectors, with `X` the fixture's first tool:
+- `MEDULLA-TYPED-PACKS-R106`: See each child.
+- `MEDULLA-TYPED-PACKS-R106.1`: `crates/medulla-rdf/tests/metadata_catalog_classes.rs::catalog_classes_roll_up_to_eg_core_and_align_to_w3c`, `crates/medulla-rdf/tests/metadata_catalog_classes.rs::owner_steward_and_lineage_properties_specialise_prov`, `crates/medulla-rdf/tests/metadata_catalog_classes.rs::catalog_shapes_accept_a_complete_catalog`, `crates/medulla-rdf/tests/metadata_catalog_classes.rs::catalog_shapes_refuse_incomplete_or_open_vocabulary_records`.
+- `MEDULLA-TYPED-PACKS-R106.2`: `crates/medulla-core/tests/connector_pack_surfaces.rs::every_asset_has_owner_term_lineage_and_class_link`.
+- `MEDULLA-TYPED-PACKS-R106.3`: `tests/typed_packs/test_connector_catalog_served.py::test_onboarding_batch_is_validated_and_found_by_catalog_search`.
+- `MEDULLA-TYPED-PACKS-R106.4`: `crates/medulla-core/tests/connector_pack_surfaces.rs::unresolved_class_unowned_resource_and_missing_owner_are_reported`.
+- `MEDULLA-TYPED-PACKS-R106.5`: `tests/typed_packs/test_connector_catalog_served.py::test_asset_carries_digest_usage_freshness_and_class_counts`.
+- `MEDULLA-TYPED-PACKS-R106.6`: `tests/typed_packs/test_connector_catalog_served.py::test_catalog_search_finds_assets_with_owner_term_and_lineage`.
+- `MEDULLA-TYPED-PACKS-R106.7`: `tests/typed_packs/test_catalog_competency_queries.py::test_owner_lineage_term_and_class_queries_answer_from_the_graph`. Vectors, with `X` the fixture's first tool:
   - Owner: `SELECT ?principal ?role WHERE { ?s cat:assignedTo <X> ; cat:principal ?principal ; cat:role ?role }` returns one row, role `owner`.
   - Upstream lineage: `SELECT ?up WHERE { ?up cat:lineageTo+ <X> }` returns the connector and the server.
   - Downstream lineage: `SELECT ?down ?hop WHERE { <X> cat:lineageTo+ ?down . ?e cat:from <X> ; cat:to ?down ; cat:hop ?hop }` returns the resource and its fields.
   - Glossary term: `SELECT ?term ?label WHERE { ?term :definesAsset <X> ; skos:prefLabel ?label }` returns the term that names the tool's class.
   - Parent class: `SELECT ?asset WHERE { ?asset a/rdfs:subClassOf* cat:Asset ; cp:ofConnector <C> }` returns the two tools, the skill, the prompt, the two resources and their fields.
   - UQL equivalents return the same rows, for example `MATCH (s:StewardshipAssignment)-[:assignedTo]->(a {id: X}) RETURN s.principal, s.role`.
-- `EG-TYPED-PACKS-R107`: See each child.
-- `EG-TYPED-PACKS-R107.1`: `crates/eg-types/tests/pack_contract.rs::version_and_grant_round_trip`.
-- `EG-TYPED-PACKS-R107.2`: `crates/eg-core/tests/pack_contract.rs::non_breaking_applies_breaking_waits_and_queries_use_active_version`.
-- `EG-TYPED-PACKS-R107.3`: `tests/typed_packs/test_pack_contract_served.py::test_diff_runs_in_import_and_orphan_report_is_served`.
-- `EG-TYPED-PACKS-R107.4`: `crates/eg-core/tests/pack_contract.rs::ungranted_incomplete_breaking_and_in_use_refuse`.
-- `EG-TYPED-PACKS-R107.5`: `tests/typed_packs/test_pack_contract_served.py::test_receipt_carries_digests_break_count_request_and_grant`.
-- `EG-TYPED-PACKS-R107.6`: `tests/typed_packs/test_pack_contract_served.py::test_breaking_release_waits_for_approval_then_serves`.
+- `MEDULLA-TYPED-PACKS-R107`: See each child.
+- `MEDULLA-TYPED-PACKS-R107.1`: `crates/medulla-types/tests/pack_contract.rs::version_and_grant_round_trip`.
+- `MEDULLA-TYPED-PACKS-R107.2`: `crates/medulla-core/tests/pack_contract.rs::non_breaking_applies_breaking_waits_and_queries_use_active_version`.
+- `MEDULLA-TYPED-PACKS-R107.3`: `tests/typed_packs/test_pack_contract_served.py::test_diff_runs_in_import_and_orphan_report_is_served`.
+- `MEDULLA-TYPED-PACKS-R107.4`: `crates/medulla-core/tests/pack_contract.rs::ungranted_incomplete_breaking_and_in_use_refuse`.
+- `MEDULLA-TYPED-PACKS-R107.5`: `tests/typed_packs/test_pack_contract_served.py::test_receipt_carries_digests_break_count_request_and_grant`.
+- `MEDULLA-TYPED-PACKS-R107.6`: `tests/typed_packs/test_pack_contract_served.py::test_breaking_release_waits_for_approval_then_serves`.
 
-- `EG-TYPED-PACKS-R108`: See each child.
-- `EG-TYPED-PACKS-R108.1`: `crates/eg-core/tests/catalog_assets.rs::four_families_validate_and_share_one_parent_asset_class`.
-- `EG-TYPED-PACKS-R108.2`: `crates/eg-core/tests/catalog_assets.rs::existing_records_project_with_owner_term_and_lineage_without_copies`.
-- `EG-TYPED-PACKS-R108.3`: `tests/typed_packs/test_catalog_assets_served.py::test_publish_register_and_create_reach_the_one_projector`.
-- `EG-TYPED-PACKS-R108.4`: `crates/eg-core/tests/catalog_assets.rs::orphan_class_missing_owner_and_marked_field_are_handled`.
-- `EG-TYPED-PACKS-R108.5`: `tests/typed_packs/test_catalog_assets_served.py::test_node_carries_owner_steward_revision_usage_and_history`.
-- `EG-TYPED-PACKS-R108.6`: `tests/typed_packs/test_catalog_assets_served.py::test_one_query_returns_agents_business_workflows_graphs_and_connector_assets`.
+- `MEDULLA-TYPED-PACKS-R108`: See each child.
+- `MEDULLA-TYPED-PACKS-R108.1`: `crates/medulla-core/tests/catalog_assets.rs::four_families_validate_and_share_one_parent_asset_class`.
+- `MEDULLA-TYPED-PACKS-R108.2`: `crates/medulla-core/tests/catalog_assets.rs::existing_records_project_with_owner_term_and_lineage_without_copies`.
+- `MEDULLA-TYPED-PACKS-R108.3`: `tests/typed_packs/test_catalog_assets_served.py::test_publish_register_and_create_reach_the_one_projector`.
+- `MEDULLA-TYPED-PACKS-R108.4`: `crates/medulla-core/tests/catalog_assets.rs::orphan_class_missing_owner_and_marked_field_are_handled`.
+- `MEDULLA-TYPED-PACKS-R108.5`: `tests/typed_packs/test_catalog_assets_served.py::test_node_carries_owner_steward_revision_usage_and_history`.
+- `MEDULLA-TYPED-PACKS-R108.6`: `tests/typed_packs/test_catalog_assets_served.py::test_one_query_returns_agents_business_workflows_graphs_and_connector_assets`.
 
-- `EG-TYPED-PACKS-R108.7`: `tests/typed_packs/test_catalog_capabilities_served.py::test_contract_harvest_stores_schema_keys_views_indexes_and_no_rows`
-- `EG-TYPED-PACKS-R108.8`: `tests/typed_packs/test_catalog_capabilities_served.py::test_tool_call_and_query_provenance_feed_usage_frequency_and_top_queries`
-- `EG-TYPED-PACKS-R108.9`: `tests/typed_packs/test_catalog_capabilities_served.py::test_sensitivity_propagates_downstream_as_proposal_and_asset_names_its_policy`
-- `EG-TYPED-PACKS-R108.10`: `tests/typed_packs/test_catalog_capabilities_served.py::test_lineage_walks_source_operation_workflow_dashboard_agent_and_model`
-- `EG-TYPED-PACKS-R108.11`: `tests/typed_packs/test_catalog_capabilities_served.py::test_metric_formula_binds_terms_and_unknown_term_refuses`
-- `EG-TYPED-PACKS-R108.12`: `tests/typed_packs/test_catalog_capabilities_served.py::test_annotations_attach_to_any_asset_and_trust_flags_reuse_the_steward_path`
-- `EG-TYPED-PACKS-R108.13`: `tests/typed_packs/test_catalog_capabilities_served.py::test_article_attaches_to_asset_and_domain_and_is_found_by_text_and_by_asset`
-- `EG-TYPED-PACKS-R108.14`: `tests/typed_packs/test_catalog_capabilities_served.py::test_dashboard_report_saved_query_and_template_register_with_reads_and_usage`
-- `EG-TYPED-PACKS-R108.15`: `tests/typed_packs/test_catalog_capabilities_served.py::test_model_asset_links_registry_ref_schemas_and_training_lineage_without_weights`
-- `EG-TYPED-PACKS-R108.16`: `tests/typed_packs/test_catalog_capabilities_served.py::test_one_search_ranks_all_families_with_usage_and_endorsement_boost`
+- `MEDULLA-TYPED-PACKS-R108.7`: `tests/typed_packs/test_catalog_capabilities_served.py::test_contract_harvest_stores_schema_keys_views_indexes_and_no_rows`
+- `MEDULLA-TYPED-PACKS-R108.8`: `tests/typed_packs/test_catalog_capabilities_served.py::test_tool_call_and_query_provenance_feed_usage_frequency_and_top_queries`
+- `MEDULLA-TYPED-PACKS-R108.9`: `tests/typed_packs/test_catalog_capabilities_served.py::test_sensitivity_propagates_downstream_as_proposal_and_asset_names_its_policy`
+- `MEDULLA-TYPED-PACKS-R108.10`: `tests/typed_packs/test_catalog_capabilities_served.py::test_lineage_walks_source_operation_workflow_dashboard_agent_and_model`
+- `MEDULLA-TYPED-PACKS-R108.11`: `tests/typed_packs/test_catalog_capabilities_served.py::test_metric_formula_binds_terms_and_unknown_term_refuses`
+- `MEDULLA-TYPED-PACKS-R108.12`: `tests/typed_packs/test_catalog_capabilities_served.py::test_annotations_attach_to_any_asset_and_trust_flags_reuse_the_steward_path`
+- `MEDULLA-TYPED-PACKS-R108.13`: `tests/typed_packs/test_catalog_capabilities_served.py::test_article_attaches_to_asset_and_domain_and_is_found_by_text_and_by_asset`
+- `MEDULLA-TYPED-PACKS-R108.14`: `tests/typed_packs/test_catalog_capabilities_served.py::test_dashboard_report_saved_query_and_template_register_with_reads_and_usage`
+- `MEDULLA-TYPED-PACKS-R108.15`: `tests/typed_packs/test_catalog_capabilities_served.py::test_model_asset_links_registry_ref_schemas_and_training_lineage_without_weights`
+- `MEDULLA-TYPED-PACKS-R108.16`: `tests/typed_packs/test_catalog_capabilities_served.py::test_one_search_ranks_all_families_with_usage_and_endorsement_boost`
 
-- `EG-TYPED-PACKS-R109`: See each child.
-- `EG-TYPED-PACKS-R109.1`: `crates/eg-core/tests/dashboard_asset.rs::dashboard_asset_shape_validates_body_revision_owner_grants_and_links`.
-- `EG-TYPED-PACKS-R109.2`: `crates/eg-core/tests/dashboard_asset.rs::save_bumps_revision_rebuilds_links_and_delete_keeps_then_purges`.
-- `EG-TYPED-PACKS-R109.3`: `tests/typed_packs/test_dashboard_asset_served.py::test_save_read_share_and_delete_reach_the_one_projector_with_authority_checks`.
-- `EG-TYPED-PACKS-R109.4`: `crates/eg-core/tests/dashboard_asset.rs::stale_revision_missing_grant_invalid_body_and_purged_asset_refuse`.
-- `EG-TYPED-PACKS-R109.5`: `tests/typed_packs/test_dashboard_asset_served.py::test_revision_grant_and_delete_history_and_usage_are_served`.
-- `EG-TYPED-PACKS-R109.6`: `tests/typed_packs/test_dashboard_asset_served.py::test_dashboard_save_conflict_share_lineage_search_and_soft_delete`.
+- `MEDULLA-TYPED-PACKS-R109`: See each child.
+- `MEDULLA-TYPED-PACKS-R109.1`: `crates/medulla-core/tests/dashboard_asset.rs::dashboard_asset_shape_validates_body_revision_owner_grants_and_links`.
+- `MEDULLA-TYPED-PACKS-R109.2`: `crates/medulla-core/tests/dashboard_asset.rs::save_bumps_revision_rebuilds_links_and_delete_keeps_then_purges`.
+- `MEDULLA-TYPED-PACKS-R109.3`: `tests/typed_packs/test_dashboard_asset_served.py::test_save_read_share_and_delete_reach_the_one_projector_with_authority_checks`.
+- `MEDULLA-TYPED-PACKS-R109.4`: `crates/medulla-core/tests/dashboard_asset.rs::stale_revision_missing_grant_invalid_body_and_purged_asset_refuse`.
+- `MEDULLA-TYPED-PACKS-R109.5`: `tests/typed_packs/test_dashboard_asset_served.py::test_revision_grant_and_delete_history_and_usage_are_served`.
+- `MEDULLA-TYPED-PACKS-R109.6`: `tests/typed_packs/test_dashboard_asset_served.py::test_dashboard_save_conflict_share_lineage_search_and_soft_delete`.
 
 ## R085.7 original session reference inspection
 
@@ -538,7 +538,7 @@ R085.4–R085.7 preserve their parent obligations as rollups. Their .1 children 
 
 ## 2026-10-20 combined identity producer evidence
 
-The final combined `eg-types` `identity::tests` run passed all 108 tests in
+The final combined `medulla-types` `identity::tests` run passed all 108 tests in
 159.02 seconds. This includes the reference inspection, renewal ceiling,
 approval-key lifecycle and non-touch credential unit fixtures. The result
 supports R085.7.1, R085.4.1, R085.5.1 and R085.6.1 only within their stated
@@ -575,9 +575,9 @@ delegation refusal, unrelated authority revision changes, and original expiry/MF
 preservation. It does not qualify installed brokers or the Tuig scheduler.
 
 2026-10-22 isolated reconciliation attempt: pinned Rust 1.96.0,
-`cargo test --locked --offline -p eg-types identity::tests::session_evidence`,
+`cargo test --locked --offline -p medulla-types identity::tests::session_evidence`,
 no features, one build job, test/dev debuginfo disabled, incremental disabled,
-test opt-level 0. SIGKILL stopped the compiler process for `eg-types` before test execution. This provides no native pass evidence. The earlier
+test opt-level 0. SIGKILL stopped the compiler process for `medulla-types` before test execution. This provides no native pass evidence. The earlier
 2026-10-20 receipts above describe the old candidate, not this reconciled tree.
 Durable, server, generated and end-to-end renewal qualification remain pending.
 
@@ -599,11 +599,11 @@ source-only draft qualification is authorized; no failing merge or release is
 qualified. Durable, native server, installed broker and full signed-approval
 consumption acceptance remain open. No atomic approval consumption is added.
 
-- `EG-TYPED-PACKS-R105.3`: `crates/eg-rdf/tests/connector_parent_classes.rs::recurring_connector_concepts_sit_under_their_upper_classes`.
-- `EG-TYPED-PACKS-R105.3.1`: `crates/eg-rdf/tests/connector_parent_classes.rs::source_record_classes_have_narrow_parents`.
-- `EG-TYPED-PACKS-R105.4`: `crates/eg-rdf/tests/service_operations_classes.rs::service_operations_classes_exist_with_their_parents`, `crates/eg-rdf/tests/service_operations_classes.rs::competency_question_edges_declare_domain_and_range`.
-- `EG-TYPED-PACKS-R105.5`: `crates/eg-rdf/tests/service_operations_classes.rs::self_contained_modules_align_to_the_core`.
-- `EG-TYPED-PACKS-R105.6`: `crates/eg-rdf/tests/domain_modules_classes.rs::it4it_delivery_classes_exist_with_their_parents`, `crates/eg-rdf/tests/domain_modules_classes.rs::it4it_delivery_edges_declare_domain_and_range`.
-- `EG-TYPED-PACKS-R105.7`: `crates/eg-rdf/tests/domain_modules_classes.rs::dataplatform_classes_exist_with_their_parents`, `crates/eg-rdf/tests/domain_modules_classes.rs::dataplatform_edges_declare_domain_and_range`.
-- `EG-TYPED-PACKS-R105.8`: `crates/eg-rdf/tests/domain_modules_classes.rs::media_classes_exist_with_their_parents`, `crates/eg-rdf/tests/domain_modules_classes.rs::media_edges_declare_domain_and_range`.
-- `EG-TYPED-PACKS-R105.9`: `crates/eg-rdf/tests/domain_modules_classes.rs::retrieval_classes_exist_with_their_parents`, `crates/eg-rdf/tests/domain_modules_classes.rs::retrieval_edges_declare_domain_and_range`.
+- `MEDULLA-TYPED-PACKS-R105.3`: `crates/medulla-rdf/tests/connector_parent_classes.rs::recurring_connector_concepts_sit_under_their_upper_classes`.
+- `MEDULLA-TYPED-PACKS-R105.3.1`: `crates/medulla-rdf/tests/connector_parent_classes.rs::source_record_classes_have_narrow_parents`.
+- `MEDULLA-TYPED-PACKS-R105.4`: `crates/medulla-rdf/tests/service_operations_classes.rs::service_operations_classes_exist_with_their_parents`, `crates/medulla-rdf/tests/service_operations_classes.rs::competency_question_edges_declare_domain_and_range`.
+- `MEDULLA-TYPED-PACKS-R105.5`: `crates/medulla-rdf/tests/service_operations_classes.rs::self_contained_modules_align_to_the_core`.
+- `MEDULLA-TYPED-PACKS-R105.6`: `crates/medulla-rdf/tests/domain_modules_classes.rs::it4it_delivery_classes_exist_with_their_parents`, `crates/medulla-rdf/tests/domain_modules_classes.rs::it4it_delivery_edges_declare_domain_and_range`.
+- `MEDULLA-TYPED-PACKS-R105.7`: `crates/medulla-rdf/tests/domain_modules_classes.rs::dataplatform_classes_exist_with_their_parents`, `crates/medulla-rdf/tests/domain_modules_classes.rs::dataplatform_edges_declare_domain_and_range`.
+- `MEDULLA-TYPED-PACKS-R105.8`: `crates/medulla-rdf/tests/domain_modules_classes.rs::media_classes_exist_with_their_parents`, `crates/medulla-rdf/tests/domain_modules_classes.rs::media_edges_declare_domain_and_range`.
+- `MEDULLA-TYPED-PACKS-R105.9`: `crates/medulla-rdf/tests/domain_modules_classes.rs::retrieval_classes_exist_with_their_parents`, `crates/medulla-rdf/tests/domain_modules_classes.rs::retrieval_edges_declare_domain_and_range`.

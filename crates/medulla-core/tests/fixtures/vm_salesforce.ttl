@@ -1,0 +1,56 @@
+# Virtual-mapping fixture: salesforce Account to kg:Customer and Contract
+# to kg:CustomerContract (MEDULLA-SUPPLY-VOCAB-R005.6).
+#
+# Recorded over the `salesforce_soql` operation. The standard `Account`
+# sObject is rank 1 for Customer; the standard `Contract` sObject is read by
+# SOQL directly -- the connector ontology declares no `Contract` class today
+# (row MEDULLA-SUPPLY-VOCAB-R005.7, agent-packages), so the mapping is approved
+# against the discovered SOQL contract, not a declared class.
+
+@prefix vg:    <http://knuckles.team/kg/virtual-graph#> .
+@prefix kg:    <http://knuckles.team/kg#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ex:    <http://knuckles.team/test/vm-salesforce#> .
+
+ex:salesforceConnection a vg:SourceConnection ;
+    vg:sourceKind "mcp" ;
+    vg:endpointRef [ vg:url "https://salesforce.invalid/services/data" ] .
+
+ex:salesforceSoql a vg:MetadataContract ;
+    vg:contractSource ex:salesforceConnection ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:7d58a5e8ffb6a4e5b4437183befe8e2a32a02f3c8f0aa9369a3864987617e33a" ;
+    vg:discoveredEntity "Account" ;
+    vg:discoveredEntity "Contract" ;
+    vg:discoveredField "Id" ;
+    vg:discoveredField "Name" ;
+    vg:discoveredField "AccountName" ;
+    vg:discoveredField "Status" ;
+    vg:discoveredField "EndDate" ;
+    vg:discoveredOperation "salesforce_soql" .
+
+ex:accountMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:salesforceSoql ;
+    vg:mapsOntologyClass kg:Customer ;
+    vg:mapsEntity "Account" ;
+    vg:keyField "Id" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate rdfs:label ;
+        vg:field "Name" ] ;
+    vg:approved true .
+
+ex:contractMapping a vg:VirtualMapping ;
+    vg:mapsContract ex:salesforceSoql ;
+    vg:mapsOntologyClass kg:CustomerContract ;
+    vg:mapsEntity "Contract" ;
+    vg:keyField "Id" ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:contractCustomer ;
+        vg:field "AccountName" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:contractStatus ;
+        vg:field "Status" ] ;
+    vg:hasPredicateFieldPair [
+        vg:predicate kg:contractEnd ;
+        vg:field "EndDate" ] ;
+    vg:approved true .

@@ -2,14 +2,14 @@
 """Build the eg2. method-body codec module the Go and JavaScript clients embed.
 
 The engine MACs the canonical body it re-derives from the request it decoded.
-``crates/eg-method-codec`` exports that exact decoder and encoder as a
+``crates/medulla-method-codec`` exports that exact decoder and encoder as a
 WebAssembly module with no imports; this script builds it for
 ``wasm32-unknown-unknown`` under the ``method-codec`` profile, with the same
 identity-neutral path remaps the release wheels use, and places one copy in
 each client directory (Go's ``//go:embed`` cannot reach outside its module).
 
 ``--check`` rebuilds and fails unless both committed copies are byte-identical
-to the fresh module, so a wire change in eg-types cannot ride past a stale
+to the fresh module, so a wire change in medulla-types cannot ride past a stale
 client codec. Needs the pinned toolchain's ``wasm32-unknown-unknown`` target
 (``rustup target add wasm32-unknown-unknown``).
 
@@ -56,15 +56,15 @@ except ModuleNotFoundError:  # imported as a package in tests
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = "wasm32-unknown-unknown"
 PROFILE = "method-codec"
-MODULE = "eg_method_codec.wasm"
+MODULE = "medulla_method_codec.wasm"
 CLIENT_DIRS = ("clients/go", "clients/js")
-PROVENANCE = "eg_method_codec.provenance.json"
+PROVENANCE = "medulla_method_codec.provenance.json"
 BUILD_COMMAND = (
     "cargo",
     "build",
     "--locked",
     "-p",
-    "eg-method-codec",
+    "medulla-method-codec",
     "--lib",
     "--profile",
     PROFILE,

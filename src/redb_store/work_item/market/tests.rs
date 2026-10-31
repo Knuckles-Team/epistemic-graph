@@ -4,10 +4,10 @@
 //! the engine-derived evidence write-back. Deterministic: every clock is an
 //! argument.
 
-use eg_types::epistemic_operations::{
+use medulla_types::epistemic_operations::{
     ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion, ClaimWorkItemResult,
 };
-use eg_types::work_market::{
+use medulla_types::work_market::{
     evidence_digest, gap_work_item_id, BlastRadius, GapEvidenceInput, GapListRequest,
     GapSettleOutcome, GapSettleRequest, GapSettled, GapStatus, GapTransitionOutcome,
     GapTransitionRequest, GapTransitionTarget, GapTransitioned, GapUpsertOutcome, GapUpsertRequest,
@@ -99,7 +99,7 @@ fn settle(shard: &Shard, tag: &str, tenant: &str, now_ms: u64) -> GapSettled {
     )
 }
 
-fn read(shard: &Shard, tenant: &str) -> Option<eg_types::work_market::GapView> {
+fn read(shard: &Shard, tenant: &str) -> Option<medulla_types::work_market::GapView> {
     read_gap(shard, GRAPH, tenant, GAP, DurableCrypto::none()).unwrap()
 }
 
@@ -341,7 +341,7 @@ fn a_completed_item_writes_its_evidence_back_to_the_gap() {
 fn generic_writers_cannot_touch_a_gap_row() {
     let temp = open("market-guard");
     upserted(&temp.shard, "create", upsert("tenant-a", &["e1"]), 1_000);
-    let key = eg_types::work_market::gap_row_key("tenant-a", GAP);
+    let key = medulla_types::work_market::gap_row_key("tenant-a", GAP);
     let remove = Method::RemoveNode { node_id: key };
     let refused = super::super::test_shard::with_nodes(&temp.shard, "remove", |nodes| {
         Ok(super::super::refuse_generic_native_row_write(

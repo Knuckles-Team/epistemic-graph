@@ -1,4 +1,4 @@
-# epistemic-graph constitution
+# medulla constitution
 
 Status: PROPOSED. Drafted: 2026-09-28. Version: 0.1.0. Specification index: [specs/README.md](../../specs/README.md).
 

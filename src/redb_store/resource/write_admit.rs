@@ -61,9 +61,9 @@ pub(crate) fn resource_admit_check_index_gates(
     graph: &str,
     request: &ResourceReservationRequest,
     host: &DurableResourceHost,
-    anti_affinity: &eg_storage::ScopedOwnerTableMut<'_, (&str, &str, &str), u64>,
-    concurrency: &eg_storage::ScopedOwnerTableMut<'_, (&str, &str), u64>,
-    exclusivity: &eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &str>,
+    anti_affinity: &medulla_storage::ScopedOwnerTableMut<'_, (&str, &str, &str), u64>,
+    concurrency: &medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), u64>,
+    exclusivity: &medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &str>,
 ) -> Result<Option<ResourceReservationResult>, String> {
     for tag in &request.anti_affinity {
         let count = anti_affinity
@@ -156,7 +156,7 @@ pub(crate) fn resource_admit_check_disk(
 
 /// Persist one disk-policy row for `disk_key`.
 pub(crate) fn resource_put_disk_policy(
-    disk_policies: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    disk_policies: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     graph: &str,
     disk_key: &str,
     policy: &DurableResourceDiskPolicy,
@@ -175,7 +175,7 @@ pub(crate) fn resource_admit_apply_disk_policy(
     host: &DurableResourceHost,
     disk_key: &str,
     existing_policy: Option<&DurableResourceDiskPolicy>,
-    disk_policies: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    disk_policies: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<ResourceReservationResult>, String> {
     let predicted_used = host

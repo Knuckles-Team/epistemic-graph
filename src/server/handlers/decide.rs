@@ -39,7 +39,7 @@ mod stat_evaluator;
 mod stat_executor;
 #[cfg(feature = "decide")]
 mod stat_generation;
-// EG-DECISION-ENGINE-R803: the contrastive harness composition decision.
+// MEDULLA-DECISION-ENGINE-R803: the contrastive harness composition decision.
 #[cfg(feature = "decide")]
 mod stat_harness_contrast;
 #[cfg(feature = "decide")]
@@ -65,7 +65,7 @@ mod stat_slate;
 mod stat_slate_attribution;
 #[cfg(feature = "decide")]
 mod stat_support;
-// EG-DECISION-ENGINE-R045: the smallest covering tool subset within a
+// MEDULLA-DECISION-ENGINE-R045: the smallest covering tool subset within a
 // context-token budget.
 #[cfg(feature = "decide")]
 mod stat_task_plan;
@@ -143,7 +143,7 @@ pub(crate) async fn read_only_relations(
 pub(crate) async fn decision_source(
     state: &SharedState,
     authority: &crate::server::access::CarrierAuthority,
-) -> Option<std::sync::Arc<dyn eg_plan::exec::DecisionSource>> {
+) -> Option<std::sync::Arc<dyn medulla_plan::exec::DecisionSource>> {
     let views = stat_view::DecisionViews::served(state, authority).await?;
-    Some(views as std::sync::Arc<dyn eg_plan::exec::DecisionSource>)
+    Some(views as std::sync::Arc<dyn medulla_plan::exec::DecisionSource>)
 }

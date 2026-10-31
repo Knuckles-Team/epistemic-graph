@@ -81,7 +81,7 @@ fn spans_are_stamped_and_a_foreign_tenant_refuses_the_request() {
         if let Some(tenant) = tenant {
             attributes.insert(TENANT_ATTRIBUTE.to_string(), tenant.to_string());
         }
-        eg_tsdb::traces::Span {
+        medulla_tsdb::traces::Span {
             trace_id: "t".into(),
             span_id: "s".into(),
             attributes,
@@ -120,7 +120,7 @@ fn series_are_stamped_and_a_foreign_tenant_refuses_the_request() {
     let mut request = WriteRequest {
         timeseries: vec![
             series(&[("__name__", "up")]),
-            series(&[("eg_tenant", "homelab")]),
+            series(&[("medulla_tenant", "homelab")]),
         ],
     };
     stamp_series(&mut request, "homelab").unwrap();
@@ -134,7 +134,7 @@ fn series_are_stamped_and_a_foreign_tenant_refuses_the_request() {
         assert_eq!(tenants[0].value, "homelab");
     }
     let mut forged = WriteRequest {
-        timeseries: vec![series(&[("eg_tenant", "other")])],
+        timeseries: vec![series(&[("medulla_tenant", "other")])],
     };
     assert!(stamp_series(&mut forged, "homelab").is_err());
 }

@@ -1,4 +1,4 @@
-//! D-CDX-65 startup-readiness instrumentation proof (CONCEPT:EG-KG.backend.sharded-k-way-durable).
+//! D-CDX-65 startup-readiness instrumentation proof (CONCEPT:MEDULLA-KG.backend.sharded-k-way-durable).
 //!
 //! The live incident this item tracks: a served rollout acquired the single-writer
 //! lock, logged "K=4 graph-<n>.redb files", then emitted NOTHING for 5m27s before the
@@ -31,9 +31,9 @@
 
 use std::sync::{Arc, Mutex};
 
-use epistemic_graph::protocol::Method;
-use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-use epistemic_graph::server::persistence::PersistenceBackend;
+use medulla::protocol::Method;
+use medulla::server::persistence::redb_backend::RedbBackend;
+use medulla::server::persistence::PersistenceBackend;
 
 /// Node count per graph and payload size, tuned to produce multi-hundred-MB shard
 /// files in a few minutes of setup time — representative in SHAPE (multiple
@@ -51,7 +51,7 @@ const CONCURRENT_WRITES: usize = 64;
 
 fn unique_dir(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
-        "eg-dcdx65-{tag}-{}-{}",
+        "medulla-dcdx65-{tag}-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -102,13 +102,13 @@ where
 fn measure_concurrent_vs_sequential_shard_open_d_cdx_65() {
     use tracing_subscriber::layer::SubscriberExt;
 
-    std::env::set_var("EPISTEMIC_GRAPH_REDB_SHARDS", "4");
+    std::env::set_var("MEDULLA_REDB_SHARDS", "4");
 
     // The synthetic-store build (hundreds of MB of durable writes) is the expensive
     // part of this measurement (real elapsed time, not the open call under test); allow
-    // reusing an already-built store from a prior run via EG_DCDX65_REUSE_DIR so a
+    // reusing an already-built store from a prior run via MEDULLA_DCDX65_REUSE_DIR so a
     // subscriber-wiring fix doesn't force paying for it twice.
-    let reuse = std::env::var("EG_DCDX65_REUSE_DIR").ok();
+    let reuse = std::env::var("MEDULLA_DCDX65_REUSE_DIR").ok();
     let dir = reuse
         .as_ref()
         .map(std::path::PathBuf::from)
@@ -116,7 +116,7 @@ fn measure_concurrent_vs_sequential_shard_open_d_cdx_65() {
     let dir_s = dir.to_string_lossy().to_string();
     let built_fresh = reuse.is_none();
 
-    // ── Build a K=4 synthetic store: four differently-sized graphs so EG-026 hash
+    // ── Build a K=4 synthetic store: four differently-sized graphs so MEDULLA-026 hash
     // routing spreads them (unevenly, like production's 532MB/5GB/4GB/1.2GB) across
     // the four shard files. ──
     let build_start = std::time::Instant::now();
@@ -253,5 +253,5 @@ fn measure_concurrent_vs_sequential_shard_open_d_cdx_65() {
     );
 
     let _ = std::fs::remove_dir_all(&dir);
-    std::env::remove_var("EPISTEMIC_GRAPH_REDB_SHARDS");
+    std::env::remove_var("MEDULLA_REDB_SHARDS");
 }

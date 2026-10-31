@@ -1,8 +1,8 @@
-"""Engine-side response-size guard (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation)
+"""Engine-side response-size guard (CONCEPT:MEDULLA-KG.ingest.resets-socket-so-assimilation)
 — round trip.
 
 The unbounded ``GetNodes`` full-graph dump is refused once the graph exceeds the
-``EPISTEMIC_GRAPH_MAX_RESPONSE_NODES`` cap: the engine returns a typed
+``MEDULLA_MAX_RESPONSE_NODES`` cap: the engine returns a typed
 ``RESULT_TOO_LARGE`` error (NOT a gigabyte payload, NOT a dropped connection),
 which the Python client surfaces as a catchable :class:`ResultTooLargeError`.
 
@@ -27,16 +27,16 @@ from conftest import (
     strict_server_env,
 )
 
-from epistemic_graph.client import ResultTooLargeError, SyncEpistemicGraphClient
+from medulla.client import ResultTooLargeError, SyncMedullaClient
 
-_SECRET = "test-epistemic-graph-secret"
+_SECRET = "test-medulla-secret"
 _CAP = 2
 
 
 @pytest.fixture(scope="module")
 def capped_server(tmp_path_factory: pytest.TempPathFactory):
     rust_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    runtime = tmp_path_factory.mktemp("eg-guard")
+    runtime = tmp_path_factory.mktemp("medulla-guard")
     sock = str(runtime / "capped.sock")
 
     # `persist_dir` MUST be passed through to `strict_server_env` explicitly.
@@ -47,7 +47,7 @@ def capped_server(tmp_path_factory: pytest.TempPathFactory):
     # run. Omitting `persist_dir` here means `env = {**os.environ, **strict_
     # server_env(...)}` silently inherits that ambient value instead of this
     # module's own, and the dedicated server then refuses to start ("persist dir
-    # ... is already locked by another epistemic-graph engine") because the
+    # ... is already locked by another medulla engine") because the
     # still-running session engine already holds that directory's lock -- the
     # exact ambient-global-state class this repo's AGENTS.md (GOC-70) calls out.
     persist_dir = str(runtime / "persist")
@@ -59,9 +59,9 @@ def capped_server(tmp_path_factory: pytest.TempPathFactory):
             auth_secret=_SECRET,
             persist_dir=persist_dir,
         ),
-        "EPISTEMIC_GRAPH_MAX_RESPONSE_NODES": str(_CAP),
+        "MEDULLA_MAX_RESPONSE_NODES": str(_CAP),
     }
-    # Prefer the shared `EPISTEMIC_GRAPH_TEST_BINARY` (see conftest.py's
+    # Prefer the shared `MEDULLA_TEST_BINARY` (see conftest.py's
     # `_prebuilt_test_binary()`) so this module never pays for its own `cargo
     # build`/`cargo run` compile when a caller already has a matching binary.
     prebuilt = _prebuilt_test_binary()
@@ -82,7 +82,7 @@ def capped_server(tmp_path_factory: pytest.TempPathFactory):
             # always a safe substitute for `full` alone.
             "full viz-static-export",
             "--bin",
-            "epistemic-graph-server",
+            "medulla-server",
             "--",
             "--socket-path",
             sock,
@@ -100,8 +100,8 @@ def capped_server(tmp_path_factory: pytest.TempPathFactory):
                 break
             time.sleep(0.5)
         else:
-            pytest.fail("capped epistemic-graph-server did not come up")
-        bootstrap = SyncEpistemicGraphClient.connect(
+            pytest.fail("capped medulla-server did not come up")
+        bootstrap = SyncMedullaClient.connect(
             socket_path=sock,
             auth_secret=_SECRET,
             verified_context=bootstrap_context(),
@@ -121,7 +121,7 @@ def capped_server(tmp_path_factory: pytest.TempPathFactory):
 
 
 def test_under_cap_returns_data(capped_server: str) -> None:
-    client = SyncEpistemicGraphClient.connect(
+    client = SyncMedullaClient.connect(
         socket_path=capped_server,
         graph_name="guard:under",
         auth_secret=_SECRET,
@@ -135,7 +135,7 @@ def test_under_cap_returns_data(capped_server: str) -> None:
 
 
 def test_over_cap_raises_result_too_large(capped_server: str) -> None:
-    client = SyncEpistemicGraphClient.connect(
+    client = SyncMedullaClient.connect(
         socket_path=capped_server,
         graph_name="guard:over",
         auth_secret=_SECRET,

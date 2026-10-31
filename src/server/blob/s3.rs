@@ -1,4 +1,4 @@
-//! S3 / MinIO content-addressed chunk backend (CONCEPT:EG-KG.storage.blob-namespace) — feature `blob-s3`.
+//! S3 / MinIO content-addressed chunk backend (CONCEPT:MEDULLA-KG.storage.blob-namespace) — feature `blob-s3`.
 //!
 //! The fleet/billions-scale answer behind the SAME [`ChunkStore`] trait: chunk
 //! bytes go to an object store (native multipart, lifecycle, replication, erasure
@@ -12,8 +12,8 @@
 //! build links no object-store SDK. The `blob` feature alone gives the native
 //! redb-CAS; `blob-s3` is an explicit opt-in for object-store deployments.
 //!
-//! Configuration (read at open): `EPISTEMIC_GRAPH_BLOB_S3_BUCKET` (required),
-//! `EPISTEMIC_GRAPH_BLOB_S3_PREFIX` (default `cas/chunks`). Endpoint/credentials
+//! Configuration (read at open): `MEDULLA_BLOB_S3_BUCKET` (required),
+//! `MEDULLA_BLOB_S3_PREFIX` (default `cas/chunks`). Endpoint/credentials
 //! come from the standard AWS env (`AWS_ENDPOINT`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`,
 //! `AWS_SECRET_ACCESS_KEY`) — set `AWS_ENDPOINT` to a MinIO URL for MinIO.
 
@@ -46,10 +46,10 @@ impl S3ChunkStore {
     /// Open the object-store CAS. `persist_dir` holds the redb sidecar (manifests +
     /// refcounts); the chunk bytes go to the configured bucket.
     pub fn open(persist_dir: &str) -> Result<Self, String> {
-        let bucket = std::env::var("EPISTEMIC_GRAPH_BLOB_S3_BUCKET")
-            .map_err(|_| "EPISTEMIC_GRAPH_BLOB_S3_BUCKET is required for the blob-s3 backend")?;
+        let bucket = std::env::var("MEDULLA_BLOB_S3_BUCKET")
+            .map_err(|_| "MEDULLA_BLOB_S3_BUCKET is required for the blob-s3 backend")?;
         let prefix =
-            std::env::var("EPISTEMIC_GRAPH_BLOB_S3_PREFIX").unwrap_or_else(|_| "cas/chunks".into());
+            std::env::var("MEDULLA_BLOB_S3_PREFIX").unwrap_or_else(|_| "cas/chunks".into());
         let store = AmazonS3Builder::from_env()
             .with_bucket_name(bucket)
             .build()

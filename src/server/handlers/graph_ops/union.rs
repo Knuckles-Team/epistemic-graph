@@ -2,7 +2,7 @@ use super::*;
 
 use super::terminal::GraphOpsContext;
 
-/// Resolve a cross-graph union read's graph set to their cores (CONCEPT:EG-KG.query.cross-graph-union).
+/// Resolve a cross-graph union read's graph set to their cores (CONCEPT:MEDULLA-KG.query.cross-graph-union).
 ///
 /// Access-checks each graph as Read, clones the `Arc<GraphCore>`s, and holds only
 /// the registry read lock for the resolution — the per-graph topology locks are
@@ -57,7 +57,7 @@ async fn handle_union_get_node_properties(
     let props = cores.iter().find_map(|c| c.get_node_properties(&node_id));
     Response::ok(
         req_id,
-        ResultPayload::of_encoded_or_null::<eg_types::result_contract::graph::UnionGetNodeProperties>(
+        ResultPayload::of_encoded_or_null::<medulla_types::result_contract::graph::UnionGetNodeProperties>(
             props,
         ),
     )
@@ -100,10 +100,10 @@ async fn handle_diff_against(
     let other_snap = { other_core.analysis_snapshot() };
     let g1 = &**core;
     let diff_str = g1.diff_against(&other_snap);
-    match serde_json::from_str::<eg_types::types::GraphDiff>(&diff_str) {
+    match serde_json::from_str::<medulla_types::types::GraphDiff>(&diff_str) {
         Ok(diff) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::graph::DiffAgainst>(diff),
+            ResultPayload::of::<medulla_types::result_contract::graph::DiffAgainst>(diff),
         ),
         Err(e) => Response::err(req_id, e.to_string()),
     }
@@ -126,7 +126,7 @@ async fn handle_union_get_nodes_by_label(
     let nodes = union_dedup_nodes_by_label(&cores, &label, limit);
     Response::ok(
         req_id,
-        ResultPayload::scalar::<eg_types::result_contract::graph::UnionGetNodesByLabel>(nodes),
+        ResultPayload::scalar::<medulla_types::result_contract::graph::UnionGetNodesByLabel>(nodes),
     )
 }
 
@@ -148,7 +148,7 @@ fn union_dedup_nodes_by_label(
             if !seen.insert(k.clone()) {
                 continue;
             }
-            let val = eg_types::msgpack::decode_property_value(&p).unwrap_or(serde_json::json!({}));
+            let val = medulla_types::msgpack::decode_property_value(&p).unwrap_or(serde_json::json!({}));
             nodes.push((k, val));
             if limit != 0 && nodes.len() >= limit {
                 return nodes;
@@ -241,7 +241,7 @@ pub(super) async fn try_handle_subgraph_comparison(
         Method::DiffAgainst { other_graph } => {
             handle_diff_against(state, req_id, read_authority, core, other_graph).await
         }
-        // CompactNodesByType (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED
+        // CompactNodesByType (CONCEPT:MEDULLA-P0-2 bypass guard, L11): GATEWAY_ROUTED
         // — see the AddNode/RemoveNode comment above.
         Method::CompactNodesByType { .. } => unreachable!(
             "CompactNodesByType is mutation::GATEWAY_ROUTED; dispatch_graph_op must \

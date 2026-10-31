@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R043: write-back proposals routed through `Decide`.
+//! MEDULLA-DECISION-ENGINE-R043: write-back proposals routed through `Decide`.
 //! The decision ladder can produce a write-back proposal with supporting
 //! evidence for a connector action, but the proposal never authorizes the
 //! write itself; any exploration or statistical head behind it stays outside
@@ -22,7 +22,7 @@ fn connector_write_back_request(schema: &ComponentDependency) -> DecideRequest {
     asked
 }
 
-// spec: EG-DECISION-ENGINE-R043
+// spec: MEDULLA-DECISION-ENGINE-R043
 #[tokio::test]
 async fn a_write_back_proposal_has_no_external_effect_until_separately_authorized() {
     let h = Harness::new().await;

@@ -5,14 +5,14 @@
 //! changes the retained record, receipt, and visibility pointer in one admitted
 //! owner transaction guarded by an exact-head CAS.
 
-use eg_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
-use eg_types::connector_pack::{
+use medulla_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
+use medulla_types::connector_pack::{
     McpCatalogSnapshotBinding, PackHeadRef, PackImportReceipt, PackImportRecord, PackImportResult,
     PackProjectionState, CONNECTOR_PACK_RESULT_SCHEMA_ID,
 };
-use eg_types::contract::{Digest256, ResourceId};
-use eg_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
-use eg_types::protocol::Method;
+use medulla_types::contract::{Digest256, ResourceId};
+use medulla_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
+use medulla_types::protocol::Method;
 use redb::ReadableTable;
 
 use super::admitted::{PackOwnerWrite, PackWriteEffects, PackWriteIdentity};
@@ -22,7 +22,7 @@ use crate::server::persistence::agent_library::AgentLibraryStore;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PackProjectionBody {
     pub(crate) uri: String,
-    pub(crate) kind: eg_types::connector_pack::PackEntryKind,
+    pub(crate) kind: medulla_types::connector_pack::PackEntryKind,
     pub(crate) body_sha256: Digest256,
     pub(crate) engine_manifest_digest: String,
     pub(crate) length: u64,
@@ -37,7 +37,7 @@ pub(crate) struct ConnectorPackProjectionPlan {
     pub(crate) record_id: String,
     pub(crate) bodies: Vec<PackProjectionBody>,
     /// Held declarations pinned to the current tenant/head, never executable bindings.
-    pub(crate) source_registrations: Vec<eg_types::connector_pack::PackSourceRegistration>,
+    pub(crate) source_registrations: Vec<medulla_types::connector_pack::PackSourceRegistration>,
 }
 
 impl AgentLibraryStore {
@@ -46,12 +46,12 @@ impl AgentLibraryStore {
         tenant_id: &str,
         connector: &ResourceId,
     ) -> Result<ConnectorPackProjectionPlan, String> {
-        eg_types::agent_library::validate_key(tenant_id, connector.as_str())?;
+        medulla_types::agent_library::validate_key(tenant_id, connector.as_str())?;
         let read = self.read()?;
-        let heads = read.open_owner_table(eg_storage::CONNECTOR_PACK_HEADS)?;
-        let imports = read.open_owner_table(eg_storage::CONNECTOR_PACK_IMPORTS)?;
-        let members = read.open_owner_table(eg_storage::CONNECTOR_PACK_MEMBERS)?;
-        let holders = read.open_owner_table(eg_storage::CONNECTOR_PACK_BODY_HOLDERS)?;
+        let heads = read.open_owner_table(medulla_storage::CONNECTOR_PACK_HEADS)?;
+        let imports = read.open_owner_table(medulla_storage::CONNECTOR_PACK_IMPORTS)?;
+        let members = read.open_owner_table(medulla_storage::CONNECTOR_PACK_MEMBERS)?;
+        let holders = read.open_owner_table(medulla_storage::CONNECTOR_PACK_BODY_HOLDERS)?;
         let head = heads
             .get((tenant_id, connector.as_str()))
             .map_err(|error| error.to_string())?
@@ -89,8 +89,8 @@ impl AgentLibraryStore {
             )?;
             if !matches!(
                 member.kind,
-                eg_types::connector_pack::PackEntryKind::Ontology
-                    | eg_types::connector_pack::PackEntryKind::Shapes
+                medulla_types::connector_pack::PackEntryKind::Ontology
+                    | medulla_types::connector_pack::PackEntryKind::Shapes
             ) || member.lifecycle != AgentLibraryLifecycle::Published
             {
                 continue;
@@ -276,7 +276,7 @@ fn valid_projection_code(code: &str) -> bool {
 }
 
 fn valid_failure_detail(detail: &str) -> bool {
-    detail.len() <= eg_types::connector_pack::MAX_PROJECTION_FAILURE_DETAIL_BYTES
+    detail.len() <= medulla_types::connector_pack::MAX_PROJECTION_FAILURE_DETAIL_BYTES
         && !detail.chars().any(char::is_control)
 }
 
@@ -317,7 +317,7 @@ fn apply_projection_rows(
 ) -> Result<PackImportReceipt, String> {
     let tenant = plan.tenant_id.as_str();
     let connector = plan.connector.as_str();
-    let mut heads = write.open_table(eg_storage::CONNECTOR_PACK_HEADS)?;
+    let mut heads = write.open_table(medulla_storage::CONNECTOR_PACK_HEADS)?;
     let current = heads
         .get((tenant, connector))
         .map_err(|error| error.to_string())?
@@ -332,7 +332,7 @@ fn apply_projection_rows(
     {
         return Err("PACK_PLAN_STALE: connector pack head changed".into());
     }
-    let mut imports = write.open_table(eg_storage::CONNECTOR_PACK_IMPORTS)?;
+    let mut imports = write.open_table(medulla_storage::CONNECTOR_PACK_IMPORTS)?;
     let current = imports
         .get((tenant, connector, plan.head.binding_revision))
         .map_err(|error| error.to_string())?
@@ -348,14 +348,14 @@ fn apply_projection_rows(
     if matches!(projection, PackProjectionState::Applied { .. }) {
         head.head.visible_record_id = Some(plan.record_id.clone());
     }
-    let record_bytes = eg_storage::encode_bounded(&record, "connector pack import record")?;
+    let record_bytes = medulla_storage::encode_bounded(&record, "connector pack import record")?;
     imports
         .insert(
             (tenant, connector, plan.head.binding_revision),
             record_bytes.as_slice(),
         )
         .map_err(|error| error.to_string())?;
-    let head_bytes = eg_storage::encode_bounded(&head, "connector pack head")?;
+    let head_bytes = medulla_storage::encode_bounded(&head, "connector pack head")?;
     heads
         .insert((tenant, connector), head_bytes.as_slice())
         .map_err(|error| error.to_string())?;
@@ -365,11 +365,11 @@ fn apply_projection_rows(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_types::agent_component::{AgentComponentKind, ComponentDependency};
-    use eg_types::connector_pack::{
+    use medulla_types::agent_component::{AgentComponentKind, ComponentDependency};
+    use medulla_types::connector_pack::{
         PackArchiveFacts, PackProducer, PackServerRecord, PACK_IMPORT_RECORD_SCHEMA_VERSION,
     };
-    use eg_types::contract::BoundedVec;
+    use medulla_types::contract::BoundedVec;
 
     use crate::server::persistence::connector_pack::commit::ConnectorPackCommitPlan;
 
@@ -453,17 +453,17 @@ mod tests {
     fn ledger_shape(store: &AgentLibraryStore, tenant_id: &str) -> (u64, usize, usize) {
         let owner = store.scope_handle(tenant_id).unwrap();
         let read = store.kernel.read_scope(&owner).unwrap();
-        let batches = eg_transaction::read_batches(&read).unwrap();
+        let batches = medulla_transaction::read_batches(&read).unwrap();
         let outbox = batches
             .iter()
             .map(|record| {
-                eg_transaction::read_outbox(&read, &record.batch.batch_id)
+                medulla_transaction::read_outbox(&read, &record.batch.batch_id)
                     .unwrap()
                     .len()
             })
             .sum();
         (
-            eg_transaction::version(&read).unwrap(),
+            medulla_transaction::version(&read).unwrap(),
             batches.len(),
             outbox,
         )

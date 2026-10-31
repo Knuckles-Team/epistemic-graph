@@ -311,7 +311,7 @@ pub struct MarkingDef {
     pub name: String,
     /// Mirrors au's `Marking.requires_audit` — carried through for CA-26's own
     /// audit-trail decisions; this lane does not itself audit anything on the
-    /// strength of this flag (see `eg_capabilities::policy`'s `audited: false`
+    /// strength of this flag (see `medulla_capabilities::policy`'s `audited: false`
     /// on the authenticated HTTP export surface).
     pub requires_audit: bool,
 }
@@ -479,7 +479,7 @@ fn compute_epoch(
     markings: &BTreeMap<String, MarkingPolicyEntry>,
 ) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"eg-policy-bundle-epoch-v1\0");
+    hasher.update(b"medulla-policy-bundle-epoch-v1\0");
     hasher.update(tenant.as_bytes());
     hasher.update(b"\0");
     let mut sorted_graphs: Vec<&str> = graphs.iter().map(String::as_str).collect();
@@ -961,12 +961,12 @@ mod tests {
             }
         });
         assert!(
-            serde_json::from_value::<eg_types::protocol::Method>(removed.clone()).is_err(),
+            serde_json::from_value::<medulla_types::protocol::Method>(removed.clone()).is_err(),
             "the duplicate PolicyExport MessagePack method must stay deleted"
         );
         let packed = rmp_serde::to_vec_named(&removed).expect("encode removed body");
         assert!(
-            rmp_serde::from_slice::<eg_types::protocol::Method>(&packed).is_err(),
+            rmp_serde::from_slice::<medulla_types::protocol::Method>(&packed).is_err(),
             "the msgpack path must reject the deleted field as well as the JSON path"
         );
     }
@@ -1010,7 +1010,7 @@ mod tests {
         // Reuse the OIDC test-only RSA signer while exercising a distinct
         // issuer and key id for this policy-bundle proof.
         const ISSUER: &str = "https://identity.example.test/realms/homelab";
-        const AUDIENCE: &str = "epistemic-graph";
+        const AUDIENCE: &str = "medulla";
         const KID: &str = "ca16-test-kid-1";
 
         fn validator() -> crate::server::oidc::JwtValidator {
@@ -1039,7 +1039,7 @@ mod tests {
                     "exp": now() + 300,
                     "tenant_id": "tenant-a",
                     "realm_access": {"roles": ["kg-reader"]},
-                    "resource_access": {"epistemic-graph": {"roles": ["kg:read"]}},
+                    "resource_access": {"medulla": {"roles": ["kg:read"]}},
                     "scope": "kg:read kg:write",
                 }),
             );

@@ -24,10 +24,10 @@ with the connection guide, then jump straight to the surface the operator needs.
 
 | Page | What it covers |
 |---|---|
-| [Vector / ANN](vector.md) | A native, pure-Rust approximate-nearest-neighbour index (`eg-ann`) as the `SemanticStore` backend — IVF-PQ, OPQ, SQ8, HNSW, exact/flat. |
-| [Time-series](timeseries.md) | A native, redb-backed time-series store (`eg-tsdb`) with ASOF joins, gap-fill, OHLC, decay, and SQL window frames. |
+| [Vector / ANN](vector.md) | A native, pure-Rust approximate-nearest-neighbour index (`medulla-ann`) as the `SemanticStore` backend — IVF-PQ, OPQ, SQ8, HNSW, exact/flat. |
+| [Time-series](timeseries.md) | A native, redb-backed time-series store (`medulla-tsdb`) with ASOF joins, gap-fill, OHLC, decay, and SQL window frames. |
 | [Key-value, embedded & blob](kv_blob.md) | The embedded in-process engine (the SQLite-style edge path), the content-addressed blob store, and the generic key-value surface. |
-| [GIS / Spatial](gis.md) | A native geospatial modality (`eg-geo`, pure-Rust, no GEOS/PROJ) with CRS/reprojection, an R-tree, and routing/isochrones/TSP. |
+| [GIS / Spatial](gis.md) | A native geospatial modality (`medulla-geo`, pure-Rust, no GEOS/PROJ) with CRS/reprojection, an R-tree, and routing/isochrones/TSP. |
 
 ## Messaging, caching & observability
 

@@ -142,7 +142,7 @@ async fn qos_verification_rejects_unsigned_agent_before_admission() {
     assert_eq!(scheduler.stats().in_flight, 0);
 }
 
-// spec: EG-CONTRACT-R014.1
+// spec: MEDULLA-CONTRACT-R014.1
 #[tokio::test]
 async fn qos_verification_names_the_audience_mismatch_cause() {
     use super::super::auth::{compute_verified_envelope_token, VerifiedEnvelopeParams};
@@ -161,7 +161,7 @@ async fn qos_verification_names_the_audience_mismatch_cause() {
         agent_id: "svc:connector".to_string(),
         tenant: "tenant-shared".to_string(),
         // A client configured for another audience than this deployment's.
-        audience: "epistemic-graph".to_string(),
+        audience: "medulla".to_string(),
         policy_version: "policy-test".to_string(),
         scopes: vec!["graph:read".to_string()],
         ..RequestContextClaims::default()
@@ -184,7 +184,7 @@ async fn qos_verification_names_the_audience_mismatch_cause() {
     assert_eq!(
         response.error_detail.as_deref(),
         Some(
-            "request context audience does not match deployment (expected 'epistemic-graph-test')"
+            "request context audience does not match deployment (expected 'medulla-test')"
         )
     );
     assert_eq!(scheduler.stats().in_flight, 0);
@@ -205,7 +205,7 @@ fn conn_guard_refcounts() {
 
 #[test]
 fn encode_frame_is_len_prefixed_and_decodes() {
-    // CONCEPT:EG-KG.backend.framed-response — a framed response is `4-byte BE len ++ MessagePack body`,
+    // CONCEPT:MEDULLA-KG.backend.framed-response — a framed response is `4-byte BE len ++ MessagePack body`,
     // and the body round-trips back to the same id/result so the client can
     // demux it out of order.
     let resp = Response::ok(42, crate::protocol::ResultPayload::String("pong".into()));
@@ -278,7 +278,7 @@ fn socket_mode_refuses_garbage_and_out_of_range() {
 #[cfg(any(unix, feature = "server-tls"))]
 fn unique_socket_path(base: &std::path::Path, label: &str) -> std::path::PathBuf {
     base.join(format!(
-        "epistemic-graph-{label}-{}-{}.sock",
+        "medulla-{label}-{}-{}.sock",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -368,7 +368,7 @@ async fn uds_setup_keeps_current_thread_responsive_and_shutdown_cancels_accept()
 }
 
 #[cfg(unix)]
-// spec: EG-CONTRACT-R025
+// spec: MEDULLA-CONTRACT-R025
 #[tokio::test(flavor = "current_thread")]
 async fn uds_setup_propagates_bind_errors_without_entering_accept_loop() {
     let missing_parent = unique_socket_path(std::path::Path::new(UDS_TEST_BASE), "missing-parent");
@@ -498,7 +498,7 @@ async fn tls_prepare_keeps_missing_material_errors_private() {
 
 #[test]
 fn per_connection_limit_is_bounded_and_positive() {
-    // CONCEPT:EG-KG.backend.framed-response — the per-connection in-flight cap auto-sizes from cores
+    // CONCEPT:MEDULLA-KG.backend.framed-response — the per-connection in-flight cap auto-sizes from cores
     // but is always clamped so one connection can neither stall (floor) nor
     // spawn unbounded work (ceiling).
     let n = per_connection_inflight_limit();
@@ -507,7 +507,7 @@ fn per_connection_limit_is_bounded_and_positive() {
 
 #[test]
 fn dispatch_deadline_is_bounded_and_positive() {
-    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — the hard dispatch ceiling
+    // CONCEPT:MEDULLA-KG.coordination.backpressure-busy-signal — the hard dispatch ceiling
     // always resolves to a finite, positive duration, so "no bound at all" is not a
     // reachable configuration.
     let d = dispatch_deadline();
@@ -722,7 +722,7 @@ fn recover_request_id_reads_the_id_of_an_otherwise_undecodable_request() {
     // answered under a synthetic id `0`, which the Python client's
     // `_pending` map never has a future for — the response is dropped and
     // the caller starves out its whole timeout/retry budget instead of
-    // seeing the error immediately (see `epistemic_graph/client.py`
+    // seeing the error immediately (see `medulla/client.py`
     // `_read_loop`). The id must still be recoverable from the same bytes
     // that failed to decode as a full `Request`.
     let payload = rmp_serde::to_vec_named(&serde_json::json!({
@@ -773,7 +773,7 @@ fn trigger_latches() {
     assert!(coord.is_requested());
 }
 
-// ── CONCEPT:EG-KG.coordination.reserved-read-lane — reserved read-lane admission guarantee ──────────────────
+// ── CONCEPT:MEDULLA-KG.coordination.reserved-read-lane — reserved read-lane admission guarantee ──────────────────
 
 /// A read MUST stay admittable when the global pool AND the per-graph cap are
 /// fully saturated by writes — it falls back to the reserved read lane — while a

@@ -1,4 +1,4 @@
-# Cost model & capacity planning (CONCEPT:EG-KG.compute.lane-v, Lane V)
+# Cost model & capacity planning (CONCEPT:MEDULLA-KG.compute.lane-v, Lane V)
 
 > **Evidence status:** runtime budget enforcement is `IMPLEMENTED`; focused
 > source fixtures are `UNIT-PROVEN` where named below. Capacity examples are
@@ -38,10 +38,10 @@ The budget enforcer (`src/cost.rs::enforce_memory_budgets`) runs a periodic swee
    its **fair share** `global_ceiling / active_tenants` — reclaim its **coldest** graphs
    (fewest nodes first, preserving the hot working set):
    - **Evict** the graph's LRU nodes, durability-gated (a node is dropped from RAM only
-     after redb confirms it on disk — reuses the EG-KG.storage.read-through-seam-exercised no-loss gate). An evicted node
+     after redb confirms it on disk — reuses the MEDULLA-KG.storage.read-through-seam-exercised no-loss gate). An evicted node
      still reads back through the read-through seam.
    - If still resident and still over budget, **hibernate** the graph (`GraphCore::hibernate`,
-     EG-KG.storage.100m-tenant) — drop all its in-RAM state; the durable redb tier + read-through stay
+     MEDULLA-KG.storage.100m-tenant) — drop all its in-RAM state; the durable redb tier + read-through stay
      intact, so it rehydrates on access.
 3. The **global ceiling** caps total resident RAM; the **fair per-tenant cap** stops one hot
    tenant from consuming the whole ceiling and starving others.
@@ -53,9 +53,9 @@ not the durable tier).
 
 | Env var | Meaning | Default |
 |---------|---------|---------|
-| `EPISTEMIC_GRAPH_MEMORY_BUDGET` | Global resident-memory ceiling (`512m`, `2g`, or plain bytes). A positive explicit value may lower the automatic ceiling but is clamped to the cgroup-aware limit; `0`, negative, and malformed values reject startup. **There is no disable value.** | 40% of effective cgroup-aware RAM |
-| `EPISTEMIC_GRAPH_TENANT_BUDGET` | Optional positive per-tenant budget override; zero, negative, and malformed values reject startup. | = the global ceiling |
-| `EPISTEMIC_GRAPH_BUDGET_INTERVAL` | Sweep cadence, seconds; must be in the bounded `1..=3600` range. | 15 |
+| `MEDULLA_MEMORY_BUDGET` | Global resident-memory ceiling (`512m`, `2g`, or plain bytes). A positive explicit value may lower the automatic ceiling but is clamped to the cgroup-aware limit; `0`, negative, and malformed values reject startup. **There is no disable value.** | 40% of effective cgroup-aware RAM |
+| `MEDULLA_TENANT_BUDGET` | Optional positive per-tenant budget override; zero, negative, and malformed values reject startup. | = the global ceiling |
+| `MEDULLA_BUDGET_INTERVAL` | Sweep cadence, seconds; must be in the bounded `1..=3600` range. | 15 |
 
 The default auto-sizes from effective cgroup-aware memory, so a stock build on any host
 budgets sensibly with no tuning. Budgeting cannot be disabled by an environment override.
@@ -74,10 +74,10 @@ signals an autoscaler needs (also exported on the Prometheus `/metrics` endpoint
 | in-flight / queue depth | | | ✓ (`in_flight`, `inflight_permits_available`) |
 | eviction / hibernation rate | | | ✓ (`budget_evictions_total`, `budget_hibernations_total`) |
 
-Prometheus series: `epistemic_graph_graph_memory_bytes{graph}`,
-`epistemic_graph_graph_hibernated{graph}`, `epistemic_graph_budget_evictions_total`,
-`epistemic_graph_budget_hibernations_total`, plus the existing
-`epistemic_graph_in_flight_requests` / `epistemic_graph_inflight_permits_available`.
+Prometheus series: `medulla_graph_memory_bytes{graph}`,
+`medulla_graph_hibernated{graph}`, `medulla_budget_evictions_total`,
+`medulla_budget_hibernations_total`, plus the existing
+`medulla_in_flight_requests` / `medulla_inflight_permits_available`.
 
 **Scale-out trigger (typical autoscaler rule):** sustained `budget_evictions_total` rate > 0
 **and** `inflight_permits_available` near zero ⇒ the shard is memory- + admission-bound ⇒

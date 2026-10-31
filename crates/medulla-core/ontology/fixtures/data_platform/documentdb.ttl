@@ -1,0 +1,64 @@
+# documentdb store-mapping fixture (MEDULLA-DATAPLAT-VOCAB-R006.2).
+#
+# One attached DocumentDB (MongoDB-compatible) store. Collection listing is
+# served by the engine document-shape adapter (unified-data-plane R019.1) with
+# the list_collections MCP action as fallback; field presence comes from the
+# sampling aggregate (R004). contractKind is document-shape. Both mappings are
+# virtual: documents stay in the source, only the inferred shape is held
+# (decision 4).
+
+@prefix dp: <http://knuckles.team/kg/data-platform#> .
+@prefix vg: <http://knuckles.team/kg/virtual-graph#> .
+@prefix ex: <http://knuckles.team/kg/fixtures/data-platform/documentdb/> .
+
+ex:store a dp:DataStore ;
+    dp:storeFamily "document" .
+
+ex:contract a vg:MetadataContract ;
+    vg:contractSource <http://knuckles.team/kg/fixtures/data-platform/documentdb/connection> ;
+    vg:schemaVersion "1" ;
+    vg:contentDigest "sha256:c6a010547910e6e64a6f22ed81fe835dbd9c7fd87552f249be8420509b7f36c2" ;
+    vg:discoveredEntity "collections" ;
+    vg:discoveredEntity "document_fields" ;
+    vg:discoveredField "collection_name" ;
+    vg:discoveredField "document_count" ;
+    vg:discoveredField "field_path" ;
+    vg:discoveredField "field_type" ;
+    vg:discoveredField "presence_ratio" .
+
+ex:mapping_list_collections a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:Collection ;
+    vg:mapsEntity "collections" ;
+    vg:keyField "collection_name" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:documentCount ;
+        vg:field "document_count"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
+    dp:contractKind "document-shape" ;
+    dp:viaOperation "documentdb_collections:list_collections" ;
+    dp:accelerationMode "virtual" .
+
+ex:mapping_field_presence a dp:StoreMapping ;
+    vg:mapsContract ex:contract ;
+    vg:mapsOntologyClass dp:DocumentField ;
+    vg:mapsEntity "document_fields" ;
+    vg:keyField "field_path" ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:fieldType ;
+        vg:field "field_type"
+    ] ;
+    vg:hasPredicateFieldPair [
+        a vg:PredicateFieldPair ;
+        vg:predicate dp:presenceRatio ;
+        vg:field "presence_ratio"
+    ] ;
+    vg:approved true ;
+    dp:inStore ex:store ;
+    dp:contractKind "document-shape" ;
+    dp:viaOperation "documentdb_analysis:aggregate" ;
+    dp:accelerationMode "virtual" .

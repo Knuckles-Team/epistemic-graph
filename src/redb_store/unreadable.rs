@@ -1,4 +1,4 @@
-//! Typed unseal failures (EH-384, CONCEPT:EG-KG.storage.node-payload-scrub).
+//! Typed unseal failures (EH-384, CONCEPT:MEDULLA-KG.storage.node-payload-scrub).
 //!
 //! `DurableCrypto::unseal` reports why a stored value cannot be opened as a
 //! plain `String`, which is fine for a commit that is refused anyway but useless

@@ -17,17 +17,17 @@
 #[cfg(feature = "query")]
 use std::collections::BTreeMap;
 
-use eg_numeric::decision::candidate::CandidateView;
-use eg_types::agent_component::{AgentComponentEntry, AgentComponentSearchRequest};
-use eg_types::decision::statistical::declared::{check_declared, DeclaredOption};
-use eg_types::decision::statistical::enrichment_schedule::{
+use medulla_numeric::decision::candidate::CandidateView;
+use medulla_types::agent_component::{AgentComponentEntry, AgentComponentSearchRequest};
+use medulla_types::decision::statistical::declared::{check_declared, DeclaredOption};
+use medulla_types::decision::statistical::enrichment_schedule::{
     EnrichmentCandidate, EnrichmentScheduleRequest, COST_KEY, EXPECTED_VALUE_KEY,
 };
-use eg_types::decision::statistical::ingestion_lane::IngestionLaneRequest;
-use eg_types::decision::statistical::log::RecordVisibility;
-use eg_types::decision::statistical::retrieval_plan::RetrievalPlanKind;
-use eg_types::decision::statistical::{CandidateSource, QuestionKind, StatisticalErrorCode};
-use eg_types::decision::{CandidateSourceRecord, LibraryCandidateScope, MAX_ASSEMBLY_CANDIDATES};
+use medulla_types::decision::statistical::ingestion_lane::IngestionLaneRequest;
+use medulla_types::decision::statistical::log::RecordVisibility;
+use medulla_types::decision::statistical::retrieval_plan::RetrievalPlanKind;
+use medulla_types::decision::statistical::{CandidateSource, QuestionKind, StatisticalErrorCode};
+use medulla_types::decision::{CandidateSourceRecord, LibraryCandidateScope, MAX_ASSEMBLY_CANDIDATES};
 
 use super::stat_classes::{current_rules, derive, DerivedClasses};
 use super::stat_support::refusal;
@@ -94,7 +94,7 @@ fn under_root(entry: &AgentComponentEntry, derived: &DerivedClasses, root: Optio
         .classification
         .iter()
         .chain(derived_classes)
-        .any(|class| eg_types::agent_ontology::satisfies(class, root))
+        .any(|class| medulla_types::agent_ontology::satisfies(class, root))
 }
 
 fn read_library(
@@ -178,8 +178,8 @@ pub(super) fn library_candidates(
 
 /// Whether one plan stage only SELECTS rows of the already-filtered snapshot.
 #[cfg(feature = "query")]
-fn selects_only(op: &eg_types::wire::Op) -> bool {
-    use eg_types::wire::Op;
+fn selects_only(op: &medulla_types::wire::Op) -> bool {
+    use medulla_types::wire::Op;
     matches!(
         op,
         Op::Scan { .. }
@@ -192,7 +192,7 @@ fn selects_only(op: &eg_types::wire::Op) -> bool {
 
 /// Refuse a graph plan that could rank or truncate over invisible rows.
 #[cfg(feature = "query")]
-pub(super) fn check_selecting_plan(plan: &eg_types::wire::Plan) -> Result<(), String> {
+pub(super) fn check_selecting_plan(plan: &medulla_types::wire::Plan) -> Result<(), String> {
     if plan.ops.is_empty() || !plan.ops.iter().all(selects_only) {
         return Err(refusal(
             StatisticalErrorCode::CandidatePlanRefused,
@@ -211,7 +211,7 @@ fn row_view(id: String, properties: &serde_json::Value) -> CandidateView {
     let mut texts = BTreeMap::new();
     for (key, value) in properties.as_object().into_iter().flatten() {
         if let Some(number) = value.as_f64() {
-            if let Ok(q) = eg_numeric::decision::quant::q32(number) {
+            if let Ok(q) = medulla_numeric::decision::quant::q32(number) {
                 numbers.insert(key.clone(), q.value);
             }
         } else if let Some(text) = value.as_str() {
@@ -225,14 +225,14 @@ fn row_view(id: String, properties: &serde_json::Value) -> CandidateView {
 /// RLS has already filtered.
 #[cfg(feature = "query")]
 pub(super) fn graph_candidates(
-    view: &eg_core::graph::GraphView,
+    view: &medulla_core::graph::GraphView,
     graph: &str,
-    plan: &eg_types::wire::Plan,
+    plan: &medulla_types::wire::Plan,
     principal: String,
 ) -> Result<ReadCandidates, String> {
     check_selecting_plan(plan)?;
-    let semantic = eg_core::compute::semantic::SemanticStore::new();
-    let rows = eg_plan::execute(plan, &eg_plan::PlanCtx::new(view, &semantic))
+    let semantic = medulla_core::compute::semantic::SemanticStore::new();
+    let rows = medulla_plan::execute(plan, &medulla_plan::PlanCtx::new(view, &semantic))
         .map_err(|detail| refusal(StatisticalErrorCode::CandidatePlanRefused, detail))?;
     let mut ids = rows.ids();
     ids.sort_unstable();
@@ -246,7 +246,7 @@ pub(super) fn graph_candidates(
             let properties = view
                 .node_properties
                 .get(&id)
-                .and_then(|blob| eg_types::msgpack::decode_property_value(blob.as_slice()).ok())
+                .and_then(|blob| medulla_types::msgpack::decode_property_value(blob.as_slice()).ok())
                 .unwrap_or(serde_json::Value::Null);
             row_view(id, &properties)
         })
@@ -255,7 +255,7 @@ pub(super) fn graph_candidates(
         views,
         entries: Vec::new(),
         record: CandidateSourceRecord::Graph {
-            plan_digest: eg_types::decision::digest::digest_text(
+            plan_digest: medulla_types::decision::digest::digest_text(
                 "eg/decide-candidate-plan/v1",
                 &(graph, plan),
             ),
@@ -305,18 +305,18 @@ fn prefixed_refusal(detail: &str, prefix: &str, code: StatisticalErrorCode) -> S
 ///
 /// `kind` additionally gates a question-specific declared-option registry
 /// where one exists: `QuestionKind::IngestionLane` candidates must each name
-/// a registered [`eg_types::decision::statistical::ingestion_lane::IngestionLane`],
+/// a registered [`medulla_types::decision::statistical::ingestion_lane::IngestionLane`],
 /// refused here rather than discovered later as an opaque abstention
-/// (EG-DECISION-ENGINE-R030). `QuestionKind::EnrichmentSchedule` candidates
+/// (MEDULLA-DECISION-ENGINE-R030). `QuestionKind::EnrichmentSchedule` candidates
 /// may not declare a negative `enrichment.cost_q32` -- it has no meaning on
 /// that scale and would let a candidate manufacture unbounded net value
-/// (EG-DECISION-ENGINE-R031).
+/// (MEDULLA-DECISION-ENGINE-R031).
 /// A `QuestionKind::RetrievalPlan` candidate whose
 /// option id claims the reserved
-/// [`eg_types::decision::statistical::retrieval_plan::OPTION_ID_PREFIX`]
+/// [`medulla_types::decision::statistical::retrieval_plan::OPTION_ID_PREFIX`]
 /// namespace must name a registered
-/// [`eg_types::decision::statistical::retrieval_plan::RetrievalPlanKind`],
-/// refused the same way (EG-DECISION-ENGINE-R029). An option id outside that
+/// [`medulla_types::decision::statistical::retrieval_plan::RetrievalPlanKind`],
+/// refused the same way (MEDULLA-DECISION-ENGINE-R029). An option id outside that
 /// namespace is an ordinary declared option, unaffected by this registry.
 pub(super) fn declared_candidates(
     options: &[DeclaredOption],
@@ -396,7 +396,7 @@ pub(super) fn declared_candidates(
         views,
         entries: Vec::new(),
         record: CandidateSourceRecord::Declared {
-            options_digest: eg_types::decision::digest::digest_text(
+            options_digest: medulla_types::decision::digest::digest_text(
                 DECLARED_OPTIONS_DOMAIN,
                 &options,
             ),
@@ -416,7 +416,7 @@ pub(super) fn read_candidates(
     store: &AgentLibraryStore,
     tenant_id: &str,
     source: &CandidateSource,
-    graph_view: Option<&eg_core::graph::GraphView>,
+    graph_view: Option<&medulla_core::graph::GraphView>,
     principal: &str,
     kind: QuestionKind,
 ) -> Result<ReadCandidates, String> {
@@ -456,7 +456,7 @@ pub(super) async fn filtered_graph_view(
     state: &std::sync::Arc<tokio::sync::RwLock<crate::server::state::ServerState>>,
     agent_id: &str,
     source: &CandidateSource,
-) -> Result<Option<eg_core::graph::GraphView>, String> {
+) -> Result<Option<medulla_core::graph::GraphView>, String> {
     let CandidateSource::Graph { graph, .. } = source else {
         return Ok(None);
     };
@@ -471,6 +471,6 @@ pub(super) async fn filtered_graph_view(
     _state: &std::sync::Arc<tokio::sync::RwLock<crate::server::state::ServerState>>,
     _agent_id: &str,
     _source: &CandidateSource,
-) -> Result<Option<eg_core::graph::GraphView>, String> {
+) -> Result<Option<medulla_core::graph::GraphView>, String> {
     Ok(None)
 }

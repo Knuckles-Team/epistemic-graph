@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use eg_types::connector_pack::{ConnectorRelationshipMapping, ConnectorSchemaMapping};
+use medulla_types::connector_pack::{ConnectorRelationshipMapping, ConnectorSchemaMapping};
 
 /// The URI of the declaration entry in a connector pack.
 pub const CONNECTOR_DECLARATION_URI: &str = "connector://resources";
@@ -65,7 +65,7 @@ pub fn decode_schema_mappings(
 
 fn validate_mapping_datatypes(mapping: &DeclaredMapping) -> Result<(), String> {
     for (field, datatype) in &mapping.datatypes {
-        if !eg_types::connector_pack::source_datatype_supported(datatype) {
+        if !medulla_types::connector_pack::source_datatype_supported(datatype) {
             return Err("schema mapping contains an unsupported datatype".into());
         }
         if mapping
@@ -88,7 +88,7 @@ pub fn decode_relationship_mappings(
 ) -> BTreeMap<String, ConnectorRelationshipMapping> {
     let mut relations = BTreeMap::new();
     let mut ambiguous = BTreeSet::new();
-    for property in eg_rdf::pack::declared_object_properties(ontologies) {
+    for property in medulla_rdf::pack::declared_object_properties(ontologies) {
         let key = format!("{}/{}", property.domain, property.name);
         let mapping = ConnectorRelationshipMapping {
             source_resource: property.domain,
@@ -118,7 +118,7 @@ pub fn decode_relationship_mappings(
 mod tests {
     use super::*;
 
-    // spec: EG-TYPED-PACKS-R101.10
+    // spec: MEDULLA-TYPED-PACKS-R101.10
     #[test]
     fn extracts_declared_schema_mappings() {
         let mappings = decode_schema_mappings(
@@ -129,7 +129,7 @@ mod tests {
         assert_eq!(mappings["DemoItem"].fields["id"], "identifier");
     }
 
-    // spec: EG-TYPED-PACKS-R101.10
+    // spec: MEDULLA-TYPED-PACKS-R101.10
     #[test]
     fn a_declaration_without_mappings_declares_none() {
         assert!(decode_schema_mappings(br#"{"connector":"demo"}"#)
@@ -137,7 +137,7 @@ mod tests {
             .is_empty());
     }
 
-    // spec: EG-TYPED-PACKS-R101.10
+    // spec: MEDULLA-TYPED-PACKS-R101.10
     #[test]
     fn refuses_a_malformed_or_open_mapping() {
         for body in [
@@ -166,7 +166,7 @@ mod tests {
         }
     }
 
-    // spec: EG-TYPED-PACKS-R101.10
+    // spec: MEDULLA-TYPED-PACKS-R101.10
     #[cfg(feature = "rdf")]
     #[test]
     fn relations_come_from_object_properties() {

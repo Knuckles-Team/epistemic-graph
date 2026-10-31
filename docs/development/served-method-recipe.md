@@ -2,7 +2,7 @@
 
 A `.3` row says "the typed model and kernel exist; serve them". This recipe turns one
 kernel function into a served method. The method has a generated contract, generated
-clients and a served integration test. It was proven on `EG-FINANCE-PRIMITIVES-R900.3`
+clients and a served integration test. It was proven on `MEDULLA-FINANCE-PRIMITIVES-R900.3`
 and repeated for the banking, execution and factor-rank rows.
 
 Do not hand-edit anything generated. Do not run `git add -A`; stage explicit paths.
@@ -21,28 +21,28 @@ Write all code and the test first, then regenerate once.
 
 ## 1. Make the kernel reachable from the root crate
 
-The handlers live in the root crate (`src/server/handlers/...`). It reaches `eg_numeric`
-only through `eg-compute`:
+The handlers live in the root crate (`src/server/handlers/...`). It reaches `medulla_numeric`
+only through `medulla-compute`:
 
-- `crates/eg-compute/Cargo.toml`: the `finance` feature already lists `dep:eg-numeric`. Add
+- `crates/medulla-compute/Cargo.toml`: the `finance` feature already lists `dep:medulla-numeric`. Add
   any kernel feature it needs (the first row needed the numeric crate's analytics feature).
-- `crates/eg-compute/src/finance/mod.rs`: `pub use eg_numeric::{banking, execution, sizing};`
+- `crates/medulla-compute/src/finance/mod.rs`: `pub use medulla_numeric::{banking, execution, sizing};`
   The handler then calls `crate::finance::sizing::...`. (`crate::finance` is
-  `eg_compute::finance` when the root `finance` feature is on.)
+  `medulla_compute::finance` when the root `finance` feature is on.)
 
-## 2. Declare the method and its result (eg-types)
+## 2. Declare the method and its result (medulla-types)
 
 1. Request: add a variant to the `Method` enum in
-   `crates/eg-types/src/protocol/method/method_04.rs` (finance methods live there; any
+   `crates/medulla-types/src/protocol/method/method_04.rs` (finance methods live there; any
    `method_NN.rs` chunk works). Use flat, serde-friendly fields. Use
    `#[serde(default)] Option<T>` for a field with a kernel default. Never change an
    existing variant: that breaks the wire contract.
 2. Result body type, when the result is not a scalar: add a struct to
-   `crates/eg-types/src/compute_result/finance.rs` with
+   `crates/medulla-types/src/compute_result/finance.rs` with
    `#[derive(Serialize, Deserialize, Debug, Clone)]` and
    `#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]`. Mirror the
    kernel struct; the kernel crate stays free of `schemars`. Render closed enums as `String`.
-3. Result contract: add one line to `crates/eg-types/src/result_contract/compute.rs`:
+3. Result contract: add one line to `crates/medulla-types/src/result_contract/compute.rs`:
    - scalar: `FinanceX(FinanceX) => Float<f64>;`, answered with
      `ResultPayload::scalar::<results::FinanceX>(v)`.
    - struct or list: `FinanceX(FinanceX) => Raw<finance::Body>;`, answered with
@@ -55,12 +55,12 @@ Every new method name needs all of these, or `gen_contract` or the router refuse
 
 | Where | What |
 |-------|------|
-| `crates/eg-capabilities/src/domains/compute.rs` | one registry tuple per method. Copy the `FinanceKellyFraction` line and rename it (pure compute, `compute:finance`, `DurabilityDomain::None`, idempotent). |
+| `crates/medulla-capabilities/src/domains/compute.rs` | one registry tuple per method. Copy the `FinanceKellyFraction` line and rename it (pure compute, `compute:finance`, `DurabilityDomain::None`, idempotent). |
 | `src/server/access/read_classification.rs` | `("FinanceX", REASON_PURE_COMPUTE),` |
 | `src/server/mutation_batch/canonical.rs` | `\| Method::FinanceX { .. }` in the pure-read list, next to `FinanceKellyFraction`. |
 | `src/server/handlers/finance/routes.rs` | map the variant to a `FinanceRoute` in a `route_for_*` match. |
 | `src/server/handlers/finance/route_families.rs` or a new file | the handler arm (below). |
-| `crates/eg-capabilities/tests/contract_registry.rs` | bump the exact wire-method census and add one comment line. |
+| `crates/medulla-capabilities/tests/contract_registry.rs` | bump the exact wire-method census and add one comment line. |
 
 Rules for the handler:
 
@@ -82,16 +82,16 @@ cargo check --locked --lib --no-default-features --features "server,finance"
 ## 4. Regenerate the contract, models and Python client
 
 ```
-cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract
+cargo run -q --locked -p medulla-capabilities --features contract --bin gen_contract
 ```
 
 This writes about 74 artifacts: `contract/` (methods, schemas, fixtures, receipt),
-`epistemic_graph/contract/`, `epistemic_graph/generated/*.py`,
-`crates/eg-capabilities/generated/{method_catalog,catalog_digest}.rs` and
+`medulla/contract/`, `medulla/generated/*.py`,
+`crates/medulla-capabilities/generated/{method_catalog,catalog_digest}.rs` and
 `docs/capabilities.generated.md`. `gen_contract -- --check` is the CI parity gate.
 
 Optional hand-written convenience, as `NlQueryExplain` did: a wrapper in
-`epistemic_graph/client.py` (finance wrappers are near `kelly_fraction`) that calls the
+`medulla/client.py` (finance wrappers are near `kelly_fraction`) that calls the
 generated `_gen.compute.send_finance_x(...)`.
 
 ## 5. Rebuild the method-codec wasm and update its pin
@@ -100,7 +100,7 @@ generated `_gen.compute.send_finance_x(...)`.
 python3 scripts/build_method_codec_wasm.py --target-dir "$CARGO_TARGET_DIR"
 ```
 
-This rewrites `clients/go/eg_method_codec.wasm`, `clients/js/eg_method_codec.wasm` and the two
+This rewrites `clients/go/medulla_method_codec.wasm`, `clients/js/medulla_method_codec.wasm` and the two
 sha256 pins in `.config/generated-artifacts.toml`. CI runs it with `--check`.
 
 Do not commit the output of `python3 scripts/gen_api_docs.py --write`: `docs/api/` and
@@ -128,8 +128,8 @@ cargo test --locked --features "server,security,finance" --test finance_served_<
 
 - In the row's `specs/<spec>/requirements.md`, name the served method and the test file in
   the `.3` row. Leave `status.json` alone: the spec status tooling generates it.
-- Stage explicit paths only: `contract/`, `epistemic_graph/`, `crates/`, `src/server`,
-  `tests/<file>`, `clients/*/eg_method_codec.wasm`, `.config/generated-artifacts.toml`,
+- Stage explicit paths only: `contract/`, `medulla/`, `crates/`, `src/server`,
+  `tests/<file>`, `clients/*/medulla_method_codec.wasm`, `.config/generated-artifacts.toml`,
   `docs/capabilities.generated.md`, the spec file. Commit with a `Spec: <ROW-ID>` trailer.
   Delete `target-isolated/` at the end of the lane.
 
@@ -138,10 +138,10 @@ cargo test --locked --features "server,security,finance" --test finance_served_<
 Rows whose served half is stateful, or whose caller is another engine layer, need design
 first. The federated rows are of this kind:
 
-- `EG-FEDERATED-QUERY-R703.3` changes `ContextCompile` in `crates/eg-plan/src/exec.rs` to call
+- `MEDULLA-FEDERATED-QUERY-R703.3` changes `ContextCompile` in `crates/medulla-plan/src/exec.rs` to call
   an access-check port that the Graft SDK answers.
-- `EG-FEDERATED-QUERY-R704.3` makes `Discover` and `ContextCompile` read a stored agent scope.
-- `EG-FEDERATED-QUERY-R705.3` adds `RetrievalFeedbackRecord`, a write that needs a durable
+- `MEDULLA-FEDERATED-QUERY-R704.3` makes `Discover` and `ContextCompile` read a stored agent scope.
+- `MEDULLA-FEDERATED-QUERY-R705.3` adds `RetrievalFeedbackRecord`, a write that needs a durable
   feedback store, a rate limit and a read-permission check.
 
 The retrieval executor must first wire their typed models (`.1`, `.2`). Their

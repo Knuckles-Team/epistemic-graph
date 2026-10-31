@@ -15,8 +15,8 @@
 
 use std::sync::Arc;
 
-use eg_transaction::{OutboxClaimOutcome, OutboxRejectReason};
-use eg_types::mutation_batch::MutationOutboxLease;
+use medulla_transaction::{OutboxClaimOutcome, OutboxRejectReason};
+use medulla_types::mutation_batch::MutationOutboxLease;
 
 use super::{initialize_index, reset_retired_projection, ProjectionContext, CONSUMER, TOPIC};
 
@@ -25,7 +25,7 @@ use super::{initialize_index, reset_retired_projection, ProjectionContext, CONSU
 pub(super) async fn rebuild_after_skipped(
     context: &ProjectionContext,
     graph_fname: &str,
-    core: &Arc<eg_core::graph::GraphCore>,
+    core: &Arc<medulla_core::graph::GraphCore>,
     outcome: &OutboxClaimOutcome,
 ) -> bool {
     if outcome.dead_lettered.is_empty() {
@@ -45,7 +45,7 @@ pub(super) async fn rebuild_after_skipped(
 pub(super) async fn reject_invalid(
     context: &ProjectionContext,
     graph_fname: &str,
-    core: Arc<eg_core::graph::GraphCore>,
+    core: Arc<medulla_core::graph::GraphCore>,
     lease: &MutationOutboxLease,
 ) {
     let write = crate::server::outbox_operator::OutboxWrite::Reject {
@@ -72,7 +72,7 @@ pub(super) async fn reject_invalid(
 async fn rebuild(
     persist_dir: Option<String>,
     graph_fname: &str,
-    core: Arc<eg_core::graph::GraphCore>,
+    core: Arc<medulla_core::graph::GraphCore>,
 ) -> bool {
     reset_retired_projection(persist_dir.clone(), graph_fname.to_string()).await
         && initialize_index(persist_dir, graph_fname.to_string(), core).await

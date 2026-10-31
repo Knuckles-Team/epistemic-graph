@@ -1,7 +1,7 @@
 use super::links::text;
 use super::validation::decision_name;
 use super::{MAX_INVOCATIONS_PER_TENANT, MAX_INVOCATION_REPAIR_SCAN};
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 
 /// Invocation replay is a bounded acknowledgement-loss cache, not an event
 /// log.  Lexical retention is deliberately deterministic because the native

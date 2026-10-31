@@ -403,7 +403,7 @@ pub(super) fn row_valid_policy_binding(
                 && policy.access_policy_ref.namespace() == "policy"
                 && policy.retention_policy_ref.namespace() == "retention"
                 && policy.deletion_policy_ref.namespace() == "deletion"
-                && policy.purpose_refs.len() <= eg_program::MAX_PURPOSE_REFS
+                && policy.purpose_refs.len() <= medulla_program::MAX_PURPOSE_REFS
                 && policy
                     .purpose_refs
                     .iter()
@@ -459,24 +459,24 @@ pub(super) fn validate_program_result_privacy(
         .into_iter()
         .map(ProgramModality::as_str)
         .collect::<std::collections::BTreeSet<_>>();
-    let optimizers = eg_program::OptimizerKind::ALL
+    let optimizers = medulla_program::OptimizerKind::ALL
         .into_iter()
-        .map(eg_program::OptimizerKind::as_str)
+        .map(medulla_program::OptimizerKind::as_str)
         .collect::<std::collections::BTreeSet<_>>();
-    let executions = eg_program::OptimizerKind::ALL
+    let executions = medulla_program::OptimizerKind::ALL
         .into_iter()
         .map(|optimizer| optimizer.execution().as_str())
         .collect::<std::collections::BTreeSet<_>>();
     let candidate_roles = ["proposal", "ensemble_member", "ensemble"]
         .into_iter()
         .collect::<std::collections::BTreeSet<_>>();
-    let plan_step_kinds = eg_program::PlanStepKind::ALL
+    let plan_step_kinds = medulla_program::PlanStepKind::ALL
         .into_iter()
-        .map(eg_program::PlanStepKind::as_str)
+        .map(medulla_program::PlanStepKind::as_str)
         .collect::<std::collections::BTreeSet<_>>();
-    let plan_executors = eg_program::PlanExecutor::ALL
+    let plan_executors = medulla_program::PlanExecutor::ALL
         .into_iter()
-        .map(eg_program::PlanExecutor::as_str)
+        .map(medulla_program::PlanExecutor::as_str)
         .collect::<std::collections::BTreeSet<_>>();
     if actual != expected
         || !result.evidence_refs.iter().all(|value| governed_ref(value))

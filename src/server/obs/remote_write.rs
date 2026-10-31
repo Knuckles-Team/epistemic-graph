@@ -1,5 +1,5 @@
-//! CONCEPT:EG-OS.observability.prometheus-ingest — the Prometheus `remote_write` RECEIVER: accept snappy-compressed
-//! protobuf `WriteRequest` POSTs and land their samples in the durable eg-tsdb
+//! CONCEPT:MEDULLA-OS.observability.prometheus-ingest — the Prometheus `remote_write` RECEIVER: accept snappy-compressed
+//! protobuf `WriteRequest` POSTs and land their samples in the durable medulla-tsdb
 //! [`SeriesStore`], so an EXTERNAL Prometheus (or any `remote_write` producer) can PUSH
 //! its scraped time-series INTO the engine — the ingest counterpart of the OTLP export
 //! in [`super::otel_export`].
@@ -21,12 +21,12 @@
 //! Each series' identity is encoded into the opaque `SeriesStore` id as the canonical
 //! Prometheus text form `name{k="v",…}` (labels sorted; `__name__` is the metric name),
 //! MATCHING [`super::super::promql`]'s series-id convention so pushed samples are
-//! queryable via the EG-172 PromQL API. Sample timestamps (millis) are widened to the
+//! queryable via the MEDULLA-172 PromQL API. Sample timestamps (millis) are widened to the
 //! store's epoch-nanoseconds.
 
 use std::sync::Arc;
 
-use eg_tsdb::point::Point;
+use medulla_tsdb::point::Point;
 
 use super::ObsState;
 
@@ -36,7 +36,7 @@ const SERIES_BUCKET_NS: u64 = 3_600_000_000_000;
 
 // ── the Prometheus remote-write protobuf schema (hand-declared, prost-derived) ──
 
-/// `prometheus.WriteRequest` — the top-level remote-write payload (CONCEPT:EG-OS.observability.prometheus-ingest).
+/// `prometheus.WriteRequest` — the top-level remote-write payload (CONCEPT:MEDULLA-OS.observability.prometheus-ingest).
 #[derive(Clone, PartialEq, prost::Message)]
 pub struct WriteRequest {
     #[prost(message, repeated, tag = "1")]
@@ -176,7 +176,7 @@ fn tenant_request(
 }
 
 /// Route + execute a Prometheus `remote_write` POST (`/api/v1/write`) → `(status,
-/// content_type, body)` (CONCEPT:EG-OS.observability.prometheus-ingest). Decodes the snappy protobuf body and lands
+/// content_type, body)` (CONCEPT:MEDULLA-OS.observability.prometheus-ingest). Decodes the snappy protobuf body and lands
 /// its samples in the tsdb; a well-formed empty request is a no-op `204`. `raw_body`
 /// is the ORIGINAL request bytes (snappy-compressed — the receiver must decode the
 /// binary body itself, not the lossily UTF-8'd string the listener also has).
@@ -227,7 +227,7 @@ pub async fn handle(
 mod tests {
     use super::*;
 
-    /// CONCEPT:EG-OS.observability.prometheus-ingest — a Prometheus label set encodes into the canonical PromQL series
+    /// CONCEPT:MEDULLA-OS.observability.prometheus-ingest — a Prometheus label set encodes into the canonical PromQL series
     /// id `name{k="v",…}` (labels sorted; `__name__` lifted as the metric name).
     #[test]
     fn eg316_series_id_from_labels_is_canonical_and_sorted() {
@@ -259,7 +259,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-OS.observability.prometheus-ingest — a `WriteRequest` round-trips through the snappy+protobuf wire
+    /// CONCEPT:MEDULLA-OS.observability.prometheus-ingest — a `WriteRequest` round-trips through the snappy+protobuf wire
     /// codec (`encode_write_request` → `decode_write_request`) unchanged.
     #[test]
     fn eg316_write_request_snappy_protobuf_roundtrips() {
@@ -286,7 +286,7 @@ mod tests {
         assert_eq!(back, req);
     }
 
-    /// CONCEPT:EG-OS.observability.prometheus-ingest — the receiver PARSES a Prometheus `WriteRequest` (snappy protobuf)
+    /// CONCEPT:MEDULLA-OS.observability.prometheus-ingest — the receiver PARSES a Prometheus `WriteRequest` (snappy protobuf)
     /// into tsdb samples: two labelled series' samples land in the durable SeriesStore
     /// under their canonical PromQL series ids, at nanosecond timestamps (millis×1e6),
     /// readable back via `SeriesStore::range`.
@@ -358,7 +358,7 @@ mod tests {
         assert_eq!(up[0].values[0], 1.0);
     }
 
-    /// CONCEPT:EG-OS.observability.prometheus-ingest — a series with no `__name__` (blank id) is skipped, not errored.
+    /// CONCEPT:MEDULLA-OS.observability.prometheus-ingest — a series with no `__name__` (blank id) is skipped, not errored.
     #[test]
     fn eg316_remote_write_skips_nameless_series() {
         let state = Arc::new(ObsState::in_memory(1024).unwrap());

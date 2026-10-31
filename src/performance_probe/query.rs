@@ -3,11 +3,11 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use super::{allocation_bytes, timed, Observation, ProbeError};
-use eg_ann::{FlatIndex, HnswIndex, IvfPq, IvfPqParams, Metric, SearchParams};
-use eg_plan::leanrag::{AnnIndex, GraphTopology, HierarchicalRetriever, RetrievalParams, Scored};
-use eg_tsdb::point::Point;
-use eg_tsdb::promql::{query_instant, MemSeriesSource, Value as PromValue};
-use eg_tsdb::query::{sensor_fuse, time_bucket, Agg, Cell, Sample, SeriesRef};
+use medulla_ann::{FlatIndex, HnswIndex, IvfPq, IvfPqParams, Metric, SearchParams};
+use medulla_plan::leanrag::{AnnIndex, GraphTopology, HierarchicalRetriever, RetrievalParams, Scored};
+use medulla_tsdb::point::Point;
+use medulla_tsdb::promql::{query_instant, MemSeriesSource, Value as PromValue};
+use medulla_tsdb::query::{sensor_fuse, time_bucket, Agg, Cell, Sample, SeriesRef};
 
 pub(super) fn probe_promql(scale: usize) -> Result<Observation, ProbeError> {
     let mut source = MemSeriesSource::new();
@@ -24,7 +24,7 @@ pub(super) fn probe_promql(scale: usize) -> Result<Observation, ProbeError> {
     );
     Ok(Observation {
         work_units: scale.ilog2() as u64 + 1,
-        memory_bytes: std::mem::size_of::<eg_tsdb::promql::InstantSample>() as u64,
+        memory_bytes: std::mem::size_of::<medulla_tsdb::promql::InstantSample>() as u64,
         latency_ns: latency,
         equivalent,
     })
@@ -178,7 +178,7 @@ fn probe_time_bucket(scale: usize) -> Result<Observation, ProbeError> {
         / width.min(scale as i64) as f64;
     Ok(Observation {
         work_units: scale.max(1) as u64,
-        memory_bytes: allocation_bytes::<eg_tsdb::query::Bucket>(buckets.capacity()),
+        memory_bytes: allocation_bytes::<medulla_tsdb::query::Bucket>(buckets.capacity()),
         latency_ns: latency,
         equivalent: total == scale
             && buckets

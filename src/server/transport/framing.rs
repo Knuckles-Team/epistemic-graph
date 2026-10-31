@@ -38,7 +38,7 @@ fn encode_response(resp: &Response) -> Vec<u8> {
 /// Serialize a [`Response`] to a complete, length-prefixed wire frame
 /// (`4-byte big-endian len ++ MessagePack body`). The id-tagged response is what
 /// the client demuxes by, so a frame can be written in ANY order relative to the
-/// requests that produced it (CONCEPT:EG-KG.backend.framed-response).
+/// requests that produced it (CONCEPT:MEDULLA-KG.backend.framed-response).
 pub(super) fn encode_frame(resp: &Response) -> Vec<u8> {
     let body = encode_response(resp);
     let mut frame = Vec::with_capacity(4 + body.len());
@@ -63,7 +63,7 @@ pub(super) fn encode_bounded_frame(resp: &Response, max_frame_bytes: usize) -> V
 /// maximum, while the lower default protects ordinary deployments. Operators that
 /// raise a modality limit must explicitly raise this transport limit too.
 pub(super) fn max_request_frame_bytes() -> usize {
-    std::env::var("EPISTEMIC_GRAPH_MAX_REQUEST_BYTES")
+    std::env::var("MEDULLA_MAX_REQUEST_BYTES")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|value| *value > 0)
@@ -72,7 +72,7 @@ pub(super) fn max_request_frame_bytes() -> usize {
 }
 
 fn max_response_frame_bytes() -> usize {
-    std::env::var("EPISTEMIC_GRAPH_MAX_RESPONSE_BYTES")
+    std::env::var("MEDULLA_MAX_RESPONSE_BYTES")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|value| *value > 0)
@@ -85,7 +85,7 @@ fn max_response_frame_bytes() -> usize {
 /// `array32` header can declare billions of entries and some serde visitors use
 /// that untrusted size hint for preallocation before noticing the body is absent.
 fn max_msgpack_items() -> usize {
-    std::env::var("EPISTEMIC_GRAPH_MAX_MSGPACK_ITEMS")
+    std::env::var("MEDULLA_MAX_MSGPACK_ITEMS")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|value| *value > 0)
@@ -94,9 +94,9 @@ fn max_msgpack_items() -> usize {
 }
 
 pub(super) fn validate_msgpack_frame(input: &[u8], max_items: usize) -> Result<(), ()> {
-    eg_types::msgpack::validate_single_value(
+    medulla_types::msgpack::validate_single_value(
         input,
-        eg_types::msgpack::MsgpackLimits::new(input.len(), max_items, MAX_MSGPACK_NESTING_DEPTH),
+        medulla_types::msgpack::MsgpackLimits::new(input.len(), max_items, MAX_MSGPACK_NESTING_DEPTH),
     )
     .map_err(|_| ())
 }
@@ -109,7 +109,7 @@ pub(super) fn validate_msgpack_frame(input: &[u8], max_items: usize) -> Result<(
 /// response route back to the ACTUAL caller waiting on it instead of being
 /// silently dropped under a synthetic id `0`, which otherwise starves the
 /// caller for its full timeout/retry budget (see `_pending`/`_read_loop` in
-/// `epistemic_graph/client.py`, which drops any response whose id has no
+/// `medulla/client.py`, which drops any response whose id has no
 /// matching in-flight future).
 #[derive(Debug, serde::Deserialize)]
 struct MinimalRequestId {
@@ -133,9 +133,9 @@ pub(crate) fn validate_nested_msgpack(
     max_bytes: usize,
     max_items: usize,
 ) -> Result<(), &'static str> {
-    eg_types::msgpack::validate_single_value(
+    medulla_types::msgpack::validate_single_value(
         input,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             max_bytes,
             max_items.min(HARD_MAX_MSGPACK_ITEMS),
             MAX_MSGPACK_NESTING_DEPTH,
@@ -166,13 +166,13 @@ pub(super) fn seconds_from_env(
 
 fn connection_io_timeout() -> std::time::Duration {
     seconds_from_env(
-        "EPISTEMIC_GRAPH_CONNECTION_IO_TIMEOUT_SECS",
+        "MEDULLA_CONNECTION_IO_TIMEOUT_SECS",
         DEFAULT_CONNECTION_IO_TIMEOUT_SECS,
         1..=3_600,
     )
 }
 
-/// CONCEPT:EG-KG.coordination.backpressure-busy-signal — the hard per-dispatch deadline.
+/// CONCEPT:MEDULLA-KG.coordination.backpressure-busy-signal — the hard per-dispatch deadline.
 ///
 /// Every admission permit the server issues (the QoS permit, the global pool permit, the
 /// per-graph permit, the reserved-read permit, and the per-connection permit) is held by
@@ -181,16 +181,16 @@ fn connection_io_timeout() -> std::time::Duration {
 /// them, ever. Bounding the dispatch is therefore what makes "a permanently-held
 /// admission slot" unrepresentable, at the one place every served request passes through.
 ///
-/// Default 600 s; override with `EPISTEMIC_GRAPH_DISPATCH_DEADLINE_SECS` (clamped to
+/// Default 600 s; override with `MEDULLA_DISPATCH_DEADLINE_SECS` (clamped to
 /// `[1, 86_400]`), following the same idiom as the two timeouts above. It is a ceiling,
 /// not a target — the cooperative SQL deadline
-/// (`EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS`, `server::request_cancel`) is the tunable
+/// (`MEDULLA_SQL_REQUEST_TIMEOUT_MS`, `server::request_cancel`) is the tunable
 /// per-query bound and remains opt-in; this one exists so a NON-cooperative stall (a
 /// wedged durable-writer thread, a lost oneshot, a dropped completion) can still not
 /// strand the reservation.
 pub(super) fn dispatch_deadline() -> std::time::Duration {
     seconds_from_env(
-        "EPISTEMIC_GRAPH_DISPATCH_DEADLINE_SECS",
+        "MEDULLA_DISPATCH_DEADLINE_SECS",
         DEFAULT_DISPATCH_DEADLINE_SECS,
         1..=86_400,
     )

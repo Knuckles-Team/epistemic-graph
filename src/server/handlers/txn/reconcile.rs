@@ -273,7 +273,7 @@ pub(super) fn reconcile_candidate_mismatch(
     // so the persisted identity tenant is the reserved `__shard__` for EVERY
     // caller -- deliberately, because the caller's tenant "is request-boundary
     // authorization and outbox attribution; it is deliberately NOT part of the
-    // scope identity" (`eg_storage::owner::row_key::GRAPH_SHARD_TENANT`).
+    // scope identity" (`medulla_storage::owner::row_key::GRAPH_SHARD_TENANT`).
     // Comparing it to a caller tenant can therefore never match, which left
     // crash-recovery reconciliation permanently unable to adopt its own
     // committed cross-modal child.  The caller's scope survives on the batch's

@@ -14,7 +14,7 @@ use super::*;
 
 fn prepare_template_entry(
     store: &AgentLibraryStore,
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+    txn: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
     request: &AgentTemplatePublishRequest,
     next_revision: u64,
     replay_context: &AgentLibraryMutationContext,
@@ -47,7 +47,7 @@ impl AgentLibraryStore {
             revision_scope(self, &request.context, TemplateLayer::NOUN)?;
         let txn = self.mutations.open_write(&owner)?;
         let definition_digest =
-            eg_types::agent_template::draft_definition_digest(&request.template);
+            medulla_types::agent_template::draft_definition_digest(&request.template);
         write_revision::<TemplateLayer>(
             self,
             txn,

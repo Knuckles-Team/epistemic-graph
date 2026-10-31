@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""EH-353: correctness-gated HelixDB / Epistemic Graph comparison on one host window.
+"""EH-353: correctness-gated HelixDB / Medulla comparison on one host window.
 
 Both engines run on the same host in one invocation, pinned to the same server
 CPU set, over the same seeded corpus and query set (both digests pinned in
@@ -11,7 +11,7 @@ binary digests and both commits.
 Usage (build host; see docs/benchmarks-helix.md for the full recipe)::
 
     python3 scripts/bench_helix_compare.py \\
-        --eg-server target/release/epistemic-graph-server \\
+        --medulla-server target/release/medulla-server \\
         --helix-server /path/to/helix/target/release/server \\
         --helix-sdk /path/to/helix/sdks/python/src \\
         --workdir ./helix-compare-work --out report.json --markdown report.md
@@ -34,7 +34,7 @@ from typing import Any
 
 from helix_compare import dataset as corpus
 from helix_compare import queries as query_set
-from helix_compare.eg_engine import EgEngine
+from helix_compare.medulla_engine import MedullaEngine
 from helix_compare.helix_engine import HelixEngine
 from helix_compare.measure import host_probe, parse_cpus
 from helix_compare.oracle import Oracle
@@ -43,8 +43,8 @@ from helix_compare.runner import Engine, EnginePass, Plan
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SPEC = ROOT / "benches" / "helix_compare" / "spec.json"
-ENGINES: dict[str, type[EgEngine] | type[HelixEngine]] = {
-    "eg": EgEngine,
+ENGINES: dict[str, type[MedullaEngine] | type[HelixEngine]] = {
+    "eg": MedullaEngine,
     "helix": HelixEngine,
 }
 
@@ -56,14 +56,14 @@ def _sha256(path: Path) -> str:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--spec", type=Path, default=DEFAULT_SPEC)
-    parser.add_argument("--eg-server", type=Path, required=True)
+    parser.add_argument("--medulla-server", type=Path, required=True)
     parser.add_argument("--helix-server", type=Path, required=True)
     parser.add_argument("--helix-sdk", type=Path, required=True)
     parser.add_argument("--workdir", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--markdown", type=Path)
     parser.add_argument("--engines", default="eg,helix")
-    parser.add_argument("--eg-commit", default="unrecorded")
+    parser.add_argument("--medulla-commit", default="unrecorded")
     parser.add_argument("--smoke", type=int, default=0)
     parser.add_argument("--repin", action="store_true")
     return parser
@@ -115,7 +115,7 @@ def _plan(spec: dict[str, Any], smoke: bool) -> Plan:
 async def _run_engines(
     args: argparse.Namespace, spec: dict[str, Any], data: Any, queries: Any
 ) -> list[dict[str, Any]]:
-    binaries = {"eg": args.eg_server, "helix": args.helix_server}
+    binaries = {"eg": args.medulla_server, "helix": args.helix_server}
     server_cpus = parse_cpus(spec["cpus"]["server"])
     reports = []
     for key in args.engines.split(","):
@@ -144,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         "evidence": "PINNED" if pinned else "UNPINNED (smoke/repin run: not evidence)",
         "spec": spec,
         "inputs": pins,
-        "eg": {"commit": args.eg_commit, "server_sha256": _sha256(args.eg_server)},
+        "eg": {"commit": args.medulla_commit, "server_sha256": _sha256(args.medulla_server)},
         "helix": {
             "commit": spec["helix"]["commit"],
             "server_sha256": _sha256(args.helix_server),

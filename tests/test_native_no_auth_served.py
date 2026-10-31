@@ -1,4 +1,4 @@
-"""Real native isolated-store proof for EG-IDENTITY-R003.1, no mock engine."""
+"""Real native isolated-store proof for MEDULLA-IDENTITY-R003.1, no mock engine."""
 
 import contextlib
 import json
@@ -12,7 +12,7 @@ import pytest
 
 pytestmark = [
     pytest.mark.no_engine,  # Each case owns its real isolated process.
-    pytest.mark.spec("EG-IDENTITY-R003.1"),
+    pytest.mark.spec("MEDULLA-IDENTITY-R003.1"),
 ]
 
 
@@ -20,7 +20,7 @@ def binary():
     from conftest import find_server_binary
 
     path = find_server_binary()
-    explicit = os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY", "").strip()
+    explicit = os.environ.get("MEDULLA_TEST_BINARY", "").strip()
     if explicit and path != os.path.abspath(explicit):
         pytest.fail("explicit current native server artifact did not validate")
     if path is None:
@@ -34,9 +34,9 @@ def test_binary_uses_explicit_current_artifact(tmp_path, monkeypatch):
     artifact = tmp_path / "current-server"
     artifact.write_bytes(b"current source fixture")
     artifact.chmod(0o700)
-    monkeypatch.setenv("EPISTEMIC_GRAPH_TEST_BINARY", str(artifact))
+    monkeypatch.setenv("MEDULLA_TEST_BINARY", str(artifact))
     monkeypatch.setenv(
-        "EPISTEMIC_GRAPH_TEST_BINARY_SHA256",
+        "MEDULLA_TEST_BINARY_SHA256",
         hashlib.sha256(artifact.read_bytes()).hexdigest(),
     )
     monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path / "unrelated-target"))
@@ -47,7 +47,7 @@ def test_binary_uses_explicit_current_artifact(tmp_path, monkeypatch):
 def test_binary_rejects_invalid_explicit_artifact(monkeypatch, resolved):
     import conftest
 
-    monkeypatch.setenv("EPISTEMIC_GRAPH_TEST_BINARY", "/current/native-server")
+    monkeypatch.setenv("MEDULLA_TEST_BINARY", "/current/native-server")
     monkeypatch.setattr(conftest, "find_server_binary", lambda: resolved)
     with pytest.raises(pytest.fail.Exception, match="did not validate"):
         binary()
@@ -56,7 +56,7 @@ def test_binary_rejects_invalid_explicit_artifact(monkeypatch, resolved):
 def test_binary_delegates_to_shared_resolver(monkeypatch):
     import conftest
 
-    monkeypatch.delenv("EPISTEMIC_GRAPH_TEST_BINARY", raising=False)
+    monkeypatch.delenv("MEDULLA_TEST_BINARY", raising=False)
 
     monkeypatch.setattr(
         conftest, "find_server_binary", lambda: "/current/native-server"
@@ -67,7 +67,7 @@ def test_binary_delegates_to_shared_resolver(monkeypatch):
 def test_binary_without_available_artifact_skips(monkeypatch):
     import conftest
 
-    monkeypatch.delenv("EPISTEMIC_GRAPH_TEST_BINARY", raising=False)
+    monkeypatch.delenv("MEDULLA_TEST_BINARY", raising=False)
     monkeypatch.setattr(conftest, "find_server_binary", lambda: None)
     with pytest.raises(pytest.skip.Exception, match="scoped native server"):
         binary()
@@ -77,7 +77,7 @@ def clean_env():
     return {
         k: v
         for k, v in os.environ.items()
-        if not k.startswith(("GRAPH_SERVICE_", "EPISTEMIC_GRAPH_", "OIDC_"))
+        if not k.startswith(("GRAPH_SERVICE_", "MEDULLA_", "OIDC_"))
     }
 
 
@@ -230,8 +230,8 @@ def test_anonymous_rejects_signed_or_claimed_identity(tmp_path, token, actor):
         (["--tcp-addr", "localhost:9100"], {}),
         (["--metrics-addr", "127.0.0.1:9101"], {}),
         (["--socket-mode", "0660"], {}),
-        ([], {"EPISTEMIC_GRAPH_RAFT_NODE_ID": "1"}),
-        ([], {"EPISTEMIC_GRAPH_PGWIRE_ADDR": "127.0.0.1:5432"}),
+        ([], {"MEDULLA_RAFT_NODE_ID": "1"}),
+        ([], {"MEDULLA_PGWIRE_ADDR": "127.0.0.1:5432"}),
     ],
 )
 def test_anonymous_refuses_unsafe_startup(tmp_path, extra, env):
@@ -274,7 +274,7 @@ def test_anonymous_refuses_invalid_mode_marker(tmp_path, kind):
     marker = store / "anonymous-store-v1"
     if kind == "symlink":
         target = tmp_path / "marker-target"
-        target.write_text("epistemic-graph anonymous local store v1\n")
+        target.write_text("medulla anonymous local store v1\n")
         marker.symlink_to(target)
     elif kind == "directory":
         marker.mkdir()
@@ -293,10 +293,10 @@ def test_anonymous_refuses_invalid_mode_marker(tmp_path, kind):
 def test_real_python_anonymous_client_reads_and_writes(tmp_path):
     import asyncio
 
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import MedullaClient
 
     async def exercise(sock):
-        client = await EpistemicGraphClient.connect(
+        client = await MedullaClient.connect(
             auth_mode="none", tcp_addr=f"{sock[0]}:{sock[1]}"
         )
         try:
@@ -316,12 +316,12 @@ def test_real_python_anonymous_client_reads_and_writes(tmp_path):
 def test_real_anonymous_blob_store_fetch_and_restart(tmp_path):
     import asyncio
 
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import MedullaClient
 
     payload = b"actual anonymous durable tool content"
 
     async def write(sock):
-        client = await EpistemicGraphClient.connect(
+        client = await MedullaClient.connect(
             auth_mode="none", tcp_addr=f"{sock[0]}:{sock[1]}"
         )
         try:
@@ -333,7 +333,7 @@ def test_real_anonymous_blob_store_fetch_and_restart(tmp_path):
             await client.close()
 
     async def read(sock, digest):
-        client = await EpistemicGraphClient.connect(
+        client = await MedullaClient.connect(
             auth_mode="none", tcp_addr=f"{sock[0]}:{sock[1]}"
         )
         try:
@@ -363,12 +363,12 @@ def test_anonymous_connector_sweep_projects_committed_pack(tmp_path):
 
     from test_connector_pack_planted import _context, _upload
 
-    from epistemic_graph.client import EpistemicGraphClient
-    from epistemic_graph.testing.synthetic.packs.malformed import base_spec
-    from epistemic_graph.testing.synthetic.packs.spec import assemble
+    from medulla.client import MedullaClient
+    from medulla.testing.synthetic.packs.malformed import base_spec
+    from medulla.testing.synthetic.packs.spec import assemble
 
     async def exercise(sock):
-        client = await EpistemicGraphClient.connect(
+        client = await MedullaClient.connect(
             tcp_addr=f"{sock[0]}:{sock[1]}", auth_mode="none"
         )
         try:

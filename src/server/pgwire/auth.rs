@@ -1,4 +1,4 @@
-//! pg-wire authentication bridged to the engine identity (CONCEPT:EG-KG.query.concept-13).
+//! pg-wire authentication bridged to the engine identity (CONCEPT:MEDULLA-KG.query.concept-13).
 //!
 //! Authentication is mandatory SCRAM-SHA-256, bridged to the engine's existing
 //! shared secret (`GRAPH_SERVICE_AUTH_SECRET`) and ACL identity model. There is no
@@ -16,13 +16,13 @@
 //! actor is set to `user`, so every subsequent query runs under that
 //! `AgentIdentity` against the engine ACL (`IsolationLayer::check_access`).
 //!
-//! ## Mode (`EPISTEMIC_GRAPH_PGWIRE_AUTH`)
+//! ## Mode (`MEDULLA_PGWIRE_AUTH`)
 //!   * `scram` — SCRAM-SHA-256 (what modern drivers negotiate). This is the only
 //!     accepted mode and requires a non-empty `GRAPH_SERVICE_AUTH_SECRET`.
 //!
 //! Native TLS paths are configured independently through
-//! `EPISTEMIC_GRAPH_PGWIRE_TLS_CERT`, `EPISTEMIC_GRAPH_PGWIRE_TLS_KEY`, and the
-//! optional `EPISTEMIC_GRAPH_PGWIRE_TLS_CLIENT_CA` (mTLS) variable.
+//! `MEDULLA_PGWIRE_TLS_CERT`, `MEDULLA_PGWIRE_TLS_KEY`, and the
+//! optional `MEDULLA_PGWIRE_TLS_CLIENT_CA` (mTLS) variable.
 //!
 //! Native TLS is optional for loopback deployments and required before a listener
 //! can bind a non-loopback address. When a certificate is configured, SCRAM also
@@ -47,7 +47,7 @@ use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 /// Env var selecting the pgwire auth mode. Only `scram` is accepted; unset also
 /// selects SCRAM.
-pub const PGWIRE_AUTH_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_AUTH";
+pub const PGWIRE_AUTH_ENV: &str = "MEDULLA_PGWIRE_AUTH";
 
 /// The resolved pgwire auth mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,7 +97,7 @@ fn derive_salt(secret: &str, user: &str) -> Vec<u8> {
 }
 
 /// `AuthSource` that yields the SCRAM-salted form of the derived per-user password
-/// (CONCEPT:EG-KG.query.concept-13). For SCRAM, the server stores/returns the SALTED password
+/// (CONCEPT:MEDULLA-KG.query.concept-13). For SCRAM, the server stores/returns the SALTED password
 /// (`Hi(password, salt, iters)`) plus the salt; pgwire's SCRAM handler verifies the
 /// client's proof against it. We compute both deterministically from the engine
 /// secret + the connecting user, so no password is ever persisted.

@@ -25,7 +25,7 @@ const GROUP_COMMIT_TICK: Duration = Duration::from_millis(100);
 
 pub(super) fn run(
     rx: Receiver<Cmd>,
-    // Shared kernel-owned `Shard` (CONCEPT:EG-KG.storage.snapshot-read-off-writer): the writer OWNS one clone of
+    // Shared kernel-owned `Shard` (CONCEPT:MEDULLA-KG.storage.snapshot-read-off-writer): the writer OWNS one clone of
     // the Arc (kept alive for the thread's whole life); the `ShardWriter` holds a
     // `Weak` for off-writer snapshot reads. Rebound to `&Shard` immediately so every
     // commit below reads as the same single-writer loop it has always been.
@@ -46,7 +46,7 @@ pub(super) fn run(
     #[cfg(not(feature = "security"))]
     let crypto = crate::redb_store::DurableCrypto::none();
     // Pending mutations folded into the NEXT group commit, each with its optional
-    // commit-before-ack completion sender (CONCEPT:EG-KG.backend.authoritative-dispatch). After a commit, EVERY
+    // commit-before-ack completion sender (CONCEPT:MEDULLA-KG.backend.authoritative-dispatch). After a commit, EVERY
     // sender in the batch is fired with the batch's result — one fsync, N notified.
     let mut pending: Pending = Pending::default();
     let writer = WriterLoop {
@@ -209,21 +209,21 @@ fn finish_linger_command(
 struct Pending {
     ops: Vec<(String, Method)>,
     /// Raft log appends `(group_id, index, blob)` folded into the SAME group-commit
-    /// transaction as `ops` (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — one fsync covers both the log entry
+    /// transaction as `ops` (CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft) — one fsync covers both the log entry
     /// and the M2 graph mutation.
     raft_log_ops: Vec<(u64, u64, Vec<u8>)>,
     /// One per awaited (commit-before-ack) op in this batch.
     waiters: Vec<oneshot::Sender<Result<(), String>>>,
-    /// O(1) per-graph audit-chain tail cache (CONCEPT:EG-KG.storage.embedded-store). Lives on `Pending`
+    /// O(1) per-graph audit-chain tail cache (CONCEPT:MEDULLA-KG.storage.embedded-store). Lives on `Pending`
     /// because `Pending` is owned by the writer thread's `run` loop for the thread's
     /// LIFETIME (not reset between batches) — so the cached `(seq, hash)` tail stays hot
     /// across group commits, and the per-op range-scan that was burning the now
-    /// CPU-bound writer (post-EG-024) is gone. The writer is the sole AUDIT mutator, so
+    /// CPU-bound writer (post-MEDULLA-024) is gone. The writer is the sole AUDIT mutator, so
     /// the in-memory tail is authoritative; it is seeded once per graph (incl. after a
     /// restart) from a single scan inside `append_audit_entry`.
     #[cfg(feature = "security")]
     audit_tail: crate::redb_store::AuditTailCache,
-    /// Per-graph provenance-anchor tail cache (CONCEPT:EG-KG.sharding.row-level-security), the
+    /// Per-graph provenance-anchor tail cache (CONCEPT:MEDULLA-KG.sharding.row-level-security), the
     /// `ProvenanceAnchorCommit` sibling of `audit_tail` above — lives on `Pending`
     /// for the same reason: the writer thread's LIFETIME, seeded once per graph
     /// from a single scan (`provenance_anchor_commit`), then kept hot in RAM.
@@ -261,7 +261,7 @@ fn handle_cmd(
     // Auto-sized early-flush op threshold (CONCEPT:AU-KG.backend.b-auto-sizeb).
     flush_threshold: usize,
     crypto: crate::redb_store::DurableCrypto<'_>,
-    // Group-commit observability (CONCEPT:EG-KG.backend.adaptive-linger-coalesce). Every flush this
+    // Group-commit observability (CONCEPT:MEDULLA-KG.backend.adaptive-linger-coalesce). Every flush this
     // function performs — the early-flush bound below AND every "flush pending
     // mutations first" side effect of a read/purge/register/etc. command — is a REAL
     // group commit and must be accounted identically to the run-loop's own
@@ -295,13 +295,13 @@ fn handle_cmd(
 
 /// Commit all buffered mutations as ONE admitted scope group — the control member
 /// plus one member per touched graph — then fire EVERY commit-before-ack waiter for
-/// the ops in this batch with the batch's result (CONCEPT:EG-KG.backend.authoritative-dispatch).
+/// the ops in this batch with the batch's result (CONCEPT:MEDULLA-KG.backend.authoritative-dispatch).
 /// Coalescing is preserved: N awaiting writers ride one commit / one fsync and are
 /// all notified after it lands, and the Raft entries in the same `Pending` ride that
 /// same fsync on the control member. A waiter is only signalled `Ok` once its op is
 /// provably on disk.
 ///
-/// There is no durability argument: every commit is `eg_storage`'s constant
+/// There is no durability argument: every commit is `medulla_storage`'s constant
 /// `WRITE_DURABILITY` (`Durability::Immediate`) — see `run`'s `commit_now`.
 ///
 /// A burst wider than one group does NOT fail and is not split by luck:
@@ -326,7 +326,7 @@ fn commit_and_notify(
         &shard_write_attempt_id("shard_drain"),
         crate::server::txn::now_ms(),
         crypto,
-        // O(1) audit-chain tail cache (CONCEPT:EG-KG.storage.embedded-store), persistent across batches.
+        // O(1) audit-chain tail cache (CONCEPT:MEDULLA-KG.storage.embedded-store), persistent across batches.
         #[cfg(feature = "security")]
         &mut pending.audit_tail,
     );
@@ -372,7 +372,7 @@ fn in_graph_write<T>(
 
 type ShardMember = (
     String,
-    Arc<eg_storage::OwnedStoreHandle<eg_storage::GraphShardOwner>>,
+    Arc<medulla_storage::OwnedStoreHandle<medulla_storage::GraphShardOwner>>,
 );
 
 fn in_write<T>(
@@ -401,7 +401,7 @@ fn in_write<T>(
     }
 }
 
-// ── Raft log/meta helpers (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — run on the writer thread ───────
+// ── Raft log/meta helpers (CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft) — run on the writer thread ───────
 //
 // `raft_log` and `raft_meta` are FILE-WIDE rows: their keys lead with the Raft
 // group id, not with a graph name, so they belong to the shard file's own control

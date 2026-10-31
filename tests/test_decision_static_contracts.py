@@ -10,7 +10,7 @@ import pytest
 
 pytestmark = pytest.mark.no_engine
 ROOT = Path(__file__).resolve().parents[1]
-CANONICAL = "crates/eg-types/src/solve/"
+CANONICAL = "crates/medulla-types/src/solve/"
 DECLARATION = re.compile(
     r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum|type)\s+(\w+)", re.M
 )
@@ -19,12 +19,12 @@ DECLARATION = re.compile(
 # Each exact file may define its homonym once; a second is still a violation.
 HOMONYMS = {
     ("Relation", "src/server/sql_catalog_acl/relations.rs"),
-    ("ModelSpec", "crates/eg-types/src/wire_pipeline.rs"),
-    ("ModelSpec", "crates/eg-compute/src/assemble/tests/fixture.rs"),
-    ("ProofNode", "crates/eg-epistemic/src/model.rs"),
-    ("ProofNode", "crates/eg-rdf/src/owl.rs"),
+    ("ModelSpec", "crates/medulla-types/src/wire_pipeline.rs"),
+    ("ModelSpec", "crates/medulla-compute/src/assemble/tests/fixture.rs"),
+    ("ProofNode", "crates/medulla-epistemic/src/model.rs"),
+    ("ProofNode", "crates/medulla-rdf/src/owl.rs"),
     *(
-        ("Algorithm", f"crates/eg-compute/src/mining/{name}.rs")
+        ("Algorithm", f"crates/medulla-compute/src/mining/{name}.rs")
         for name in (
             "association",
             "forecast",
@@ -84,7 +84,7 @@ def _sources() -> dict[str, str]:
     }
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R123")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R123")
 def test_solve_dtos_have_no_second_definition() -> None:
     assert not _duplicate_dtos(_sources())
 
@@ -131,18 +131,18 @@ def _assert_kind_closure(component: str, slots: str) -> None:
 
 
 def _kind_sources() -> tuple[str, str]:
-    component = (ROOT / "crates/eg-types/src/agent_component.rs").read_text(
+    component = (ROOT / "crates/medulla-types/src/agent_component.rs").read_text(
         encoding="utf-8"
     )
     paths = [
-        ROOT / "crates/eg-types/src/agent_library.rs",
-        ROOT / "crates/eg-types/src/agent_graph.rs",
+        ROOT / "crates/medulla-types/src/agent_library.rs",
+        ROOT / "crates/medulla-types/src/agent_graph.rs",
     ]
-    paths.extend((ROOT / "crates/eg-types/src/agent_graph").rglob("*.rs"))
+    paths.extend((ROOT / "crates/medulla-types/src/agent_graph").rglob("*.rs"))
     return component, "\n".join(path.read_text(encoding="utf-8") for path in paths)
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R074")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R074")
 def test_agent_slot_kinds_are_documented_in_closure_rule() -> None:
     _assert_kind_closure(*_kind_sources())
 
@@ -162,7 +162,7 @@ def test_closure_check_refuses_new_slot_kind() -> None:
 
 def test_duplicate_scan_refuses_second_declaration_in_homonym_file() -> None:
     sources = _sources()
-    sources["crates/eg-types/src/wire_pipeline.rs"] += "\npub struct ModelSpec {}\n"
-    assert ("ModelSpec", "crates/eg-types/src/wire_pipeline.rs") in _duplicate_dtos(
+    sources["crates/medulla-types/src/wire_pipeline.rs"] += "\npub struct ModelSpec {}\n"
+    assert ("ModelSpec", "crates/medulla-types/src/wire_pipeline.rs") in _duplicate_dtos(
         sources
     )

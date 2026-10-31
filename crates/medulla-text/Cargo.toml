@@ -1,0 +1,43 @@
+[package]
+name = "medulla-text"
+version = "0.33.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Embedded BM25 full-text inverted index over node text fields (CONCEPT:KG-2.215). Tantivy-backed, persistent-no-rebuild, incremental add/delete. HARD feature-gated OUT of the Pi/default build — Tantivy (zstd-sys etc.) is heavy."
+license = "MIT"
+
+[lib]
+name = "medulla_text"
+
+# Pi-lean by design. The DEFAULT build links NOTHING heavy: the crate exposes only
+# its public types (TextHit, the trait surface) dep-free, and the Tantivy backend —
+# with its zstd-sys C dep, fst, memmap segments — is bound ONLY behind `tantivy`.
+# A default / pi build of the workspace never enables this crate's `tantivy` feature,
+# so `cargo tree` shows no tantivy in default/pi (the Pi contract).
+[features]
+default = []
+# The real BM25 inverted index. Pulls Tantivy (the Rust Lucene): persistent mmap
+# segments (reopen WITHOUT rebuild), incremental add/delete, BM25 scoring, default
+# tokenization + stemming. Heavy (≈140 transitive crates incl. zstd-sys's C build),
+# so it is OPT-IN and folded by the facade ONLY into text/node/cluster/full — never
+# pi/default.
+tantivy = ["dep:tantivy"]
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for TextHit` + the
+# `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded into
+# any tier aggregate (pi/node/full) — it is a capability-discovery/testing seam, not
+# a serving feature. `TextHit` itself is dep-free, so this does NOT need to imply
+# `tantivy`. `cargo test -p medulla-text --features contract` runs the suite.
+contract = ["dep:medulla-modality"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+# The Rust Lucene. OPTIONAL + only referenced under #[cfg(feature = "tantivy")], so a
+# default/pi build links no tantivy / zstd-sys / fst (verified by `cargo tree`).
+tantivy = { version = "0.26", optional = true }
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/pi/node/full build links none of it and `TextHit` carries no new
+# required trait. See `src/contract.rs`.
+medulla-modality = { path = "../medulla-modality", optional = true }
+
+[dev-dependencies]
+tempfile = "3.27"

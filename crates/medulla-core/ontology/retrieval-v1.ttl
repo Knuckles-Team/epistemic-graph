@@ -1,0 +1,243 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://knuckles.team/kg/retrieval> a owl:Ontology ;
+    rdfs:label "Search, Retrieval and Information Sources Ontology" ;
+    rdfs:comment "Search, retrieval and information-source concepts aligned to OpenSearch (query, result item, description document), DCMI Terms (source, bibliographic resource, references), DataCite-style citation and PROV-O (entity origin). InformationSource is the single shared source class that a genealogy source specialises later. Reuses Document, Dataset, Rendition and RunEvent from the core (MEDULLA-TYPED-PACKS-R105.9)." ;
+    dcterms:source "OpenSearch; DCMI Terms; W3C PROV-O" ;
+    owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/orchestration>, <http://knuckles.team/kg/service_operations>, <http://knuckles.team/kg/dataplatform> .
+
+:InformationSource a owl:Class ;
+    rdfs:label "Information Source" ;
+    rdfs:comment "The origin of information: a feed, publication, website or record collection (dcterms:source, PROV entity origin)." ;
+    skos:altLabel "Source", "Provenance Source" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:FeedSource a owl:Class ;
+    rdfs:label "Feed Source" ;
+    rdfs:comment "A syndication feed that publishes items (RSS, Atom)." ;
+    skos:altLabel "Feed", "RSS Feed", "Atom Feed", "Syndication Feed" ;
+    rdfs:subClassOf :InformationSource .
+
+:FeedItem a owl:Class ;
+    rdfs:label "Feed Item" ;
+    rdfs:comment "One entry published on a feed." ;
+    skos:altLabel "Feed Entry", "News Item" ;
+    rdfs:subClassOf :Document .
+
+:PublicationSource a owl:Class ;
+    rdfs:label "Publication Source" ;
+    rdfs:comment "A scholarly or news publication that papers or articles come from." ;
+    skos:altLabel "Paper Source", "Scholarly Source" ;
+    rdfs:subClassOf :InformationSource .
+
+:SourceBackend a owl:Class ;
+    rdfs:label "Source Backend" ;
+    rdfs:comment "The system an information source is read through." ;
+    skos:altLabel "Source Connector", "Origin Connector" ;
+    rdfs:subClassOf :InformationSource .
+
+:SearchEngine a owl:Class ;
+    rdfs:label "Search Engine" ;
+    rdfs:comment "A service that answers search queries (OpenSearch description document)." ;
+    skos:altLabel "Search Provider", "Search Service", "Metasearch Engine" ;
+    rdfs:subClassOf :ConfigurationItem .
+
+:SearchQuery a owl:Class ;
+    rdfs:label "Search Query" ;
+    rdfs:comment "A request for items matching terms (OpenSearch query)." ;
+    skos:altLabel "Search Request", "Search Term" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:SearchResult a owl:Class ;
+    rdfs:label "Search Result" ;
+    rdfs:comment "One item returned for a search query (OpenSearch item)." ;
+    skos:altLabel "Result Item" ;
+    rdfs:subClassOf :Document .
+
+:SearchHit a owl:Class ;
+    rdfs:label "Search Hit" ;
+    rdfs:comment "A search result with a relevance score and the provenance of its match." ;
+    skos:altLabel "Hit", "Scored Result" ;
+    rdfs:subClassOf :SearchResult .
+
+:SearchIndex a owl:Class ;
+    rdfs:label "Search Index" ;
+    rdfs:comment "An index of documents that a search engine queries." ;
+    skos:altLabel "Document Index" ;
+    rdfs:subClassOf :Dataset .
+
+:IndexAlias a owl:Class ;
+    rdfs:label "Index Alias" ;
+    rdfs:comment "A named view over one or more search indexes." ;
+    skos:altLabel "Search Alias" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:IndexingRun a owl:Class ;
+    rdfs:label "Indexing Run" ;
+    rdfs:comment "One execution that builds or updates a search index." ;
+    skos:altLabel "Index Build", "Indexing Job" ;
+    rdfs:subClassOf :RunEvent, bfo:0000015 .
+
+:Indexer a owl:Class ;
+    rdfs:label "Indexer" ;
+    rdfs:comment "A crawler that catalogs releases or documents for search." ;
+    skos:altLabel "Content Indexer" ;
+    rdfs:subClassOf :SearchEngine .
+
+:WebResource a owl:Class ;
+    rdfs:label "Web Resource" ;
+    rdfs:comment "A resource identified by a URL (DCMI web resource)." ;
+    skos:altLabel "Web Page", "Webpage" ;
+    rdfs:subClassOf :Document .
+
+:WebCapture a owl:Class ;
+    rdfs:label "Web Capture" ;
+    rdfs:comment "An archived rendition of a web resource taken at a time." ;
+    skos:altLabel "Web Archive Snapshot", "Archived Page" ;
+    rdfs:subClassOf :Rendition .
+
+:Citation a owl:Class ;
+    rdfs:label "Citation" ;
+    rdfs:comment "A reference from a document to the source it relies on." ;
+    skos:altLabel "Source Citation", "Bibliographic Reference" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:itemOfFeed a owl:ObjectProperty ;
+    rdfs:label "item of feed" ;
+    rdfs:comment "Links a feed item to the feed that published it." ;
+    rdfs:domain :FeedItem ;
+    rdfs:range :FeedSource ;
+    rdfs:subPropertyOf :partOf .
+
+:publishedBySource a owl:ObjectProperty ;
+    rdfs:label "published by source" ;
+    rdfs:comment "Links a document or feed item to the information source it came from." ;
+    rdfs:domain [ a owl:Class ; owl:unionOf ( :Document :FeedItem ) ] ;
+    rdfs:range :InformationSource .
+
+:readThrough a owl:ObjectProperty ;
+    rdfs:label "read through" ;
+    rdfs:comment "Links an information source to the backend it is read through." ;
+    rdfs:domain :InformationSource ;
+    rdfs:range :SourceBackend .
+
+:answersQuery a owl:ObjectProperty ;
+    rdfs:label "answers query" ;
+    rdfs:comment "Links a search result to the query it answers." ;
+    rdfs:domain :SearchResult ;
+    rdfs:range :SearchQuery .
+
+:hitFor a owl:ObjectProperty ;
+    rdfs:label "hit for" ;
+    rdfs:comment "Links a search hit to the document it matched." ;
+    rdfs:domain :SearchHit ;
+    rdfs:range :Document .
+
+:queriesIndex a owl:ObjectProperty ;
+    rdfs:label "queries index" ;
+    rdfs:comment "Links a search query to the index it ran against." ;
+    rdfs:domain :SearchQuery ;
+    rdfs:range :SearchIndex .
+
+:runsOnEngine a owl:ObjectProperty ;
+    rdfs:label "runs on engine" ;
+    rdfs:comment "Links a search query to the engine that executed it." ;
+    rdfs:domain :SearchQuery ;
+    rdfs:range :SearchEngine .
+
+:servesIndex a owl:ObjectProperty ;
+    rdfs:label "serves index" ;
+    rdfs:comment "Links a search engine to an index it serves." ;
+    rdfs:domain :SearchEngine ;
+    rdfs:range :SearchIndex .
+
+:aliasesIndex a owl:ObjectProperty ;
+    rdfs:label "aliases index" ;
+    rdfs:comment "Links an index alias to the index it points at." ;
+    rdfs:domain :IndexAlias ;
+    rdfs:range :SearchIndex .
+
+:builtByRun a owl:ObjectProperty ;
+    rdfs:label "built by run" ;
+    rdfs:comment "Links a search index to the run that built it." ;
+    rdfs:domain :SearchIndex ;
+    rdfs:range :IndexingRun .
+
+:captureOf a owl:ObjectProperty ;
+    rdfs:label "capture of" ;
+    rdfs:comment "Links a web capture to the web resource it archived." ;
+    rdfs:domain :WebCapture ;
+    rdfs:range :WebResource .
+
+:hasCitation a owl:ObjectProperty ;
+    rdfs:label "has citation" ;
+    rdfs:comment "Links a document to a citation it carries." ;
+    rdfs:domain :Document ;
+    rdfs:range :Citation .
+
+:citesSource a owl:ObjectProperty ;
+    rdfs:label "cites source" ;
+    rdfs:comment "Links a citation to the information source it points at." ;
+    rdfs:domain :Citation ;
+    rdfs:range :InformationSource .
+
+# Connector competency vocabulary: retrieval (MEDULLA-CQ-CONN-vocab: connector competency terms)
+
+:ScholarlyPaper a owl:Class ;
+    rdfs:label "Scholarly Paper" ;
+    rdfs:comment "A scholarly paper with its citations and publication year (ScholarX paper)." ;
+    rdfs:subClassOf :Document .
+
+:resourceUrl a owl:DatatypeProperty ;
+    rdfs:label "resource URL" ;
+    rdfs:comment "The URL a document, feed item, search hit or web resource is identified by." ;
+    rdfs:domain :Document ;
+    rdfs:range xsd:string .
+
+:firstSeenAt a owl:DatatypeProperty ;
+    rdfs:label "first seen at" ;
+    rdfs:comment "Time a source first delivered the document." ;
+    rdfs:domain :Document ;
+    rdfs:range xsd:dateTime .
+
+:mentionsTopic a owl:ObjectProperty ;
+    rdfs:label "mentions topic" ;
+    rdfs:comment "Links a document, transcript or search hit to a topic it mentions." ;
+    rdfs:domain :Document ;
+    rdfs:range :Topic .
+
+:aboutTopic a owl:ObjectProperty ;
+    rdfs:label "about topic" ;
+    rdfs:comment "Links a scholarly paper to the topic it is about." ;
+    rdfs:domain :ScholarlyPaper ;
+    rdfs:range :Topic .
+
+:cites a owl:ObjectProperty ;
+    rdfs:label "cites" ;
+    rdfs:comment "Links a scholarly paper to a paper it cites." ;
+    rdfs:domain :ScholarlyPaper ;
+    rdfs:range :ScholarlyPaper .
+
+:publicationYear a owl:DatatypeProperty ;
+    rdfs:label "publication year" ;
+    rdfs:comment "Calendar year a scholarly paper was published." ;
+    rdfs:domain :ScholarlyPaper ;
+    rdfs:range xsd:integer .
+
+:rageClickRate a owl:DatatypeProperty ;
+    rdfs:label "rage click rate" ;
+    rdfs:comment "Share of sessions with rage clicks on the web resource in the measured window." ;
+    rdfs:domain :WebResource ;
+    rdfs:range xsd:decimal .
+
+:deadClickRate a owl:DatatypeProperty ;
+    rdfs:label "dead click rate" ;
+    rdfs:comment "Share of sessions with dead clicks on the web resource in the measured window." ;
+    rdfs:domain :WebResource ;
+    rdfs:range xsd:decimal .

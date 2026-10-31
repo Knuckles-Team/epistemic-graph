@@ -1,4 +1,4 @@
-//! Streamed content-addressed BLOB handler (CONCEPT:EG-KG.storage.blob-namespace).
+//! Streamed content-addressed BLOB handler (CONCEPT:MEDULLA-KG.storage.blob-namespace).
 //!
 //! Owns the `Blob*` methods. These are STATEFUL (they drive
 //! [`ServerState::blob`](crate::server::ServerState) — the CAS chunk store + the
@@ -21,8 +21,8 @@ use crate::mutation_batch::{DurabilityDomain, MutationBatch, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::blob::{store, BlobCursors};
-use eg_types::contract::Nonce;
-use eg_types::result_contract::storage as results;
+use medulla_types::contract::Nonce;
+use medulla_types::result_contract::storage as results;
 
 /// Handle the blob methods. Returns `Err(method)` for any non-blob method so the
 /// dispatch chain falls through (routing convention). When the engine is built
@@ -439,8 +439,8 @@ async fn handle_blob_ref_op<M>(
     change: fn(&str, &str) -> Result<store::HolderChange, String>,
 ) -> Result<Response, Method>
 where
-    M: eg_types::result_contract::MethodResult<Body = u64>,
-    M::Encoding: eg_types::result_contract::EncodeScalar<u64>,
+    M: medulla_types::result_contract::MethodResult<Body = u64>,
+    M::Encoding: medulla_types::result_contract::EncodeScalar<u64>,
 {
     let (change, batch, now) = match prepare_blob_ref_op(
         cursors,
@@ -597,12 +597,12 @@ fn compile_blob_batch_with_nonce(
 /// MINTS one), so its caller must pass the freshly allocated cursor id here,
 /// never the wire `req_id`. The wire request id is a small integer that a
 /// brand-new, otherwise-unrelated connection restarts from 1 on every
-/// reconnect (`epistemic_graph.client.EpistemicGraphClient._next_id`), while
+/// reconnect (`medulla.client.MedullaClient._next_id`), while
 /// `CarrierAuthority` carries no per-connection/session component at all — so
 /// two independent connections from the same tenant/actor calling
 /// `BlobBegin()` with the same default `chunk_size` as their first RPC
 /// produced the EXACT SAME idempotency key. The engine's
-/// `eg_transaction::MutationKernel::admit` idempotency ledger never expires (by design —
+/// `medulla_transaction::MutationKernel::admit` idempotency ledger never expires (by design —
 /// it survives an acknowledgement-lost retry across a coordinator restart),
 /// so the SECOND connection's `BlobBegin` silently REPLAYED the first
 /// connection's already-committed result: the FIRST connection's cursor id,
@@ -664,8 +664,8 @@ fn compile_blob_batch_at_with_nonce(
 /// declared result.
 async fn ref_op<M, F>(req_id: u64, f: F) -> Result<Response, Method>
 where
-    M: eg_types::result_contract::MethodResult<Body = u64>,
-    M::Encoding: eg_types::result_contract::EncodeScalar<u64>,
+    M: medulla_types::result_contract::MethodResult<Body = u64>,
+    M::Encoding: medulla_types::result_contract::EncodeScalar<u64>,
     F: FnOnce() -> Result<u64, String> + Send + 'static,
 {
     match run_blocking(req_id, f).await {

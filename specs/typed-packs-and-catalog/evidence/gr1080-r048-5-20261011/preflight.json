@@ -7,24 +7,24 @@
     "contract/receipt.json": "9aa4161c06fb2bbe46e96603b9db69fa8d537de5ab831d4ee8222fab53da6401",
     "contract/schemas/method.request.json": "cc2eec6345ca2b453530aa8c70a24fba5639704ef991238f81ee411ade2fd28b",
     "contract/schemas/result.query.json": "1ef644a5e992fbbc8dfcd4e59a71b7164e91e11cd87923da91435279f99e70cf",
-    "crates/eg-capabilities/generated/catalog_digest.rs": "c8118e4835e90d65103a7607abd1b9ff5499ca2de7b71ae0eff59af6571c83ea",
-    "epistemic_graph/contract/receipt.json": "9aa4161c06fb2bbe46e96603b9db69fa8d537de5ab831d4ee8222fab53da6401",
-    "epistemic_graph/contract/schemas/method.request.json": "cc2eec6345ca2b453530aa8c70a24fba5639704ef991238f81ee411ade2fd28b",
-    "epistemic_graph/contract/schemas/result.query.json": "1ef644a5e992fbbc8dfcd4e59a71b7164e91e11cd87923da91435279f99e70cf",
-    "epistemic_graph/generated/connector_pack.py": "ea2d1153314408ca72158c6a239c36d904fa37b1caaf68e30badd6aed80c0c36"
+    "crates/medulla-capabilities/generated/catalog_digest.rs": "c8118e4835e90d65103a7607abd1b9ff5499ca2de7b71ae0eff59af6571c83ea",
+    "medulla/contract/receipt.json": "9aa4161c06fb2bbe46e96603b9db69fa8d537de5ab831d4ee8222fab53da6401",
+    "medulla/contract/schemas/method.request.json": "cc2eec6345ca2b453530aa8c70a24fba5639704ef991238f81ee411ade2fd28b",
+    "medulla/contract/schemas/result.query.json": "1ef644a5e992fbbc8dfcd4e59a71b7164e91e11cd87923da91435279f99e70cf",
+    "medulla/generated/connector_pack.py": "ea2d1153314408ca72158c6a239c36d904fa37b1caaf68e30badd6aed80c0c36"
   },
   "results": {
     "gen-contract": {
       "command": [
         "cargo",
         "--config",
-        "profile.test.package.eg-types.opt-level=0",
+        "profile.test.package.medulla-types.opt-level=0",
         "run",
         "--locked",
         "--profile",
         "test",
         "-p",
-        "eg-capabilities",
+        "medulla-capabilities",
         "--features",
         "contract",
         "--bin",
@@ -55,11 +55,11 @@
         "contract/receipt.json",
         "contract/schemas/method.request.json",
         "contract/schemas/result.query.json",
-        "crates/eg-capabilities/generated/catalog_digest.rs",
-        "epistemic_graph/contract/receipt.json",
-        "epistemic_graph/contract/schemas/method.request.json",
-        "epistemic_graph/contract/schemas/result.query.json",
-        "epistemic_graph/generated/connector_pack.py"
+        "crates/medulla-capabilities/generated/catalog_digest.rs",
+        "medulla/contract/receipt.json",
+        "medulla/contract/schemas/method.request.json",
+        "medulla/contract/schemas/result.query.json",
+        "medulla/generated/connector_pack.py"
       ],
       "started_utc": "2026-10-11T17:19:16.600772+00:00",
       "elapsed_seconds": 6.392,
@@ -74,11 +74,11 @@
       "command": [
         "cargo",
         "--config",
-        "profile.test.package.eg-types.opt-level=0",
+        "profile.test.package.medulla-types.opt-level=0",
         "test",
         "--locked",
         "-p",
-        "eg-capabilities",
+        "medulla-capabilities",
         "--features",
         "contract",
         "-j",
@@ -89,11 +89,11 @@
         "contract/receipt.json",
         "contract/schemas/method.request.json",
         "contract/schemas/result.query.json",
-        "crates/eg-capabilities/generated/catalog_digest.rs",
-        "epistemic_graph/contract/receipt.json",
-        "epistemic_graph/contract/schemas/method.request.json",
-        "epistemic_graph/contract/schemas/result.query.json",
-        "epistemic_graph/generated/connector_pack.py"
+        "crates/medulla-capabilities/generated/catalog_digest.rs",
+        "medulla/contract/receipt.json",
+        "medulla/contract/schemas/method.request.json",
+        "medulla/contract/schemas/result.query.json",
+        "medulla/generated/connector_pack.py"
       ],
       "started_utc": "2026-10-11T17:19:22.992530+00:00",
       "elapsed_seconds": 127.952,
@@ -124,11 +124,11 @@
       "command": [
         "cargo",
         "--config",
-        "profile.test.package.eg-types.opt-level=0",
+        "profile.test.package.medulla-types.opt-level=0",
         "test",
         "--locked",
         "-p",
-        "eg-types",
+        "medulla-types",
         "--lib",
         "--no-default-features",
         "--features",
@@ -144,11 +144,11 @@
         "contract/receipt.json",
         "contract/schemas/method.request.json",
         "contract/schemas/result.query.json",
-        "crates/eg-capabilities/generated/catalog_digest.rs",
-        "epistemic_graph/contract/receipt.json",
-        "epistemic_graph/contract/schemas/method.request.json",
-        "epistemic_graph/contract/schemas/result.query.json",
-        "epistemic_graph/generated/connector_pack.py"
+        "crates/medulla-capabilities/generated/catalog_digest.rs",
+        "medulla/contract/receipt.json",
+        "medulla/contract/schemas/method.request.json",
+        "medulla/contract/schemas/result.query.json",
+        "medulla/generated/connector_pack.py"
       ],
       "started_utc": "2026-10-11T17:21:30.945437+00:00",
       "elapsed_seconds": 98.203,
@@ -190,6 +190,6 @@
     }
   },
   "served_acceptance": "PENDING: requires a freshly compiled native method-body codec and server containing the importer mapping, then the real signed import/readback and raw server-refusal regression. No pass is claimed.",
-  "cache": "Preserved eg-native-fixture-fixes worktree and target-isolated; serial Cargo; no cache cleanup.",
+  "cache": "Preserved medulla-native-fixture-fixes worktree and target-isolated; serial Cargo; no cache cleanup.",
   "raw_logs": "Retained locally; not published."
 }

@@ -9,9 +9,9 @@
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use eg_types::agent_library::AgentLibraryMutationContext;
-use eg_types::mutation::{MutationReceipt, MutationResult};
-use eg_types::mutation_batch::{MutationOperation, MutationOutboxIntent};
+use medulla_types::agent_library::AgentLibraryMutationContext;
+use medulla_types::mutation::{MutationReceipt, MutationResult};
+use medulla_types::mutation_batch::{MutationOperation, MutationOutboxIntent};
 
 use crate::server::persistence::agent_library::{
     admitted_context, agent_library_operation_identity, native_lifecycle_batch,
@@ -24,7 +24,7 @@ use crate::server::persistence::agent_revision::{
 
 /// The owner-row capability one pack write applies its rows through.
 pub(crate) type PackOwnerWrite<'w> =
-    eg_transaction::AdmittedOwnerWrite<'w, eg_storage::AgentLibraryOwner>;
+    medulla_transaction::AdmittedOwnerWrite<'w, medulla_storage::AgentLibraryOwner>;
 
 /// Who one pack write is, for replay: the same identity replays the stored
 /// result, a different body under the same key is `IDEMPOTENCY_CONFLICT`.
@@ -119,12 +119,12 @@ impl AgentLibraryStore {
     /// inside the open write; the caller commits or the write aborts.
     fn stage_pack_write<R: Serialize>(
         &self,
-        txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+        txn: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
         admission: &PackAdmission<'_>,
         identity: &PackWriteIdentity<'_>,
         effects: PackWriteEffects,
         apply: impl FnOnce(&PackOwnerWrite<'_>, &PackWriteStaged) -> Result<R, String>,
-    ) -> Result<(eg_types::mutation_batch::MutationBatch, R), String> {
+    ) -> Result<(medulla_types::mutation_batch::MutationBatch, R), String> {
         let batch_context = policy_admitted_context(admission.context, &effects.operations)?;
         let (batch_id, staged) = stage_batch(
             self,
@@ -160,7 +160,7 @@ impl AgentLibraryStore {
             identity.result_schema,
             identity.noun,
         )?;
-        let result_bytes = eg_storage::encode_bounded(
+        let result_bytes = medulla_storage::encode_bounded(
             &mutation_result,
             &format!("{} domain result", identity.noun),
         )?;
@@ -187,10 +187,10 @@ impl AgentLibraryStore {
 
 /// The replay admission one pack write was granted before it staged.
 struct PackAdmission<'a> {
-    owner: &'a eg_storage::OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
+    owner: &'a medulla_storage::OwnedStoreHandle<medulla_storage::AgentLibraryOwner>,
     context: &'a AgentLibraryMutationContext,
-    operation: &'a eg_types::authority::OperationReplayIdentity,
-    nonce: &'a eg_types::authority::NonceReplayKey,
+    operation: &'a medulla_types::authority::OperationReplayIdentity,
+    nonce: &'a medulla_types::authority::NonceReplayKey,
 }
 
 /// Decode the typed result a replayed receipt recorded, refusing a receipt of
@@ -223,11 +223,11 @@ fn decode_recorded<R: DeserializeOwned>(
 /// the envelope's authority (the kernel refuses the begin). The method schema
 /// digest stays the envelope's `ApplyMutation` digest.
 fn bind_batch_method(
-    mut operation: eg_types::authority::OperationReplayIdentity,
+    mut operation: medulla_types::authority::OperationReplayIdentity,
     operations: &[MutationOperation],
-) -> Result<eg_types::authority::OperationReplayIdentity, String> {
-    let method = eg_types::mutation_batch::batch_method_id(operations, false)?;
-    operation.method_schema_id = eg_types::mutation_batch::method_schema_id(&method)?;
+) -> Result<medulla_types::authority::OperationReplayIdentity, String> {
+    let method = medulla_types::mutation_batch::batch_method_id(operations, false)?;
+    operation.method_schema_id = medulla_types::mutation_batch::method_schema_id(&method)?;
     operation.method = method;
     operation.validate()?;
     Ok(operation)

@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use eg_rdf::sparql::Projection;
-use eg_rdf::update::GraphStore;
+use medulla_rdf::sparql::Projection;
+use medulla_rdf::update::GraphStore;
 use tokio::sync::RwLock;
 
 use crate::graph::GraphCore;
@@ -40,8 +40,8 @@ pub(crate) struct PlannedGraphUpdate {
 /// Return the complete graph set an update may address. Lifecycle creation stays
 /// in dispatch so it uses the verified caller and durable graph coordinator.
 pub(crate) fn update_graphs(update_text: &str, default_graph: &str) -> Result<Vec<String>, String> {
-    let parsed = eg_rdf::update::parse_update(update_text)?;
-    let mut graphs = eg_rdf::update::referenced_named_graphs(&parsed);
+    let parsed = medulla_rdf::update::parse_update(update_text)?;
+    let mut graphs = medulla_rdf::update::referenced_named_graphs(&parsed);
     graphs.push(default_graph.to_string());
     graphs.sort();
     graphs.dedup();
@@ -64,7 +64,7 @@ pub(crate) async fn plan_update(
     update_text: &str,
     default_graph: &str,
     authorized_graphs: &[String],
-) -> Result<(Vec<PlannedGraphUpdate>, eg_rdf::update::UpdateReport), String> {
+) -> Result<(Vec<PlannedGraphUpdate>, medulla_rdf::update::UpdateReport), String> {
     #[cfg(not(feature = "shacl"))]
     return Err("SPARQL UPDATE requires the shacl integrity-guard feature".to_string());
 
@@ -105,8 +105,8 @@ fn plan_detached_update(
     update_text: &str,
     live: LiveGraphSnapshot,
     default_graph: &str,
-) -> Result<(Vec<PlannedGraphUpdate>, eg_rdf::update::UpdateReport), String> {
-    let parsed = eg_rdf::update::parse_update(update_text)?;
+) -> Result<(Vec<PlannedGraphUpdate>, medulla_rdf::update::UpdateReport), String> {
+    let parsed = medulla_rdf::update::parse_update(update_text)?;
     let (mut before, staged_by_name, mut existed, mut graph_types) = stage_graphs(live)?;
     let default = staged_by_name
         .get(default_graph)
@@ -116,7 +116,7 @@ fn plan_detached_update(
     graphs.insert(String::new(), default);
     let store = EndpointStore { graphs };
     let guard = crate::server::icv_guard::CoreIcvGuard::routed(&store.graphs);
-    let counts = eg_rdf::update::execute(&parsed, &store, &Projection::raw(), &guard)
+    let counts = medulla_rdf::update::execute(&parsed, &store, &Projection::raw(), &guard)
         .map_err(|error| error.to_string())?;
     let planned =
         collect_planned_updates(staged_by_name, &mut before, &mut existed, &mut graph_types)?;

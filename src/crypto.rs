@@ -1,10 +1,10 @@
-//! Encryption-at-rest for the redb durable value blobs (CONCEPT:EG-KG.sharding.row-level-security, Lane O).
+//! Encryption-at-rest for the redb durable value blobs (CONCEPT:MEDULLA-KG.sharding.row-level-security, Lane O).
 //!
 //! A PURE-RUST RustCrypto AEAD (`chacha20poly1305::ChaCha20Poly1305`) — NO ring,
 //! NO openssl, NO C — so the Pi crypto contract holds. The data key is derived from
-//! `EPISTEMIC_GRAPH_ENCRYPTION_KEY` (a KMS hook seam is provided via
+//! `MEDULLA_ENCRYPTION_KEY` (a KMS hook seam is provided via
 //! [`resolve_key_config`]). The non-secret ID/version from
-//! `EPISTEMIC_GRAPH_ENCRYPTION_KEY_ID` / `_VERSION` is pinned by the durable canary.
+//! `MEDULLA_ENCRYPTION_KEY_ID` / `_VERSION` is pinned by the durable canary.
 //! Encryption is **opt-in / default OFF**: it changes the on-disk value format, so a
 //! cipher is installed only when the env key is present.
 //!
@@ -12,7 +12,7 @@
 //! ```text
 //!   [ MAGIC (1 byte) | nonce (12 bytes) | ciphertext+tag ]
 //! ```
-//! The `MAGIC` byte (`0xE6`, "eg-encrypted") makes the sealed format
+//! The `MAGIC` byte (`0xE6`, "medulla-encrypted") makes the sealed format
 //! self-describing. When encryption is configured, every value must carry this
 //! format; unsealed bytes fail closed and require an explicit offline conversion.
 //!
@@ -29,18 +29,18 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 /// Env var holding the raw encryption key material (any length; hashed to 32 bytes).
-pub const ENCRYPTION_KEY_ENV: &str = "EPISTEMIC_GRAPH_ENCRYPTION_KEY";
+pub const ENCRYPTION_KEY_ENV: &str = "MEDULLA_ENCRYPTION_KEY";
 
 /// Stable, non-secret identifier for the configured encryption key.  The identifier
 /// is persisted with the durable canary so an operator cannot accidentally point a
 /// store at a different KMS object while reusing an otherwise plausible secret.
-pub const ENCRYPTION_KEY_ID_ENV: &str = "EPISTEMIC_GRAPH_ENCRYPTION_KEY_ID";
+pub const ENCRYPTION_KEY_ID_ENV: &str = "MEDULLA_ENCRYPTION_KEY_ID";
 
 /// Monotonic, non-secret version for the configured encryption key.  Changing either
 /// this value or [`ENCRYPTION_KEY_ID_ENV`] is an explicit rotation boundary; the
 /// durable store refuses to open until the offline re-encryption ceremony has been
 /// completed.
-pub const ENCRYPTION_KEY_VERSION_ENV: &str = "EPISTEMIC_GRAPH_ENCRYPTION_KEY_VERSION";
+pub const ENCRYPTION_KEY_VERSION_ENV: &str = "MEDULLA_ENCRYPTION_KEY_VERSION";
 
 /// Default key metadata used for stores created before key identity/version pinning
 /// was introduced.  Keeping this legacy reference preserves compatibility while
@@ -68,22 +68,22 @@ const MAX_KEY_VERSION_BYTES: usize = 64;
 /// operation on a populated plaintext store, not a config toggle, and is NOT what
 /// enabling transaction durability should require.
 ///
-/// Setting ONLY `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY` unblocks multi-op `Commit` (and
+/// Setting ONLY `MEDULLA_TXN_RECOVERY_KEY` unblocks multi-op `Commit` (and
 /// coordinator/cross-shard recovery) while leaving `Shard::cipher` — and therefore
 /// every existing plaintext value in the store — completely untouched. A deployment
 /// that has ALREADY opted into full at-rest encryption (`ENCRYPTION_KEY_ENV` set) gets
 /// the old shared-key behavior automatically via the fallback in
 /// [`resolve_txn_recovery_key`], so this is additive, not a breaking change.
-pub const TXN_RECOVERY_KEY_ENV: &str = "EPISTEMIC_GRAPH_TXN_RECOVERY_KEY";
+pub const TXN_RECOVERY_KEY_ENV: &str = "MEDULLA_TXN_RECOVERY_KEY";
 
 /// Env var controlling whether the redb backend REFUSES to open without at-rest
 /// encryption configured (GOC-16). Tri-state rollout posture, the same shape as
-/// `EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING` in `server::auth`: `off` keeps today's
+/// `MEDULLA_REQUIRE_NODE_BINDING` in `server::auth`: `off` keeps today's
 /// fully-silent opt-in behavior; `warn` (the shipped default) logs once that
 /// at-rest encryption is OFF, without refusing to start, so an operator sees it
 /// before a genuine production deployment goes live unencrypted; `on` fails
 /// closed. See [`EncryptionRequiredMode`].
-pub const ENCRYPTION_REQUIRED_ENV: &str = "EPISTEMIC_GRAPH_ENCRYPTION_REQUIRED";
+pub const ENCRYPTION_REQUIRED_ENV: &str = "MEDULLA_ENCRYPTION_REQUIRED";
 
 /// A stable, non-secret reference for one encryption key.
 ///
@@ -148,7 +148,7 @@ impl EncryptionKeyConfig {
 }
 
 /// Rollout posture for [`ENCRYPTION_REQUIRED_ENV`]. A PRESENT
-/// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` always installs a cipher in every mode — only
+/// `MEDULLA_ENCRYPTION_KEY` always installs a cipher in every mode — only
 /// an ABSENT key's handling varies by mode (mirrors
 /// `server::auth::NodeBindingMode`'s own doc comment on this exact point).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -249,9 +249,9 @@ impl ValueCipher {
     }
 
     /// Resolve the transaction-recovery-plan cipher (D-ORC-50): reads
-    /// `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY` first — a key configured there seals ONLY the
+    /// `MEDULLA_TXN_RECOVERY_KEY` first — a key configured there seals ONLY the
     /// private admin-saga/recovery-plan channel and never touches the data-at-rest
-    /// format — and falls back to the shared `EPISTEMIC_GRAPH_ENCRYPTION_KEY` so a
+    /// format — and falls back to the shared `MEDULLA_ENCRYPTION_KEY` so a
     /// deployment that already has full at-rest encryption on keeps working exactly as
     /// before. `None` when neither is set ⇒ multi-op transaction durability requires one
     /// of the two to be configured, same as today.
@@ -313,7 +313,7 @@ pub fn is_sealed(stored: &[u8]) -> bool {
 }
 
 /// The KMS hook seam: resolve raw key material. Today it reads
-/// `EPISTEMIC_GRAPH_ENCRYPTION_KEY`; a KMS-backed deployment swaps this for a fetch
+/// `MEDULLA_ENCRYPTION_KEY`; a KMS-backed deployment swaps this for a fetch
 /// of the data key (envelope encryption). Returns `None` ⇒ encryption disabled.
 pub fn resolve_key() -> Option<Vec<u8>> {
     match std::env::var(ENCRYPTION_KEY_ENV) {
@@ -401,7 +401,7 @@ pub const ENCRYPTION_KEY_BINDING_FORMAT_VERSION: u32 = 1;
 /// than trusting a mutable plaintext metadata row on its own.
 pub fn encryption_canary_plaintext(key_ref: &EncryptionKeyRef) -> Vec<u8> {
     format!(
-        "epistemic-graph-encryption-canary|format={}|id={}|version={}",
+        "medulla-encryption-canary|format={}|id={}|version={}",
         ENCRYPTION_KEY_BINDING_FORMAT_VERSION, key_ref.id, key_ref.version
     )
     .into_bytes()
@@ -531,7 +531,7 @@ pub fn resolve_txn_recovery_key() -> Option<Vec<u8>> {
 ///
 /// The original mutex only bound tests that MUTATE the encryption env. But a
 /// test that merely OPENS a durable store is just as order-sensitive: it reads
-/// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` at open, and a test that opens then REOPENS
+/// `MEDULLA_ENCRYPTION_KEY` at open, and a test that opens then REOPENS
 /// (backup round trip, lazy-startup rehydrate, eviction reopen) fails its canary
 /// check if the ambient key changed in between. There are ~28 such tests across
 /// `redb_backend.rs` and `cold_offload.rs` and none of them took the mutex --
@@ -539,7 +539,7 @@ pub fn resolve_txn_recovery_key() -> Option<Vec<u8>> {
 /// nothing (CONCEPT:AU-OS.governance.lane-partitioned-resources, same shape).
 ///
 /// Measured: `cargo test --lib` fails ~2/1185 under high parallelism with
-/// "EPISTEMIC_GRAPH_ENCRYPTION_KEY does not match the key that previously
+/// "MEDULLA_ENCRYPTION_KEY does not match the key that previously
 /// encrypted this store (canary decryption failed)", and passes under the
 /// 2-core-affinity pre-push run where the interleaving does not arise.
 ///
@@ -636,7 +636,7 @@ pub(crate) fn acquire_test_env_read_lock_blocking() -> TestEnvReadGuard {
 /// ambient key transition exactly once per process (absent -> this), which is the
 /// smallest amount of shared state this requirement can have.
 #[cfg(test)]
-pub(crate) const TEST_AT_REST_KEY: &str = "epistemic-graph-test-at-rest-key";
+pub(crate) const TEST_AT_REST_KEY: &str = "medulla-test-at-rest-key";
 
 #[cfg(test)]
 static TEST_AT_REST_KEY_PROVISIONED: std::sync::Once = std::sync::Once::new();

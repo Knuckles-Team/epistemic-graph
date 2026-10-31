@@ -15,7 +15,7 @@
 //! search are gated, which is the design's "connector is dark during its
 //! projection window".
 
-use eg_types::connector_pack::PACK_COMPONENT_ID_PREFIX;
+use medulla_types::connector_pack::PACK_COMPONENT_ID_PREFIX;
 
 use super::ConnectorPackHeadRow;
 

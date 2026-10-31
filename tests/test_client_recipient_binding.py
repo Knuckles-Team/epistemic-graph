@@ -13,8 +13,8 @@ import msgpack
 import pytest
 from conftest import request_context
 
-from epistemic_graph import client as client_module
-from epistemic_graph.client import EpistemicGraphClient, SyncEpistemicGraphClient
+from medulla import client as client_module
+from medulla.client import MedullaClient, SyncMedullaClient
 
 pytestmark = pytest.mark.no_engine
 
@@ -42,7 +42,7 @@ def _transport_env(monkeypatch):
 @pytest.fixture
 def socket_dir():
     # UDS address length is bounded independently of pytest's checkout path.
-    with tempfile.TemporaryDirectory(prefix="eg-recipient-") as directory:
+    with tempfile.TemporaryDirectory(prefix="medulla-recipient-") as directory:
         yield Path(directory)
 
 
@@ -97,7 +97,7 @@ async def _two_recipients(socket_dir):
 
 
 async def _connect(path, **kwargs):
-    return await EpistemicGraphClient.connect(
+    return await MedullaClient.connect(
         socket_path=str(path),
         required_socket_path=str(path),
         write_admission=_synthetic_admission,
@@ -139,7 +139,7 @@ def test_noncanonical_recipient_rejected_without_dial(value, monkeypatch):
 
     async def run():
         with pytest.raises(ValueError, match="required_socket_path"):
-            await EpistemicGraphClient.connect(
+            await MedullaClient.connect(
                 required_socket_path=value,
                 verified_context=_claims(),
                 auth_secret="synthetic-test-secret",
@@ -183,7 +183,7 @@ def test_contradictory_transport_rejected(socket_dir, kwargs, monkeypatch):
 
     async def run():
         with pytest.raises(ValueError, match="required_socket_path"):
-            await EpistemicGraphClient.connect(
+            await MedullaClient.connect(
                 required_socket_path=str(socket_dir / "required"),
                 verified_context=_claims(),
                 write_admission=_synthetic_admission,
@@ -248,7 +248,7 @@ def test_context_cannot_upgrade_unbound_or_change_recipient(socket_dir):
         path = socket_dir / "engine"
         async with _server(path) as (_, chunks, _):
             bound = await _connect(path)
-            unbound = await EpistemicGraphClient.connect(
+            unbound = await MedullaClient.connect(
                 socket_path=str(path),
                 auth_secret="synthetic-test-secret",
                 verified_context=request_context(),
@@ -432,7 +432,7 @@ def test_sync_context_reaches_loop_and_namespace(socket_dir):
         async with _server(path) as (frames, _, _):
 
             def calls():
-                client = SyncEpistemicGraphClient.connect(
+                client = SyncMedullaClient.connect(
                     socket_path=str(path),
                     required_socket_path=str(path),
                     write_admission=_synthetic_admission,
@@ -705,7 +705,7 @@ def test_bound_proof_requires_its_own_admission(socket_dir):
         path = socket_dir / "engine"
         async with _server(path) as (_, chunks, _):
             with pytest.raises(ValueError, match="requires write_admission"):
-                await EpistemicGraphClient.connect(
+                await MedullaClient.connect(
                     required_socket_path=str(path),
                     verified_context=_claims(),
                     auth_secret="synthetic-test-secret",
@@ -729,7 +729,7 @@ def test_connect_proof_and_atomic_lock_cover_both_writes_only(socket_dir, monkey
         path = socket_dir / "engine"
         authority = _RenewableAuthority()
         async with _server(path) as (frames, _, _):
-            client = await EpistemicGraphClient.connect(
+            client = await MedullaClient.connect(
                 required_socket_path=str(path),
                 verified_context=authority.claims,
                 write_admission=authority.admit,
@@ -900,18 +900,18 @@ def test_sync_delayed_call_rechecks_renewed_proof(socket_dir, monkeypatch):
         path = socket_dir / "engine"
         authority = _RenewableAuthority()
         entered, release = threading.Event(), threading.Event()
-        original_write_frame = EpistemicGraphClient._write_frame
+        original_write_frame = MedullaClient._write_frame
 
         async def delayed_frame(client, *args, **kwargs):
             entered.set()
             assert await asyncio.to_thread(release.wait, 2)
             await original_write_frame(client, *args, **kwargs)
 
-        monkeypatch.setattr(EpistemicGraphClient, "_write_frame", delayed_frame)
+        monkeypatch.setattr(MedullaClient, "_write_frame", delayed_frame)
         async with _server(path) as (frames, chunks, _):
 
             def call():
-                client = SyncEpistemicGraphClient.connect(
+                client = SyncMedullaClient.connect(
                     required_socket_path=str(path),
                     verified_context=request_context(),
                     auth_secret="synthetic-test-secret",

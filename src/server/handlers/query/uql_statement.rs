@@ -19,7 +19,7 @@ pub(crate) async fn handle_uql(
     text: String,
     params: UqlParams,
     prepare: bool,
-    foreign_execution: Option<eg_types::foreign_read::ForeignReadExecutionRef>,
+    foreign_execution: Option<medulla_types::foreign_read::ForeignReadExecutionRef>,
 ) -> Result<Response, Method> {
     let req_id = ctx.req_id;
     if prepare && foreign_execution.is_some() {
@@ -49,7 +49,7 @@ pub(crate) async fn handle_uql(
     };
     let stmt_for_run = if prepare {
         let mut prepared = stmt.clone();
-        prepared.mode = eg_plan::uql::Mode::Explain;
+        prepared.mode = medulla_plan::uql::Mode::Explain;
         prepared
     } else {
         stmt
@@ -92,9 +92,9 @@ pub(crate) async fn handle_uql(
         binding,
         legs,
         move |_plan, plan_ctx| {
-            let mut result = eg_plan::uql::serve::run_statement(&stmt_for_run, plan_ctx)?;
+            let mut result = medulla_plan::uql::serve::run_statement(&stmt_for_run, plan_ctx)?;
             #[cfg(feature = "federation")]
-            if let eg_types::wire::UqlResult::Explain {
+            if let medulla_types::wire::UqlResult::Explain {
                 plan_digest: reported_plan_digest,
                 query_digest: reported_query_digest,
                 ..
@@ -124,11 +124,11 @@ pub(crate) async fn handle_uql(
 fn uql_cache_key(
     ctx: &QueryHandlerCtx<'_>,
     text: &str,
-    params: &std::collections::BTreeMap<String, eg_types::wire::UqlParam>,
-    stmt: &eg_plan::uql::Statement,
+    params: &std::collections::BTreeMap<String, medulla_types::wire::UqlParam>,
+    stmt: &medulla_plan::uql::Statement,
     legs: &ServedPlanLegs,
-) -> Result<Option<(u128, Option<eg_core::dep_scope::DepSet>)>, String> {
-    use eg_plan::uql::{Body, Mode};
+) -> Result<Option<(u128, Option<medulla_core::dep_scope::DepSet>)>, String> {
+    use medulla_plan::uql::{Body, Mode};
     if stmt.mode == Mode::Profile || !legs.cache_admissible() {
         return Ok(None);
     }
@@ -148,7 +148,7 @@ fn uql_cache_key(
 #[cfg(all(test, feature = "query", feature = "redb", feature = "security"))]
 mod served_tests {
     use super::super::current_auth_test_support::prelude::*;
-    use eg_types::wire::{UqlParam, UqlResult};
+    use medulla_types::wire::{UqlParam, UqlResult};
 
     const SECRET: &str = "uql-served-test-secret";
 
@@ -261,8 +261,8 @@ mod served_tests {
         };
 
         let params = std::collections::BTreeMap::new();
-        let statement = eg_plan::uql::parse_statement(text, &params).expect("parse explain");
-        let binding = eg_plan::uql::serve::binding_plan(&statement);
+        let statement = medulla_plan::uql::parse_statement(text, &params).expect("parse explain");
+        let binding = medulla_plan::uql::serve::binding_plan(&statement);
         assert_eq!(
             query_digest,
             super::super::planning::foreign_uql_query_digest(text, &params).expect("query digest")
@@ -300,8 +300,8 @@ mod served_tests {
             panic!("prepare must return server-owned foreign-read pins: {response:?}");
         };
         let params = std::collections::BTreeMap::new();
-        let statement = eg_plan::uql::parse_statement(text, &params).expect("parse query");
-        let binding = eg_plan::uql::serve::binding_plan(&statement);
+        let statement = medulla_plan::uql::parse_statement(text, &params).expect("parse query");
+        let binding = medulla_plan::uql::serve::binding_plan(&statement);
         assert_eq!(
             query_digest,
             super::super::planning::foreign_uql_query_digest(text, &params).expect("query digest")
@@ -311,7 +311,7 @@ mod served_tests {
             crate::server::foreign_read::canonical_plan_digest(&binding).expect("plan digest")
         );
     }
-    // EG-FEDERATED-QUERY-R067 served acceptance; native qualification remains pending.
+    // MEDULLA-FEDERATED-QUERY-R067 served acceptance; native qualification remains pending.
     #[tokio::test]
     async fn score_channels_survive_the_served_uql_path() {
         let state = state();
@@ -340,7 +340,7 @@ mod served_tests {
         assert_eq!(d2.channels[1], Some(1.0));
     }
 
-    // spec: EG-FEDERATED-QUERY-R028
+    // spec: MEDULLA-FEDERATED-QUERY-R028
     #[tokio::test]
     async fn with_knowledge_is_served_without_changing_row_identity() {
         let state = state();

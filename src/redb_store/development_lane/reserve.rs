@@ -21,7 +21,7 @@ use crate::epistemic_operations::{
     ResourceReservationRecordState,
 };
 use crate::protocol::DevelopmentLaneWorkItemKind;
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 
 fn reserve_policy_refusal(
     policy: &DurableLanePolicy,

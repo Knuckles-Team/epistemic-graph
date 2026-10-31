@@ -1,5 +1,5 @@
 {
-  "requirement": "EG-TYPED-PACKS-R048.5",
+  "requirement": "MEDULLA-TYPED-PACKS-R048.5",
   "acceptance": "PASS",
   "source": {
     "main": "005454058ba4c8622c3158d78df3b774dd1cd2b6",
@@ -20,9 +20,9 @@
     "jobs": 4
   },
   "cache": {
-    "worktree": "eg-native-fixture-fixes",
+    "worktree": "medulla-native-fixture-fixes",
     "target": "target-isolated",
-    "origin_checkout": "validation/eg-storage-lock",
+    "origin_checkout": "validation/medulla-storage-lock",
     "origin_checkout_commit": "7c572aab45554e7d524e223773058efbdba21bed",
     "copy": "cp -a --reflink=auto; separate inodes verified; no shared hardlinks",
     "provenance_limit": "The original checkout identity does not prove every cached artifact was built there. This preserved target was reused serially through the native fixture and R048 validation batches.",
@@ -36,7 +36,7 @@
     "artifacts_current": 73
   },
   "profiles": {
-    "generator_contract_pack_codec": "User-authorized profile.test.package.eg-types.opt-level=0; other repository test settings preserved.",
+    "generator_contract_pack_codec": "User-authorized profile.test.package.medulla-types.opt-level=0; other repository test settings preserved.",
     "server": "Unchanged repository profile.test: opt-level 1, debug 0, incremental true, codegen-units 256.",
     "execution": "Serial Cargo; each native build bounded at 1200 seconds plus 30 seconds termination grace."
   },
@@ -45,13 +45,13 @@
       "command": [
         "cargo",
         "--config",
-        "profile.test.package.eg-types.opt-level=0",
+        "profile.test.package.medulla-types.opt-level=0",
         "build",
         "--locked",
         "--profile",
         "test",
         "-p",
-        "eg-numeric",
+        "medulla-numeric",
         "--features",
         "python",
         "--lib",
@@ -63,11 +63,11 @@
         "contract/receipt.json",
         "contract/schemas/method.request.json",
         "contract/schemas/result.query.json",
-        "crates/eg-capabilities/generated/catalog_digest.rs",
-        "epistemic_graph/contract/receipt.json",
-        "epistemic_graph/contract/schemas/method.request.json",
-        "epistemic_graph/contract/schemas/result.query.json",
-        "epistemic_graph/generated/connector_pack.py"
+        "crates/medulla-capabilities/generated/catalog_digest.rs",
+        "medulla/contract/receipt.json",
+        "medulla/contract/schemas/method.request.json",
+        "medulla/contract/schemas/result.query.json",
+        "medulla/generated/connector_pack.py"
       ],
       "started_utc": "2026-10-11T17:23:45.343536+00:00",
       "elapsed_seconds": 100.969,
@@ -83,11 +83,11 @@
     "artifact": {
       "source_commit": "b8ff613e411c0c335617e7e5c47ff9d1ae83df4e",
       "built_path": "target-isolated/debug/libeg_numeric.so",
-      "installed_path": "epistemic_graph/numeric.abi3.so",
+      "installed_path": "medulla/numeric.abi3.so",
       "sha256": "6e136b5cac9470732bad7966ba8a274a3f1e1e94325a5620553c70292be43f5c"
     },
     "verified_method_body_codec": "eg/method-body/v1",
-    "verified_kernel": "eg-numeric"
+    "verified_kernel": "medulla-numeric"
   },
   "server": {
     "build": {
@@ -98,12 +98,12 @@
         "--profile",
         "test",
         "-p",
-        "epistemic-graph",
+        "medulla",
         "--no-default-features",
         "--features",
         "server,redb,blob,decide,query,security,federation-sql,obda,owl,shacl,knowledge-batch,program-optimization,kv,tsdb,nl-query,ann-redb",
         "--bin",
-        "epistemic-graph-server",
+        "medulla-server",
         "-j",
         "4"
       ],
@@ -112,11 +112,11 @@
         "contract/receipt.json",
         "contract/schemas/method.request.json",
         "contract/schemas/result.query.json",
-        "crates/eg-capabilities/generated/catalog_digest.rs",
-        "epistemic_graph/contract/receipt.json",
-        "epistemic_graph/contract/schemas/method.request.json",
-        "epistemic_graph/contract/schemas/result.query.json",
-        "epistemic_graph/generated/connector_pack.py"
+        "crates/medulla-capabilities/generated/catalog_digest.rs",
+        "medulla/contract/receipt.json",
+        "medulla/contract/schemas/method.request.json",
+        "medulla/contract/schemas/result.query.json",
+        "medulla/generated/connector_pack.py"
       ],
       "started_utc": "2026-10-11T17:25:26.494798+00:00",
       "elapsed_seconds": 969.175,
@@ -131,7 +131,7 @@
     },
     "artifact": {
       "source_commit": "9876b4bd8415f1b3c800f182beeceeab0ad273a2",
-      "path": "target-isolated/debug/epistemic-graph-server",
+      "path": "target-isolated/debug/medulla-server",
       "sha256": "1f82f41bf60cac83fdc33f9113f89be13ebedaeef84880af56ea04abdbb7575d",
       "features": "server,redb,blob,decide,query,security,federation-sql,obda,owl,shacl,knowledge-batch,program-optimization,kv,tsdb,nl-query,ann-redb",
       "profile": "repository profile.test unchanged"
@@ -148,8 +148,8 @@
       "--tb=short"
     ],
     "environment": {
-      "EPISTEMIC_GRAPH_TEST_BINARY": "target-isolated/debug/epistemic-graph-server",
-      "EPISTEMIC_GRAPH_TEST_BINARY_SHA256": "1f82f41bf60cac83fdc33f9113f89be13ebedaeef84880af56ea04abdbb7575d",
+      "MEDULLA_TEST_BINARY": "target-isolated/debug/medulla-server",
+      "MEDULLA_TEST_BINARY_SHA256": "1f82f41bf60cac83fdc33f9113f89be13ebedaeef84880af56ea04abdbb7575d",
       "PYTHONPATH": ".:tests:scripts"
     },
     "started_utc": "2026-10-11T17:45:32.994027+00:00",

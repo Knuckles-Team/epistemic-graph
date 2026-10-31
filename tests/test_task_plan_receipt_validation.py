@@ -1,4 +1,4 @@
-"""EG-DECISION-ENGINE-R134.111.4: preserve receipt refusal order on extraction.
+"""MEDULLA-DECISION-ENGINE-R134.111.4: preserve receipt refusal order on extraction.
 
 These unit checks exercise already-decoded content, not native transport or
 strict generated-model validation (covered by the served task-plan suite).
@@ -9,8 +9,8 @@ import hashlib
 
 import pytest
 
-from epistemic_graph import decision_client as dc
-from epistemic_graph.decision._digest import digest_text
+from medulla import decision_client as dc
+from medulla.decision._digest import digest_text
 
 pytestmark = pytest.mark.no_engine
 
@@ -27,7 +27,7 @@ def question():
     }
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R134.111.4")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R134.111.4")
 def test_question_refuses_before_parameter_and_principal():
     asked = question()
     asked["question"]["kind"] = "other"
@@ -58,7 +58,7 @@ def identity(asked):
     }
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R134.111.4")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R134.111.4")
 def test_identity_refusal_precedence_and_local_principal_binding():
     asked = question()
     received = identity(asked)
@@ -105,7 +105,7 @@ def claims():
     return asked, plan
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R134.111.4")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R134.111.4")
 @pytest.mark.parametrize(
     "field, value, error",
     [

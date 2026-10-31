@@ -11,7 +11,7 @@ use crate::mutation_batch::{
 use crate::protocol::{Method, Response};
 use crate::server::access::CarrierAuthority;
 use crate::server::state::ServerState;
-use eg_types::contract::Nonce;
+use medulla_types::contract::Nonce;
 
 tokio::task_local! {
     static AUTHENTICATED_SAGA_AUTHORITY: CarrierAuthority;
@@ -224,25 +224,25 @@ impl AdminSagaResultContract {
                 .ok_or_else(|| "admin saga replay has the wrong GraphQL result type".to_string()),
             Self::SparqlRecoveryOutcome => validate_sparql_recovery_outcome(result),
             Self::ShardReshardReport => validate_admin_json::<
-                eg_types::result_contract::cluster::ShardReshardReport,
+                medulla_types::result_contract::cluster::ShardReshardReport,
             >(result),
             Self::RebalanceExecution => validate_admin_json::<
-                eg_types::result_contract::cluster::RebalanceExecution,
+                medulla_types::result_contract::cluster::RebalanceExecution,
             >(result),
             Self::RestoreReceipt => {
-                validate_admin_json::<eg_types::storage_wire::RestoreReceipt>(result)
+                validate_admin_json::<medulla_types::storage_wire::RestoreReceipt>(result)
             }
             Self::MultiGraphBatchReport => validate_admin_json::<
-                eg_types::result_contract::transactions::MultiGraphBatchReport,
+                medulla_types::result_contract::transactions::MultiGraphBatchReport,
             >(result),
             Self::ChannelCreated => {
-                validate_admin_json::<eg_types::messaging_wire::ChannelCreated>(result)
+                validate_admin_json::<medulla_types::messaging_wire::ChannelCreated>(result)
             }
             Self::ChannelDeparture => {
-                validate_admin_json::<eg_types::messaging_wire::ChannelDeparture>(result)
+                validate_admin_json::<medulla_types::messaging_wire::ChannelDeparture>(result)
             }
             Self::BeliefMaterialization => validate_admin_json::<
-                eg_types::result_contract::transactions::BeliefMaterialization,
+                medulla_types::result_contract::transactions::BeliefMaterialization,
             >(result),
         }
     }
@@ -313,7 +313,7 @@ fn validate_sparql_recovery_outcome(result: &crate::protocol::ResultPayload) -> 
     // All five report fields are required, so a successful decode plus exact
     // object length also excludes unknown fields.
     let success = body.len() == 5
-        && serde_json::from_value::<eg_types::result_contract::transactions::SparqlUpdateReport>(
+        && serde_json::from_value::<medulla_types::result_contract::transactions::SparqlUpdateReport>(
             value.clone(),
         )
         .is_ok();
@@ -382,18 +382,18 @@ fn require_admin_saga_execution(saga: AdminSaga, refusal: &str) -> Result<AdminS
 fn resolve_admin_saga_step(
     identity: &MutationScopeIdentity,
     batch: &mut MutationBatch,
-    step: eg_transaction::SagaBegin,
+    step: medulla_transaction::SagaBegin,
     expected_contract: AdminSagaResultContract,
 ) -> Result<(Option<crate::protocol::ResultPayload>, bool), String> {
     match step {
-        eg_transaction::SagaBegin::Committed(record) => {
+        medulla_transaction::SagaBegin::Committed(record) => {
             let (record, result) = decode_admin_commit(record, identity, true, expected_contract)?;
             expected_contract.validate(&result)?;
             *batch = record.batch;
             Ok((Some(result), false))
         }
-        eg_transaction::SagaBegin::Execute => Ok((None, false)),
-        eg_transaction::SagaBegin::Resume(record) => {
+        medulla_transaction::SagaBegin::Execute => Ok((None, false)),
+        medulla_transaction::SagaBegin::Resume(record) => {
             *batch = record.batch;
             Ok((None, true))
         }
@@ -508,8 +508,8 @@ pub(crate) fn begin_named_admin_saga_with_nonce(
     let identity = crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
     let now = crate::server::dispatch::authoritative_now_ms();
     let read = backend.admin_mutations_read()?;
-    let expected = eg_transaction::version(&read)?;
-    let existing = eg_transaction::read_ledger(&read, batch_id)?;
+    let expected = medulla_transaction::version(&read)?;
+    let existing = medulla_transaction::read_ledger(&read, batch_id)?;
     let event_type = public_admin_event_type(existing.as_ref(), result_contract);
     let mut batch = crate::server::mutation_batch::compile_opaque_method(
         crate::server::mutation_batch::CompileBatch {
@@ -573,7 +573,7 @@ pub(crate) fn begin_named_admin_saga_with_private_payload_and_nonce(
     let result_contract = AdminSagaResultContract::for_private_event(event_type)?;
     let identity = crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
     let now = crate::server::dispatch::authoritative_now_ms();
-    let expected = eg_transaction::version(&backend.admin_mutations_read()?)?;
+    let expected = medulla_transaction::version(&backend.admin_mutations_read()?)?;
     let mut batch = crate::server::mutation_batch::compile_opaque_digest(
         crate::server::mutation_batch::CompileBatch {
             batch_id,
@@ -619,7 +619,7 @@ pub(crate) fn resume_named_admin_saga(
         caller.ok_or_else(|| "coordinator recovery requires a verified principal".to_string())?,
     )?;
     let identity = crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
-    let Some(record) = eg_transaction::read_ledger(&backend.admin_mutations_read()?, batch_id)?
+    let Some(record) = medulla_transaction::read_ledger(&backend.admin_mutations_read()?, batch_id)?
     else {
         return Ok(None);
     };
@@ -759,9 +759,9 @@ fn decode_admin_commit(
 #[cfg(feature = "redb")]
 pub(crate) fn decode_durable_saga_result(
     bytes: &[u8],
-    limits: eg_types::msgpack::MsgpackLimits,
+    limits: medulla_types::msgpack::MsgpackLimits,
 ) -> Option<crate::protocol::ResultPayload> {
-    eg_types::msgpack::decode_bounded::<DurableAdminResult>(bytes, limits)
+    medulla_types::msgpack::decode_bounded::<DurableAdminResult>(bytes, limits)
         .ok()
         .map(DurableAdminResult::into_result)
 }
@@ -831,9 +831,9 @@ pub(crate) fn catalog_saga<M>(
     apply: impl FnOnce(&crate::server::persistence::tenant_catalog::TenantCatalog) -> Result<(), String>,
 ) -> Response
 where
-    M: eg_types::result_contract::MethodResult<
+    M: medulla_types::result_contract::MethodResult<
         Body = bool,
-        Encoding = eg_types::result_contract::encoding::Bool,
+        Encoding = medulla_types::result_contract::encoding::Bool,
     >,
 {
     let saga = match begin_admin_saga_with_nonce(
@@ -870,8 +870,8 @@ where
 #[cfg(feature = "redb")]
 pub(crate) fn reshard_report(
     report: &crate::server::persistence::online_reshard::ReshardReport,
-) -> eg_types::result_contract::cluster::ShardReshardReport {
-    eg_types::result_contract::cluster::ShardReshardReport {
+) -> medulla_types::result_contract::cluster::ShardReshardReport {
+    medulla_types::result_contract::cluster::ShardReshardReport {
         graph: report.graph.clone(),
         from_shard: report.from_shard as u64,
         to_shard: report.to_shard as u64,
@@ -890,13 +890,13 @@ pub(crate) fn reshard_report(
 pub(crate) fn rebalance_plan_report(
     plan: &crate::server::persistence::rebalance::RebalancePlan,
     shards: &[crate::server::persistence::rebalance::ShardLoad],
-) -> eg_types::result_contract::cluster::RebalancePlanReport {
-    eg_types::result_contract::cluster::RebalancePlanReport {
+) -> medulla_types::result_contract::cluster::RebalancePlanReport {
+    medulla_types::result_contract::cluster::RebalancePlanReport {
         moves: plan
             .moves
             .iter()
             .map(
-                |planned| eg_types::result_contract::cluster::RebalanceMove {
+                |planned| medulla_types::result_contract::cluster::RebalanceMove {
                     graph: planned.graph.clone(),
                     from_shard: planned.from_shard,
                     to_shard: planned.to_shard,
@@ -906,7 +906,7 @@ pub(crate) fn rebalance_plan_report(
         shards: shards
             .iter()
             .map(
-                |shard| eg_types::result_contract::cluster::ShardLoadSummary {
+                |shard| medulla_types::result_contract::cluster::ShardLoadSummary {
                     shard: shard.shard,
                     total: shard.total(),
                     graphs: shard.graphs.len() as u64,
@@ -920,7 +920,7 @@ pub(crate) fn rebalance_plan_report(
 pub(crate) fn no_catalog(req_id: u64) -> Response {
     Response::err(
         req_id,
-        "no tenant catalog attached (set EPISTEMIC_GRAPH_TENANT_CATALOG=1 and restart)",
+        "no tenant catalog attached (set MEDULLA_TENANT_CATALOG=1 and restart)",
     )
 }
 
@@ -940,7 +940,7 @@ pub(crate) fn rebalance_opts(
 }
 
 /// Live per-graph load `(sanitized_fname, resident_node_count)` over the registry + the
-/// shard count K (CONCEPT:EG-KG.sharding.even-load-rebalance integration). Resident node count is the KG-2.51 per-graph
+/// shard count K (CONCEPT:MEDULLA-KG.sharding.even-load-rebalance integration). Resident node count is the KG-2.51 per-graph
 /// size dimension — a cheap, available balance metric. `__commons__` is included like any
 /// other graph. Returns `(loads, k)`.
 #[cfg(feature = "redb")]

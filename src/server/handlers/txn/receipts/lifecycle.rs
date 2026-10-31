@@ -67,7 +67,7 @@ fn matches_lifecycle_result(expected: &str, result: &ResultPayload) -> bool {
             result,
             ResultPayload::Json(value)
                 if serde_json::from_value::<
-                    eg_types::result_contract::transactions::BeliefMaterialization,
+                    medulla_types::result_contract::transactions::BeliefMaterialization,
                 >(value.clone())
                 .is_ok()
         ),
@@ -236,11 +236,11 @@ pub(in crate::server::handlers::txn) fn finish_txn_lifecycle_receipt(
 /// Keeping the hook at this boundary exercises the real signed dispatch path
 /// without creating another replay or idempotency authority.
 pub(crate) fn fault_after_txn_lifecycle_effect(req_id: u64) {
-    let Ok(armed) = std::env::var("EPISTEMIC_GRAPH_LIFECYCLE_EFFECT_FAULT_REQUEST_ID") else {
+    let Ok(armed) = std::env::var("MEDULLA_LIFECYCLE_EFFECT_FAULT_REQUEST_ID") else {
         return;
     };
     if armed.parse::<u64>().ok() == Some(req_id) {
-        eprintln!("EPISTEMIC_GRAPH_LIFECYCLE_EFFECT_FAULT_REQUEST_ID armed for request {req_id}");
+        eprintln!("MEDULLA_LIFECYCLE_EFFECT_FAULT_REQUEST_ID armed for request {req_id}");
         std::process::abort();
     }
 }

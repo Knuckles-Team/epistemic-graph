@@ -113,7 +113,7 @@ pub(super) fn compile_job_batch(
     // (see `owned_job` above), which is where it belongs -- not by the physical
     // scope identity of a store that has exactly one.
     let scope = authority.namespace("analytics-jobs", "control");
-    let identity = eg_jobs::analytics_job_scope_identity().map_err(|error| error.to_string())?;
+    let identity = medulla_jobs::analytics_job_scope_identity().map_err(|error| error.to_string())?;
     let expected = store
         .mutation_version(authority.tenant_scope(), &scope)
         .map_err(|error| error.to_string())?;
@@ -145,10 +145,10 @@ pub(super) fn compile_job_batch(
     Ok((batch, now))
 }
 
-pub(super) fn job_response<M>(req_id: u64, job: &eg_jobs::AnalyticsJob) -> Response
+pub(super) fn job_response<M>(req_id: u64, job: &medulla_jobs::AnalyticsJob) -> Response
 where
-    M: eg_types::result_contract::MethodResult<
-        Body = eg_types::result_contract::coordination::AnalyticsJobRecord,
+    M: medulla_types::result_contract::MethodResult<
+        Body = medulla_types::result_contract::coordination::AnalyticsJobRecord,
     >,
 {
     match job_result_payload::<M>(job) {
@@ -157,10 +157,10 @@ where
     }
 }
 
-pub(super) fn job_result_payload<M>(job: &eg_jobs::AnalyticsJob) -> Result<ResultPayload, String>
+pub(super) fn job_result_payload<M>(job: &medulla_jobs::AnalyticsJob) -> Result<ResultPayload, String>
 where
-    M: eg_types::result_contract::MethodResult<
-        Body = eg_types::result_contract::coordination::AnalyticsJobRecord,
+    M: medulla_types::result_contract::MethodResult<
+        Body = medulla_types::result_contract::coordination::AnalyticsJobRecord,
     >,
 {
     let (record, _input_payload) = job_record(job)?;
@@ -171,10 +171,10 @@ where
 /// executor payload. Executor payloads are durable implementation detail: even
 /// governed, pseudonymized inputs are only ever handed to the claiming worker.
 pub(super) fn job_record(
-    job: &eg_jobs::AnalyticsJob,
+    job: &medulla_jobs::AnalyticsJob,
 ) -> Result<
     (
-        eg_types::result_contract::coordination::AnalyticsJobRecord,
+        medulla_types::result_contract::coordination::AnalyticsJobRecord,
         Option<Vec<u8>>,
     ),
     String,
@@ -197,13 +197,13 @@ pub(crate) fn knowledge_stream_result(
     persist_dir: &Option<String>,
     graph: &str,
     job_id: &str,
-) -> Result<(eg_jobs::AnalyticsJob, TypedJobResult), String> {
+) -> Result<(medulla_jobs::AnalyticsJob, TypedJobResult), String> {
     let store = job_store(persist_dir.as_deref())?;
     let job = store.get(job_id).map_err(|error| error.to_string())?;
     if job.input_snapshot.graph != native_opaque_ref("graph", graph) {
         return Err("analytics result does not belong to the authorized graph".to_string());
     }
-    if !matches!(job.state, eg_jobs::JobState::Succeeded { .. }) {
+    if !matches!(job.state, medulla_jobs::JobState::Succeeded { .. }) {
         return Err("analytics result is not committed".to_string());
     }
     let result = job

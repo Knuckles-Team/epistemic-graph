@@ -1,100 +1,100 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-CONTRACT",
+  "spec_id": "MEDULLA-CONTRACT",
   "owner_repo": "medulla",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "EG-CONTRACT-R001",
-    "EG-CONTRACT-R002",
-    "EG-CONTRACT-R002.1",
-    "EG-CONTRACT-R002.2",
-    "EG-CONTRACT-R002.3",
-    "EG-CONTRACT-R003",
-    "EG-CONTRACT-R004",
-    "EG-CONTRACT-R005",
-    "EG-CONTRACT-R006",
-    "EG-CONTRACT-R006.1",
-    "EG-CONTRACT-R006.2",
-    "EG-CONTRACT-R007",
-    "EG-CONTRACT-R008",
-    "EG-CONTRACT-R008.1",
-    "EG-CONTRACT-R008.2",
-    "EG-CONTRACT-R009",
-    "EG-CONTRACT-R010",
-    "EG-CONTRACT-R011",
-    "EG-CONTRACT-R011.1",
-    "EG-CONTRACT-R012",
-    "EG-CONTRACT-R013",
-    "EG-CONTRACT-R014",
-    "EG-CONTRACT-R014.1",
-    "EG-CONTRACT-R015",
-    "EG-CONTRACT-R015.1",
-    "EG-CONTRACT-R016",
-    "EG-CONTRACT-R017",
-    "EG-CONTRACT-R018",
-    "EG-CONTRACT-R019",
-    "EG-CONTRACT-R020",
-    "EG-CONTRACT-R021",
-    "EG-CONTRACT-R022",
-    "EG-CONTRACT-R023",
-    "EG-CONTRACT-R023.1",
-    "EG-CONTRACT-R024",
-    "EG-CONTRACT-R025",
-    "EG-CONTRACT-R026",
-    "EG-CONTRACT-R027",
-    "EG-CONTRACT-R028",
-    "EG-CONTRACT-R029",
-    "EG-CONTRACT-R030",
-    "EG-CONTRACT-R031",
-    "EG-CONTRACT-R031.1",
-    "EG-CONTRACT-R031.2",
-    "EG-CONTRACT-R032",
-    "EG-CONTRACT-R033",
-    "EG-CONTRACT-R034",
-    "EG-CONTRACT-R035",
-    "EG-CONTRACT-R036",
-    "EG-CONTRACT-R037",
-    "EG-CONTRACT-R038",
-    "EG-CONTRACT-R039",
-    "EG-CONTRACT-R040",
-    "EG-CONTRACT-R041",
-    "EG-CONTRACT-R042",
-    "EG-CONTRACT-R043",
-    "EG-CONTRACT-R044",
-    "EG-CONTRACT-R045",
-    "EG-CONTRACT-R046",
-    "EG-CONTRACT-R047",
-    "EG-CONTRACT-R048",
-    "EG-CONTRACT-R049",
-    "EG-CONTRACT-R050",
-    "EG-CONTRACT-R051",
-    "EG-CONTRACT-R051.1",
-    "EG-CONTRACT-R052",
-    "EG-CONTRACT-R052.1",
-    "EG-CONTRACT-R052.2",
-    "EG-CONTRACT-R052.3",
-    "EG-CONTRACT-R052.4",
-    "EG-CONTRACT-R001.1",
-    "EG-CONTRACT-R001.2",
-    "EG-CONTRACT-R053",
-    "EG-CONTRACT-R053.1",
-    "EG-CONTRACT-R053.2",
-    "EG-CONTRACT-R053.3",
-    "EG-CONTRACT-R053.4",
-    "EG-CONTRACT-R053.5",
-    "EG-CONTRACT-R053.6",
-    "EG-CONTRACT-R053.7",
-    "EG-CONTRACT-R053.8",
-    "EG-CONTRACT-R053.9",
-    "EG-CONTRACT-R053.10",
-    "EG-CONTRACT-R053.11",
-    "EG-CONTRACT-R053.12",
-    "EG-CONTRACT-R006.3",
-    "EG-CONTRACT-R053.13"
+    "MEDULLA-CONTRACT-R001",
+    "MEDULLA-CONTRACT-R002",
+    "MEDULLA-CONTRACT-R002.1",
+    "MEDULLA-CONTRACT-R002.2",
+    "MEDULLA-CONTRACT-R002.3",
+    "MEDULLA-CONTRACT-R003",
+    "MEDULLA-CONTRACT-R004",
+    "MEDULLA-CONTRACT-R005",
+    "MEDULLA-CONTRACT-R006",
+    "MEDULLA-CONTRACT-R006.1",
+    "MEDULLA-CONTRACT-R006.2",
+    "MEDULLA-CONTRACT-R007",
+    "MEDULLA-CONTRACT-R008",
+    "MEDULLA-CONTRACT-R008.1",
+    "MEDULLA-CONTRACT-R008.2",
+    "MEDULLA-CONTRACT-R009",
+    "MEDULLA-CONTRACT-R010",
+    "MEDULLA-CONTRACT-R011",
+    "MEDULLA-CONTRACT-R011.1",
+    "MEDULLA-CONTRACT-R012",
+    "MEDULLA-CONTRACT-R013",
+    "MEDULLA-CONTRACT-R014",
+    "MEDULLA-CONTRACT-R014.1",
+    "MEDULLA-CONTRACT-R015",
+    "MEDULLA-CONTRACT-R015.1",
+    "MEDULLA-CONTRACT-R016",
+    "MEDULLA-CONTRACT-R017",
+    "MEDULLA-CONTRACT-R018",
+    "MEDULLA-CONTRACT-R019",
+    "MEDULLA-CONTRACT-R020",
+    "MEDULLA-CONTRACT-R021",
+    "MEDULLA-CONTRACT-R022",
+    "MEDULLA-CONTRACT-R023",
+    "MEDULLA-CONTRACT-R023.1",
+    "MEDULLA-CONTRACT-R024",
+    "MEDULLA-CONTRACT-R025",
+    "MEDULLA-CONTRACT-R026",
+    "MEDULLA-CONTRACT-R027",
+    "MEDULLA-CONTRACT-R028",
+    "MEDULLA-CONTRACT-R029",
+    "MEDULLA-CONTRACT-R030",
+    "MEDULLA-CONTRACT-R031",
+    "MEDULLA-CONTRACT-R031.1",
+    "MEDULLA-CONTRACT-R031.2",
+    "MEDULLA-CONTRACT-R032",
+    "MEDULLA-CONTRACT-R033",
+    "MEDULLA-CONTRACT-R034",
+    "MEDULLA-CONTRACT-R035",
+    "MEDULLA-CONTRACT-R036",
+    "MEDULLA-CONTRACT-R037",
+    "MEDULLA-CONTRACT-R038",
+    "MEDULLA-CONTRACT-R039",
+    "MEDULLA-CONTRACT-R040",
+    "MEDULLA-CONTRACT-R041",
+    "MEDULLA-CONTRACT-R042",
+    "MEDULLA-CONTRACT-R043",
+    "MEDULLA-CONTRACT-R044",
+    "MEDULLA-CONTRACT-R045",
+    "MEDULLA-CONTRACT-R046",
+    "MEDULLA-CONTRACT-R047",
+    "MEDULLA-CONTRACT-R048",
+    "MEDULLA-CONTRACT-R049",
+    "MEDULLA-CONTRACT-R050",
+    "MEDULLA-CONTRACT-R051",
+    "MEDULLA-CONTRACT-R051.1",
+    "MEDULLA-CONTRACT-R052",
+    "MEDULLA-CONTRACT-R052.1",
+    "MEDULLA-CONTRACT-R052.2",
+    "MEDULLA-CONTRACT-R052.3",
+    "MEDULLA-CONTRACT-R052.4",
+    "MEDULLA-CONTRACT-R001.1",
+    "MEDULLA-CONTRACT-R001.2",
+    "MEDULLA-CONTRACT-R053",
+    "MEDULLA-CONTRACT-R053.1",
+    "MEDULLA-CONTRACT-R053.2",
+    "MEDULLA-CONTRACT-R053.3",
+    "MEDULLA-CONTRACT-R053.4",
+    "MEDULLA-CONTRACT-R053.5",
+    "MEDULLA-CONTRACT-R053.6",
+    "MEDULLA-CONTRACT-R053.7",
+    "MEDULLA-CONTRACT-R053.8",
+    "MEDULLA-CONTRACT-R053.9",
+    "MEDULLA-CONTRACT-R053.10",
+    "MEDULLA-CONTRACT-R053.11",
+    "MEDULLA-CONTRACT-R053.12",
+    "MEDULLA-CONTRACT-R006.3",
+    "MEDULLA-CONTRACT-R053.13"
   ],
   "requirements": [
     {
-      "id": "EG-CONTRACT-R001",
+      "id": "MEDULLA-CONTRACT-R001",
       "title": "Strict typed Pydantic models for every method and nested type",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -108,12 +108,12 @@
         "tests/test_generated_models.py:69"
       ],
       "rollup_of": [
-        "EG-CONTRACT-R001.1",
-        "EG-CONTRACT-R001.2"
+        "MEDULLA-CONTRACT-R001.1",
+        "MEDULLA-CONTRACT-R001.2"
       ]
     },
     {
-      "id": "EG-CONTRACT-R002",
+      "id": "MEDULLA-CONTRACT-R002",
       "title": "Served Agent Library tests cover pack import and Decide",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -129,13 +129,13 @@
         "tests/test_installed_wheel_decision_client_boundary.py:60"
       ],
       "rollup_of": [
-        "EG-CONTRACT-R002.1",
-        "EG-CONTRACT-R002.2",
-        "EG-CONTRACT-R002.3"
+        "MEDULLA-CONTRACT-R002.1",
+        "MEDULLA-CONTRACT-R002.2",
+        "MEDULLA-CONTRACT-R002.3"
       ]
     },
     {
-      "id": "EG-CONTRACT-R002.1",
+      "id": "MEDULLA-CONTRACT-R002.1",
       "title": "Served Decide tenant auth-boundary refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -149,7 +149,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R002.2",
+      "id": "MEDULLA-CONTRACT-R002.2",
       "title": "Served Decide authorized-tenant path and pack-import journey",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -163,7 +163,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R002.3",
+      "id": "MEDULLA-CONTRACT-R002.3",
       "title": "Installed-wheel / no-source-tree-import check for the Decide and pack-import client surface",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -175,7 +175,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R003",
+      "id": "MEDULLA-CONTRACT-R003",
       "title": "Privacy scan covers relocated graph-backends documentation",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -188,7 +188,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R004",
+      "id": "MEDULLA-CONTRACT-R004",
       "title": "Go and JS clients sign bodies through the shared codec",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -201,7 +201,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R005",
+      "id": "MEDULLA-CONTRACT-R005",
       "title": "One generated model per wire shape, with typed SPARQL decode",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -212,14 +212,14 @@
         "e2b2f1cfa8ee"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/python/surfaces/tests.rs:121",
+        "crates/medulla-capabilities/src/contract/python/surfaces/tests.rs:121",
         "tests/test_generated_models.py:123",
         "tests/test_generated_union_variants.py:25",
         "tests/test_generated_union_variants.py:27"
       ]
     },
     {
-      "id": "EG-CONTRACT-R006",
+      "id": "MEDULLA-CONTRACT-R006",
       "title": "Deterministic, size-budgeted WASM codec artifact",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -228,13 +228,13 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-CONTRACT-R006.1",
-        "EG-CONTRACT-R006.2",
-        "EG-CONTRACT-R006.3"
+        "MEDULLA-CONTRACT-R006.1",
+        "MEDULLA-CONTRACT-R006.2",
+        "MEDULLA-CONTRACT-R006.3"
       ]
     },
     {
-      "id": "EG-CONTRACT-R006.1",
+      "id": "MEDULLA-CONTRACT-R006.1",
       "title": "Fresh canonical codec export with provenance",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -253,14 +253,14 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R006.2",
+      "id": "MEDULLA-CONTRACT-R006.2",
       "title": "Complete canonical WASM qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CONTRACT-R007",
+      "id": "MEDULLA-CONTRACT-R007",
       "title": "Dispatch decomposition test is current and runs in CI",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -273,7 +273,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R008",
+      "id": "MEDULLA-CONTRACT-R008",
       "title": "Repo-parity check validates the resolved checkout",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -289,12 +289,12 @@
         "scripts/tests/test_repo_root_parity.py:31"
       ],
       "rollup_of": [
-        "EG-CONTRACT-R008.1",
-        "EG-CONTRACT-R008.2"
+        "MEDULLA-CONTRACT-R008.1",
+        "MEDULLA-CONTRACT-R008.2"
       ]
     },
     {
-      "id": "EG-CONTRACT-R008.1",
+      "id": "MEDULLA-CONTRACT-R008.1",
       "title": "Typed resolved-checkout parity contract (producer-first split of R008)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -310,7 +310,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R008.2",
+      "id": "MEDULLA-CONTRACT-R008.2",
       "title": "check_five_repo_parity.py CLI wires in the typed parity contract",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -323,7 +323,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R009",
+      "id": "MEDULLA-CONTRACT-R009",
       "title": "CI runs the full root Python test suite",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -342,7 +342,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R010",
+      "id": "MEDULLA-CONTRACT-R010",
       "title": "Complexity gate scores exhaustive matches by arm body, not count",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -356,7 +356,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R011",
+      "id": "MEDULLA-CONTRACT-R011",
       "title": "Parallel fan-out for the land gate across build hosts",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -370,11 +370,11 @@
         "tests/test_check_fanout_host_groups.py:92"
       ],
       "rollup_of": [
-        "EG-CONTRACT-R011.1"
+        "MEDULLA-CONTRACT-R011.1"
       ]
     },
     {
-      "id": "EG-CONTRACT-R011.1",
+      "id": "MEDULLA-CONTRACT-R011.1",
       "title": "Fan-out host-group manifest is structurally valid before any gate work is dispatched",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -389,7 +389,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R012",
+      "id": "MEDULLA-CONTRACT-R012",
       "title": "Complexity scanner resolves modules declared in inline mod blocks",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -401,7 +401,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R013",
+      "id": "MEDULLA-CONTRACT-R013",
       "title": "KISS config keys avoid a silently dropped section",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -414,7 +414,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R014",
+      "id": "MEDULLA-CONTRACT-R014",
       "title": "Generated error catalog has stable auth-mismatch codes",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -425,18 +425,18 @@
         "394f82a01e83"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/errors.rs:495",
-        "crates/eg-capabilities/src/error_routing.rs:448",
-        "crates/eg-types/src/governed_change/tests.rs:196",
+        "crates/medulla-capabilities/src/contract/errors.rs:495",
+        "crates/medulla-capabilities/src/error_routing.rs:448",
+        "crates/medulla-types/src/governed_change/tests.rs:196",
         "src/server/auth.rs:2184",
         "src/server/transport/tests.rs:145"
       ],
       "rollup_of": [
-        "EG-CONTRACT-R014.1"
+        "MEDULLA-CONTRACT-R014.1"
       ]
     },
     {
-      "id": "EG-CONTRACT-R014.1",
+      "id": "MEDULLA-CONTRACT-R014.1",
       "title": "Authentication refusals name a safe cause class",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -451,7 +451,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R015",
+      "id": "MEDULLA-CONTRACT-R015",
       "title": "Wheel ships the method, error and scope contract with callability flags",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -465,11 +465,11 @@
         "tests/test_wheel_contract_surface.py:475"
       ],
       "rollup_of": [
-        "EG-CONTRACT-R015.1"
+        "MEDULLA-CONTRACT-R015.1"
       ]
     },
     {
-      "id": "EG-CONTRACT-R015.1",
+      "id": "MEDULLA-CONTRACT-R015.1",
       "title": "Wheel ships the core ontology, shapes and catalog",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -480,7 +480,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R016",
+      "id": "MEDULLA-CONTRACT-R016",
       "title": "Consumer-profile allowlist covers all generated PolicyEvolution senders",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -492,7 +492,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R017",
+      "id": "MEDULLA-CONTRACT-R017",
       "title": "Dispatch census pins cover the current compiler-declared modules",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -504,7 +504,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R018",
+      "id": "MEDULLA-CONTRACT-R018",
       "title": "Release feature matrix includes the motif Cargo feature",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -519,7 +519,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R019",
+      "id": "MEDULLA-CONTRACT-R019",
       "title": "Dispatch reachability gate follows the current FOREIGN paths",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -531,7 +531,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R020",
+      "id": "MEDULLA-CONTRACT-R020",
       "title": "Topology test names avoid version-number suffixes",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -543,7 +543,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R021",
+      "id": "MEDULLA-CONTRACT-R021",
       "title": "Failed-connect test checks its own teardown, not process counts",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -555,7 +555,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R022",
+      "id": "MEDULLA-CONTRACT-R022",
       "title": "Zero new duplicate-code pairs across the combined source tree",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -567,7 +567,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R023",
+      "id": "MEDULLA-CONTRACT-R023",
       "title": "Pre-commit hooks pass clean without bypass flags",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -580,11 +580,11 @@
         "tests/test_check_registry_test_ownership_completeness.py:31"
       ],
       "rollup_of": [
-        "EG-CONTRACT-R023.1"
+        "MEDULLA-CONTRACT-R023.1"
       ]
     },
     {
-      "id": "EG-CONTRACT-R023.1",
+      "id": "MEDULLA-CONTRACT-R023.1",
       "title": "Every tracked test file has a recognized component-registry owner",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -598,7 +598,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R024",
+      "id": "MEDULLA-CONTRACT-R024",
       "title": "Pre-commit and codespell configuration finalized and locked",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -607,7 +607,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-CONTRACT-R025",
+      "id": "MEDULLA-CONTRACT-R025",
       "title": "UDS bind-error test uses a short, environment-independent path",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -618,7 +618,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R026",
+      "id": "MEDULLA-CONTRACT-R026",
       "title": "Combined quality-gate script runs all staged scanners together",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -627,7 +627,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-CONTRACT-R027",
+      "id": "MEDULLA-CONTRACT-R027",
       "title": "Exhaustive dispatch matches are accepted by rule, not decomposed",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -636,7 +636,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-CONTRACT-R028",
+      "id": "MEDULLA-CONTRACT-R028",
       "title": "SQLite-format and speech-recognition differential tests run in CI",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -648,7 +648,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R029",
+      "id": "MEDULLA-CONTRACT-R029",
       "title": "Build runner keeps TMPDIR short enough for Unix socket paths",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -660,7 +660,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R030",
+      "id": "MEDULLA-CONTRACT-R030",
       "title": "Unconstrained build step is not CPU-affinity restricted",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -669,7 +669,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-CONTRACT-R031",
+      "id": "MEDULLA-CONTRACT-R031",
       "title": "Complexity, duplication and architecture censuses pass at zero backlog",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -683,12 +683,12 @@
         "tests/test_ci_change_scope.py:285"
       ],
       "rollup_of": [
-        "EG-CONTRACT-R031.1",
-        "EG-CONTRACT-R031.2"
+        "MEDULLA-CONTRACT-R031.1",
+        "MEDULLA-CONTRACT-R031.2"
       ]
     },
     {
-      "id": "EG-CONTRACT-R031.1",
+      "id": "MEDULLA-CONTRACT-R031.1",
       "title": "Lint runner provisions the manifest-selected formatter",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -699,14 +699,14 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R031.2",
+      "id": "MEDULLA-CONTRACT-R031.2",
       "title": "Complete zero-backlog quality-gate acceptance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CONTRACT-R032",
+      "id": "MEDULLA-CONTRACT-R032",
       "title": "Write-classifier functions compile cleanly under the slim profile",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -718,7 +718,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R033",
+      "id": "MEDULLA-CONTRACT-R033",
       "title": "Wire acceptance stays aligned with classifier and dispatch support",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -727,7 +727,7 @@
       "verified_by": []
     },
     {
-      "id": "EG-CONTRACT-R034",
+      "id": "MEDULLA-CONTRACT-R034",
       "title": "Complexity test derives its residual from the dispatch arm count",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -738,7 +738,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R035",
+      "id": "MEDULLA-CONTRACT-R035",
       "title": "Release workflow executes end to end with all declared targets",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -755,7 +755,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R036",
+      "id": "MEDULLA-CONTRACT-R036",
       "title": "Pinned-reference gate anchors each layer to its own admission step",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -769,7 +769,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R037",
+      "id": "MEDULLA-CONTRACT-R037",
       "title": "Clippy is warning-free across every release profile",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -782,7 +782,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R038",
+      "id": "MEDULLA-CONTRACT-R038",
       "title": "Contract receipt freshness is checked before merge",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -790,11 +790,11 @@
         "a7ae55a60495"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract.rs:704"
+        "crates/medulla-capabilities/src/contract.rs:704"
       ]
     },
     {
-      "id": "EG-CONTRACT-R039",
+      "id": "MEDULLA-CONTRACT-R039",
       "title": "Duplication gate runs against the full combined diff, not per-change",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -806,7 +806,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R040",
+      "id": "MEDULLA-CONTRACT-R040",
       "title": "Privacy scanner excludes its own documented example patterns",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -819,7 +819,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R041",
+      "id": "MEDULLA-CONTRACT-R041",
       "title": "Privacy gate detects host paths across the tracked tree",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -832,7 +832,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R042",
+      "id": "MEDULLA-CONTRACT-R042",
       "title": "Quantum hardware macro feature-gated to match its consumers",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -844,7 +844,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R043",
+      "id": "MEDULLA-CONTRACT-R043",
       "title": "Test fixtures carry no credential-shaped literals",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -858,7 +858,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R044",
+      "id": "MEDULLA-CONTRACT-R044",
       "title": "Contract gate discovers Method variants structurally",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -871,7 +871,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R045",
+      "id": "MEDULLA-CONTRACT-R045",
       "title": "Method enum size pinned and proven stable",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -879,11 +879,11 @@
         "f2398cefb06c"
       ],
       "verified_by": [
-        "crates/eg-types/tests/contract_wave.rs:255"
+        "crates/medulla-types/tests/contract_wave.rs:255"
       ]
     },
     {
-      "id": "EG-CONTRACT-R046",
+      "id": "MEDULLA-CONTRACT-R046",
       "title": "Slim-server build compiles with broker feature disabled",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -895,7 +895,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R047",
+      "id": "MEDULLA-CONTRACT-R047",
       "title": "Main publishes a rolling engine wheel for consumer CI",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -907,7 +907,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R048",
+      "id": "MEDULLA-CONTRACT-R048",
       "title": "Generated work-claim and evidence DTOs refuse coerced, empty and duplicate inputs",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -922,7 +922,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R049",
+      "id": "MEDULLA-CONTRACT-R049",
       "title": "The Python client retries an idempotent read once on a dropped connection",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -935,44 +935,44 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R050",
+      "id": "MEDULLA-CONTRACT-R050",
       "title": "Generated client ingests OTLP logs",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CONTRACT-R051",
+      "id": "MEDULLA-CONTRACT-R051",
       "title": "Generated client ingests RunTrace",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CONTRACT-R051.1"
+        "MEDULLA-CONTRACT-R051.1"
       ]
     },
     {
-      "id": "EG-CONTRACT-R051.1",
+      "id": "MEDULLA-CONTRACT-R051.1",
       "title": "Client ingest carries harness fields",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CONTRACT-R052",
+      "id": "MEDULLA-CONTRACT-R052",
       "title": "Current architecture documentation (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-CONTRACT-R052.1",
-        "EG-CONTRACT-R052.2",
-        "EG-CONTRACT-R052.3",
-        "EG-CONTRACT-R052.4"
+        "MEDULLA-CONTRACT-R052.1",
+        "MEDULLA-CONTRACT-R052.2",
+        "MEDULLA-CONTRACT-R052.3",
+        "MEDULLA-CONTRACT-R052.4"
       ]
     },
     {
-      "id": "EG-CONTRACT-R052.1",
+      "id": "MEDULLA-CONTRACT-R052.1",
       "title": "Module ownership model",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -983,7 +983,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R052.2",
+      "id": "MEDULLA-CONTRACT-R052.2",
       "title": "Build, package, and deployment behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -994,7 +994,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R052.3",
+      "id": "MEDULLA-CONTRACT-R052.3",
       "title": "Shared-contract wiring",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1005,28 +1005,28 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R052.4",
+      "id": "MEDULLA-CONTRACT-R052.4",
       "title": "Runtime evidence and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CONTRACT-R001.1",
+      "id": "MEDULLA-CONTRACT-R001.1",
       "title": "Generated types throughout the Meristem lifecycle",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CONTRACT-R001.2",
+      "id": "MEDULLA-CONTRACT-R001.2",
       "title": "Canonical blueprint disk round trip",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-CONTRACT-R053",
+      "id": "MEDULLA-CONTRACT-R053",
       "title": "Split distribution: one server executable, an executable-free wheel (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1044,23 +1044,23 @@
         "tests/test_ci_change_scope.py:945"
       ],
       "rollup_of": [
-        "EG-CONTRACT-R053.1",
-        "EG-CONTRACT-R053.2",
-        "EG-CONTRACT-R053.3",
-        "EG-CONTRACT-R053.4",
-        "EG-CONTRACT-R053.5",
-        "EG-CONTRACT-R053.6",
-        "EG-CONTRACT-R053.7",
-        "EG-CONTRACT-R053.8",
-        "EG-CONTRACT-R053.9",
-        "EG-CONTRACT-R053.10",
-        "EG-CONTRACT-R053.11",
-        "EG-CONTRACT-R053.12",
-        "EG-CONTRACT-R053.13"
+        "MEDULLA-CONTRACT-R053.1",
+        "MEDULLA-CONTRACT-R053.2",
+        "MEDULLA-CONTRACT-R053.3",
+        "MEDULLA-CONTRACT-R053.4",
+        "MEDULLA-CONTRACT-R053.5",
+        "MEDULLA-CONTRACT-R053.6",
+        "MEDULLA-CONTRACT-R053.7",
+        "MEDULLA-CONTRACT-R053.8",
+        "MEDULLA-CONTRACT-R053.9",
+        "MEDULLA-CONTRACT-R053.10",
+        "MEDULLA-CONTRACT-R053.11",
+        "MEDULLA-CONTRACT-R053.12",
+        "MEDULLA-CONTRACT-R053.13"
       ]
     },
     {
-      "id": "EG-CONTRACT-R053.1",
+      "id": "MEDULLA-CONTRACT-R053.1",
       "title": "One executable with subcommands",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1071,7 +1071,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R053.2",
+      "id": "MEDULLA-CONTRACT-R053.2",
       "title": "The wheel carries no executables",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1083,7 +1083,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R053.3",
+      "id": "MEDULLA-CONTRACT-R053.3",
       "title": "The `server` extra pins the server package in lockstep",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1094,7 +1094,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R053.4",
+      "id": "MEDULLA-CONTRACT-R053.4",
       "title": "Server binary lookup names the install hint",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1105,7 +1105,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R053.5",
+      "id": "MEDULLA-CONTRACT-R053.5",
       "title": "The `release-server` profile sizes the standalone server",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1116,7 +1116,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R053.6",
+      "id": "MEDULLA-CONTRACT-R053.6",
       "title": "Callers of the old binary names use the subcommands",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1127,7 +1127,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R053.7",
+      "id": "MEDULLA-CONTRACT-R053.7",
       "title": "A tag publishes only a commit main CI already passed",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1139,7 +1139,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R053.8",
+      "id": "MEDULLA-CONTRACT-R053.8",
       "title": "The public wheel compiles only the extension modules; each platform publishes independently",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1154,7 +1154,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R053.9",
+      "id": "MEDULLA-CONTRACT-R053.9",
       "title": "The server wheel builds and publishes from this repository",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1172,7 +1172,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R053.10",
+      "id": "MEDULLA-CONTRACT-R053.10",
       "title": "`binary_path()` locates the installed executable",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1183,7 +1183,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R053.11",
+      "id": "MEDULLA-CONTRACT-R053.11",
       "title": "The server image is built from the server wheel",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1194,7 +1194,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R053.12",
+      "id": "MEDULLA-CONTRACT-R053.12",
       "title": "The server version moves with the engine and a tagged version can be packaged later",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1206,7 +1206,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R006.3",
+      "id": "MEDULLA-CONTRACT-R006.3",
       "title": "Export fresh typed contracts for parity repair",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1221,7 +1221,7 @@
       ]
     },
     {
-      "id": "EG-CONTRACT-R053.13",
+      "id": "MEDULLA-CONTRACT-R053.13",
       "title": "Retain the validated wheel for installed acceptance",
       "delivery_state": "VERIFIED",
       "landed_in": [

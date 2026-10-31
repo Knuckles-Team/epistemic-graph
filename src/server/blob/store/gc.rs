@@ -18,8 +18,8 @@ use super::manifest::{decode_manifest, track_gc_digest, validate_digest};
 use super::policy::{SweepRequest, SweepStats};
 use super::uploads::decode_upload;
 use super::{CAS_BLOBS, CAS_RETENTION, CAS_UPLOADS};
-use eg_storage::{BlobOwner, BlobSharedWrite};
-use eg_transaction::AdmittedOwnerWrite;
+use medulla_storage::{BlobOwner, BlobSharedWrite};
+use medulla_transaction::AdmittedOwnerWrite;
 use redb::ReadableTable;
 use std::collections::BTreeSet;
 
