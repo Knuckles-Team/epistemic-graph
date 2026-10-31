@@ -198,7 +198,8 @@ def _harness_tool_fact_fields(annotations: PackAnnotations) -> list[bytes]:
     """Harness tool facts, framed by name and only when present.
 
     Row: MEDULLA-TYPED-PACKS-R045.3. Mirrors ``annotations_digest`` in
-    ``crates/medulla-types/src/connector_pack/digest.rs``: an entry that declares none keeps its published golden vector.
+    ``crates/medulla-types/src/connector_pack/digest.rs``: an entry that declares
+    none keeps its published golden vector.
     """
     fields: list[bytes] = []
     if annotations.side_effects is not None:
