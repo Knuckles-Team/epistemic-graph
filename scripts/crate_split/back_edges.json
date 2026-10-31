@@ -29,8 +29,8 @@
    "lines": 14839
   },
   "medulla-h-jobs": {
-   "files": 35,
-   "lines": 10944
+   "files": 33,
+   "lines": 9602
   },
   "medulla-h-query": {
    "files": 78,
@@ -61,8 +61,8 @@
    "lines": 38906
   },
   "medulla-store": {
-   "files": 127,
-   "lines": 54984
+   "files": 129,
+   "lines": 56326
   },
   "medulla-wire": {
    "files": 31,
@@ -72,13 +72,12 @@
  "by_category": {
   "extract-helper": 142,
   "extract-type": 102,
-  "test-move": 62,
+  "test-move": 60,
   "seam:state-handle": 34,
   "seam:dispatch": 23,
   "seam:AdminApi": 22,
   "seam:TxnApi": 13,
   "seam:QueryApi": 12,
-  "decide": 12,
   "seam:IngestApi": 10,
   "seam:DecideApi": 9,
   "seam:GraphApi": 5,
@@ -96,7 +95,6 @@
   "medulla-h-jobs->medulla-server": 22,
   "medulla-h-ingest->medulla-server": 20,
   "medulla-h-query->medulla-server": 18,
-  "medulla-store->medulla-h-jobs": 14,
   "medulla-h-graph->medulla-h-query": 13,
   "medulla-wire->medulla-h-query": 13,
   "medulla-raft->medulla-server": 10,

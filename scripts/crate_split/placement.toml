@@ -13,7 +13,7 @@
 "src/embedded/store.rs" = "medulla-engine"
 "src/embedded/tests.rs" = "medulla-engine"
 "src/lib.rs" = "medulla-engine"
-"src/loop_statechart.rs" = "medulla-h-jobs"
+"src/loop_statechart.rs" = "medulla-store"
 "src/main.rs" = "medulla-engine"
 "src/mutation_apply.rs" = "medulla-server-api"
 "src/offline_tools.rs" = "medulla-engine"
@@ -919,7 +919,7 @@
 "src/sidecar_store.rs" = "medulla-store"
 "src/store_authority.rs" = "medulla-kernel"
 "src/test_support.rs" = "medulla-server-api"
-"src/work_item_statechart.rs" = "medulla-h-jobs"
+"src/work_item_statechart.rs" = "medulla-store"
 
 [test_moves]
 # land under crates/medulla-server/tests/
@@ -927,4 +927,4 @@ files = ["src/raft/command/tests.rs", "src/raft/tests.rs", "src/redb_store/work_
 
 [decide]
 # units no placement could settle; see SEAMS.md
-units = ["work_item_statechart"]
+units = []

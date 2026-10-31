@@ -48,6 +48,10 @@ paths = [
     "src/redb_store",
     "src/redb_layout",
     "src/sidecar_store",
+    # The store persists work items and mirrors their outcomes on read; both
+    # statecharts depend only on kernel and the medulla-statechart leaf crate.
+    "src/loop_statechart",
+    "src/work_item_statechart",
 ]
 
 [crates.medulla-raft]
@@ -177,8 +181,6 @@ paths = [
     "src/server/handlers/jobs_read_rls_architecture",  # unplanned
     "src/server/handlers/native_write_authority",  # unplanned
     "src/server/outbox_operator",  # unplanned
-    "src/loop_statechart",  # unplanned
-    "src/work_item_statechart",  # unplanned
     "src/agent_lifecycle_statechart",  # unplanned
 ]
 

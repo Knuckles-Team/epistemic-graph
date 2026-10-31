@@ -1,6 +1,5 @@
 {
  "counts": {
-  "decide": 12,
   "extract-helper": 142,
   "extract-type": 102,
   "pending-delete": 2,
@@ -13,7 +12,7 @@
   "seam:WireApi": 3,
   "seam:dispatch": 23,
   "seam:state-handle": 34,
-  "test-move": 62
+  "test-move": 60
  },
  "refs": [
   {
@@ -201,22 +200,6 @@
    "dst": "src/test_support.rs"
   },
   {
-   "file": "src/redb_store.rs",
-   "line": 4416,
-   "item": "crate::work_item_statechart::EV_CLAIM",
-   "category": "test-move",
-   "detail": "medulla-store -> medulla-h-jobs",
-   "dst": "src/work_item_statechart.rs"
-  },
-  {
-   "file": "src/redb_store.rs",
-   "line": 4438,
-   "item": "crate::work_item_statechart::EV_CLAIM",
-   "category": "test-move",
-   "detail": "medulla-store -> medulla-h-jobs",
-   "dst": "src/work_item_statechart.rs"
-  },
-  {
    "file": "src/redb_store/crossmodal.rs",
    "line": 177,
    "item": "crate::MeasurementBatch",
@@ -319,102 +302,6 @@
    "category": "extract-type",
    "detail": "crate::raft::EnrichmentTopUpTransition",
    "dst": "src/raft/command/enrichment_top_up.rs"
-  },
-  {
-   "file": "src/redb_store/store_read.rs",
-   "line": 108,
-   "item": "crate::work_item_statechart::mirror_outcome",
-   "category": "decide",
-   "detail": "work_item_statechart",
-   "dst": "src/work_item_statechart.rs"
-  },
-  {
-   "file": "src/redb_store/store_read.rs",
-   "line": 110,
-   "item": "crate::work_item_statechart::emit_divergence",
-   "category": "decide",
-   "detail": "work_item_statechart",
-   "dst": "src/work_item_statechart.rs"
-  },
-  {
-   "file": "src/redb_store/store_read.rs",
-   "line": 134,
-   "item": "crate::work_item_statechart::WORK_ITEM_DEF_ID",
-   "category": "decide",
-   "detail": "work_item_statechart",
-   "dst": "src/work_item_statechart.rs"
-  },
-  {
-   "file": "src/redb_store/work_item/cancel.rs",
-   "line": 179,
-   "item": "crate::work_item_statechart::EV_CANCEL",
-   "category": "decide",
-   "detail": "work_item_statechart",
-   "dst": "src/work_item_statechart.rs"
-  },
-  {
-   "file": "src/redb_store/work_item/cancel.rs",
-   "line": 306,
-   "item": "crate::work_item_statechart::EV_DEFER",
-   "category": "decide",
-   "detail": "work_item_statechart",
-   "dst": "src/work_item_statechart.rs"
-  },
-  {
-   "file": "src/redb_store/work_item/claim.rs",
-   "line": 76,
-   "item": "crate::work_item_statechart::EV_LEASE_EXHAUSTED",
-   "category": "decide",
-   "detail": "work_item_statechart",
-   "dst": "src/work_item_statechart.rs"
-  },
-  {
-   "file": "src/redb_store/work_item/claim.rs",
-   "line": 101,
-   "item": "crate::work_item_statechart::EV_LEASE_RECLAIM",
-   "category": "decide",
-   "detail": "work_item_statechart",
-   "dst": "src/work_item_statechart.rs"
-  },
-  {
-   "file": "src/redb_store/work_item/claim.rs",
-   "line": 394,
-   "item": "crate::work_item_statechart::EV_CLAIM",
-   "category": "decide",
-   "detail": "work_item_statechart",
-   "dst": "src/work_item_statechart.rs"
-  },
-  {
-   "file": "src/redb_store/work_item/commit.rs",
-   "line": 306,
-   "item": "crate::work_item_statechart::EV_COMMIT_SUCCEEDED",
-   "category": "decide",
-   "detail": "work_item_statechart",
-   "dst": "src/work_item_statechart.rs"
-  },
-  {
-   "file": "src/redb_store/work_item/commit.rs",
-   "line": 307,
-   "item": "crate::work_item_statechart::EV_COMMIT_CANCELLED",
-   "category": "decide",
-   "detail": "work_item_statechart",
-   "dst": "src/work_item_statechart.rs"
-  },
-  {
-   "file": "src/redb_store/work_item/commit.rs",
-   "line": 308,
-   "item": "crate::work_item_statechart::EV_COMMIT_FAILED",
-   "category": "decide",
-   "detail": "work_item_statechart",
-   "dst": "src/work_item_statechart.rs"
-  },
-  {
-   "file": "src/redb_store/work_item/lease.rs",
-   "line": 83,
-   "item": "crate::work_item_statechart::EV_RENEW",
-   "category": "decide",
-   "detail": "work_item_statechart",
-   "dst": "src/work_item_statechart.rs"
   },
   {
    "file": "src/server/amqp_wire/mod.rs",

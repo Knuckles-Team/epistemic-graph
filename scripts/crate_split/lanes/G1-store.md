@@ -6,7 +6,8 @@ Spec: `MEDULLA-CONTRACT-R056.2`. Start after: G0 landed.
 Create the worktree from `main` after the previous group landed
 (`git worktree add <wt> -b lane/crate-split-store origin/main`). Never branch from another lane.
 
-## Files to move (127; exactly these, nothing else)
+## Files to move (129; exactly these, nothing else)
+- `src/loop_statechart.rs`
 - `src/redb_layout.rs`
 - `src/redb_store.rs`
 - `src/redb_store/audit.rs`
@@ -134,6 +135,7 @@ Create the worktree from `main` after the previous group landed
 - `src/redb_store/work_item_capability/authority.rs`
 - `src/redb_store/work_item_capability/lease.rs`
 - `src/sidecar_store.rs`
+- `src/work_item_statechart.rs`
 
 
 ## Codemod (run in this order, from the worktree root)
@@ -151,18 +153,6 @@ Create the worktree from `main` after the previous group landed
 ## Seams this lane uses (from SEAMS.md)
 | category | item | refs | first location |
 |---|---|---|---|
-| decide | `crate::work_item_statechart::EV_CANCEL` | 1 | src/redb_store/work_item/cancel.rs:179 |
-| decide | `crate::work_item_statechart::EV_CLAIM` | 1 | src/redb_store/work_item/claim.rs:394 |
-| decide | `crate::work_item_statechart::EV_COMMIT_CANCELLED` | 1 | src/redb_store/work_item/commit.rs:307 |
-| decide | `crate::work_item_statechart::EV_COMMIT_FAILED` | 1 | src/redb_store/work_item/commit.rs:308 |
-| decide | `crate::work_item_statechart::EV_COMMIT_SUCCEEDED` | 1 | src/redb_store/work_item/commit.rs:306 |
-| decide | `crate::work_item_statechart::EV_DEFER` | 1 | src/redb_store/work_item/cancel.rs:306 |
-| decide | `crate::work_item_statechart::EV_LEASE_EXHAUSTED` | 1 | src/redb_store/work_item/claim.rs:76 |
-| decide | `crate::work_item_statechart::EV_LEASE_RECLAIM` | 1 | src/redb_store/work_item/claim.rs:101 |
-| decide | `crate::work_item_statechart::EV_RENEW` | 1 | src/redb_store/work_item/lease.rs:83 |
-| decide | `crate::work_item_statechart::WORK_ITEM_DEF_ID` | 1 | src/redb_store/store_read.rs:134 |
-| decide | `crate::work_item_statechart::emit_divergence` | 1 | src/redb_store/store_read.rs:110 |
-| decide | `crate::work_item_statechart::mirror_outcome` | 1 | src/redb_store/store_read.rs:108 |
 | extract-helper | `crate::server::persistence::online_reshard::export_graph_raw` | 1 | src/redb_store/shard.rs:713 |
 | extract-type | `crate::MeasurementBatch` | 6 | src/redb_store/crossmodal.rs:177 |
 | extract-type | `crate::raft::EnrichmentTopUpTransition` | 2 | src/redb_store/store_mutation.rs:280 |

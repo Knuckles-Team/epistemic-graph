@@ -6,9 +6,8 @@ Spec: `MEDULLA-CONTRACT-R056.7`. Start after: G2 landed.
 Create the worktree from `main` after the previous group landed
 (`git worktree add <wt> -b lane/crate-split-h-jobs origin/main`). Never branch from another lane.
 
-## Files to move (35; exactly these, nothing else)
+## Files to move (33; exactly these, nothing else)
 - `src/agent_lifecycle_statechart.rs`
-- `src/loop_statechart.rs`
 - `src/server/handlers/delegation.rs`
 - `src/server/handlers/delegation/admission.rs`
 - `src/server/handlers/delegation/validation.rs`
@@ -41,7 +40,6 @@ Create the worktree from `main` after the previous group landed
 - `src/server/handlers/work_item/host_start_tests.rs`
 - `src/server/handlers/work_item/lease_kind_policy.rs`
 - `src/server/handlers/work_item_read.rs`
-- `src/work_item_statechart.rs`
 
 
 ## Codemod (run in this order, from the worktree root)
