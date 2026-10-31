@@ -91,7 +91,8 @@
     "EG-CONTRACT-R053.12",
     "EG-CONTRACT-R006.3",
     "EG-CONTRACT-R053.13",
-    "EG-CONTRACT-R054"
+    "EG-CONTRACT-R054",
+    "EG-CONTRACT-R055"
   ],
   "requirements": [
     {
@@ -1259,6 +1260,13 @@
     {
       "id": "EG-CONTRACT-R054",
       "title": "The engine serves its method descriptors and scope registry",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R055",
+      "title": "Decision reachability gate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

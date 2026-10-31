@@ -426,6 +426,7 @@
     "EG-DURABLE-KERNEL-R862.1",
     "EG-DURABLE-KERNEL-R862.2",
     "EG-DURABLE-KERNEL-R862.3",
+    "EG-DURABLE-KERNEL-R863",
     "EG-DURABLE-KERNEL-R028.4.3",
     "EG-DURABLE-KERNEL-R028.4.4",
     "EG-DURABLE-KERNEL-R030.1.1",
@@ -4902,6 +4903,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R862.3",
       "title": "Hot-path proof: a copied bundle restores and serves",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R863",
+      "title": "SyncMemorySnapshot calls the memory-change admission gate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
