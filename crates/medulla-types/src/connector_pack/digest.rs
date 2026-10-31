@@ -502,4 +502,20 @@ mod harness_tool_fact_tests {
             "each field must be bound"
         );
     }
+
+    // spec: MEDULLA-TYPED-PACKS-R045.3
+    #[test]
+    fn present_new_fields_match_the_python_client_golden_vector() {
+        let annotations = PackAnnotations {
+            side_effects: Some(ToolSideEffects::Network),
+            declared_by: Some(ToolFactDeclarer::McpHint),
+            schema_tokens: Some(42),
+            ..crate::test_support::contract_wave::pack::annotations()
+        };
+        assert_eq!(
+            annotations_digest(&annotations).unwrap().to_hex(),
+            // tests/test_connector_pack_client.py "annotations_digest/harness_facts"
+            "b62f12fa3e53f753fe273ccec4c89863fa966cc58ed3a834c7767c4320a6e672"
+        );
+    }
 }
