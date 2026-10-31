@@ -8,7 +8,7 @@ use super::*;
 use crate::mutation_batch::{IncarnationId, MutationScopeIdentity, ScopeTenantId};
 use crate::redb_store::resource::*;
 use crate::redb_store::shard::{Shard, ShardWrite};
-use crate::test_rendezvous::{join_bounded, meet};
+use medulla_kernel::test_rendezvous::{join_bounded, meet};
 use medulla_storage::{GraphShardOwner, ScopedRead};
 
 fn host() -> DurableResourceHost {

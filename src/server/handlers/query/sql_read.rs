@@ -26,14 +26,14 @@ fn required_sql_authority(
     Response,
 > {
     let Some(read_authority) = read_authority else {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Err(Response::err(
             req_id,
             "ACCESS_DENIED: current signed tenant authority is required".to_string(),
         ));
     };
     let Some(authority) = read_authority.carrier() else {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Err(Response::err(
             req_id,
             "ACCESS_DENIED: current signed tenant authority is required".to_string(),

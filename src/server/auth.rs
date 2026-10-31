@@ -35,7 +35,7 @@
 //! defaults into that downgrade; an operator must type it.
 
 use crate::acl::{AgentRole, RequestContextClaims};
-use crate::lock_recovery::{LockRecovery, WriteRecovery};
+use medulla_kernel::lock_recovery::{LockRecovery, WriteRecovery};
 use crate::protocol::{
     build_context_operation_signature_bytes, build_envelope_v2_bytes, Method, Request,
 };

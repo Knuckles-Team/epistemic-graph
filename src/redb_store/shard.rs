@@ -876,11 +876,11 @@ impl Shard {
             // was reported as a hang instead of as the assertion failure it is,
             // and a hung test binary silently truncates the whole run. The
             // error still propagates below and fails the test on its merits.
-            crate::test_rendezvous::meet(&barrier, "import staged-payload rendezvous");
+            medulla_kernel::test_rendezvous::meet(&barrier, "import staged-payload rendezvous");
             // The first trip tells the test that the staged transaction has
             // committed; the second keeps this import paused until the
             // competing cleanup has attempted the same graph guard.
-            crate::test_rendezvous::meet(&barrier, "import staged-payload release");
+            medulla_kernel::test_rendezvous::meet(&barrier, "import staged-payload release");
         }
         result
     }
@@ -924,7 +924,7 @@ impl Shard {
     ) -> Result<GraftedScope, String> {
         #[cfg(all(test, feature = "server"))]
         if let Some(barrier) = take_test_barrier(&GRAFT_BEFORE_PROTOCOL_LOCK, graph_fname) {
-            crate::test_rendezvous::meet(&barrier, "graft before-protocol-lock rendezvous");
+            medulla_kernel::test_rendezvous::meet(&barrier, "graft before-protocol-lock rendezvous");
         }
         let protocol_guard = self.graft_protocol_guard(graph_fname)?;
         let _protocol_guard = protocol_guard
@@ -1239,7 +1239,7 @@ pub(crate) fn open_kernel_owned_store<D: OwnerDomain>(
         bind_elapsed,
         ledger_started.elapsed(),
     );
-    crate::metrics::store_open(
+    medulla_kernel::metrics::store_open(
         &[
             ("file_open", report.file_open.as_secs_f64()),
             ("table_validation", report.table_validation.as_secs_f64()),
@@ -1987,7 +1987,7 @@ mod tests {
     /// and therefore cannot delete the catalog and cancel the reservation while
     /// the importer is still able to rewrite it.
     #[cfg(feature = "server")]
-    use crate::test_rendezvous::{join_bounded, meet};
+    use medulla_kernel::test_rendezvous::{join_bounded, meet};
 
     #[test]
     fn reserved_import_and_loser_cleanup_are_one_graph_protocol() {

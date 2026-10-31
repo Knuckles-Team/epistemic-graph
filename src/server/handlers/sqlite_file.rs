@@ -773,7 +773,7 @@ mod tests {
     use medulla_query::tables::schema::ArrayElemType;
 
     use super::*;
-    use crate::test_rendezvous::meet;
+    use medulla_kernel::test_rendezvous::meet;
 
     // The env-var save/restore guard lives once, beside the backup tests that
     // first needed it (`persistence::backup::EnvVarGuard`); this module had an
@@ -1055,7 +1055,7 @@ mod tests {
     #[cfg(feature = "raft")]
     #[test]
     fn export_fails_source_authority_before_opening_store_or_destination() {
-        let _env_lock = crate::crypto::acquire_test_env_lock_blocking();
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock_blocking();
         let key = "MEDULLA_RAFT_NODE_ID";
         let _env_restore = EnvVarRestore::set(key, "sqlite-export-order-test");
         let error = export_sqlite_lifecycle(
@@ -1074,7 +1074,7 @@ mod tests {
         use crate::server::sql_catalog_acl::{open_authorized_table, SqlPrivilege};
         use std::os::unix::fs::PermissionsExt;
 
-        let _env_lock = crate::crypto::acquire_test_env_lock_blocking();
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock_blocking();
         let transfer_root = tempfile::tempdir().unwrap();
         std::fs::set_permissions(transfer_root.path(), std::fs::Permissions::from_mode(0o700))
             .unwrap();

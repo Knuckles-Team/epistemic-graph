@@ -27,7 +27,7 @@ type HelperSpawner<T> = fn(HelperBody<T>) -> std::io::Result<JoinHandle<std::thr
 /// `Err` carries a message naming `what`; `Ok(Err(()))` is not modelled because
 /// a panicking worker and an overrunning one are the same thing to every caller
 /// here: the result is unavailable and the reason belongs in the message.
-pub(crate) fn join_within<T: Send + 'static>(
+pub fn join_within<T: Send + 'static>(
     handle: JoinHandle<T>,
     what: &str,
     timeout: Duration,

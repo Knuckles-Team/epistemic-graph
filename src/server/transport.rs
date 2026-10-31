@@ -170,7 +170,7 @@ pub async fn run_idle_watcher(coord: Arc<ShutdownCoordinator>, idle_secs: u64) {
 /// cannot inherit the host's affinity count or a fixed floor that exceeds its
 /// effective budget. The hard ceiling remains 1024.
 fn per_connection_inflight_limit() -> usize {
-    crate::autosize::detect_capacity().per_connection_inflight()
+    medulla_kernel::autosize::detect_capacity().per_connection_inflight()
 }
 
 /// Run one dispatch under the hard deadline (CONCEPT:MEDULLA-KG.coordination.backpressure-busy-signal).
@@ -206,7 +206,7 @@ where
         Ok(resp) => resp,
         Err(_) => {
             cancel.cancel();
-            crate::metrics::dispatch_deadline_exceeded();
+            medulla_kernel::metrics::dispatch_deadline_exceeded();
             error!(
                 req_id,
                 deadline_secs = deadline.as_secs(),
@@ -305,7 +305,7 @@ fn admit_request(
     // READ under write saturation: the reserved lane, bypassing the per-graph cap.
     match read_sem.clone().try_acquire_owned() {
         Ok(rp) => {
-            crate::metrics::read_reserved_admitted();
+            medulla_kernel::metrics::read_reserved_admitted();
             Admission::Granted {
                 global: None,
                 per_graph: None,
@@ -356,7 +356,7 @@ async fn admit_qos_request(
         server.request_authority(req)
     }
     .map_err(|error| {
-        crate::metrics::auth_failure();
+        medulla_kernel::metrics::auth_failure();
         // Same typed refusal as dispatch: QoS admission verifies first when it is
         // enabled, so a generic refusal here would hide the cause class.
         Response::err(req.id, super::auth::authentication_refusal(&error))
@@ -364,20 +364,20 @@ async fn admit_qos_request(
     let principal_scope = context.principal_persistence_id();
     let qos_request =
         super::qos::classify(&principal_scope, context.priority()).map_err(|error| {
-            crate::metrics::auth_failure();
+            medulla_kernel::metrics::auth_failure();
             Response::err(req.id, error)
         })?;
     match scheduler.try_admit(&qos_request) {
         super::qos::QosDecision::Admit(permit) => {
-            crate::metrics::qos_admitted(qos_request.class.label());
+            medulla_kernel::metrics::qos_admitted(qos_request.class.label());
             Ok(QosAdmission {
                 context: Some(context),
                 permit: Some(permit),
             })
         }
         super::qos::QosDecision::Reject(why) => {
-            crate::metrics::qos_shed(qos_request.class.label(), why.label());
-            crate::metrics::busy_rejected();
+            medulla_kernel::metrics::qos_shed(qos_request.class.label(), why.label());
+            medulla_kernel::metrics::busy_rejected();
             Err(Response::err(req.id, why.busy_message()))
         }
     }
@@ -449,7 +449,7 @@ async fn reserve_request(
             qos,
         }),
         Admission::Busy => {
-            crate::metrics::busy_rejected();
+            medulla_kernel::metrics::busy_rejected();
             let response = Response::err(req.id, "BUSY: server at capacity, retry with backoff");
             drop(connection);
             let failure = queue_admission_rejection(tx, response).await;
@@ -483,7 +483,7 @@ async fn dispatch_reserved_request(
     let response =
         dispatch_within_deadline(boxed, limits.dispatch_deadline, req_id, &peer_gone).await;
     if let Some(class) = qos_class {
-        crate::metrics::qos_dispatch_finished(
+        medulla_kernel::metrics::qos_dispatch_finished(
             class.label(),
             dispatch_start.elapsed().as_secs_f64(),
         );
@@ -496,7 +496,7 @@ async fn dispatch_reserved_request(
     drop(reservation.global);
     drop(reservation.qos.permit);
     drop(reservation.connection);
-    crate::metrics::connection_request_finished(global_pool.available_permits());
+    medulla_kernel::metrics::connection_request_finished(global_pool.available_permits());
 }
 
 /// Handle one client connection with single-connection request PIPELINING
@@ -556,7 +556,7 @@ where
                 Err(AdmissionFailure::Rejected) => continue,
                 Err(AdmissionFailure::Closed) => break,
             };
-        crate::metrics::connection_request_started(pools.global.available_permits());
+        medulla_kernel::metrics::connection_request_started(pools.global.available_permits());
         tokio::spawn(dispatch_reserved_request(
             req,
             state.clone(),

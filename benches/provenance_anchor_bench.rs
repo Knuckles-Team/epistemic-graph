@@ -35,7 +35,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use medulla::audit;
+use medulla_kernel::audit;
 use medulla::protocol::Method;
 use medulla::server::persistence::redb_backend::RedbBackend;
 use medulla::server::persistence::PersistenceBackend;

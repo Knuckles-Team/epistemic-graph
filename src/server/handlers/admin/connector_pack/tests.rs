@@ -77,8 +77,8 @@ impl Served {
     /// with schema projects into a `pack__` graph, and graph creation
     /// requires durable persistence. The returned guard holds the ambient
     /// encryption environment still while the backend is open.
-    pub(super) async fn with_graph_persistence(&self) -> crate::crypto::TestEnvReadGuard {
-        let guard = crate::crypto::acquire_test_env_read_lock().await;
+    pub(super) async fn with_graph_persistence(&self) -> medulla_kernel::crypto::TestEnvReadGuard {
+        let guard = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let root = self.dir.path().join("graphs");
         std::fs::create_dir_all(&root).unwrap();
         let backend = crate::server::persistence::redb_backend::RedbBackend::open(

@@ -18,8 +18,6 @@
 //! So: meet, or fail by name. Every helper here is bounded, and every timeout
 //! says which rendezvous was missed rather than reporting a bare deadline.
 
-#![cfg(test)]
-
 use std::sync::mpsc::{sync_channel, RecvTimeoutError};
 use std::sync::{Arc, Barrier};
 use std::thread::JoinHandle;
@@ -30,14 +28,14 @@ use std::time::Duration;
 /// Generous on purpose: these tests drive real redb transactions on shared
 /// build hosts under parallel load, so the bound exists to catch a party that
 /// is never coming, not to police latency.
-pub(crate) const RENDEZVOUS_TIMEOUT: Duration = Duration::from_secs(120);
+pub const RENDEZVOUS_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Meet the other party at `barrier`, or panic naming `what`.
 ///
 /// The wait happens on a helper thread so the deadline is enforceable --
 /// `Barrier::wait` itself cannot be interrupted. If the other party arrives
 /// later, that helper simply completes and exits.
-pub(crate) fn meet(barrier: &Arc<Barrier>, what: &str) {
+pub fn meet(barrier: &Arc<Barrier>, what: &str) {
     let other = Arc::clone(barrier);
     let (arrived, waiting) = sync_channel(1);
     // `Barrier::wait` is a `disallowed_methods` entry because it has no
@@ -72,7 +70,7 @@ pub(crate) fn meet(barrier: &Arc<Barrier>, what: &str) {
 /// process. `Disconnected` and `Timeout` are reported separately because they
 /// mean different things: the sender died, versus the sender is still alive and
 /// simply never got there.
-pub(crate) fn recv_within<T>(rx: &std::sync::mpsc::Receiver<T>, what: &str) -> T {
+pub fn recv_within<T>(rx: &std::sync::mpsc::Receiver<T>, what: &str) -> T {
     match rx.recv_timeout(RENDEZVOUS_TIMEOUT) {
         Ok(value) => value,
         Err(RecvTimeoutError::Timeout) => panic!(
@@ -90,7 +88,7 @@ pub(crate) fn recv_within<T>(rx: &std::sync::mpsc::Receiver<T>, what: &str) -> T
 ///
 /// `JoinHandle::join` is unbounded for the same reason `Barrier::wait` is, and
 /// a worker that deadlocked upstream takes its joiner down with it.
-pub(crate) fn join_bounded<T: Send + 'static>(handle: JoinHandle<T>, what: &str) -> T {
+pub fn join_bounded<T: Send + 'static>(handle: JoinHandle<T>, what: &str) -> T {
     let (finished, waiting) = sync_channel(1);
     // Same shape as `meet`: `JoinHandle::join` has no deadline, so the
     // unbounded join is confined to a helper thread and the caller's deadline

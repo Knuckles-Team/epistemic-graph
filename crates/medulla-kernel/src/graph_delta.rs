@@ -17,9 +17,10 @@ use crate::graph::{
 };
 use crate::protocol::Method;
 
-pub(crate) const ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-schema-sources";
+/// The algorithm tag for row deltas that carry schema-source updates.
+pub const ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-schema-sources";
 /// Persisted legacy rows accepted only by the one-time state decoder.
-pub(crate) const LEGACY_ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-v2";
+pub const LEGACY_ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-v2";
 const ROW_DELTA_VERSION: u16 = 3;
 const MAX_DELTA_OPERATIONS: usize = 1_000_000;
 
@@ -33,7 +34,8 @@ where
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct GraphRowDelta {
+/// The row-level difference between two graph snapshots, replayable as mutations.
+pub struct GraphRowDelta {
     /// The persisted wire version that was decoded. This is deliberately not
     /// serialized: new rows always encode the current `schema_version`, while recovery
     /// uses it to bind a legacy v2 descriptor to actual v2 bytes.
@@ -136,7 +138,8 @@ struct LedgerDelta {
 }
 
 impl GraphRowDelta {
-    pub(crate) fn between(before: &GraphSnapshot, after: &GraphSnapshot) -> Result<Self, String> {
+    /// The delta that turns `before` into `after`.
+    pub fn between(before: &GraphSnapshot, after: &GraphSnapshot) -> Result<Self, String> {
         let nodes = SnapshotPair::new(node_rows(before), node_rows(after));
         let embeddings = SnapshotPair::new(embedding_rows(before), embedding_rows(after));
         let removals = NodeRemovals::between(&nodes, &embeddings);
@@ -155,7 +158,8 @@ impl GraphRowDelta {
         Ok(delta)
     }
 
-    pub(crate) fn validate(&self) -> Result<(), String> {
+    /// Check the delta is internally consistent before it is stored or applied.
+    pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != ROW_DELTA_VERSION {
             return Err("unsupported graph row-delta version".to_string());
         }
@@ -192,28 +196,33 @@ impl GraphRowDelta {
         validate_schema_sources_update(self.schema_sources.as_ref())
     }
 
-    pub(crate) fn operations(&self) -> &[Method] {
+    /// The mutations this delta replays.
+    pub fn operations(&self) -> &[Method] {
         &self.operations
     }
 
-    pub(crate) fn ledger_patch(&self) -> Option<(u64, u64, &[String])> {
+    /// The ledger range and entry ids this delta patches, if any.
+    pub fn ledger_patch(&self) -> Option<(u64, u64, &[String])> {
         self.ledger
             .as_ref()
             .map(|ledger| (ledger.source_len, ledger.retain, ledger.append.as_slice()))
     }
 
-    pub(crate) fn schema_sources_update(&self) -> Option<&std::sync::Arc<GraphSchemaSources>> {
+    /// The schema-source set this delta installs, if any.
+    pub fn schema_sources_update(&self) -> Option<&std::sync::Arc<GraphSchemaSources>> {
         self.schema_sources.as_ref()
     }
 
-    pub(crate) fn matches_algorithm(&self, algorithm: &str) -> bool {
+    /// Whether this delta was produced by `algorithm`.
+    pub fn matches_algorithm(&self, algorithm: &str) -> bool {
         matches!(
             (algorithm, self.decoded_wire_version),
             (ROW_DELTA_ALGORITHM, ROW_DELTA_VERSION) | (LEGACY_ROW_DELTA_ALGORITHM, 2)
         )
     }
 
-    pub(crate) fn preserves_node_derived_indexes(&self) -> bool {
+    /// Whether applying this delta keeps node-derived indexes valid without a rebuild.
+    pub fn preserves_node_derived_indexes(&self) -> bool {
         self.operations.iter().all(|method| {
             matches!(
                 method,
@@ -222,17 +231,20 @@ impl GraphRowDelta {
         })
     }
 
-    pub(crate) fn to_msgpack(&self) -> Result<Vec<u8>, String> {
+    /// Encode the delta as MessagePack.
+    pub fn to_msgpack(&self) -> Result<Vec<u8>, String> {
         rmp_serde::to_vec_named(self).map_err(|error| error.to_string())
     }
 
-    pub(crate) fn from_msgpack(bytes: &[u8]) -> Result<Self, String> {
+    /// Decode a delta from MessagePack.
+    pub fn from_msgpack(bytes: &[u8]) -> Result<Self, String> {
         let delta: Self = rmp_serde::from_slice(bytes).map_err(|error| error.to_string())?;
         delta.validate()?;
         Ok(delta)
     }
 
-    pub(crate) fn apply_to(&self, core: &GraphCore) -> Result<(), String> {
+    /// Apply the delta to `core`.
+    pub fn apply_to(&self, core: &GraphCore) -> Result<(), String> {
         if let Some((source_len, _, _)) = self.ledger_patch() {
             if core.ledger_len() as u64 != source_len {
                 return Err("graph row delta ledger pre-image does not match".to_string());

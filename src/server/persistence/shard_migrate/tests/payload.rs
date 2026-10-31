@@ -116,7 +116,7 @@ fn two_source_shards_move_their_own_ledgers_independently() {
 #[tokio::test(flavor = "multi_thread")]
 async fn migration_preserves_provenance_anchor_and_matview_state() {
     #[cfg(feature = "security")]
-    let _env_lock = crate::crypto::acquire_test_env_lock().await;
+    let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
     let (root, src, dst) = fresh_migration_dirs("dropped-tables", "src", "dst");
 
     let backend = k1_backend_with_graph_g(&src).await;
@@ -227,7 +227,7 @@ async fn migration_preserves_provenance_anchor_and_matview_state() {
 #[tokio::test(flavor = "multi_thread")]
 async fn migration_preserves_resource_lane_capacity_and_capability_tables() {
     #[cfg(feature = "security")]
-    let _env_lock = crate::crypto::acquire_test_env_lock().await;
+    let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
     let (root, src, dst) = fresh_migration_dirs("cx054-tables", "src", "dst");
 
     let backend = k1_backend_with_graph_g(&src).await;

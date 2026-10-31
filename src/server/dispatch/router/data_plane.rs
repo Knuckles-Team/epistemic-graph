@@ -592,7 +592,7 @@ async fn dispatch_knowledge_stream_method(ctx: DispatchCtx<'_>, method: Method) 
                         }
                         crate::isolation::MintLeaseError::UnknownActor
                         | crate::isolation::MintLeaseError::AccessDenied => {
-                            crate::metrics::access_denied();
+                            medulla_kernel::metrics::access_denied();
                             Response::err(req_id, "ACCESS_DENIED")
                         }
                     })?;

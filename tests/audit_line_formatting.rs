@@ -1,4 +1,4 @@
-//! Characterization test for `audit::audit_line` (`src/audit.rs`): pins the
+//! Characterization test for `audit::audit_line` (`crates/medulla-kernel/src/audit.rs`): pins the
 //! exact audit-line text (or `None`) it produces for each durable `Method`
 //! variant, including the multi-condition `ApplyMutation`
 //! authoritative-state-digest guard and the non-durable fallthrough.
@@ -8,7 +8,7 @@
 //! function.
 #![cfg(feature = "security")]
 
-use medulla::audit::audit_line;
+use medulla_kernel::audit::audit_line;
 use medulla::protocol::Method;
 
 /// Plain CRUD arm: no guard, no branching -- a sanity baseline.

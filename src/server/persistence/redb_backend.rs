@@ -199,7 +199,7 @@ enum CanaryOutcome {
 /// every subsequent write to sealed framing while every pre-existing value stays
 /// plaintext, so each of those reads then fails closed with
 /// `"encrypted durable value is missing sealed framing"`. `crypto`'s
-/// [`TXN_RECOVERY_KEY_ENV`](crate::crypto::TXN_RECOVERY_KEY_ENV) doc already names that
+/// [`TXN_RECOVERY_KEY_ENV`](medulla_kernel::crypto::TXN_RECOVERY_KEY_ENV) doc already names that
 /// as "a destructive-read operation on a populated plaintext store, not a config
 /// toggle"; this is the probe that lets the open path refuse it.
 /// Asked of the file's CATALOG, which is the only reader class that exists before
@@ -255,7 +255,7 @@ fn shard_carries_encryption_metadata(shard: &Shard) -> Result<bool, String> {
 #[cfg(feature = "security")]
 fn plan_encryption_canary(
     shard: &Shard,
-    cipher: &crate::crypto::ValueCipher,
+    cipher: &medulla_kernel::crypto::ValueCipher,
 ) -> Result<CanaryPlan, String> {
     let (existing_canary, existing_binding) = {
         let control = shard.control_read()?;
@@ -272,10 +272,10 @@ fn plan_encryption_canary(
     };
 
     let configured_ref = cipher.key_ref();
-    let expected_plaintext = crate::crypto::encryption_canary_plaintext(configured_ref);
+    let expected_plaintext = medulla_kernel::crypto::encryption_canary_plaintext(configured_ref);
     match (existing_canary, existing_binding) {
         (Some(sealed), Some(binding_bytes)) => {
-            let binding = crate::crypto::EncryptionKeyBinding::decode(&binding_bytes)?;
+            let binding = medulla_kernel::crypto::EncryptionKeyBinding::decode(&binding_bytes)?;
             let persisted_ref = binding.key_ref()?;
             if &persisted_ref != configured_ref {
                 return Err(format!(
@@ -292,7 +292,7 @@ fn plan_encryption_canary(
                 format!(
                     "refusing to open the durable graph store: {} does not match the key \
                      that previously encrypted this store (canary decryption failed)",
-                    crate::crypto::ENCRYPTION_KEY_ENV,
+                    medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
                 )
             })?;
             if plaintext != expected_plaintext {
@@ -313,7 +313,7 @@ fn plan_encryption_canary(
                 format!(
                     "refusing to open the durable graph store: {} does not match the key \
                      that previously encrypted this store (legacy canary decryption failed)",
-                    crate::crypto::ENCRYPTION_KEY_ENV,
+                    medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
                 )
             })?;
             if plaintext != ENCRYPTION_CANARY_PLAINTEXT {
@@ -323,7 +323,7 @@ fn plan_encryption_canary(
                         .to_string(),
                 );
             }
-            let binding = crate::crypto::EncryptionKeyBinding::from_key_ref(configured_ref);
+            let binding = medulla_kernel::crypto::EncryptionKeyBinding::from_key_ref(configured_ref);
             let binding_bytes = binding.encode()?;
             let sealed = cipher.seal(&expected_plaintext);
             Ok(CanaryPlan::Write {
@@ -353,11 +353,11 @@ fn plan_encryption_canary(
                      toggle: every existing value would fail to unseal. Complete the \
                      documented offline re-encryption procedure into a fresh persist \
                      dir, or unset {} to keep serving this store as it is.",
-                    crate::crypto::ENCRYPTION_KEY_ENV,
-                    crate::crypto::ENCRYPTION_KEY_ENV,
+                    medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
+                    medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
                 ));
             }
-            let binding = crate::crypto::EncryptionKeyBinding::from_key_ref(configured_ref);
+            let binding = medulla_kernel::crypto::EncryptionKeyBinding::from_key_ref(configured_ref);
             let binding_bytes = binding.encode()?;
             let sealed = cipher.seal(&expected_plaintext);
             Ok(CanaryPlan::Write {
@@ -497,7 +497,7 @@ impl RedbGroupCommitTestControl {
             .expect("group-commit test control lock poisoned")
             .take();
         if let Some(release) = release {
-            crate::test_rendezvous::recv_within(
+            medulla_kernel::test_rendezvous::recv_within(
                 &release,
                 "the group-commit test control releasing the writer",
             );
@@ -654,7 +654,7 @@ pub(crate) fn cluster_admin_scope_identity() -> Result<medulla_types::MutationSc
 /// kernel enforces it on every private-payload read/write, so without a real authority
 /// here every 2PC recovery-plan write/read fails closed — not optional plumbing.
 #[cfg(feature = "security")]
-struct TxnRecoveryPrivateIntegrity(crate::crypto::ValueCipher);
+struct TxnRecoveryPrivateIntegrity(medulla_kernel::crypto::ValueCipher);
 
 /// Authenticate one sealed private payload against the binding carried by its
 /// parent receipt. SPARQL recovery binds the exact plaintext digest. Transaction
@@ -662,7 +662,7 @@ struct TxnRecoveryPrivateIntegrity(crate::crypto::ValueCipher);
 /// observations without becoming a different operation.
 #[cfg(feature = "security")]
 pub(crate) fn authenticate_private_payload(
-    cipher: &crate::crypto::ValueCipher,
+    cipher: &medulla_kernel::crypto::ValueCipher,
     sealed: &[u8],
     expected_binding: &str,
 ) -> Result<(), String> {
@@ -700,7 +700,7 @@ impl medulla_storage::PrivatePayloadIntegrity for TxnRecoveryPrivateIntegrity {
 #[cfg(feature = "security")]
 pub(crate) fn admin_mutations_private_integrity(
 ) -> Option<Arc<dyn medulla_storage::PrivatePayloadIntegrity>> {
-    crate::crypto::ValueCipher::from_env_for_txn_recovery().map(|cipher| {
+    medulla_kernel::crypto::ValueCipher::from_env_for_txn_recovery().map(|cipher| {
         Arc::new(TxnRecoveryPrivateIntegrity(cipher))
             as Arc<dyn medulla_storage::PrivatePayloadIntegrity>
     })
@@ -938,8 +938,8 @@ mod tests {
     async fn redb_backend_outbox_subscription_is_durable_and_topic_bound() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!(
             "medulla-redb-outbox-subscribe-{}-{}",
             std::process::id(),
@@ -998,7 +998,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn implicit_drop_releases_writer_before_reopen() {
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!(
             "medulla-redb-implicit-drop-{}-{}",
             std::process::id(),
@@ -1336,9 +1336,9 @@ mod tests {
         // durable value is missing sealed framing" -- same requirement as
         // `k_gt_1_routes_to_deterministic_shard_and_survives_restart` above. Never
         // sets the key itself; only needs the ambient value to stay constant across
-        // both opens. See `crate::crypto::acquire_test_env_lock`'s doc.
+        // both opens. See `medulla_kernel::crypto::acquire_test_env_lock`'s doc.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         // Commit nodes/edges through the awaited barrier, drop, and reload.
         let dir = std::env::temp_dir().join(format!("medulla-redb-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1434,7 +1434,7 @@ mod tests {
     }
 
     /// GOC-16/NE-028: save/restore-on-drop for the encryption env vars, held under the SAME
-    /// crate-wide [`crate::crypto::acquire_test_env_lock`] every other encryption-key
+    /// crate-wide [`medulla_kernel::crypto::acquire_test_env_lock`] every other encryption-key
     /// test in this file and in `crypto.rs` contends on. Unlike
     /// `txn_commit_persists_to_redb`'s `std::sync::Once` (which only ever SETS
     /// `ENCRYPTION_KEY_ENV`, never unsets it — safe because no other test depends on
@@ -1452,17 +1452,17 @@ mod tests {
     #[cfg(feature = "security")]
     impl EncryptionRequiredEnvGuard {
         fn set(key: Option<&str>, required_mode: &str) -> Self {
-            let prev_key = std::env::var(crate::crypto::ENCRYPTION_KEY_ENV).ok();
-            let prev_key_id = std::env::var(crate::crypto::ENCRYPTION_KEY_ID_ENV).ok();
-            let prev_key_version = std::env::var(crate::crypto::ENCRYPTION_KEY_VERSION_ENV).ok();
-            let prev_required = std::env::var(crate::crypto::ENCRYPTION_REQUIRED_ENV).ok();
+            let prev_key = std::env::var(medulla_kernel::crypto::ENCRYPTION_KEY_ENV).ok();
+            let prev_key_id = std::env::var(medulla_kernel::crypto::ENCRYPTION_KEY_ID_ENV).ok();
+            let prev_key_version = std::env::var(medulla_kernel::crypto::ENCRYPTION_KEY_VERSION_ENV).ok();
+            let prev_required = std::env::var(medulla_kernel::crypto::ENCRYPTION_REQUIRED_ENV).ok();
             match key {
-                Some(k) => std::env::set_var(crate::crypto::ENCRYPTION_KEY_ENV, k),
-                None => std::env::remove_var(crate::crypto::ENCRYPTION_KEY_ENV),
+                Some(k) => std::env::set_var(medulla_kernel::crypto::ENCRYPTION_KEY_ENV, k),
+                None => std::env::remove_var(medulla_kernel::crypto::ENCRYPTION_KEY_ENV),
             }
-            std::env::remove_var(crate::crypto::ENCRYPTION_KEY_ID_ENV);
-            std::env::remove_var(crate::crypto::ENCRYPTION_KEY_VERSION_ENV);
-            std::env::set_var(crate::crypto::ENCRYPTION_REQUIRED_ENV, required_mode);
+            std::env::remove_var(medulla_kernel::crypto::ENCRYPTION_KEY_ID_ENV);
+            std::env::remove_var(medulla_kernel::crypto::ENCRYPTION_KEY_VERSION_ENV);
+            std::env::set_var(medulla_kernel::crypto::ENCRYPTION_REQUIRED_ENV, required_mode);
             Self {
                 prev_key,
                 prev_key_id,
@@ -1473,8 +1473,8 @@ mod tests {
 
         fn set_with_ref(key: &str, key_id: &str, key_version: &str) -> Self {
             let guard = Self::set(Some(key), "warn");
-            std::env::set_var(crate::crypto::ENCRYPTION_KEY_ID_ENV, key_id);
-            std::env::set_var(crate::crypto::ENCRYPTION_KEY_VERSION_ENV, key_version);
+            std::env::set_var(medulla_kernel::crypto::ENCRYPTION_KEY_ID_ENV, key_id);
+            std::env::set_var(medulla_kernel::crypto::ENCRYPTION_KEY_VERSION_ENV, key_version);
             guard
         }
     }
@@ -1483,20 +1483,20 @@ mod tests {
     impl Drop for EncryptionRequiredEnvGuard {
         fn drop(&mut self) {
             match self.prev_key.take() {
-                Some(v) => std::env::set_var(crate::crypto::ENCRYPTION_KEY_ENV, v),
-                None => std::env::remove_var(crate::crypto::ENCRYPTION_KEY_ENV),
+                Some(v) => std::env::set_var(medulla_kernel::crypto::ENCRYPTION_KEY_ENV, v),
+                None => std::env::remove_var(medulla_kernel::crypto::ENCRYPTION_KEY_ENV),
             }
             match self.prev_key_id.take() {
-                Some(v) => std::env::set_var(crate::crypto::ENCRYPTION_KEY_ID_ENV, v),
-                None => std::env::remove_var(crate::crypto::ENCRYPTION_KEY_ID_ENV),
+                Some(v) => std::env::set_var(medulla_kernel::crypto::ENCRYPTION_KEY_ID_ENV, v),
+                None => std::env::remove_var(medulla_kernel::crypto::ENCRYPTION_KEY_ID_ENV),
             }
             match self.prev_key_version.take() {
-                Some(v) => std::env::set_var(crate::crypto::ENCRYPTION_KEY_VERSION_ENV, v),
-                None => std::env::remove_var(crate::crypto::ENCRYPTION_KEY_VERSION_ENV),
+                Some(v) => std::env::set_var(medulla_kernel::crypto::ENCRYPTION_KEY_VERSION_ENV, v),
+                None => std::env::remove_var(medulla_kernel::crypto::ENCRYPTION_KEY_VERSION_ENV),
             }
             match self.prev_required.take() {
-                Some(v) => std::env::set_var(crate::crypto::ENCRYPTION_REQUIRED_ENV, v),
-                None => std::env::remove_var(crate::crypto::ENCRYPTION_REQUIRED_ENV),
+                Some(v) => std::env::set_var(medulla_kernel::crypto::ENCRYPTION_REQUIRED_ENV, v),
+                None => std::env::remove_var(medulla_kernel::crypto::ENCRYPTION_REQUIRED_ENV),
             }
         }
     }
@@ -1508,7 +1508,7 @@ mod tests {
     #[cfg(feature = "security")]
     #[tokio::test(flavor = "multi_thread")]
     async fn encryption_required_on_refuses_to_open_without_a_key() {
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let _guard = EncryptionRequiredEnvGuard::set(None, "on");
 
         let dir = std::env::temp_dir().join(format!("medulla-redb-enc-required-{}", std::process::id()));
@@ -1537,7 +1537,7 @@ mod tests {
     #[cfg(feature = "security")]
     #[tokio::test(flavor = "multi_thread")]
     async fn encryption_required_on_succeeds_when_a_key_is_set() {
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let _guard =
             EncryptionRequiredEnvGuard::set(Some("redb-encryption-required-test-key"), "on");
 
@@ -1560,7 +1560,7 @@ mod tests {
     #[cfg(feature = "security")]
     #[tokio::test(flavor = "multi_thread")]
     async fn encryption_key_mismatch_refuses_to_reopen() {
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
 
         let dir = std::env::temp_dir().join(format!("medulla-redb-enc-mismatch-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1583,7 +1583,7 @@ mod tests {
             Err(message) => message,
         };
         assert!(
-            message.contains(crate::crypto::ENCRYPTION_KEY_ENV)
+            message.contains(medulla_kernel::crypto::ENCRYPTION_KEY_ENV)
                 && message.contains("does not match"),
             "diagnostic must be bounded and name the mismatch, got: {message}"
         );
@@ -1596,7 +1596,7 @@ mod tests {
     #[cfg(feature = "security")]
     #[tokio::test(flavor = "multi_thread")]
     async fn encryption_key_reference_mismatch_refuses_to_reopen() {
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!(
             "medulla-redb-enc-key-ref-mismatch-{}",
             std::process::id()
@@ -1632,7 +1632,7 @@ mod tests {
     #[cfg(feature = "security")]
     #[tokio::test(flavor = "multi_thread")]
     async fn encryption_key_same_key_reopens_cleanly_across_multiple_opens() {
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let _guard = EncryptionRequiredEnvGuard::set(Some("stable-key-material"), "warn");
 
         let dir = std::env::temp_dir().join(format!("medulla-redb-enc-stable-{}", std::process::id()));
@@ -1653,7 +1653,7 @@ mod tests {
     #[cfg(feature = "security")]
     #[tokio::test(flavor = "multi_thread")]
     async fn encryption_never_configured_skips_the_canary_check_entirely() {
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let _guard = EncryptionRequiredEnvGuard::set(None, "off");
 
         let dir = std::env::temp_dir().join(format!("medulla-redb-enc-none-{}", std::process::id()));
@@ -1681,7 +1681,7 @@ mod tests {
     #[cfg(feature = "security")]
     #[tokio::test(flavor = "multi_thread")]
     async fn populated_plaintext_store_refuses_a_brand_new_key() {
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!(
             "medulla-redb-enc-adopt-plaintext-{}",
             std::process::id()
@@ -1713,7 +1713,7 @@ mod tests {
             Err(message) => message,
         };
         assert!(
-            message.contains(crate::crypto::ENCRYPTION_KEY_ENV)
+            message.contains(medulla_kernel::crypto::ENCRYPTION_KEY_ENV)
                 && message.contains("PLAINTEXT")
                 && message.contains("destructive-read"),
             "the diagnostic must name the variable and the hazard, got: {message}"
@@ -1745,7 +1745,7 @@ mod tests {
     #[cfg(feature = "security")]
     #[tokio::test(flavor = "multi_thread")]
     async fn encrypted_store_refuses_to_open_without_a_key() {
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-redb-enc-nokey-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -1771,7 +1771,7 @@ mod tests {
             Err(message) => message,
         };
         assert!(
-            message.contains(crate::crypto::ENCRYPTION_KEY_ENV)
+            message.contains(medulla_kernel::crypto::ENCRYPTION_KEY_ENV)
                 && message.contains("encryption-at-rest metadata"),
             "the diagnostic must name the variable and the cause, got: {message}"
         );
@@ -1793,7 +1793,7 @@ mod tests {
     #[cfg(feature = "security")]
     #[tokio::test(flavor = "multi_thread")]
     async fn encryption_required_off_and_warn_still_open_without_a_key() {
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
 
         for mode in ["off", "warn"] {
             let _guard = EncryptionRequiredEnvGuard::set(None, mode);
@@ -1822,16 +1822,16 @@ mod tests {
         // Held for the whole test: the `Commit` below reaches `seal_txn_recovery_plan`
         // (fails closed without a configured `MEDULLA_ENCRYPTION_KEY`), and
         // this test ALSO reopens the backend ("reload via redb-only") — both opens
-        // must resolve the same cipher. See `crate::crypto::acquire_test_env_lock`'s
+        // must resolve the same cipher. See `medulla_kernel::crypto::acquire_test_env_lock`'s
         // doc for the full mechanism.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         // Under the write guard taken above, so it does not acquire anything itself.
         // ONE shared key value for the whole binary -- see
-        // `crate::crypto::TEST_AT_REST_KEY`'s doc for why a per-module value was the
+        // `medulla_kernel::crypto::TEST_AT_REST_KEY`'s doc for why a per-module value was the
         // bug and not a convenience.
         #[cfg(feature = "security")]
-        crate::crypto::provision_test_at_rest_key_under_write_guard();
+        medulla_kernel::crypto::provision_test_at_rest_key_under_write_guard();
 
         const SECRET: &str = "redb-txn-secret";
         let dir = std::env::temp_dir().join(format!("medulla-redb-txn-{}", std::process::id()));
@@ -1967,9 +1967,9 @@ mod tests {
         // Held for the whole test: opens the backend TWICE (initial + an in-process
         // reopen of the SAME dir, see the retry loop below) and both opens must
         // resolve the same encryption-at-rest cipher. See
-        // `crate::crypto::acquire_test_env_lock`'s doc.
+        // `medulla_kernel::crypto::acquire_test_env_lock`'s doc.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         use crate::protocol::ResultPayload;
         use crate::server::persistence::read_through::BackendReadThroughFactory;
 
@@ -2169,7 +2169,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         use crate::protocol::ResultPayload;
         use crate::server::persistence::read_through::BackendReadThroughFactory;
 
@@ -2307,9 +2307,9 @@ mod tests {
     async fn dispatch_authoritative_durable_without_checkpoint() {
         // Held for the whole test: opens the backend TWICE (initial dispatch-driven
         // writes, then a redb-only reload) and both opens must resolve the same
-        // encryption-at-rest cipher. See `crate::crypto::acquire_test_env_lock`'s doc.
+        // encryption-at-rest cipher. See `medulla_kernel::crypto::acquire_test_env_lock`'s doc.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         use crate::protocol::ResultPayload;
 
         const SECRET: &str = "redb-auth-dispatch";
@@ -2403,7 +2403,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-redb-durable-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -2439,7 +2439,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-redb-coalesce-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -2496,7 +2496,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-redb-snapread-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -2563,7 +2563,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-redb-snapconc-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -2629,7 +2629,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-redb-snapack-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -2735,7 +2735,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-redb-linger-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -2789,7 +2789,7 @@ mod tests {
         };
         receivers.push(enqueue(0));
         tokio::task::spawn_blocking(move || {
-            crate::test_rendezvous::recv_within(
+            medulla_kernel::test_rendezvous::recv_within(
                 &entered_rx,
                 "the redb writer entering the injected linger gate",
             );
@@ -2845,7 +2845,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-redb-nolinger-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -2952,7 +2952,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-redb-evict-rt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -3016,7 +3016,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-redb-evict-safe-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -3095,7 +3095,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-redb-1txn-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -3149,12 +3149,12 @@ mod tests {
         // is symmetric and transparent to every durable round-trip these tests make, so
         // a keyed store behaves identically for their assertions. The env var is
         // process-global, and it is now ONE shared value for the whole binary (see
-        // `crate::crypto::TEST_AT_REST_KEY`'s doc -- a per-module value is what made
+        // `medulla_kernel::crypto::TEST_AT_REST_KEY`'s doc -- a per-module value is what made
         // the ambient key change up to seven times over one run). Every caller of
-        // `cm_dir` holds `crate::crypto::acquire_test_env_lock()` for its entire test
+        // `cm_dir` holds `medulla_kernel::crypto::acquire_test_env_lock()` for its entire test
         // body (see each call site), so the provisioning below always runs under that
         // lock -- do NOT acquire it here, `tokio::sync::RwLock` is not reentrant.
-        crate::crypto::provision_test_at_rest_key_under_write_guard();
+        medulla_kernel::crypto::provision_test_at_rest_key_under_write_guard();
         let d = std::env::temp_dir().join(format!("medulla-crossmodal-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
@@ -3267,8 +3267,8 @@ mod tests {
     async fn crossmodal_txn_commits_all_modalities_atomically() {
         // Held for the whole test: `cm_dir` provisions `MEDULLA_ENCRYPTION_KEY`
         // once (process-global) and this test's backend opens depend on it staying set
-        // throughout — see `crate::crypto::acquire_test_env_lock`'s doc.
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        // throughout — see `medulla_kernel::crypto::acquire_test_env_lock`'s doc.
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = cm_dir("happy");
         let backend: Arc<dyn PersistenceBackend> =
             Arc::new(RedbBackend::open(dir.clone(), 64).unwrap());
@@ -3424,7 +3424,7 @@ mod tests {
     async fn crossmodal_txn_rolls_back_all_modalities_on_failure() {
         // See `crossmodal_txn_commits_all_modalities_atomically` above: held for the
         // whole test.
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = cm_dir("rollback");
         let inner = Arc::new(RedbBackend::open(dir.clone(), 64).unwrap());
         let backend: Arc<dyn PersistenceBackend> = Arc::new(FailingBackend {
@@ -3605,7 +3605,7 @@ mod tests {
 
         // See `crossmodal_txn_commits_all_modalities_atomically` above: held for the
         // whole test.
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = cm_dir("five");
         let points = vec![
             (1_000_000_000i64, vec![10.0]),
@@ -3752,7 +3752,7 @@ mod tests {
     async fn five_modality_rolls_back_all_on_failure() {
         // See `crossmodal_txn_commits_all_modalities_atomically` above: held for the
         // whole test.
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = cm_dir("five-rollback");
         let points = vec![(1_000_000_000i64, vec![10.0])];
         let inner = Arc::new(RedbBackend::open(dir.clone(), 64).unwrap());
@@ -3837,7 +3837,7 @@ mod tests {
         // ("...post_commit_and_restart"), so cipher stability across BOTH opens is
         // exactly what this lock guarantees. See
         // `crossmodal_txn_commits_all_modalities_atomically` above.
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = cm_dir("ts-unify");
         let points = vec![
             (1_000_000_000i64, vec![10.0]),
@@ -4033,7 +4033,7 @@ mod tests {
         const SECRET: &str = "ts-reconcile-secret";
         // See `crossmodal_txn_commits_all_modalities_atomically` above: held for the
         // whole test.
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = cm_dir("ts-reconcile");
         let points: Vec<(i64, Vec<f64>)> = vec![
             (1_000_000_000i64, vec![1.0]),
@@ -4162,7 +4162,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         use crate::protocol::{AuditReport, ResultPayload};
 
         const SECRET: &str = "audit-secret";
@@ -4246,7 +4246,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         use crate::protocol::{LedgerReadResult, ResultPayload};
 
         const SECRET: &str = "get-ledger-secret";
@@ -4369,7 +4369,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         use crate::protocol::{AuditReport, MerkleInclusionReport, ResultPayload};
         use crate::server::persistence::provenance_anchor;
 
@@ -4624,9 +4624,9 @@ mod tests {
         // writes/reads an encrypted value, so an ambient key toggle between the two
         // opens is very unlikely to be observable here -- but hold the lock anyway so
         // this is never the crate's third instance of the "two opens, ambient key
-        // mid-flight" class. See `crate::crypto::acquire_test_env_lock`'s doc.
+        // mid-flight" class. See `medulla_kernel::crypto::acquire_test_env_lock`'s doc.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-shard-k1-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -4661,7 +4661,7 @@ mod tests {
         // Sync `#[test]`, so the blocking counterpart. It opens a durable store
         // and therefore needs the encryption env to hold still; it never mutates
         // it, but `blocking_read` is the only guard available off a runtime.
-        let _env_read_lock = crate::crypto::TEST_ENV_LOCK.blocking_read();
+        let _env_read_lock = medulla_kernel::crypto::TEST_ENV_LOCK.blocking_read();
         let dir = std::env::temp_dir().join(format!(
             "medulla-shard-retired-layout-{}-{:?}",
             std::process::id(),
@@ -4698,9 +4698,9 @@ mod tests {
         // This test never sets `MEDULLA_ENCRYPTION_KEY` itself; it only needs
         // the AMBIENT value (set or unset) to stay constant across both opens, which
         // requires excluding every other test that mutates that process-global for its
-        // duration. See `crate::crypto::acquire_test_env_lock`'s doc.
+        // duration. See `medulla_kernel::crypto::acquire_test_env_lock`'s doc.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-shard-route-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -4787,7 +4787,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-shard-par-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -4864,7 +4864,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-shard-env-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -4893,7 +4893,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::tenant_catalog::TenantCatalog;
         let root = std::env::temp_dir().join(format!("medulla-r5-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -4947,7 +4947,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::tenant_catalog::TenantCatalog;
         const K: usize = 4;
         let dir = std::env::temp_dir().join(format!("medulla-r1-{}", std::process::id()));
@@ -5105,7 +5105,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::cold_offload::{offload_cold_tenants, ColdTenantTracker};
         let dir = std::env::temp_dir().join(format!("medulla-r6-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -5196,10 +5196,10 @@ mod tests {
         // `shutdown()`/drop) and both opens must resolve the same encryption-at-rest
         // cipher or the reload's read fails with "encrypted durable value is missing
         // sealed framing". Never sets the key itself; only needs the ambient value to
-        // stay constant across both opens. See `crate::crypto::acquire_test_env_lock`'s
+        // stay constant across both opens. See `medulla_kernel::crypto::acquire_test_env_lock`'s
         // doc.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         const K: usize = 4;
         let dir = std::env::temp_dir().join(format!("medulla-f-load-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -5286,7 +5286,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::rebalance::{
             plan_rebalance, shard_loads_from_catalog, RebalanceOptions,
         };
@@ -5356,7 +5356,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::tenant_catalog::TenantCatalog;
         const K: usize = 4;
         let dir = std::env::temp_dir().join(format!("medulla-r1-delta-{}", std::process::id()));
@@ -5448,7 +5448,7 @@ mod tests {
         // but passes standalone). Take the WRITE lock and force encryption OFF for
         // this test's whole body instead, so the seeded plaintext always
         // round-trips regardless of test execution order/composition.
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         #[cfg(feature = "security")]
         let _enc_guard = EncryptionRequiredEnvGuard::set(None, "off");
         #[cfg(feature = "security")]
@@ -5590,7 +5590,7 @@ mod tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         use crate::protocol::ResultPayload;
         use crate::server::persistence::tenant_catalog::TenantCatalog;
         const SECRET: &str = "admin-rpc";

@@ -29,8 +29,8 @@ fn tmp_dir(tag: &str) -> PathBuf {
 /// It is taken by EVERY test in this module that opens a durable store, not
 /// only the ones observed to fail: a lock held at some entrypoints and not
 /// others protects nothing.
-fn durable_env_guard() -> crate::crypto::TestEnvReadGuard {
-    crate::crypto::acquire_test_env_read_lock_blocking()
+fn durable_env_guard() -> medulla_kernel::crypto::TestEnvReadGuard {
+    medulla_kernel::crypto::acquire_test_env_read_lock_blocking()
 }
 
 /// Open → write nodes/edges + a vector → read them back → run an algorithm + a

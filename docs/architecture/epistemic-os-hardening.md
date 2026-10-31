@@ -106,7 +106,7 @@ classifiers agreeing with each other by convention.
     materializes in-place) — the ledger's `mutates: true` guess for it was wrong and
     was corrected rather than the method being routed.
 - **What the gateway does NOT reimplement:** the tamper-evident hash-chain audit log
-  (`src/audit.rs` + `redb_store::append_audit_entry`) stays inside the durable-commit
+  (`crates/medulla-kernel/src/audit.rs` + `redb_store::append_audit_entry`) stays inside the durable-commit
   path (`PersistenceBackend::record`/`record_durable`) — the gateway *delegates* to it
   rather than risking a second, diverging chain.
 - **Coalescer interaction (L18, closed):** step 4 of `commit_mutation` routes a

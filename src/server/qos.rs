@@ -238,12 +238,12 @@ pub fn configured() -> Option<Arc<QosScheduler>> {
         if !env_truthy("MEDULLA_QOS") {
             return None;
         }
-        let automatic_capacity = crate::autosize::detect_capacity().max_inflight();
+        let automatic_capacity = medulla_kernel::autosize::detect_capacity().max_inflight();
         let capacity = std::env::var("MEDULLA_QOS_CAPACITY")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n > 0)
-            .map(|value| crate::autosize::bound_explicit(value, automatic_capacity))
+            .map(|value| medulla_kernel::autosize::bound_explicit(value, automatic_capacity))
             .unwrap_or(automatic_capacity);
         let mut config = QosConfig::auto(capacity);
         if let Some(q) = std::env::var("MEDULLA_QOS_PRINCIPAL_QUOTA")
@@ -251,7 +251,7 @@ pub fn configured() -> Option<Arc<QosScheduler>> {
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|&n| n > 0)
         {
-            config.per_principal_quota = crate::autosize::bound_explicit(q, config.capacity);
+            config.per_principal_quota = medulla_kernel::autosize::bound_explicit(q, config.capacity);
         }
         tracing::info!(
             target: "medulla::qos",
@@ -638,7 +638,7 @@ fn deadline_key(r: &QosRequest) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_rendezvous::join_bounded;
+    use medulla_kernel::test_rendezvous::join_bounded;
     use std::sync::atomic::{AtomicBool, AtomicU64 as StdAtomicU64};
     use std::time::Duration;
 

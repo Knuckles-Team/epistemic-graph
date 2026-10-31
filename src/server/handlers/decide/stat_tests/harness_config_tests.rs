@@ -57,7 +57,7 @@ fn assert_unsupported(response: Response) {
 // spec: MEDULLA-DECISION-ENGINE-R128.1
 #[tokio::test]
 async fn harness_config_dispatch_refuses_generic_scoring() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let (h, mut asked) = route_fixture().await;
     let baseline: DecisionBatch = decode(
         dispatch(
@@ -99,7 +99,7 @@ async fn harness_config_dispatch_refuses_generic_scoring() {
 // spec: MEDULLA-DECISION-ENGINE-R128.13.1
 #[tokio::test]
 async fn harness_config_replay_refuses_a_relabelled_generic_record() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let (h, asked) = route_fixture().await;
     let baseline: DecisionBatch = decode(
         dispatch(

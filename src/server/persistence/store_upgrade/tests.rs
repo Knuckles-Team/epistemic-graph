@@ -349,7 +349,7 @@ fn both_verbs_refuse_while_an_engine_holds_the_data_directory() {
     let dir = data_dir();
     let library = old_agent_library(dir.path());
     let before = file_digest(&library);
-    let engine = crate::persist_lock::acquire(dir.path().to_str().unwrap()).unwrap();
+    let engine = medulla_kernel::persist_lock::acquire(dir.path().to_str().unwrap()).unwrap();
 
     let applied = apply(dir.path(), &confirmed());
     assert_eq!(applied.exit_code, EXIT_FAILED, "{}", applied.render());

@@ -288,8 +288,8 @@ pub async fn run_federated_with_opensearch(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lock_recovery::LockRecovery;
-    use crate::test_rendezvous::join_bounded;
+    use medulla_kernel::lock_recovery::LockRecovery;
+    use medulla_kernel::test_rendezvous::join_bounded;
     use std::io::Write;
     use std::net::TcpListener;
     use std::sync::Mutex;

@@ -975,7 +975,7 @@ mod tests {
                     .send(())
                     .map_err(|error| format!("signal paused lake write: {error}"))?;
                 release
-                    .recv_timeout(crate::test_rendezvous::RENDEZVOUS_TIMEOUT)
+                    .recv_timeout(medulla_kernel::test_rendezvous::RENDEZVOUS_TIMEOUT)
                     .map_err(|error| format!("resume paused lake write: {error}"))?;
             }
             let should_fail = {
@@ -1329,7 +1329,7 @@ mod tests {
         let path_count_after_append = manager.paths.lock().len();
         release_delete.send(()).expect("release stale delete");
         let conflict =
-            crate::test_rendezvous::join_bounded(stale_delete, "the stale delete thread")
+            medulla_kernel::test_rendezvous::join_bounded(stale_delete, "the stale delete thread")
                 .expect_err("stale delete must fail its expected-LSN fence");
         assert!(conflict.contains("lake write conflict"));
 
@@ -1416,7 +1416,7 @@ mod tests {
             .unwrap());
         release_write.send(()).expect("release stale compaction");
         let conflict =
-            crate::test_rendezvous::join_bounded(stale_compaction, "the stale compaction thread")
+            medulla_kernel::test_rendezvous::join_bounded(stale_compaction, "the stale compaction thread")
                 .expect_err("pre-evolution candidate must fail its revision fence");
         assert!(conflict.contains("lake write conflict"));
         assert_eq!(manager.paths.lock().len(), initial_path_count);
@@ -1789,9 +1789,9 @@ mod tests {
     fn materialize_succeeds_with_lineage_transport_enabled_and_every_transport_unconfigured() {
         // See `lineage_transport::tests`' doc on the same lock: this test
         // also mutates the process-global lineage env vars, so it joins the
-        // same mutual-exclusion group (`crate::crypto::acquire_test_env_lock_blocking`)
+        // same mutual-exclusion group (`medulla_kernel::crypto::acquire_test_env_lock_blocking`)
         // rather than racing them.
-        let _env_lock = crate::crypto::acquire_test_env_lock_blocking();
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock_blocking();
         std::env::remove_var(lineage::OPENLINEAGE_URL_ENV);
         #[cfg(feature = "lineage-transport-kafka")]
         std::env::remove_var(lineage_transport::KafkaTransport::ENV_BROKERS);

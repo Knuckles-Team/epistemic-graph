@@ -4,7 +4,7 @@
 //! requires that the verdict on the replaced password did nothing.
 
 use super::*;
-use crate::test_rendezvous::RENDEZVOUS_TIMEOUT;
+use medulla_kernel::test_rendezvous::RENDEZVOUS_TIMEOUT;
 
 const REPLACEMENT: &str = "replacement horse battery staple";
 const CHOSEN_BY_OLD_HOLDER: &str = "old holder horse battery staple";

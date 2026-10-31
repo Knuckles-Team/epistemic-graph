@@ -95,14 +95,14 @@ pub(super) async fn prepare_tcp_tls(
 pub(super) fn detect_capacity_and_log_startup(
     args: &super::Args,
     tcp_tls: bool,
-) -> medulla::autosize::Capacity {
+) -> medulla_kernel::autosize::Capacity {
     info!("Starting medulla-server");
     if args.tcp_only {
         info!("  Native TCP-only transport configured");
     } else {
         info!("  UDS: private local socket configured");
     }
-    let capacity = medulla::autosize::detect_capacity();
+    let capacity = medulla_kernel::autosize::detect_capacity();
     info!(
         "  Capacity: {} cpu(s), {} MiB RAM, tier {:?} (auto-sizing inflight/writer/node-cap defaults)",
         capacity.cpus,
@@ -148,9 +148,9 @@ pub(super) fn flush_durable_state(persistence: Persistence) {
 /// held for the whole process lifetime by the caller.
 pub(super) fn acquire_persist_lock(
     persist_dir: Option<&str>,
-) -> Option<medulla::persist_lock::PersistDirLock> {
+) -> Option<medulla_kernel::persist_lock::PersistDirLock> {
     let dir = persist_dir?;
-    let lock = medulla::persist_lock::acquire(dir).unwrap_or_else(|e| exit_with(e, 1));
+    let lock = medulla_kernel::persist_lock::acquire(dir).unwrap_or_else(|e| exit_with(e, 1));
     info!("Acquired the configured single-writer persistence lock");
     migrate_stores_on_open(dir, &lock);
     Some(lock)
@@ -160,7 +160,7 @@ pub(super) fn acquire_persist_lock(
 /// lock just taken (MEDULLA-DURABLE-KERNEL-R070.1). With the switch off, nothing is
 /// migrated and `open_persistence` refuses such a store and names the command.
 #[cfg(feature = "redb")]
-fn migrate_stores_on_open(dir: &str, lock: &medulla::persist_lock::PersistDirLock) {
+fn migrate_stores_on_open(dir: &str, lock: &medulla_kernel::persist_lock::PersistDirLock) {
     use server::persistence::store_upgrade as upgrade;
 
     let enabled = upgrade::auto_migrate_enabled().unwrap_or_else(|error| exit_with(error, 2));
@@ -169,7 +169,7 @@ fn migrate_stores_on_open(dir: &str, lock: &medulla::persist_lock::PersistDirLoc
             "Automatic store migration is off ({}=false)",
             upgrade::AUTO_MIGRATE_ENV
         );
-        medulla::metrics::store_migration_step("run", "disabled");
+        medulla_kernel::metrics::store_migration_step("run", "disabled");
         return;
     }
     let migration = upgrade::migrate_on_open(std::path::Path::new(dir), lock)
@@ -180,7 +180,7 @@ fn migrate_stores_on_open(dir: &str, lock: &medulla::persist_lock::PersistDirLoc
 }
 
 #[cfg(not(feature = "redb"))]
-fn migrate_stores_on_open(_dir: &str, _lock: &medulla::persist_lock::PersistDirLock) {}
+fn migrate_stores_on_open(_dir: &str, _lock: &medulla_kernel::persist_lock::PersistDirLock) {}
 
 /// A positive `variable` override, bounded by `bound`. Absent, unparsable and
 /// zero values yield `None`.
@@ -189,12 +189,12 @@ fn bounded_env_override(variable: &str, bound: usize) -> Option<usize> {
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
-        .map(|value| medulla::autosize::bound_explicit(value, bound))
+        .map(|value| medulla_kernel::autosize::bound_explicit(value, bound))
 }
 
 /// Bound an explicit `requested` value by `automatic`, warning when it clamps.
 fn clamp_to_automatic(variable: &str, requested: usize, automatic: usize) -> usize {
-    let bounded = medulla::autosize::bound_explicit(requested, automatic);
+    let bounded = medulla_kernel::autosize::bound_explicit(requested, automatic);
     if bounded != requested {
         tracing::warn!(
             requested,
@@ -215,7 +215,7 @@ pub(super) struct AdmissionLimits {
 
 /// Size the admission pools from effective CPU capacity. A positive env
 /// override can only lower each cgroup-aware default.
-pub(super) fn admission_limits(capacity: &medulla::autosize::Capacity) -> AdmissionLimits {
+pub(super) fn admission_limits(capacity: &medulla_kernel::autosize::Capacity) -> AdmissionLimits {
     let automatic_max_in_flight = capacity.max_inflight();
     let max_in_flight = std::env::var("MEDULLA_MAX_INFLIGHT")
         .ok()
@@ -249,7 +249,7 @@ pub(super) fn admission_limits(capacity: &medulla::autosize::Capacity) -> Admiss
     );
     // Per-graph write coalescer (CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer): batch
     // size auto-sized from cpu count and always enabled with bounded queues.
-    let coalescer = medulla::write_coalescer::CoalescerConfig::auto();
+    let coalescer = medulla_kernel::write_coalescer::CoalescerConfig::auto();
     info!(
         "Write coalescer: batch up to {} ops/lock (queue {}, linger {:?})",
         coalescer.max_batch, coalescer.queue_capacity, coalescer.max_linger
@@ -269,7 +269,7 @@ type Persistence = Option<Arc<dyn server::persistence::PersistenceBackend>>;
 #[cfg(feature = "redb")]
 pub(super) fn open_persistence(
     persist_dir: Option<&str>,
-    capacity: &medulla::autosize::Capacity,
+    capacity: &medulla_kernel::autosize::Capacity,
 ) -> Persistence {
     let dir = persist_dir?;
     let automatic_writer_queue = capacity.writer_queue();
@@ -330,7 +330,7 @@ fn refuse_upgradable_stores(dir: &str) {
 #[cfg(not(feature = "redb"))]
 pub(super) fn open_persistence(
     persist_dir: Option<&str>,
-    _capacity: &medulla::autosize::Capacity,
+    _capacity: &medulla_kernel::autosize::Capacity,
 ) -> Persistence {
     if persist_dir.is_some() {
         exit_with(
@@ -439,7 +439,7 @@ pub(super) struct DurableStores {
 /// that order.
 pub(super) fn open_durable_stores(
     persist_dir: Option<&str>,
-    capacity: &medulla::autosize::Capacity,
+    capacity: &medulla_kernel::autosize::Capacity,
 ) -> DurableStores {
     DurableStores {
         persistence: open_persistence(persist_dir, capacity),
@@ -716,7 +716,7 @@ pub(super) fn env_or_exit<T>(
 
 /// The per-graph resident node cap: auto-sized from effective RAM; an explicit
 /// override must be positive and may only lower it.
-pub(super) fn max_nodes_per_graph(capacity: &medulla::autosize::Capacity) -> usize {
+pub(super) fn max_nodes_per_graph(capacity: &medulla_kernel::autosize::Capacity) -> usize {
     const VARIABLE: &str = "MEDULLA_MAX_NODES_PER_GRAPH";
     let automatic = capacity.node_cap();
     env_or_exit(

@@ -556,7 +556,7 @@ async fn commit_is_rejected_cleanly(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_rendezvous::meet;
+    use medulla_kernel::test_rendezvous::meet;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Barrier;
 
@@ -629,9 +629,9 @@ mod tests {
         // single_decision` is also called from a non-`cfg(test)` `--features cluster`
         // integration-test entrypoint, so it cannot hold this crate-private lock
         // itself; the in-crate test wrapper (here) is the right place. See
-        // `crate::crypto::acquire_test_env_lock`'s doc.
+        // `medulla_kernel::crypto::acquire_test_env_lock`'s doc.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let report = prove_crossshard_modality_2pc_single_decision()
             .await
             .expect("cross-shard modality 2PC proof runs");
@@ -643,8 +643,8 @@ mod tests {
     async fn happy_commit_spans_both_modalities() {
         // Opens a durable store, so the ambient encryption env must hold still for
         // this whole body. READ guard: it excludes only a key MUTATOR, never another
-        // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         assert!(scenario_happy().await.expect("happy scenario"));
     }
 
@@ -653,8 +653,8 @@ mod tests {
     async fn participant_kill_aborts_no_partial_modality() {
         // Opens a durable store, so the ambient encryption env must hold still for
         // this whole body. READ guard: it excludes only a key MUTATOR, never another
-        // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         assert!(scenario_participant_kill().await.expect("kill scenario"));
     }
 
@@ -664,9 +664,9 @@ mod tests {
         // Held for the whole test: `scenario_coord_kill_post_decision` opens the
         // backend TWICE (initial + a restart reopen of the SAME dir); both opens
         // must resolve the same encryption-at-rest cipher. See
-        // `crate::crypto::acquire_test_env_lock`'s doc.
+        // `medulla_kernel::crypto::acquire_test_env_lock`'s doc.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         assert!(scenario_coord_kill_post_decision()
             .await
             .expect("recover-commit scenario"));
@@ -678,9 +678,9 @@ mod tests {
         // Held for the whole test: `scenario_coord_kill_pre_decision` opens the
         // backend TWICE (initial + a restart reopen of the SAME dir); both opens
         // must resolve the same encryption-at-rest cipher. See
-        // `crate::crypto::acquire_test_env_lock`'s doc.
+        // `medulla_kernel::crypto::acquire_test_env_lock`'s doc.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         assert!(scenario_coord_kill_pre_decision()
             .await
             .expect("recover-abort scenario"));
@@ -693,8 +693,8 @@ mod tests {
     async fn stale_fenced_participant_is_rejected_current_epoch_accepted() {
         // Opens a durable store, so the ambient encryption env must hold still for
         // this whole body. READ guard: it excludes only a key MUTATOR, never another
-        // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         assert!(scenario_stale_fenced_participant_rejected()
             .await
             .expect("stale-fence rejection scenario"));

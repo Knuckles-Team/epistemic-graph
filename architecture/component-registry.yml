@@ -281,7 +281,7 @@ reverifications:
           medulla.server-dispatch -> `tests/graph_scoped_operation_dispatch.rs` (its doc comment
           names `dispatch_graph_op_inner` in `src/server/dispatch.rs` directly -- read, not
           guessed); medulla.observability -> `tests/test_audit_tamper_evidence.py` (exercises
-          `AdminClient.audit_verify`/`audit_prove_inclusion` against `src/audit.rs`, which
+          `AdminClient.audit_verify`/`audit_prove_inclusion` against `crates/medulla-kernel/src/audit.rs`, which
           this component already owned). The last three needed by exactly this repository's
           own layout-contract wording ("tests mirror component ownership") a corresponding
           narrowing of medulla.binary-composition's `test_roots`, which previously claimed the
@@ -2419,13 +2419,13 @@ components:
       - "src/redb_store"
       - "src/redb_layout.rs"
       - "src/persist.rs"
-      - "src/persist_lock.rs"
+      - "crates/medulla-kernel/src/persist_lock.rs"
       - "src/mutation_apply.rs"
       - "src/sidecar_store.rs"
-      - "src/write_coalescer.rs"
+      - "crates/medulla-kernel/src/write_coalescer.rs"
       - "src/write_coalescer"
-      - "src/graph_delta.rs"
-      - "src/crypto.rs"
+      - "crates/medulla-kernel/src/graph_delta.rs"
+      - "crates/medulla-kernel/src/crypto.rs"
       - "src/server/persistence"
     public_contract_roots: []
     test_roots:
@@ -3685,15 +3685,15 @@ components:
     contract_state: unknown_not_inventory_complete
     owned_crates: []
     owned_source_roots:
-      - "src/metrics.rs"
-      - "src/otel.rs"
-      - "src/slow_query.rs"
+      - "crates/medulla-kernel/src/metrics.rs"
+      - "crates/medulla-kernel/src/otel.rs"
+      - "crates/medulla-kernel/src/slow_query.rs"
       - "src/cost"
       - "src/performance_probe.rs"
       - "src/performance_probe"
       - "src/audit"
-      - "src/audit.rs"
-      - "src/autosize.rs"
+      - "crates/medulla-kernel/src/audit.rs"
+      - "crates/medulla-kernel/src/autosize.rs"
       - "src/channels.rs"
       - "src/server/obs"
       - "src/server/traces"

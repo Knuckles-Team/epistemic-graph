@@ -38,8 +38,12 @@ def test_deleted_first_release_symbols_stay_absent() -> None:
         "src/raft/network.rs",
         "src/raft/network_rpc.rs",
     )
-    autosize_source = (ROOT / "src/autosize.rs").read_text(encoding="utf-8")
-    crypto_source = (ROOT / "src/crypto.rs").read_text(encoding="utf-8")
+    autosize_source = (ROOT / "crates/medulla-kernel/src/autosize.rs").read_text(
+        encoding="utf-8"
+    )
+    crypto_source = (ROOT / "crates/medulla-kernel/src/crypto.rs").read_text(
+        encoding="utf-8"
+    )
     value_cipher_callers = [
         str(path.relative_to(ROOT))
         for source_root in (ROOT / "src", ROOT / "crates", ROOT / "tests")

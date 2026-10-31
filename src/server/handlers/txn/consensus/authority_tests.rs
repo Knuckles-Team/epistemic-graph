@@ -105,9 +105,9 @@ async fn check_parent_only_phases(
 
 #[tokio::test]
 async fn parent_only_phases_reject_foreign_tenant_with_same_principal() {
-    let _env_lock = crate::crypto::acquire_test_env_lock().await;
+    let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
     let _key = EnvVarGuard::set(
-        crate::crypto::TXN_RECOVERY_KEY_ENV,
+        medulla_kernel::crypto::TXN_RECOVERY_KEY_ENV,
         "parent-tenant-test-key",
     );
     let directory = std::env::temp_dir().join(format!(

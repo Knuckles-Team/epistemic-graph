@@ -68,7 +68,7 @@ fn harness_isolation() -> crate::isolation::IsolationLayer {
 /// from the process-global `MEDULLA_ENCRYPTION_KEY`. A concurrent key mutation
 /// between two of those opens fails the canary check, so the env has to hold still for
 /// the whole body, not just the first open. That is the READ guard
-/// `crate::crypto::provisioned_test_env_read_lock` hands back, after taking (and
+/// `medulla_kernel::crypto::provisioned_test_env_read_lock` hands back, after taking (and
 /// releasing) the WRITE guard for the one-time provisioning -- the only safe order,
 /// since `tokio::sync::RwLock` is not reentrant.
 ///
@@ -77,8 +77,8 @@ fn harness_isolation() -> crate::isolation::IsolationLayer {
 /// hazard was live -- the four tests here that held the WRITE guard called `fresh_dir`
 /// while holding it, so whichever ran FIRST would have hung the binary on the
 /// provisioning's own write acquisition.
-async fn env_read_guard() -> crate::crypto::TestEnvReadGuard {
-    crate::crypto::provisioned_test_env_read_lock().await
+async fn env_read_guard() -> medulla_kernel::crypto::TestEnvReadGuard {
+    medulla_kernel::crypto::provisioned_test_env_read_lock().await
 }
 
 /// A unique, empty temporary directory for one scenario.

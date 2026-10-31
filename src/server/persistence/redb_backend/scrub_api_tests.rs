@@ -21,10 +21,10 @@ impl NoEncryptionKeyEnv {
     // drops. Other tests may already have provisioned the shared at-rest key.
     fn set() -> Self {
         let names = [
-            crate::crypto::ENCRYPTION_KEY_ENV,
-            crate::crypto::ENCRYPTION_KEY_ID_ENV,
-            crate::crypto::ENCRYPTION_KEY_VERSION_ENV,
-            crate::crypto::ENCRYPTION_REQUIRED_ENV,
+            medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
+            medulla_kernel::crypto::ENCRYPTION_KEY_ID_ENV,
+            medulla_kernel::crypto::ENCRYPTION_KEY_VERSION_ENV,
+            medulla_kernel::crypto::ENCRYPTION_REQUIRED_ENV,
         ];
         let previous = names
             .into_iter()
@@ -33,7 +33,7 @@ impl NoEncryptionKeyEnv {
         for name in names {
             std::env::remove_var(name);
         }
-        std::env::set_var(crate::crypto::ENCRYPTION_REQUIRED_ENV, "off");
+        std::env::set_var(medulla_kernel::crypto::ENCRYPTION_REQUIRED_ENV, "off");
         Self(previous)
     }
 }
@@ -81,7 +81,7 @@ async fn step(backend: &RedbBackend) -> (u64, Vec<NodeUnreadable>, ScrubCursor) 
 // spec: MEDULLA-DURABLE-KERNEL-R069
 #[tokio::test(flavor = "multi_thread")]
 async fn scrub_cursor_survives_reopen_and_the_walk_skips_nothing() {
-    let _env_lock = crate::crypto::acquire_test_env_lock().await;
+    let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
     let _no_key = NoEncryptionKeyEnv::set();
     let dir = std::env::temp_dir().join(format!("medulla-scrub-backend-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

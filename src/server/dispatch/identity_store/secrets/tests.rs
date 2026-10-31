@@ -62,7 +62,7 @@ fn a_sealed_secret_round_trips_and_never_contains_the_plaintext() {
     assert_eq!(unseal_with(&source, &sealed).unwrap(), b"GEZDGNBVGY3TQOJQ");
     assert!(unseal_with(&key_source(None, "another-secret"), &sealed).is_err());
     let at_rest = key_source(
-        Some(crate::crypto::ValueCipher::from_key_material(b"k")),
+        Some(medulla_kernel::crypto::ValueCipher::from_key_material(b"k")),
         "x",
     );
     assert!(

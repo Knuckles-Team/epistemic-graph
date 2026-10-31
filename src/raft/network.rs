@@ -1486,7 +1486,7 @@ pub mod partition {
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
     use super::NodeId;
-    use crate::lock_recovery::LockRecovery;
+    use medulla_kernel::lock_recovery::LockRecovery;
 
     /// node id → island id. Absent ⇒ island 0 (the fully-connected default).
     fn table() -> &'static Mutex<HashMap<NodeId, u64>> {

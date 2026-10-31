@@ -591,8 +591,8 @@ mod eg318_dispatch_tests {
     async fn eg318_create_summary_then_read_children() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let state = state_min();
         for (i, id) in ["e1", "e2"].iter().enumerate() {
             let r = dispatch_on_heap(
@@ -646,8 +646,8 @@ mod eg318_dispatch_tests {
     async fn eg318_consolidate_returns_semantic_id() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let state = state_min();
         for (i, id) in ["a", "b"].iter().enumerate() {
             let _ = dispatch_on_heap(
@@ -685,8 +685,8 @@ mod eg318_dispatch_tests {
     async fn eg318_maintain_decays_and_evicts() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let state = state_min();
         // A low-importance node in the working set gets evicted below threshold.
         let _ = dispatch_on_heap(
@@ -728,8 +728,8 @@ mod eg318_dispatch_tests {
     async fn eg318_scene_object_then_world_transform() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let state = state_min();
         let pose = serde_json::json!({"translation": {"x": 5.0, "y": 0.0, "z": 0.0}});
         let created = dispatch_on_heap(
@@ -763,8 +763,8 @@ mod eg318_dispatch_tests {
     async fn eg318_trajectory_append_then_discounted_return() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let state = state_min();
         let started = dispatch_on_heap(
             &state,
@@ -830,8 +830,8 @@ mod eg318_dispatch_tests {
     async fn timeseries_is_graph_authorized_and_tenant_scoped() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let (state, path) = ts_test_state("medulla-ts-policy").await;
         {
             let mut s = state.write().await;
@@ -926,8 +926,8 @@ mod eg318_dispatch_tests {
     async fn timeseries_retention_evict_delete_and_list_are_scoped_and_reachable() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let (state, path) = ts_test_state("medulla-ts-retention").await;
         {
             let mut s = state.write().await;
@@ -1099,8 +1099,8 @@ mod eg318_dispatch_tests {
     async fn timeseries_retention_mutations_require_write_not_read() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
 
         let (state, path) = ts_test_state("medulla-ts-retention-acl").await;
@@ -1818,9 +1818,9 @@ mod blob_dispatch_tests {
         // `crypto::tests::EnvGuard`-protected test transiently mutating the shared
         // `MEDULLA_ENCRYPTION_KEY`/`_TXN_RECOVERY_KEY` env vars elsewhere in
         // the crate can otherwise land mid-flight of this test's dispatch calls. See
-        // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
+        // `medulla_kernel::crypto::acquire_test_env_lock`'s doc for the full mechanism.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-blob-dispatch-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         // Baseline BEFORE any of this test's own allocation, so the bounded-memory

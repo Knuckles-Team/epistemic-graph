@@ -374,7 +374,7 @@ pub(super) async fn build_modality_raft_command(
             "served modality produced no encrypted state",
         ));
     };
-    if !crate::crypto::is_sealed(&sealed_runtime_state) {
+    if !medulla_kernel::crypto::is_sealed(&sealed_runtime_state) {
         return Err(Response::err(
             ctx.req_id,
             "served modality produced unsealed state",

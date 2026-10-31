@@ -61,13 +61,16 @@ pub struct BatchStats {
 }
 
 impl BatchStats {
+    /// Record one flushed batch of `ops` operations.
     pub fn record(&self, ops: usize) {
         self.batches.fetch_add(1, Ordering::Relaxed);
         self.ops.fetch_add(ops as u64, Ordering::Relaxed);
     }
+    /// Batches flushed so far.
     pub fn batches(&self) -> u64 {
         self.batches.load(Ordering::Relaxed)
     }
+    /// Operations flushed so far.
     pub fn ops(&self) -> u64 {
         self.ops.load(Ordering::Relaxed)
     }
@@ -79,7 +82,7 @@ impl BatchStats {
 pub(crate) struct BatchStatsHandle(Arc<BatchStats>);
 
 impl BatchStatsHandle {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self(Arc::new(BatchStats::default()))
     }
 
@@ -110,6 +113,7 @@ static QUEUED_OPS: AtomicU64 = AtomicU64::new(0);
 static QUEUED_BYTES: AtomicU64 = AtomicU64::new(0);
 static OPERATIONS_TOTAL: AtomicU64 = AtomicU64::new(0);
 
+/// Process-wide coalescer totals: (batches, operations, queued bytes).
 pub fn global_stats() -> (u64, u64, u64) {
     (
         QUEUED_OPS.load(Ordering::Relaxed),
@@ -157,30 +161,51 @@ pub(crate) fn operations_applied(ops: usize) {
 /// their existing single-call path — they already hold one txn for the whole operation,
 /// so coalescing buys them nothing.
 pub enum WriteOp {
+    /// Add a node.
     AddNode {
+        /// The node id.
         node_id: String,
+        /// The node properties, MessagePack encoded.
         properties_msgpack: Vec<u8>,
+        /// Where the outcome is sent.
         reply: oneshot::Sender<WriteOutcome>,
     },
+    /// Remove a node.
     RemoveNode {
+        /// The node id.
         node_id: String,
+        /// Where the outcome is sent.
         reply: oneshot::Sender<WriteOutcome>,
     },
+    /// Add an edge.
     AddEdge {
+        /// The source node id.
         source_id: String,
+        /// The target node id.
         target_id: String,
+        /// The edge properties, MessagePack encoded.
         properties_msgpack: Vec<u8>,
+        /// Where the outcome is sent.
         reply: oneshot::Sender<WriteOutcome>,
     },
+    /// Remove an edge.
     RemoveEdge {
+        /// The source node id.
         source_id: String,
+        /// The target node id.
         target_id: String,
+        /// Where the outcome is sent.
         reply: oneshot::Sender<WriteOutcome>,
     },
+    /// Update a node's properties if its current values match `conditions`.
     CompareAndSet {
+        /// The node id.
         node_id: String,
+        /// The property values that must match.
         conditions: serde_json::Map<String, serde_json::Value>,
+        /// The property values to write.
         updates: serde_json::Map<String, serde_json::Value>,
+        /// Where the outcome is sent.
         reply: oneshot::Sender<WriteOutcome>,
     },
 }
@@ -303,7 +328,7 @@ impl Default for CoalescerConfig {
 
 /// Shared per-writer state: admission ordering, tuning, and counters are the same
 /// for the topology and routed durable workers even though their payloads differ.
-pub(crate) struct CoalescerState {
+pub struct CoalescerState {
     admission: Mutex<CoalescerAdmissionState>,
     config: CoalescerConfig,
     stats: BatchStatsHandle,
@@ -316,7 +341,8 @@ pub(crate) struct CoalescerAdmissionState {
 }
 
 impl CoalescerState {
-    pub(crate) fn new(config: CoalescerConfig, admission_error: &'static str) -> Self {
+    /// Admission state for `config`; `admission_error` names the lock in a panic message.
+    pub fn new(config: CoalescerConfig, admission_error: &'static str) -> Self {
         Self {
             admission: Mutex::new(CoalescerAdmissionState::default()),
             config,
@@ -325,26 +351,30 @@ impl CoalescerState {
         }
     }
 
-    pub(crate) fn config(&self) -> CoalescerConfig {
+    /// The coalescer configuration.
+    pub fn config(&self) -> CoalescerConfig {
         self.config
     }
 
-    pub(crate) fn max_batch(&self) -> usize {
+    /// The largest batch one flush applies.
+    pub fn max_batch(&self) -> usize {
         self.config.max_batch
     }
 
-    pub(crate) fn stats(&self) -> &Arc<BatchStats> {
+    /// The batch statistics.
+    pub fn stats(&self) -> &Arc<BatchStats> {
         self.stats.as_ref()
     }
 
-    pub(crate) fn worker_stats(&self) -> Arc<BatchStats> {
+    /// A shared handle to the batch statistics for a worker.
+    pub fn worker_stats(&self) -> Arc<BatchStats> {
         self.stats.clone_arc()
     }
 
     /// Admit one payload while serializing ticket assignment with the channel
     /// send. Failed sends release their exact queue footprint and never consume
     /// a ticket, so an overflow path cannot overtake accepted work.
-    pub(crate) fn try_enqueue<T, F>(&self, item: T, queued_bytes: u64, send: F) -> Result<(), T>
+    pub fn try_enqueue<T, F>(&self, item: T, queued_bytes: u64, send: F) -> Result<(), T>
     where
         F: FnOnce(u64, T) -> Result<(), T>,
     {
@@ -369,7 +399,7 @@ impl CoalescerState {
 
 /// Shared bounded receive/drain state. It owns the worker-side ticket cursor and
 /// applies the same greedy drain plus short linger to every coalescer payload.
-pub(crate) async fn receive_batch<T, F>(
+pub async fn receive_batch<T, F>(
     rx: &mut mpsc::Receiver<(u64, T)>,
     batch: &mut Vec<T>,
     config: CoalescerConfig,
@@ -464,23 +494,33 @@ fn accept_batch_item<T, F>(
     batch.push(item);
 }
 
-pub(crate) fn record_flush(stats: &BatchStats, ops: usize) {
+/// Record one flushed batch of `ops` operations in `stats` and the global totals.
+pub fn record_flush(stats: &BatchStats, ops: usize) {
     stats.record(ops);
     operations_applied(ops);
 }
 
 /// Shared registry map/configuration state used by both coalescer registries.
-pub(crate) struct CoalescerRegistryState<W> {
-    pub(crate) writers: DashMap<String, Arc<W>>,
+pub struct CoalescerRegistryState<W> {
+    /// The per-graph writers, keyed by graph name.
+    pub writers: DashMap<String, Arc<W>>,
     pub(crate) config: CoalescerConfig,
 }
 
+impl<W> Default for CoalescerRegistryState<W> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<W> CoalescerRegistryState<W> {
-    pub(crate) fn new() -> Self {
+    /// An empty registry with the default configuration.
+    pub fn new() -> Self {
         Self::with_config(CoalescerConfig::auto())
     }
 
-    pub(crate) fn with_config(config: CoalescerConfig) -> Self {
+    /// An empty registry with `config`.
+    pub fn with_config(config: CoalescerConfig) -> Self {
         Self {
             writers: DashMap::new(),
             config,
@@ -490,7 +530,7 @@ impl<W> CoalescerRegistryState<W> {
     /// Return the cached writer for `graph_name`, creating it exactly once when
     /// the name is first observed.  Both coalescer registries use this same
     /// admission seam; only the concrete worker constructor differs.
-    pub(crate) fn writer_for<F>(&self, graph_name: &str, spawn: F) -> Arc<W>
+    pub fn writer_for<F>(&self, graph_name: &str, spawn: F) -> Arc<W>
     where
         F: FnOnce(String, CoalescerConfig) -> Arc<W>,
     {

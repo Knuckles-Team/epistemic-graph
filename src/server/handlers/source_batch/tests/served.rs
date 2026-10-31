@@ -171,7 +171,7 @@ fn source_batch_is_a_local_only_cluster_route() {
 #[cfg(feature = "raft")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn clustered_placement_refuses_source_batch_before_publication() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let served = Served::new();
     let raft_dir = served.fixture.directory.join("raft-node");
     std::fs::create_dir_all(&raft_dir).unwrap();

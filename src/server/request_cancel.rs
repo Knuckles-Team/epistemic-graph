@@ -20,7 +20,7 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-use crate::lock_recovery::LockRecovery;
+use medulla_kernel::lock_recovery::LockRecovery;
 use medulla_query::CancellationToken;
 
 fn registry() -> &'static Mutex<HashMap<u64, CancellationToken>> {

@@ -1,5 +1,5 @@
 use super::*;
-use crate::test_rendezvous::meet;
+use medulla_kernel::test_rendezvous::meet;
 
 #[test]
 fn checkpoint_restore_requires_the_exact_linked_lane_work_item() {

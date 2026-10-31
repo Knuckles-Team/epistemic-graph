@@ -446,7 +446,7 @@ pub fn exact_performance_probe_edge_ordinal(
     // running after this deadline is wedged rather than slow -- and a probe
     // that hangs reports nothing at all, which is the failure mode this bound
     // exists to prevent.
-    crate::bounded_join::join_within(
+    medulla_kernel::bounded_join::join_within(
         worker,
         "the edge-ordinal probe worker",
         EDGE_ORDINAL_PROBE_TIMEOUT,

@@ -517,11 +517,11 @@ async fn handle_sql_with_lease(
     // this function deliberately does not implement).
     let _ = params_msgpack;
     let Some(read_authority) = read_authority else {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Err("ACCESS_DENIED: current signed tenant authority is required".to_string());
     };
     let Some(authority) = read_authority.carrier() else {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Err("ACCESS_DENIED: current signed tenant authority is required".to_string());
     };
     let persist_dir = state.read().await.persist_dir.clone().ok_or_else(|| {

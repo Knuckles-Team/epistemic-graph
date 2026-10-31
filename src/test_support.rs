@@ -83,7 +83,7 @@ impl FederationAllowGuard {
     fn env_lock() -> &'static tokio::sync::RwLock<()> {
         #[cfg(any(feature = "security", feature = "raft"))]
         {
-            &crate::crypto::TEST_ENV_LOCK
+            &medulla_kernel::crypto::TEST_ENV_LOCK
         }
         #[cfg(not(any(feature = "security", feature = "raft")))]
         {

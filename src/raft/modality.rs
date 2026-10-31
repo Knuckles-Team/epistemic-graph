@@ -477,7 +477,7 @@ impl SanitizedModalityRaftCommand {
         if server_secret.is_empty()
             || self.sealed_runtime_state.is_empty()
             || self.sealed_runtime_state.len() > MAX_REPLICATED_MODALITY_STATE_BYTES
-            || !crate::crypto::is_sealed(&self.sealed_runtime_state)
+            || !medulla_kernel::crypto::is_sealed(&self.sealed_runtime_state)
         {
             return Err("sanitized modality Raft state is invalid".to_string());
         }

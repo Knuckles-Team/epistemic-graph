@@ -84,13 +84,13 @@ impl ExternalCdcSink for Bridge {
     fn emit(&self, event: &CdcEvent) {
         let sink_event = translate(event);
         if let Err(e) = self.inner.emit(&sink_event) {
-            crate::metrics::cdc_kafka_sink_send_failed();
+            medulla_kernel::metrics::cdc_kafka_sink_send_failed();
             eprintln!(
                 "cdc-kafka sink: emit failed for graph={} seq={}: {e}",
                 event.graph, event.seq
             );
         }
-        crate::metrics::cdc_kafka_sink_lag(self.inner.lag() as i64);
+        medulla_kernel::metrics::cdc_kafka_sink_lag(self.inner.lag() as i64);
     }
 
     fn flush(&self, timeout_ms: u64) {

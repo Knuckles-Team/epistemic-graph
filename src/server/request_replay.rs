@@ -14,7 +14,7 @@
 //! authorities over one decision (RF-RULING-004).
 
 #[cfg(any(test, feature = "security"))]
-use crate::lock_recovery::LockRecovery;
+use medulla_kernel::lock_recovery::LockRecovery;
 
 /// Replay ledger used after a request MAC, time window, and policy claims have
 /// verified. The production adapter makes its refusal horizon durable before

@@ -244,7 +244,7 @@ async fn handle_nl(
     // read-only adapter to every local caller now that the stub is gone
     // elsewhere in this file.
     if crate::server::access::unauthenticated_carrier_denied(None) {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return (
             "403 Forbidden",
             "application/json",
@@ -354,7 +354,7 @@ async fn run_query(
         &["kg:read"],
     );
     if crate::server::access::unauthenticated_carrier_denied(carrier.as_ref()) {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return (
             "403 Forbidden",
             "text/plain",

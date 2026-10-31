@@ -380,7 +380,7 @@ fn refuse_foreign_native_writes(ctx: GraphOpRouting<'_>, method: &Method) -> Opt
             FleetAuthority::Absent
         };
     let denied = refuse_foreign_native_write(method, verified.tenant(), fleet_authority).err()?;
-    crate::metrics::access_denied();
+    medulla_kernel::metrics::access_denied();
     Some(Response::err(ctx.req_id, denied))
 }
 

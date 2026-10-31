@@ -580,8 +580,8 @@ mod result_cache_dispatch_tests {
     async fn hit_on_unchanged_then_write_invalidates() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let state = state();
         add_node(&state, 1, "p1", "Person").await;
         add_node(&state, 2, "p2", "Person").await;
@@ -674,8 +674,8 @@ mod result_cache_dispatch_tests {
     async fn cdc_drives_cross_instance_invalidation() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         // Two independent in-process instances A and B (separate registries/caches),
         // each holding the SAME logical graph + the SAME data.
         let a = state();
@@ -1002,8 +1002,8 @@ mod rls_aware_cache_no_cross_agent_leak {
     async fn agent_a_graphql_cached_result_is_not_served_to_agent_b() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let state = state();
         add_rls_node(&state, 10, "alice_secret", "Secret", "alice", "private").await;
         add_rls_node(&state, 11, "shared", "Secret", "alice", "public").await;
@@ -1207,8 +1207,8 @@ mod dispatch_write_tests {
     async fn graphql_mutation_creates_node_via_dispatch() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let state = state();
         let m = dispatch_on_heap(
             &state,
@@ -1251,8 +1251,8 @@ mod dispatch_write_tests {
     async fn cypher_create_then_match_via_dispatch() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let state = state();
         let c = dispatch_on_heap(
             &state,
@@ -1291,8 +1291,8 @@ mod dispatch_write_tests {
     async fn cypher_declared_mode_must_match_native_parser() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let state = state();
         let disguised_write = dispatch_on_heap(
             &state,
@@ -1341,8 +1341,8 @@ mod dispatch_write_tests {
     async fn wire_sql_create_insert_select_round_trips() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let state = state();
         // Unique table name + DROP-IF-EXISTS so the process-global store is clean even on
         // a re-run against a persisted temp store.
@@ -1407,8 +1407,8 @@ mod dispatch_write_tests {
     async fn wire_sql_graph_table_uses_authorized_projection_scope() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let guest = "sql-pgq-guest";
         let state = persisted_state(SECRET, current_isolation_with_agents(&[guest]));
         let table = format!("medulla_pgq_people_{}", std::process::id());
@@ -1504,8 +1504,8 @@ mod dispatch_write_tests {
     async fn wire_sql_create_fresh_nonce_retry_repairs_owner() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let guest = "sql-owner-repair-guest";
         let state = persisted_state(SECRET, current_isolation_with_agents(&[guest]));
         let table = format!("medulla_direct_owner_repair_{}", std::process::id());
@@ -1647,8 +1647,8 @@ mod dispatch_write_tests {
     async fn wire_sql_insert_node_then_select_via_dispatch() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let state = state();
         let sql = |q: &str| Method::Sql {
             query: q.into(),
@@ -1718,8 +1718,8 @@ mod dispatch_write_tests {
     async fn wire_sql_update_then_delete_node_via_dispatch() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let state = state();
         let sql = |q: String| Method::Sql {
             query: q,
@@ -1818,12 +1818,12 @@ mod txn_ryow_dispatch_tests {
         // ENCRYPTION_KEY` must then stay stable for the rest of this test (a
         // `RedbBackend` resolves+caches its cipher ONCE at `open()`, called right
         // below). Both callers of `state()` (`in_txn_cross_modal_ryow`,
-        // `commit_makes_txn_writes_visible_off_txn`) hold `crate::crypto::
+        // `commit_makes_txn_writes_visible_off_txn`) hold `medulla_kernel::crypto::
         // acquire_test_env_lock()` for their ENTIRE body — see that lock's doc — so
         // this `Once` always fires (or, after the first caller, is a no-op check)
         // inside that held lock. Do NOT also acquire the lock here: `std::sync::
         // Mutex` is not reentrant, and the caller already holds it.
-        crate::crypto::provision_test_at_rest_key_under_write_guard();
+        medulla_kernel::crypto::provision_test_at_rest_key_under_write_guard();
         persisted_state(SECRET, current_isolation())
     }
 
@@ -1884,8 +1884,8 @@ mod txn_ryow_dispatch_tests {
     async fn in_txn_cross_modal_ryow() {
         // Held for the whole test: `state()` provisions `MEDULLA_ENCRYPTION_KEY`
         // once (process-global) and this test's transaction-commit path depends on it
-        // staying set throughout — see `crate::crypto::acquire_test_env_lock`'s doc.
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        // staying set throughout — see `medulla_kernel::crypto::acquire_test_env_lock`'s doc.
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let state = state();
         let txn = begin(&state, 1).await;
         // Stage: node `sn` (Widget) + its embedding, node `tn` (Gadget), edge sn→tn.
@@ -1965,7 +1965,7 @@ mod txn_ryow_dispatch_tests {
     #[tokio::test]
     async fn commit_makes_txn_writes_visible_off_txn() {
         // See `in_txn_cross_modal_ryow` above: held for the whole test.
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let state = state();
         let txn = begin(&state, 1).await;
         ok(

@@ -35,5 +35,5 @@ automatic queue, concurrency, runtime, memory, or ASR limit is derived.
 
 The parser and hierarchy fixtures live beside the implementation in
 `crates/medulla-resource/src/lib.rs`. Consumer modules use the root compatibility
-facade at `src/autosize.rs` or the leaf crate directly; they must not add a
+facade at `crates/medulla-kernel/src/autosize.rs` or the leaf crate directly; they must not add a
 second `/proc` or cgroup parser.

@@ -896,7 +896,7 @@ mod admission_tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-lazy-n-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -966,7 +966,7 @@ mod admission_tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-lazy-reopen-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -1017,7 +1017,7 @@ mod admission_tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-lazy-paged-manual-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -1097,7 +1097,7 @@ mod admission_tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-lazy-paged-bg-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -1173,9 +1173,9 @@ mod admission_tests {
         // Held for the whole test: it opens `redb_state` (write side), shuts it down,
         // then opens a SECOND `RedbBackend` on the same dir (reload side) — both must
         // resolve the same `MEDULLA_ENCRYPTION_KEY` cipher. See
-        // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
+        // `medulla_kernel::crypto::acquire_test_env_lock`'s doc for the full mechanism.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-lazy-boot-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -1263,7 +1263,7 @@ mod admission_tests {
     #[cfg(all(feature = "security", feature = "cypher"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn restart_rehydrates_commons_before_point_and_cypher_rls_reads() {
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = std::env::temp_dir().join(format!(
             "medulla-ne105-restart-{}-{}",
             std::process::id(),
@@ -1519,7 +1519,7 @@ mod admission_tests {
         // durable store, so a concurrent key mutation would break its canary
         // check. A READ guard, so these tests still run concurrently with each
         // other -- only a key MUTATOR is excluded.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-lazy-quota-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -1579,7 +1579,7 @@ mod admission_tests {
     /// `>= idle_window`.
     #[tokio::test(flavor = "multi_thread")]
     async fn cold_sweep_evicts_idle_graphs_but_never_commons() {
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-cold-sweep-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();

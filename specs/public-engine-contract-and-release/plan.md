@@ -235,6 +235,7 @@ Each group below describes responsibility; it does not declare a new deployable 
 | Responsibility | Existing modules |
 |---|---|
 | Composition, listeners, policy, persistence adapters | Root `src/` and its `Medulla` library and executable targets |
+| Engine kernel: metrics, tracing export, encryption at rest, audit chain, write coalescer, sealed-row rules, row deltas, lock recovery, host autosizing | `medulla-kernel` (split out of the root facade so these edits do not recompile the server; depends only on leaf crates) |
 | Shared records, policies, codecs, resources | `medulla-types`, `medulla-capabilities`, `medulla-method-codec`, `medulla-resource` |
 | Physical storage, mutation authority, graph state | `medulla-storage`, `medulla-transaction`, `medulla-core`, `medulla-durable`, `medulla-sqlite-format` |
 | Query and semantic processing | `medulla-query`, `medulla-plan`, `medulla-rdf`, `medulla-shacl`, `medulla-shex`, `medulla-graphql`, `medulla-epistemic`, `medulla-enrich` |

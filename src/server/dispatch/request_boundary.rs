@@ -139,7 +139,7 @@ pub(crate) async fn dispatch_authenticated_broker_actor(
     let context = match VerifiedRequestContext::authenticated_broker_actor(actor_ref, request_id) {
         Ok(context) => context,
         Err(error) => {
-            crate::metrics::auth_failure();
+            medulla_kernel::metrics::auth_failure();
             return method_errors::enforce((&req.method).into(), Response::err(request_id, error));
         }
     };
@@ -170,7 +170,7 @@ pub(super) async fn dispatch_with_context(
     // into `dispatch_inner`. `None` (zero cost) unless MEDULLA_SLOW_QUERY_MS
     // enabled it AND this is a query method.
     let method: &'static str = (&req.method).into();
-    let slow = crate::slow_query::describe(&req.method);
+    let slow = medulla_kernel::slow_query::describe(&req.method);
     #[cfg(feature = "metrics")]
     let op: &'static str = method;
 
@@ -184,7 +184,7 @@ pub(super) async fn dispatch_with_context(
     if let Some(start) = start {
         let elapsed = start.elapsed();
         #[cfg(feature = "metrics")]
-        crate::metrics::record_request(op, elapsed.as_secs_f64());
+        medulla_kernel::metrics::record_request(op, elapsed.as_secs_f64());
         if let Some(slow) = slow {
             slow.log_if_slow(elapsed);
         }
@@ -449,7 +449,7 @@ async fn dispatch_inner(
             match s.request_authority(&req) {
                 Ok(context) => context,
                 Err(error) => {
-                    crate::metrics::auth_failure();
+                    medulla_kernel::metrics::auth_failure();
                     return Response::err(
                         req.id,
                         super::super::auth::authentication_refusal(&error),

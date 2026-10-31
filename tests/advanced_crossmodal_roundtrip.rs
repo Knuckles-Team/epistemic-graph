@@ -104,7 +104,7 @@ async fn state() -> test_support::SharedState {
         let _guard = ENC_ENV_LOCK.lock().await;
         #[cfg(feature = "redb")]
         std::env::set_var(
-            medulla::crypto::ENCRYPTION_KEY_ENV,
+            medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
             "advanced-crossmodal-recovery-key",
         );
         common::configure_authority();
@@ -1258,7 +1258,7 @@ static ENC_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 #[cfg(all(feature = "security", feature = "redb"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn encryption_at_rest_wrong_key_fails_eg394() {
-    use medulla::crypto::ENCRYPTION_KEY_ENV;
+    use medulla_kernel::crypto::ENCRYPTION_KEY_ENV;
     use medulla::server::persistence::redb_backend::RedbBackend;
     use medulla::server::persistence::PersistenceBackend;
 

@@ -678,7 +678,7 @@ pub struct RestoreReport {
 
 #[cfg(feature = "security")]
 fn validate_restore_key(manifest: &BackupManifest) -> Result<(), String> {
-    if let Some(configured) = crate::crypto::resolve_key_config()? {
+    if let Some(configured) = medulla_kernel::crypto::resolve_key_config()? {
         match (
             manifest.encryption_key_id.as_deref(),
             manifest.encryption_key_version.as_deref(),
@@ -953,9 +953,9 @@ mod tests {
         // opens a SECOND `RedbBackend` (`restored`) and requires the restored data to
         // read back identically — which only holds if `MEDULLA_ENCRYPTION_KEY`
         // resolves the SAME way at both opens. See
-        // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
+        // `medulla_kernel::crypto::acquire_test_env_lock`'s doc for the full mechanism.
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         // Exercise the ENCRYPTED restore path deliberately, instead of whatever the
         // ambient environment happens to configure.
         //
@@ -966,7 +966,7 @@ mod tests {
         // a key here makes the encrypted multi-shard round trip the default assertion.
         #[cfg(feature = "security")]
         let _key_guard = EnvVarGuard::set(
-            crate::crypto::ENCRYPTION_KEY_ENV,
+            medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
             "backup-roundtrip-key-material",
         );
         let root = std::env::temp_dir().join(format!("medulla-backup-rt-{}", std::process::id()));
@@ -1064,7 +1064,7 @@ mod tests {
         // whole test (this one also opens a source backend and a re-sharded restored
         // backend that must resolve the same cipher).
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let root = std::env::temp_dir().join(format!("medulla-backup-reshard-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let src = root.join("live");
@@ -1116,7 +1116,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn backup_restore_carries_non_shard_durable_stores() {
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let root = std::env::temp_dir().join(format!("medulla-backup-sib-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let src = root.join("live");
@@ -1239,7 +1239,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn backup_refuses_an_unregistered_bundled_store() {
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         struct Bogus;
         impl super::super::durable_stores::BundledStoreSource for Bogus {
             fn file_name(&self) -> &'static str {
@@ -1328,12 +1328,12 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn the_declared_census_is_what_a_backup_copies() {
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         // A key is pinned so `encryption_canary` actually holds its sealed canary and
         // key-binding rows: an empty table would make assertion (2) vacuous.
         #[cfg(feature = "security")]
         let _key_guard = EnvVarGuard::set(
-            crate::crypto::ENCRYPTION_KEY_ENV,
+            medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
             "backup-census-key-material",
         );
         use crate::redb_layout::shard_filename;

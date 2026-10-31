@@ -1890,7 +1890,7 @@ def main() -> None:
     sql_store = read_module_tree("crates/medulla-query/src/tables/store.rs")
     reasoning = read("src/server/reasoning_projection.rs")
     reasoning_index = read_module_tree("crates/medulla-epistemic/src/incremental.rs")
-    row_delta_producer = read_module_tree("src/graph_delta.rs")
+    row_delta_producer = read_module_tree("crates/medulla-kernel/src/graph_delta.rs")
     compiler = inventory_sources["mutation_batch"]
     mutation_runtime = read("src/server/mutation.rs")
     protocol = read("crates/medulla-types/src/protocol.rs")

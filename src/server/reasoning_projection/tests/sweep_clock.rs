@@ -24,7 +24,7 @@ fn stepping_clock() -> u64 {
 
 #[tokio::test(flavor = "current_thread")]
 async fn every_graph_of_a_sweep_is_leased_from_the_moment_it_is_claimed() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
 
     let (root, root_str, backend) = shard_backend("open sweep clock backend");
     let graph_names: Vec<String> = (0..3)

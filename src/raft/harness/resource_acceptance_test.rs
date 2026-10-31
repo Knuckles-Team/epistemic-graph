@@ -86,13 +86,13 @@ where
     // env therefore has to hold still for the whole scenario, not just its first open.
     // A READ guard: it excludes only a key MUTATOR, never another opener, so these
     // keep running concurrently with the rest of the durable suite. See
-    // `crate::crypto::acquire_test_env_read_lock`'s doc.
+    // `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
     //
     // Taken HERE, on the libtest thread, rather than inside the scenario, for two
     // reasons: `blocking_read` is legal only outside an async execution context, and
     // waiting out a concurrent key mutator must not be charged against
     // `CLUSTER_ACCEPTANCE_SCENARIO_TIMEOUT`.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock_blocking();
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock_blocking();
     let scenario_thread = std::thread::Builder::new()
         .name(name.to_string())
         .stack_size(CLUSTER_ACCEPTANCE_STACK_BYTES)
@@ -115,7 +115,7 @@ where
         .expect("spawn cluster acceptance thread");
     // The scenario already runs under its own deadline; the join is bounded by
     // that deadline plus the runtime's teardown, so a wedged teardown fails too.
-    if let Err(error) = crate::bounded_join::join_within(
+    if let Err(error) = medulla_kernel::bounded_join::join_within(
         scenario_thread,
         name,
         CLUSTER_ACCEPTANCE_SCENARIO_TIMEOUT + CLUSTER_ACCEPTANCE_TEARDOWN_MARGIN,

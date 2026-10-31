@@ -44,7 +44,7 @@ use super::store::MedullaStore;
 use super::{
     AppCtx, MedullaRaft, GroupId, NodeId, RaftHandle, RaftRequest, RaftResponse, DEFAULT_GROUP,
 };
-use crate::lock_recovery::LockRecovery;
+use medulla_kernel::lock_recovery::LockRecovery;
 use crate::protocol::Method;
 
 mod leader_balance;

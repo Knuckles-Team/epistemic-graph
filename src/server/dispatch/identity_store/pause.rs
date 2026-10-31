@@ -66,13 +66,13 @@ pub(super) fn hold(hold: Option<Hold>) {
     hold.derived
         .send(())
         .expect("the test holding this derivation is alive");
-    crate::test_rendezvous::recv_within(&hold.release, "the test releasing a held derivation");
+    medulla_kernel::test_rendezvous::recv_within(&hold.release, "the test releasing a held derivation");
 }
 
 impl Held {
     /// Wait until the held derivation has computed its stamp.
     pub(super) fn derived(&self) {
-        crate::test_rendezvous::recv_within(&self.derived, "a held derivation finishing");
+        medulla_kernel::test_rendezvous::recv_within(&self.derived, "a held derivation finishing");
     }
 
     /// Let the held derivation continue to its apply.

@@ -105,8 +105,8 @@ mod internal_replay_tests {
     async fn internal_replay_rejects_a_conflicting_terminal_result_after_kernel_admission() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = crate::test_support::temp_dir(
             "medulla-internal-mutation-replay",
             "terminal-result-conflict",
@@ -187,7 +187,7 @@ mod internal_replay_tests {
                     created_at_ms: request_id,
                     default_surface: MutationSurface::Job,
                     authoritative_state: Some(MutationStateDescriptor {
-                        algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
+                        algorithm: medulla_kernel::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
                         digest: "0".repeat(64),
                         source_graph_version: source,
                         target_graph_version: source + 1,
@@ -242,9 +242,9 @@ mod internal_replay_tests {
         .unwrap();
         let snapshot = staged.snapshot();
         let delta =
-            crate::graph_delta::GraphRowDelta::between(&serving.snapshot(), &snapshot).unwrap();
+            medulla_kernel::graph_delta::GraphRowDelta::between(&serving.snapshot(), &snapshot).unwrap();
         let descriptor = MutationStateDescriptor {
-            algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
+            algorithm: medulla_kernel::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
             digest: hex::encode(Sha256::digest(delta.to_msgpack().unwrap())),
             source_graph_version: 3,
             target_graph_version: 4,
@@ -278,8 +278,8 @@ mod internal_replay_tests {
     async fn promotion_replay_and_failed_cas_preserve_authority_and_restart_identity() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         // `ProgramResultInput` is the public constructor's OWN grouping of the
         // job-result lineage (result/dataset/digest/version), so the fixture
         // takes it whole rather than restating its four fields positionally.

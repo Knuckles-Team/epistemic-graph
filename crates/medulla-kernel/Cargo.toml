@@ -1,0 +1,71 @@
+[package]
+name = "medulla-kernel"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Server-independent building blocks of medulla-engine: metrics, tracing export, encryption at rest, the audit chain, the write coalescer and host autosizing"
+license = "MIT"
+
+[lib]
+name = "medulla_kernel"
+path = "src/lib.rs"
+
+[dependencies]
+medulla-types = { path = "../medulla-types" }
+medulla-core = { path = "../medulla-core" }
+medulla-compute = { path = "../medulla-compute" }
+medulla-resource = { path = "../medulla-resource" }
+medulla-epistemic = { path = "../medulla-epistemic", optional = true }
+medulla-capabilities = { path = "../medulla-capabilities", optional = true }
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = "1.0"
+rmp-serde = "1.3"
+hex = "0.4"
+sha2 = "0.10"
+rand = "0.8"
+lazy_static = "1.5"
+parking_lot = "0.12"
+dashmap = "6.2"
+tracing = "0.1"
+tokio = { version = "1.53", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "signal", "macros"], optional = true }
+tracing-subscriber = { version = "0.3", optional = true }
+prometheus = { version = "0.14", optional = true, default-features = false }
+chacha20poly1305 = { version = "0.10", optional = true }
+opentelemetry = { version = "0.33", optional = true }
+opentelemetry_sdk = { version = "0.33.1", optional = true, features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.33", optional = true, features = ["grpc-tonic"] }
+tracing-opentelemetry = { version = "0.34", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.53", features = ["full", "test-util"] }
+tracing-subscriber = "0.3"
+medulla-types = { path = "../medulla-types", features = ["test-support"] }
+
+# Each feature carries the facade feature of the same name: the moved modules keep
+# their original `cfg(feature = ...)` gates, and the facade forwards to these.
+[features]
+default = []
+test-support = ["dep:tokio"]
+metrics = ["dep:prometheus", "medulla-types/metrics"]
+server = ["dep:tokio", "dep:tracing-subscriber", "dep:medulla-capabilities"]
+otel = ["server", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry"]
+redb = []
+security = ["redb", "dep:chacha20poly1305", "medulla-types/security", "medulla-core/security"]
+raft = ["server", "redb", "dep:chacha20poly1305"]
+broker = ["medulla-core/broker", "medulla-types/broker"]
+query = ["redb", "medulla-types/query"]
+epistemic = ["query", "dep:medulla-epistemic", "medulla-types/epistemic"]
+epistemic-tms = ["epistemic", "medulla-epistemic/epistemic-tms"]
+datascience = ["medulla-compute/datascience", "medulla-types/datascience"]
+graphlearn = ["datascience", "medulla-compute/graphlearn", "medulla-types/graphlearn"]
+mining = ["medulla-compute/mining", "medulla-types/mining"]
+ml-pipeline = ["mining", "datascience", "graphlearn", "medulla-types/ml-pipeline"]
+reasoning = ["medulla-compute/reasoning"]
+graphql = ["medulla-types/graphql", "server", "security"]
+knowledge-batch = ["query", "medulla-types/knowledge-batch", "medulla-capabilities?/knowledge-batch"]
+kv = ["server", "redb", "medulla-types/kv"]
+modality-serving = ["server", "redb", "security", "medulla-types/modality-serving", "medulla-capabilities/modality-serving"]
+rdf = ["server", "medulla-types/rdf"]
+sparql = ["rdf", "medulla-types/sparql"]
+shacl = ["rdf"]
+sqlite-file = ["query", "server", "medulla-types/sqlite-file"]

@@ -99,7 +99,7 @@ fn enforce_controller_scope(
     {
         return Ok(());
     }
-    crate::metrics::access_denied();
+    medulla_kernel::metrics::access_denied();
     Err(Response::err(
         req.id,
         format!(
@@ -142,7 +142,7 @@ async fn check_resource_and_capacity_scope(
             let capability_authorized = verified_context.allows_action("work:claim-capability")
                 || verified_context.allows_action("kg:admin");
             if !capability_authorized {
-                crate::metrics::access_denied();
+                medulla_kernel::metrics::access_denied();
                 return Err(Response::err(
                     req.id,
                     "ACCESS_DENIED: WorkItem claim capability requires work:claim-capability",
@@ -230,7 +230,7 @@ fn check_cross_tenant_scope(
     if !names_other_tenant || cross_tenant_access_allowed(&req.method, verified_context) {
         return Ok(());
     }
-    crate::metrics::access_denied();
+    medulla_kernel::metrics::access_denied();
     Err(Response::err(
         req.id,
         "ACCESS_DENIED: resource tenant must match verified request tenant",
@@ -276,7 +276,7 @@ pub(crate) async fn check_scope_and_admin_authority(
         && !authority.identity_bootstrap
         && !ledger_allows(req, verified_context, action, mutates)
     {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         #[cfg(feature = "security")]
         crate::server::denial_sample::offer(verified_context.principal(), action, "SCOPE_DENIED");
         return Err(Response::err(

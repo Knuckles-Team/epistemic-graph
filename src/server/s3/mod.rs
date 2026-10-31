@@ -13,7 +13,7 @@
 //!
 //! It is a HAND-ROLLED HTTP/1.1 listener over `tokio::net` — the SAME
 //! dependency-free idiom as [`crate::server::obs`] / [`crate::server::sparql_http`]
-//! / [`crate::metrics`] (NO axum/hyper/warp, so the Pi contract holds) — but its
+//! / [`medulla_kernel::metrics`] (NO axum/hyper/warp, so the Pi contract holds) — but its
 //! own parser keeps the body as raw BYTES (S3 objects are binary) and captures the
 //! request headers (for the auth guard). XML responses are hand-built strings in
 //! the S3 shape.

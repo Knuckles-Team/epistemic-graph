@@ -46,6 +46,7 @@ pub const ENCRYPTION_KEY_VERSION_ENV: &str = "MEDULLA_ENCRYPTION_KEY_VERSION";
 /// was introduced.  Keeping this legacy reference preserves compatibility while
 /// upgrading the old canary to the authenticated metadata form on first open.
 pub const LEGACY_ENCRYPTION_KEY_ID: &str = "legacy";
+/// The key version stamped on blobs written before key versioning existed.
 pub const LEGACY_ENCRYPTION_KEY_VERSION: &str = "1";
 
 const MAX_KEY_ID_BYTES: usize = 128;
@@ -93,11 +94,14 @@ pub const ENCRYPTION_REQUIRED_ENV: &str = "MEDULLA_ENCRYPTION_REQUIRED";
 /// content into a startup diagnostic.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EncryptionKeyRef {
+    /// The key identifier.
     pub id: String,
+    /// The key version within that identifier.
     pub version: String,
 }
 
 impl EncryptionKeyRef {
+    /// A key reference; refuses an empty or malformed id or version.
     pub fn new(id: impl Into<String>, version: impl Into<String>) -> Result<Self, String> {
         let id = id.into();
         let version = version.into();
@@ -106,6 +110,7 @@ impl EncryptionKeyRef {
         Ok(Self { id, version })
     }
 
+    /// The reference for blobs written before key versioning.
     pub fn legacy() -> Self {
         // These constants are validated at compile time by their fixed ASCII values.
         Self {
@@ -142,6 +147,7 @@ impl std::fmt::Debug for EncryptionKeyConfig {
 }
 
 impl EncryptionKeyConfig {
+    /// The key reference this cipher encrypts under.
     pub fn key_ref(&self) -> &EncryptionKeyRef {
         &self.key_ref
     }
@@ -412,12 +418,16 @@ pub fn encryption_canary_plaintext(key_ref: &EncryptionKeyRef) -> Vec<u8> {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EncryptionKeyBinding {
+    /// The header layout version.
     pub format_version: u32,
+    /// The identifier of the key that sealed the blob.
     pub key_id: String,
+    /// The version of that key.
     pub key_version: String,
 }
 
 impl EncryptionKeyBinding {
+    /// The header for a blob sealed under `key_ref`.
     pub fn from_key_ref(key_ref: &EncryptionKeyRef) -> Self {
         Self {
             format_version: ENCRYPTION_KEY_BINDING_FORMAT_VERSION,
@@ -426,6 +436,7 @@ impl EncryptionKeyBinding {
         }
     }
 
+    /// The key reference named in this header.
     pub fn key_ref(&self) -> Result<EncryptionKeyRef, String> {
         if self.format_version != ENCRYPTION_KEY_BINDING_FORMAT_VERSION {
             return Err(format!(
@@ -436,10 +447,12 @@ impl EncryptionKeyBinding {
         EncryptionKeyRef::new(self.key_id.clone(), self.key_version.clone())
     }
 
+    /// Encode the header to its on-disk bytes.
     pub fn encode(&self) -> Result<Vec<u8>, String> {
         serde_json::to_vec(self).map_err(|_| "encode encryption key binding failed".to_string())
     }
 
+    /// Decode a header from its on-disk bytes.
     pub fn decode(bytes: &[u8]) -> Result<Self, String> {
         let binding: Self = serde_json::from_slice(bytes)
             .map_err(|_| "stored encryption key binding is invalid".to_string())?;
@@ -548,23 +561,23 @@ pub fn resolve_txn_recovery_key() -> Option<Vec<u8>> {
 /// openers hold a READ guard concurrently with each other, and a key mutator
 /// takes the WRITE guard, which excludes them all for exactly as long as the
 /// ambient key is unstable.
-#[cfg(test)]
-pub(crate) static TEST_ENV_LOCK: tokio::sync::RwLock<()> = tokio::sync::RwLock::const_new(());
+#[cfg(any(test, feature = "test-support"))]
+pub static TEST_ENV_LOCK: tokio::sync::RwLock<()> = tokio::sync::RwLock::const_new(());
 
 /// The guard a store-opening test holds for its whole body.
 ///
 /// Named so the handful of helpers that return one (`embedded`'s
 /// `durable_env_guard`, `raft::xshard_harness::env_read_guard`) do not have to spell
 /// out the concrete guard type.
-#[cfg(test)]
-pub(crate) type TestEnvReadGuard = tokio::sync::RwLockReadGuard<'static, ()>;
+#[cfg(any(test, feature = "test-support"))]
+pub type TestEnvReadGuard = tokio::sync::RwLockReadGuard<'static, ()>;
 
 /// Acquire [`TEST_ENV_LOCK`] from an `async fn` (`#[tokio::test]`) test body.
 /// Bind the returned guard to a named local at the top of the test so it
 /// lives — and keeps the lock held — for the test's entire body, including
 /// every `.await` inside it.
-#[cfg(test)]
-pub(crate) async fn acquire_test_env_lock() -> tokio::sync::RwLockWriteGuard<'static, ()> {
+#[cfg(any(test, feature = "test-support"))]
+pub async fn acquire_test_env_lock() -> tokio::sync::RwLockWriteGuard<'static, ()> {
     TEST_ENV_LOCK.write().await
 }
 
@@ -575,8 +588,8 @@ pub(crate) async fn acquire_test_env_lock() -> tokio::sync::RwLockWriteGuard<'st
 /// Read guards do not exclude each other, so the durable suite keeps its
 /// parallelism; they exclude only a concurrent key MUTATOR, which is precisely
 /// the interleaving that breaks an open-then-reopen canary check.
-#[cfg(test)]
-pub(crate) async fn acquire_test_env_read_lock() -> TestEnvReadGuard {
+#[cfg(any(test, feature = "test-support"))]
+pub async fn acquire_test_env_read_lock() -> TestEnvReadGuard {
     TEST_ENV_LOCK.read().await
 }
 
@@ -590,8 +603,8 @@ pub(crate) async fn acquire_test_env_read_lock() -> TestEnvReadGuard {
 /// all. Both this and [`acquire_test_env_lock`] lock the exact same
 /// [`TEST_ENV_LOCK`], so sync and async participants remain mutually
 /// exclusive with each other.
-#[cfg(test)]
-pub(crate) fn acquire_test_env_lock_blocking() -> tokio::sync::RwLockWriteGuard<'static, ()> {
+#[cfg(any(test, feature = "test-support"))]
+pub fn acquire_test_env_lock_blocking() -> tokio::sync::RwLockWriteGuard<'static, ()> {
     TEST_ENV_LOCK.blocking_write()
 }
 
@@ -614,8 +627,8 @@ pub(crate) fn acquire_test_env_lock_blocking() -> tokio::sync::RwLockWriteGuard<
 /// applies here: a plain `#[test]` runs on an ordinary libtest thread with no
 /// runtime polling it. It locks the same [`TEST_ENV_LOCK`] as every other
 /// participant, so sync and async readers and writers stay mutually consistent.
-#[cfg(test)]
-pub(crate) fn acquire_test_env_read_lock_blocking() -> TestEnvReadGuard {
+#[cfg(any(test, feature = "test-support"))]
+pub fn acquire_test_env_read_lock_blocking() -> TestEnvReadGuard {
     TEST_ENV_LOCK.blocking_read()
 }
 
@@ -635,10 +648,10 @@ pub(crate) fn acquire_test_env_read_lock_blocking() -> TestEnvReadGuard {
 /// that test held. One value, provisioned through the ONE `Once` below, makes the
 /// ambient key transition exactly once per process (absent -> this), which is the
 /// smallest amount of shared state this requirement can have.
-#[cfg(test)]
-pub(crate) const TEST_AT_REST_KEY: &str = "medulla-test-at-rest-key";
+#[cfg(any(test, feature = "test-support"))]
+pub const TEST_AT_REST_KEY: &str = "medulla-test-at-rest-key";
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 static TEST_AT_REST_KEY_PROVISIONED: std::sync::Once = std::sync::Once::new();
 
 /// Provision [`TEST_AT_REST_KEY`]. **The caller must already hold the WRITE guard.**
@@ -648,8 +661,8 @@ static TEST_AT_REST_KEY_PROVISIONED: std::sync::Once = std::sync::Once::new();
 /// this must not acquire anything of its own. Every other caller wants
 /// [`provisioned_test_env_read_lock`] instead, which takes the write guard for the
 /// provisioning and hands back a read guard.
-#[cfg(test)]
-pub(crate) fn provision_test_at_rest_key_under_write_guard() {
+#[cfg(any(test, feature = "test-support"))]
+pub fn provision_test_at_rest_key_under_write_guard() {
     TEST_AT_REST_KEY_PROVISIONED
         .call_once(|| std::env::set_var(ENCRYPTION_KEY_ENV, TEST_AT_REST_KEY));
 }
@@ -663,8 +676,8 @@ pub(crate) fn provision_test_at_rest_key_under_write_guard() {
 /// in this order and never nested: the write guard is released before the read guard
 /// is acquired, so no body ever holds both. Once the `Once` has completed this costs
 /// one atomic load plus the read acquisition.
-#[cfg(test)]
-pub(crate) async fn provisioned_test_env_read_lock() -> TestEnvReadGuard {
+#[cfg(any(test, feature = "test-support"))]
+pub async fn provisioned_test_env_read_lock() -> TestEnvReadGuard {
     if !TEST_AT_REST_KEY_PROVISIONED.is_completed() {
         let _env_lock = acquire_test_env_lock().await;
         provision_test_at_rest_key_under_write_guard();
@@ -676,8 +689,8 @@ pub(crate) async fn provisioned_test_env_read_lock() -> TestEnvReadGuard {
 /// bodies. `blocking_write`/`blocking_read` are legal only outside an async execution
 /// context, which is exactly where a plain `#[test]` runs -- see
 /// [`acquire_test_env_read_lock_blocking`]'s doc.
-#[cfg(test)]
-pub(crate) fn provisioned_test_env_read_lock_blocking() -> TestEnvReadGuard {
+#[cfg(any(test, feature = "test-support"))]
+pub fn provisioned_test_env_read_lock_blocking() -> TestEnvReadGuard {
     if !TEST_AT_REST_KEY_PROVISIONED.is_completed() {
         let _env_lock = acquire_test_env_lock_blocking();
         provision_test_at_rest_key_under_write_guard();

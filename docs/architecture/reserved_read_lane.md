@@ -161,7 +161,7 @@ on the write firehose.
 | `MEDULLA_READ_RESERVED` | auto-sized (see below) | Size of the reserved read-admission lane (in-flight read slots). A positive explicit value may lower the default but is clamped to the cgroup-aware global admission bound; invalid/absent values use the auto-size. |
 
 The auto-size is `Capacity::read_reserved()`
-([`src/autosize.rs`](https://github.com/Knuckles-Team/medulla/blob/main/src/autosize.rs)):
+([`crates/medulla-kernel/src/autosize.rs`](https://github.com/Knuckles-Team/medulla/blob/main/src/autosize.rs)):
 
 ```text
 read_reserved = (max_inflight / 8).clamp(8, 1024)

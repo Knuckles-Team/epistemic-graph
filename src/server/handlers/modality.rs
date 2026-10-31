@@ -12,7 +12,7 @@ use hmac::{Hmac, Mac};
 use serde::{de::DeserializeOwned, Serialize};
 use sha2::Sha256;
 
-use crate::crypto::ValueCipher;
+use medulla_kernel::crypto::ValueCipher;
 use crate::graph::GraphCore;
 use crate::protocol::ResultPayload;
 use medulla_modality::{
@@ -244,7 +244,7 @@ where
     let Some(sealed) = core.get_node_properties(&authority.node_id(modality)) else {
         return Ok(ServedModalityRuntime::new());
     };
-    if !crate::crypto::is_sealed(&sealed) {
+    if !medulla_kernel::crypto::is_sealed(&sealed) {
         return Err("unsealed modality runtime state rejected".to_string());
     }
     let snapshot = authority

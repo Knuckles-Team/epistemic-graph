@@ -448,11 +448,11 @@ fn validate_stream_preflight(
     request: &KnowledgeStreamRequest,
 ) -> Result<(), String> {
     if caller != carrier.agent_id() {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Err("KnowledgeStream policy decision lease binding mismatch".to_string());
     }
     if let Err(error) = authority.validate_request_binding(graph_name, carrier) {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Err(error);
     }
     if request.schema_version != KNOWLEDGE_STREAM_SCHEMA_VERSION {
@@ -462,7 +462,7 @@ fn validate_stream_preflight(
         return Err("KnowledgeStream batch_size must be non-zero".to_string());
     }
     if let Err(error) = authority.validate_before() {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Err(error);
     }
     Ok(())
@@ -524,7 +524,7 @@ pub(crate) async fn try_handle(
     // durable policy mutation raced it.  The source rows stay private until
     // this check succeeds.
     if let Err(error) = authority.validate_after() {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Ok(Response::err(req_id, error));
     }
     let response = stream::serve_execution(
@@ -542,7 +542,7 @@ pub(crate) async fn try_handle(
                 ResultPayload::of_ref::<medulla_types::result_contract::query::KnowledgeStream>(&batch),
             ),
             Err(error) => {
-                crate::metrics::access_denied();
+                medulla_kernel::metrics::access_denied();
                 Response::err(req_id, error)
             }
         },

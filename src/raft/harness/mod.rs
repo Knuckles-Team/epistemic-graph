@@ -58,7 +58,7 @@ pub(crate) mod test_env {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Mutex, MutexGuard};
 
-    use crate::lock_recovery::LockRecovery;
+    use medulla_kernel::lock_recovery::LockRecovery;
 
     static AUTH_ENV_LOCK: Mutex<()> = Mutex::new(());
     static AUTH_ENV_SEQUENCE: AtomicU64 = AtomicU64::new(1);

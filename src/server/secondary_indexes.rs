@@ -40,7 +40,7 @@ use crate::index::{
     ChangeSet, IndexColumns, IndexDescriptor, IndexError, IndexKind, IndexManifest, SecondaryIndex,
     SecondaryIndexFactory,
 };
-use crate::lock_recovery::LockRecovery;
+use medulla_kernel::lock_recovery::LockRecovery;
 
 /// Decode a captured `NodeChange.properties_msgpack` blob into a JSON value map. The
 /// coalescer captures the FULL property blob for an added node, and the CAS `updates`

@@ -147,7 +147,7 @@ pub(crate) async fn preflight_open_txn_authority(
     if let Some(entry) = state_guard.open_txns.get(txn_id) {
         let txn = entry.value().lock();
         if txn.tenant_scope != authority.tenant_scope() || txn.agent != authority.owner_scope() {
-            crate::metrics::access_denied();
+            medulla_kernel::metrics::access_denied();
             return Err(Response::err(
                 req_id,
                 "ACCESS_DENIED: transaction is not owned by caller",
@@ -612,14 +612,14 @@ pub(super) fn open_txn_recovery_plan(
     encrypted: &[u8],
     agent: String,
 ) -> Result<GraphTxnState, String> {
-    if !crate::crypto::is_sealed(encrypted) {
+    if !medulla_kernel::crypto::is_sealed(encrypted) {
         return Err("transaction recovery plan is not authenticated ciphertext".to_string());
     }
     let expected = transaction_plan_digest(batch)?;
     let cipher = backend.transaction_recovery_cipher().ok_or_else(|| {
         format!(
             "transaction recovery requires {} to be configured",
-            crate::crypto::ENCRYPTION_KEY_ENV
+            medulla_kernel::crypto::ENCRYPTION_KEY_ENV
         )
     })?;
     let plaintext = cipher

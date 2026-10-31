@@ -13,7 +13,7 @@ use crate::redb_store::shard::Shard;
 use std::time::Instant;
 
 /// Sum and sample count of one Prometheus histogram family's `_sum`/`_count`
-/// series for one exact label match, parsed out of `crate::metrics::render()`'s
+/// series for one exact label match, parsed out of `medulla_kernel::metrics::render()`'s
 /// text exposition. A mean is all a diagnostic needs here -- percentiles would
 /// need the bucket histogram, which this does not reproduce.
 fn histogram_sum_count(rendered: &str, family: &str, label: &str) -> Option<(f64, u64)> {
@@ -97,7 +97,7 @@ fn eh_290_commit_ops_phase_decomposition() {
     eprintln!(
         "EH-290 commit_ops total (n={ITERATIONS}): median={median:.6}s mean={mean:.6}s max={max:.6}s"
     );
-    let rendered = crate::metrics::render();
+    let rendered = medulla_kernel::metrics::render();
     for phase in [
         "acquire_txn",
         "apply_writes",

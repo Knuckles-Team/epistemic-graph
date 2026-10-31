@@ -30,8 +30,8 @@ pub(super) fn diff_and_serialize_staged_mutation(
     ctx: &MutationCtx<'_>,
     base_snapshot_for_delta: &crate::graph::GraphSnapshot,
     staged_snapshot: &crate::graph::GraphSnapshot,
-) -> Result<(crate::graph_delta::GraphRowDelta, Vec<u8>), Response> {
-    let row_delta = match crate::graph_delta::GraphRowDelta::between(
+) -> Result<(medulla_kernel::graph_delta::GraphRowDelta, Vec<u8>), Response> {
+    let row_delta = match medulla_kernel::graph_delta::GraphRowDelta::between(
         base_snapshot_for_delta,
         staged_snapshot,
     ) {
@@ -71,7 +71,7 @@ pub(super) fn diff_and_serialize_staged_mutation(
 /// [`commit_mutation_body_commit_staged`].
 pub(super) struct StagedMutation {
     pub(super) payload: ResultPayload,
-    pub(super) row_delta: crate::graph_delta::GraphRowDelta,
+    pub(super) row_delta: medulla_kernel::graph_delta::GraphRowDelta,
     pub(super) state_msgpack: Vec<u8>,
     pub(super) source_version: u64,
 }
@@ -222,7 +222,7 @@ pub(super) fn staged_mutation_descriptor(
         }
     };
     Ok(crate::mutation_batch::MutationStateDescriptor {
-        algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
+        algorithm: medulla_kernel::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
         digest: hex::encode(Sha256::digest(state_msgpack)),
         source_graph_version: source_version,
         target_graph_version,
@@ -243,7 +243,7 @@ pub(crate) async fn publish_committed_row_delta(
     persistence: &Arc<dyn PersistenceBackend>,
     graph_fname: &str,
     core: &Arc<GraphCore>,
-    delta: &crate::graph_delta::GraphRowDelta,
+    delta: &medulla_kernel::graph_delta::GraphRowDelta,
     source_version: u64,
 ) -> Result<(), String> {
     if core.version() == source_version && delta.apply_to(core).is_ok() {
@@ -270,10 +270,10 @@ pub(crate) async fn publish_committed_row_delta(
 pub(super) fn mutation_snapshot_max_bytes() -> usize {
     static MAX: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     *MAX.get_or_init(|| {
-        let automatic = crate::autosize::detect_capacity().mutation_snapshot_bytes();
+        let automatic = medulla_kernel::autosize::detect_capacity().mutation_snapshot_bytes();
         if let Ok(value) = std::env::var("MEDULLA_MUTATION_SNAPSHOT_MAX_BYTES") {
             if let Ok(parsed) = value.trim().parse::<usize>() {
-                return crate::autosize::bound_explicit(parsed, automatic);
+                return medulla_kernel::autosize::bound_explicit(parsed, automatic);
             }
         }
         automatic

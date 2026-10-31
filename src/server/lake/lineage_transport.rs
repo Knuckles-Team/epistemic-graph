@@ -282,13 +282,13 @@ mod tests {
         // `OPENLINEAGE_URL_ENV` is also touched by `lake::mod::tests`'
         // negative-transport test and (indirectly, via `KafkaTransport`'s
         // own env var) the Kafka tests below -- this repo's established
-        // `crate::crypto::acquire_test_env_lock_blocking()` convention
+        // `medulla_kernel::crypto::acquire_test_env_lock_blocking()` convention
         // (used pervasively in `src/server/mod.rs`/`bolt_wire`/`persistence`
         // for exactly this "tests mutate process-global env state"
         // interleaving hazard) serializes them so `cargo test`'s default
         // multi-threaded runner can never race a `remove_var`/`set_var`
         // pair across two tests.
-        let _env_lock = crate::crypto::acquire_test_env_lock_blocking();
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock_blocking();
         std::env::remove_var(lineage::OPENLINEAGE_URL_ENV);
         // Must not panic -- this is the "unconfigured deployment" case
         // acceptance gate #5/the migration note require to stay a no-op.
@@ -344,7 +344,7 @@ mod tests {
     #[cfg(feature = "lineage-transport-kafka")]
     #[test]
     fn kafka_transport_env_contract_no_brokers_then_unroutable_broker() {
-        let _env_lock = crate::crypto::acquire_test_env_lock_blocking();
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock_blocking();
 
         std::env::remove_var(KafkaTransport::ENV_BROKERS);
         assert!(KafkaTransport::from_env().is_none());

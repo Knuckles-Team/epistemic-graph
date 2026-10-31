@@ -29,7 +29,7 @@ pub(crate) async fn seeded(dir: &str, graph: &str) -> RedbBackend {
 /// after reopening the store holds only what was acknowledged before.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_append_the_writer_cannot_take_is_refused_and_leaves_no_trace() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = tempfile::tempdir().expect("tempdir");
     let dir_s = dir.path().to_string_lossy().to_string();
     let backend = seeded(&dir_s, GRAPH).await;
@@ -80,7 +80,7 @@ async fn an_append_the_writer_cannot_take_is_refused_and_leaves_no_trace() {
 /// unchanged: it is not reported as an unavailable writer.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_event_refusal_is_not_reported_as_an_unavailable_writer() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = tempfile::tempdir().expect("tempdir");
     let backend = seeded(&dir.path().to_string_lossy(), GRAPH).await;
     let mut undeclared = event("request-a", "reserved");
