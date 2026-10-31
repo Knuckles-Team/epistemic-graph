@@ -32,7 +32,8 @@ SCANNERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "bash",
             "-c",
-            'base="$(bash scripts/gate_base_ref.sh)" && exec python3 scripts/check_duplication.py enforce --base-ref "$base"',
+            'base="$(bash scripts/gate_base_ref.sh)" && '
+            'exec python3 scripts/check_duplication.py enforce --base-ref "$base"',
         ),
     ),
     ("guardrail-tracked-privacy", ("python3", "scripts/check_tracked_privacy.py")),
