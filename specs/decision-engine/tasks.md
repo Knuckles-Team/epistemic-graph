@@ -1088,3 +1088,35 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] Keep **MEDULLA-DECISION-ENGINE-R036** selected-profile authority and atomic
   admission open. Record the missing media-run snapshot, downstream consumer
   enforcement and served PNG evidence before changing the TUI104 refusal.
+
+## Participant memory, assistant profiles and memory events
+
+- [ ] **MEDULLA-DECISION-ENGINE-R617.7:** Participant class and record.
+- [ ] **MEDULLA-DECISION-ENGINE-R617.8:** Session membership and speaking participant.
+- [ ] **MEDULLA-DECISION-ENGINE-R617.9:** Served participant writes.
+- [ ] **MEDULLA-DECISION-ENGINE-R651.9:** Memory scope narrows and the ACL still applies.
+- [ ] **MEDULLA-DECISION-ENGINE-R651.10:** Observation configuration per participant per session.
+- [ ] **MEDULLA-DECISION-ENGINE-R651.11:** Appending a turn enqueues one derive job.
+- [ ] **MEDULLA-DECISION-ENGINE-R651.12:** Derive worker writes conclusions as claims.
+- [ ] **MEDULLA-DECISION-ENGINE-R652.9:** Claims carry subject and observer.
+- [ ] **MEDULLA-DECISION-ENGINE-R155.7:** Scope narrows cross-session episode recall.
+- [ ] **MEDULLA-DECISION-ENGINE-R073.6:** Memory events enter the graph outbox.
+- [ ] **MEDULLA-DECISION-ENGINE-R073.7:** Pull and acknowledge memory events over the served outbox method.
+- [ ] **MEDULLA-DECISION-ENGINE-R655:** Participant questions, cards and derivation status (rollup).
+- [ ] **MEDULLA-DECISION-ENGINE-R655.1:** Model.
+- [ ] **MEDULLA-DECISION-ENGINE-R655.2:** Behavior: ask about a participant.
+- [ ] **MEDULLA-DECISION-ENGINE-R655.3:** Behavior: participant card.
+- [ ] **MEDULLA-DECISION-ENGINE-R655.4:** Wiring: card read and derivation status.
+- [ ] **MEDULLA-DECISION-ENGINE-R655.5:** Refusal.
+- [ ] **MEDULLA-DECISION-ENGINE-R655.6:** Hot-path proof.
+- [ ] **MEDULLA-DECISION-ENGINE-R656:** Assistant profiles and document sets (rollup).
+- [ ] **MEDULLA-DECISION-ENGINE-R656.1:** Model.
+- [ ] **MEDULLA-DECISION-ENGINE-R656.2:** Behavior: profile and document-set store with sharing.
+- [ ] **MEDULLA-DECISION-ENGINE-R656.3:** Behavior: document set as a retrieval filter.
+- [ ] **MEDULLA-DECISION-ENGINE-R656.4:** Wiring: a named profile constrains the run.
+- [ ] **MEDULLA-DECISION-ENGINE-R656.5:** Refusal.
+- [ ] **MEDULLA-DECISION-ENGINE-R656.6:** Hot-path proof.
+- [ ] **MEDULLA-DECISION-ENGINE-R128.16:** Assistant profile constrains the HarnessConfig request.
+- [ ] **MEDULLA-DECISION-ENGINE-R036.107:** AgentAssemble respects the profile tool allowlist.
+- [ ] **MEDULLA-DECISION-ENGINE-R179.8:** Participant memory knobs.
+- [ ] **MEDULLA-DECISION-ENGINE-R010.100.4:** Participant memory refusal codes.
