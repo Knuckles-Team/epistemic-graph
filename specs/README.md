@@ -59,6 +59,7 @@ Medulla is one engine with one server executable. Every spec belongs to one subs
 | Ontology and packs | `MEDULLA-TYPED-PACKS`, `MEDULLA-DATAPLAT-VOCAB`, `MEDULLA-MEDIA-VOCAB`, `MEDULLA-SUPPLY-VOCAB`, `MEDULLA-ORCH-VOCAB` | Typed packs, the catalog, ontology modules and shapes | `ConnectorPack.Import`, schema sources |
 | Decisions and self-evolution | `MEDULLA-DECISION-ENGINE`, `MEDULLA-SDLC` | The decision pipeline, fitted heads, knobs, the revision lifecycle, lifecycle records | `Decide`, `AgentAssemble`, `DecisionCommit`, `DecisionLog`, decision jobs |
 | Finance | `MEDULLA-FINANCE-PRIMITIVES` | Market data primitives, kernels, backtests, risk and signals | Finance numeric kernels, series operators in UQL |
+| Graph-native development | `MEDULLA-SDLC`, `MEDULLA-SCM`, `MEDULLA-REPO-INGEST`, `MEDULLA-BRANCH-MERGE` | The ecosystem's code, specs, changes, gates and releases as graph records | `SubmitChangeset`, `ReadTree`, `SourceIngest`, `UnifiedQuery`, served through arbora MCP |
 | Competency | `MEDULLA-CQ-CONN`, `MEDULLA-CQ-XSRC`, `MEDULLA-CQ-ORCH` | The questions the ontology must answer | The served query path only |
 | Contract | `MEDULLA-CONTRACT` | The public engine contract, gates and release proof | The server executable and client |
 
@@ -72,6 +73,7 @@ Medulla is one engine with one server executable. Every spec belongs to one subs
 6. **Packs roll up to the core.** Every pack class extends a core class through `rdfs:subClassOf`. A pack never imports the core ontology.
 7. **Knobs.** Every tunable value is a named knob in the knob registry (MEDULLA-DECISION-ENGINE-R179), with a default, bounds and a unit. Any subsystem may declare knobs. Safety and gate knobs are `Fixed`.
 8. **One revision lifecycle.** Fitted heads, programs, prompts, skills, harness components, adoptions and knob sets share the MEDULLA-DECISION-ENGINE-R805 lifecycle.
+9. **Graph-native development.** Every repository, spec row, change and gate verdict is a graph record (MEDULLA-SDLC-R012). A row is implemented, proved and landed through served operations, and git is an export mirror.
 
 ## Cross-spec decisions (2026-10-30)
 
@@ -115,7 +117,7 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 
 - [`MEDULLA-SCM`](source-changesets/spec.md) — source changesets as the source of truth for repository files.
 - [`MEDULLA-ENGINE-PARITY`](engine-parity/spec.md) — relational engine parity inside one library: write scaling, PostgreSQL wire front end, relational features and log services.
-- [`MEDULLA-SDLC`](development-lifecycle/spec.md) — graph-driven development lifecycle records, derived edges, defects and derived requirement state.
+- [`MEDULLA-SDLC`](development-lifecycle/spec.md) — graph-native development lifecycle: the ecosystem is developed inside the engine, with lifecycle records, derived edges, defects and derived requirement state.
 - [`MEDULLA-BRANCH-MERGE`](branch-merge/spec.md) — agent branching, three-way merge, and epistemic conflict resolution.
 - [`MEDULLA-OBJECT-STORAGE-BACKEND`](object-storage-backend/spec.md) — object-storage-native durable store and comparative cost gate.
 - [`MEDULLA-UNIFIED-DATA-PLANE`](unified-data-plane/spec.md) — Medulla attached-source, dialect and app-admission owner contract

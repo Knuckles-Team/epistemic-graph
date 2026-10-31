@@ -32,6 +32,8 @@
     "MEDULLA-SDLC-R004.4",
     "MEDULLA-SDLC-R004.5",
     "MEDULLA-SDLC-R004.6",
+    "MEDULLA-SDLC-R004.7",
+    "MEDULLA-SDLC-R004.8",
     "MEDULLA-SDLC-R005",
     "MEDULLA-SDLC-R005.1",
     "MEDULLA-SDLC-R005.2",
@@ -45,7 +47,21 @@
     "MEDULLA-SDLC-R006.3",
     "MEDULLA-SDLC-R006.4",
     "MEDULLA-SDLC-R006.5",
-    "MEDULLA-SDLC-R006.6"
+    "MEDULLA-SDLC-R006.6",
+    "MEDULLA-SDLC-R006.7",
+    "MEDULLA-SDLC-R007",
+    "MEDULLA-SDLC-R008",
+    "MEDULLA-SDLC-R009",
+    "MEDULLA-SDLC-R010",
+    "MEDULLA-SDLC-R011",
+    "MEDULLA-SDLC-R012",
+    "MEDULLA-SDLC-R012.1",
+    "MEDULLA-SDLC-R012.2",
+    "MEDULLA-SDLC-R012.3",
+    "MEDULLA-SDLC-R012.4",
+    "MEDULLA-SDLC-R012.5",
+    "MEDULLA-SDLC-R012.6",
+    "MEDULLA-SDLC-R012.7"
   ],
   "requirements": [
     {
@@ -65,7 +81,7 @@
     },
     {
       "id": "MEDULLA-SDLC-R001.1",
-      "title": "Model",
+      "title": "Model: lifecycle kinds, edges and shapes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -83,7 +99,7 @@
     },
     {
       "id": "MEDULLA-SDLC-R001.3",
-      "title": "Wiring",
+      "title": "Wiring: derive edges when a changeset is accepted or a commit is indexed",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -112,7 +128,7 @@
     },
     {
       "id": "MEDULLA-SDLC-R001.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: served derivation and nightly budget",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -156,28 +172,28 @@
     },
     {
       "id": "MEDULLA-SDLC-R002.3",
-      "title": "Wiring",
+      "title": "Wiring: record releases and deployments through served methods",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SDLC-R002.4",
-      "title": "Refusal",
+      "title": "Refusal: unknown head and duplicate version",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SDLC-R002.5",
-      "title": "Evidence",
+      "title": "Evidence: sealed release records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SDLC-R002.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: served deployment records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -221,28 +237,28 @@
     },
     {
       "id": "MEDULLA-SDLC-R003.3",
-      "title": "Wiring",
+      "title": "Wiring: intake callers file defects",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SDLC-R003.4",
-      "title": "Refusal",
+      "title": "Refusal: illegal status move and unverified fix",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SDLC-R003.5",
-      "title": "Evidence",
+      "title": "Evidence: symptom list per defect",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SDLC-R003.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: served intake",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -259,7 +275,9 @@
         "MEDULLA-SDLC-R004.3",
         "MEDULLA-SDLC-R004.4",
         "MEDULLA-SDLC-R004.5",
-        "MEDULLA-SDLC-R004.6"
+        "MEDULLA-SDLC-R004.6",
+        "MEDULLA-SDLC-R004.7",
+        "MEDULLA-SDLC-R004.8"
       ]
     },
     {
@@ -286,28 +304,42 @@
     },
     {
       "id": "MEDULLA-SDLC-R004.3",
-      "title": "Wiring",
+      "title": "Wiring: `DefectTriage` question kind and `TriageDefect` method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SDLC-R004.4",
-      "title": "Refusal",
+      "title": "Refusal: unknown and closed defects",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SDLC-R004.5",
-      "title": "Evidence",
+      "title": "Evidence: premises and replay",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SDLC-R004.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: served triage journey",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SDLC-R004.7",
+      "title": "Model: triage knobs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SDLC-R004.8",
+      "title": "Behaviour: kernel in the numeric crate, bounded by knobs",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -351,28 +383,28 @@
     },
     {
       "id": "MEDULLA-SDLC-R005.3",
-      "title": "Wiring",
+      "title": "Wiring: `SpecStatus` method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SDLC-R005.4",
-      "title": "Refusal",
+      "title": "Refusal: unknown revision and absent spec tree",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SDLC-R005.5",
-      "title": "Evidence",
+      "title": "Evidence: landing changesets, test ids and generator equality",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SDLC-R005.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: served status journey",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -389,7 +421,8 @@
         "MEDULLA-SDLC-R006.3",
         "MEDULLA-SDLC-R006.4",
         "MEDULLA-SDLC-R006.5",
-        "MEDULLA-SDLC-R006.6"
+        "MEDULLA-SDLC-R006.6",
+        "MEDULLA-SDLC-R006.7"
       ]
     },
     {
@@ -416,28 +449,135 @@
     },
     {
       "id": "MEDULLA-SDLC-R006.3",
-      "title": "Wiring",
+      "title": "Wiring: `LifecycleTrace` method and four competency questions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SDLC-R006.4",
-      "title": "Refusal",
+      "title": "Refusal: kind, depth and tenant",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SDLC-R006.5",
-      "title": "Evidence",
+      "title": "Evidence: rules, versions and limits",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SDLC-R006.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: served trace journey",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SDLC-R006.7",
+      "title": "Model: trace limits are knobs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SDLC-R007",
+      "title": "Combined quality-gate script",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SDLC-R008",
+      "title": "Zero-backlog census gates",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SDLC-R009",
+      "title": "Governed documentation projection",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SDLC-R010",
+      "title": "Landing gate runs the complete test suite",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SDLC-R011",
+      "title": "Signal-killed test binaries rerun in isolation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SDLC-R012",
+      "title": "Graph-native development: the ecosystem is developed inside the engine (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "MEDULLA-SDLC-R012.1",
+        "MEDULLA-SDLC-R012.2",
+        "MEDULLA-SDLC-R012.3",
+        "MEDULLA-SDLC-R012.4",
+        "MEDULLA-SDLC-R012.5",
+        "MEDULLA-SDLC-R012.6",
+        "MEDULLA-SDLC-R012.7"
+      ]
+    },
+    {
+      "id": "MEDULLA-SDLC-R012.1",
+      "title": "Every ecosystem repository is ingested",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SDLC-R012.2",
+      "title": "Spec rows are requirement records with caller and proof edges",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SDLC-R012.3",
+      "title": "Changes are changesets bound to requirement rows",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SDLC-R012.4",
+      "title": "Reachability and impact are graph queries",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SDLC-R012.5",
+      "title": "Delivery slices come from the graph",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SDLC-R012.6",
+      "title": "Specs change through the graph",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SDLC-R012.7",
+      "title": "Lifecycle evidence lives with the requirement",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

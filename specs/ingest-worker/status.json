@@ -35,6 +35,7 @@
     "MEDULLA-INGEST-WORKER-R002.4",
     "MEDULLA-INGEST-WORKER-R002.5",
     "MEDULLA-INGEST-WORKER-R002.6",
+    "MEDULLA-INGEST-WORKER-R002.7",
     "MEDULLA-INGEST-WORKER-R003",
     "MEDULLA-INGEST-WORKER-R003.1",
     "MEDULLA-INGEST-WORKER-R003.2",
@@ -46,6 +47,7 @@
     "MEDULLA-INGEST-WORKER-R003.8",
     "MEDULLA-INGEST-WORKER-R003.9",
     "MEDULLA-INGEST-WORKER-R003.10",
+    "MEDULLA-INGEST-WORKER-R003.10.1",
     "MEDULLA-INGEST-WORKER-R003.11",
     "MEDULLA-INGEST-WORKER-R003.12",
     "MEDULLA-INGEST-WORKER-R003.13",
@@ -53,6 +55,7 @@
     "MEDULLA-INGEST-WORKER-R003.15",
     "MEDULLA-INGEST-WORKER-R003.16",
     "MEDULLA-INGEST-WORKER-R003.17",
+    "MEDULLA-INGEST-WORKER-R003.17.1",
     "MEDULLA-INGEST-WORKER-R003.18",
     "MEDULLA-INGEST-WORKER-R604",
     "MEDULLA-INGEST-WORKER-R604.1",
@@ -98,6 +101,7 @@
     "MEDULLA-INGEST-WORKER-R702.6",
     "MEDULLA-INGEST-WORKER-R003.700",
     "MEDULLA-INGEST-WORKER-R003.701",
+    "MEDULLA-INGEST-WORKER-R701.7",
     "MEDULLA-INGEST-WORKER-R910",
     "MEDULLA-INGEST-WORKER-R910.1",
     "MEDULLA-INGEST-WORKER-R910.2",
@@ -123,6 +127,7 @@
     "MEDULLA-INGEST-WORKER-R902.1",
     "MEDULLA-INGEST-WORKER-R902.2",
     "MEDULLA-INGEST-WORKER-R902.3",
+    "MEDULLA-INGEST-WORKER-R902.3.1",
     "MEDULLA-INGEST-WORKER-R902.4",
     "MEDULLA-INGEST-WORKER-R902.5",
     "MEDULLA-INGEST-WORKER-R902.6",
@@ -139,12 +144,13 @@
     "MEDULLA-INGEST-WORKER-R904.3",
     "MEDULLA-INGEST-WORKER-R904.4",
     "MEDULLA-INGEST-WORKER-R904.5",
-    "MEDULLA-INGEST-WORKER-R904.6"
+    "MEDULLA-INGEST-WORKER-R904.6",
+    "MEDULLA-INGEST-WORKER-R904.7"
   ],
   "requirements": [
     {
       "id": "MEDULLA-INGEST-WORKER-R001",
-      "title": "Ingest worker capability is served by the engine queue and run by the Graft SDK runner (rollup)",
+      "title": "Ingest worker capability is served by the engine queue and run by the connector SDK runner (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -216,17 +222,19 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.5",
-      "title": "Prerequisite: durable task queue (this repository, MEDULLA-DURABLE-KERNEL-R071, R072, R073)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: pointer row without behaviour",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "pointer row without behaviour"
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.6",
-      "title": "Prerequisite: worker registry, reserved admission and scheduler floors (this repository, MEDULLA-DURABLE-KERNEL-R074, R075, R076)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: pointer row without behaviour",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "pointer row without behaviour"
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.7",
@@ -252,14 +260,14 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.9",
-      "title": "Failure routing: retry then dead letter",
+      "title": "Failure routing: retry with backoff, then dead letter",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.10",
-      "title": "Hydration-reserved lane served as a distinct queue",
+      "title": "Hydration kinds run on the hydration queue",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -273,84 +281,87 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.12",
-      "title": "Lease renewal for long jobs",
+      "title": "A missed lease renewal redelivers the job and counts as an attempt",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.13",
-      "title": "Ingest queue metrics",
+      "title": "Ingest job metrics are exported from one registry",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.14",
-      "title": "Cross-repo (connector Graft SDK repository): ingest worker runner",
+      "title": "Runner contract: the engine methods the SDK runner relies on",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.15",
-      "title": "Cross-repo (connector Graft SDK repository): CLI entry point and autosize",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: command line interface is owned by the connector SDK",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "command line interface is owned by the connector SDK"
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.16",
-      "title": "Cross-repo (Arbora): host and supervise the worker",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: supervision is owned by arbora",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "supervision is owned by arbora"
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.17",
-      "title": "Parity test against the deleted module",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: meta test over a plan table is not product behaviour",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "meta test over a plan table is not product behaviour"
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.1006",
-      "title": "Model: catalogue, log and declaration ingest",
+      "title": "Model: data-prep declaration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.1007",
-      "title": "Behavior: catalogue, log and declaration ingest",
+      "title": "Behavior: data-prep declaration replace",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.1008",
-      "title": "Wiring: catalogue, log and declaration ingest",
+      "title": "Wiring: data-prep declaration methods",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.1009",
-      "title": "Refusal: catalogue, log and declaration ingest",
+      "title": "Refusal: data-prep declaration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.1010",
-      "title": "Evidence: catalogue, log and declaration ingest",
+      "title": "Evidence: data-prep declaration report",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R001.1011",
-      "title": "Hot-path proof: catalogue, log and declaration ingest",
+      "title": "Hot-path proof: data-prep declaration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -367,7 +378,8 @@
         "MEDULLA-INGEST-WORKER-R002.3",
         "MEDULLA-INGEST-WORKER-R002.4",
         "MEDULLA-INGEST-WORKER-R002.5",
-        "MEDULLA-INGEST-WORKER-R002.6"
+        "MEDULLA-INGEST-WORKER-R002.6",
+        "MEDULLA-INGEST-WORKER-R002.7"
       ]
     },
     {
@@ -394,7 +406,7 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R002.3",
-      "title": "Wiring",
+      "title": "Wiring: proposals are judged inside SourceIngest admission",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -412,14 +424,21 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R002.5",
-      "title": "Evidence",
+      "title": "Evidence: proposal receipt",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R002.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: ontology induction through SourceIngest",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-INGEST-WORKER-R002.7",
+      "title": "Behavior: instances populate only against admitted proposals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -466,14 +485,14 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.2",
-      "title": "Behavior",
+      "title": "Behavior: atom decomposition and context selection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.3",
-      "title": "Wiring",
+      "title": "Wiring: decompose at ingest and select at query",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -491,14 +510,14 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.5",
-      "title": "Evidence",
+      "title": "Evidence: atom counts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: ingest, then answer from atoms",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -516,35 +535,45 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.8",
-      "title": "Behavior",
+      "title": "Behavior: document normalization and the complete_document check",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.9",
-      "title": "Wiring",
+      "title": "Wiring: the document validator runs inside prepare",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.10",
-      "title": "Refusal",
+      "title": "Refusal: typed document ingest errors map to quarantine reasons",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "MEDULLA-INGEST-WORKER-R003.10.1"
+      ]
+    },
+    {
+      "id": "MEDULLA-INGEST-WORKER-R003.10.1",
+      "title": "Behavior: the quarantine envelope commits without advancing state",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.11",
-      "title": "Evidence",
+      "title": "Evidence: quarantine receipt, finish and replay",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.12",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: document normalization through the wire method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -562,35 +591,45 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.14",
-      "title": "Behavior",
+      "title": "Behavior: transcript validation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.15",
-      "title": "Wiring",
+      "title": "Wiring: the transcript validator runs inside prepare",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.16",
-      "title": "Refusal",
+      "title": "Refusal: typed transcript errors",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.17",
-      "title": "Evidence",
+      "title": "Evidence: transcript receipt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "MEDULLA-INGEST-WORKER-R003.17.1"
+      ]
+    },
+    {
+      "id": "MEDULLA-INGEST-WORKER-R003.17.1",
+      "title": "Evidence: transcript and quarantine reads enforce stored policy",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.18",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: transcripts through the wire method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -612,49 +651,49 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R604.1",
-      "title": "Model",
+      "title": "Model: lanes, queue classes and lane metrics",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R604.2",
-      "title": "Behavior",
+      "title": "Behavior: ingest stage to queue class table",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R604.3",
-      "title": "Wiring",
+      "title": "Wiring: admission is enforced inside the claim",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R604.4",
-      "title": "Refusal",
+      "title": "Refusal: a claim that starves the reserve",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R604.5",
-      "title": "Evidence",
+      "title": "Evidence: lane gauges and the admission counter",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R604.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: claim with admission",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R605",
-      "title": "Queue backends, chunked source drains and graph routing are one durable engine surface (rollup)",
+      "title": "Chunked source drains and graph routing are one durable engine surface (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -669,49 +708,49 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R605.1",
-      "title": "Model",
+      "title": "Model: drains, page checkpoints, graph routes and stage profiles",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R605.2",
-      "title": "Behavior",
+      "title": "Behavior: a drain is a chain of bounded page tasks",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R605.3",
-      "title": "Wiring",
+      "title": "Wiring: routing runs before graph resolution",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R605.4",
-      "title": "Refusal",
+      "title": "Refusal: a stale page cursor is dropped",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R605.5",
-      "title": "Evidence",
+      "title": "Evidence: drain status",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R605.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: page task overhead",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R606",
-      "title": "One materialization path writes every connector's records with provenance, hash filtering and partition routing (rollup)",
+      "title": "One materialization path writes every connector's records with provenance and partition routing (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -726,42 +765,42 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R606.1",
-      "title": "Model",
+      "title": "Model: the shared batch report and the provenance stamp",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R606.2",
-      "title": "Behavior",
+      "title": "Behavior: stamping, label normalization and per-source routing",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R606.3",
-      "title": "Wiring",
+      "title": "Wiring: SourceIngest is the sole write path for connector batches",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R606.4",
-      "title": "Refusal",
+      "title": "Refusal: a batch without a source system",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R606.5",
-      "title": "Evidence",
+      "title": "Evidence: per-batch report",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R606.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: materialization at batch size",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -783,42 +822,42 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R700.1",
-      "title": "Model",
+      "title": "Model: fragments and the reader registry",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R700.2",
-      "title": "Behavior",
+      "title": "Behavior: bounded streaming readers",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R700.3",
-      "title": "Wiring",
+      "title": "Wiring: readers run inside document normalization",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R700.4",
-      "title": "Refusal",
+      "title": "Refusal: oversize, encrypted, unsupported or corrupt input",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R700.5",
-      "title": "Evidence",
+      "title": "Evidence: every fragment re-extracts from its span",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R700.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: readers through the wire method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -835,7 +874,8 @@
         "MEDULLA-INGEST-WORKER-R701.3",
         "MEDULLA-INGEST-WORKER-R701.4",
         "MEDULLA-INGEST-WORKER-R701.5",
-        "MEDULLA-INGEST-WORKER-R701.6"
+        "MEDULLA-INGEST-WORKER-R701.6",
+        "MEDULLA-INGEST-WORKER-R701.7"
       ]
     },
     {
@@ -862,7 +902,7 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R701.3",
-      "title": "Wiring",
+      "title": "Wiring: grounded claims commit as atoms",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -880,14 +920,14 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R701.5",
-      "title": "Evidence",
+      "title": "Evidence: per-unit outcome with the content hash",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R701.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: grounding through the wire method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -909,63 +949,72 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R702.1",
-      "title": "Model",
+      "title": "Model: the locality-sensitive index",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R702.2",
-      "title": "Behavior",
+      "title": "Behavior: insert, query and false-negative rate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R702.3",
-      "title": "Wiring",
+      "title": "Wiring: dedup runs at admission before enrichment",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R702.4",
-      "title": "Refusal",
+      "title": "Refusal: a near duplicate is linked, not stored twice",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R702.5",
-      "title": "Evidence",
+      "title": "Evidence: link similarity",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R702.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: dedup through the wire method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.700",
-      "title": "Knowledge-base run outcomes, entity and claim extraction, link inference and note-vault sync: model and behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: outcomes, link inference and vault sync fold into R701 and R910",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "outcomes, link inference and vault sync fold into R701 and R910"
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R003.701",
-      "title": "Knowledge-base run outcomes, entity and claim extraction, link inference and note-vault sync: refusal, evidence and hot-path proof",
+      "title": "RETIRED: refusal, evidence and benchmark fold into R701",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "refusal, evidence and benchmark fold into R701"
+    },
+    {
+      "id": "MEDULLA-INGEST-WORKER-R701.7",
+      "title": "Behavior: link inference over shared mentions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R910",
-      "title": "Source ingest content versions chain per stream (rollup)",
+      "title": "Source content versions chain per stream (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1048,14 +1097,14 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R900.2",
-      "title": "Behavior",
+      "title": "Behavior: governance becomes policy and access properties",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R900.3",
-      "title": "Wiring",
+      "title": "Wiring: governance parses before projection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1073,14 +1122,14 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R900.5",
-      "title": "Evidence",
+      "title": "Evidence: governance counts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R900.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: governance parsing at batch size",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1113,14 +1162,14 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R901.2",
-      "title": "Behavior",
+      "title": "Behavior: store and supersede row-version evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R901.3",
-      "title": "Wiring",
+      "title": "Wiring: evidence is stored with the record commit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1138,14 +1187,14 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R901.5",
-      "title": "Evidence",
+      "title": "Evidence: row-version counts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R901.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: locus storage at batch size",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1178,14 +1227,24 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R902.2",
-      "title": "Behavior",
+      "title": "Behavior: access batches and group batches",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R902.3",
-      "title": "Wiring",
+      "title": "Wiring: access and group batches route to the permission path",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "MEDULLA-INGEST-WORKER-R902.3.1"
+      ]
+    },
+    {
+      "id": "MEDULLA-INGEST-WORKER-R902.3.1",
+      "title": "Model: batch kind and typed batch extension",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1203,14 +1262,14 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R902.5",
-      "title": "Evidence",
+      "title": "Evidence: access counts and fail-closed stale reads",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R902.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: permission sync at batch size",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1243,14 +1302,14 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R903.2",
-      "title": "Behavior",
+      "title": "Behavior: plan, grace window and sweep",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R903.3",
-      "title": "Wiring",
+      "title": "Wiring: enumeration pages and the sweep job",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1268,14 +1327,14 @@
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R903.5",
-      "title": "Evidence",
+      "title": "Evidence: reconcile receipt",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-INGEST-WORKER-R903.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: reconcile at 1M identifiers",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1292,7 +1351,8 @@
         "MEDULLA-INGEST-WORKER-R904.3",
         "MEDULLA-INGEST-WORKER-R904.4",
         "MEDULLA-INGEST-WORKER-R904.5",
-        "MEDULLA-INGEST-WORKER-R904.6"
+        "MEDULLA-INGEST-WORKER-R904.6",
+        "MEDULLA-INGEST-WORKER-R904.7"
       ]
     },
     {
@@ -1344,6 +1404,14 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "MEDULLA-INGEST-WORKER-R904.7",
+      "title": "RETIRED: duplicate of MEDULLA-INGEST-WORKER-R902.3.1",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "duplicate of MEDULLA-INGEST-WORKER-R902.3.1"
     }
   ]
 }

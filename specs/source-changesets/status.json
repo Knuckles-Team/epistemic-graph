@@ -8,8 +8,12 @@
     "MEDULLA-SCM-R002",
     "MEDULLA-SCM-R002.1",
     "MEDULLA-SCM-R003",
+    "MEDULLA-SCM-R003.1",
     "MEDULLA-SCM-R004",
     "MEDULLA-SCM-R005",
+    "MEDULLA-SCM-R005.1",
+    "MEDULLA-SCM-R005.2",
+    "MEDULLA-SCM-R005.3",
     "MEDULLA-SCM-R006",
     "MEDULLA-SCM-R007",
     "MEDULLA-SCM-R008",
@@ -24,7 +28,8 @@
     "MEDULLA-SCM-R013.4",
     "MEDULLA-SCM-R013.5",
     "MEDULLA-SCM-R013.6",
-    "MEDULLA-SCM-R013.7"
+    "MEDULLA-SCM-R013.7",
+    "MEDULLA-SCM-R014"
   ],
   "requirements": [
     {
@@ -55,7 +60,17 @@
     },
     {
       "id": "MEDULLA-SCM-R003",
-      "title": "Lock-free acceptance",
+      "title": "Path-set acceptance and rebase",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "MEDULLA-SCM-R003.1"
+      ]
+    },
+    {
+      "id": "MEDULLA-SCM-R003.1",
+      "title": "Path-set acceptance calls the shared disjoint check",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -69,7 +84,33 @@
     },
     {
       "id": "MEDULLA-SCM-R005",
-      "title": "Derived history indexes",
+      "title": "Derived history indexes (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "MEDULLA-SCM-R005.1",
+        "MEDULLA-SCM-R005.2",
+        "MEDULLA-SCM-R005.3"
+      ]
+    },
+    {
+      "id": "MEDULLA-SCM-R005.1",
+      "title": "Path history",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SCM-R005.2",
+      "title": "Blame",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SCM-R005.3",
+      "title": "Ancestry skip lists",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -118,7 +159,7 @@
     },
     {
       "id": "MEDULLA-SCM-R012",
-      "title": "Agent-only principals and run provenance",
+      "title": "Agent principals and run provenance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -170,14 +211,14 @@
     },
     {
       "id": "MEDULLA-SCM-R013.4",
-      "title": "Wiring",
+      "title": "Wiring: SubmitSymbolEdit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-SCM-R013.5",
-      "title": "Refusal",
+      "title": "Refusals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -192,6 +233,13 @@
     {
       "id": "MEDULLA-SCM-R013.7",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-SCM-R014",
+      "title": "Served git export of wants and haves",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

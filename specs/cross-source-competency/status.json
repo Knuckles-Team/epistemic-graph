@@ -41,6 +41,7 @@
     "MEDULLA-CQ-XSRC-R006.3",
     "MEDULLA-CQ-XSRC-R006.4",
     "MEDULLA-CQ-XSRC-R006.5",
+    "MEDULLA-CQ-XSRC-R006.6",
     "MEDULLA-CQ-XSRC-R007",
     "MEDULLA-CQ-XSRC-R007.1",
     "MEDULLA-CQ-XSRC-R007.2",
@@ -60,18 +61,21 @@
     "MEDULLA-CQ-XSRC-R008.3.2",
     "MEDULLA-CQ-XSRC-R008.3.3",
     "MEDULLA-CQ-XSRC-R008.3.4",
+    "MEDULLA-CQ-XSRC-R008.4",
     "MEDULLA-CQ-XSRC-R009",
     "MEDULLA-CQ-XSRC-R009.1",
     "MEDULLA-CQ-XSRC-R009.2",
     "MEDULLA-CQ-XSRC-R009.3",
     "MEDULLA-CQ-XSRC-R009.4",
-    "MEDULLA-CQ-XSRC-R009.5"
+    "MEDULLA-CQ-XSRC-R009.5",
+    "MEDULLA-CQ-XSRC-R010",
+    "MEDULLA-CQ-XSRC-R011"
   ],
   "requirements": [
     {
       "id": "MEDULLA-CQ-XSRC-R001",
       "title": "Concept-to-source authority is declared in the ontology (rollup)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -83,35 +87,39 @@
     },
     {
       "id": "MEDULLA-CQ-XSRC-R001.1",
-      "title": "Add `vg:SourceAuthority`, `vg:authoritativeSource`, `vg:authorityFor` and `vg:authorityRank` to the virtual-graph vocabulary",
-      "delivery_state": "VERIFIED",
+      "title": "RETIRED: the authority vocabulary is owned by source authority",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "09e3e6be7df9"
       ],
       "verified_by": [
         "crates/medulla-rdf/tests/virtual_graph_authority.rs:17"
-      ]
+      ],
+      "retired_reason": "the authority vocabulary is owned by source authority"
     },
     {
       "id": "MEDULLA-CQ-XSRC-R001.2",
-      "title": "SHACL shape: a `vg:SourceAuthority` names exactly one connected source, one class and one rank",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: authority shape is owned by source authority",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "authority shape is owned by source authority"
     },
     {
       "id": "MEDULLA-CQ-XSRC-R001.3",
-      "title": "Authority applies through subclass entailment",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: authority precedence is owned by source authority",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "authority precedence is owned by source authority"
     },
     {
       "id": "MEDULLA-CQ-XSRC-R001.4",
-      "title": "Authority records the approval of its mapping",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: authority effectiveness is owned by source authority",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "authority effectiveness is owned by source authority"
     },
     {
       "id": "MEDULLA-CQ-XSRC-R002",
@@ -165,21 +173,22 @@
     },
     {
       "id": "MEDULLA-CQ-XSRC-R002.4",
-      "title": "SHACL shape for supplier and component",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: supplier shapes are owned by the supply vocabulary",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "supplier shapes are owned by the supply vocabulary"
     },
     {
       "id": "MEDULLA-CQ-XSRC-R002.5",
-      "title": "Source-authority mapping: suppliers and purchase items",
+      "title": "Source-authority seed: suppliers, purchase items and third-party risk",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-XSRC-R002.6",
-      "title": "Source-authority mapping: software components and vulnerabilities",
+      "title": "Source-authority seed: software components and vulnerabilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -207,21 +216,21 @@
     },
     {
       "id": "MEDULLA-CQ-XSRC-R003.1",
-      "title": "Source-authority mapping: `:Service` health",
+      "title": "Source-authority seed: `:Service` health and identity",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-XSRC-R003.2",
-      "title": "Source-authority mapping: deployed workloads and images",
+      "title": "Source-authority seed: deployed workloads, images and hosts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-XSRC-R003.3",
-      "title": "Source-authority mapping: business capabilities",
+      "title": "Source-authority seed: business capabilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -242,7 +251,7 @@
     },
     {
       "id": "MEDULLA-CQ-XSRC-R004",
-      "title": "Linking relation between a supply-chain entity and a service, with entity resolution across sources (rollup)",
+      "title": "Linking relation between a supply-chain entity and a service, with entity resolution (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -269,10 +278,11 @@
     },
     {
       "id": "MEDULLA-CQ-XSRC-R004.2",
-      "title": "SHACL shape: `:usesComponent` domain and range",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: `:usesComponent` shape is owned by the supply vocabulary",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "`:usesComponent` shape is owned by the supply vocabulary"
     },
     {
       "id": "MEDULLA-CQ-XSRC-R004.3",
@@ -377,7 +387,8 @@
         "MEDULLA-CQ-XSRC-R006.2",
         "MEDULLA-CQ-XSRC-R006.3",
         "MEDULLA-CQ-XSRC-R006.4",
-        "MEDULLA-CQ-XSRC-R006.5"
+        "MEDULLA-CQ-XSRC-R006.5",
+        "MEDULLA-CQ-XSRC-R006.6"
       ]
     },
     {
@@ -401,7 +412,7 @@
     },
     {
       "id": "MEDULLA-CQ-XSRC-R006.3",
-      "title": "Report abstention variants",
+      "title": "Report abstentions map the source-authority reasons, with no second list",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -427,6 +438,14 @@
       "verified_by": [
         "crates/medulla-rdf/src/supply_chain_impact.rs:98"
       ]
+    },
+    {
+      "id": "MEDULLA-CQ-XSRC-R006.6",
+      "title": "RETIRED: duplicate of the served supply-chain impact method",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "duplicate of the served supply-chain impact method"
     },
     {
       "id": "MEDULLA-CQ-XSRC-R007",
@@ -468,7 +487,7 @@
     },
     {
       "id": "MEDULLA-CQ-XSRC-R007.4",
-      "title": "Decisive test: changing only the ontology's authority declaration changes the sources used",
+      "title": "Decisive test: changing only the authority declaration changes the sources used",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -482,7 +501,8 @@
       "rollup_of": [
         "MEDULLA-CQ-XSRC-R008.1",
         "MEDULLA-CQ-XSRC-R008.2",
-        "MEDULLA-CQ-XSRC-R008.3"
+        "MEDULLA-CQ-XSRC-R008.3",
+        "MEDULLA-CQ-XSRC-R008.4"
       ]
     },
     {
@@ -614,6 +634,13 @@
       "verified_by": []
     },
     {
+      "id": "MEDULLA-CQ-XSRC-R008.4",
+      "title": "Serve the three generalization questions as Method::CrossSourceQuestion",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "MEDULLA-CQ-XSRC-R009",
       "title": "Acceptance: high-confidence agent claims against a new external report (rollup)",
       "delivery_state": "SPECIFIED",
@@ -658,6 +685,21 @@
     {
       "id": "MEDULLA-CQ-XSRC-R009.5",
       "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-CQ-XSRC-R010",
+      "title": "RETIRED: duplicate of the served supply-chain impact method",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "duplicate of the served supply-chain impact method"
+    },
+    {
+      "id": "MEDULLA-CQ-XSRC-R011",
+      "title": "Serve the supply-chain impact report as a Medulla method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -40,6 +40,9 @@
     "MEDULLA-UNIFIED-DATA-PLANE-R015.2",
     "MEDULLA-UNIFIED-DATA-PLANE-R015.2.1",
     "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.3",
     "MEDULLA-UNIFIED-DATA-PLANE-R016",
     "MEDULLA-UNIFIED-DATA-PLANE-R016.1",
     "MEDULLA-UNIFIED-DATA-PLANE-R016.2",
@@ -203,6 +206,9 @@
     "MEDULLA-UNIFIED-DATA-PLANE-R040.5",
     "MEDULLA-UNIFIED-DATA-PLANE-R040.6",
     "MEDULLA-UNIFIED-DATA-PLANE-R026.4",
+    "MEDULLA-UNIFIED-DATA-PLANE-R026.4.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R026.4.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R026.4.3",
     "MEDULLA-UNIFIED-DATA-PLANE-R612",
     "MEDULLA-UNIFIED-DATA-PLANE-R612.1",
     "MEDULLA-UNIFIED-DATA-PLANE-R612.2",
@@ -262,6 +268,13 @@
     "MEDULLA-UNIFIED-DATA-PLANE-R711",
     "MEDULLA-UNIFIED-DATA-PLANE-R030.700",
     "MEDULLA-UNIFIED-DATA-PLANE-R030.701",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.2.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.1",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.2",
+    "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R750.754",
     "MEDULLA-UNIFIED-DATA-PLANE-R761",
     "MEDULLA-UNIFIED-DATA-PLANE-R761.1",
     "MEDULLA-UNIFIED-DATA-PLANE-R761.2",
@@ -285,20 +298,25 @@
     "MEDULLA-UNIFIED-DATA-PLANE-R763.4",
     "MEDULLA-UNIFIED-DATA-PLANE-R763.5",
     "MEDULLA-UNIFIED-DATA-PLANE-R763.6",
+    "MEDULLA-UNIFIED-DATA-PLANE-R763.7",
     "MEDULLA-UNIFIED-DATA-PLANE-R764",
     "MEDULLA-UNIFIED-DATA-PLANE-R764.1",
     "MEDULLA-UNIFIED-DATA-PLANE-R764.2",
     "MEDULLA-UNIFIED-DATA-PLANE-R764.3",
+    "MEDULLA-UNIFIED-DATA-PLANE-R764.3.1",
     "MEDULLA-UNIFIED-DATA-PLANE-R764.4",
     "MEDULLA-UNIFIED-DATA-PLANE-R764.5",
     "MEDULLA-UNIFIED-DATA-PLANE-R764.6",
     "MEDULLA-UNIFIED-DATA-PLANE-R764.7",
-    "MEDULLA-UNIFIED-DATA-PLANE-R764.8"
+    "MEDULLA-UNIFIED-DATA-PLANE-R764.8",
+    "MEDULLA-UNIFIED-DATA-PLANE-R765",
+    "MEDULLA-UNIFIED-DATA-PLANE-R766",
+    "MEDULLA-UNIFIED-DATA-PLANE-R767"
   ],
   "requirements": [
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R001",
-      "title": "Record attached-source and native-hosting architecture decisions",
+      "title": "Record attached-source and native-hosting decisions",
       "delivery_state": "LANDED",
       "landed_in": [
         "1f6d512ae013",
@@ -311,8 +329,8 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R002",
-      "title": "Unify attached-source registration into one owner-scoped registry (rollup)",
-      "delivery_state": "LANDED",
+      "title": "One owner-scoped attached-source registry (rollup)",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "23ba8c7eab2a",
         "3dd56fe53283",
@@ -322,7 +340,10 @@
       ],
       "verified_by": [
         "src/server/foreign_catalog.rs:769",
-        "src/server/foreign_catalog.rs:793"
+        "src/server/foreign_catalog.rs:770",
+        "src/server/foreign_catalog.rs:793",
+        "src/server/foreign_catalog.rs:794",
+        "src/server/handlers/rdf/obda.rs:666"
       ],
       "rollup_of": [
         "MEDULLA-UNIFIED-DATA-PLANE-R002.1",
@@ -361,12 +382,13 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R002.3",
-      "title": "Verify the outbound target before persisting a kernel mirror-target registration (sink path)",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: mirror sinks replicate to a second store",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "9a7674d1bae5"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "mirror sinks replicate to a second store"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R003",
@@ -607,7 +629,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R010.1",
-      "title": "`AccelerationPolicy` is a typed per-table policy, refusing a declaration its own verification could never check",
+      "title": "`ReplicaRefreshPolicy` is a typed per-table policy, refusing a declaration its own verification could never check",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "343ebb9c7c6a"
@@ -713,7 +735,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R014",
-      "title": "Implement the MySQL and MariaDB attached-source adapters",
+      "title": "MySQL and MariaDB attached-source adapters (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "bf6452b7f8d4"
@@ -740,7 +762,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R014.2",
-      "title": "Remaining scope of MEDULLA-UNIFIED-DATA-PLANE-R014 (slice .2): Implement the MySQL and MariaDB attached-source adapters",
+      "title": "Live MySQL and MariaDB connection, catalog and type map (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -766,14 +788,14 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R014.2.2",
-      "title": "Live MySQL/MariaDB binlog/GTID capture and per-engine conformance",
+      "title": "Live MySQL and MariaDB catalog read and type map",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R015",
-      "title": "Implement the SQLite file attached-source adapter (rollup)",
+      "title": "SQLite file attached-source adapter (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "423b02e97c9d"
@@ -802,7 +824,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R015.2",
-      "title": "Lock-safe live read-only attach and real WAL-frame tailing/watermark polling",
+      "title": "Lock-safe live attach and watermark capture (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -828,17 +850,53 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2",
-      "title": "Real WAL-frame tailing / watermark polling under concurrent writers",
+      "title": "Live SQLite read and watermark capture (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.3"
+      ]
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.1",
+      "title": "Lock-free WAL snapshot reader",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.2",
+      "title": "Watermark polling into change envelopes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R015.2.2.3",
+      "title": "Register, read and conformance for a SQLite file source",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R016",
-      "title": "Implement the Microsoft SQL Server attached-source adapter (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "title": "SQL Server attached source through a connector (rollup)",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "37003f28164f",
+        "6b382bb1a3ec",
+        "6c11520aebfc"
+      ],
+      "verified_by": [
+        "crates/medulla-types/src/mssql_attached_catalog.rs:119",
+        "crates/medulla-types/src/mssql_attached_catalog.rs:132",
+        "crates/medulla-types/src/mssql_attached_catalog.rs:141",
+        "crates/medulla-types/src/mssql_attached_catalog.rs:147",
+        "crates/medulla-types/src/mssql_attached_catalog.rs:153"
+      ],
       "rollup_of": [
         "MEDULLA-UNIFIED-DATA-PLANE-R016.1",
         "MEDULLA-UNIFIED-DATA-PLANE-R016.2"
@@ -862,10 +920,18 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R016.2",
-      "title": "tiberius driver connection, T-SQL TOP/OFFSET-FETCH rendering, and LSN-polled CDC/Change Tracking capture",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "title": "T-SQL rendering for a connector-served SQL Server source",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6b382bb1a3ec"
+      ],
+      "verified_by": [
+        "crates/medulla-types/src/mssql_driver_connection.rs:113",
+        "crates/medulla-types/src/mssql_driver_connection.rs:124",
+        "crates/medulla-types/src/mssql_driver_connection.rs:135",
+        "crates/medulla-types/src/mssql_driver_connection.rs:146",
+        "crates/medulla-types/src/mssql_driver_connection.rs:157"
+      ],
       "rollup_of": [
         "MEDULLA-UNIFIED-DATA-PLANE-R016.2.1",
         "MEDULLA-UNIFIED-DATA-PLANE-R016.2.2"
@@ -888,14 +954,15 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R016.2.2",
-      "title": "Real tiberius connection, T-SQL TOP/OFFSET-FETCH rendering, and LSN-polled CDC/Change Tracking capture loop",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the live SQL Server driver belongs to the SQL connector",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the live SQL Server driver belongs to the SQL connector"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R017",
-      "title": "Implement the ClickHouse attached-source adapter (rollup)",
+      "title": "ClickHouse attached-source adapter (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -922,7 +989,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R017.2",
-      "title": "HTTP/native client connection and federated query pushdown (rollup)",
+      "title": "HTTP connection and federated pushdown (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "04791f8c77de"
@@ -950,19 +1017,29 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R017.2.2",
-      "title": "Live HTTP/native client federated query pushdown",
+      "title": "Live ClickHouse HTTP query and pushdown",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R018",
-      "title": "Implement the Oracle and Db2 attached-source adapters (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "Oracle and Db2 attached sources through a connector (rollup)",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "c14a9a63a0b3"
+        "04791f8c77de",
+        "6c11520aebfc",
+        "c14a9a63a0b3",
+        "eb058c53407e",
+        "f3b6984f260a"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/medulla-plan/src/relational_connection.rs:124",
+        "crates/medulla-plan/src/relational_connection.rs:143",
+        "crates/medulla-plan/src/relational_connection.rs:152",
+        "crates/medulla-plan/src/relational_connection.rs:161",
+        "crates/medulla-plan/src/relational_connection.rs:170"
+      ],
       "rollup_of": [
         "MEDULLA-UNIFIED-DATA-PLANE-R018.1",
         "MEDULLA-UNIFIED-DATA-PLANE-R018.2"
@@ -986,12 +1063,19 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R018.2",
-      "title": "Driver/ODBC connection, catalog read, and Debezium bridge wiring (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "Registration gate and dialect entries for Oracle and Db2 (rollup)",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "04791f8c77de"
+        "04791f8c77de",
+        "f3b6984f260a"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/medulla-plan/src/relational_connection.rs:124",
+        "crates/medulla-plan/src/relational_connection.rs:143",
+        "crates/medulla-plan/src/relational_connection.rs:152",
+        "crates/medulla-plan/src/relational_connection.rs:161",
+        "crates/medulla-plan/src/relational_connection.rs:170"
+      ],
       "rollup_of": [
         "MEDULLA-UNIFIED-DATA-PLANE-R018.2.1",
         "MEDULLA-UNIFIED-DATA-PLANE-R018.2.2"
@@ -1014,19 +1098,30 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R018.2.2",
-      "title": "Live driver/ODBC catalog read and Debezium bridge wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the live driver and ODBC calls belong to the SQL connector",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the live driver and ODBC calls belong to the SQL connector"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R019",
-      "title": "Implement the MongoDB and DocumentDB attached-source adapter",
-      "delivery_state": "SPECIFIED",
+      "title": "MongoDB and DocumentDB attached source through a connector",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "211962e9c846"
+        "04791f8c77de",
+        "211962e9c846",
+        "6c11520aebfc",
+        "94edcf341758",
+        "bfa5ffcc7228"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/medulla-plan/src/document_connection.rs:99",
+        "crates/medulla-types/src/document_source_catalog.rs:108",
+        "crates/medulla-types/src/document_source_catalog.rs:119",
+        "crates/medulla-types/src/document_source_catalog.rs:128",
+        "crates/medulla-types/src/document_source_catalog.rs:135"
+      ],
       "rollup_of": [
         "MEDULLA-UNIFIED-DATA-PLANE-R019.1",
         "MEDULLA-UNIFIED-DATA-PLANE-R019.2",
@@ -1051,14 +1146,17 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R019.2",
-      "title": "Native MongoDB/DocumentDB driver connection and change-stream capture into ChangeEnvelope (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "Document source registration and shape inference (rollup)",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "04791f8c77de",
         "94edcf341758",
+        "bfa5ffcc7228",
         "c3b87d31ac11"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/medulla-plan/src/document_connection.rs:99"
+      ],
       "rollup_of": [
         "MEDULLA-UNIFIED-DATA-PLANE-R019.2.1",
         "MEDULLA-UNIFIED-DATA-PLANE-R019.2.2"
@@ -1077,21 +1175,19 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R019.2.2",
-      "title": "Live native driver connection and change-stream capture into `ChangeEnvelope`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the native driver belongs to the documentdb connector",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the native driver belongs to the documentdb connector"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R019.3",
-      "title": "Conformance entry comparing Medulla query results and captured change stream against native MongoDB/DocumentDB (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: conformance runs belong to the harness",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "MEDULLA-UNIFIED-DATA-PLANE-R019.3.1",
-        "MEDULLA-UNIFIED-DATA-PLANE-R019.3.2"
-      ]
+      "retired_reason": "conformance runs belong to the harness"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R019.3.1",
@@ -1110,14 +1206,15 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R019.3.2",
-      "title": "Live comparison of Medulla's query results and captured change stream against native MongoDB/DocumentDB",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the comparison run belongs to the harness",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the comparison run belongs to the harness"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R020",
-      "title": "Federate Snowflake, BigQuery, DuckDB, and Iceberg sources",
+      "title": "Warehouse and lake sources (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "74870676b1cc"
@@ -1147,7 +1244,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R020.2",
-      "title": "Query pushdown per kind (Arrow Flight SQL where offered), extending medulla-query::sql::iceberg_federation for Iceberg (rollup)",
+      "title": "Pushdown per kind (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1173,21 +1270,18 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R020.2.2",
-      "title": "Live Arrow Flight SQL / native query pushdown per kind, extending `medulla-query::sql::iceberg_federation` for Iceberg",
+      "title": "Live Iceberg and DuckDB pushdown",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R020.3",
-      "title": "Conformance entry comparing federated query results against each native warehouse/lake engine (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: conformance runs belong to the harness",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "MEDULLA-UNIFIED-DATA-PLANE-R020.3.1",
-        "MEDULLA-UNIFIED-DATA-PLANE-R020.3.2"
-      ]
+      "retired_reason": "conformance runs belong to the harness"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R020.3.1",
@@ -1206,10 +1300,11 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R020.3.2",
-      "title": "Live comparison of federated query results against each native warehouse/lake engine",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the comparison run belongs to the harness",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the comparison run belongs to the harness"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R021",
@@ -1274,7 +1369,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R022",
-      "title": "Build a per-dialect conformance harness",
+      "title": "Per-dialect conformance harness",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "23769c3ec0f9"
@@ -1305,14 +1400,14 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R022.2",
-      "title": "Containerized matrix runner per adapter/engine version",
+      "title": "Matrix manifest and runner entry per engine version",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R022.3",
-      "title": "Change-capture replay comparison against a source snapshot (rollup)",
+      "title": "Change-capture replay comparison (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1337,7 +1432,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R022.3.2",
-      "title": "Live change-capture replay comparison against a real source snapshot",
+      "title": "Replay stream versus source snapshot",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1369,17 +1464,13 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R023",
-      "title": "Operate a shared CloudNativePG and MariaDB platform",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the shared relational stack is service-stack work",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "03439e243c80"
       ],
       "verified_by": [],
-      "rollup_of": [
-        "MEDULLA-UNIFIED-DATA-PLANE-R023.1",
-        "MEDULLA-UNIFIED-DATA-PLANE-R023.2",
-        "MEDULLA-UNIFIED-DATA-PLANE-R023.3"
-      ]
+      "retired_reason": "the shared relational stack is service-stack work"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R023.1",
@@ -1399,19 +1490,16 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R023.2",
-      "title": "CloudNativePG/MariaDB operator wiring and PITR schedule to object storage (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: operator wiring and PITR belong to the service stacks",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "MEDULLA-UNIFIED-DATA-PLANE-R023.2.1",
-        "MEDULLA-UNIFIED-DATA-PLANE-R023.2.2"
-      ]
+      "retired_reason": "operator wiring and PITR belong to the service stacks"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R023.2.1",
-      "title": "`PitrSchedule`/`validate` are a typed PITR schedule contract with an engine/archiving-mode refusal",
-      "delivery_state": "VERIFIED",
+      "title": "RETIRED: The PITR schedule contract has no caller",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "a4d1e790a69e"
       ],
@@ -1421,30 +1509,29 @@
         "crates/medulla-types/src/pitr_schedule.rs:127",
         "crates/medulla-types/src/pitr_schedule.rs:139",
         "crates/medulla-types/src/pitr_schedule.rs:148"
-      ]
+      ],
+      "retired_reason": "The PITR schedule contract has no caller"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R023.2.2",
-      "title": "Live CloudNativePG/MariaDB operator wiring and PITR schedule installation to object storage",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: operator wiring and PITR belong to the service stacks",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "operator wiring and PITR belong to the service stacks"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R023.3",
-      "title": "Restore-drill automation and post-restore data-match verification (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: restore drills belong to the service stacks",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "MEDULLA-UNIFIED-DATA-PLANE-R023.3.1",
-        "MEDULLA-UNIFIED-DATA-PLANE-R023.3.2"
-      ]
+      "retired_reason": "restore drills belong to the service stacks"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R023.3.1",
-      "title": "`RestoreDrillResult`/`validate` are a typed drill-result contract that refuses a `data_matched` flag disagreeing with the actual digest comparison",
-      "delivery_state": "VERIFIED",
+      "title": "RETIRED: The restore drill result contract has no caller",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "a4d1e790a69e"
       ],
@@ -1454,14 +1541,16 @@
         "crates/medulla-types/src/restore_drill.rs:134",
         "crates/medulla-types/src/restore_drill.rs:150",
         "crates/medulla-types/src/restore_drill.rs:166"
-      ]
+      ],
+      "retired_reason": "The restore drill result contract has no caller"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R023.3.2",
-      "title": "Live restore-drill automation and post-restore data-match verification",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: restore drills belong to the service stacks",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "restore drills belong to the service stacks"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R024",
@@ -1557,22 +1646,18 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R025",
-      "title": "Evaluate a pgrx companion extension through a spike",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the pgrx companion is a second hosting of the engine",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "e265a52820f5"
       ],
       "verified_by": [],
-      "rollup_of": [
-        "MEDULLA-UNIFIED-DATA-PLANE-R025.1",
-        "MEDULLA-UNIFIED-DATA-PLANE-R025.2",
-        "MEDULLA-UNIFIED-DATA-PLANE-R025.3"
-      ]
+      "retired_reason": "the pgrx companion is a second hosting of the engine"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R025.1",
-      "title": "`PgrxSpikeDecision` is a typed decision record refusing an outcome without full-scope evidence",
-      "delivery_state": "VERIFIED",
+      "title": "RETIRED: The spike decision record has no caller",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "6c11520aebfc",
         "e265a52820f5"
@@ -1583,23 +1668,18 @@
         "crates/medulla-types/src/pgrx_spike.rs:197",
         "crates/medulla-types/src/pgrx_spike.rs:207",
         "crates/medulla-types/src/pgrx_spike.rs:217"
-      ]
+      ],
+      "retired_reason": "The spike decision record has no caller"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R025.2",
-      "title": "Run the spike across its declared scope areas",
-      "delivery_state": "VERIFIED",
+      "title": "RETIRED: The spike runner is not needed",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "15a7370ecac3"
       ],
-      "verified_by": [
-        "crates/medulla-types/src/pgrx_spike.rs:229",
-        "crates/medulla-types/src/pgrx_spike.rs:242",
-        "crates/medulla-types/src/pgrx_spike.rs:257"
-      ],
-      "rollup_of": [
-        "MEDULLA-UNIFIED-DATA-PLANE-R025.2.1"
-      ]
+      "verified_by": [],
+      "retired_reason": "The spike runner is not needed"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R025.2.1",
@@ -1616,14 +1696,11 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R025.3",
-      "title": "Review the spike's results and recorded decision; produce the approved ADR",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the pgrx companion is a second hosting of the engine",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "MEDULLA-UNIFIED-DATA-PLANE-R025.3.1",
-        "MEDULLA-UNIFIED-DATA-PLANE-R025.3.2"
-      ]
+      "retired_reason": "the pgrx companion is a second hosting of the engine"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R025.3.1",
@@ -1642,14 +1719,15 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R025.3.2",
-      "title": "File the approved pgrx ADR from the live spike results",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the pgrx companion is a second hosting of the engine",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the pgrx companion is a second hosting of the engine"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R026",
-      "title": "Run the Gramps native-hosting pilot phases P0 through P5",
+      "title": "Native-hosting gate P0 to P5 on a synthetic fixture (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "30af64b172d4"
@@ -1682,7 +1760,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.2",
-      "title": "Run P0-P2 (baseline digest, Postgres control, unmodified corpus replay)",
+      "title": "Phases P0 to P2 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1708,14 +1786,14 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.2.2",
-      "title": "Run P0-P2 live: real baseline capture, Postgres control, unmodified corpus replay",
+      "title": "Live P0 to P2 on the synthetic fixture",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.3",
-      "title": "Run P3-P5 (proven-gap fixes, restore verification, schema-understanding demonstration)",
+      "title": "Phases P3 to P5 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1741,7 +1819,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.3.2",
-      "title": "Run P4-P5 live: restore verification and the schema-understanding demonstration",
+      "title": "Live P4 restore and P5 schema understanding",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1842,12 +1920,20 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R028",
-      "title": "Build the Postgres-equivalence differential harness",
-      "delivery_state": "SPECIFIED",
+      "title": "Postgres-equivalence differential harness",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "2f94e96c5129"
+        "2f94e96c5129",
+        "6c11520aebfc",
+        "e8b99c7db914"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/medulla-types/src/pg_diff_baseline.rs:141",
+        "crates/medulla-types/src/pg_diff_baseline.rs:149",
+        "crates/medulla-types/src/pg_diff_baseline.rs:157",
+        "crates/medulla-types/src/pg_diff_baseline.rs:166",
+        "crates/medulla-types/src/pg_diff_baseline.rs:177"
+      ],
       "rollup_of": [
         "MEDULLA-UNIFIED-DATA-PLANE-R028.1",
         "MEDULLA-UNIFIED-DATA-PLANE-R028.2",
@@ -1901,10 +1987,11 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R028.3",
-      "title": "Run the captured-application-traffic corpus and publish the harness report",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the captured traffic corpus is the P1 and P2 corpus",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the captured traffic corpus is the P1 and P2 corpus"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R029",
@@ -1945,7 +2032,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R029.2",
-      "title": "Wire the real schema_context query entry point through Arbora, following the code_context pattern",
+      "title": "Wire the schema_context entry point through the served query path",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "c1bf552a9c33",
@@ -1958,7 +2045,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R030",
-      "title": "Resolve entities across attached applications",
+      "title": "Cross-application entity link proposals",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "648e9b47f700"
@@ -2012,7 +2099,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R031",
-      "title": "Enforce consolidation safety across attached applications (rollup)",
+      "title": "Consolidation safety across attached applications (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2039,26 +2126,23 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R031.2",
-      "title": "Real fault-isolation enforcement and quota metering",
+      "title": "Per-source quota metering and fault isolation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R032",
-      "title": "Run the Immich connector pilot phases I0 through I6 (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the connector pilot belongs to the connector repository",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "MEDULLA-UNIFIED-DATA-PLANE-R032.1",
-        "MEDULLA-UNIFIED-DATA-PLANE-R032.2"
-      ]
+      "retired_reason": "the connector pilot belongs to the connector repository"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R032.1",
-      "title": "`ImmichPilotProgress` is a typed phase gate (I0-I6) with exit-artifact and skip-ahead refusals",
-      "delivery_state": "VERIFIED",
+      "title": "RETIRED: The typed `immich_pilot_phase` model has no caller",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "6c11520aebfc",
         "eb058c53407e"
@@ -2069,32 +2153,31 @@
         "crates/medulla-types/src/immich_pilot_phase.rs:178",
         "crates/medulla-types/src/immich_pilot_phase.rs:186",
         "crates/medulla-types/src/immich_pilot_phase.rs:198"
-      ]
+      ],
+      "retired_reason": "The typed `immich_pilot_phase` model has no caller"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R032.2",
-      "title": "Run phase I0 (version-pinned OpenAPI client generation and digest)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: client generation belongs to the connector scaffold",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "client generation belongs to the connector scaffold"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R033",
-      "title": "Cut over Gramps to Medulla-backed storage in production (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: a synced replica is a second database",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "273dc35315ff"
       ],
       "verified_by": [],
-      "rollup_of": [
-        "MEDULLA-UNIFIED-DATA-PLANE-R033.1",
-        "MEDULLA-UNIFIED-DATA-PLANE-R033.2"
-      ]
+      "retired_reason": "a synced replica is a second database"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R033.1",
-      "title": "`GrampsCutoverGoAhead` is a typed go-ahead model gated on a valid P5 exit and a 30-day fallback window",
-      "delivery_state": "VERIFIED",
+      "title": "RETIRED: The cutover gate model has no caller",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "6c11520aebfc",
         "9a7674d1bae5"
@@ -2105,23 +2188,26 @@
         "crates/medulla-types/src/gramps_cutover_gate.rs:121",
         "crates/medulla-types/src/gramps_cutover_gate.rs:132",
         "crates/medulla-types/src/gramps_cutover_gate.rs:143"
-      ]
+      ],
+      "retired_reason": "The cutover gate model has no caller"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R033.2",
-      "title": "Real production cutover: Postgres replica, nightly independent XML export, and the rehearsed failover test",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the replica and dual-store window are deleted",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the replica and dual-store window are deleted"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R034",
-      "title": "Keep medulla-core's build, Clippy, and generated contract suite green",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: a build gate is not engine behavior",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "2e6d7617289a"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "a build gate is not engine behavior"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R035",
@@ -2192,7 +2278,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R760.3",
-      "title": "Wiring: served incident authority",
+      "title": "Wiring: five served methods over the incident authority",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2221,7 +2307,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R760.6",
-      "title": "Hot-path proof: served incident authority",
+      "title": "Hot-path proof: correlate 100,000 anomalies in one pass",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2244,7 +2330,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038",
-      "title": "Materialize metadata and hot subsets; virtualize the rest (rollup)",
+      "title": "Metadata is materialized, entity rows stay at the source, and only a watermark-bound cache holds copies (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2275,10 +2361,15 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.2",
-      "title": "Real per-source-kind discovery writing the contract, the copy pipeline, and EXPLAIN's per-fragment live/copy reporting",
+      "title": "Per-kind discovery, copy bound and EXPLAIN route reporting (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.2.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.2.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.2.3"
+      ]
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.3",
@@ -2308,35 +2399,35 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.3.2",
-      "title": "Behavior",
+      "title": "Behavior: one read-only transaction per source per query",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.3.3",
-      "title": "Wiring",
+      "title": "Wiring: `foreign_scan` opens the snapshot and the capability row declares it",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.3.4",
-      "title": "Refusal",
+      "title": "Refusal: no snapshot, stale replica, or reachable write path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.3.5",
-      "title": "Evidence",
+      "title": "Evidence: EXPLAIN and provenance name the snapshot",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.3.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: a concurrent writer does not split the answer",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2358,42 +2449,47 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.1",
-      "title": "Model",
+      "title": "Model: metastore spec, file formats and table metadata",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2",
-      "title": "Behavior",
+      "title": "Behavior: catalog listing, partition pruning, ORC and Avro reads (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.3"
+      ]
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.3",
-      "title": "Wiring",
+      "title": "Wiring: the `hive()` table function and discovery",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.4",
-      "title": "Refusal",
+      "title": "Refusal: schema mismatch, unsupported layout, unreachable catalog",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.5",
-      "title": "Evidence",
+      "title": "Evidence: the scan receipt counts partitions, files, stripes and bytes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: a pruned scan over a recorded metastore",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2415,49 +2511,49 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.5.1",
-      "title": "Model",
+      "title": "Model: `SearchIndexCapability` on the operation-bound source",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.5.2",
-      "title": "Behavior",
+      "title": "Behavior: push text match, nearest-neighbour search, filters and top-k",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.5.3",
-      "title": "Wiring",
+      "title": "Wiring: the search remote joins the shared fusion",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.5.4",
-      "title": "Refusal",
+      "title": "Refusal: vector-space mismatch, page overflow, invented scores",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.5.5",
-      "title": "Evidence",
+      "title": "Evidence: each fragment receipt names the index request",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.5.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: pushed relevance with k replenished",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.6",
-      "title": "openCypher and Gremlin answer over relational and lake sources without a copy (rollup)",
+      "title": "openCypher answers over relational and lake sources through the virtual view, without a copy (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2483,35 +2579,35 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.6.2",
-      "title": "Behavior",
+      "title": "Behavior: compile node and relationship patterns to the virtual SPARQL path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.6.3",
-      "title": "Wiring",
+      "title": "Wiring: a named view routes the read through view compilation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.6.4",
-      "title": "Refusal",
+      "title": "Refusal: view writes, unmapped labels, over-deep paths, unsupported clauses",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.6.5",
-      "title": "Evidence",
+      "title": "Evidence: EXPLAIN names the pushed statement and mapping digest per fragment",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.6.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: openCypher and SPARQL agree over one relational source",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2534,56 +2630,56 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.7.1",
-      "title": "Model",
+      "title": "Model: `WebSearchCapability` and `WebResult`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.7.2",
-      "title": "Behavior",
+      "title": "Behavior: push query arguments and cache by argument digest with a time-to-live",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.7.3",
-      "title": "Wiring",
+      "title": "Wiring: web search reaches the connector call and the shared cache",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.7.4",
-      "title": "Refusal",
+      "title": "Refusal: unsupported arguments, expired entries, unreachable connector",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.7.5",
-      "title": "Evidence",
+      "title": "Evidence: each row carries connector, argument digest, engine, rank and retrieval time",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.7.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: one connector call inside the TTL",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.7.7",
-      "title": "Candidate handoff",
+      "title": "Candidate handoff: web results are fetch candidates, not stored records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R039",
-      "title": "Authenticated, tenant-scoped Iceberg REST catalog (rollup)",
+      "title": "The Iceberg REST catalog refuses unauthenticated, under-scoped and cross-tenant requests (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2620,28 +2716,28 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R039.3",
-      "title": "Locate and wire the REST listener",
+      "title": "Every catalog route passes the carrier gate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R039.4",
-      "title": "Partition spec in emitted Iceberg metadata",
+      "title": "Partition spec and per-partition field summaries in emitted Iceberg metadata",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R039.5",
-      "title": "End-to-end external read",
+      "title": "End-to-end external read through the authenticated catalog",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R040",
-      "title": "Per-modality retrieval gate blocks promotion of a shared embedding space (rollup)",
+      "title": "A per-modality retrieval gate blocks promotion of a shared embedding space (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2679,95 +2775,120 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R040.3",
-      "title": "Wiring",
+      "title": "Wiring: the gate runs before a binding with a new model version goes `Live`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R040.4",
-      "title": "Refusal",
+      "title": "Refusal: a blocked promotion leaves the prior version active",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R040.5",
-      "title": "Evidence",
+      "title": "Evidence: each `PromotionVerdict` is a graph node linked to the model and version",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R040.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: a regressed image check blocks a served promotion",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.4",
-      "title": "EG:64 source definition",
+      "title": "Graph-backed relational projections, read-only (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "MEDULLA-UNIFIED-DATA-PLANE-R026.4.1",
+        "MEDULLA-UNIFIED-DATA-PLANE-R026.4.2",
+        "MEDULLA-UNIFIED-DATA-PLANE-R026.4.3"
+      ]
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.4.1",
+      "title": "Projection read binds mapping and graph revisions",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.4.2",
+      "title": "Projected tables refuse every SQL write",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R026.4.3",
+      "title": "Graph changes reach the projection only through MutationBatch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R612",
-      "title": "Registered external graph connections, schema profiles and governed tabular reads are one registry (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: one registry, no parallel connection model",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "MEDULLA-UNIFIED-DATA-PLANE-R612.1",
-        "MEDULLA-UNIFIED-DATA-PLANE-R612.2",
-        "MEDULLA-UNIFIED-DATA-PLANE-R612.3",
-        "MEDULLA-UNIFIED-DATA-PLANE-R612.4",
-        "MEDULLA-UNIFIED-DATA-PLANE-R612.5",
-        "MEDULLA-UNIFIED-DATA-PLANE-R612.6"
-      ]
+      "retired_reason": "one registry, no parallel connection model"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R612.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: types invented beside the attached catalog model",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "types invented beside the attached catalog model"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R612.2",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: behaviour restated from the registry",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "behaviour restated from the registry"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R612.3",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: wiring names no call site",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "wiring names no call site"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R612.4",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: refusal folded into the registry",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "refusal folded into the registry"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R612.5",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: evidence row without fields",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "evidence row without fields"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R612.6",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: benchmark of a template kernel",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "benchmark of a template kernel"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R750",
@@ -2779,7 +2900,8 @@
         "MEDULLA-UNIFIED-DATA-PLANE-R750.750",
         "MEDULLA-UNIFIED-DATA-PLANE-R750.751",
         "MEDULLA-UNIFIED-DATA-PLANE-R750.752",
-        "MEDULLA-UNIFIED-DATA-PLANE-R750.753"
+        "MEDULLA-UNIFIED-DATA-PLANE-R750.753",
+        "MEDULLA-UNIFIED-DATA-PLANE-R750.754"
       ]
     },
     {
@@ -2817,71 +2939,70 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R750.753",
-      "title": "Hot-path proof: Conversation history source, run audit rows and step store",
+      "title": "Hot-path proof: scoped history search over one million steps",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R650",
-      "title": "Phase-ordered ingestion pipeline (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: a second phase registry beside the semantic stages",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "MEDULLA-UNIFIED-DATA-PLANE-R650.1",
-        "MEDULLA-UNIFIED-DATA-PLANE-R650.2",
-        "MEDULLA-UNIFIED-DATA-PLANE-R650.3",
-        "MEDULLA-UNIFIED-DATA-PLANE-R650.4",
-        "MEDULLA-UNIFIED-DATA-PLANE-R650.5",
-        "MEDULLA-UNIFIED-DATA-PLANE-R650.6"
-      ]
+      "retired_reason": "a second phase registry beside the semantic stages"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R650.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: types duplicate `SemanticStage` and the lane model",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "types duplicate `SemanticStage` and the lane model"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R650.2",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: behaviour duplicates stage ordering",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "behaviour duplicates stage ordering"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R650.3",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: wiring has no caller beyond the stages",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "wiring has no caller beyond the stages"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R650.4",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: refusals are owned by the stage lease and quarantine rows",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "refusals are owned by the stage lease and quarantine rows"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R650.5",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: evidence duplicates stage receipts",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "evidence duplicates stage receipts"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R650.6",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: benchmark of a registry that does not exist",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "benchmark of a registry that does not exist"
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R651",
-      "title": "Document ingest, update and delete across every store (rollup)",
+      "title": "A document delete cascades across the record, vectors and graph with no orphan (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2897,42 +3018,42 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.1",
-      "title": "Model",
+      "title": "Model: cascade plan, orphan report and delete receipt",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.2",
-      "title": "Behavior",
+      "title": "Behavior: plan from back-references, apply as one batch, verify the orphan report",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.3",
-      "title": "Wiring",
+      "title": "Wiring: the served `DocumentDelete` method reaches the cascade",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.4",
-      "title": "Refusal",
+      "title": "Refusal: missing document, live external references, oversized or partial cascade",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.5",
-      "title": "Evidence",
+      "title": "Evidence: the delete receipt and a content-free deletion record",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: a 500-chunk delete leaves no orphan",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3034,7 +3155,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R651.7.7",
-      "title": "Extraction",
+      "title": "Extraction: a worker submits facts for the enriched chunks and the engine grounds them",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3067,14 +3188,14 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R700.2",
-      "title": "Behavior",
+      "title": "Behavior: parameters, ordered criteria, one-pass templates, one mutation batch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R700.3",
-      "title": "Wiring",
+      "title": "Wiring: `ActionRegister` and `ActionSubmit` reach the apply path and the outbox",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3103,7 +3224,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R700.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: a failed criterion applies no effect",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3147,7 +3268,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R701.3",
-      "title": "Wiring",
+      "title": "Wiring: `StandardsDrift` reads the graph and stays a proposal across attached applications",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3176,14 +3297,14 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R701.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: a missing standard scores unscored, never zero",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R702",
-      "title": "ETL runs record lineage and consume OpenLineage run events (rollup)",
+      "title": "ETL runs record lineage and consume external lineage run events (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3220,7 +3341,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R702.3",
-      "title": "Wiring",
+      "title": "Wiring: `LineageIngest` is called by the lake sweep and the arbora route; lineage reads are plain graph queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3249,21 +3370,21 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R702.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: replay adds no edges and malformed events quarantine",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R710",
-      "title": "Message-stream adapters normalize into ChangeEnvelope: model and behavior",
+      "title": "Message-stream records normalize into a `ChangeEnvelope`: model and behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R711",
-      "title": "Message-stream adapters normalize into ChangeEnvelope: refusal, evidence and hot-path proof",
+      "title": "Message-stream records normalize into a `ChangeEnvelope`: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3281,7 +3402,56 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R030.701",
-      "title": "Identity evidence kinds and merge decisions for candidate links: refusal, evidence and hot-path proof",
+      "title": "Identity evidence kinds and merge decisions: refusal, evidence and hot path",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.2.1",
+      "title": "Discovery writes one `MetadataContract` per registered source kind",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.2.2",
+      "title": "The copy route is bounded by rows and by watermark",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.2.3",
+      "title": "EXPLAIN states whether each fragment ran live or from a copy",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.1",
+      "title": "Listing pages at the knob size and partitions prune by pushed predicates",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.2",
+      "title": "ORC scans skip stripes by stripe statistics",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R038.4.2.3",
+      "title": "Avro scans project the reader schema",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R750.754",
+      "title": "Wiring: terminal commit writes audit rows and steps; `HistorySearch` reads them",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3314,35 +3484,35 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R761.2",
-      "title": "Behavior",
+      "title": "Behavior: pushed aggregates where the dialect allows, sampling otherwise, sketch for distinct counts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R761.3",
-      "title": "Wiring",
+      "title": "Wiring: the `DatasetProfile` job kind attaches profiles to the catalog",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R761.4",
-      "title": "Refusal",
+      "title": "Refusal: out-of-scope dataset, unsupported source",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R761.5",
-      "title": "Evidence",
+      "title": "Evidence: each profile records its method and sample size",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R761.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: profile ten columns of a native dataset",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3377,35 +3547,35 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R762.2",
-      "title": "Behavior",
+      "title": "Behavior: compile each rule kind, score it, count consecutive failures",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R762.3",
-      "title": "Wiring",
+      "title": "Wiring: `QualityRulePut` and the `QualityEvaluate` job kind",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R762.4",
-      "title": "Refusal",
+      "title": "Refusal: invalid rule, invalid threshold, unapproved rule",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R762.5",
-      "title": "Evidence",
+      "title": "Evidence: each score records the compiled query digest and the row counts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R762.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: evaluate 100 rules over a native dataset",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3423,7 +3593,7 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R762.8",
-      "title": "Quality results from outside checkers",
+      "title": "Quality results from outside checkers arrive through `SourceIngest`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3440,7 +3610,8 @@
         "MEDULLA-UNIFIED-DATA-PLANE-R763.3",
         "MEDULLA-UNIFIED-DATA-PLANE-R763.4",
         "MEDULLA-UNIFIED-DATA-PLANE-R763.5",
-        "MEDULLA-UNIFIED-DATA-PLANE-R763.6"
+        "MEDULLA-UNIFIED-DATA-PLANE-R763.6",
+        "MEDULLA-UNIFIED-DATA-PLANE-R763.7"
       ]
     },
     {
@@ -3456,35 +3627,42 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R763.2",
-      "title": "Behavior",
+      "title": "Derive column edges from SQL with the shared parser",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R763.3",
-      "title": "Wiring",
+      "title": "Wire column lineage into the catalog reader, the lineage drain and impact queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R763.4",
-      "title": "Refusal",
+      "title": "Quarantine SQL that does not parse",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R763.5",
-      "title": "Evidence",
+      "title": "Record query digest and parser version on each column edge",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R763.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof for column lineage",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R763.7",
+      "title": "Catalog carries view definitions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3530,28 +3708,36 @@
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R764.3",
-      "title": "Wiring",
+      "title": "RETIRED: CatalogSearch is not a served method",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "CatalogSearch is not a served method"
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R764.3.1",
+      "title": "Record asset usage from the server's own query dispatch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R764.4",
-      "title": "Refusal",
+      "title": "Refuse unauthorized hits and oversized catalog queries",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R764.5",
-      "title": "Evidence",
+      "title": "List score components on each catalog hit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R764.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof for catalog search",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3566,6 +3752,27 @@
     {
       "id": "MEDULLA-UNIFIED-DATA-PLANE-R764.8",
       "title": "Frequent users and usage suggestions",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R765",
+      "title": "Serve the foreign source catalog: list, get, probe, share and unshare",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R766",
+      "title": "Engine work item kind for web research",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-UNIFIED-DATA-PLANE-R767",
+      "title": "Tenant context view over approved sources",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -648,7 +648,7 @@
     },
     {
       "id": "MEDULLA-CQ-ORCH-R008",
-      "title": "Composed answer to \"How can I execute task XYZ?\" (rollup)",
+      "title": "Composed answer to the execution question (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -675,35 +675,35 @@
     },
     {
       "id": "MEDULLA-CQ-ORCH-R008.2",
-      "title": "Composed Assemble wiring",
+      "title": "Composed assemble wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R008.3",
-      "title": "Composed Typed abstention per part",
+      "title": "Composed typed abstention per part",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R008.4",
-      "title": "Composed Query fixture",
+      "title": "Composed ingest fixture",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R008.5",
-      "title": "Composed Acceptance test",
+      "title": "Composed acceptance test",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R009",
-      "title": "Probe questions through the intent surface (rollup, owned by Arbora, cross-repo)",
+      "title": "Probe questions through the intent surface (rollup, Arbora-owned)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -718,42 +718,42 @@
     },
     {
       "id": "MEDULLA-CQ-ORCH-R009.1",
-      "title": "Probe: \"How many nodes does the graph hold, by label?\"",
+      "title": "Probe 1: node counts by label",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R009.2",
-      "title": "Probe: \"How can I deploy a container with container-manager?\"",
+      "title": "Probe 2: deploy a container",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R009.3",
-      "title": "Probe: \"Which agents are in the Agent Library?\"",
+      "title": "Probe 3: agents in the Agent Library",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R009.4",
-      "title": "Probe: \"Why does Arbora use the intent surface?\"",
+      "title": "Probe 4: why the intent surface",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R009.5",
-      "title": "Probe: \"Find a tool that lists Docker containers.\"",
+      "title": "Probe 5: find a container-listing tool",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R009.6",
-      "title": "Probe: \"Delegate: list running containers.\"",
+      "title": "Probe 6: delegate listing containers",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -776,52 +776,53 @@
     },
     {
       "id": "MEDULLA-CQ-ORCH-R010.1",
-      "title": "Model",
+      "title": "Architecture view model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R010.2",
-      "title": "Behavior",
+      "title": "Architecture view derivation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R010.3",
-      "title": "Wiring",
+      "title": "Architecture view wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R010.4",
-      "title": "Refusal",
+      "title": "Architecture view refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R010.5",
-      "title": "Evidence",
+      "title": "Architecture view evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R010.6",
-      "title": "Hot-path proof",
+      "title": "Architecture view hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R010.7",
-      "title": "Preplanning architecture-gap admission and unwired-feature refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: planning admission is a decision of the decision engine",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "planning admission is a decision of the decision engine"
     },
     {
       "id": "MEDULLA-CQ-ORCH-R011",
@@ -840,49 +841,49 @@
     },
     {
       "id": "MEDULLA-CQ-ORCH-R011.1",
-      "title": "Question",
+      "title": "Job load-set question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R011.2",
-      "title": "Question",
+      "title": "Downtime next-job question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R011.3",
-      "title": "Question",
+      "title": "Best virtual query plan question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R011.4",
-      "title": "Question",
+      "title": "Connector usage guidance question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R011.5",
-      "title": "Question",
+      "title": "Connector seed changes question",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R011.6",
-      "title": "Hot-path proof",
+      "title": "Job, downtime and plan hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R800",
-      "title": "Run provenance, trace ontology and incident views answer operations questions (rollup)",
+      "title": "Run incident and portfolio views answer operations questions (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -897,42 +898,42 @@
     },
     {
       "id": "MEDULLA-CQ-ORCH-R800.1",
-      "title": "Model",
+      "title": "Incident and portfolio model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R800.2",
-      "title": "Behavior",
+      "title": "Incident grouping and portfolio rollup behaviour",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R800.3",
-      "title": "Wiring",
+      "title": "Run views wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R800.4",
-      "title": "Refusal",
+      "title": "Run views refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R800.5",
-      "title": "Evidence",
+      "title": "Run views evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R800.6",
-      "title": "Hot-path proof",
+      "title": "Run views hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -954,49 +955,50 @@
     },
     {
       "id": "MEDULLA-CQ-ORCH-R700.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: workflow, agent and prompt types have one owner",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "workflow, agent and prompt types have one owner"
     },
     {
       "id": "MEDULLA-CQ-ORCH-R700.2",
-      "title": "Behavior",
+      "title": "Process compile behaviour",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R700.3",
-      "title": "Wiring",
+      "title": "Process compile wiring and version store",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R700.4",
-      "title": "Refusal",
+      "title": "Process compile refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R700.5",
-      "title": "Evidence",
+      "title": "Process compile evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R700.6",
-      "title": "Hot-path proof",
+      "title": "Process compile hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R701",
-      "title": "External governance process models import to and export from workflows (rollup)",
+      "title": "Stored process models import to and export from workflows (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1011,42 +1013,42 @@
     },
     {
       "id": "MEDULLA-CQ-ORCH-R701.1",
-      "title": "Model",
+      "title": "Imported process model and gate classification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R701.2",
-      "title": "Behavior",
+      "title": "Process model import and export behaviour",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R701.3",
-      "title": "Wiring",
+      "title": "Process model import and export wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R701.4",
-      "title": "Refusal",
+      "title": "Process model import refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R701.5",
-      "title": "Evidence",
+      "title": "Process model import evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CQ-ORCH-R701.6",
-      "title": "Hot-path proof",
+      "title": "Process model import hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
