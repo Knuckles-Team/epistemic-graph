@@ -76,10 +76,18 @@ const PREFIXES: &[(&str, fn(&str) -> LineKind<'_>)] = &[
     ("- [ ] ", open_task),
     ("- [x] ", ticked_task),
     ("- [X] ", ticked_task),
-    ("Spec: ", LineKind::Trailer),
-    ("|", LineKind::TableRow),
+    ("Spec: ", trailer),
+    ("|", table_row),
     ("#", heading),
 ];
+
+fn trailer(rest: &str) -> LineKind<'_> {
+    LineKind::Trailer(rest)
+}
+
+fn table_row(rest: &str) -> LineKind<'_> {
+    LineKind::TableRow(rest)
+}
 
 fn open_task(rest: &str) -> LineKind<'_> {
     LineKind::Task(false, rest)
