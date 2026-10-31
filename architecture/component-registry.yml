@@ -3872,6 +3872,7 @@ components:
       - "tests/test_quality_gate_script.py"
       - "tests/test_contract_architecture_evidence.py"
       - "tests/test_check_dupehound_main.py"
+      - "tests/test_check_crate_graph.py"
       - "tests/test_check_cluster_extras_affected_lint.py"
       - "tests/test_check_duplication_identity.py"
       - "tests/test_check_wheel_completeness.py"

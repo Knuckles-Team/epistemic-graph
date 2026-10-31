@@ -181,10 +181,14 @@ def rewrite_use(
     leaves = parse_use_tree(body)
     lead = re.match(r"([ \t]*(?:pub(?:\([^)]*\))?\s+)?use\s+)", stmt)
     prefix = lead.group(1) if lead else "use "
-    out, hit = [], False
+    out: list[tuple[str, str | None]] = []
+    hit = False
     for segs, _line, alias in leaves:
-        if not segs or segs[0] != "crate":
-            out.append(None)
+        if not segs:
+            continue
+        if segs[0] != "crate":
+            # Keep non-crate leaves of a grouped `use`; flattening must not drop them.
+            out.append(("::".join(segs), alias))
             continue
         new = rw.path_for(rel, segs[1:]) if segs[1:] else None
         if new is None and not in_test:
@@ -196,12 +200,7 @@ def rewrite_use(
     if "{" not in body:
         item = out[0]
         return f"{prefix}{item[0]}{' as ' + item[1] if item[1] else ''};"
-    lines = [
-        f"{prefix}{p}{' as ' + a if a else ''};"
-        for item in out
-        if item
-        for p, a in [item]
-    ]
+    lines = [f"{prefix}{p}{' as ' + a if a else ''};" for p, a in out]
     return "\n".join(lines) if lines else None
 
 
