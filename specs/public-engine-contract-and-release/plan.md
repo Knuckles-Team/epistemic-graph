@@ -619,3 +619,13 @@ Resource benchmarks, complete served image admission, installed session usage an
 Main `28ceffdbcff7042f266aa7b8be999d89635a4e7d` adds `NlQueryExplain`, the canonical task-plan feature-schema export and connector ontology parents. This necessary union retains those sources and the four existing feature slices. Its exact method inventory is 476, not the historical 475 above.
 
 The initial union's 2,405 passing native tests and reviewed generated artifacts remain evidence for their recorded source only. All 74 canonical outputs, both codec copies and the artifact ledger now retain exact current-main bytes as explicitly stale placeholders. No receipt or codec hash is combined by hand. Fresh current-union generation and native, client and parity gates must qualify this composition. The installed, served and resource residuals above remain open.
+
+## North star
+
+Deployment comes only from published package releases. Releases ship delivered cross-repository spec bundles. Development is graph-native. The whole ecosystem is ingested into the engine. Developers work through arbora. The repository connector reads code from the graph.
+
+## Delivery phase
+
+Rows `MEDULLA-CONTRACT-R056.11` to `.13` serve P5, scale and breadth. They lower build cost for every later delivery lane.
+
+Crate split: the generated-contract machinery goes first. Then each subsystem moves behind the handler registry (`MEDULLA-CONTRACT-R056.1` to `.10`). Build profiles, test layout and feature layout are part of the split, not follow-ups. A timings report before and after proves the gain.

@@ -782,3 +782,13 @@ Neither class changes the already qualified R105.3 parent set or implies
 `ExternalGraphReference`, or `Credential`. The existing connector pack classes
 may specialise these terms only after the central vocabulary and its native
 classification test qualify together.
+
+## North star
+
+Every connector that connects through arbora onboards itself. Its ontology extends the core ontology. Its prompts become system-prompt candidates. Its skills, tools and resources appear as virtual graph entries in the engine. One engine, medulla, holds all facts. There is no second database and no sync. External stores are virtual-graph sources reached through connectors.
+
+## Delivery phase
+
+Row `MEDULLA-TYPED-PACKS-R096.1` serves P3, where onboarded connectors must be visible in the catalog.
+
+Projection state: a committed head whose projection is rejected must be visible, retried and re-drivable. The state is read through pack status and acted on by arbora (`ARBORA-FLEET-R041.19`).

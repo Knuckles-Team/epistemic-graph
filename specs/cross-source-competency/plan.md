@@ -80,3 +80,11 @@ Checked `kg:supports` (`core-foundation-v1.ttl`): it is the epistemic evidence-t
 ## Agent memory acceptance question (R009)
 
 R009 is the acceptance question for the agent-memory substrate. It composes `MEDULLA-FEDERATED-QUERY-R720` stages with `MEDULLA-DECISION-ENGINE-R700.7` contradiction records. arbora serves the program through [`ARBORA-OPS-R018`](https://github.com/Knuckles-Team/arbora/blob/main/specs/hosted-api-operations/requirements.md). `MEDULLA-DURABLE-KERNEL-R042.2` measures its latency.
+
+## North star
+
+One engine, medulla, holds all facts. There is no second database and no sync. External stores are virtual-graph sources reached through connectors. The exit gate is competency questions. The ontology answers how to execute a task and produces cross-source reports from connector virtual graphs.
+
+## Delivery phase
+
+Rows `MEDULLA-CQ-XSRC-R012` and its children serve P5. They supply the engine side of `ARBORA-ACCEPTANCE-R006.7`.
