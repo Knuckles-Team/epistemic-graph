@@ -182,6 +182,7 @@
     "EG-DECISION-ENGINE-R098",
     "EG-DECISION-ENGINE-R099",
     "EG-DECISION-ENGINE-R099.1",
+    "EG-DECISION-ENGINE-R099.2",
     "EG-DECISION-ENGINE-R100",
     "EG-DECISION-ENGINE-R101",
     "EG-DECISION-ENGINE-R102",
@@ -3394,12 +3395,20 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-DECISION-ENGINE-R099.1"
+        "EG-DECISION-ENGINE-R099.1",
+        "EG-DECISION-ENGINE-R099.2"
       ]
     },
     {
       "id": "EG-DECISION-ENGINE-R099.1",
       "title": "Alignment mapping data validated against world-model shapes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R099.2",
+      "title": "Entity documents become alignment claims",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
