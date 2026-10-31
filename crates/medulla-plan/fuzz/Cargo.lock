@@ -256,12 +256,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "eg-core"
+name = "medulla-core"
 version = "0.27.0"
 dependencies = [
  "aho-corasick",
  "dashmap",
- "eg-types",
+ "medulla-types",
  "hex",
  "hnsw_rs",
  "parking_lot",
@@ -272,11 +272,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "eg-plan"
+name = "medulla-plan"
 version = "0.33.0"
 dependencies = [
- "eg-core",
- "eg-types",
+ "medulla-core",
+ "medulla-types",
  "petgraph",
  "rmp-serde",
  "serde",
@@ -284,15 +284,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "eg-plan-fuzz"
+name = "medulla-plan-fuzz"
 version = "0.0.0"
 dependencies = [
- "eg-plan",
+ "medulla-plan",
  "libfuzzer-sys",
 ]
 
 [[package]]
-name = "eg-types"
+name = "medulla-types"
 version = "0.27.0"
 dependencies = [
  "rmp-serde",
