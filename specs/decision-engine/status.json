@@ -1036,6 +1036,9 @@
     "MEDULLA-DECISION-ENGINE-R036.104",
     "MEDULLA-DECISION-ENGINE-R036.105",
     "MEDULLA-DECISION-ENGINE-R036.106",
+    "MEDULLA-DECISION-ENGINE-R038.2",
+    "MEDULLA-DECISION-ENGINE-R038.3",
+    "MEDULLA-DECISION-ENGINE-R039.3",
     "MEDULLA-DECISION-ENGINE-R804",
     "MEDULLA-DECISION-ENGINE-R804.1",
     "MEDULLA-DECISION-ENGINE-R804.2",
@@ -1070,6 +1073,14 @@
     "MEDULLA-DECISION-ENGINE-R134.111.11",
     "MEDULLA-DECISION-ENGINE-R134.111.12",
     "MEDULLA-DECISION-ENGINE-R134.111.13",
+    "MEDULLA-DECISION-ENGINE-R158.7",
+    "MEDULLA-DECISION-ENGINE-R179.7",
+    "MEDULLA-DECISION-ENGINE-R803.7",
+    "MEDULLA-DECISION-ENGINE-R803.8",
+    "MEDULLA-DECISION-ENGINE-R805.10",
+    "MEDULLA-DECISION-ENGINE-R805.11",
+    "MEDULLA-DECISION-ENGINE-R805.12",
+    "MEDULLA-DECISION-ENGINE-R805.13",
     "MEDULLA-DECISION-ENGINE-R814",
     "MEDULLA-DECISION-ENGINE-R814.1",
     "MEDULLA-DECISION-ENGINE-R814.1.1",
@@ -1079,7 +1090,21 @@
     "MEDULLA-DECISION-ENGINE-R814.4",
     "MEDULLA-DECISION-ENGINE-R814.5",
     "MEDULLA-DECISION-ENGINE-R814.6",
-    "MEDULLA-DECISION-ENGINE-R814.7"
+    "MEDULLA-DECISION-ENGINE-R814.7",
+    "MEDULLA-DECISION-ENGINE-R815",
+    "MEDULLA-DECISION-ENGINE-R816",
+    "MEDULLA-DECISION-ENGINE-R817",
+    "MEDULLA-DECISION-ENGINE-R818",
+    "MEDULLA-DECISION-ENGINE-R819",
+    "MEDULLA-DECISION-ENGINE-R820",
+    "MEDULLA-DECISION-ENGINE-R821",
+    "MEDULLA-DECISION-ENGINE-R822",
+    "MEDULLA-DECISION-ENGINE-R823",
+    "MEDULLA-DECISION-ENGINE-R824",
+    "MEDULLA-DECISION-ENGINE-R825",
+    "MEDULLA-DECISION-ENGINE-R826",
+    "MEDULLA-DECISION-ENGINE-R827",
+    "MEDULLA-DECISION-ENGINE-R828"
   ],
   "requirements": [
     {
@@ -1864,7 +1889,7 @@
     {
       "id": "MEDULLA-DECISION-ENGINE-R038",
       "title": "Advisory pre-tool risk scoring",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1570bfef96aa",
         "4034a361535b",
@@ -1872,11 +1897,12 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/pretool_risk_tests.rs:26",
-        "src/server/handlers/decide/stat_tests/pretool_risk_tests.rs:27"
+        "src/server/handlers/decide/stat_tests/pretool_risk_tests.rs:26"
       ],
       "rollup_of": [
-        "MEDULLA-DECISION-ENGINE-R038.1"
+        "MEDULLA-DECISION-ENGINE-R038.1",
+        "MEDULLA-DECISION-ENGINE-R038.2",
+        "MEDULLA-DECISION-ENGINE-R038.3"
       ]
     },
     {
@@ -1902,7 +1928,8 @@
       "verified_by": [],
       "rollup_of": [
         "MEDULLA-DECISION-ENGINE-R039.1",
-        "MEDULLA-DECISION-ENGINE-R039.2"
+        "MEDULLA-DECISION-ENGINE-R039.2",
+        "MEDULLA-DECISION-ENGINE-R039.3"
       ]
     },
     {
@@ -1968,7 +1995,7 @@
     {
       "id": "MEDULLA-DECISION-ENGINE-R042",
       "title": "Connector tool-choice advisory via Decide (rollup)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "67d04f5e9087",
         "e8eaaf916a40",
@@ -5741,10 +5768,11 @@
     },
     {
       "id": "MEDULLA-DECISION-ENGINE-R042.100",
-      "title": "Tool-path outcome history and repeated-failure skip rule",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: duplicate of MEDULLA-DECISION-ENGINE-R159",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "duplicate of MEDULLA-DECISION-ENGINE-R159"
     },
     {
       "id": "MEDULLA-DECISION-ENGINE-R042.101",
@@ -7130,7 +7158,8 @@
         "MEDULLA-DECISION-ENGINE-R158.3",
         "MEDULLA-DECISION-ENGINE-R158.4",
         "MEDULLA-DECISION-ENGINE-R158.5",
-        "MEDULLA-DECISION-ENGINE-R158.6"
+        "MEDULLA-DECISION-ENGINE-R158.6",
+        "MEDULLA-DECISION-ENGINE-R158.7"
       ]
     },
     {
@@ -8640,7 +8669,8 @@
         "MEDULLA-DECISION-ENGINE-R179.3",
         "MEDULLA-DECISION-ENGINE-R179.4",
         "MEDULLA-DECISION-ENGINE-R179.5",
-        "MEDULLA-DECISION-ENGINE-R179.6"
+        "MEDULLA-DECISION-ENGINE-R179.6",
+        "MEDULLA-DECISION-ENGINE-R179.7"
       ]
     },
     {
@@ -10564,25 +10594,21 @@
     {
       "id": "MEDULLA-DECISION-ENGINE-R803",
       "title": "Contrastive harness composition decision (rollup)",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "7cb7f367c849",
         "f52d12235269"
       ],
-      "verified_by": [
-        "crates/medulla-types/src/decision/harness_contrast.rs:578",
-        "crates/medulla-types/src/decision/harness_contrast.rs:630",
-        "crates/medulla-types/src/decision/harness_contrast.rs:723",
-        "crates/medulla-types/src/decision/harness_contrast.rs:945",
-        "tests/decide/test_harness_contrast_served.py:257"
-      ],
+      "verified_by": [],
       "rollup_of": [
         "MEDULLA-DECISION-ENGINE-R803.1",
         "MEDULLA-DECISION-ENGINE-R803.2",
         "MEDULLA-DECISION-ENGINE-R803.3",
         "MEDULLA-DECISION-ENGINE-R803.4",
         "MEDULLA-DECISION-ENGINE-R803.5",
-        "MEDULLA-DECISION-ENGINE-R803.6"
+        "MEDULLA-DECISION-ENGINE-R803.6",
+        "MEDULLA-DECISION-ENGINE-R803.7",
+        "MEDULLA-DECISION-ENGINE-R803.8"
       ]
     },
     {
@@ -10955,6 +10981,27 @@
       "verified_by": []
     },
     {
+      "id": "MEDULLA-DECISION-ENGINE-R038.2",
+      "title": "Tool-action admission is a served `Decide` question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R038.3",
+      "title": "Held-item admission is a served `Decide` question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R039.3",
+      "title": "The `Route` question honours a caller-preferred option when it is legal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "MEDULLA-DECISION-ENGINE-R804",
       "title": "Evaluation-set independence for program promotion (rollup)",
       "delivery_state": "SPECIFIED",
@@ -11031,7 +11078,11 @@
         "MEDULLA-DECISION-ENGINE-R805.6",
         "MEDULLA-DECISION-ENGINE-R805.7",
         "MEDULLA-DECISION-ENGINE-R805.8",
-        "MEDULLA-DECISION-ENGINE-R805.9"
+        "MEDULLA-DECISION-ENGINE-R805.9",
+        "MEDULLA-DECISION-ENGINE-R805.10",
+        "MEDULLA-DECISION-ENGINE-R805.11",
+        "MEDULLA-DECISION-ENGINE-R805.12",
+        "MEDULLA-DECISION-ENGINE-R805.13"
       ]
     },
     {
@@ -11290,6 +11341,62 @@
       "verified_by": []
     },
     {
+      "id": "MEDULLA-DECISION-ENGINE-R158.7",
+      "title": "Latency and cost inputs and knobs for run adjustment",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R179.7",
+      "title": "Harness evolution knobs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R803.7",
+      "title": "Contrast measured from stored traces, scores and the usage ledger",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R803.8",
+      "title": "`DecisionLog` op `HarnessAdoption` stores the adoption, contrast and lesson",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R805.10",
+      "title": "Model: three more revision subject kinds",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R805.11",
+      "title": "Behaviour: gate rule per added subject kind",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R805.12",
+      "title": "Harness component and harness adoption revision subjects",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R805.13",
+      "title": "Serve the champion pointer read",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "MEDULLA-DECISION-ENGINE-R814",
       "title": "Connector prompts are system-prompt candidates that agent assembly selects (rollup)",
       "delivery_state": "SPECIFIED",
@@ -11389,6 +11496,104 @@
     {
       "id": "MEDULLA-DECISION-ENGINE-R814.7",
       "title": "System-prompt competency query",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R815",
+      "title": "Model media capability on the model selection answer",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R816",
+      "title": "Store run-bound observation state",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R817",
+      "title": "Serve revision proposals as a tenant-scoped list",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R818",
+      "title": "Probe selection from a goal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R819",
+      "title": "Serving technique activation verdict",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R820",
+      "title": "Process remediation verdict",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R821",
+      "title": "Retrieval strategy adoption and per-source trust posterior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R822",
+      "title": "Rerank calibration head fitted from outcomes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R823",
+      "title": "Reasoning-paradigm choice family",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R824",
+      "title": "Capacity adjustment question and verdict",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R825",
+      "title": "Model capacity question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R826",
+      "title": "Ingest shortfall allocation family",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R827",
+      "title": "Revert or fix-forward family",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-DECISION-ENGINE-R828",
+      "title": "Branch merge conflict winner family (ResolveConflict)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

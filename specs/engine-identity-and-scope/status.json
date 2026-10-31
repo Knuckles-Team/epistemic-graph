@@ -10,6 +10,11 @@
     "MEDULLA-IDENTITY-R003.1",
     "MEDULLA-IDENTITY-R003.2",
     "MEDULLA-IDENTITY-R003.3",
+    "MEDULLA-IDENTITY-R003.4",
+    "MEDULLA-IDENTITY-R003.5",
+    "MEDULLA-IDENTITY-R003.6",
+    "MEDULLA-IDENTITY-R003.7",
+    "MEDULLA-IDENTITY-R003.8",
     "MEDULLA-IDENTITY-R004",
     "MEDULLA-IDENTITY-R005",
     "MEDULLA-IDENTITY-R006",
@@ -55,7 +60,20 @@
     "MEDULLA-IDENTITY-R700.3",
     "MEDULLA-IDENTITY-R700.4",
     "MEDULLA-IDENTITY-R700.5",
-    "MEDULLA-IDENTITY-R700.6"
+    "MEDULLA-IDENTITY-R700.6",
+    "MEDULLA-IDENTITY-R701",
+    "MEDULLA-IDENTITY-R702",
+    "MEDULLA-IDENTITY-R703",
+    "MEDULLA-IDENTITY-R704",
+    "MEDULLA-IDENTITY-R705",
+    "MEDULLA-IDENTITY-R706",
+    "MEDULLA-IDENTITY-R707",
+    "MEDULLA-IDENTITY-R708",
+    "MEDULLA-IDENTITY-R709",
+    "MEDULLA-IDENTITY-R710",
+    "MEDULLA-IDENTITY-R711",
+    "MEDULLA-IDENTITY-R712",
+    "MEDULLA-IDENTITY-R713"
   ],
   "requirements": [
     {
@@ -87,7 +105,7 @@
     },
     {
       "id": "MEDULLA-IDENTITY-R003",
-      "title": "Identity mode is a durable singleton with CAS transition",
+      "title": "Identity mode is a durable singleton with a compare-and-set transition (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "8fed7c656140",
@@ -100,7 +118,12 @@
       "rollup_of": [
         "MEDULLA-IDENTITY-R003.1",
         "MEDULLA-IDENTITY-R003.2",
-        "MEDULLA-IDENTITY-R003.3"
+        "MEDULLA-IDENTITY-R003.3",
+        "MEDULLA-IDENTITY-R003.4",
+        "MEDULLA-IDENTITY-R003.5",
+        "MEDULLA-IDENTITY-R003.6",
+        "MEDULLA-IDENTITY-R003.7",
+        "MEDULLA-IDENTITY-R003.8"
       ]
     },
     {
@@ -117,14 +140,49 @@
     },
     {
       "id": "MEDULLA-IDENTITY-R003.2",
-      "title": "Measured anonymous admission budget (pending)",
+      "title": "Measured anonymous admission budget",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R003.3",
-      "title": "Additional isolated-mode runtime qualification (pending)",
+      "title": "Isolated-mode runtime qualification over a private socket",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R003.4",
+      "title": "Model: identity mode record and CAS operation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R003.5",
+      "title": "Behavior: transition preconditions",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R003.6",
+      "title": "Wiring: session invalidation and issuer rotation after the commit",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R003.7",
+      "title": "Wiring: served transition method and offline conversion",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R003.8",
+      "title": "Hot-path proof: mode round trip over the wire",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -203,7 +261,7 @@
     },
     {
       "id": "MEDULLA-IDENTITY-R008.1",
-      "title": "Locate and wire the attach point",
+      "title": "Attach point: tool-set admission in AgentAssemble",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -242,7 +300,7 @@
     },
     {
       "id": "MEDULLA-IDENTITY-R008.5",
-      "title": "Typed refusal `ScopeExceedsPolicy`",
+      "title": "Typed refusal ScopeExceedsPolicy with an audit record",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -256,7 +314,7 @@
     },
     {
       "id": "MEDULLA-IDENTITY-R023",
-      "title": "Principal-scoped knowledge segments with explicit sharing (rollup)",
+      "title": "Principal-scoped knowledge segments with one sharing enum (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -301,70 +359,70 @@
     },
     {
       "id": "MEDULLA-IDENTITY-R023.3",
-      "title": "Wiring",
+      "title": "Wiring: visible-unit filter on the served read path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R023.4",
-      "title": "Refusal",
+      "title": "Refusal: point read outside scope",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R023.5",
-      "title": "Evidence",
+      "title": "Evidence: read audit with hidden count",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R023.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path journey: shared unit visible only in scope",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R023.7",
-      "title": "Model",
+      "title": "Model: typed principal metadata",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R023.8",
-      "title": "Behavior",
+      "title": "Behavior: persist metadata as versioned graph nodes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R023.9",
-      "title": "Wiring",
+      "title": "Wiring: metadata admission before mutation compilation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R023.10",
-      "title": "Refusal",
+      "title": "Refusal: invalid metadata writes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R023.11",
-      "title": "Evidence",
+      "title": "Evidence: metadata import provenance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R023.12",
-      "title": "Hot-path proof",
+      "title": "Hot-path journey: typed metadata over the wire",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -386,49 +444,49 @@
     },
     {
       "id": "MEDULLA-IDENTITY-R023.13.1",
-      "title": "Model",
+      "title": "Model: share operations",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R023.13.2",
-      "title": "Behavior",
+      "title": "Behavior: share transition function",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R023.13.3",
-      "title": "Wiring",
+      "title": "Wiring: RbacAdmin arm calls the transition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R023.13.4",
-      "title": "Refusal",
+      "title": "Refusal: share operations",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R023.13.5",
-      "title": "Evidence",
+      "title": "Evidence: share audit event",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R023.13.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path journey: org share revoke survives restart",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R610",
-      "title": "Tenant sharing, parent chains, secured reads and ownership claims are enforced in the engine (rollup)",
+      "title": "Tenant sharing, parent chains, secured reads and ownership claims (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -465,42 +523,43 @@
     },
     {
       "id": "MEDULLA-IDENTITY-R610.3",
-      "title": "Wiring",
+      "title": "Wiring: tenant predicate in the UQL executor",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R610.4",
-      "title": "Refusal",
+      "title": "Refusal: unscopable read query",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R610.5",
-      "title": "Evidence",
+      "title": "Evidence: read and claim audit sink",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R610.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path journey: scope injection and marking filter",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R023.600",
-      "title": "Hierarchical tenant chains and audited reads",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: duplicates the tenant-chain rule",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "duplicates the tenant-chain rule"
     },
     {
       "id": "MEDULLA-IDENTITY-R700",
-      "title": "Graph ownership is inferred from signals and applied as reversible grants (rollup)",
+      "title": "Graph ownership inferred from signals, applied as reversible grants (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -515,42 +574,133 @@
     },
     {
       "id": "MEDULLA-IDENTITY-R700.1",
-      "title": "Model",
+      "title": "Model: ownership signals and grant plan",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R700.2",
-      "title": "Behavior",
+      "title": "Behavior: deterministic plan, transactional apply, exact rollback",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R700.3",
-      "title": "Wiring",
+      "title": "Wiring: plan method and RbacAdmin apply",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R700.4",
-      "title": "Refusal",
+      "title": "Refusal: unsafe ownership plans",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R700.5",
-      "title": "Evidence",
+      "title": "Evidence: stored plan and rollback record",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-IDENTITY-R700.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path journey: apply then rollback",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R701",
+      "title": "Delegation record read for background work",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R702",
+      "title": "Policy rule bundle: compile, bind and enforce in the engine",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R703",
+      "title": "Epistemic policy predicates",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R704",
+      "title": "Resource-scoped access decision method",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R705",
+      "title": "ClientSession record vocabulary",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R706",
+      "title": "Read gate expands source groups and honors source access properties",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R707",
+      "title": "Identity domain operations with Argon2id and redacted views",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R708",
+      "title": "Durable session record projection on Resolve",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R709",
+      "title": "Served session-liveness check by opaque session reference",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R710",
+      "title": "Idle session renewal uses global authority compare-and-set",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R711",
+      "title": "Registered human approval keys",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R712",
+      "title": "Credential resolution observes without refreshing",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-IDENTITY-R713",
+      "title": "Original session reference inspection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

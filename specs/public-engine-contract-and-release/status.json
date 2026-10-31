@@ -76,6 +76,9 @@
     "MEDULLA-CONTRACT-R052.4",
     "MEDULLA-CONTRACT-R001.1",
     "MEDULLA-CONTRACT-R001.2",
+    "MEDULLA-CONTRACT-R001.3",
+    "MEDULLA-CONTRACT-R001.4",
+    "MEDULLA-CONTRACT-R001.5",
     "MEDULLA-CONTRACT-R053",
     "MEDULLA-CONTRACT-R053.1",
     "MEDULLA-CONTRACT-R053.2",
@@ -97,7 +100,7 @@
   "requirements": [
     {
       "id": "MEDULLA-CONTRACT-R001",
-      "title": "Strict typed Pydantic models for every method and nested type",
+      "title": "Strict hand-written Python models for every wire method, pinned to Rust vectors (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "6cd6c7ea0c87",
@@ -110,7 +113,10 @@
       ],
       "rollup_of": [
         "MEDULLA-CONTRACT-R001.1",
-        "MEDULLA-CONTRACT-R001.2"
+        "MEDULLA-CONTRACT-R001.2",
+        "MEDULLA-CONTRACT-R001.3",
+        "MEDULLA-CONTRACT-R001.4",
+        "MEDULLA-CONTRACT-R001.5"
       ]
     },
     {
@@ -190,7 +196,7 @@
     },
     {
       "id": "MEDULLA-CONTRACT-R004",
-      "title": "Go and JS clients sign bodies through the shared codec",
+      "title": "Go and JavaScript clients sign bodies through the shared codec",
       "delivery_state": "LANDED",
       "landed_in": [
         "6cd6c7ea0c87",
@@ -217,7 +223,7 @@
     },
     {
       "id": "MEDULLA-CONTRACT-R006",
-      "title": "Deterministic, size-budgeted WASM codec artifact",
+      "title": "Deterministic, size-budgeted codec WASM artifact",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "2b681e1a159c",
@@ -251,7 +257,7 @@
     },
     {
       "id": "MEDULLA-CONTRACT-R006.2",
-      "title": "Complete canonical WASM qualification",
+      "title": "Complete canonical qualification of the codec artifact",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -476,7 +482,7 @@
     },
     {
       "id": "MEDULLA-CONTRACT-R016",
-      "title": "Consumer-profile allowlist covers all generated PolicyEvolution senders",
+      "title": "Consumer-profile audit covers every typed PolicyEvolution sender",
       "delivery_state": "LANDED",
       "landed_in": [
         "ad14dd57f95b",
@@ -615,12 +621,13 @@
     },
     {
       "id": "MEDULLA-CONTRACT-R026",
-      "title": "Combined quality-gate script runs all staged scanners together",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: quality-gate tooling belongs to the lifecycle spec",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "quality-gate tooling belongs to the lifecycle spec"
     },
     {
       "id": "MEDULLA-CONTRACT-R027",
@@ -673,8 +680,8 @@
     },
     {
       "id": "MEDULLA-CONTRACT-R031",
-      "title": "Complexity, duplication and architecture censuses pass at zero backlog",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: zero-backlog census policy belongs to the lifecycle spec",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "2b1bcdda23e6",
         "924601ce5495",
@@ -685,10 +692,7 @@
       "verified_by": [
         "tests/test_ci_change_scope.py:287"
       ],
-      "rollup_of": [
-        "MEDULLA-CONTRACT-R031.1",
-        "MEDULLA-CONTRACT-R031.2"
-      ]
+      "retired_reason": "zero-backlog census policy belongs to the lifecycle spec"
     },
     {
       "id": "MEDULLA-CONTRACT-R031.1",
@@ -703,10 +707,11 @@
     },
     {
       "id": "MEDULLA-CONTRACT-R031.2",
-      "title": "Complete zero-backlog quality-gate acceptance",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: duplicates the census gate",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "duplicates the census gate"
     },
     {
       "id": "MEDULLA-CONTRACT-R032",
@@ -789,13 +794,14 @@
     },
     {
       "id": "MEDULLA-CONTRACT-R038",
-      "title": "Contract receipt freshness is checked before merge",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: digest freshness is checked by the vector test",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "2688cddd2f7f",
         "a7ae55a60495"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "digest freshness is checked by the vector test"
     },
     {
       "id": "MEDULLA-CONTRACT-R039",
@@ -940,14 +946,14 @@
     },
     {
       "id": "MEDULLA-CONTRACT-R050",
-      "title": "Generated client ingests OTLP logs",
+      "title": "Typed client ingests OTLP logs",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CONTRACT-R051",
-      "title": "Generated client ingests RunTrace",
+      "title": "Typed client ingests RunTrace",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -957,7 +963,7 @@
     },
     {
       "id": "MEDULLA-CONTRACT-R051.1",
-      "title": "Client ingest carries harness fields",
+      "title": "RunTrace ingest carries harness fields",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1031,14 +1037,35 @@
     },
     {
       "id": "MEDULLA-CONTRACT-R001.1",
-      "title": "Generated types throughout the Meristem lifecycle",
+      "title": "Export the type manifest that the Meristem lifecycle consumes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-CONTRACT-R001.2",
-      "title": "Canonical blueprint disk round trip",
+      "title": "Canonical blueprint bytes survive export, disk write and re-export",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-CONTRACT-R001.3",
+      "title": "Rust round-trip vectors for every wire method",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-CONTRACT-R001.4",
+      "title": "Gate: Python models accept and re-emit every Rust vector",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-CONTRACT-R001.5",
+      "title": "Consumer proof: SDK adapter uses only the typed models",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

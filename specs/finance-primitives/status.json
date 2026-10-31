@@ -67,7 +67,9 @@
     "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.12",
     "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.13",
     "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.14",
+    "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.15",
     "MEDULLA-FINANCE-PRIMITIVES-R002.2.4",
+    "MEDULLA-FINANCE-PRIMITIVES-R002.2.5",
     "MEDULLA-FINANCE-PRIMITIVES-R002.3",
     "MEDULLA-FINANCE-PRIMITIVES-R002.4",
     "MEDULLA-FINANCE-PRIMITIVES-R002.5",
@@ -154,6 +156,16 @@
     "MEDULLA-FINANCE-PRIMITIVES-R018.6",
     "MEDULLA-FINANCE-PRIMITIVES-R015.1",
     "MEDULLA-FINANCE-PRIMITIVES-R002.11",
+    "MEDULLA-FINANCE-PRIMITIVES-R002.11.1",
+    "MEDULLA-FINANCE-PRIMITIVES-R002.11.2",
+    "MEDULLA-FINANCE-PRIMITIVES-R002.11.3",
+    "MEDULLA-FINANCE-PRIMITIVES-R010.2",
+    "MEDULLA-FINANCE-PRIMITIVES-R011.2.3",
+    "MEDULLA-FINANCE-PRIMITIVES-R011.4",
+    "MEDULLA-FINANCE-PRIMITIVES-R013.2.6",
+    "MEDULLA-FINANCE-PRIMITIVES-R015.1.1",
+    "MEDULLA-FINANCE-PRIMITIVES-R015.1.2",
+    "MEDULLA-FINANCE-PRIMITIVES-R015.1.3",
     "MEDULLA-FINANCE-PRIMITIVES-R613",
     "MEDULLA-FINANCE-PRIMITIVES-R613.1",
     "MEDULLA-FINANCE-PRIMITIVES-R613.2",
@@ -166,11 +178,15 @@
     "MEDULLA-FINANCE-PRIMITIVES-R750.751",
     "MEDULLA-FINANCE-PRIMITIVES-R750.752",
     "MEDULLA-FINANCE-PRIMITIVES-R750.753",
+    "MEDULLA-FINANCE-PRIMITIVES-R750.754",
+    "MEDULLA-FINANCE-PRIMITIVES-R750.755",
     "MEDULLA-FINANCE-PRIMITIVES-R751",
     "MEDULLA-FINANCE-PRIMITIVES-R751.750",
     "MEDULLA-FINANCE-PRIMITIVES-R751.751",
     "MEDULLA-FINANCE-PRIMITIVES-R751.752",
     "MEDULLA-FINANCE-PRIMITIVES-R751.753",
+    "MEDULLA-FINANCE-PRIMITIVES-R751.754",
+    "MEDULLA-FINANCE-PRIMITIVES-R751.755",
     "MEDULLA-FINANCE-PRIMITIVES-R900",
     "MEDULLA-FINANCE-PRIMITIVES-R900.1",
     "MEDULLA-FINANCE-PRIMITIVES-R900.2",
@@ -184,7 +200,10 @@
     "MEDULLA-FINANCE-PRIMITIVES-R901.3",
     "MEDULLA-FINANCE-PRIMITIVES-R901.4",
     "MEDULLA-FINANCE-PRIMITIVES-R901.5",
-    "MEDULLA-FINANCE-PRIMITIVES-R901.6"
+    "MEDULLA-FINANCE-PRIMITIVES-R901.6",
+    "MEDULLA-FINANCE-PRIMITIVES-R902",
+    "MEDULLA-FINANCE-PRIMITIVES-R903",
+    "MEDULLA-FINANCE-PRIMITIVES-R904"
   ],
   "requirements": [
     {
@@ -398,7 +417,8 @@
         "MEDULLA-FINANCE-PRIMITIVES-R002.2.1",
         "MEDULLA-FINANCE-PRIMITIVES-R002.2.2",
         "MEDULLA-FINANCE-PRIMITIVES-R002.2.3",
-        "MEDULLA-FINANCE-PRIMITIVES-R002.2.4"
+        "MEDULLA-FINANCE-PRIMITIVES-R002.2.4",
+        "MEDULLA-FINANCE-PRIMITIVES-R002.2.5"
       ]
     },
     {
@@ -524,7 +544,7 @@
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.2",
-      "title": "Finance alias compatibility rollup",
+      "title": "Finance alias removal rollup",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -547,98 +567,98 @@
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.2.1",
-      "title": "Rolling z-score finance alias compatibility",
+      "title": "Rolling z-score finance alias removal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.2.2",
-      "title": "EWMA finance alias compatibility",
+      "title": "EWMA finance alias removal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.2.3",
-      "title": "Information coefficient finance alias compatibility",
+      "title": "Information coefficient finance alias removal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.2.4",
-      "title": "Information ratio finance alias compatibility",
+      "title": "Information ratio finance alias removal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.2.5",
-      "title": "Effective sample size finance alias compatibility",
+      "title": "Effective sample size finance alias removal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.2.6",
-      "title": "Diebold-Mariano finance alias compatibility",
+      "title": "Diebold-Mariano finance alias removal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.2.7",
-      "title": "Deflated Sharpe finance alias compatibility",
+      "title": "Deflated Sharpe finance alias removal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.2.8",
-      "title": "Purged combinatorial cross-validation finance alias compatibility",
+      "title": "Purged combinatorial cross-validation finance alias removal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.2.9",
-      "title": "Probability of backtest overfitting finance alias compatibility",
+      "title": "Probability of backtest overfitting finance alias removal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.2.10",
-      "title": "Brier finance alias compatibility",
+      "title": "Brier finance alias removal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.2.11",
-      "title": "Kalman finance alias compatibility",
+      "title": "Kalman finance alias removal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.2.12",
-      "title": "Ornstein-Uhlenbeck finance alias compatibility",
+      "title": "Ornstein-Uhlenbeck finance alias removal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.2.13",
-      "title": "ADF finance alias compatibility",
+      "title": "ADF finance alias removal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.2.14",
-      "title": "Regime HMM finance alias compatibility",
+      "title": "Regime HMM finance alias removal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -663,117 +683,132 @@
         "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.11",
         "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.12",
         "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.13",
-        "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.14"
+        "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.14",
+        "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.15"
       ]
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.1",
-      "title": "Rolling z-score uql time-series exposure",
+      "title": "Rolling z-score UQL time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.2",
-      "title": "EWMA uql time-series exposure",
+      "title": "EWMA UQL time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.3",
-      "title": "Information coefficient uql time-series exposure",
+      "title": "Information coefficient UQL time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.4",
-      "title": "Information ratio uql time-series exposure",
+      "title": "Information ratio UQL time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.5",
-      "title": "Effective sample size uql time-series exposure",
+      "title": "Effective sample size UQL time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.6",
-      "title": "Diebold-Mariano uql time-series exposure",
+      "title": "Diebold-Mariano UQL time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.7",
-      "title": "Deflated Sharpe uql time-series exposure",
+      "title": "Deflated Sharpe UQL time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.8",
-      "title": "Purged combinatorial cross-validation uql time-series exposure",
+      "title": "Purged combinatorial cross-validation UQL time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.9",
-      "title": "Probability of backtest overfitting uql time-series exposure",
+      "title": "Probability of backtest overfitting UQL time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.10",
-      "title": "Brier uql time-series exposure",
+      "title": "Brier UQL time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.11",
-      "title": "Kalman uql time-series exposure",
+      "title": "Kalman UQL time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.12",
-      "title": "Ornstein-Uhlenbeck uql time-series exposure",
+      "title": "Ornstein-Uhlenbeck UQL time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.13",
-      "title": "ADF uql time-series exposure",
+      "title": "ADF UQL time-series exposure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.14",
-      "title": "Regime HMM uql time-series exposure",
+      "title": "Regime HMM UQL time-series exposure",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.3.15",
+      "title": "UQL EVALUATE report stage",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.4",
-      "title": "Complete caller coverage check",
+      "title": "Complete caller coverage verification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R002.2.5",
+      "title": "Served NumericEvaluate method and kernel registry",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.3",
-      "title": "Reconcile generated methods and client bindings",
+      "title": "Client bindings for NumericEvaluate and retired-method absence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1044,7 +1079,7 @@
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R004.3",
-      "title": "finance-v1 record-type server wiring and contract regeneration",
+      "title": "finance-v1 record-type server wiring and client round trips",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "fcca865a0505",
@@ -1146,7 +1181,7 @@
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R004.3.3",
-      "title": "Record contract and generated-client acceptance",
+      "title": "Record client round-trip acceptance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1157,14 +1192,15 @@
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R004.3.3.1",
-      "title": "Finance record contract regeneration",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no generated contract exists",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no generated contract exists"
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R004.3.3.2",
-      "title": "Finance generated-client round trips",
+      "title": "Finance client round trips against Rust vectors",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1404,20 +1440,15 @@
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R010",
       "title": "Margin-trading risk module with margin, sizing, live-order boundary",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "76107c24568d",
         "82cf765518b6"
       ],
-      "verified_by": [
-        "crates/medulla-compute/src/finance/leverage.rs:113",
-        "crates/medulla-compute/src/finance/leverage.rs:131",
-        "crates/medulla-compute/src/finance/leverage.rs:151",
-        "crates/medulla-compute/src/finance/leverage.rs:171",
-        "crates/medulla-compute/src/finance/leverage.rs:98"
-      ],
+      "verified_by": [],
       "rollup_of": [
-        "MEDULLA-FINANCE-PRIMITIVES-R010.1"
+        "MEDULLA-FINANCE-PRIMITIVES-R010.1",
+        "MEDULLA-FINANCE-PRIMITIVES-R010.2"
       ]
     },
     {
@@ -1447,7 +1478,8 @@
       "rollup_of": [
         "MEDULLA-FINANCE-PRIMITIVES-R011.1",
         "MEDULLA-FINANCE-PRIMITIVES-R011.2",
-        "MEDULLA-FINANCE-PRIMITIVES-R011.3"
+        "MEDULLA-FINANCE-PRIMITIVES-R011.3",
+        "MEDULLA-FINANCE-PRIMITIVES-R011.4"
       ]
     },
     {
@@ -1469,7 +1501,8 @@
       "verified_by": [],
       "rollup_of": [
         "MEDULLA-FINANCE-PRIMITIVES-R011.2.1",
-        "MEDULLA-FINANCE-PRIMITIVES-R011.2.2"
+        "MEDULLA-FINANCE-PRIMITIVES-R011.2.2",
+        "MEDULLA-FINANCE-PRIMITIVES-R011.2.3"
       ]
     },
     {
@@ -1580,7 +1613,8 @@
         "MEDULLA-FINANCE-PRIMITIVES-R013.2.2",
         "MEDULLA-FINANCE-PRIMITIVES-R013.2.3",
         "MEDULLA-FINANCE-PRIMITIVES-R013.2.4",
-        "MEDULLA-FINANCE-PRIMITIVES-R013.2.5"
+        "MEDULLA-FINANCE-PRIMITIVES-R013.2.5",
+        "MEDULLA-FINANCE-PRIMITIVES-R013.2.6"
       ]
     },
     {
@@ -1741,14 +1775,14 @@
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R018.5",
-      "title": "Evidence",
+      "title": "Factor node provenance evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R018.6",
-      "title": "Hot-path proof",
+      "title": "Factor ranking hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1758,11 +1792,91 @@
       "title": "Immutable order-proposal snapshot and atomic admission boundary",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "MEDULLA-FINANCE-PRIMITIVES-R015.1.1",
+        "MEDULLA-FINANCE-PRIMITIVES-R015.1.2",
+        "MEDULLA-FINANCE-PRIMITIVES-R015.1.3"
+      ]
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R002.11",
       "title": "Multi-horizon Markov regime forecast and policy-bound sizing input",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "MEDULLA-FINANCE-PRIMITIVES-R002.11.1",
+        "MEDULLA-FINANCE-PRIMITIVES-R002.11.2",
+        "MEDULLA-FINANCE-PRIMITIVES-R002.11.3"
+      ]
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R002.11.1",
+      "title": "Regime forecast p0 times T to the h",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R002.11.2",
+      "title": "Per-horizon categorical Brier calibration gate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R002.11.3",
+      "title": "Policy-bound regime sizing input",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R010.2",
+      "title": "Served order limit verification through the Decide limit guard",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R011.2.3",
+      "title": "Served FinanceAlertRaise door",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R011.4",
+      "title": "FinanceReceipt idempotency record",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R013.2.6",
+      "title": "Served accounting projection entry for golden figures",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R015.1.1",
+      "title": "FinanceOrderProposal.Stage",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R015.1.2",
+      "title": "FinanceOrderProposal.Promote",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R015.1.3",
+      "title": "OrderAdmissionReceipt and promotion history",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1833,21 +1947,21 @@
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R613.5",
-      "title": "Evidence",
+      "title": "Execution kernel evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R613.6",
-      "title": "Hot-path proof",
+      "title": "Execution kernel latency budget",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R750",
-      "title": "Quantitative finance research kernels: factors, portfolio, risk, regimes and microstructure (rollup)",
+      "title": "Price-action pattern classification and profit attribution (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1855,40 +1969,56 @@
         "MEDULLA-FINANCE-PRIMITIVES-R750.750",
         "MEDULLA-FINANCE-PRIMITIVES-R750.751",
         "MEDULLA-FINANCE-PRIMITIVES-R750.752",
-        "MEDULLA-FINANCE-PRIMITIVES-R750.753"
+        "MEDULLA-FINANCE-PRIMITIVES-R750.753",
+        "MEDULLA-FINANCE-PRIMITIVES-R750.754",
+        "MEDULLA-FINANCE-PRIMITIVES-R750.755"
       ]
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R750.750",
-      "title": "Model: Quantitative finance research kernels: factors, portfolio, risk, regimes and microstructure",
+      "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R750.751",
-      "title": "Behavior: Quantitative finance research kernels: factors, portfolio, risk, regimes and microstructure",
+      "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R750.752",
-      "title": "Refusal: Quantitative finance research kernels: factors, portfolio, risk, regimes and microstructure",
+      "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R750.753",
-      "title": "Hot-path proof: Quantitative finance research kernels: factors, portfolio, risk, regimes and microstructure",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R750.754",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R750.755",
+      "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R751",
-      "title": "Strategy research records: debates, journals, versioned orders, forensic screens and sentiment fusion (rollup)",
+      "title": "Strategy research records (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1896,33 +2026,49 @@
         "MEDULLA-FINANCE-PRIMITIVES-R751.750",
         "MEDULLA-FINANCE-PRIMITIVES-R751.751",
         "MEDULLA-FINANCE-PRIMITIVES-R751.752",
-        "MEDULLA-FINANCE-PRIMITIVES-R751.753"
+        "MEDULLA-FINANCE-PRIMITIVES-R751.753",
+        "MEDULLA-FINANCE-PRIMITIVES-R751.754",
+        "MEDULLA-FINANCE-PRIMITIVES-R751.755"
       ]
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R751.750",
-      "title": "Model: Strategy research records: debates, journals, versioned orders, forensic screens and sentiment fusion",
+      "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R751.751",
-      "title": "Behavior: Strategy research records: debates, journals, versioned orders, forensic screens and sentiment fusion",
+      "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R751.752",
-      "title": "Refusal: Strategy research records: debates, journals, versioned orders, forensic screens and sentiment fusion",
+      "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R751.753",
-      "title": "Hot-path proof: Strategy research records: debates, journals, versioned orders, forensic screens and sentiment fusion",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R751.754",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R751.755",
+      "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2009,7 +2155,7 @@
     },
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R901",
-      "title": "Banking risk calculations: AML screening, capital ratios, credit loss and settlement legs (rollup)",
+      "title": "Banking risk calculations (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2082,6 +2228,27 @@
     {
       "id": "MEDULLA-FINANCE-PRIMITIVES-R901.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R902",
+      "title": "Probabilistic forecast evidence is never a deterministic input",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R903",
+      "title": "Typed OHLCV bar-series contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MEDULLA-FINANCE-PRIMITIVES-R904",
+      "title": "Wallet key trust record and read method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

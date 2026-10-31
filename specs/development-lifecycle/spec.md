@@ -1,4 +1,4 @@
-# MEDULLA-SDLC — Graph-driven development lifecycle
+# MEDULLA-SDLC — Graph-native development lifecycle
 
 Owner: Medulla (`EG`). Sole owner of the lifecycle records and their derivation rules.
 Component: Development lifecycle
@@ -10,6 +10,9 @@ Cross-repo IDs: `ARBORA-OPS-R853` serves the lifecycle operations. `PIPE-GATES-R
 graph-native edits inside a run. Each owner files its own row.
 
 ## Purpose and user stories
+
+The ecosystem is developed inside Medulla. Every repository lives in the engine as changesets, a live code graph and typed requirement records. Agents and people plan, change, gate and land work through served operations over that graph (MEDULLA-SDLC-R012). Arbora serves the operations over MCP, so every coding harness uses the same door.
+
 
 The engine holds the whole software lifecycle as typed records in one graph. Nine record kinds
 exist. They are requirement row, code symbol, changeset, test, gate verdict, defect, run trace,

@@ -616,10 +616,11 @@
     },
     {
       "id": "MEDULLA-SUPPLY-VOCAB-R005.3",
-      "title": "Resolve erpnext manifest classes (cross-repo: agent-packages `erpnext-agent`)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Moved to the owner connector",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Moved to the owner connector"
     },
     {
       "id": "MEDULLA-SUPPLY-VOCAB-R005.4",
@@ -656,10 +657,11 @@
     },
     {
       "id": "MEDULLA-SUPPLY-VOCAB-R005.7",
-      "title": "Add the Salesforce `Contract` class and access contract (cross-repo: agent-packages `salesforce-agent`)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Moved to the owner connector",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Moved to the owner connector"
     },
     {
       "id": "MEDULLA-SUPPLY-VOCAB-R005.8",
@@ -674,7 +676,7 @@
     },
     {
       "id": "MEDULLA-SUPPLY-VOCAB-R005.9",
-      "title": "Record the `coversService` source (BLOCKED, owner: operator plus salesforce-agent)",
+      "title": "Curated contract-to-service link",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -682,9 +684,18 @@
     {
       "id": "MEDULLA-SUPPLY-VOCAB-R006",
       "title": "Virtual mappings: software, runtime and host sources (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "340d0c252754",
+        "75dd94362178"
+      ],
+      "verified_by": [
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1223",
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1311",
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1374",
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1468",
+        "crates/medulla-core/tests/supply_chain_vocab.rs:1895"
+      ],
       "rollup_of": [
         "MEDULLA-SUPPLY-VOCAB-R006.1",
         "MEDULLA-SUPPLY-VOCAB-R006.2",
@@ -697,17 +708,19 @@
     },
     {
       "id": "MEDULLA-SUPPLY-VOCAB-R006.1",
-      "title": "Add the container-manager access contract (cross-repo: agent-packages `container-manager-mcp`)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Moved to the owner connector",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Moved to the owner connector"
     },
     {
       "id": "MEDULLA-SUPPLY-VOCAB-R006.2",
-      "title": "Add the uptime-kuma access contract (cross-repo: agent-packages `uptime-kuma-agent`)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: Moved to the owner connector",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "Moved to the owner connector"
     },
     {
       "id": "MEDULLA-SUPPLY-VOCAB-R006.3",
