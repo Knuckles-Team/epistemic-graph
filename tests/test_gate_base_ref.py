@@ -1,4 +1,5 @@
-"""MEDULLA-CONTRACT-R039: the duplication gate's base is origin/main, not the pushed tip."""
+"""MEDULLA-CONTRACT-R039: the duplication gate's base is origin/main, not the pushed
+tip."""
 
 from __future__ import annotations
 

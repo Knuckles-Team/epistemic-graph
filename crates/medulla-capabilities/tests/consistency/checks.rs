@@ -215,4 +215,3 @@ fn print_known_divergence_report() {
         divergence::RUNTIME_CONDITIONAL.len() + divergence::ACCESS_RS_COVERAGE_GAP.len(),
     );
 }
-

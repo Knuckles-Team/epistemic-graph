@@ -1600,7 +1600,7 @@
         "70de3b70bbdc"
       ],
       "verified_by": [
-        "tests/orchestration/test_harness_components_served.py:63"
+        "tests/orchestration/test_harness_components_served.py:64"
       ]
     },
     {

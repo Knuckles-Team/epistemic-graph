@@ -1,5 +1,6 @@
 """Round-trip tests for the state-space / stat-arb / signal-combination kernels
-(CONCEPT:MEDULLA-KG.domains.state-space-statistical-arbitrage / KG-2.20i). Full path: client
+(CONCEPT:MEDULLA-KG.domains.state-space-statistical-arbitrage / KG-2.20i). Full path:
+client
 -> UDS -> Rust -> result.
 Uses the session-scoped server + `clean_graph` sync client from conftest.py.
 """

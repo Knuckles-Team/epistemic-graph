@@ -12,7 +12,8 @@ diverges from numpy — so the ``xp`` shim can be made kernel-LIVE
 standing correctness guarantee, not just the numpy fallback.
 
 Run against the freshly-built, folded wheel — there is NO separately published/installed
-``medulla-numeric`` package (CONCEPT:MEDULLA-346, see ``scripts/inject_numeric_kernel.py``)::
+``medulla-numeric`` package (CONCEPT:MEDULLA-346, see
+``scripts/inject_numeric_kernel.py``)::
 
     maturin build --release -m crates/medulla-numeric/Cargo.toml --features python \
         --out numdist

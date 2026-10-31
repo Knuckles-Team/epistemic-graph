@@ -1,5 +1,6 @@
 """``GraphOperationsClient.cluster_hierarchy_*`` marshal the VIZ-1 hierarchical
-cluster-tree RPCs (CONCEPT:MEDULLA-KG.compute.leiden-hierarchy) — server-side clustering for
+cluster-tree RPCs (CONCEPT:MEDULLA-KG.compute.leiden-hierarchy) — server-side clustering
+for
 million-node graph visualization: ``cluster_hierarchy_refresh`` (re)computes and
 durably caches a graph's Leiden cluster tree, ``cluster_hierarchy_clusters``
 serves one cached level (optionally scoped to one parent's children), and
@@ -20,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from medulla.client import MedullaClient, GraphOperationsClient
+from medulla.client import GraphOperationsClient, MedullaClient
 
 # Fake-client unit tests only -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_medulla_server` fixture, which

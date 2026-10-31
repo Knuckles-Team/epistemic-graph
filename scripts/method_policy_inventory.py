@@ -69,7 +69,8 @@ class MethodPolicyRow:
 # `MutationOutbox`.
 # 425 -> 426: RF-ADR-009's served `SourceIngest` raw-record authority.
 # 426 -> 427: governed connector `WriteBack` authority.
-# 430 -> 436: graph-os MEDULLA-2..MEDULLA-5 typed control-plane methods -- `GetWorkItem`,
+# 430 -> 436: graph-os MEDULLA-2..MEDULLA-5 typed control-plane methods --
+# `GetWorkItem`,
 # `ListWorkItems`, `GetWorkItemOutcome`, `IssueControlLease`,
 # `TransitionControlLease` and `GetControlLease`.
 # 436 -> 437: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).

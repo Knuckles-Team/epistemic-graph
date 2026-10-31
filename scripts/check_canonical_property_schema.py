@@ -119,7 +119,8 @@ def _cypher_label_failures() -> list[str]:
     ):
         if required not in cypher_exec:
             failures.append(
-                "crates/medulla-query/src/cypher/exec.rs: missing canonical Cypher node "
+                "crates/medulla-query/src/cypher/exec.rs: missing canonical Cypher "
+                "node "
                 f"projection/write marker `{required}`"
             )
     return failures

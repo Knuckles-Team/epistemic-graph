@@ -15,7 +15,8 @@ pytestmark = pytest.mark.no_engine
 
 def _kernel() -> Any:
     # ONLY the folded-in, natively injected extension — there is no separately
-    # published/installed `medulla-numeric` package (CONCEPT:MEDULLA-346). A bare top-level
+    # published/installed `medulla-numeric` package (CONCEPT:MEDULLA-346). A bare
+    # top-level
     # `numeric` import only resolves when `medulla-numeric` was installed standalone,
     # which is the exact architectural remnant this contract must never validate
     # against: that package's version is permanently `0.1.0`, which let a stale

@@ -2910,7 +2910,8 @@ class NodeClient:
         """Dump EVERY node in the graph (unbounded full-graph read).
 
         On a large graph this is refused by the engine's overload backstop
-        (CONCEPT:MEDULLA-KG.ingest.resets-socket-so-assimilation): if the graph has more than
+        (CONCEPT:MEDULLA-KG.ingest.resets-socket-so-assimilation): if the graph has more
+        than
         ``MEDULLA_MAX_RESPONSE_NODES`` nodes (default 50_000), this raises
         :class:`ResultTooLargeError` instead of materializing a gigabyte-scale
         frame that would reset the connection. Use :meth:`list_by_label` (which is
@@ -3063,7 +3064,8 @@ class NodeClient:
 class StatechartClient:
     """CONCEPT:INT-P2-2 — the native finite-state-machine / statechart engine namespace:
     define/instantiate/send_event/get_state/list over ``Method::Statechart { op }``
-    (``medulla_statechart::StatechartDef`` + a durable, rehydratable ``MachineInstance``).
+    (``medulla_statechart::StatechartDef`` + a durable, rehydratable
+    ``MachineInstance``).
 
     Definitions are content-addressed data (a dict shaped like
     ``{"name", "schema_version", "states", "alphabet", "transitions", "initial",
@@ -5158,7 +5160,8 @@ class CapacityLeaseClient:
         return answer
 
 
-# CONCEPT:MEDULLA-KG.txn.per-graph-write-isolation — RMDD-28 native development-lane hold
+# CONCEPT:MEDULLA-KG.txn.per-graph-write-isolation — RMDD-28 native development-lane
+# hold
 # vocabulary/validators, mirroring the ``WorkItemClient`` validation style
 # above field-for-field against the frozen RMDD-28 protocol
 # (``crates/medulla-types/src/epistemic_operations.rs`` / ``protocol.rs``).
@@ -6460,7 +6463,8 @@ class EdgeClient:
         """Dump EVERY edge in the graph (unbounded full-graph read).
 
         On a large graph this is refused by the engine's overload backstop
-        (CONCEPT:MEDULLA-KG.ingest.resets-socket-so-assimilation): if the graph has more than
+        (CONCEPT:MEDULLA-KG.ingest.resets-socket-so-assimilation): if the graph has more
+        than
         ``MEDULLA_MAX_RESPONSE_EDGES`` edges (default 50_000), this raises
         :class:`ResultTooLargeError` instead of materializing a gigabyte-scale
         frame that would reset the connection. Use :meth:`list_page` (bounded
@@ -6741,7 +6745,8 @@ class GraphOperationsClient:
 
     async def batch_l2_normalize(self, vectors: list[list[float]]) -> list[list[float]]:
         """L2-normalize a batch of vectors IN-ENGINE via the medulla-numeric kernel
-        (CONCEPT:MEDULLA-KG.compute.l2-normalize-batch-vectors, compute-near-data). Returns
+        (CONCEPT:MEDULLA-KG.compute.l2-normalize-batch-vectors, compute-near-data).
+        Returns
         each row's unit vector `v/‖v‖`
         (a zero vector is returned unchanged). Requires the engine's `numeric` feature.
         """
@@ -6914,7 +6919,8 @@ class GraphOperationsClient:
         seed: int = 0,
     ) -> dict:
         """(Re)compute + durably cache this graph's hierarchical Leiden cluster
-        tree (VIZ-1, CONCEPT:MEDULLA-KG.compute.leiden-hierarchy) — server-side clustering
+        tree (VIZ-1, CONCEPT:MEDULLA-KG.compute.leiden-hierarchy) — server-side
+        clustering
         for
         million-node graph visualization: a client renders
         ``cluster_hierarchy_clusters()``'s few thousand top-level cluster nodes
@@ -7106,7 +7112,8 @@ class LifecycleClient:
         floor: float = 0.0,
         prune: bool = False,
     ) -> dict[str, Any]:
-        """CONCEPT:MEDULLA-KG.memory.forgetting-curve-decay — Ebbinghaus forgetting-curve
+        """CONCEPT:MEDULLA-KG.memory.forgetting-curve-decay — Ebbinghaus
+        forgetting-curve
         decay.
 
         Decays every node's and edge's belief ``confidence`` by
@@ -7131,7 +7138,8 @@ class LifecycleClient:
 
 
 class ReasoningClient:
-    """CONCEPT:MEDULLA-KG.compute.compiled-semantic-reasoner — Compiled Semantic Reasoner
+    """CONCEPT:MEDULLA-KG.compute.compiled-semantic-reasoner — Compiled Semantic
+    Reasoner
     Namespace.
 
     Forward-chaining OWL/RDFS inference executed in the Rust engine. Materialises
@@ -7366,12 +7374,15 @@ class MultiTenantClient:
 
 
 class ReshardingClient:
-    """CONCEPT:MEDULLA-KG.sharding.resharding-admin-api — M3 catalog-driven resharding admin
+    """CONCEPT:MEDULLA-KG.sharding.resharding-admin-api — M3 catalog-driven resharding
+    admin
     namespace.
 
     Drives, over the wire, the M3 ops the engine has building blocks for: online
-    single-node resharding (MEDULLA-032), the durable tenant catalog (MEDULLA-031), and the
-    rebalancing planner (MEDULLA-035) + its execution (MEDULLA-039). The mandatory main build
+    single-node resharding (MEDULLA-032), the durable tenant catalog (MEDULLA-031), and
+    the
+    rebalancing planner (MEDULLA-035) + its execution (MEDULLA-039). The mandatory main
+    build
     includes the durable redb engine these operations require.
     """
 
@@ -7392,14 +7403,16 @@ class ReshardingClient:
     async def catalog_assign(
         self, graph: str, shard: int, node: int | None = None
     ) -> bool:
-        """Populate / assign an explicit catalog placement for ``graph`` (MEDULLA-031). Flips
+        """Populate / assign an explicit catalog placement for ``graph`` (MEDULLA-031).
+        Flips
         the ROUTE only — to MOVE the rows too use :meth:`reshard`."""
         return await _gen.cluster.send_catalog_assign(
             self._client, {"graph": graph, "shard": shard, "node": node}
         )
 
     async def catalog_reassign(self, graph: str, shard: int) -> bool:
-        """Re-place ``graph`` onto ``shard``, preserving its node placement (MEDULLA-031)."""
+        """Re-place ``graph`` onto ``shard``, preserving its node placement
+        (MEDULLA-031)."""
         return await _gen.cluster.send_catalog_reassign(
             self._client, {"graph": graph, "shard": shard}
         )
@@ -7409,7 +7422,8 @@ class ReshardingClient:
         return await _gen.cluster.send_catalog_remove(self._client, {"graph": graph})
 
     async def catalog_list(self) -> dict[str, Any]:
-        """List every explicit catalog placement ``{graph, shard, node}`` (MEDULLA-031)."""
+        """List every explicit catalog placement ``{graph, shard, node}``
+        (MEDULLA-031)."""
         return (await _gen.cluster.send_catalog_list(self._client)).payload
 
     async def rebalance_plan(
@@ -7427,7 +7441,8 @@ class ReshardingClient:
         self, tolerance: float | None = None, max_moves: int | None = None
     ) -> dict[str, Any]:
         """Compute a rebalance plan AND execute it move-by-move via online resharding
-        (MEDULLA-039) — online, one graph at a time. Returns ``{executed: [report, ...]}``.
+        (MEDULLA-039) — online, one graph at a time. Returns ``{executed: [report,
+        ...]}``.
         """
         return (
             await _gen.cluster.send_rebalance_execute(
@@ -8163,7 +8178,8 @@ class ServerRegistryClient:
         A repeat call with the SAME ``name`` renews the lease — call this
         periodically (well inside ``ttl_secs``) as a heartbeat; a server that
         stops renewing is reaped by the engine's stale-lease sweep once its
-        lease lapses (CONCEPT:MEDULLA-KG.sharding.server-registry). The server computes the
+        lease lapses (CONCEPT:MEDULLA-KG.sharding.server-registry). The server computes
+        the
         absolute lease expiry from its own clock — it never trusts a
         caller-supplied timestamp. ``url`` should be a bounded, privacy-safe
         endpoint reference (never a raw credentialed URL). ``resources`` is
@@ -8279,7 +8295,8 @@ class RaftAdminClient:
 
 class AgentIdentity(TypedDict):
     """Wire shape of ``Method::GetIdentity``'s ``Some(...)`` result — mirrors the
-    Rust ``medulla_types::acl::AgentIdentity`` struct (``crates/medulla-types/src/acl.rs:78-88``).
+    Rust ``medulla_types::acl::AgentIdentity`` struct
+    (``crates/medulla-types/src/acl.rs:78-88``).
 
     ``role`` is either the bare string ``"System"``/``"Agent"`` or the single-key
     mapping ``{"Manager": {"subordinates": [...]}}`` — the same shape
@@ -8987,7 +9004,8 @@ class FinanceClient:
             {"times": times, "t_horizon": t_horizon, "n_windows": n_windows},
         )
 
-    # ── Kyle insider/stealth surveillance (CONCEPT:MEDULLA-KG.domains.concept-2) ───────────
+    # ── Kyle insider/stealth surveillance (CONCEPT:MEDULLA-KG.domains.concept-2)
+    # ───────────
     async def kyle_lambda(
         self, price_changes: list[float], signed_order_flow: list[float]
     ) -> float:
@@ -9028,7 +9046,8 @@ class FinanceClient:
             )
         ).payload
 
-    # ── Position sizing (CONCEPT:MEDULLA-KG.domains.market-microstructure-sizing-backtest)
+    # ── Position sizing
+    # (CONCEPT:MEDULLA-KG.domains.market-microstructure-sizing-backtest)
     # ─────────────────────────────
     async def kelly_fraction(self, q: float, c: float, fraction: float = 0.25) -> float:
         """Fractional Kelly for a YES contract: f* = (q−c)/(1−c), scaled."""
@@ -9159,7 +9178,8 @@ class FinanceClient:
         ).payload
 
     # ── State-space / stat-arb
-    # (CONCEPT:MEDULLA-KG.domains.state-space-statistical-arbitrage) ──────────────────────
+    # (CONCEPT:MEDULLA-KG.domains.state-space-statistical-arbitrage)
+    # ──────────────────────
     async def kalman_filter_1d(
         self,
         observations: list[float],
@@ -9290,7 +9310,8 @@ class FinanceClient:
             )
         ).payload
 
-    # ── Signal combination / sizing / calibration (CONCEPT:MEDULLA-KG.domains.quant-finance)
+    # ── Signal combination / sizing / calibration
+    # (CONCEPT:MEDULLA-KG.domains.quant-finance)
     # ───
     async def order_book_imbalance(
         self, v_bid: list[float], v_ask: list[float]
@@ -9869,7 +9890,8 @@ class MiningClient:
         Provide an explicit ``features`` matrix, a 1-D ``values`` series (each
         scalar becomes one row — the tsdb root-cause path), a graph-derived
         ``source`` (node embeddings), OR a fused upstream retrieval ``plan``
-        (CONCEPT:MEDULLA-KG.mining.fused-plan-source, same shape as :meth:`unified_query`'s —
+        (CONCEPT:MEDULLA-KG.mining.fused-plan-source, same shape as
+        :meth:`unified_query`'s —
         e.g. TsScan/Traverse/Rank a candidate set, then anomaly-detect it in one
         round trip). Precedence: ``features`` > ``values`` > ``plan`` > ``source``.
         ``algorithm`` is one of ``zscore`` (default,
@@ -9924,7 +9946,8 @@ class MiningClient:
 
         Provide an explicit ``x`` feature matrix, a graph-derived ``source`` spec —
         ``{"node_label", "limit"}`` — (node embeddings + ontology features), OR a
-        fused upstream retrieval ``plan`` (CONCEPT:MEDULLA-KG.mining.fused-plan-source, same
+        fused upstream retrieval ``plan`` (CONCEPT:MEDULLA-KG.mining.fused-plan-source,
+        same
         shape as :meth:`unified_query`'s), plus integer ``y`` labels (one per row —
         must align by position with the plan's resulting row order). ``algorithm``
         is one of ``gaussiannb`` (default) / ``multinomialnb`` / ``knn`` (``k``
@@ -9966,7 +9989,8 @@ class MiningClient:
         ``model`` is the blob returned by :meth:`classify_fit`. Rows come from an
         explicit ``x`` matrix, a graph-derived ``source`` (node embeddings — the
         cross-modal "classify these nodes" hook), OR a fused upstream retrieval
-        ``plan`` (CONCEPT:MEDULLA-KG.mining.fused-plan-source). With ``writeback=True`` each
+        ``plan`` (CONCEPT:MEDULLA-KG.mining.fused-plan-source). With ``writeback=True``
+        each
         prediction is materialized as a typed ``:Classification`` node linked to its
         source node. Returns ``{rows: [{id, label, proba}], classes, ...}``.
         """
@@ -10003,7 +10027,8 @@ class MiningClient:
 
         Provide an explicit ``x`` matrix, a graph-derived ``source`` (node
         embeddings — "reduce these node vectors for the graphviz"), OR a fused
-        upstream retrieval ``plan`` (CONCEPT:MEDULLA-KG.mining.fused-plan-source, same shape
+        upstream retrieval ``plan`` (CONCEPT:MEDULLA-KG.mining.fused-plan-source, same
+        shape
         as :meth:`unified_query`'s — e.g. vector-``Rank`` a neighborhood, then
         reduce it for the graphviz in one round trip). ``algorithm`` is
         one of ``svd`` (default, truncated SVD) / ``lda`` (supervised — needs
@@ -10044,7 +10069,8 @@ class MiningClient:
         algorithm: str = "prefixspan",
         writeback: bool = False,
     ) -> dict[str, Any]:
-        """Mine frequent sequential patterns (CONCEPT:MEDULLA-KG.mining.prefixspan — Phase
+        """Mine frequent sequential patterns (CONCEPT:MEDULLA-KG.mining.prefixspan —
+        Phase
         4).
 
         Provide EITHER explicit ``sequences`` (each a time-ordered list of item
@@ -10134,7 +10160,8 @@ class MiningClient:
         top_n: int = 10,
         writeback: bool = False,
     ) -> dict[str, Any]:
-        """Mine a text corpus: TF-IDF or topic modeling (CONCEPT:MEDULLA-KG.mining.tfidf —
+        """Mine a text corpus: TF-IDF or topic modeling (CONCEPT:MEDULLA-KG.mining.tfidf
+        —
         Phase 4).
 
         Provide EITHER explicit `docs` (each a pre-tokenized ``list[str]`` —
@@ -10219,7 +10246,8 @@ class MiningClient:
         threshold: float = 0.5,
         writeback: bool = False,
     ) -> dict[str, Any]:
-        """Entity resolution / record linkage (CONCEPT:MEDULLA-KG.mining.entity-resolution).
+        """Entity resolution / record linkage
+        (CONCEPT:MEDULLA-KG.mining.entity-resolution).
 
         Provide EITHER ``records`` (token-attribute rows for Jaccard record linkage,
         blocked by the parallel ``block_keys``) OR embedding rows — explicit
@@ -10260,7 +10288,8 @@ class MiningClient:
         series_id: str | None = None,
         writeback: bool = False,
     ) -> dict[str, Any]:
-        """Causal impact estimation (CONCEPT:MEDULLA-KG.mining.causal-impact): interrupted
+        """Causal impact estimation (CONCEPT:MEDULLA-KG.mining.causal-impact):
+        interrupted
         time series (``series`` alone) or difference-in-differences (``series`` +
         non-empty ``control``), split at ``intervention_index`` (the first
         post-intervention observation, in BOTH series for DiD). With
@@ -10286,7 +10315,8 @@ class MiningClient:
         process_id: str | None = None,
         writeback: bool = False,
     ) -> dict[str, Any]:
-        """Process mining (CONCEPT:MEDULLA-KG.mining.process-mining): directly-follows graph
+        """Process mining (CONCEPT:MEDULLA-KG.mining.process-mining): directly-follows
+        graph
         + alpha-miner-lite footprint (causal/parallel/choice relations, start/end
         activity sets) over ordered event ``traces`` (each a time-ordered activity
         sequence; an activity may repeat within a trace). With ``writeback=True``
@@ -10308,7 +10338,8 @@ class MiningClient:
         decay: float = 0.85,
         writeback: bool = False,
     ) -> dict[str, Any]:
-        """Root-cause propagation (CONCEPT:MEDULLA-KG.mining.root-cause): given a directed
+        """Root-cause propagation (CONCEPT:MEDULLA-KG.mining.root-cause): given a
+        directed
         weighted dependency graph ``edges`` (``(cause_id, effect_id, weight)``) and a
         per-node anomaly ``scores`` vector (index-aligned with ``nodes`` — e.g.
         :meth:`anomaly`'s own output), find the most-likely upstream root cause of the
@@ -10678,7 +10709,8 @@ class PipelineClient:
         ).payload
 
 
-# Per-RPC timeouts (CONCEPT:MEDULLA-KG.query.wire-protocol). A wedged or overloaded engine
+# Per-RPC timeouts (CONCEPT:MEDULLA-KG.query.wire-protocol). A wedged or overloaded
+# engine
 # must never
 # hang a caller forever — every request is bounded. Normal CRUD uses the short
 # default; known-heavy ops (full-graph parse/scan/algorithms) get a generous
@@ -10930,9 +10962,7 @@ async def _open_tcp_stream(
         )
     except (asyncio.TimeoutError, TimeoutError) as e:
         raise TimeoutError("medulla TCP connection timed out") from e
-    logger.info(
-        "Connected to medulla via native TCP (tls=%s)", tls_context is not None
-    )
+    logger.info("Connected to medulla via native TCP (tls=%s)", tls_context is not None)
     return reader, writer
 
 
@@ -11263,9 +11293,7 @@ async def _read_frame(reader: asyncio.StreamReader) -> dict[str, Any]:
     len_buf = await reader.readexactly(4)
     msg_len = int.from_bytes(len_buf, byteorder="big")
     if msg_len <= 0 or msg_len > _MAX_RESPONSE_BYTES:
-        raise ConnectionError(
-            "medulla response exceeded the configured resource limit"
-        )
+        raise ConnectionError("medulla response exceeded the configured resource limit")
     body = await reader.readexactly(msg_len)
     resp = msgpack.unpackb(body, raw=False)
     if not isinstance(resp, dict) or not isinstance(resp.get("id"), int):
@@ -11389,12 +11417,15 @@ _HEAVY_RPC_METHODS = frozenset(
         "MiningPipelinePredict",
         "KnowledgeStream",
         "ServedModality",
-        # SQL scans the whole node set (CONCEPT:MEDULLA-KG.query.read-only-sql-query) — give
+        # SQL scans the whole node set (CONCEPT:MEDULLA-KG.query.read-only-sql-query) —
+        # give
         # it the heavy budget.
         "Sql",
-        # Cypher MATCH/BFS scans the node set too (CONCEPT:MEDULLA-KG.query.dep-free-behind).
+        # Cypher MATCH/BFS scans the node set too
+        # (CONCEPT:MEDULLA-KG.query.dep-free-behind).
         "CypherQuery",
-        # A txn commit (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid) applies the whole staged
+        # A txn commit (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid) applies the whole
+        # staged
         # write-set under
         # one lock — a large multi-op commit may legitimately take longer.
         "Commit",
@@ -11507,7 +11538,8 @@ class QueryClient:
         RETURN column.
 
         ``MATCH (a:Label)-[:REL]->(b:Label2) WHERE a.prop = 'x' RETURN a, b LIMIT
-        k`` over the connection's graph (CONCEPT:MEDULLA-KG.query.dep-free-behind). On the
+        k`` over the connection's graph (CONCEPT:MEDULLA-KG.query.dep-free-behind). On
+        the
         engine side it compiles to the label index / VF2 / BFS and does not invoke
         DataFusion; Cypher is included in the mandatory main build.
 
@@ -11571,7 +11603,8 @@ class QueryClient:
 
     async def import_sqlite_file(self, path: str) -> dict[str, Any]:
         """Import every user table (+ rows) from logical ``.db`` filename ``path``
-        under the configured private transfer root (CONCEPT:MEDULLA-KG.query.medulla-feature).
+        under the configured private transfer root
+        (CONCEPT:MEDULLA-KG.query.medulla-feature).
 
         The file is read via the bundled C sqlite3. The ``sqlite-file`` feature is part
         of the mandatory main build. Each table is REPLACED if a same-name table already
@@ -11717,7 +11750,8 @@ class QueryClient:
         return _uql_result(result)
 
     async def explain_plan(self, plan: list[dict[str, Any]]) -> dict[str, Any]:
-        """``EXPLAIN PLAN`` (CONCEPT:MEDULLA-KG.query.plan-dag) — serialize ``plan`` (the
+        """``EXPLAIN PLAN`` (CONCEPT:MEDULLA-KG.query.plan-dag) — serialize ``plan``
+        (the
         SAME
         externally-tagged ``Op`` list :meth:`unified` takes) as a `PlanDag` both BEFORE
         and AFTER the DAG-aware cost optimizer, plus the active optimizer rule set. No
@@ -11761,7 +11795,8 @@ class QueryClient:
         )
 
     async def explain_policy(self, plan: list[dict[str, Any]]) -> dict[str, Any]:
-        """``EXPLAIN POLICY`` (CONCEPT:MEDULLA-KG.sharding.row-level-security) — run ``plan``
+        """``EXPLAIN POLICY`` (CONCEPT:MEDULLA-KG.sharding.row-level-security) — run
+        ``plan``
         against BOTH the caller's RLS-filtered snapshot and the unfiltered snapshot,
         reporting which rows the policy denied. Returns ``{"visible_ids": [str, ...],
         "policy_denied_ids": [str, ...]}`` — ``policy_denied_ids`` is empty when no
@@ -11802,7 +11837,8 @@ class QueryClient:
         return (await _gen.query.send_explain_belief(self._client, params)).payload
 
     async def explain_evidence(self, node_id: str) -> dict[str, Any]:
-        """CONCEPT:MEDULLA-X1 — resolve ``node_id``'s cited multimodal evidence: walk the
+        """CONCEPT:MEDULLA-X1 — resolve ``node_id``'s cited multimodal evidence: walk
+        the
         SAME support/contradiction/attack topology :meth:`explain_belief` walks and
         return every transitively-reachable node that carries a located evidence
         locus (PDF page+box, audio/video interval, SQL row version, code range,
@@ -11830,7 +11866,8 @@ class QueryClient:
 
     async def what_changed(self, tx_from: int, tx_to: int) -> dict[str, Any]:
         """CONCEPT:EPI-P3-5 — between two transaction times, which beliefs changed and
-        why (``medulla_epistemic::what_changed``) — a whole-graph temporal DIFF, distinct
+        why (``medulla_epistemic::what_changed``) — a whole-graph temporal DIFF,
+        distinct
         from :meth:`epistemic_status`'s single-claim view. Returns a
         ``WhatChangedResult``. The epistemic TMS is included in the mandatory main
         build. Read-only."""
@@ -12146,7 +12183,8 @@ class QueryClient:
 
 
 class TxnClient:
-    """CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid — Multi-op OCC ACID Transaction Namespace.
+    """CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid — Multi-op OCC ACID Transaction
+    Namespace.
 
     Optimistic, snapshot-isolation, server-staged transactions. ``begin()``
     returns a server-issued ``txn_id``; the ``add_node``/``remove_node``/
@@ -12253,7 +12291,8 @@ class TxnClient:
         embedding: list[float],
         graph: str | None = None,
     ) -> bool:
-        """Stage a VECTOR upsert (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node — cross-modal
+        """Stage a VECTOR upsert (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node —
+        cross-modal
         ACID). The embedding
         lands atomically WITH the txn's graph/property/blob-ref writes in ONE redb
         WriteTransaction at commit (requires the redb persistence backend)."""
@@ -12274,7 +12313,8 @@ class TxnClient:
         digest: str,
         graph: str | None = None,
     ) -> bool:
-        """Stage a BLOB REFERENCE (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node). Records a
+        """Stage a BLOB REFERENCE (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node).
+        Records a
         durable graph-side
         ``__blob__`` link to an already-stored content-addressed blob; lands
         atomically with the node/vector/property at commit."""
@@ -12346,7 +12386,8 @@ class TxnClient:
         relationship: str,
         graph: str | None = None,
     ) -> bool:
-        """Stage a PLANNER WRITEBACK into the txn (CONCEPT:MEDULLA-KG.query.plan-dag, D7 —
+        """Stage a PLANNER WRITEBACK into the txn (CONCEPT:MEDULLA-KG.query.plan-dag, D7
+        —
         the planner-writeback ACID seam). ``plan`` (the SAME ``Op`` list :meth:`
         QueryClient.unified` takes) runs READ-ONLY against the txn's committed
         snapshot; each id in its result row set becomes an ``AddEdge`` from
@@ -12835,7 +12876,8 @@ class RdfClient:
         )
 
     async def drop_named_graph(self, graph: str) -> str:
-        """DROP a named RDF graph (CONCEPT:MEDULLA-KG.query.named-graph-support): physically
+        """DROP a named RDF graph (CONCEPT:MEDULLA-KG.query.named-graph-support):
+        physically
         clear ALL of its RDF
         content (property-graph nodes/edges + the lossless multi-valued-literal quad
         rows) in one op. Durable. The coarse-grained retract used when an ontology owns
@@ -12881,7 +12923,8 @@ class RdfClient:
         variable). SPARQL is included in the mandatory main build.
 
         ``base_iri`` + ``type_convention`` select the LPG→RDF projection vocabulary
-        (CONCEPT:MEDULLA-KG.ontology.lpg-rdf-projection-vocabulary). Both default to empty ⇒
+        (CONCEPT:MEDULLA-KG.ontology.lpg-rdf-projection-vocabulary). Both default to
+        empty ⇒
         the IDENTITY projection (node-type
         and property keys emitted verbatim, no ``rdf:type`` synthesis), preserving the
         prior behavior. A caller that passes ``base_iri`` (e.g. agent-utilities'
@@ -12991,7 +13034,8 @@ class RdfClient:
         min_confidence: float = 0.0,
     ) -> dict[str, Any]:
         """Distributed (cross-shard) confidence-weighted OWL reasoning over the UNION of
-        ``graphs`` (CONCEPT:MEDULLA-KG.ontology.concept-13). Gathers each graph/shard's TBox
+        ``graphs`` (CONCEPT:MEDULLA-KG.ontology.concept-13). Gathers each graph/shard's
+        TBox
         axioms + decayed-
         confidence type facts, runs ONE weighted EL⁺/RL closure over the union (the
         cross-shard union-read seam), and returns the SAME shape as :meth:`owl_reason` —
@@ -13065,7 +13109,8 @@ class RdfClient:
         tables: list[str],
         external_sources: list[dict[str, str]] | None = None,
     ) -> list[dict[str, str | None]]:
-        """OBDA / R2RML VIRTUAL GRAPH query (CONCEPT:MEDULLA-KG.query.r2rml-virtual-graph /
+        """OBDA / R2RML VIRTUAL GRAPH query
+        (CONCEPT:MEDULLA-KG.query.r2rml-virtual-graph /
         CONCEPT:MEDULLA-KG.query.obda-query-rewrite) — Ontology-Based Data Access: run a
         SPARQL query against the engine's OWN SQL user table(s) (created via
         :class:`QueryClient`/``Method.Sql`` DDL or :meth:`import_sqlite_file`)
@@ -13116,7 +13161,8 @@ class RdfClient:
 
 
 class ObdaClient:
-    """CONCEPT:MEDULLA-KG.query.r2rml-virtual-graph / MEDULLA-KG.query.obda-query-rewrite — CA-13:
+    """CONCEPT:MEDULLA-KG.query.r2rml-virtual-graph /
+    MEDULLA-KG.query.obda-query-rewrite — CA-13:
     Ontology-Based Data Access as a Load/Evaluate pair, for callers (starting with au's
     connector-manifest R2RML resolution, CA-23) that load one named mapping once and
     then run many queries against it, instead of re-sending the mapping Turtle on every
@@ -13126,7 +13172,8 @@ class ObdaClient:
     ``src/server/obda/mod.rs``):** the engine already exposes OBDA over the wire as
     ``Method.SparqlVirtual`` (:meth:`RdfClient.sparql_virtual`) — a STATELESS call that
     takes the mapping Turtle and backing table name(s) on every request, matching
-    ``medulla_rdf::obda``'s own "materialize transient triples, then discard" design (nothing
+    ``medulla_rdf::obda``'s own "materialize transient triples, then discard" design
+    (nothing
     server-side ever persists a loaded mapping). CA-13 therefore adds **no new
     ``Method`` variant and no server-side mapping registry** — :meth:`load` does its
     bookkeeping ENTIRELY client-side (remembering ``mapping_turtle`` under
@@ -13152,10 +13199,12 @@ class ObdaClient:
     * :meth:`evaluate` for a ``source_name`` never :meth:`load`-ed raises ``KeyError``
       locally — no round trip needed to know the mapping was never loaded.
     * A ``tables``/``logical_source`` mismatch the engine can't resolve raises a typed
-      engine error (``medulla_rdf::obda::ObdaSourceRegistry::resolve``, unchanged by CA-13).
+      engine error (``medulla_rdf::obda::ObdaSourceRegistry::resolve``, unchanged by
+      CA-13).
     * A query naming a predicate the loaded mapping does not declare ALSO raises a
       typed engine error — CA-13 added this check to
-      ``medulla_rdf::obda::run_outcome_virtual`` (see ``VirtualGraph::declared_predicates``)
+      ``medulla_rdf::obda::run_outcome_virtual`` (see
+      ``VirtualGraph::declared_predicates``)
       because, before it, an unmapped predicate silently materialized zero triples and
       the query returned zero solutions: indistinguishable from "this predicate has
       data, just none matching the rest of the query" (a legitimate, correct SPARQL
@@ -13168,8 +13217,10 @@ class ObdaClient:
         self._mappings: dict[str, str] = {}
 
     async def load(self, mapping_turtle: str, source_name: str) -> None:
-        """Register ``mapping_turtle`` (standard R2RML Turtle, or the compact MEDULLA-101
-        textual form — ``medulla_rdf::obda`` auto-detects which) under ``source_name`` for
+        """Register ``mapping_turtle`` (standard R2RML Turtle, or the compact
+        MEDULLA-101
+        textual form — ``medulla_rdf::obda`` auto-detects which) under ``source_name``
+        for
         subsequent :meth:`evaluate` calls. Purely client-side bookkeeping — nothing is
         sent to the engine until :meth:`evaluate` runs a query against it, at which
         point a malformed mapping surfaces as the SAME parse error
@@ -13479,7 +13530,8 @@ class StreamingClient:
         window: dict[str, Any],
         buffer: int = 0,
     ) -> int:
-        """Register a live CEP standing query (CONCEPT:MEDULLA-KG.query.protocol-types) — the
+        """Register a live CEP standing query (CONCEPT:MEDULLA-KG.query.protocol-types)
+        — the
         PUSH
         half of the event-stream + complex-event-processing modality, fed by the SAME
         CDC hub ``watch``/``register_trigger`` use: each detected match is keyed by the
@@ -13514,7 +13566,8 @@ class StreamingClient:
         self, sub_id: int, *, timeout_ms: int = 0
     ) -> list[dict[str, Any]]:
         """Long-poll CEP subscription ``sub_id`` for the matches pushed since the last
-        poll (CONCEPT:MEDULLA-KG.query.protocol-types) — mirrors :meth:`watch`'s long-poll
+        poll (CONCEPT:MEDULLA-KG.query.protocol-types) — mirrors :meth:`watch`'s
+        long-poll
         shape:
         returns immediately if any are buffered, else blocks up to ``timeout_ms`` for
         the FIRST one (0 ⇒ don't block), then returns whatever arrived. Each match is
@@ -13537,7 +13590,8 @@ class StreamingClient:
 
 
 class BlobClient:
-    """CONCEPT:MEDULLA-KG.storage.blob-namespace — Streamed content-addressed BLOB namespace.
+    """CONCEPT:MEDULLA-KG.storage.blob-namespace — Streamed content-addressed BLOB
+    namespace.
 
     Store / fetch large media (image / audio / video) bytes as a content-addressed,
     deduplicated, refcount-GC'd blob beside the graph. The whole file is never
@@ -13660,14 +13714,16 @@ def _as_bytes(value: Any) -> Any:
 
 
 class BrokerClient:
-    """CONCEPT:MEDULLA-KG.ingest.broker-streams-namespaces — Native message-broker + streams
+    """CONCEPT:MEDULLA-KG.ingest.broker-streams-namespaces — Native message-broker +
+    streams
     namespace (MEDULLA-275..284/314).
 
     A thin, typed binding over the engine's RabbitMQ/Kafka-class broker built on the
     KG-2.303 work-queue: exchange/queue admin + routed publish + consumer-group
     consume/ack/reject with DLQ/TTL/priority/delay policy (MEDULLA-275..280), publisher
     confirms + tag-addressed acks (MEDULLA-284), effectively-once idempotent publish
-    (MEDULLA-314), and replayable append-log **streams** (MEDULLA-283). Every mutation is
+    (MEDULLA-314), and replayable append-log **streams** (MEDULLA-283). Every mutation
+    is
     deterministic from its explicit args (the caller supplies ``now_ms`` — no server
     clock — so WAL/Raft replay reproduces byte-identical state), exactly as the engine
     contract requires.
@@ -13736,9 +13792,11 @@ class BrokerClient:
     ) -> str:
         """Idempotently upsert a queue's policy node. All fields optional — an
         all-``None``
-        policy keeps the queue behaving exactly as the plain MEDULLA-275 work-queue. ``dl_*``
+        policy keeps the queue behaving exactly as the plain MEDULLA-275 work-queue.
+        ``dl_*``
         +
-        ``max_delivery_count`` configure dead-lettering (MEDULLA-276), ``message_ttl_ms`` /
+        ``max_delivery_count`` configure dead-lettering (MEDULLA-276),
+        ``message_ttl_ms`` /
         ``queue_expiry_ms`` TTL (MEDULLA-277), ``max_priority`` the priority ceiling
         (MEDULLA-278).
         Returns ``"ok"``."""
@@ -13778,7 +13836,8 @@ class BrokerClient:
     ) -> int:
         """Policy-carrying publish (superset of :meth:`publish`): stamps per-message
         ``priority`` (MEDULLA-278) and — resolving against the EXPLICIT ``now_ms`` — a
-        ``delay_ms`` eta (MEDULLA-279) and a ``ttl_ms`` deadline (MEDULLA-277). With ``priority ==
+        ``delay_ms`` eta (MEDULLA-279) and a ``ttl_ms`` deadline (MEDULLA-277). With
+        ``priority ==
         0``
         and all options ``None`` it is byte-identical to a plain :meth:`publish`.
         Returns
@@ -13807,7 +13866,8 @@ class BrokerClient:
         ttl_ms: int | None = None,
         now_ms: int | None = None,
     ) -> dict[str, Any]:
-        """Publish with a publisher confirm (MEDULLA-284) — a superset of :meth:`publish_ex`
+        """Publish with a publisher confirm (MEDULLA-284) — a superset of
+        :meth:`publish_ex`
         that also allocates a broker-wide monotonic delivery-tag. Returns a
         ``ConfirmToken`` dict ``{"delivery_tag": int, "confirmed": bool}``
         (``confirmed``
@@ -13840,7 +13900,8 @@ class BrokerClient:
         ttl_ms: int | None = None,
         now_ms: int | None = None,
     ) -> dict[str, Any]:
-        """Effectively-once publish (MEDULLA-314) — a superset of :meth:`publish_confirmed`.
+        """Effectively-once publish (MEDULLA-314) — a superset of
+        :meth:`publish_confirmed`.
         With ``producer_id is None`` it is the plain at-least-once path. With a
         ``producer_id`` the broker dedups against that producer's durable monotonic
         high-water mark: a ``seq`` at/under the mark is a DUPLICATE (dropped but still
@@ -13911,7 +13972,8 @@ class BrokerClient:
     async def reject(
         self, queue: str, node_id: str, *, requeue: bool, now_ms: int
     ) -> str:
-        """Reject a claimed message (MEDULLA-276). If ``requeue`` and the delivery count is
+        """Reject a claimed message (MEDULLA-276). If ``requeue`` and the delivery count
+        is
         under the queue's ``max_delivery_count`` it returns to claimable; otherwise it
         is
         dead-lettered or dropped. Returns the outcome string (``requeued``/
@@ -13927,7 +13989,8 @@ class BrokerClient:
         )
 
     async def ack_tag(self, delivery_tag: int, *, consumer: str) -> bool:
-        """Acknowledge a claimed message by its consumer ``delivery_tag`` (MEDULLA-284) — the
+        """Acknowledge a claimed message by its consumer ``delivery_tag`` (MEDULLA-284)
+        — the
         tag-addressed sibling of :meth:`ack`. Status, tag, and current owner are
         fenced atomically; stale or foreign deliveries return ``False``."""
         return await _gen.messaging.send_broker_ack_tag(
@@ -13981,7 +14044,8 @@ class BrokerClient:
         )
 
     async def sweep_expired(self, now_ms: int) -> int:
-        """Reaper sweep (MEDULLA-277): dead-letter/drop messages whose TTL has passed and
+        """Reaper sweep (MEDULLA-277): dead-letter/drop messages whose TTL has passed
+        and
         return lease-expired messages to claimable, across every queue. Returns the
         count
         of messages acted on. Called periodically by a scheduler with the current clock.
@@ -14022,7 +14086,8 @@ class BrokerClient:
     ) -> list[tuple[int, bytes]]:
         """Read up to ``max`` retained messages from ``stream`` starting at
         ``from_offset``
-        WITHOUT deleting (MEDULLA-283 — replay). ``from_offset < 0`` ⇒ only-new (from the
+        WITHOUT deleting (MEDULLA-283 — replay). ``from_offset < 0`` ⇒ only-new (from
+        the
         current
         end); ``0`` ⇒ earliest; otherwise that explicit offset. ``max == 0`` ⇒ uncapped.
         Returns ``[(offset, payload), ...]`` ascending by offset. Read-only."""
@@ -14038,7 +14103,8 @@ class BrokerClient:
         return [(int(off), _as_bytes(payload)) for off, payload in (msgs or [])]
 
     async def stream_trim(self, stream: str, now_ms: int) -> int:
-        """Trim ``stream`` per its declared retention (MEDULLA-283): drop messages beyond
+        """Trim ``stream`` per its declared retention (MEDULLA-283): drop messages
+        beyond
         ``max_messages`` (oldest first) and/or older than ``max_age_ms``. Returns the
         count
         removed. An undeclared/unbounded stream trims nothing."""
@@ -14054,7 +14120,8 @@ class BrokerClient:
         )
 
     async def stream_committed_offset(self, stream: str, group: str) -> int | None:
-        """Read a consumer-group's committed offset on ``stream`` (MEDULLA-283). Returns the
+        """Read a consumer-group's committed offset on ``stream`` (MEDULLA-283). Returns
+        the
         offset, or ``None`` if the group has never committed. Read-only."""
         return (
             await _gen.messaging.send_stream_committed_offset(
@@ -14987,7 +15054,8 @@ class ServedModalityClient:
 
 
 class AdminClient:
-    """CONCEPT:MEDULLA-KG.ingest.broker-streams-namespaces — Ops / maintenance namespace:
+    """CONCEPT:MEDULLA-KG.ingest.broker-streams-namespaces — Ops / maintenance
+    namespace:
     online backup + restore (MEDULLA-090).
 
     A thin binding over the ``Method::Backup`` / ``Method::Restore`` / ``Method::
@@ -15000,7 +15068,8 @@ class AdminClient:
     ``restore`` CLI. Redb-only; a non-redb build returns "not available".
 
     :meth:`audit_verify` / :meth:`audit_prove_inclusion` are the tamper-evident audit
-    surface (CONCEPT:MEDULLA-KG.sharding.row-level-security, feature `security`): both walk
+    surface (CONCEPT:MEDULLA-KG.sharding.row-level-security, feature `security`): both
+    walk
     the target
     graph's durable, hash-chained audit log under the `kg:admin` capability gate — an
     ops/maintenance read, not an ordinary graph row read, which is why they sit here
@@ -15015,7 +15084,8 @@ class AdminClient:
         self, destination: str, label: str | None = None
     ) -> dict[str, Any]:
         """Take an online consistent backup named ``destination`` under the configured
-        private backup root, tagged with ``label`` (MEDULLA-090). Returns aggregate counts;
+        private backup root, tagged with ``label`` (MEDULLA-090). Returns aggregate
+        counts;
         no local path or raw label is returned or persisted."""
         return (
             await _gen.storage.send_backup(
@@ -15025,7 +15095,8 @@ class AdminClient:
 
     async def restore(self, source: str, *, target_shards: int) -> dict[str, Any]:
         """Restore the logical bundle name ``source`` from the configured private root
-        (MEDULLA-090). Stages an engine-owned copy for an offline swap-in and returns only an
+        (MEDULLA-090). Stages an engine-owned copy for an offline swap-in and returns
+        only an
         opaque stage reference plus aggregate counts."""
         return (
             await _gen.storage.send_restore(
@@ -15578,7 +15649,8 @@ class MedullaClient:
         self.policy_evolution = PolicyEvolutionClient(self)
         # CONCEPT:MEDULLA-KG.ingest.broker-streams-namespaces — B1.7 multi-lang client
         # drivers: broker/streams (MEDULLA-275..284/314),
-        # RBAC admin (MEDULLA-092), backup/restore (MEDULLA-090). NlQuery (MEDULLA-080) lives on
+        # RBAC admin (MEDULLA-092), backup/restore (MEDULLA-090). NlQuery (MEDULLA-080)
+        # lives on
         # `query`.
         self.broker = BrokerClient(self)
         self.rbac = RbacClient(self)
@@ -15840,7 +15912,8 @@ class MedullaClient:
         — GOC-81 W02's "close during connect" case).
         """
         # Tear down the old demux reader and fail any calls still bound to the
-        # dead connection (CONCEPT:MEDULLA-KG.backend.framed-response) before swapping in the
+        # dead connection (CONCEPT:MEDULLA-KG.backend.framed-response) before swapping
+        # in the
         # fresh stream.
         # Capture the task BEFORE `_mark_dead` (which requests cancellation and
         # clears `self._reader_task`) so it can be awaited below.
@@ -16204,7 +16277,8 @@ class MedullaClient:
 
         One task per live connection, bound to the lifecycle ``generation``
         that was current when it started (GOC-81 W02). Responses arrive in
-        ANY order (the engine pipelines, CONCEPT:MEDULLA-KG.backend.framed-response); each is
+        ANY order (the engine pipelines, CONCEPT:MEDULLA-KG.backend.framed-response);
+        each is
         routed to its caller by the ``Response.id`` correlation id the
         protocol already carries. On EOF / transport error every in-flight
         call is failed so no caller hangs and the next call reconnects —
@@ -16227,9 +16301,7 @@ class MedullaClient:
         except Exception as e:
             self._on_reader_terminated(
                 generation,
-                ConnectionError(
-                    f"medulla response failed ({type(e).__name__})"
-                ),
+                ConnectionError(f"medulla response failed ({type(e).__name__})"),
             )
 
     def _dispatch_response(self, resp: dict[str, Any]) -> None:
@@ -16920,7 +16992,8 @@ class SyncMedullaClient:
         self.obda = self._SyncWrapper(self._client.obda, self._loop)
         self.streaming = self._SyncWrapper(self._client.streaming, self._loop)
         self.blob = self._SyncWrapper(self._client.blob, self._loop)
-        # CONCEPT:MEDULLA-KG.ingest.broker-streams-namespaces — B1.7 broker/streams + RBAC +
+        # CONCEPT:MEDULLA-KG.ingest.broker-streams-namespaces — B1.7 broker/streams +
+        # RBAC +
         # backup namespaces.
         self.broker = self._SyncWrapper(self._client.broker, self._loop)
         self.rbac = self._SyncWrapper(self._client.rbac, self._loop)
@@ -16984,9 +17057,7 @@ class SyncMedullaClient:
         thread = threading.Thread(target=run_loop, daemon=True)
         thread.start()
 
-        future = asyncio.run_coroutine_threadsafe(
-            MedullaClient.connect(**kwargs), loop
-        )
+        future = asyncio.run_coroutine_threadsafe(MedullaClient.connect(**kwargs), loop)
         async_client: MedullaClient | None = None
         try:
             async_client = future.result()

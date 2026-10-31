@@ -1,5 +1,6 @@
 """Streaming / CDC / continuous-query / watch / trigger round-trip against a live
-engine (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions/230, feature `streaming`, folded
+engine (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions/230, feature `streaming`,
+folded
 into `full`).
 
 These drive the `StreamingClient` over the framed-MessagePack socket the conftest

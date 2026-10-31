@@ -48,8 +48,8 @@ for _name in ("medulla.engine", "engine"):
 
 pytestmark = pytest.mark.skipif(
     _e is None,
-    reason="medulla-pyengine binding wheel not installed (build with maturin --features "
-    "python)",
+    reason="medulla-pyengine binding wheel not installed "
+    "(build with maturin --features python)",
 )
 
 

@@ -125,9 +125,7 @@ def main() -> int:
     parser.add_argument(
         "--venv",
         type=Path,
-        default=Path(
-            os.environ.get("MEDULLA_LAKE_PARITY_VENV", str(DEFAULT_VENV))
-        ),
+        default=Path(os.environ.get("MEDULLA_LAKE_PARITY_VENV", str(DEFAULT_VENV))),
         help="fresh virtualenv path (default: /tmp/medulla-lake-parity)",
     )
     options = parser.parse_args()

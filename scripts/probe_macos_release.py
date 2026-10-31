@@ -97,7 +97,8 @@ def packaging_fixture(root: Path) -> tuple[Path, Path]:
     (project / "src/lib.rs").write_text("pub fn value() -> u32 { 42 }\n")
     for number in range(5):
         (project / f"src/bin/tool{number}.rs").write_text(
-            'fn main() { assert_eq!(medulla_mac_probe::value(), 42); println!("42"); }\n'
+            "fn main() { assert_eq!(medulla_mac_probe::value(), 42); "
+            'println!("42"); }\n'
         )
     wrapper = root / "rustc-wrapper.py"
     wrapper.write_text(

@@ -1,4 +1,5 @@
-"""MEDULLA-ORCH-VOCAB-R801.6 served receipt: two versions, supersession, bitemporal read.
+"""MEDULLA-ORCH-VOCAB-R801.6 served receipt: two versions, supersession, bitemporal
+read.
 
 The entry point is the generated client write through
 ``ApplyChangeEnvelopes`` (``changes.apply_batch`` compiles to it): one

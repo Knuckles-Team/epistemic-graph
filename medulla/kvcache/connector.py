@@ -5,9 +5,11 @@ Python half of the MEDULLA-187 remote
 KV-cache contract.
 
 The engine exposes a shared, content-addressed KV-cache backend
-(``medulla_kvcache::SharedKvIndex``, CONCEPT:MEDULLA-KG.enrichment.content-address-separation)
+(``medulla_kvcache::SharedKvIndex``,
+CONCEPT:MEDULLA-KG.enrichment.content-address-separation)
 over a small HTTP surface
-(CONCEPT:MEDULLA-KG.backend.is-configured-so-co). This module drives that surface from Python
+(CONCEPT:MEDULLA-KG.backend.is-configured-so-co). This module drives that surface from
+Python
 so that parallel
 vLLM / LMCache workers pool their KV-cache blocks by token-hash: an identical KV
 page produced by two workers is stored **once** (dedup) and a cold worker can

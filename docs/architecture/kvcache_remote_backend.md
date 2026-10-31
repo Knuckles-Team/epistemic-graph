@@ -133,7 +133,9 @@ Direct use (custom L1→remote hierarchy) is equally supported:
 ```python
 from medulla.kvcache import RemoteKVConnector
 
-with RemoteKVConnector.from_env() as kv:  # reads MEDULLA-KG.backend.is-configured-so-co env
+with (
+    RemoteKVConnector.from_env() as kv
+):  # reads MEDULLA-KG.backend.is-configured-so-co env
     if not kv.contains(token_hash):  # HEAD /kv/<hash>
         kv.put(token_hash, block_bytes)  # PUT  /kv/<hash>
     block = kv.get(token_hash)  # GET  /kv/<hash>  (None on miss)

@@ -45,9 +45,7 @@ from typing import Any
 # late-bound sys.path entry to precede a plain top-of-file import.
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT))
-SyncMedullaClient = importlib.import_module(
-    "medulla.client"
-).SyncMedullaClient
+SyncMedullaClient = importlib.import_module("medulla.client").SyncMedullaClient
 
 SCHEMA_VERSION = 1
 AGENT_ID = "service:exact-certifier"
@@ -392,9 +390,7 @@ class ExactEngine:
                 or not 1 <= modality_source_limit <= 256 * 1024 * 1024
             ):
                 _fail("invalid_modality_source_limit")
-            env["MEDULLA_MODALITY_MAX_SOURCE_BYTES"] = str(
-                modality_source_limit
-            )
+            env["MEDULLA_MODALITY_MAX_SOURCE_BYTES"] = str(modality_source_limit)
 
         def launch(env: dict[str, str]) -> None:
             self.process = subprocess.Popen(

@@ -112,7 +112,12 @@ def test_deleted_lane_classifier_is_absent_from_authority_evidence() -> None:
         ROOT / "src" / "raft" / "mod.rs",
         ROOT / "src" / "server" / "access.rs",
         ROOT / "src" / "server" / "mutation.rs",
-        ROOT / "crates" / "medulla-capabilities" / "tests" / "consistency" / "divergence.rs",
+        ROOT
+        / "crates"
+        / "medulla-capabilities"
+        / "tests"
+        / "consistency"
+        / "divergence.rs",
     )
     for path in evidence_paths:
         assert "is_development_lane_method" not in path.read_text(), path

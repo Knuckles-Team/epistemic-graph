@@ -19,7 +19,10 @@ from test_work_item_retry_identity import _submit_request
 
 from medulla.client import EngineResponseError, SyncMedullaClient
 
-pytestmark = [pytest.mark.no_engine, pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R028.4.1")]
+pytestmark = [
+    pytest.mark.no_engine,
+    pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R028.4.1"),
+]
 
 
 @pytest.fixture

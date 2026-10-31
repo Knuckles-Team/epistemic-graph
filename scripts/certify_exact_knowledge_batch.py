@@ -349,7 +349,9 @@ def _certify_snapshot_binding(
 
 def _run(binary: ExactBinary, binary_digest: str) -> dict[str, object]:
     authority = _new_ephemeral_authority()
-    with tempfile.TemporaryDirectory(prefix="medulla-exact-knowledge-batch-") as scratch:
+    with tempfile.TemporaryDirectory(
+        prefix="medulla-exact-knowledge-batch-"
+    ) as scratch:
         root = Path(scratch)
         engine = ExactEngine(binary, root, authority)
         try:

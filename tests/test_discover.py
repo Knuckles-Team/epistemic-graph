@@ -1,5 +1,6 @@
 """``GraphOperationsClient.discover`` sends the one-round-trip Discover RPC
-(CONCEPT:MEDULLA-KG.retrieval.one-round-trip-discovery) — hybrid keyword + semantic discovery
+(CONCEPT:MEDULLA-KG.retrieval.one-round-trip-discovery) — hybrid keyword + semantic
+discovery
 that returns hydrated
 node text.
 
@@ -16,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from medulla.client import MedullaClient, GraphOperationsClient
+from medulla.client import GraphOperationsClient, MedullaClient
 
 # Fake-client unit tests only -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_medulla_server` fixture,

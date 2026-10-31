@@ -73,15 +73,12 @@ def _required_exact_certification_env() -> _ExactCertificationEnv:
         os.environ.get("MEDULLA_PERFORMANCE_EVIDENCE_SHA256", "") or ""
     ).strip()
     assert binary, "MEDULLA_TEST_BINARY is required for exact certification"
-    assert digest, (
-        "MEDULLA_TEST_BINARY_SHA256 is required for exact certification"
-    )
+    assert digest, "MEDULLA_TEST_BINARY_SHA256 is required for exact certification"
     assert performance_evidence, (
         "MEDULLA_PERFORMANCE_EVIDENCE is required for exact certification"
     )
     assert performance_digest, (
-        "MEDULLA_PERFORMANCE_EVIDENCE_SHA256 is required for exact "
-        "certification"
+        "MEDULLA_PERFORMANCE_EVIDENCE_SHA256 is required for exact certification"
     )
     return _ExactCertificationEnv(
         binary, digest, performance_evidence, performance_digest

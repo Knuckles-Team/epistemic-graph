@@ -44,9 +44,7 @@ def test_exact_binary_fault_restart_matrix(tmp_path: Path) -> None:
     binary = str(os.environ.get("MEDULLA_TEST_BINARY", "") or "").strip()
     digest = str(os.environ.get("MEDULLA_TEST_BINARY_SHA256", "") or "").strip()
     assert binary, "MEDULLA_TEST_BINARY is required for exact certification"
-    assert digest, (
-        "MEDULLA_TEST_BINARY_SHA256 is required for exact certification"
-    )
+    assert digest, "MEDULLA_TEST_BINARY_SHA256 is required for exact certification"
 
     evidence_path = tmp_path / "exact-fault-restart.json"
     completed = subprocess.run(

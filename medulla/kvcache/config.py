@@ -129,7 +129,8 @@ def _first_env(*variables: str) -> str | None:
 class KvCacheConfig:
     """Endpoint + auth + timeout settings for :class:`RemoteKVConnector`.
 
-    CONCEPT:MEDULLA-KG.backend.shipped-pip-installable-python. Prefer :meth:`from_env`, which
+    CONCEPT:MEDULLA-KG.backend.shipped-pip-installable-python. Prefer :meth:`from_env`,
+    which
     mirrors the engine's MEDULLA-187
     environment variables so client and server stay in lockstep.
 
@@ -239,7 +240,5 @@ class KvCacheConfig:
             ca_directory=_first_env("SSL_CERT_DIR"),
             client_cert=_first_env("MEDULLA_KVCACHE_CLIENT_CERT"),
             client_key=_first_env("MEDULLA_KVCACHE_CLIENT_KEY"),
-            client_key_password=_first_env(
-                "MEDULLA_KVCACHE_CLIENT_KEY_PASSWORD"
-            ),
+            client_key_password=_first_env("MEDULLA_KVCACHE_CLIENT_KEY_PASSWORD"),
         )

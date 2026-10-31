@@ -1,5 +1,6 @@
 """QueryClient Cypher methods send explicit-mode RPCs and decode result rows
-into dicts (CONCEPT:MEDULLA-KG.query.dep-free-behind) — mirroring the SQL path, since both
+into dicts (CONCEPT:MEDULLA-KG.query.dep-free-behind) — mirroring the SQL path, since
+both
 return the
 identical wire shape."""
 

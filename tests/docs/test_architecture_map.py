@@ -1,4 +1,5 @@
-"""MEDULLA-T-12.1 to MEDULLA-T-12.3: the R052 architecture map in plan.md matches source."""
+"""MEDULLA-T-12.1 to MEDULLA-T-12.3: the R052 architecture map in plan.md matches
+source."""
 
 from __future__ import annotations
 

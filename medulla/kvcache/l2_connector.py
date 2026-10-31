@@ -13,7 +13,8 @@ LMCache's decoupled ``lmcache server`` writes its L2 tier through an
 at the engine's Redis RESP wire — but that lands blocks in the engine's *generic
 Redis keyspace*, so the engine's **content-addressed dedup
 (CONCEPT:MEDULLA-KG.enrichment.content-address-separation)** and
-the **``/kv/stats`` counters (CONCEPT:MEDULLA-KG.backend.is-configured-so-co)** do NOT apply.
+the **``/kv/stats`` counters (CONCEPT:MEDULLA-KG.backend.is-configured-so-co)** do NOT
+apply.
 This connector
 instead speaks the **MEDULLA-187 HTTP KV surface**, so every L2 write is
 content-addressed and deduped and the stats counters move.
@@ -68,7 +69,8 @@ It is loaded via ``--l2-adapter``::
 omitted here are read from the engine's MEDULLA-187 environment via
 :meth:`KvCacheConfig.from_env`). There is deliberately **no**
 ``submit_batch_delete``: the shared, content-addressed pool is evicted by the
-engine's own tiered store (CONCEPT:MEDULLA-KG.memory.byte-bounded-tiers), so L2 delete is a
+engine's own tiered store (CONCEPT:MEDULLA-KG.memory.byte-bounded-tiers), so L2 delete
+is a
 no-op.
 
 Graceful degradation is inherited from :class:`RemoteKVConnector`: every
@@ -165,7 +167,9 @@ class RemoteKVL2Connector:
         self._next_id = count(1)
         self._id_lock = threading.Lock()
         self._closed = False
-        self._pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="medulla-l2")
+        self._pool = ThreadPoolExecutor(
+            max_workers=workers, thread_name_prefix="medulla-l2"
+        )
         logger.info(
             "RemoteKVL2Connector ready (workers=%d)",
             workers,
@@ -189,7 +193,8 @@ class RemoteKVL2Connector:
         max_connections: int | None,
         workers: int,
     ) -> KvCacheConfig:
-        """Layer explicit ``adapter_params`` over the MEDULLA-187 environment defaults."""
+        """Layer explicit ``adapter_params`` over the MEDULLA-187 environment
+        defaults."""
         cfg = KvCacheConfig.from_env(
             base_url=base_url,
             addr=addr,
@@ -202,7 +207,8 @@ class RemoteKVL2Connector:
         # Give the transport at least two connections per worker unless pinned.
         return replace(cfg, max_connections=workers * 2)
 
-    # -- native-client contract (CONCEPT:MEDULLA-KG.backend.shipped-pip-installable-python)
+    # -- native-client contract
+    # (CONCEPT:MEDULLA-KG.backend.shipped-pip-installable-python)
     # ------------------------------
     def event_fd(self) -> int:
         """The pollable fd signalled on every batch completion (one for all ops)."""

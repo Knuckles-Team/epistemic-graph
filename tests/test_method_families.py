@@ -240,7 +240,8 @@ _UNCONDITIONAL_WRITES_AT_BASE = (
         # unconditional tail after the family refactor, not family members:
         # DecisionCommit and GraphSchema (a4804f87c), SourceIngest (dcc5d53c0),
         # TelemetryDerive (EH-408/EH-409, a self-translating declared write),
-        # EnrichDocument (MEDULLA-UNIFIED-DATA-PLANE-R651.7, a self-routed envelope write).
+        # EnrichDocument (MEDULLA-UNIFIED-DATA-PLANE-R651.7, a self-routed envelope
+        # write).
         "DecisionCommit",
         "EnrichDocument",
         "GraphSchema",

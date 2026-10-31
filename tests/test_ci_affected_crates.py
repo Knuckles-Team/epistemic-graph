@@ -52,8 +52,26 @@ def _meta() -> dict:
             ["medulla-numeric", "medulla-storage", "medulla-types", "facade"],
         ),
         (["src/server/mod.rs"], ["facade"]),
-        (["Cargo.lock"], ["medulla-numeric", "medulla-storage", "medulla-types", "medulla-viz", "facade"]),
-        (["Cargo.toml"], ["medulla-numeric", "medulla-storage", "medulla-types", "medulla-viz", "facade"]),
+        (
+            ["Cargo.lock"],
+            [
+                "medulla-numeric",
+                "medulla-storage",
+                "medulla-types",
+                "medulla-viz",
+                "facade",
+            ],
+        ),
+        (
+            ["Cargo.toml"],
+            [
+                "medulla-numeric",
+                "medulla-storage",
+                "medulla-types",
+                "medulla-viz",
+                "facade",
+            ],
+        ),
     ],
 )
 def test_affected_is_owners_plus_reverse_dependencies(changed, expected) -> None:
@@ -62,7 +80,9 @@ def test_affected_is_owners_plus_reverse_dependencies(changed, expected) -> None
 
 @pytest.mark.spec("MEDULLA-CONTRACT-R053.7")
 def test_runs_keep_main_feature_profiles() -> None:
-    runs = mod.commands(_meta(), ["medulla-numeric", "medulla-storage", "medulla-types", "facade"])
+    runs = mod.commands(
+        _meta(), ["medulla-numeric", "medulla-storage", "medulla-types", "facade"]
+    )
     assert runs == [
         "{tool} -p medulla-types --all-features",
         "{tool} -p medulla-storage --all-features {serial}",

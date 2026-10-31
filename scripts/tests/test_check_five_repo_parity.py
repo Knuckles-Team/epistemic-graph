@@ -1,4 +1,5 @@
-"""Negative/positive tests for MEDULLA-CONTRACT-R008.2 (check_five_repo_parity.py CLI)."""
+"""Negative/positive tests for MEDULLA-CONTRACT-R008.2 (check_five_repo_parity.py
+CLI)."""
 
 from pathlib import Path
 
