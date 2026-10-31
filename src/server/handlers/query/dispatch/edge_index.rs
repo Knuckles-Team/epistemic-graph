@@ -10,16 +10,16 @@
 //! may not see is absent from that view, and the edge's own visibility metadata
 //! is checked inside the walk with the same rule the graph applies.
 
-use eg_query::edge_index::{
+use medulla_query::edge_index::{
     create_durable_edge_index, drop_durable_edge_index, edge_index, install_edge_indexes,
     refresh_durable_edge_index, EdgeIndexKind, EdgeIndexSpec, EdgeQuery, EdgeScope,
     EdgeSearchRequest,
 };
-use eg_query::VectorMetric;
-use eg_types::managed_index::{
+use medulla_query::VectorMetric;
+use medulla_types::managed_index::{
     self as wire, EdgeIndexOp, EdgeIndexStatusView, EdgeSearchHit, EdgeSearchView,
 };
-use eg_types::{CmpOp, RowPredicate};
+use medulla_types::{CmpOp, RowPredicate};
 
 use super::*;
 
@@ -39,7 +39,7 @@ pub(super) async fn dispatch_edge_method(
 /// the request graph installed.
 async fn tenant_catalog(
     ctx: &QueryHandlerCtx<'_>,
-) -> Result<(String, eg_query::TableStore), String> {
+) -> Result<(String, medulla_query::TableStore), String> {
     let carrier = ctx
         .read_authority
         .and_then(GraphReadAuthority::carrier)
@@ -67,7 +67,7 @@ async fn handle_edge_index(ctx: &QueryHandlerCtx<'_>, op: EdgeIndexOp) -> Respon
     match outcome {
         Ok(Ok(view)) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::query::EdgeIndex>(view),
+            ResultPayload::of::<medulla_types::result_contract::query::EdgeIndex>(view),
         ),
         Ok(Err(error)) => Response::err(req_id, error),
         Err(response) => response,
@@ -75,13 +75,13 @@ async fn handle_edge_index(ctx: &QueryHandlerCtx<'_>, op: EdgeIndexOp) -> Respon
 }
 
 fn apply_edge_index_op(
-    store: &eg_query::TableStore,
+    store: &medulla_query::TableStore,
     graph: &str,
     core: &GraphCore,
     tenant: &str,
     op: EdgeIndexOp,
 ) -> Result<(), String> {
-    let block_error = |block: eg_types::managed_index::IndexBlock| {
+    let block_error = |block: medulla_types::managed_index::IndexBlock| {
         format!("{}: {}", block.reason.as_str(), block.detail)
     };
     match op {
@@ -124,7 +124,7 @@ fn edge_spec(tenant: &str, definition: wire::EdgeIndexDefinition) -> EdgeIndexSp
 
 fn status_view(core: &GraphCore) -> Result<EdgeIndexStatusView, String> {
     Ok(EdgeIndexStatusView {
-        indexes: eg_types::contract::BoundedVec::new(core.indexes().managed_statuses())?,
+        indexes: medulla_types::contract::BoundedVec::new(core.indexes().managed_statuses())?,
     })
 }
 
@@ -146,7 +146,7 @@ async fn handle_edge_search(
     match search(ctx, authority, &tenant, request) {
         Ok(view) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::query::EdgeSearch>(view),
+            ResultPayload::of::<medulla_types::result_contract::query::EdgeSearch>(view),
         ),
         Err(error) => Response::err(req_id, error),
     }
@@ -201,7 +201,7 @@ fn search(
         })
         .collect();
     Ok(EdgeSearchView {
-        hits: eg_types::contract::BoundedVec::new(hits)?,
+        hits: medulla_types::contract::BoundedVec::new(hits)?,
         generation: answer.path.ok(),
         fallback: answer.path.err().map(|reason| format!("{reason:?}")),
     })

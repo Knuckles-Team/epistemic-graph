@@ -37,8 +37,8 @@ flowchart TB
     OBSAG -->|"OTLP/HTTP · PromQL · federated _search"| ENGINE
     S3CLI -->|"S3 REST, SigV4-lite, multipart"| ENGINE
     LLM -->|"KV-block GET/PUT by token-hash"| ENGINE
-    ENGINE -->|"Parquet + Delta + Iceberg-REST, zero ETL (EG-KG.storage.lsn-as-snapshot-returns)"| LAKE
-    ENGINE -->|"OTLP export + Prometheus remote-write (EG-316)"| OTELC
+    ENGINE -->|"Parquet + Delta + Iceberg-REST, zero ETL (MEDULLA-KG.storage.lsn-as-snapshot-returns)"| LAKE
+    ENGINE -->|"OTLP export + Prometheus remote-write (MEDULLA-316)"| OTELC
     ENGINE <-->|"Raft replication + cross-shard 2PC"| PEER
     ENGINE -->|"ForeignScan federation"| EXT
     ENGINE -->|"federated / super-cluster read"| PEER
@@ -48,8 +48,8 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    subgraph Process["epistemic-graph-server (one Rust process)"]
-        subgraph Wire["Wire adapters (EG-KG.compute.subsystems-reference WireProtocol / WireSession — one exec path)"]
+    subgraph Process["medulla-server (one Rust process)"]
+        subgraph Wire["Wire adapters (MEDULLA-KG.compute.subsystems-reference WireProtocol / WireSession — one exec path)"]
             NATIVE["native MessagePack (UDS/TCP, HMAC)"]
             PGW["pgwire"]
             SQLITEW["sqlite"]
@@ -62,31 +62,31 @@ flowchart TB
             OBSW["obs listener: OTLP · _bulk · PromQL · traces · _search"]
         end
         TRANSPORT["Transport + admission control<br/>(framed MessagePack, HMAC, BUSY shedding)"]
-        QOS["QoS/SLO scheduler (EG-320):<br/>per-tenant/priority admission · deadline · backpressure"]
+        QOS["QoS/SLO scheduler (MEDULLA-320):<br/>per-tenant/priority admission · deadline · backpressure"]
         SECURITY["Security layer<br/>(RLS GraphView filter, audit chain, AEAD-at-rest, durable RBAC)"]
         DISPATCH["Dispatch + per-domain handlers"]
-        PLANNER["Unified RowSet planner (eg-plan)"]
+        PLANNER["Unified RowSet planner (medulla-plan)"]
 
         subgraph Cores["Storage and compute core"]
-            GRAPHCORE["GraphCore (eg-core): petgraph + ledger + result cache + index manager"]
-            ANN["Vector ANN: IVF-PQ + HNSW + exact/recall + cross-shard scatter (eg-ann)"]
-            QUERY["SQL + Cypher (eg-query / DataFusion)"]
-            RDFOWL["RDF / SPARQL / OWL / SHACL / ShEx (eg-rdf / eg-shacl / eg-shex)"]
-            TSDB["Time-series + VRL (eg-tsdb)"]
-            TEXT["Full-text (eg-text)"]
+            GRAPHCORE["GraphCore (medulla-core): petgraph + ledger + result cache + index manager"]
+            ANN["Vector ANN: IVF-PQ + HNSW + exact/recall + cross-shard scatter (medulla-ann)"]
+            QUERY["SQL + Cypher (medulla-query / DataFusion)"]
+            RDFOWL["RDF / SPARQL / OWL / SHACL / ShEx (medulla-rdf / medulla-shacl / medulla-shex)"]
+            TSDB["Time-series + VRL (medulla-tsdb)"]
+            TEXT["Full-text (medulla-text)"]
             BLOBC["BLOB CAS (blob / blob-s3)"]
-            WASM["WASM UDF (eg-wasm)"]
-            GEO["GIS (eg-geo)"]
-            TENSOR["Tensor (eg-tensor)"]
-            STREAM["Event/CEP (eg-stream)"]
+            WASM["WASM UDF (medulla-wasm)"]
+            GEO["GIS (medulla-geo)"]
+            TENSOR["Tensor (medulla-tensor)"]
+            STREAM["Event/CEP (medulla-stream)"]
         end
 
         subgraph Subsys["New cross-cutting subsystems"]
-            BROKER["Message broker (eg-core/broker):<br/>exchanges · queues · streams · DLQ · TTL · exactly-once"]
+            BROKER["Message broker (medulla-core/broker):<br/>exchanges · queues · streams · DLQ · TTL · exactly-once"]
             OBS["Observability: logs · PromQL (extended) metrics · traces · federated search · OTel/remote-write egress"]
-            MEM["Agent-memory: summary · consolidation · decay · scene · trajectory (wire-Op surface, EG-KG.memory.eg-batch-decay-caller)"]
-            KVC["KV-cache tiering (eg-kvcache): hot/warm(zstd)/cold + shared backend"]
-            LAKE["LTAP lakehouse (eg-lake): Parquet · Delta · Iceberg-REST · LSN as-of"]
+            MEM["Agent-memory: summary · consolidation · decay · scene · trajectory (wire-Op surface, MEDULLA-KG.memory.medulla-batch-decay-caller)"]
+            KVC["KV-cache tiering (medulla-kvcache): hot/warm(zstd)/cold + shared backend"]
+            LAKE["LTAP lakehouse (medulla-lake): Parquet · Delta · Iceberg-REST · LSN as-of"]
         end
 
         subgraph Durable["Durability and distribution"]
@@ -177,7 +177,7 @@ sequenceDiagram
     end
 ```
 
-The content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace) is the bytes tier under multimodal
+The content-addressed BLOB substrate (CONCEPT:MEDULLA-KG.storage.blob-namespace) is the bytes tier under multimodal
 `:Media`/`:Blob` nodes: `begin / chunk / commit / fetch / ref / unref / gc` stream large binaries over
 the same transport (a chunk-get returns a raw MessagePack bin). The native CAS lives in `blob.redb`;
 an explicit `blob-s3` build routes chunks to S3/MinIO behind the same `ChunkStore` trait — the lean
@@ -219,7 +219,7 @@ flowchart LR
     OWLR -->|"classification, consistency, justifications"| Surfaces
 ```
 
-The OWL 2 reasoner (CONCEPT:EG-KG.ontology.incremental-materialization/2.236) is pure-Rust — EL⁺ completion (the ELK/CEL core) unioned
+The OWL 2 reasoner (CONCEPT:MEDULLA-KG.ontology.incremental-materialization/2.236) is pure-Rust — EL⁺ completion (the ELK/CEL core) unioned
 with OWL 2 RL property rules — and reaches entailments the RL-only reasoner cannot (e.g.
 `HumanHeart ⊑ HumanComponent` through `∃partOf.Body`). It is **confidence-weighted and time-decayed**:
 each entailment carries a `[0,1]` confidence (axiom annotations × per-node confidence × Ebbinghaus
@@ -309,7 +309,7 @@ server-side `foreign_sources` registry.
 
 **Ownership.** `RegisterForeignSource` records a source under the caller's **verified owner
 (tenant+principal)**, taken from the signed request carrier and never from a request field, keyed
-by `(owner, name)`. One engine is bound to **one** tenant (`EPISTEMIC_GRAPH_TENANT`; every verified
+by `(owner, name)`. One engine is bound to **one** tenant (`MEDULLA_TENANT`; every verified
 request carries it), so the principal is the working boundary; the tenant stays inside the owner
 key so cross-tenant stays closed if an engine ever serves more than one. Every served path that
 resolves a name — a `Named` `ForeignScan`, the UQL `FOREIGN "<name>"` marker, the in-txn and
@@ -414,7 +414,7 @@ stateDiagram-v2
     Hibernated --> Purged: DeleteGraph durably purges redb rows
     Purged --> [*]
     note right of Purged
-        Tenant-delete durable purge (EG-KG.backend.tenant-delete-recreate-same):
+        Tenant-delete durable purge (MEDULLA-KG.backend.tenant-delete-recreate-same):
         nodes / edges / ledger / semantic / identity rows
         removed under commit-before-ack, so a recreate of
         the SAME tenant name starts from a clean slate.
@@ -423,7 +423,7 @@ stateDiagram-v2
 
 Cold-tenant hibernation drops the in-RAM state while the durable redb rows + read-through seam stay
 intact (extended by the cold-tier object-store seam for whole-graph offload). The per-tenant memory
-budget (CONCEPT:EG-KG.compute.lane-v) drives this automatically: a tenant over its byte budget has its coldest
+budget (CONCEPT:MEDULLA-KG.compute.lane-v) drives this automatically: a tenant over its byte budget has its coldest
 graphs evicted (durability-gated LRU) then hibernated, with a global ceiling + fair per-tenant caps so
 one hot tenant cannot starve others. See [the cost model](../cost_model.md).
 
@@ -443,7 +443,7 @@ is heavy, but pure-Rust, so it ships in the one main build.
 ## Related references
 
 - [Subsystems (C4 container level)](subsystems.md) — the broker, observability, GIS, tensor, stream, KV-cache, agent-memory, LTAP lakehouse, and multi-wire subsystems and how they compose on the one substrate.
-- [Lakehouse LTAP interop (EG-KG.storage.lsn-as-snapshot-returns)](lakehouse_ltap.md) — the eg-lake Parquet/Delta/Iceberg egress tier that makes the engine Databricks-interoperable with zero ETL.
+- [Lakehouse LTAP interop (MEDULLA-KG.storage.lsn-as-snapshot-returns)](lakehouse_ltap.md) — the medulla-lake Parquet/Delta/Iceberg egress tier that makes the engine Databricks-interoperable with zero ETL.
 - [Tiers & binaries](tiers.md) — which features ship in which binary, and the prebuilt sizes.
 - [Engine modes](../engine_modes.md) — remote / shared-local / autostart resolution + the auto-bundle.
 - [Deployment](../deployment.md) — Docker / wheel / single-node / HA recipes.

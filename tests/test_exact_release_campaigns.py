@@ -3,8 +3,8 @@
 The harnesses own every engine process and receive one explicit artifact.  The test
 never locates or builds an executable and never starts campaigns concurrently.
 
-The opt-in signal is the DEDICATED ``EPISTEMIC_GRAPH_EXACT_CERTIFICATION=1``
-flag, deliberately independent of ``EPISTEMIC_GRAPH_TEST_BINARY``/``_SHA256``
+The opt-in signal is the DEDICATED ``MEDULLA_EXACT_CERTIFICATION=1``
+flag, deliberately independent of ``MEDULLA_TEST_BINARY``/``_SHA256``
 (see ``test_durable_crash.py``'s module docstring for why: those two are also
 the routine BUG-045 perf-optimization pair set on every ordinary run, so
 gating this expensive release-gate campaign on their presence made an
@@ -64,23 +64,23 @@ class _ExactCertificationEnv(NamedTuple):
 
 def _required_exact_certification_env() -> _ExactCertificationEnv:
     """The four env vars exact certification requires, asserting each is set."""
-    binary = str(os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY", "") or "").strip()
-    digest = str(os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY_SHA256", "") or "").strip()
+    binary = str(os.environ.get("MEDULLA_TEST_BINARY", "") or "").strip()
+    digest = str(os.environ.get("MEDULLA_TEST_BINARY_SHA256", "") or "").strip()
     performance_evidence = str(
-        os.environ.get("EPISTEMIC_GRAPH_PERFORMANCE_EVIDENCE", "") or ""
+        os.environ.get("MEDULLA_PERFORMANCE_EVIDENCE", "") or ""
     ).strip()
     performance_digest = str(
-        os.environ.get("EPISTEMIC_GRAPH_PERFORMANCE_EVIDENCE_SHA256", "") or ""
+        os.environ.get("MEDULLA_PERFORMANCE_EVIDENCE_SHA256", "") or ""
     ).strip()
-    assert binary, "EPISTEMIC_GRAPH_TEST_BINARY is required for exact certification"
+    assert binary, "MEDULLA_TEST_BINARY is required for exact certification"
     assert digest, (
-        "EPISTEMIC_GRAPH_TEST_BINARY_SHA256 is required for exact certification"
+        "MEDULLA_TEST_BINARY_SHA256 is required for exact certification"
     )
     assert performance_evidence, (
-        "EPISTEMIC_GRAPH_PERFORMANCE_EVIDENCE is required for exact certification"
+        "MEDULLA_PERFORMANCE_EVIDENCE is required for exact certification"
     )
     assert performance_digest, (
-        "EPISTEMIC_GRAPH_PERFORMANCE_EVIDENCE_SHA256 is required for exact "
+        "MEDULLA_PERFORMANCE_EVIDENCE_SHA256 is required for exact "
         "certification"
     )
     return _ExactCertificationEnv(
@@ -138,10 +138,10 @@ def _run_exact_campaign(
 
 @pytest.mark.timeout(4800)
 def test_exact_release_campaigns_are_serial_and_complete(tmp_path: Path) -> None:
-    if os.environ.get("EPISTEMIC_GRAPH_EXACT_CERTIFICATION", "").strip() != "1":
+    if os.environ.get("MEDULLA_EXACT_CERTIFICATION", "").strip() != "1":
         pytest.skip(
             "exact-artifact release certification was not requested "
-            "(set EPISTEMIC_GRAPH_EXACT_CERTIFICATION=1 to opt in)"
+            "(set MEDULLA_EXACT_CERTIFICATION=1 to opt in)"
         )
     env = _required_exact_certification_env()
 

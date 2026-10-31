@@ -1,4 +1,4 @@
-//! Multi-op OCC ACID transaction handler (CONCEPT:EG-KG.txn.multi-op-occ-acid).
+//! Multi-op OCC ACID transaction handler (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid).
 //!
 //! Owns the `Txn*`/`BeginTxn`/`Commit`/`Rollback` methods. These are STATEFUL
 //! (they read/write `ServerState::open_txns`), so unlike the per-graph handlers
@@ -6,7 +6,7 @@
 //! topology write lock is taken ONCE, at commit, where the OCC read-set is
 //! validated and the staged write-set applied through a single `GraphTxn`.
 //!
-//! Composition with the write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): staged ops are applied
+//! Composition with the write coalescer (CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer): staged ops are applied
 //! directly via `GraphTxn` at commit and never enter the coalescer's queue, so
 //! there is no interaction or deadlock with the per-graph write worker — that
 //! worker only batches NON-transactional single-op writes. A long-open txn holds
@@ -27,7 +27,7 @@ use super::super::txn::StagedMeasurement;
 use super::super::txn::{now_ms, parse_isolation, GraphTxnState, NewTxnArgs};
 use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Response, ResultPayload};
-use eg_types::contract::Nonce;
+use medulla_types::contract::Nonce;
 
 const MAX_TXN_RESULT_BYTES: usize = 1024 * 1024;
 const MAX_TXN_NESTED_BYTES: usize = 64 * 1024 * 1024;
@@ -83,12 +83,12 @@ fn decode_txn_value<T: serde::de::DeserializeOwned>(
     max_bytes: usize,
     max_items: usize,
 ) -> Result<T, String> {
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             max_bytes,
             max_items,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| "transaction value is invalid or exceeds resource limits".to_string())
@@ -101,10 +101,10 @@ fn decode_txn_result(bytes: &[u8]) -> Result<ResultPayload, String> {
     #[cfg(feature = "redb")]
     if let Some(result) = crate::server::handlers::admin::decode_durable_saga_result(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_TXN_RESULT_BYTES,
             1_024,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     ) {
         return Ok(result);
@@ -225,7 +225,7 @@ mod materialize_belief_tests {
 
     /// D5 is audited: the write lands as an ordinary `CompareAndSetNodeFields` — the
     /// SAME durable Method `audit::audit_line` already recognizes and chains (CONCEPT:
-    /// EG-KG.sharding.row-level-security) — never a bespoke, unaudited mutation.
+    /// MEDULLA-KG.sharding.row-level-security) — never a bespoke, unaudited mutation.
     #[test]
     #[cfg(feature = "security")]
     fn materialize_belief_rides_the_audited_cas_path() {
@@ -270,7 +270,7 @@ mod keyed_recovery_window_tests {
 
     fn test_dir(label: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "eg-{label}-{}-{}",
+            "medulla-{label}-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4().simple()
         ));

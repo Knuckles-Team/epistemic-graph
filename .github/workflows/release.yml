@@ -1,7 +1,7 @@
 name: Release
 
 # ─────────────────────────────────────────────────────────────────────────
-# Tag pipeline: build, check and publish ONLY (spec EG-CONTRACT-R053.7).
+# Tag pipeline: build, check and publish ONLY (spec MEDULLA-CONTRACT-R053.7).
 # Every test, gate, feature build and benchmark lives in ci.yml and runs on
 # pull requests and main. `guard` refuses to proceed unless ci.yml already
 # concluded `success` for this exact commit on main, so a tag publishes only
@@ -10,15 +10,15 @@ name: Release
 #   guard -> build (matrix leg)  -> uploads its own wheel to PyPI
 #         -> build-x86           -> publish-x86 uploads the Linux x86_64 wheel
 #         -> build-sdist         -> uploads the source distribution
-#         -> build-server        -> uploads the epistemic-graph-server wheel (linux x86_64/aarch64, macOS arm64, Windows x64) and its sdist
+#         -> build-server        -> uploads the medulla-server wheel (linux x86_64/aarch64, macOS arm64, Windows x64) and its sdist
 #         -> server-image        -> per-arch image from that wheel, one multi-arch manifest
 #   every uploader -> verify-pypi (checks every expected file reached PyPI)
 #
 # The public wheel compiles ONLY the two PyO3 extension modules (spec
-# EG-CONTRACT-R053.8). Each platform publishes the moment its own completeness
+# MEDULLA-CONTRACT-R053.8). Each platform publishes the moment its own completeness
 # and smoke checks pass, so a slow or failed platform never blocks the others.
 # `twine upload --skip-existing` makes every upload idempotent. The same pipeline
-# builds and publishes the `epistemic-graph-server` wheel and its container image.
+# builds and publishes the `medulla-server` wheel and its container image.
 # The rolling `engine-main` prerelease asset is published by ci.yml on every main push.
 #
 # A manual dispatch can build the server package of an already tagged version:
@@ -137,13 +137,13 @@ jobs:
     continue-on-error: ${{ matrix.optional || false }}
     # Read by .github/actions/folded-wheel, which cannot see the matrix.
     env:
-      EG_WHEEL_TARGET: ${{ matrix.target }}
-      EG_WHEEL_MATURIN_ARGS: ${{ matrix.maturin_args }}
+      MEDULLA_WHEEL_TARGET: ${{ matrix.target }}
+      MEDULLA_WHEEL_MATURIN_ARGS: ${{ matrix.maturin_args }}
       # Release rustc processes (thin LTO, codegen-units = 1) are memory-heavy:
       # at 4 jobs the 16 GB hosted Linux runners were killed mid-build ("runner
       # has received a shutdown signal"). Every leg caps parallel jobs.
-      EG_WHEEL_JOBS_ARG: ${{ matrix.jobs && format('--jobs {0}', matrix.jobs) || '' }}
-      EG_WHEEL_MANYLINUX: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
+      MEDULLA_WHEEL_JOBS_ARG: ${{ matrix.jobs && format('--jobs {0}', matrix.jobs) || '' }}
+      MEDULLA_WHEEL_MANYLINUX: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
     strategy:
       fail-fast: false
       # Every leg runs on its own GitHub-HOSTED runner VM, so the legs share no
@@ -214,10 +214,10 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: ${{ steps.rust-toolchain.outputs.channel }}
         run: |
-          case "$EG_WHEEL_TARGET" in
+          case "$MEDULLA_WHEEL_TARGET" in
             aarch64-apple-darwin) export MACOSX_DEPLOYMENT_TARGET=11.0 ;;
           esac
-          source scripts/configure_macos_linker.sh "$EG_WHEEL_TARGET"
+          source scripts/configure_macos_linker.sh "$MEDULLA_WHEEL_TARGET"
           python - <<'PYENV'
           import os
           with open(os.environ["GITHUB_ENV"], "a") as output:
@@ -225,8 +225,8 @@ jobs:
                   output.write(f"{key}={os.environ[key]}\n")
           PYENV
 
-      # Each pass builds the eg-pyengine wheel (engine module + Python package)
-      # and the eg-numeric module, folds the latter in, then normalizes,
+      # Each pass builds the medulla-pyengine wheel (engine module + Python package)
+      # and the medulla-numeric module, folds the latter in, then normalizes,
       # privacy-audits and checks the result (.github/actions/folded-wheel).
       # The per-platform compile cache is restored here, saved by ci.yml on main. Tag releases publish the primary
       # pass; a manual (workflow_dispatch) run adds a second pass from empty
@@ -242,8 +242,8 @@ jobs:
         run: >-
           python -c "import os,shutil; from pathlib import Path;
           root=Path(os.environ['RUNNER_TEMP']).resolve();
-          target=(root/'epistemic-graph-release-target').resolve();
-          assert target.parent==root and target.name=='epistemic-graph-release-target';
+          target=(root/'medulla-release-target').resolve();
+          assert target.parent==root and target.name=='medulla-release-target';
           print('removing' if target.exists() else 'already absent:', target);
           shutil.rmtree(target) if target.exists() else None"
 
@@ -274,10 +274,10 @@ jobs:
           cp dist-primary/medulla-*.whl dist/
 
       # Smoke test: install the wheel and assert it carries NO executables (the
-      # server ships in epistemic-graph-server), then prove the extension modules
-      # `epistemic_graph.numeric` (computing) and `epistemic_graph.engine`
+      # server ships in medulla-server), then prove the extension modules
+      # `medulla.numeric` (computing) and `medulla.engine`
       # (BUG-PE-002) import from the INSTALLED wheel.
-      - name: Smoke test (no executables + import epistemic_graph.{numeric,engine})
+      - name: Smoke test (no executables + import medulla.{numeric,engine})
         shell: bash
         run: bash scripts/release_wheel_smoke.sh
 
@@ -296,17 +296,17 @@ jobs:
           pattern: dist/*.whl
           pypi-token: ${{ secrets.PYPI_API_TOKEN }}
 
-  # NOTE (CONCEPT:EG-371): the old pi/pi-max tier wheels (`wheels-pi`) and the
+  # NOTE (CONCEPT:MEDULLA-371): the old pi/pi-max tier wheels (`wheels-pi`) and the
   # size-optimized "contains-all" tier wheels (`wheels-full-tiny`) are GONE. Those legs
   # existed only because the deployment tiers produced DIFFERENT binaries that all shared
-  # the SAME wheel filename (`epistemic_graph-<ver>-py3-none-<platform>`), so only one
+  # the SAME wheel filename (`medulla_engine-<ver>-py3-none-<platform>`), so only one
   # could ever publish. The tiers are collapsed into ONE main build (the `build` job
   # above), which is what publishes — no more per-tier legs, no more filename collision.
 
-  # NOTE: the eg-numeric kernel is NO LONGER a separately-published package. Its
+  # NOTE: the medulla-numeric kernel is NO LONGER a separately-published package. Its
   # Surface-A pyo3 `.so` is FOLDED INTO the `medulla` main wheel in the
   # `build` job above, so a BARE `pip install medulla` (no extra tag)
-  # provides `epistemic_graph.numeric` from ONE published package (CONCEPT:EG-346).
+  # provides `medulla.numeric` from ONE published package (CONCEPT:MEDULLA-346).
   # `medulla[numeric]` still resolves for old pins, but is a no-op alias —
   # it is not what makes the kernel present.
 
@@ -321,7 +321,7 @@ jobs:
       && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch')
     permissions:
       contents: read
-    uses: Knuckles-Team/medulla/.github/workflows/eg-release-x86.yml@219c853efa7aacb8cf7032abf67fc7f70aefb1ce
+    uses: Knuckles-Team/medulla/.github/workflows/medulla-release-x86.yml@219c853efa7aacb8cf7032abf67fc7f70aefb1ce
 
   # ─────────────────────────────────────────────────────────────────────────
   # PUBLISH — gated to a `v*` tag and the required release wheel matrix.
@@ -388,7 +388,7 @@ jobs:
           pattern: dist/*.whl
           pypi-token: ${{ secrets.PYPI_API_TOKEN }}
 
-  # ── epistemic-graph-server: the native executable wheel, one per supported platform,
+  # ── medulla-server: the native executable wheel, one per supported platform,
   # built natively (no emulation) from the source at the tagged commit. Each leg
   # uploads its wheel to PyPI right after its own smoke test. A manual dispatch with
   # `source_ref` builds and publishes the server package of an already tagged version
@@ -444,8 +444,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p source/packaging
-          rm -rf source/packaging/epistemic-graph-server
-          cp -r packaging/epistemic-graph-server source/packaging/epistemic-graph-server
+          rm -rf source/packaging/medulla-server
+          cp -r packaging/medulla-server source/packaging/medulla-server
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import os, re, tomllib
           from pathlib import Path
@@ -456,10 +456,10 @@ jobs:
           )
           if expected and expected != f"v{version}":
               raise SystemExit(f"source {expected} != Cargo.toml version v{version}")
-          package = Path("source/packaging/epistemic-graph-server")
+          package = Path("source/packaging/medulla-server")
           for path, pattern in (
               (package / "pyproject.toml", r'(?m)^version = "[^"]*"'),
-              (package / "epistemic_graph_server/__init__.py", r'(?m)^__version__ = "[^"]*"'),
+              (package / "medulla_server/__init__.py", r'(?m)^__version__ = "[^"]*"'),
           ):
               key = "__version__" if path.suffix == ".py" else "version"
               text, count = re.subn(pattern, f'{key} = "{version}"', path.read_text(), count=1)
@@ -478,16 +478,16 @@ jobs:
         run: |
           set -euo pipefail
           python -m venv "$RUNNER_TEMP/smoke"
-          if [ "$RUNNER_OS" = Windows ]; then bindir=Scripts; exe=epistemic-graph-server.exe; else bindir=bin; exe=epistemic-graph-server; fi
+          if [ "$RUNNER_OS" = Windows ]; then bindir=Scripts; exe=medulla-server.exe; else bindir=bin; exe=medulla-server; fi
           smoke="$RUNNER_TEMP/smoke/$bindir"
           "$smoke/python" -m pip install source/dist-server/*.whl
           "$smoke/$exe" --help >/dev/null
-          "$smoke/python" -c "from epistemic_graph_server import binary_path; print(binary_path())"
+          "$smoke/python" -c "from medulla_server import binary_path; print(binary_path())"
           ls -l "$smoke/$exe" source/dist-server/*.whl
           python - source/dist-server/*.whl <<'PY'
           import sys, zipfile
           names = [n for n in zipfile.ZipFile(sys.argv[1]).namelist() if ".data/scripts/" in n]
-          if len(names) != 1 or not names[0].endswith(("epistemic-graph-server", "epistemic-graph-server.exe")):
+          if len(names) != 1 or not names[0].endswith(("medulla-server", "medulla-server.exe")):
               raise SystemExit(f"expected exactly one server script, found {names}")
           print("wheel script:", names[0])
           PY
@@ -519,7 +519,7 @@ jobs:
           set -euo pipefail
           python -m pip install --quiet 'maturin==1.15.0'
           rm -rf source/dist-server-sdist
-          (cd source/packaging/epistemic-graph-server && maturin sdist --out ../../dist-server-sdist)
+          (cd source/packaging/medulla-server && maturin sdist --out ../../dist-server-sdist)
           archive="source/dist-server-sdist/medulla_stem-${VERSION}.tar.gz"
           if [ "$(ls source/dist-server-sdist | wc -l)" -ne 1 ] || [ ! -f "$archive" ]; then
             echo "expected exactly $archive" >&2; ls -l source/dist-server-sdist >&2; exit 1
@@ -537,7 +537,7 @@ jobs:
           archive="$(ls "$GITHUB_WORKSPACE"/source/dist-server-sdist/*.tar.gz)"
           (cd "$work" && "$work/venv/bin/python" -m pip wheel --isolated --no-deps --no-cache-dir --wheel-dir "$work/wheel" "$archive")
           "$work/venv/bin/python" -m pip install --isolated --no-deps --no-index "$work"/wheel/*.whl
-          "$work/venv/bin/epistemic-graph-server" --help >/dev/null
+          "$work/venv/bin/medulla-server" --help >/dev/null
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: matrix.arch == 'x86_64'
         with:
@@ -590,7 +590,7 @@ jobs:
       - name: Build and push the image by digest
         id: push
         env:
-          IMAGE: ${{ secrets.DOCKER_USERNAME }}/epistemic-graph-server
+          IMAGE: ${{ secrets.DOCKER_USERNAME }}/medulla-server
           PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
@@ -609,7 +609,7 @@ jobs:
           path: ${{ runner.temp }}/digests/${{ matrix.arch }}
           if-no-files-found: error
 
-  # One tag list for linux/amd64 + linux/arm64 under the epistemic-graph-server image name.
+  # One tag list for linux/amd64 + linux/arm64 under the medulla-server image name.
   server-manifest:
     name: server image manifest
     needs: server-image
@@ -635,7 +635,7 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Create and push the multi-architecture manifest
         env:
-          IMAGE: ${{ secrets.DOCKER_USERNAME }}/epistemic-graph-server
+          IMAGE: ${{ secrets.DOCKER_USERNAME }}/medulla-server
         run: |
           set -euo pipefail
           version="$(python3 -c "import re,sys;print(re.search(r'-([0-9][^-]*)-py3', sys.argv[1]).group(1))" "$(basename "$(ls wheels/*.whl | head -n1)")")"

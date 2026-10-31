@@ -3,12 +3,12 @@
 //! Change sets and receipts share `agent_library.redb` and its mutation kernel.
 //! There is no second database, ledger, writer, or source-side transport here.
 
-use eg_storage::{
+use medulla_storage::{
     ledger_scope_key, AgentLibraryOwner, WRITE_BACK_CHANGE_SETS, WRITE_BACK_IDEMPOTENCY,
     WRITE_BACK_RECEIPTS, WRITE_BACK_RECEIPT_HEADS,
 };
-use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch};
-use eg_types::write_back::{
+use medulla_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch};
+use medulla_types::write_back::{
     ReconciliationObservation, ReconciliationReceipt, SourceChangeSet, WriteBackAttempt,
     WriteBackAttemptKind, WriteBackEffectStatus, WriteBackOutcome, WriteBackReceipt,
     WriteBackReceiptPage, WriteBackReceiptRecord, MAX_WRITE_BACK_RECEIPTS,
@@ -21,7 +21,7 @@ use super::agent_library::AgentLibraryStore;
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 struct IdempotencyBinding {
     change_set_id: String,
-    change_set_digest: eg_types::contract::Digest256,
+    change_set_digest: medulla_types::contract::Digest256,
 }
 
 impl AgentLibraryStore {
@@ -39,7 +39,7 @@ impl AgentLibraryStore {
         let owner = self.scope_handle(tenant_id)?;
         let subject = ledger_scope_key(owner.identity());
         let write = MaintenanceBatch::new(
-            eg_types::mutation_batch::DurabilityDomain::ControlPlane,
+            medulla_types::mutation_batch::DurabilityDomain::ControlPlane,
             event,
             &subject,
         );
@@ -272,7 +272,7 @@ impl AgentLibraryStore {
         &self,
         tenant_id: &str,
         change_set_id: &str,
-        digest: eg_types::contract::Digest256,
+        digest: medulla_types::contract::Digest256,
         idempotency_key: &str,
         now_ms: u64,
     ) -> Result<SourceChangeSet, String> {
@@ -293,9 +293,9 @@ impl AgentLibraryStore {
 }
 
 fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8], noun: &str) -> Result<T, String> {
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(8 * 1024 * 1024, 100_000, 64),
+        medulla_types::msgpack::MsgpackLimits::new(8 * 1024 * 1024, 100_000, 64),
     )
     .map_err(|_| format!("CORRUPT_WRITE_BACK: invalid {noun}"))
 }
@@ -378,13 +378,13 @@ fn validate_existing_change_set(
 
 fn receipt_id(
     kind: &str,
-    change_set_digest: &eg_types::contract::Digest256,
+    change_set_digest: &medulla_types::contract::Digest256,
     sequence: u64,
 ) -> Result<String, String> {
     let sequence = sequence.to_be_bytes();
     Ok(format!(
         "write-back-{kind}-{}",
-        eg_types::contract::Digest256::framed(
+        medulla_types::contract::Digest256::framed(
             b"eg/write-back-receipt-id/v1",
             &[kind.as_bytes(), change_set_digest.as_bytes(), &sequence],
         )?
@@ -697,8 +697,8 @@ fn receipt_sequence(receipt: &WriteBackReceiptRecord) -> u64 {
 mod tests {
     use std::collections::BTreeMap;
 
-    use eg_types::contract::Digest256;
-    use eg_types::write_back::{WriteBackAuthorizationDecision, WriteBackAuthorizationMode};
+    use medulla_types::contract::Digest256;
+    use medulla_types::write_back::{WriteBackAuthorizationDecision, WriteBackAuthorizationMode};
 
     use super::*;
 

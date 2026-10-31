@@ -1,11 +1,11 @@
-"""EG-CONTRACT-R002.3: the installed-wheel / no-source-tree-import check.
+"""MEDULLA-CONTRACT-R002.3: the installed-wheel / no-source-tree-import check.
 
-The same boundary contract NE-249 (``crates/eg-numeric/tests/test_builtin_
+The same boundary contract NE-249 (``crates/medulla-numeric/tests/test_builtin_
 boundary.py``) and BUG-PE-002 (the release workflow's "engine kernel smoke
 test" step) already prove for the compiled numeric and engine kernels,
-applied to the pure-Python modules EG-CONTRACT-R002.1/.2 exercise against a
-live engine: ``epistemic_graph.decision_client``, ``epistemic_graph.
-connector_pack`` and ``epistemic_graph.client`` must resolve from the
+applied to the pure-Python modules MEDULLA-CONTRACT-R002.1/.2 exercise against a
+live engine: ``medulla.decision_client``, ``medulla.
+connector_pack`` and ``medulla.client`` must resolve from the
 INSTALLED wheel, not this checkout's source tree, when imported under the
 release workflow's ``.gates-wheel-venv``.
 
@@ -35,9 +35,9 @@ pytestmark = pytest.mark.no_engine
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 _BOUNDARY_MODULES = (
-    "epistemic_graph.decision_client",
-    "epistemic_graph.connector_pack",
-    "epistemic_graph.client",
+    "medulla.decision_client",
+    "medulla.connector_pack",
+    "medulla.client",
 )
 
 
@@ -45,8 +45,8 @@ def _installed_or_skip() -> None:
     # Only the release workflow's installed-wheel step (which runs from a
     # temporary directory against `.gates-wheel-venv`) sets this; an editable
     # source install in the ordinary suite resolves into the tree by design.
-    if os.environ.get("EG_INSTALLED_WHEEL_GATE") != "1":
-        pytest.skip("set EG_INSTALLED_WHEEL_GATE=1 under the installed-wheel venv")
+    if os.environ.get("MEDULLA_INSTALLED_WHEEL_GATE") != "1":
+        pytest.skip("set MEDULLA_INSTALLED_WHEEL_GATE=1 under the installed-wheel venv")
     try:
         importlib.metadata.distribution("medulla")
     except importlib.metadata.PackageNotFoundError:
@@ -57,12 +57,12 @@ def _installed_or_skip() -> None:
         )
 
 
-@pytest.mark.spec("EG-CONTRACT-R002.3")
+@pytest.mark.spec("MEDULLA-CONTRACT-R002.3")
 @pytest.mark.parametrize("module_name", _BOUNDARY_MODULES)
 def test_decide_and_pack_client_modules_resolve_outside_the_source_tree(
     module_name: str,
 ) -> None:
-    """Each client module EG-CONTRACT-R002.1/.2's served tests import must
+    """Each client module MEDULLA-CONTRACT-R002.1/.2's served tests import must
     come from the installed wheel's site-packages, never from this
     checkout -- otherwise a served test against the installed wheel would
     silently exercise uncommitted or unreleased source instead."""
@@ -79,7 +79,7 @@ def test_decide_and_pack_client_modules_resolve_outside_the_source_tree(
 def test_installed_distribution_matches_the_wheel_not_an_editable_install() -> None:
     """An editable/develop install would report its `RECORD`-less location
     inside the checkout; a real wheel install reports a site-packages path
-    outside it (same check EG-CONTRACT-R015's installed-wheel test already
+    outside it (same check MEDULLA-CONTRACT-R015's installed-wheel test already
     makes for the contract/errors/scopes JSON, applied here to the package
     distribution itself)."""
     _installed_or_skip()

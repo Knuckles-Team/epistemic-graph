@@ -43,7 +43,7 @@ def _read_rust_module(relative: str) -> str:
     """The compiler-declared source of a Rust module, not one facade file.
 
     The fault seam this gate pins is a property of the `mutation_batch` module,
-    not of `crates/eg-types/src/mutation_batch.rs` specifically. When that
+    not of `crates/medulla-types/src/mutation_batch.rs` specifically. When that
     module was decomposed into `mutation_batch.rs` + `mutation_batch/**` every
     one of the twelve seam tokens moved into `mutation_batch/fault.rs` and
     `mutation_batch/model/request.rs`, and this gate reported the entire
@@ -188,7 +188,7 @@ def _check_harness_contract(harness: str) -> list[str]:
             "_new_ephemeral_authority",
             "secrets.token_urlsafe",
             "evidence_contains_ephemeral_authority",
-            "EPISTEMIC_GRAPH_CERTIFICATION_FAULT",
+            "MEDULLA_CERTIFICATION_FAULT",
             "wait_for_abort",
             "signal.SIGABRT",
             "authoritative_restart_read",
@@ -199,7 +199,7 @@ def _check_harness_contract(harness: str) -> list[str]:
             "identical_local_series_ids",
             "spatial_restart_lazy_open",
             "PARTIAL_MATERIALIZATION",
-            "EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE",
+            "MEDULLA_LAZY_OPEN_PAGE_SIZE",
             "partial_state_observed",
         },
         "harness",
@@ -230,7 +230,7 @@ def _check_harness_contract(harness: str) -> list[str]:
 
 def _check_fault_seam_contract() -> list[str]:
     errors: list[str] = []
-    types = _read_rust_module("crates/eg-types/src/mutation_batch.rs")
+    types = _read_rust_module("crates/medulla-types/src/mutation_batch.rs")
     types_code = _rust_code_mask(types)
     _require(
         types_code,
@@ -269,7 +269,7 @@ def _check_fault_seam_contract() -> list[str]:
         )
         _require(
             apply_fault,
-            {'const ENV: &str = "EPISTEMIC_GRAPH_CERTIFICATION_FAULT"'},
+            {'const ENV: &str = "MEDULLA_CERTIFICATION_FAULT"'},
             "fault seam apply path",
             errors,
         )
@@ -293,29 +293,29 @@ def _check_fault_seam_contract() -> list[str]:
     return errors
 
 
-# crates/eg-mutation-store is deleted (split into eg-storage's
-# StorageKernel and eg-transaction's MutationKernel). The
+# crates/medulla-mutation-store is deleted (split into medulla-storage's
+# StorageKernel and medulla-transaction's MutationKernel). The
 # MutationCommitPhase call sites and the commit() helper definition this
-# check pins now live in eg-transaction/src/commit.rs; the saga call site
+# check pins now live in medulla-transaction/src/commit.rs; the saga call site
 # that invokes it (`commit(write, batch)?;`) lives in the peer
-# eg-transaction/src/saga.rs. Found by tracing where `MutationCommitPhase::`
+# medulla-transaction/src/saga.rs. Found by tracing where `MutationCommitPhase::`
 # is actually referenced today, since the old
-# `crates/eg-mutation-store/src/lib.rs` this gate read never held that
+# `crates/medulla-mutation-store/src/lib.rs` this gate read never held that
 # content even before the deletion (it moved there only when the crate first
 # split into `store/*.rs` submodules -- this specific check appears to have
 # gone stale then and stayed stale until now; repointing it here restores
 # real enforcement, not just a path fix).
 _NATIVE_STORE_COMMIT_SOURCES = (
-    "crates/eg-transaction/src/commit.rs",
-    "crates/eg-transaction/src/saga.rs",
+    "crates/medulla-transaction/src/commit.rs",
+    "crates/medulla-transaction/src/saga.rs",
 )
 
-# `eg_mutation_store::finish`/`::commit` were free functions. Their
+# `medulla_mutation_store::finish`/`::commit` were free functions. Their
 # successors, `MutationKernel::{finish, commit}`, are ONLY reachable as
-# methods (eg-transaction/src/lib.rs re-exports no free finish/commit), so
+# methods (medulla-transaction/src/lib.rs re-exports no free finish/commit), so
 # every migrated consumer now calls them as `<kernel-field>.finish(&write, ` /
-# `<kernel-field>.commit(write` (observed across kv.rs, eg-tsdb, eg-jobs, and
-# eg-core's rbac_persist/durable_write.rs -- some inline, some split onto
+# `<kernel-field>.commit(write` (observed across kv.rs, medulla-tsdb, medulla-jobs, and
+# medulla-core's rbac_persist/durable_write.rs -- some inline, some split onto
 # their own line before `.finish`/`.commit`, so the check tolerates
 # whitespace between the receiver and the call).
 _MUTATION_KERNEL_FINISH_CALL = re.compile(r"\.mutations\s*\.finish\(&write")
@@ -329,7 +329,7 @@ def _check_store_contract() -> list[str]:
     # source family the compiler assembles so a child omission cannot make the
     # graph mutation contract look satisfied by an unrelated facade comment.
     graph_store = _read_rust_module("src/redb_store.rs")
-    sql_store = _read("crates/eg-query/src/tables/store.rs")
+    sql_store = _read("crates/medulla-query/src/tables/store.rs")
     native_store = "\n".join(_read(path) for path in _NATIVE_STORE_COMMIT_SOURCES)
     phase_variants = {
         "MutationCommitPhase::BeforeRows",
@@ -364,15 +364,15 @@ def _check_store_contract() -> list[str]:
     for relative in (
         "src/server/kv.rs",
         "src/server/blob/store.rs",
-        "crates/eg-tsdb/src/store.rs",
-        "crates/eg-jobs/src/store.rs",
-        "crates/eg-core/src/rbac_persist.rs",
+        "crates/medulla-tsdb/src/store.rs",
+        "crates/medulla-jobs/src/store.rs",
+        "crates/medulla-core/src/rbac_persist.rs",
     ):
         source = _read(relative)
-        if relative == "crates/eg-core/src/rbac_persist.rs":
+        if relative == "crates/medulla-core/src/rbac_persist.rs":
             # The actual write path lives in this declared submodule, not the
             # rbac_persist.rs facade itself.
-            source += "\n" + _read("crates/eg-core/src/rbac_persist/durable_write.rs")
+            source += "\n" + _read("crates/medulla-core/src/rbac_persist/durable_write.rs")
         if "MutationKernel" not in source:
             errors.append(f"{relative}: does not hold a native MutationKernel")
         if not _MUTATION_KERNEL_FINISH_CALL.search(source):
@@ -389,8 +389,8 @@ def _check_exact_artifact_contract() -> list[str]:
     _require(
         test,
         {
-            "EPISTEMIC_GRAPH_TEST_BINARY",
-            "EPISTEMIC_GRAPH_TEST_BINARY_SHA256",
+            "MEDULLA_TEST_BINARY",
+            "MEDULLA_TEST_BINARY_SHA256",
             "certify_exact_fault_restart.py",
             'matrix_cases": 60',
             "pytest.mark.exact_artifact",

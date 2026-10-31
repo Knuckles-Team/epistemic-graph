@@ -1,12 +1,12 @@
-//! Online single-node per-tenant resharding execution (CONCEPT:EG-KG.backend.catalog-shard-resolve, M3 keystone).
+//! Online single-node per-tenant resharding execution (CONCEPT:MEDULLA-KG.backend.catalog-shard-resolve, M3 keystone).
 //!
 //! ## What it solves
 //!
-//! [`super::shard_migrate`] (CONCEPT:EG-KG.sharding.atomic-shard-swap) moves shards OFFLINE — the engine must be
+//! [`super::shard_migrate`] (CONCEPT:MEDULLA-KG.sharding.atomic-shard-swap) moves shards OFFLINE — the engine must be
 //! stopped because it rewrites the whole store to a new uniform K. This module moves ONE
 //! graph between shards while the engine RUNS, with no data loss and no stop: the graph's
 //! OWNER rows are copied verbatim to the destination shard, its kernel LEDGER is grafted
-//! across, the [`super::tenant_catalog`] (CONCEPT:EG-KG.sharding.empty-catalog-routing)
+//! across, the [`super::tenant_catalog`] (CONCEPT:MEDULLA-KG.sharding.empty-catalog-routing)
 //! route is flipped so reads/writes follow the graph to its new shard, and the source
 //! binding is retired — all without touching any OTHER graph's writers.
 //!
@@ -28,7 +28,7 @@
 //! in-flight OCC expectation depends on. So the ledger moves by
 //! [`Shard::graft_graph_from`], which copies all fifteen ledger tables verbatim, commits
 //! the destination, and retires the source binding together with its owner payload.
-//! [`eg_transaction::GraftedScope::version`] is the SOURCE's marker-inclusive version,
+//! [`medulla_transaction::GraftedScope::version`] is the SOURCE's marker-inclusive version,
 //! preserved by the copy — the Phase-A marker is the one intentional maintenance
 //! increment. RF-RULING-004 application note 4 still applies to the ledger state: the
 //! destination receives the source's complete committed history rather than a fresh
@@ -68,10 +68,10 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::SyncSender;
 
-use eg_storage::{
+use medulla_storage::{
     GraphShardOwner, OwnerRowScope, OwnerRowScopeStart, ScopedOwnerTableMut, ScopedRead,
 };
-use eg_transaction::{GraftedScope, OwnerPayloadWrite};
+use medulla_transaction::{GraftedScope, OwnerPayloadWrite};
 use redb::TableDefinition;
 
 use super::redb_backend::Cmd;
@@ -181,7 +181,7 @@ pub(crate) struct RawCapacityLeaseRows {
 }
 
 /// One graph's durable OWNER rows captured VERBATIM for an online shard move
-/// (CONCEPT:EG-KG.backend.catalog-shard-resolve).
+/// (CONCEPT:MEDULLA-KG.backend.catalog-shard-resolve).
 ///
 /// Value blobs are the raw on-disk bytes (encrypted if encryption-at-rest is on, the
 /// audit chain untouched) so re-inserting them on the destination shard preserves both
@@ -377,7 +377,7 @@ impl RawGraphRows {
     }
 }
 
-/// Per-table counts of a completed online reshard (CONCEPT:EG-KG.backend.catalog-shard-resolve).
+/// Per-table counts of a completed online reshard (CONCEPT:MEDULLA-KG.backend.catalog-shard-resolve).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReshardReport {
     pub graph: String,
@@ -388,7 +388,7 @@ pub struct ReshardReport {
     pub ledger: u64,
     pub semantic: u64,
     pub audit: u64,
-    /// Rows copied under the EXCLUSIVE routing quiesce (CONCEPT:EG-KG.backend.flush-pending-first, R1 delta-copy) —
+    /// Rows copied under the EXCLUSIVE routing quiesce (CONCEPT:MEDULLA-KG.backend.flush-pending-first, R1 delta-copy) —
     /// the work that actually pauses the moved graph's writes. For an idle graph this is
     /// 0 (the whole graph rode the unquiesced bulk pass), so `delta_nodes + delta_edges
     /// << nodes + edges` is the proof the snapshot+delta path shrank the pause.
@@ -445,7 +445,7 @@ impl ReshardReport {
 }
 
 /// The DELTA between a bulk snapshot (already on the destination shard) and the latest
-/// source state, captured under the exclusive quiesce (CONCEPT:EG-KG.backend.flush-pending-first, R1). Only the rows
+/// source state, captured under the exclusive quiesce (CONCEPT:MEDULLA-KG.backend.flush-pending-first, R1). Only the rows
 /// that changed/appeared since the bulk pass are upserted, and rows that DISAPPEARED (a
 /// node/edge deleted on `src` between the bulk snapshot and the flip) are removed from
 /// `dst` — so a deleted row can never be resurrected on the destination. Ledger/audit are
@@ -500,7 +500,7 @@ fn row_change<T: Clone + PartialEq>(bulk: &Option<T>, latest: &Option<T>) -> Opt
     })
 }
 
-/// Diff the LATEST source rows against the BULK snapshot already on `dst` (CONCEPT:EG-KG.backend.flush-pending-first).
+/// Diff the LATEST source rows against the BULK snapshot already on `dst` (CONCEPT:MEDULLA-KG.backend.flush-pending-first).
 /// Emits only what changed: new/changed-blob rows to upsert + vanished rows to remove.
 pub(crate) fn compute_delta(bulk: &RawGraphRows, latest: &RawGraphRows) -> RawGraphDelta {
     let mut delta = RawGraphDelta {
@@ -1297,7 +1297,7 @@ where
 // ── export ────────────────────────────────────────────────────────────────
 
 /// Scan ONE graph's durable OWNER rows VERBATIM off a shard
-/// (CONCEPT:EG-KG.backend.catalog-shard-resolve). Runs on the owning shard's writer
+/// (CONCEPT:MEDULLA-KG.backend.catalog-shard-resolve). Runs on the owning shard's writer
 /// thread (via [`Cmd::ExportGraphRaw`]) AFTER it has flushed pending writes, so the
 /// snapshot reflects every committed mutation. Value blobs are copied raw (no
 /// `crypto.unseal`) so encryption-at-rest and the audit chain survive the move.
@@ -1419,7 +1419,7 @@ fn insert_graph_scope(
 }
 
 /// Insert ONE graph's verbatim owner rows into a destination shard in ONE admitted,
-/// durable commit (CONCEPT:EG-KG.backend.catalog-shard-resolve). Runs on the
+/// durable commit (CONCEPT:MEDULLA-KG.backend.catalog-shard-resolve). Runs on the
 /// destination shard's writer thread (via [`Cmd::ImportGraphRaw`]); the commit is the
 /// commit-before-ack point of the bulk pass. Idempotent — a re-run after an
 /// interrupted move replaces rather than duplicates.
@@ -1545,7 +1545,7 @@ fn apply_graph_delta(
 }
 
 /// Apply a [`RawGraphDelta`] to the destination shard in ONE admitted, durable commit
-/// (CONCEPT:EG-KG.backend.flush-pending-first). Runs on the destination shard's writer
+/// (CONCEPT:MEDULLA-KG.backend.flush-pending-first). Runs on the destination shard's writer
 /// thread (via [`Cmd::ImportGraphDelta`]); the commit is the delta's
 /// commit-before-flip point. O(delta) rows — the short under-quiesce write, vs the
 /// full O(graph) copy the bulk pass already did unquiesced.
@@ -1665,7 +1665,7 @@ fn export_from(source_tx: &SyncSender<Cmd>, graph: &str) -> Result<RawGraphRows,
     await_writer_reply(&receive, "export")?
 }
 
-/// PHASE 1 of the online move (CONCEPT:EG-KG.backend.flush-pending-first, R1 delta-copy) — the BULK pass, run WITHOUT
+/// PHASE 1 of the online move (CONCEPT:MEDULLA-KG.backend.flush-pending-first, R1 delta-copy) — the BULK pass, run WITHOUT
 /// the exclusive routing quiesce so writes keep flowing to the source and the graph is
 /// NOT paused. Export the graph's owner rows verbatim off a source snapshot and import
 /// them into the destination in one admitted, durable commit. Returns the bulk snapshot
@@ -1695,7 +1695,7 @@ pub(crate) fn bulk_copy(
     Ok(rows)
 }
 
-/// PHASE 2 of the online move (CONCEPT:EG-KG.backend.flush-pending-first, R1) — run on a blocking thread WHILE the
+/// PHASE 2 of the online move (CONCEPT:MEDULLA-KG.backend.flush-pending-first, R1) — run on a blocking thread WHILE the
 /// exclusive `routing_epoch` WRITE guard is held, so writes to this graph are quiesced
 /// for only this short window. Re-export the LATEST source state, copy just the DELTA
 /// accrued since the bulk pass into the destination, flip the catalog route, then graft
@@ -1765,7 +1765,7 @@ mod tests {
     use crate::redb_store::encode_meta_with_incarnation;
 
     fn temp_path(tag: &str) -> std::path::PathBuf {
-        crate::redb_store::temp_path("eg-online-reshard", tag)
+        crate::redb_store::temp_path("medulla-online-reshard", tag)
     }
 
     fn image(graph: &str, nodes: &[(&str, &[u8])]) -> RawGraphRows {
@@ -1863,7 +1863,7 @@ mod tests {
         let rows = image("graph-a", &[("n1", b"one")]);
         import_graph_raw(&source, "graph-a", &rows).unwrap();
         let source_version =
-            eg_transaction::version(&source.read(&source.graph("graph-a").unwrap()).unwrap())
+            medulla_transaction::version(&source.read(&source.graph("graph-a").unwrap()).unwrap())
                 .unwrap();
 
         // Reserve the destination before staging owner rows. The graft then
@@ -1888,7 +1888,7 @@ mod tests {
         let destination_handle = destination.graph("graph-a").unwrap();
         let destination_read = destination.read(&destination_handle).unwrap();
         assert!(
-            eg_transaction::read_batches(&destination_read)
+            medulla_transaction::read_batches(&destination_read)
                 .unwrap()
                 .iter()
                 .all(|record| !record.batch.batch_id.starts_with("online_reshard/")),
@@ -1920,12 +1920,12 @@ mod tests {
         let before_version = {
             let handle = shard.graph("graph-a").unwrap();
             let read = shard.read(&handle).unwrap();
-            eg_transaction::version(&read).unwrap()
+            medulla_transaction::version(&read).unwrap()
         };
         let before_batches = {
             let handle = shard.graph("graph-a").unwrap();
             let read = shard.read(&handle).unwrap();
-            eg_transaction::read_batches(&read)
+            medulla_transaction::read_batches(&read)
                 .unwrap()
                 .into_iter()
                 .map(|record| record.batch.batch_id)
@@ -1943,12 +1943,12 @@ mod tests {
         let after_version = {
             let handle = shard.graph("graph-a").unwrap();
             let read = shard.read(&handle).unwrap();
-            eg_transaction::version(&read).unwrap()
+            medulla_transaction::version(&read).unwrap()
         };
         let after_batches = {
             let handle = shard.graph("graph-a").unwrap();
             let read = shard.read(&handle).unwrap();
-            eg_transaction::read_batches(&read)
+            medulla_transaction::read_batches(&read)
                 .unwrap()
                 .into_iter()
                 .map(|record| record.batch.batch_id)

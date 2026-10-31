@@ -9,7 +9,7 @@ use crate::server::{
     },
     ServerState,
 };
-use eg_types::storage_wire::{KvCasOutcome, KvEntry, KvScanPage, KvWriteReceipt};
+use medulla_types::storage_wire::{KvCasOutcome, KvEntry, KvScanPage, KvWriteReceipt};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -54,7 +54,7 @@ fn signed(id: u64, how: &Signed<'_>, method: Method) -> Request {
     let context = RequestContextClaims {
         principal: how.agent.to_string(),
         tenant: "tenant-shared".to_string(),
-        audience: "epistemic-graph-test".to_string(),
+        audience: "medulla-test".to_string(),
         agent_id: how.agent.to_string(),
         roles: Vec::new(),
         scopes: how.scopes.iter().map(|scope| scope.to_string()).collect(),
@@ -105,7 +105,7 @@ fn how<'a>(graph: &'a str, scopes: &'a [&'a str], nonce: &'a str) -> Signed<'a> 
 }
 
 fn temp_state(tag: &str) -> (std::path::PathBuf, Arc<RwLock<ServerState>>) {
-    let dir = std::env::temp_dir().join(format!("eg-kv-{tag}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("medulla-kv-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let state = state_with_kv(&dir.to_string_lossy());
     (dir, state)
@@ -155,9 +155,9 @@ fn scan(prefix: &str, limit: usize, cursor: Option<String>) -> Method {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R102
-// spec: EG-DURABLE-KERNEL-R102.1
-// spec: EG-DURABLE-KERNEL-R102.3
+// spec: MEDULLA-DURABLE-KERNEL-R102
+// spec: MEDULLA-DURABLE-KERNEL-R102.1
+// spec: MEDULLA-DURABLE-KERNEL-R102.3
 #[tokio::test]
 async fn kv_dispatch_put_get_scan_delete_cas() {
     let (dir, state) = temp_state("dispatch");
@@ -229,7 +229,7 @@ async fn kv_dispatch_put_get_scan_delete_cas() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// spec: EG-DURABLE-KERNEL-R102.3
+// spec: MEDULLA-DURABLE-KERNEL-R102.3
 #[tokio::test]
 async fn kv_scan_pages_are_bounded_and_resume_from_the_cursor() {
     let (dir, state) = temp_state("scan-pages");
@@ -258,7 +258,7 @@ async fn kv_scan_pages_are_bounded_and_resume_from_the_cursor() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// spec: EG-DURABLE-KERNEL-R102.2
+// spec: MEDULLA-DURABLE-KERNEL-R102.2
 #[tokio::test]
 async fn kv_keys_are_scoped_by_graph_and_writes_need_kv_write() {
     let (dir, state) = temp_state("scope");
@@ -311,7 +311,7 @@ async fn kv_keys_are_scoped_by_graph_and_writes_need_kv_write() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// spec: EG-DURABLE-KERNEL-R102.4
+// spec: MEDULLA-DURABLE-KERNEL-R102.4
 #[tokio::test]
 async fn kv_fresh_nonce_replays_stable_operation_without_duplicate_write() {
     let (dir, state) = temp_state("stable-replay");
@@ -368,7 +368,7 @@ fn percentile(sorted: &[std::time::Duration], pct: usize) -> std::time::Duration
 
 /// Hot-path proof: served `KvPut`/`KvGet` through the real authenticated dispatch
 /// against a durable (commit-before-ack) `kv.redb`, with p50/p99 budgets.
-// spec: EG-DURABLE-KERNEL-R102.5
+// spec: MEDULLA-DURABLE-KERNEL-R102.5
 #[tokio::test]
 async fn kv_served_hot_path_meets_latency_budgets() {
     const N: u64 = 400;
@@ -396,7 +396,7 @@ async fn kv_served_hot_path_meets_latency_budgets() {
         "kv served hot path (n={N}, 256 B values, durable): \
          KvPut p50={put_p50:?} p99={put_p99:?}; KvGet p50={get_p50:?} p99={get_p99:?}"
     );
-    // Budgets (EG-DURABLE-KERNEL-R102.5), including envelope verification and the
+    // Budgets (MEDULLA-DURABLE-KERNEL-R102.5), including envelope verification and the
     // durable commit. A hosted runner's fsync tail reached 111 ms at p99 (p50 2 ms),
     // so the KvPut p99 bound covers that disk class rather than R820's 7 ms.
     assert!(
@@ -438,11 +438,11 @@ fn shared_get(key: &str, shared: bool) -> Method {
 /// Private keys never cross principals; the opt-in shared namespace is one row per
 /// tenant+graph that every principal there reads, and writing it needs the
 /// separate `kv:shared:write` action (coarse `kg:write`/`kv:write` is refused).
-// spec: EG-DURABLE-KERNEL-R102.6
+// spec: MEDULLA-DURABLE-KERNEL-R102.6
 #[cfg(feature = "security")]
 #[tokio::test]
 async fn kv_shared_namespace_spans_principals_and_needs_kv_shared_write() {
-    let dir = std::env::temp_dir().join(format!("eg-kv-shared-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("medulla-kv-shared-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let kv = Arc::new(super::KvStore::open(Some(&dir.to_string_lossy())).unwrap());
     let mut state = ServerState::new_for_test(SECRET, crate::server::access::two_agent_isolation());

@@ -5,8 +5,8 @@ import msgpack
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.pool import ConnectionPool, ShardRouter
+from medulla.client import MedullaClient
+from medulla.pool import ConnectionPool, ShardRouter
 
 
 # We mock a small echo/health server to test transport without running the full daemon.
@@ -116,7 +116,7 @@ async def test_frame_handling_and_pool():
 
 @pytest.mark.asyncio
 async def test_rpc_timeout_is_bounded_and_connection_fatal():
-    # CONCEPT:EG-KG.query.wire-protocol (B1) — a server that accepts the connection but
+    # CONCEPT:MEDULLA-KG.query.wire-protocol (B1) — a server that accepts the connection but
     # never replies.
     # Pre-B1 the client awaited the read forever; now every RPC is bounded and a
     # timeout is connection-fatal (the stream is desynced, so it must reconnect).
@@ -136,7 +136,7 @@ async def test_rpc_timeout_is_bounded_and_connection_fatal():
     server = await asyncio.start_server(silent_handler, "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
     try:
-        client = await EpistemicGraphClient.connect(
+        client = await MedullaClient.connect(
             tcp_addr=f"127.0.0.1:{port}",
             auth_secret="s",
             verified_context=request_context(),
@@ -153,7 +153,7 @@ async def test_rpc_timeout_is_bounded_and_connection_fatal():
 
 @pytest.mark.asyncio
 async def test_send_reconnects_after_connection_drop():
-    # CONCEPT:EG-KG.query.wire-protocol — a long-lived client whose connection is
+    # CONCEPT:MEDULLA-KG.query.wire-protocol — a long-lived client whose connection is
     # dropped (engine
     # restart / idle close / a prior poisoned stream) MUST self-heal on the next
     # call. Before the fix, _send set _closed=True but never re-dialed, so every
@@ -186,7 +186,7 @@ async def test_send_reconnects_after_connection_drop():
     server = await asyncio.start_server(handler, "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
     try:
-        client = await EpistemicGraphClient.connect(
+        client = await MedullaClient.connect(
             tcp_addr=f"127.0.0.1:{port}",
             auth_secret="s",
             verified_context=request_context(),
@@ -266,7 +266,7 @@ async def test_pool_propagates_tls_endpoint_to_native_client(monkeypatch):
         captured.update(kwargs)
         return object()
 
-    monkeypatch.setattr(EpistemicGraphClient, "connect", connect)
+    monkeypatch.setattr(MedullaClient, "connect", connect)
     pool = ConnectionPool(
         "tls://engine.example.invalid:9100",
         verified_context=request_context(),
@@ -280,13 +280,13 @@ async def test_pool_propagates_tls_endpoint_to_native_client(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_write_drain_timeout_is_bounded_and_connection_fatal(monkeypatch):
-    # CONCEPT:EG-KG.query.wire-protocol (B1) — a wedged engine that accepts the
+    # CONCEPT:MEDULLA-KG.query.wire-protocol (B1) — a wedged engine that accepts the
     # connection but stops
     # READING the socket makes the request flush (drain) back up forever. The write
     # path must be bounded just like the read path, and a stalled drain is
     # connection-fatal (it ran under the send lock, so it would otherwise wedge
     # every subsequent RPC on this connection).
-    monkeypatch.setattr("epistemic_graph.client._WRITE_TIMEOUT", 0.2)
+    monkeypatch.setattr("medulla.client._WRITE_TIMEOUT", 0.2)
 
     class _HangingWriter:
         def write(self, _data):
@@ -302,7 +302,7 @@ async def test_write_drain_timeout_is_bounded_and_connection_fatal(monkeypatch):
         async def readexactly(self, _n):
             await asyncio.sleep(3600)  # never reached; drain fails first
 
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         cast(asyncio.StreamReader, _IdleReader()),
         cast(asyncio.StreamWriter, _HangingWriter()),
         auth_secret="s",
@@ -318,7 +318,7 @@ async def test_write_drain_timeout_is_bounded_and_connection_fatal(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_connect_is_bounded(monkeypatch):
-    # CONCEPT:EG-KG.query.wire-protocol (B1) — a peer that accepts the TCP connection
+    # CONCEPT:MEDULLA-KG.query.wire-protocol (B1) — a peer that accepts the TCP connection
     # but never
     # completes the handshake must not hang the caller forever; connect() is bounded.
     async def _never_connects(*_a, **_k):
@@ -326,7 +326,7 @@ async def test_connect_is_bounded(monkeypatch):
 
     monkeypatch.setattr("asyncio.open_connection", _never_connects)
     with pytest.raises(TimeoutError):
-        await EpistemicGraphClient.connect(
+        await MedullaClient.connect(
             tcp_addr="127.0.0.1:9199",
             auth_secret="s",
             verified_context=request_context(),

@@ -2,13 +2,13 @@
 """Assert a built ``medulla`` wheel is COMPLETE before it can be published.
 
 The published wheel is a maturin ``bindings="bin"`` artifact whose numeric kernel
-(``epistemic_graph/numeric.abi3.so`` — the pyo3 cdylib built separately from
-``crates/eg-numeric``) is folded in afterwards by
+(``medulla/numeric.abi3.so`` — the pyo3 cdylib built separately from
+``crates/medulla-numeric``) is folded in afterwards by
 :mod:`scripts.inject_numeric_kernel`. That "build one thing, then graft another
 into it" shape has exactly one failure mode, and it is silent: if the graft does
 not happen, every downstream step still succeeds and a *server-only* wheel goes
 to PyPI. It did — published ``medulla`` wheels from 2.14.0 through
-2.23.0 carry no kernel at all, so ``import epistemic_graph.numeric`` raises
+2.23.0 carry no kernel at all, so ``import medulla.numeric`` raises
 ``ModuleNotFoundError`` on a clean ``pip install medulla``, which in turn
 breaks ``agent_utilities.numeric``'s ``xp`` shim (CONCEPT:KG-2.315) and every
 consumer that binds it.
@@ -24,12 +24,12 @@ duplicate localizes the failure to the leg that produced it.
 
 The invariants, each one a regression that actually shipped:
 
-1. **Numeric kernel present** — ``epistemic_graph/numeric*.{so,pyd}``. The
+1. **Numeric kernel present** — ``medulla/numeric*.{so,pyd}``. The
    2.14.0-2.23.0 regression.
 2. **No executables** — nothing under ``*.data/scripts/``. The native server
    ships in the separate ``medulla-stem`` package (extra ``server``);
    the public wheel stays under the PyPI per-file limit.
-3. **Python surface complete** — the ``epistemic_graph`` package plus its
+3. **Python surface complete** — the ``medulla`` package plus its
    ``kvcache`` and ``skills`` subpackages, so a wheel that silently loses package
    data fails here rather than at a consumer's import.
 4. **RECORD is internally consistent** — every member is listed with a matching
@@ -41,8 +41,8 @@ The invariants, each one a regression that actually shipped:
    would make a clean install resolve the retired interpreter-side runtime and
    conceal a regression in the native boundary.
 6. **In-process engine binding present, but only when opted into** —
-   ``epistemic_graph/engine*.{so,pyd}`` (``crates/eg-pyengine``'s
-   ``epistemic_graph.engine`` pyo3 extension, folded in by
+   ``medulla/engine*.{so,pyd}`` (``crates/medulla-pyengine``'s
+   ``medulla.engine`` pyo3 extension, folded in by
    :mod:`scripts.inject_pyengine`, the same "build one thing, graft another
    into it" shape as the numeric kernel above). Unlike the numeric kernel,
    this extension is genuinely OPTIONAL — plenty of legitimate wheels
@@ -79,7 +79,7 @@ import zipfile
 from collections.abc import Sequence
 from pathlib import Path
 
-TARGET_PACKAGE = "epistemic_graph"
+TARGET_PACKAGE = "medulla"
 KERNEL_SUFFIXES = (".so", ".pyd")
 REQUIRED_SUBPACKAGES = ("kvcache", "skills")
 # PEP 503 normalized names that must be unconditional runtime requirements.
@@ -194,8 +194,8 @@ def _check_numeric_kernel(names: Sequence[str]) -> list[str]:
         return []
     return [
         f"no numeric kernel: expected {TARGET_PACKAGE}/numeric*"
-        f"{{{','.join(KERNEL_SUFFIXES)}}} — the eg-numeric inject did not run "
-        "or was undone (import epistemic_graph.numeric would fail)"
+        f"{{{','.join(KERNEL_SUFFIXES)}}} — the medulla-numeric inject did not run "
+        "or was undone (import medulla.numeric would fail)"
     ]
 
 
@@ -207,8 +207,8 @@ def _check_engine_kernel(
     return [
         f"no engine kernel: expected {TARGET_PACKAGE}/engine*"
         f"{{{','.join(KERNEL_SUFFIXES)}}} — --require-engine-kernel was set but "
-        "the eg-pyengine inject did not run or was undone "
-        "(import epistemic_graph.engine would fail)"
+        "the medulla-pyengine inject did not run or was undone "
+        "(import medulla.engine would fail)"
     ]
 
 
@@ -260,7 +260,7 @@ def _check_forbidden_dependencies(archive: zipfile.ZipFile) -> list[str]:
 def check_wheel(path: Path, *, require_engine_kernel: bool = False) -> list[str]:
     """Return the list of failed invariants for one wheel (empty == complete).
 
-    ``require_engine_kernel`` gates invariant 6 (the eg-pyengine binding):
+    ``require_engine_kernel`` gates invariant 6 (the medulla-pyengine binding):
     unlike the numeric kernel, this extension is genuinely optional, so its
     absence is only a failure when the caller asserts the release build
     opted into folding it in.
@@ -285,7 +285,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--require-engine-kernel",
         action="store_true",
         help=(
-            "also require epistemic_graph/engine*.{so,pyd} (the eg-pyengine "
+            "also require medulla/engine*.{so,pyd} (the medulla-pyengine "
             "in-process binding). Pass this only when the wheel's release "
             "build opted into folding the engine kernel in — omitted by "
             "default because the extension is genuinely optional."

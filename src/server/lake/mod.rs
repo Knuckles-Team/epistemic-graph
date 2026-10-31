@@ -1,22 +1,22 @@
-//! WAL/series → lakehouse materialization tier (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns engine-side seam,
+//! WAL/series → lakehouse materialization tier (CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns engine-side seam,
 //! INT-P2-3).
 //!
-//! `eg-lake` is deliberately a pure LEAF crate (no workspace edges) that owns the
+//! `medulla-lake` is deliberately a pure LEAF crate (no workspace edges) that owns the
 //! Parquet transcode + the Delta/Iceberg logs + the LSN as-of snapshot + the
 //! Iceberg-REST catalog *contents* — see its own crate docs for the "what is real vs.
 //! stub" ledger. This module is the documented seam it leaves for the server tier: it
-//! (a) drains the engine's OWN durable data (an `eg_tsdb::store::SeriesStore` series —
-//! the WAL-backed table/series source), (b) converts it into an `eg_lake::LakeBatch`,
+//! (a) drains the engine's OWN durable data (an `medulla_tsdb::store::SeriesStore` series —
+//! the WAL-backed table/series source), (b) converts it into an `medulla_lake::LakeBatch`,
 //! (c) materializes Parquet + writes the Delta/Iceberg logs and the real Iceberg Avro
 //! manifests into the SAME content-addressed blob CAS `crate::server::obs::segment`
-//! already rolls Parquet log segments through (CONCEPT:EG-KG.retrieval.observability-search), and (d) registers the
+//! already rolls Parquet log segments through (CONCEPT:MEDULLA-KG.retrieval.observability-search), and (d) registers the
 //! table into an in-process Iceberg-REST catalog + emits an OpenLineage run event.
 //!
 //! ## Table lifecycle
 //! * [`LakeManager::drain_series`] — incremental **append**: only points newer than the
 //!   per-series drain cursor are materialized (a WAL-drain, not a full rescan).
 //! * [`LakeManager::compact`] — reads every LIVE Parquet file back (via
-//!   `eg_lake::parquet_io::read_parquet`), tombstones them, and rewrites ALL their rows
+//!   `medulla_lake::parquet_io::read_parquet`), tombstones them, and rewrites ALL their rows
 //!   into ONE new file at a fresh LSN (an Iceberg/Delta "rewrite" commit — the SAME
 //!   pattern real lakehouse compaction uses).
 //! * [`LakeManager::delete_where`] — the SAME read-back-and-rewrite path as `compact`,
@@ -24,7 +24,7 @@
 //!   own copy-on-write delete strategy), not a stub.
 //! * [`LakeManager::evolve_add_column`] — additive-only schema evolution: a new
 //!   nullable column is added to the table's `LakeSchema` for FUTURE writes, via
-//!   `eg_lake::LakeTable::evolve_add_column`. As of INT-P2-4 (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id) each
+//!   `medulla_lake::LakeTable::evolve_add_column`. As of INT-P2-4 (CONCEPT:MEDULLA-KG.storage.iceberg-per-file-schema-id) each
 //!   committed snapshot's `metadata.json` records the Iceberg schema-id that was
 //!   ACTUALLY in effect when it (and every still-live data file) was written —
 //!   `schemas[]` carries the FULL schema-version history, `current-schema-id` tracks
@@ -36,7 +36,7 @@
 //!   unchanged. Remaining documented follow-ups: the real Avro manifest still
 //!   declares ONE schema-id per manifest FILE (spec-correct, but a live manifest
 //!   spanning >1 schema generation doesn't yet split into per-generation manifests),
-//!   and partition-spec evolution (eg-lake does not model partitioning at all — every
+//!   and partition-spec evolution (medulla-lake does not model partitioning at all — every
 //!   spec is `[]`/unpartitioned).
 //!
 //! ## OpenLineage
@@ -46,7 +46,7 @@
 //! facet on CREATE/OVERWRITE, and a small custom `epistemicGraphLake` facet carrying the
 //! engine-specific LSN/Iceberg-snapshot correlation) — see [`lineage`]. Kept in a
 //! bounded in-memory ring (inspectable via [`LakeManager::recent_lineage`]) and, when
-//! `EPISTEMIC_GRAPH_OPENLINEAGE_URL` is set, best-effort POSTed to it over the SAME
+//! `MEDULLA_OPENLINEAGE_URL` is set, best-effort POSTed to it over the SAME
 //! pure-Rust `ureq` client `sparql-service`/`federation-search` already link. **With
 //! feature `lineage-transport` on** (CA-15), `push_lineage` routes through
 //! [`lineage_transport::configured_transports`] instead of calling
@@ -59,7 +59,7 @@
 mod catalog_ops;
 pub mod lineage;
 // OpenLineage transport (CA-15, feature `lineage-transport`). A best-effort HTTP push to
-// `EPISTEMIC_GRAPH_OPENLINEAGE_URL` already existed at `lineage::maybe_push_http`
+// `MEDULLA_OPENLINEAGE_URL` already existed at `lineage::maybe_push_http`
 // (CA-17's stub note, preserved here) -- this module wires it into a composable
 // transport set and adds a Kafka leg, per `DEC-CA-03`/`DEC-CA-05`; see its own doc.
 #[cfg(feature = "lineage-transport")]
@@ -73,12 +73,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use parking_lot::Mutex;
 use serde_json::Value;
 
-use eg_lake::catalog::IcebergRestCatalog;
-use eg_lake::schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
-use eg_lake::snapshot::Lsn;
-use eg_lake::LakeTable;
-use eg_tsdb::point::Point;
-use eg_tsdb::store::SeriesStore;
+use medulla_lake::catalog::IcebergRestCatalog;
+use medulla_lake::schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
+use medulla_lake::snapshot::Lsn;
+use medulla_lake::LakeTable;
+use medulla_tsdb::point::Point;
+use medulla_tsdb::store::SeriesStore;
 
 use crate::server::blob::store::ChunkStore;
 
@@ -89,13 +89,13 @@ use catalog_ops::{
 /// Env var naming the periodic WAL/series→lake materialization sweep interval in
 /// seconds (`0`/unset ⇒ disabled — the standing sweep never runs; a caller can still
 /// drive materialization directly, e.g. from a test or a future explicit trigger).
-pub const LAKE_MATERIALIZE_INTERVAL_ENV: &str = "EPISTEMIC_GRAPH_LAKE_MATERIALIZE_INTERVAL_SECS";
+pub const LAKE_MATERIALIZE_INTERVAL_ENV: &str = "MEDULLA_LAKE_MATERIALIZE_INTERVAL_SECS";
 /// Bound on the in-memory OpenLineage event ring (oldest events drop first).
 pub const LINEAGE_RING_CAP: usize = 200;
 /// The lake namespace new series-backed tables register under by default.
 pub const DEFAULT_NAMESPACE: &str = "engine";
 
-/// The kind of write a materialization performs (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). Threads into the
+/// The kind of write a materialization performs (CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns). Threads into the
 /// OpenLineage `lifecycleStateChange` facet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LakeOp {
@@ -138,7 +138,7 @@ pub struct MaterializeReport {
     pub lineage_event: Value,
 }
 
-/// Per-table durable state the manager owns: the `eg_lake::LakeTable` orchestration
+/// Per-table durable state the manager owns: the `medulla_lake::LakeTable` orchestration
 /// handle plus the source series id it was drained from (empty for a table only ever
 /// written via `compact`/`delete_where`/the REST commit bridge), plus the REST-facing
 /// ownership tag (W04, GOC-75-W04) used for catalog row-level visibility.
@@ -249,7 +249,7 @@ fn evolve_entry_schema(entry: &mut TableEntry, field: LakeField) -> bool {
 ///
 /// This deliberately keys on the engine's existing per-AGENT RLS ownership
 /// primitive (`CarrierAuthority::owner_scope()`, combining tenant+actor), not on
-/// `EPISTEMIC_GRAPH_TENANT` alone: that single deployment-wide tenant value is
+/// `MEDULLA_TENANT` alone: that single deployment-wide tenant value is
 /// already enforced at carrier-MINTING time by BUG-222's W01/W02 fix
 /// (`server::auth::authenticated_iceberg_bearer` rejects a bearer for any other
 /// tenant before a `CarrierAuthority` is ever produced), so within one running
@@ -342,7 +342,7 @@ impl CommittedLsnLedger {
 /// multi-level identifiers are decoded off the wire into ONE internal string
 /// joined by the spec's own `\x1f` unit-separator (see `rest.rs`'s path decoding),
 /// so rendering a response's `"namespace": [...]` array is just splitting on that
-/// same byte back apart — no change to `eg-lake`'s underlying flat-string model.
+/// same byte back apart — no change to `medulla-lake`'s underlying flat-string model.
 pub(crate) fn namespace_levels(ns: &str) -> Vec<String> {
     ns.split('\u{1f}').map(str::to_string).collect()
 }
@@ -394,7 +394,7 @@ pub enum RenameTableError {
 
 /// Owns every materialized lake table, the aggregate Iceberg-REST catalog, the
 /// blob-CAS path index for the bytes this tier writes, the per-series drain cursor, and
-/// the bounded OpenLineage event ring (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns, INT-P2-3). Process-global (like
+/// the bounded OpenLineage event ring (CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns, INT-P2-3). Process-global (like
 /// `udf_registry`/`foreign_sources` on `ServerState`) — a lake table is not per-graph.
 pub struct LakeManager {
     tables: Mutex<HashMap<(String, String), TableEntry>>,
@@ -413,7 +413,7 @@ pub struct LakeManager {
     /// Bounded audit trail of catalog denials + mutations (W05, GOC-75-W05) —
     /// the SAME bounded-ring shape as `lineage` above. Every entry is ALSO
     /// emitted as a structured `tracing` line (target
-    /// `epistemic_graph::lake::audit`) for real log aggregation; this ring is
+    /// `medulla::lake::audit`) for real log aggregation; this ring is
     /// the in-process inspection surface (`recent_audit`) tests and callers use
     /// to prove an event landed, mirroring `recent_lineage`.
     audit: Mutex<VecDeque<Value>>,
@@ -444,7 +444,7 @@ impl LakeManager {
             lineage: Mutex::new(VecDeque::new()),
             audit: Mutex::new(VecDeque::new()),
             committed_lsns: Mutex::new(CommittedLsnLedger::default()),
-            // Starts at 1 — `Lsn::ZERO`/0 is reserved by eg-lake for "nothing committed
+            // Starts at 1 — `Lsn::ZERO`/0 is reserved by medulla-lake for "nothing committed
             // yet" (an as-of-0 read is always empty).
             next_lsn: AtomicU64::new(1),
         }
@@ -463,7 +463,7 @@ impl LakeManager {
     }
 
     /// The virtual object-store location a `(namespace, table)` pair materializes
-    /// under. Descriptive only (mirrors eg-lake's own tests' `"s3://lake/quotes"`
+    /// under. Descriptive only (mirrors medulla-lake's own tests' `"s3://lake/quotes"`
     /// convention) — no real object-store bucket needs to exist at this path; the
     /// bytes live in the blob CAS, addressed through [`Self::paths`].
     fn location_for(namespace: &str, table: &str) -> String {
@@ -596,7 +596,7 @@ impl LakeManager {
     }
 
     /// Incremental append: materialize only tsdb points newer than the per-series
-    /// drain cursor (the WAL-drain semantics — CONCEPT:EG-KG.storage.lsn-as-snapshot-returns's engine-side seam). The
+    /// drain cursor (the WAL-drain semantics — CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns's engine-side seam). The
     /// table name is the series id itself (sanitized); the namespace is
     /// [`DEFAULT_NAMESPACE`]. Returns `Ok(None)` when there is nothing new to drain.
     pub fn drain_series(
@@ -627,7 +627,7 @@ impl LakeManager {
                 batch: &batch,
                 source_series: Some(series_id),
                 op_hint: LakeOp::Append,
-                input_dataset: Some(("epistemic-graph.tsdb", series_id)),
+                input_dataset: Some(("medulla.tsdb", series_id)),
                 owner_tenant: None,
                 retire_paths: &[],
                 expected_lsn: None,
@@ -694,7 +694,7 @@ impl LakeManager {
         let mut kept_rows: Vec<Vec<CellValue>> = Vec::new();
         for rel in &live_paths {
             let bytes = self.read_path_bytes(store, &format!("{location}/{rel}"))?;
-            let batch = eg_lake::parquet_io::read_parquet(&bytes)?;
+            let batch = medulla_lake::parquet_io::read_parquet(&bytes)?;
             for mut row in batch.rows {
                 if keep(&row) {
                     if row.len() < schema.len() {
@@ -743,12 +743,12 @@ impl LakeManager {
         self.delete_where(store, namespace, table, |_row| true)
     }
 
-    /// Additive-only schema evolution (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns): append a new nullable column
+    /// Additive-only schema evolution (CONCEPT:MEDULLA-KG.storage.lsn-as-snapshot-returns): append a new nullable column
     /// to the table's current `LakeSchema` for FUTURE writes, via
     /// [`LakeTable::evolve_add_column`] — which also bumps the table's Iceberg
     /// schema-id and records the new schema version, so a subsequent
     /// [`LakeTable::iceberg`] render carries the FULL schema-evolution history
-    /// (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id, INT-P2-4) instead of always schema-id 0. Returns
+    /// (CONCEPT:MEDULLA-KG.storage.iceberg-per-file-schema-id, INT-P2-4) instead of always schema-id 0. Returns
     /// `Ok(true)` if the column was added, `Ok(false)` if a column of that name
     /// already exists, `Err` if the table is unknown.
     pub fn evolve_add_column(
@@ -767,7 +767,7 @@ impl LakeManager {
     // ── OpenLineage ─────────────────────────────────────────────────────────────
 
     fn push_lineage(&self, event: Value) {
-        tracing::info!(target: "eg_lake::lineage", event = %event, "OpenLineage run event");
+        tracing::info!(target: "medulla_lake::lineage", event = %event, "OpenLineage run event");
         {
             let mut ring = self.lineage.lock();
             ring.push_back(event.clone());
@@ -777,7 +777,7 @@ impl LakeManager {
         }
         // CA-15: with `lineage-transport` on, push through every configured
         // transport (HTTP -- byte-identical to the line below, plus Kafka
-        // when `EPISTEMIC_GRAPH_LINEAGE_KAFKA_BROKERS` is set). Without it,
+        // when `MEDULLA_LINEAGE_KAFKA_BROKERS` is set). Without it,
         // this stays the exact call a plain `lake` build has always made --
         // a strict superset, never a behavior change for an unconfigured or
         // `lineage-transport`-less deployment (see `lineage_transport`'s
@@ -802,7 +802,7 @@ impl LakeManager {
     /// future admin surface — can prove an event actually landed rather than
     /// trusting that a log line was emitted somewhere.
     pub(crate) fn record_audit(&self, event: Value) {
-        tracing::info!(target: "epistemic_graph::lake::audit", event = %event, "iceberg-rest catalog audit event");
+        tracing::info!(target: "medulla::lake::audit", event = %event, "iceberg-rest catalog audit event");
         let mut ring = self.audit.lock();
         ring.push_back(event);
         while ring.len() > AUDIT_RING_CAP {
@@ -1195,7 +1195,7 @@ mod tests {
         let store = FailingStore::new();
         let tsdb = SeriesStore::open_in_dir(
             &std::env::temp_dir().join(format!(
-                "eg-lake-test-atomic-failure-{}",
+                "medulla-lake-test-atomic-failure-{}",
                 std::process::id()
             )),
             crate::store_authority::process_verifier(),
@@ -1286,7 +1286,7 @@ mod tests {
         let store = std::sync::Arc::new(FailingStore::new());
         let tsdb = SeriesStore::open_in_dir(
             &std::env::temp_dir().join(format!(
-                "eg-lake-test-delete-interleave-{}",
+                "medulla-lake-test-delete-interleave-{}",
                 std::process::id()
             )),
             crate::store_authority::process_verifier(),
@@ -1378,7 +1378,7 @@ mod tests {
         let store = std::sync::Arc::new(FailingStore::new());
         let tsdb = SeriesStore::open_in_dir(
             &std::env::temp_dir().join(format!(
-                "eg-lake-test-evolve-interleave-{}",
+                "medulla-lake-test-evolve-interleave-{}",
                 std::process::id()
             )),
             crate::store_authority::process_verifier(),
@@ -1446,7 +1446,7 @@ mod tests {
     fn drain_series_materializes_only_new_points_each_call() {
         let s = store();
         let tsdb = SeriesStore::open_in_dir(
-            &std::env::temp_dir().join(format!("eg-lake-test-{}", std::process::id())),
+            &std::env::temp_dir().join(format!("medulla-lake-test-{}", std::process::id())),
             crate::store_authority::process_verifier(),
             crate::store_authority::process_authority().principal(),
             &crate::store_authority::process_authority().proof(),
@@ -1494,7 +1494,7 @@ mod tests {
     fn compact_merges_live_files_into_one_and_preserves_rows() {
         let s = store();
         let tsdb = SeriesStore::open_in_dir(
-            &std::env::temp_dir().join(format!("eg-lake-test-compact-{}", std::process::id())),
+            &std::env::temp_dir().join(format!("medulla-lake-test-compact-{}", std::process::id())),
             crate::store_authority::process_verifier(),
             crate::store_authority::process_authority().principal(),
             &crate::store_authority::process_authority().proof(),
@@ -1539,7 +1539,7 @@ mod tests {
     fn load_table_as_of_returns_historical_state_after_a_later_compaction() {
         let s = store();
         let tsdb = SeriesStore::open_in_dir(
-            &std::env::temp_dir().join(format!("eg-lake-test-asof-{}", std::process::id())),
+            &std::env::temp_dir().join(format!("medulla-lake-test-asof-{}", std::process::id())),
             crate::store_authority::process_verifier(),
             crate::store_authority::process_authority().principal(),
             &crate::store_authority::process_authority().proof(),
@@ -1585,7 +1585,7 @@ mod tests {
              — a real historical read, not the current projection"
         );
         assert_eq!(
-            current_snapshot(&historical)["summary"]["epistemic-graph-lsn"],
+            current_snapshot(&historical)["summary"]["medulla-lsn"],
             historical_lsn.to_string(),
         );
         assert_eq!(
@@ -1609,7 +1609,7 @@ mod tests {
     fn delete_where_removes_matching_rows_and_truncate_when_all_removed() {
         let s = store();
         let tsdb = SeriesStore::open_in_dir(
-            &std::env::temp_dir().join(format!("eg-lake-test-delete-{}", std::process::id())),
+            &std::env::temp_dir().join(format!("medulla-lake-test-delete-{}", std::process::id())),
             crate::store_authority::process_verifier(),
             crate::store_authority::process_authority().principal(),
             &crate::store_authority::process_authority().proof(),
@@ -1646,7 +1646,7 @@ mod tests {
     fn evolve_add_column_widens_schema_for_future_writes_only() {
         let s = store();
         let tsdb = SeriesStore::open_in_dir(
-            &std::env::temp_dir().join(format!("eg-lake-test-evolve-{}", std::process::id())),
+            &std::env::temp_dir().join(format!("medulla-lake-test-evolve-{}", std::process::id())),
             crate::store_authority::process_verifier(),
             crate::store_authority::process_authority().principal(),
             &crate::store_authority::process_authority().proof(),
@@ -1745,7 +1745,7 @@ mod tests {
     fn recent_lineage_carries_openlineage_shaped_events() {
         let s = store();
         let tsdb = SeriesStore::open_in_dir(
-            &std::env::temp_dir().join(format!("eg-lake-test-lineage-{}", std::process::id())),
+            &std::env::temp_dir().join(format!("medulla-lake-test-lineage-{}", std::process::id())),
             crate::store_authority::process_verifier(),
             crate::store_authority::process_authority().principal(),
             &crate::store_authority::process_authority().proof(),
@@ -1760,9 +1760,9 @@ mod tests {
         let ev = &events[0];
         assert_eq!(ev["eventType"], "COMPLETE");
         assert!(ev["run"]["runId"].is_string());
-        assert_eq!(ev["job"]["namespace"], "epistemic-graph.lake");
+        assert_eq!(ev["job"]["namespace"], "medulla.lake");
         assert!(ev["job"]["name"].as_str().unwrap().contains("materialize"));
-        assert_eq!(ev["inputs"][0]["namespace"], "epistemic-graph.tsdb");
+        assert_eq!(ev["inputs"][0]["namespace"], "medulla.tsdb");
         assert_eq!(ev["inputs"][0]["name"], "s4");
         let out = &ev["outputs"][0];
         assert_eq!(out["name"], "engine.s4");
@@ -1777,8 +1777,8 @@ mod tests {
     }
 
     /// CA-15 P9 negative slice: with `lineage-transport` on, no
-    /// `EPISTEMIC_GRAPH_OPENLINEAGE_URL` and no
-    /// `EPISTEMIC_GRAPH_LINEAGE_KAFKA_BROKERS` configured (both transports
+    /// `MEDULLA_OPENLINEAGE_URL` and no
+    /// `MEDULLA_LINEAGE_KAFKA_BROKERS` configured (both transports
     /// effectively unreachable/unconfigured), `drain_series` still succeeds
     /// and the event still lands in the local ring — the drop is silent at
     /// the transport layer, never fabricated OR lost at the materialization
@@ -1799,7 +1799,7 @@ mod tests {
         let s = store();
         let tsdb = SeriesStore::open_in_dir(
             &std::env::temp_dir().join(format!(
-                "eg-lake-test-lineage-unconfigured-{}",
+                "medulla-lake-test-lineage-unconfigured-{}",
                 std::process::id()
             )),
             crate::store_authority::process_verifier(),

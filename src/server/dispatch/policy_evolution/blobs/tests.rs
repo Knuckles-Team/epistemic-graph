@@ -3,8 +3,8 @@
 //! bit-exact from the digest the record names, and the hold check refuses any
 //! reference the caller does not own at exactly the declared length.
 
-use eg_types::contract::Digest256;
-use eg_types::policy_evolution::{ArrayEncoding, PolicyCapture, PolicyEvolutionRecord};
+use medulla_types::contract::Digest256;
+use medulla_types::policy_evolution::{ArrayEncoding, PolicyCapture, PolicyEvolutionRecord};
 
 use super::*;
 use crate::server::blob::store::test_support::{chunked_as, reassemble};

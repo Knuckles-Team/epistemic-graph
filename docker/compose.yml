@@ -25,18 +25,18 @@ services:
       # deployments must replace this compatibility acknowledgement with
       # GRAPH_SERVICE_TLS_CERT / _KEY (and optional _CLIENT_CA).
       - GRAPH_SERVICE_TCP_ADDR=0.0.0.0:9100
-      - EPISTEMIC_GRAPH_ALLOW_PLAINTEXT_TCP=true
+      - MEDULLA_ALLOW_PLAINTEXT_TCP=true
       # Metrics must bind the container interface for Docker publishing. Both
       # auxiliary-listener keys acknowledge that the host publication below is
       # loopback-only; do not reuse this pair with a routable host publication.
       - GRAPH_SERVICE_METRICS_ADDR=0.0.0.0:9101
-      - EPISTEMIC_GRAPH_ALLOW_NONLOOPBACK_AUXILIARY=true
-      - EPISTEMIC_GRAPH_AUXILIARY_INGRESS_ACKNOWLEDGED=true
+      - MEDULLA_ALLOW_NONLOOPBACK_AUXILIARY=true
+      - MEDULLA_AUXILIARY_INGRESS_ACKNOWLEDGED=true
     ports:
       - "127.0.0.1:9100:9100"   # RPC (clients)
       - "127.0.0.1:9101:9101"   # Prometheus metrics
     volumes:
-      - eg-data:/var/lib/epistemic-graph/data
+      - medulla-data:/var/lib/medulla/data
     restart: unless-stopped
 
   # Dev/test runner (pytest over the Python client) — separate Dockerfile.
@@ -63,4 +63,4 @@ services:
     command: pytest
 
 volumes:
-  eg-data:
+  medulla-data:

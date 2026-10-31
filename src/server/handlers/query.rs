@@ -1,10 +1,10 @@
 //! Governed query handler. Owns BOTH query methods (one module per domain, per
 //! the dispatch conventions — `Sql` + `CypherQuery` are the one `// ── Query ──`
 //! protocol section):
-//!   * `Method::Sql` (CONCEPT:EG-KG.query.read-only-sql-query, feature `query`) — `SELECT … FROM nodes …`
-//!     over ONE graph via DataFusion (eg-query::exec_sql).
-//!   * `Method::CypherQuery` (CONCEPT:EG-KG.query.dep-free-behind, feature `cypher`) — `MATCH … RETURN
-//!     …` over ONE graph, DEP-FREE (eg-query::exec_cypher; label index / VF2 / BFS,
+//!   * `Method::Sql` (CONCEPT:MEDULLA-KG.query.read-only-sql-query, feature `query`) — `SELECT … FROM nodes …`
+//!     over ONE graph via DataFusion (medulla-query::exec_sql).
+//!   * `Method::CypherQuery` (CONCEPT:MEDULLA-KG.query.dep-free-behind, feature `cypher`) — `MATCH … RETURN
+//!     …` over ONE graph, DEP-FREE (medulla-query::exec_cypher; label index / VF2 / BFS,
 //!     no DataFusion). This is the lean-Pi query path.
 //!
 //! SQL and Cypher reads use detached, policy-filtered snapshots. Query-language
@@ -37,17 +37,17 @@ use crate::server::access::GraphReadAuthority;
 #[cfg(feature = "federation")]
 use crate::server::foreign_catalog::{bound_registry, served_foreign_leg};
 #[cfg(feature = "result-cache")]
-use eg_core::result_cache::ResultCache;
+use medulla_core::result_cache::ResultCache;
 #[cfg(feature = "graphql")]
-use eg_graphql::parser::{Field, GqlValue};
+use medulla_graphql::parser::{Field, GqlValue};
 
 #[cfg(feature = "query")]
-use eg_types::result_contract::EncodeRef;
+use medulla_types::result_contract::EncodeRef;
 #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
-use eg_types::result_contract::{encoding, query as query_results, Dynamic, MethodResult};
+use medulla_types::result_contract::{encoding, query as query_results, Dynamic, MethodResult};
 
 #[cfg(feature = "query")]
-pub(crate) type UqlParams = std::collections::BTreeMap<String, eg_types::wire::UqlParam>;
+pub(crate) type UqlParams = std::collections::BTreeMap<String, medulla_types::wire::UqlParam>;
 
 /// MessagePack bytes of a value that is not itself a result: a result-cache key, or one
 /// row of a SQL result.
@@ -62,11 +62,11 @@ fn bind_served_statement(
     req_id: u64,
     text: &str,
     params: &UqlParams,
-) -> Result<(eg_plan::uql::Statement, eg_plan::Plan), Response> {
-    let statement = eg_plan::uql::parse_statement(text, params).map_err(|error| {
+) -> Result<(medulla_plan::uql::Statement, medulla_plan::Plan), Response> {
+    let statement = medulla_plan::uql::parse_statement(text, params).map_err(|error| {
         Response::err(req_id, format!("{}: {}", error.code, error.render(text)))
     })?;
-    let binding = eg_plan::uql::serve::binding_plan(&statement);
+    let binding = medulla_plan::uql::serve::binding_plan(&statement);
     Ok((statement, binding))
 }
 
@@ -74,7 +74,7 @@ fn bind_served_statement(
 fn cached_served_response<M>(
     req_id: u64,
     core: &GraphCore,
-    key: &Option<(u128, Option<eg_core::dep_scope::DepSet>)>,
+    key: &Option<(u128, Option<medulla_core::dep_scope::DepSet>)>,
 ) -> Option<Response>
 where
     M: MethodResult<Encoding = encoding::Raw>,
@@ -84,14 +84,14 @@ where
         .map(|bytes| Response::ok(req_id, ResultPayload::of_cache_hit::<M>(bytes)))
 }
 
-/// Encode a [`eg_query::TypedQueryResult`] as the wire `Sql` response:
+/// Encode a [`medulla_query::TypedQueryResult`] as the wire `Sql` response:
 /// msgpack every cell, or fail the whole response if one cell can't encode.
 /// The plain, cancellable, and graph-table-backed typed-SQL execution paths
 /// all reach exactly this row-to-wire step once DataFusion has produced
 /// typed rows — one owner so a change to how a cell fails to encode can't
 /// land on one path and not the others.
 #[cfg(feature = "query")]
-fn typed_sql_response(req_id: u64, typed: eg_query::TypedQueryResult) -> Response {
+fn typed_sql_response(req_id: u64, typed: medulla_query::TypedQueryResult) -> Response {
     match typed.rows.iter().map(msgpack_bytes).collect() {
         Ok(rows) => dynamic_response::<query_results::Sql, _>(
             req_id,
@@ -193,19 +193,19 @@ pub(crate) mod current_auth_test_support {
     const TEST_AGENT: &str = "unit-test-agent";
 
     /// The status query the three served read-path tests (Method::Sql,
-    /// KnowledgeStream, pgwire) all run against `eg_index_status` (EH-352).
+    /// KnowledgeStream, pgwire) all run against `medulla_index_status` (EH-352).
     pub(crate) const EDGE_STATUS_SQL: &str = "SELECT index_name, target_kind, state \
-        FROM information_schema.eg_index_status WHERE target_kind = 'graph_edges'";
+        FROM information_schema.medulla_index_status WHERE target_kind = 'graph_edges'";
 
     /// The edge index those tests register for `tenant`.
-    pub(crate) fn edge_status_spec(tenant: &str) -> eg_query::edge_index::EdgeIndexSpec {
-        eg_query::edge_index::EdgeIndexSpec {
+    pub(crate) fn edge_status_spec(tenant: &str) -> medulla_query::edge_index::EdgeIndexSpec {
+        medulla_query::edge_index::EdgeIndexSpec {
             name: "rel_emb".to_string(),
             property: "emb".to_string(),
-            kind: eg_query::edge_index::EdgeIndexKind::Vector {
-                metric: eg_query::VectorMetric::L2,
+            kind: medulla_query::edge_index::EdgeIndexKind::Vector {
+                metric: medulla_query::VectorMetric::L2,
             },
-            scope: eg_query::edge_index::EdgeScope {
+            scope: medulla_query::edge_index::EdgeScope {
                 tenant: tenant.to_string(),
                 purpose: "retrieval".to_string(),
             },
@@ -227,12 +227,12 @@ pub(crate) mod current_auth_test_support {
     /// the served graph (it is built on a detached core), so a read proves it
     /// installs the tenant's edge indexes itself.
     pub(crate) fn register_detached_edge_index(
-        store: &eg_query::TableStore,
+        store: &medulla_query::TableStore,
         graph: &str,
         tenant: &str,
     ) {
         let detached = crate::graph::GraphCore::new();
-        eg_query::edge_index::create_durable_edge_index(
+        medulla_query::edge_index::create_durable_edge_index(
             store,
             graph,
             &detached,
@@ -300,7 +300,7 @@ pub(crate) mod current_auth_test_support {
 
     pub(super) fn current_isolation_with_agents(agent_ids: &[&str]) -> IsolationLayer {
         let mut isolation = ServerState::test_isolation(TEST_AGENT);
-        // RBAC (CONCEPT:EG-KG.compute.feature) is the mandatory current access
+        // RBAC (CONCEPT:MEDULLA-KG.compute.feature) is the mandatory current access
         // decision under `feature = "security"` (`isolation.rs::check_access`) —
         // there is no pre-RBAC "Commons is public" fall-through any more for a
         // non-`System` identity (see `server::mod::tests::multi_tenant_state`'s doc
@@ -378,7 +378,7 @@ pub(crate) mod current_auth_test_support {
 
 #[cfg(all(test, feature = "security", feature = "query", feature = "cypher"))]
 mod rls_no_exfiltrate_tests {
-    //! Proof (CONCEPT:EG-KG.sharding.row-level-security): RLS filters the read/plan-path snapshot so neither
+    //! Proof (CONCEPT:MEDULLA-KG.sharding.row-level-security): RLS filters the read/plan-path snapshot so neither
     //! SQL nor Cypher can exfiltrate a forbidden row. Agent A's query MUST exclude
     //! agent B's private node; a public node is visible to both.
     use crate::graph::GraphView;
@@ -439,10 +439,10 @@ mod rls_no_exfiltrate_tests {
     }
 
     fn sql_ids(view: &GraphView) -> Vec<String> {
-        let r = eg_query::exec_sql(
+        let r = medulla_query::exec_sql(
             view,
             "SELECT id FROM nodes",
-            &eg_query::CancellationToken::new(),
+            &medulla_query::CancellationToken::new(),
         )
         .expect("sql");
         r.rows
@@ -489,7 +489,7 @@ mod rls_no_exfiltrate_tests {
         let layer = isolation();
         let mut va = seeded_view();
         layer.filter_view("alice", &mut va);
-        let r = eg_query::exec_cypher(&va, "MATCH (n) RETURN n").expect("cypher");
+        let r = medulla_query::exec_cypher(&va, "MATCH (n) RETURN n").expect("cypher");
         // The cypher result must not reference the hidden node id anywhere.
         let any_secret = r
             .rows
@@ -499,7 +499,7 @@ mod rls_no_exfiltrate_tests {
     }
 }
 
-// ── Version-keyed result cache, end-to-end through dispatch (CONCEPT:EG-KG.coordination.distributed-cache-coherence) ──
+// ── Version-keyed result cache, end-to-end through dispatch (CONCEPT:MEDULLA-KG.coordination.distributed-cache-coherence) ──
 //
 // Proves the cache over the REAL `dispatch` entrypoint (auth → routing → handler →
 // cache → Cypher), on the lean Pi path (cypher, NO DataFusion):
@@ -769,7 +769,7 @@ mod result_cache_dispatch_tests {
     }
 }
 
-// ── ⚠ RLS × result-cache: NO cross-agent leak (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231) ──
+// ── ⚠ RLS × result-cache: NO cross-agent leak (CONCEPT:MEDULLA-KG.coordination.distributed-cache-coherence × KG-2.231) ──
 //
 // THE headline reconciliation proof. With RLS ACTIVE, agent A and agent B run the
 // SAME query text against the SAME graph and the SAME version, yet:
@@ -1102,9 +1102,9 @@ mod rls_aware_cache_no_cross_agent_leak {
     }
 }
 
-// ── Server-dispatch WRITE wiring (CONCEPT:EG-KG.query.mirrors-pgwire) ─────────────────────────────────
+// ── Server-dispatch WRITE wiring (CONCEPT:MEDULLA-KG.query.mirrors-pgwire) ─────────────────────────────────
 //
-// Proves the five EG-023 wirings land THROUGH the real `dispatch_on_heap()` entrypoint a wire
+// Proves the five MEDULLA-023 wirings land THROUGH the real `dispatch_on_heap()` entrypoint a wire
 // request hits (auth → routing → handler → write): a GraphQL mutation creates a node a
 // later query sees; a Cypher CREATE is then visible to a MATCH; a wire `Sql`
 // CREATE TABLE + INSERT + SELECT round-trips; an `INSERT INTO nodes` is visible to a
@@ -1148,7 +1148,7 @@ mod dispatch_write_tests {
         let context = crate::acl::RequestContextClaims {
             principal: agent_id.to_string(),
             tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
+            audience: "medulla-test".to_string(),
             agent_id: agent_id.to_string(),
             roles: vec!["test".to_string()],
             scopes: vec!["kg:read".to_string(), "kg:write".to_string()],
@@ -1201,7 +1201,7 @@ mod dispatch_write_tests {
         (qr.columns, rows)
     }
 
-    /// THE GraphQL write→read proof (CONCEPT:EG-KG.query.mutation/EG-023): a `mutation { createNode … }`
+    /// THE GraphQL write→read proof (CONCEPT:MEDULLA-KG.query.mutation/MEDULLA-023): a `mutation { createNode … }`
     /// dispatched over the wire creates a node a subsequent GraphQL query SEES.
     #[tokio::test]
     async fn graphql_mutation_creates_node_via_dispatch() {
@@ -1245,7 +1245,7 @@ mod dispatch_write_tests {
         assert_eq!(people[0]["age"], serde_json::json!(50));
     }
 
-    /// THE Cypher write→read proof (CONCEPT:EG-KG.query.register-each-user-table/EG-023): a `CREATE` dispatched over the
+    /// THE Cypher write→read proof (CONCEPT:MEDULLA-KG.query.register-each-user-table/MEDULLA-023): a `CREATE` dispatched over the
     /// wire is then visible to a `MATCH` (which still runs the read path).
     #[tokio::test]
     async fn cypher_create_then_match_via_dispatch() {
@@ -1335,7 +1335,7 @@ mod dispatch_write_tests {
         );
     }
 
-    /// THE wire-SQL DDL/DML round-trip (CONCEPT:EG-KG.query.mirrors-pgwire): `CREATE TABLE` + `INSERT` + a
+    /// THE wire-SQL DDL/DML round-trip (CONCEPT:MEDULLA-KG.query.mirrors-pgwire): `CREATE TABLE` + `INSERT` + a
     /// `SELECT` that reads the user table back, all over `Method::Sql` through dispatch.
     #[tokio::test]
     async fn wire_sql_create_insert_select_round_trips() {
@@ -1411,8 +1411,8 @@ mod dispatch_write_tests {
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let guest = "sql-pgq-guest";
         let state = persisted_state(SECRET, current_isolation_with_agents(&[guest]));
-        let table = format!("eg_pgq_people_{}", std::process::id());
-        let graph = format!("eg_pgq_social_{}", std::process::id());
+        let table = format!("medulla_pgq_people_{}", std::process::id());
+        let graph = format!("medulla_pgq_social_{}", std::process::id());
         let sql = |query: String| Method::Sql {
             query,
             params_msgpack: Vec::new(),
@@ -1508,7 +1508,7 @@ mod dispatch_write_tests {
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let guest = "sql-owner-repair-guest";
         let state = persisted_state(SECRET, current_isolation_with_agents(&[guest]));
-        let table = format!("eg_direct_owner_repair_{}", std::process::id());
+        let table = format!("medulla_direct_owner_repair_{}", std::process::id());
         let persist_dir = state
             .read()
             .await
@@ -1525,11 +1525,11 @@ mod dispatch_write_tests {
         )
         .expect("open tenant ACL store");
         acl.create_table(
-            &eg_query::TableSchema::new(
+            &medulla_query::TableSchema::new(
                 "__eg_sql_owners__",
-                vec![eg_query::Column::new(
+                vec![medulla_query::Column::new(
                     "table_name",
-                    eg_query::ColumnType::Text,
+                    medulla_query::ColumnType::Text,
                     false,
                     true,
                 )],
@@ -1642,7 +1642,7 @@ mod dispatch_write_tests {
     }
 
     /// `INSERT INTO nodes` over the wire lands in the graph core and a `SELECT` sees it —
-    /// the agent-utilities `graph_table`/`sql_exec` node-write path (CONCEPT:EG-KG.query.mirrors-pgwire).
+    /// the agent-utilities `graph_table`/`sql_exec` node-write path (CONCEPT:MEDULLA-KG.query.mirrors-pgwire).
     #[tokio::test]
     async fn wire_sql_insert_node_then_select_via_dispatch() {
         // Reads the ambient encryption env at its durable open, so the env must hold
@@ -1655,7 +1655,7 @@ mod dispatch_write_tests {
             params_msgpack: Vec::new(),
         };
 
-        // `node_type` alongside `type`: `eg_query::cypher::exec::node_has_label`
+        // `node_type` alongside `type`: `medulla_query::cypher::exec::node_has_label`
         // deliberately treats a bare `type`/`label` property as a legacy payload
         // that "must never satisfy a Cypher node label" (its own doc comment,
         // matching Cypher's `CREATE`/`MERGE` canonicalization onto `node_type`
@@ -1708,7 +1708,7 @@ mod dispatch_write_tests {
         assert_eq!(rows2[0][0], serde_json::json!("Zed"));
     }
 
-    /// CX WB1-EG-01 characterization: `UPDATE nodes SET …` and `DELETE FROM
+    /// CX WB1-MEDULLA-01 characterization: `UPDATE nodes SET …` and `DELETE FROM
     /// nodes …` over `Method::Sql` had no dedicated dispatch-level test before
     /// this refactor extracted `exec_sql_write_update_nodes`/
     /// `exec_sql_write_delete_nodes` out of `exec_sql_write`'s
@@ -1787,7 +1787,7 @@ mod dispatch_write_tests {
     }
 }
 
-// ── In-transaction cross-modal read-your-own-writes (CONCEPT:EG-KG.query.txn-cross-modal-ryow) ──────────
+// ── In-transaction cross-modal read-your-own-writes (CONCEPT:MEDULLA-KG.query.txn-cross-modal-ryow) ──────────
 // End-to-end dispatch tests for the `TxnUnifiedQuery{,Text}` overlay path: a txn's
 // STAGED (uncommitted) node + embedding + edge are visible to a unified cross-modal
 // query issued INSIDE that txn (RYOW), while an identical OFF-txn query sees nothing
@@ -1810,11 +1810,11 @@ mod txn_ryow_dispatch_tests {
         //
         // A second, layered requirement: the cross-modal handler-commit path seals
         // its transaction recovery plan (`server::handlers::txn::seal_txn_recovery_plan`),
-        // which fail-closed REQUIRES `EPISTEMIC_GRAPH_ENCRYPTION_KEY` to be configured —
+        // which fail-closed REQUIRES `MEDULLA_ENCRYPTION_KEY` to be configured —
         // the SAME seal requirement `redb_backend::tests::cm_dir` already documents and
         // provisions for its own cross-modal ACID tests. Mirror that exact pattern (a
         // `std::sync::Once`-guarded env var set, since it is process-global).
-        // The `Once` below sets a process-global env var, and `EPISTEMIC_GRAPH_
+        // The `Once` below sets a process-global env var, and `MEDULLA_
         // ENCRYPTION_KEY` must then stay stable for the rest of this test (a
         // `RedbBackend` resolves+caches its cipher ONCE at `open()`, called right
         // below). Both callers of `state()` (`in_txn_cross_modal_ryow`,
@@ -1882,7 +1882,7 @@ mod txn_ryow_dispatch_tests {
     // reachable in-txn; an identical OFF-txn query sees none of it.
     #[tokio::test]
     async fn in_txn_cross_modal_ryow() {
-        // Held for the whole test: `state()` provisions `EPISTEMIC_GRAPH_ENCRYPTION_KEY`
+        // Held for the whole test: `state()` provisions `MEDULLA_ENCRYPTION_KEY`
         // once (process-global) and this test's transaction-commit path depends on it
         // staying set throughout — see `crate::crypto::acquire_test_env_lock`'s doc.
         let _env_lock = crate::crypto::acquire_test_env_lock().await;

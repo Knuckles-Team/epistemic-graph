@@ -75,7 +75,7 @@ async fn below_the_support_floor_a_reputation_has_no_numbers() {
 /// `SOURCE RELIABILITY 'plan-hyde'` over one row, as `who` runs it: (belief, lo, hi).
 #[cfg(feature = "epistemic")]
 fn reliability(h: &Harness, who: &str) -> (Option<f64>, Option<f64>, Option<f64>) {
-    use eg_types::wire::UqlResult;
+    use medulla_types::wire::UqlResult;
     let verified = VerifiedRequestContext::verified_for_test_in_tenant(who, TENANT);
     let authority = crate::server::access::CarrierAuthority::from_verified(&verified).unwrap();
     let views = super::super::stat_view::DecisionViews::of(h.store.clone(), &authority);
@@ -85,11 +85,11 @@ fn reliability(h: &Harness, who: &str) -> (Option<f64>, Option<f64>, Option<f64>
         rmp_serde::to_vec_named(&json!({"type": "Doc"})).unwrap(),
     );
     let graph = core.analysis_snapshot();
-    let semantic = eg_core::compute::semantic::SemanticStore::new();
-    let ctx = eg_plan::PlanCtx::new(&graph, &semantic).with_decisions(&views);
+    let semantic = medulla_core::compute::semantic::SemanticStore::new();
+    let ctx = medulla_plan::PlanCtx::new(&graph, &semantic).with_decisions(&views);
     let text = "MATCH () |> SOURCE RELIABILITY 'plan-hyde' |> RETURN belief, reliability_lo, reliability_hi";
-    let stmt = eg_plan::uql::parse_statement(text, &eg_plan::uql::Params::new()).unwrap();
-    let UqlResult::Rows { rows, .. } = eg_plan::uql::serve::run_statement(&stmt, &ctx).unwrap()
+    let stmt = medulla_plan::uql::parse_statement(text, &medulla_plan::uql::Params::new()).unwrap();
+    let UqlResult::Rows { rows, .. } = medulla_plan::uql::serve::run_statement(&stmt, &ctx).unwrap()
     else {
         panic!("rows")
     };

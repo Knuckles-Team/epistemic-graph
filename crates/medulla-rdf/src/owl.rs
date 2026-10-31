@@ -1,0 +1,4143 @@
+//! W3 — a NATIVE OWL 2 reasoner (CONCEPT:MEDULLA-KG.ontology.incremental-materialization).
+//!
+//! A pure-Rust OWL 2 **EL⁺ completion** reasoner (Baader/Brandt/Lutz "Pushing the EL
+//! Envelope" — the algorithmic core of ELK/CEL) UNIONED with the full **OWL 2 RL**
+//! property rule set. It parses OWL axioms directly from the RDF triples medulla-rdf
+//! already produces (oxttl/oxrdf — NO horned-owl, NO whelk-rs, so the OWL tier carries
+//! ZERO native deps and stays Pi-clean), and provides:
+//!
+//!   * **classification** — the complete subclass hierarchy `S(A) = { B : A ⊑ B }`
+//!     over named classes, derived through existential restrictions and role chains;
+//!   * **consistency checking** — a `⊥`-derivation (a class forced to be `owl:Nothing`,
+//!     i.e. unsatisfiable) makes the ontology inconsistent;
+//!   * **incremental / differential** materialization — adding axioms only ADDS
+//!     subsumers (EL completion is monotone), so a delta re-runs the fixpoint seeded
+//!     from the prior closure instead of from scratch;
+//!   * **justifications** — every inferred subsumption records which axiom(s) +
+//!     premise(s) derived it (the completion rule + its antecedents).
+//!
+//! ## Why this reaches what `medulla-compute::reasoning` (OWL 2 RL) cannot
+//!
+//! `medulla-compute/src/reasoning.rs` is RL-flavored Datalog over MATERIALIZED node/edge
+//! facts: subClassOf/subPropertyOf inheritance, transitive/symmetric/inverse closure,
+//! domain/range, property chains. It can only propagate types/edges that exist on
+//! concrete individuals.
+//!
+//! EL completion reasons at the **TBox / concept** level. Given
+//! ```text
+//!   Heart        ⊑ ∃partOf.Body
+//!   ∃partOf.Body ⊑ HumanComponent     (existential restriction on the LHS)
+//!   HumanHeart   ⊑ Heart
+//!   partOf ∘ partOf ⊑ partOf
+//! ```
+//! it derives `HumanHeart ⊑ HumanComponent` — an entailment RL CANNOT reach, because
+//! the consequent flows through an existential restriction `∃partOf.Body` on the LEFT
+//! of a subclass axiom: there is no `partOf` edge to a concrete `Body` individual to
+//! chain over; the inference is purely at the concept level. (See the `el_*` tests.)
+//!
+//! ## DAG home (the acyclic justification)
+//!
+//! This lives in `medulla-rdf` (not `medulla-compute`) because it CONSUMES the RDF/ontology the
+//! `mapping`/oxttl layer parses, and medulla-rdf is the crate that owns the oxrdf term
+//! model. `medulla-rdf` depends only on `medulla-core` (it is parallel to `medulla-query`), so adding
+//! the reasoner here introduces no cycle. Putting it in `medulla-compute` (left of medulla-rdf
+//! in the DAG) would force medulla-compute to depend on oxrdf/oxttl — pulling the RDF stack
+//! into every compute build — OR re-parse OWL by hand. The RL property reasoner stays
+//! in medulla-compute (it works over the property-graph); the EL concept reasoner lives
+//! here, beside the RDF surface it reasons over. The native EL completion shares the
+//! same monotone-fixpoint discipline `run_datalog_reasoning` uses.
+//!
+//! ## Pi contract
+//!
+//! Behind the `owl` feature (which implies `rdf`). Pure Rust — oxrdf/oxttl only, no
+//! new dep — so `--features pi` (which carries `rdf`+`sparql`) can fold it in with no
+//! native crate entering the tree.
+
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+
+use oxrdf::{BlankNode, NamedNode, NamedOrBlankNode, Term, Triple};
+
+mod budget;
+pub(crate) mod disjoint;
+mod filler;
+mod fresh;
+
+pub use budget::{BudgetExhausted, DerivationBudget};
+
+// ── OWL / RDFS / RDF vocabulary IRIs ─────────────────────────────────────────
+
+const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+const RDF_FIRST: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#first";
+const RDF_REST: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#rest";
+const RDF_NIL: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#nil";
+
+const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
+const RDFS_SUBPROPERTY_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subPropertyOf";
+const RDFS_DOMAIN: &str = "http://www.w3.org/2000/01/rdf-schema#domain";
+const RDFS_RANGE: &str = "http://www.w3.org/2000/01/rdf-schema#range";
+
+const OWL_CLASS: &str = "http://www.w3.org/2002/07/owl#Class";
+const OWL_THING: &str = "http://www.w3.org/2002/07/owl#Thing";
+const OWL_NOTHING: &str = "http://www.w3.org/2002/07/owl#Nothing";
+const OWL_EQUIVALENT_CLASS: &str = "http://www.w3.org/2002/07/owl#equivalentClass";
+const OWL_INTERSECTION_OF: &str = "http://www.w3.org/2002/07/owl#intersectionOf";
+const OWL_SOME_VALUES_FROM: &str = "http://www.w3.org/2002/07/owl#someValuesFrom";
+const OWL_ON_PROPERTY: &str = "http://www.w3.org/2002/07/owl#onProperty";
+const OWL_PROPERTY_CHAIN_AXIOM: &str = "http://www.w3.org/2002/07/owl#propertyChainAxiom";
+const OWL_TRANSITIVE_PROPERTY: &str = "http://www.w3.org/2002/07/owl#TransitiveProperty";
+const OWL_SYMMETRIC_PROPERTY: &str = "http://www.w3.org/2002/07/owl#SymmetricProperty";
+const OWL_INVERSE_OF: &str = "http://www.w3.org/2002/07/owl#inverseOf";
+const OWL_DISJOINT_WITH: &str = "http://www.w3.org/2002/07/owl#disjointWith";
+const OWL_ALL_DISJOINT_CLASSES: &str = "http://www.w3.org/2002/07/owl#AllDisjointClasses";
+const OWL_MEMBERS: &str = "http://www.w3.org/2002/07/owl#members";
+
+// ── OWL 2 axioms added in MEDULLA-021 (broader EL⁺/RL coverage toward DL-lite) ─────
+/// `owl:equivalentProperty` — `r ≡ s` ⇒ `r ⊑ s` AND `s ⊑ r` (both role inclusions).
+const OWL_EQUIVALENT_PROPERTY: &str = "http://www.w3.org/2002/07/owl#equivalentProperty";
+/// `owl:allValuesFrom` — universal restriction `∀r.C`. Refines the `r`-fillers of a
+/// member of the restricted class (CR-filler; sound, tractable; NOT full DL).
+const OWL_ALL_VALUES_FROM: &str = "http://www.w3.org/2002/07/owl#allValuesFrom";
+/// `owl:hasValue` — value restriction `∃r.{a}`. Modelled as an existential to the
+/// VALUE token (a nominal treated as a Named filler) so it composes through CR-some.
+const OWL_HAS_VALUE: &str = "http://www.w3.org/2002/07/owl#hasValue";
+/// `owl:unionOf` — only the SOUND EL direction `Cᵢ ⊑ (C₁ ⊔ … ⊔ Cₙ)` (each disjunct is
+/// subsumed by the union) is materialised; the case-split direction `A ⊑ C₁ ⊔ C₂` needs
+/// a DL tableau and is DEFERRED.
+const OWL_UNION_OF: &str = "http://www.w3.org/2002/07/owl#unionOf";
+/// `owl:FunctionalProperty` — `r(x,y) ∧ r(x,z) → y owl:sameAs z` (equality / merge).
+/// Instance-level; consumed by the [`crate::rules`] Datalog/equality engine.
+const OWL_FUNCTIONAL_PROPERTY: &str = "http://www.w3.org/2002/07/owl#FunctionalProperty";
+/// `owl:InverseFunctionalProperty` — `r(y,x) ∧ r(z,x) → y owl:sameAs z` (a key).
+const OWL_INVERSE_FUNCTIONAL_PROPERTY: &str =
+    "http://www.w3.org/2002/07/owl#InverseFunctionalProperty";
+/// `owl:sameAs` — individual equality (instance-level; [`crate::rules`] equality closure).
+const OWL_SAME_AS: &str = "http://www.w3.org/2002/07/owl#sameAs";
+/// `owl:differentFrom` — individual inequality; a derived `sameAs` over a `differentFrom`
+/// pair is a clash (instance-level inconsistency, reported by [`crate::rules`]).
+const OWL_DIFFERENT_FROM: &str = "http://www.w3.org/2002/07/owl#differentFrom";
+
+/// Annotation property carrying an axiom's confidence in `[0, 1]` (CONCEPT:MEDULLA-KG.ontology.concept-13):
+/// `ex:Heart eg:confidence "0.8"` attaches `0.8` to the axiom(s) whose SUBJECT is
+/// `ex:Heart` (e.g. `Heart ⊑ …`). Absent ⇒ `1.0` (a hard axiom). This is the epistemic
+/// engine's native "uncertain axiom" hook — the EL/RL closure then PROPAGATES it.
+const MEDULLA_CONFIDENCE: &str = "http://medulla/owl#confidence";
+
+/// `<iri>` canonical form (matches the node-id convention of [`crate::mapping`]).
+/// `pub(crate)` so the [`crate::tableau`] OWL-DL reasoner (CONCEPT:MEDULLA-KG.ontology.concept-2) reuses the
+/// SAME node-id convention without a second copy.
+pub(crate) fn iri(s: &str) -> String {
+    format!("<{s}>")
+}
+
+/// Confidence-fixpoint convergence epsilon (CONCEPT:MEDULLA-KG.ontology.concept-13): a derivation only
+/// re-triggers the closure when it raises a recorded confidence by more than this, so
+/// the max-confidence-per-pair fixpoint terminates (monotone-bounded above by 1.0).
+const CONF_EPS: f64 = 1e-9;
+
+// ── Class expressions in the EL fragment ─────────────────────────────────────
+
+/// An EL concept expression. The TBox is normalised so that every LHS/RHS of a GCI
+/// is one of these. Anonymous expressions (intersections, existentials) are interned
+/// to stable string keys so the completion can index by them.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Concept {
+    /// A named class IRI (canonical `<iri>` form), or `owl:Thing` / `owl:Nothing`.
+    Named(String),
+    /// `∃ r . C` — an existential restriction.
+    Some(String, Box<Concept>),
+}
+
+impl Concept {
+    /// A stable key for indexing (also the form a justification cites).
+    pub fn key(&self) -> String {
+        match self {
+            Concept::Named(n) => n.clone(),
+            Concept::Some(r, c) => format!("(∃ {r} . {})", c.key()),
+        }
+    }
+    pub fn thing() -> Concept {
+        Concept::Named(iri(OWL_THING))
+    }
+    pub fn nothing() -> Concept {
+        Concept::Named(iri(OWL_NOTHING))
+    }
+}
+
+// ── The parsed TBox (normalised general concept inclusions) ──────────────────
+
+/// A normalised general concept inclusion `lhs ⊑ rhs`, where `lhs` is a conjunction
+/// of EL concepts and `rhs` is a single EL concept. (EL normal form: every axiom is
+/// `A ⊓ B ⊑ C`, `A ⊑ ∃r.B`, or `∃r.A ⊑ B`.)
+#[derive(Clone, Debug)]
+pub struct Gci {
+    /// Conjuncts on the LHS (their conjunction is the subclass).
+    pub lhs: Vec<Concept>,
+    pub rhs: Concept,
+    /// A human-readable axiom label for justifications.
+    pub label: String,
+    /// Axiom confidence in `[0, 1]` (CONCEPT:MEDULLA-KG.ontology.concept-13) — `1.0` for a hard/asserted
+    /// axiom. A derived subsumption's confidence MULTIPLIES this in (the conjunctive
+    /// rule: a chain is only as confident as its weakest axiom × its premises).
+    pub conf: f64,
+}
+
+/// A role chain `r1 ∘ r2 ∘ … ⊑ s` (covers `TransitiveProperty` as `r ∘ r ⊑ r`).
+#[derive(Clone, Debug)]
+pub struct RoleChain {
+    pub chain: Vec<String>,
+    pub sup: String,
+    pub label: String,
+    /// Axiom confidence in `[0, 1]` (CONCEPT:MEDULLA-KG.ontology.concept-13).
+    pub conf: f64,
+}
+
+/// The parsed OWL TBox: the EL concept axioms + the RL property axioms.
+#[derive(Clone, Debug, Default)]
+pub struct Ontology {
+    /// EL general concept inclusions (normalised).
+    pub gcis: Vec<Gci>,
+    /// `r ⊑ s` role inclusions (incl. those produced by `equivalentProperty`):
+    /// `(sub_role, sup_role, label, conf)`. `conf` is the axiom confidence in `[0,1]`.
+    pub sub_roles: Vec<(String, String, String, f64)>,
+    /// Role chains `r1∘…∘rn ⊑ s`.
+    pub chains: Vec<RoleChain>,
+    /// `owl:inverseOf` pairs (RL).
+    pub inverses: Vec<(String, String)>,
+    /// Symmetric roles (RL).
+    pub symmetric: BTreeSet<String>,
+    /// Domain rules `(role, class)` — RL, lift to EL via `∃role.⊤ ⊑ class`.
+    pub domains: Vec<(String, String)>,
+    /// Range rules `(role, class)` — RL; in EL they refine role fillers (CR-filler).
+    pub ranges: Vec<(String, String)>,
+    /// `A ⊓ B ⊑ ⊥` disjointness (EL — derives ⊥ on a shared instance/subclass).
+    pub disjoint: Vec<(String, String, String)>,
+    /// `owl:allValuesFrom` universal restrictions (MEDULLA-021): `(sub_class, role, filler,
+    /// label, conf)` meaning `sub_class ⊑ ∀role.filler`. Applied by the completion
+    /// rule CR-filler: a role witness of a `sub_class` member is refined to `… ⊓ filler`.
+    /// Sound + tractable; the only universal-restriction shape we admit.
+    pub all_values: Vec<(String, String, String, String, f64)>,
+    /// `owl:FunctionalProperty` roles (MEDULLA-021) — instance equality generators.
+    pub functional: BTreeSet<String>,
+    /// `owl:InverseFunctionalProperty` roles (MEDULLA-021).
+    pub inverse_functional: BTreeSet<String>,
+    /// Asserted `owl:sameAs` individual pairs (MEDULLA-021).
+    pub same_as: Vec<(String, String)>,
+    /// Asserted `owl:differentFrom` individual pairs (MEDULLA-021).
+    pub different_from: Vec<(String, String)>,
+    /// Every named class IRI mentioned (so classification can iterate the signature).
+    pub classes: BTreeSet<String>,
+}
+
+// ── Parsing OWL axioms out of an RDF triple stream ───────────────────────────
+
+/// Index the triples for axiom extraction: `(s, p) -> [o]` and `s -> [(p,o)]`.
+/// `pub(crate)` so the [`crate::tableau`] OWL-DL parser (CONCEPT:MEDULLA-KG.ontology.concept-2) reads class
+/// expressions out of the SAME triple index.
+pub(crate) struct TripleIndex {
+    spo: HashMap<(String, String), Vec<Term>>,
+}
+
+impl TripleIndex {
+    pub(crate) fn build(triples: &[Triple]) -> Self {
+        let mut spo: HashMap<(String, String), Vec<Term>> = HashMap::new();
+        for t in triples {
+            let s = term_key(&t.subject.clone().into());
+            let p = t.predicate.as_str().to_string();
+            spo.entry((s, p)).or_default().push(t.object.clone());
+        }
+        Self { spo }
+    }
+    pub(crate) fn objects(&self, s: &str, p: &str) -> &[Term] {
+        self.spo
+            .get(&(s.to_string(), p.to_string()))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+    }
+    pub(crate) fn first_object(&self, s: &str, p: &str) -> Option<&Term> {
+        self.objects(s, p).first()
+    }
+}
+
+/// Canonical key for a subject/object term (IRI or blank node) — matches the
+/// node-id convention so the EL closure speaks the SAME ids the property-graph uses.
+/// `pub(crate)` — shared with the [`crate::tableau`] OWL-DL parser (CONCEPT:MEDULLA-KG.ontology.concept-2).
+pub(crate) fn term_key(t: &Term) -> String {
+    match t {
+        Term::NamedNode(n) => format!("<{}>", n.as_str()),
+        Term::BlankNode(b) => format!("_:{}", b.as_str()),
+        Term::Literal(l) => l.value().to_string(),
+        #[allow(unreachable_patterns)]
+        _ => String::new(),
+    }
+}
+
+/// Parse an OWL ontology (the EL + RL axioms we support) from a triple stream.
+///
+/// Recognised: `rdfs:subClassOf` (incl. an `owl:Restriction`/`someValuesFrom`,
+/// `owl:hasValue`, or `owl:allValuesFrom`, or an `owl:intersectionOf`/`owl:unionOf` on
+/// either side), `owl:equivalentClass`, `rdfs:subPropertyOf`, `owl:equivalentProperty`,
+/// `owl:propertyChainAxiom`, `owl:TransitiveProperty`, `owl:SymmetricProperty`,
+/// `owl:inverseOf`, `owl:FunctionalProperty`, `owl:InverseFunctionalProperty`,
+/// `rdfs:domain`/`rdfs:range`, `owl:disjointWith`, `owl:sameAs`, `owl:differentFrom`.
+///
+/// ## OWL-2 coverage (MEDULLA-021) and hybrid DL constructs
+///
+/// The goal is **DL-lite / EL++**, NOT full OWL-2 DL. What IS covered (soundly, in the
+/// monotone EL⁺/RL completion + the instance-level [`crate::rules`] engine):
+/// `equivalentClass`/`equivalentProperty` (both directions), `someValuesFrom` &
+/// `hasValue` existential/value restrictions, `allValuesFrom` via the RL `cls-avf`
+/// rule, `intersectionOf` (LHS conjunction), `unionOf` (the sound `Cᵢ ⊑ union` /
+/// `union ⊑ D` direction only), property chains + `TransitiveProperty`,
+/// `Symmetric`/`inverseOf`, `Functional`/`InverseFunctionalProperty` (→ `owl:sameAs`
+/// merges), `sameAs`/`differentFrom` equality with clash detection, and `disjointWith`.
+///
+/// General negation, cardinality, superclass-union reasoning and nominals are
+/// outside this parser's tractable envelope and are merged from the native
+/// tableau by [`classify_hybrid_weighted`]. Property consequences always remain
+/// on this EL/RL path. A caller-facing composition is rejected by
+/// [`validate_supported_profile`] when it uses an OWL construct implemented by
+/// neither engine; unsupported axioms are never silently ignored.
+pub fn parse_ontology(triples: &[Triple]) -> Ontology {
+    let idx = TripleIndex::build(triples);
+    let mut ont = Ontology::default();
+    let conf_of = index_confidences(triples);
+    let conf_for = |s: &str| -> f64 { conf_of.get(s).copied().unwrap_or(1.0) };
+
+    for t in triples {
+        let s = term_key(&t.subject.clone().into());
+        let p = t.predicate.as_str();
+        let o = &t.object;
+        let c = conf_for(&s);
+        dispatch_ontology_triple(&idx, &mut ont, p, &s, o, c);
+    }
+
+    expand_all_disjoint_classes(&idx, triples, &mut ont);
+
+    lift_domains_into_el(&mut ont);
+
+    ont
+}
+
+/// Canonical native property-graph relationship projection for one RDF role.
+/// This is the single mapping formerly duplicated in AU's ontology loader.
+pub fn native_relationship_label(value: &str) -> String {
+    let bare = value
+        .strip_prefix('<')
+        .and_then(|value| value.strip_suffix('>'))
+        .unwrap_or(value);
+    let local = bare
+        .rsplit_once('#')
+        .or_else(|| bare.rsplit_once('/'))
+        .map_or(bare, |(_, local)| local);
+    if local.is_empty() || !local.as_bytes()[0].is_ascii_alphabetic() {
+        return String::new();
+    }
+    let mut projected = String::with_capacity(local.len() + 4);
+    let mut previous_lower_or_digit = false;
+    for ch in local.chars() {
+        if ch.is_ascii_uppercase() && previous_lower_or_digit {
+            projected.push('_');
+        }
+        projected.push(ch.to_ascii_uppercase());
+        previous_lower_or_digit = ch.is_ascii_lowercase() || ch.is_ascii_digit();
+    }
+    projected
+}
+
+/// Invert the canonical projection for every role declared by an ontology.
+/// More than one preserved HTTP IRI may intentionally project to the same
+/// native label; in that case a native edge asserts each matching role, exactly
+/// matching the former AU set projection without inventing an `eg:` alias.
+fn ontology_roles_by_native_label(triples: &[Triple]) -> BTreeMap<String, Vec<String>> {
+    let ontology = parse_ontology(triples);
+    let mut roles = BTreeSet::new();
+    for (sub, sup, _, _) in &ontology.sub_roles {
+        roles.insert(sub.clone());
+        roles.insert(sup.clone());
+    }
+    for chain in &ontology.chains {
+        roles.extend(chain.chain.iter().cloned());
+        roles.insert(chain.sup.clone());
+    }
+    for (left, right) in &ontology.inverses {
+        roles.insert(left.clone());
+        roles.insert(right.clone());
+    }
+    roles.extend(ontology.symmetric.iter().cloned());
+    roles.extend(ontology.functional.iter().cloned());
+    roles.extend(ontology.inverse_functional.iter().cloned());
+    for (role, _) in ontology.domains.iter().chain(&ontology.ranges) {
+        roles.insert(role.clone());
+    }
+    let mut projected = BTreeMap::<String, Vec<String>>::new();
+    for role in roles {
+        let label = native_relationship_label(&role);
+        if label.is_empty() {
+            continue;
+        }
+        projected.entry(label).or_default().push(role);
+    }
+    projected
+}
+
+/// Reject OWL vocabulary that neither the EL/RL completion nor the hybrid DL
+/// path interprets.  Annotation and declaration vocabulary is admitted
+/// explicitly; an unknown OWL predicate/type must never become a silently
+/// ignored axiom (or, worse, an accidental ABox role in the tableau parser).
+pub fn validate_supported_profile(triples: &[Triple]) -> Result<(), String> {
+    const OWL_NS: &str = "http://www.w3.org/2002/07/owl#";
+    const SUPPORTED_PREDICATES: &[&str] = &[
+        OWL_ALL_VALUES_FROM,
+        "http://www.w3.org/2002/07/owl#cardinality",
+        "http://www.w3.org/2002/07/owl#complementOf",
+        OWL_DIFFERENT_FROM,
+        OWL_DISJOINT_WITH,
+        OWL_EQUIVALENT_CLASS,
+        OWL_EQUIVALENT_PROPERTY,
+        OWL_HAS_VALUE,
+        "http://www.w3.org/2002/07/owl#imports",
+        OWL_INTERSECTION_OF,
+        OWL_INVERSE_OF,
+        "http://www.w3.org/2002/07/owl#maxCardinality",
+        "http://www.w3.org/2002/07/owl#maxQualifiedCardinality",
+        OWL_MEMBERS,
+        "http://www.w3.org/2002/07/owl#minCardinality",
+        "http://www.w3.org/2002/07/owl#minQualifiedCardinality",
+        "http://www.w3.org/2002/07/owl#onClass",
+        "http://www.w3.org/2002/07/owl#oneOf",
+        OWL_ON_PROPERTY,
+        OWL_PROPERTY_CHAIN_AXIOM,
+        "http://www.w3.org/2002/07/owl#qualifiedCardinality",
+        OWL_SAME_AS,
+        OWL_SOME_VALUES_FROM,
+        OWL_UNION_OF,
+        // Non-logical metadata explicitly allowed by the authority format.
+        "http://www.w3.org/2002/07/owl#deprecated",
+        "http://www.w3.org/2002/07/owl#priorVersion",
+        "http://www.w3.org/2002/07/owl#versionIRI",
+        "http://www.w3.org/2002/07/owl#versionInfo",
+    ];
+    const SUPPORTED_TYPE_OBJECTS: &[&str] = &[
+        OWL_ALL_DISJOINT_CLASSES,
+        OWL_CLASS,
+        "http://www.w3.org/2002/07/owl#AnnotationProperty",
+        "http://www.w3.org/2002/07/owl#DatatypeProperty",
+        OWL_FUNCTIONAL_PROPERTY,
+        OWL_INVERSE_FUNCTIONAL_PROPERTY,
+        "http://www.w3.org/2002/07/owl#NamedIndividual",
+        "http://www.w3.org/2002/07/owl#ObjectProperty",
+        "http://www.w3.org/2002/07/owl#Ontology",
+        "http://www.w3.org/2002/07/owl#Restriction",
+        OWL_SYMMETRIC_PROPERTY,
+        OWL_TRANSITIVE_PROPERTY,
+    ];
+
+    for triple in triples {
+        let predicate = triple.predicate.as_str();
+        if predicate.starts_with(OWL_NS) && !SUPPORTED_PREDICATES.contains(&predicate) {
+            return Err(format!(
+                "OWL_UNSUPPORTED_CONSTRUCT: predicate <{predicate}> is not implemented"
+            ));
+        }
+        if predicate == RDF_TYPE {
+            if let Term::NamedNode(kind) = &triple.object {
+                let kind = kind.as_str();
+                if kind.starts_with(OWL_NS) && !SUPPORTED_TYPE_OBJECTS.contains(&kind) {
+                    return Err(format!(
+                        "OWL_UNSUPPORTED_CONSTRUCT: rdf:type <{kind}> is not implemented"
+                    ));
+                }
+            }
+        }
+    }
+    disjoint::validate_member_bounds(triples)
+}
+
+/// Expand OWL's n-ary `AllDisjointClasses` axiom into the pairwise
+/// disjointness relation consumed by both the EL completion and the hybrid DL
+/// consistency result.  Ignoring `owl:members` silently discarded six axioms
+/// in the canonical ecosystem corpus.
+fn expand_all_disjoint_classes(idx: &TripleIndex, triples: &[Triple], ont: &mut Ontology) {
+    for triple in triples {
+        if triple.predicate.as_str() != RDF_TYPE
+            || !matches!(&triple.object, Term::NamedNode(node) if node.as_str() == OWL_ALL_DISJOINT_CLASSES)
+        {
+            continue;
+        }
+        let subject = term_key(&triple.subject.clone().into());
+        for members in disjoint::member_lists(idx, &subject) {
+            let classes: Vec<String> = members
+                .into_iter()
+                .filter_map(|term| match term {
+                    Term::NamedNode(node) => Some(iri(node.as_str())),
+                    _ => None,
+                })
+                .collect();
+            for (a, b) in disjoint::unordered_pairs(&classes) {
+                let label = format!("AllDisjointClasses({}, {})", short(&a), short(&b));
+                register_class(ont, &a);
+                register_class(ont, &b);
+                ont.disjoint.push((a, b, label));
+            }
+        }
+    }
+}
+
+/// Pre-index per-subject axiom confidences (CONCEPT:MEDULLA-KG.ontology.concept-13): `S eg:confidence "c"`.
+fn index_confidences(triples: &[Triple]) -> HashMap<String, f64> {
+    let mut conf_of: HashMap<String, f64> = HashMap::new();
+    for t in triples {
+        if t.predicate.as_str() != MEDULLA_CONFIDENCE {
+            continue;
+        }
+        let Term::Literal(l) = &t.object else {
+            continue;
+        };
+        let Ok(c) = l.value().parse::<f64>() else {
+            continue;
+        };
+        let s = term_key(&t.subject.clone().into());
+        conf_of.insert(s, c.clamp(0.0, 1.0));
+    }
+    conf_of
+}
+
+/// Route one triple's predicate to its OWL/RDFS axiom handler. See [`parse_ontology`]
+/// for the full recognised-predicate list.
+fn dispatch_ontology_triple(
+    idx: &TripleIndex,
+    ont: &mut Ontology,
+    p: &str,
+    s: &str,
+    o: &Term,
+    c: f64,
+) {
+    match p {
+        RDFS_SUBCLASS_OF => handle_subclass_of(idx, ont, s, o, c),
+        OWL_EQUIVALENT_CLASS => handle_equivalent_class(idx, ont, s, o, c),
+        OWL_EQUIVALENT_PROPERTY => handle_equivalent_property(ont, s, o, c),
+        OWL_SAME_AS => {
+            if let Term::NamedNode(b) = o {
+                ont.same_as.push((s.to_string(), iri(b.as_str())));
+            }
+        }
+        OWL_DIFFERENT_FROM => {
+            if let Term::NamedNode(b) = o {
+                ont.different_from.push((s.to_string(), iri(b.as_str())));
+            }
+        }
+        RDFS_SUBPROPERTY_OF => {
+            if let Term::NamedNode(sup) = o {
+                let sup = iri(sup.as_str());
+                ont.sub_roles.push((
+                    s.to_string(),
+                    sup.clone(),
+                    format!("{} ⊑ {}", short(s), short(&sup)),
+                    c,
+                ));
+            }
+        }
+        OWL_PROPERTY_CHAIN_AXIOM => handle_property_chain_axiom(idx, ont, s, o, c),
+        OWL_INVERSE_OF => {
+            if let Term::NamedNode(inv) = o {
+                ont.inverses.push((s.to_string(), iri(inv.as_str())));
+            }
+        }
+        RDFS_DOMAIN => {
+            if let Term::NamedNode(d) = o {
+                ont.domains.push((s.to_string(), iri(d.as_str())));
+            }
+        }
+        RDFS_RANGE => {
+            if let Term::NamedNode(r) = o {
+                ont.ranges.push((s.to_string(), iri(r.as_str())));
+            }
+        }
+        OWL_DISJOINT_WITH => {
+            if let Term::NamedNode(b) = o {
+                let b = iri(b.as_str());
+                ont.disjoint.push((
+                    s.to_string(),
+                    b.clone(),
+                    format!("{} ⊓ {} ⊑ ⊥", short(s), short(&b)),
+                ));
+                register_class(ont, s);
+                register_class(ont, &b);
+            }
+        }
+        RDF_TYPE => handle_rdf_type(ont, s, o, c),
+        _ => {}
+    }
+}
+
+/// `rdfs:subClassOf` triples: three EL-sound shapes recognised on the RHS/LHS —
+/// `C ⊑ ∀r.D` (allValuesFrom), `(C₁ ⊔ … ⊔ Cₙ) ⊑ D` (unionOf subclass, ≡ each `Cᵢ ⊑ D`),
+/// and the plain `C ⊑ D` fallback (checked in that priority order, matching the
+/// original if/else-if cascade: once one shape's OUTER pattern matches, the others are
+/// never attempted for this triple even if the shape's own parse comes back empty).
+fn handle_subclass_of(idx: &TripleIndex, ont: &mut Ontology, s: &str, o: &Term, c: f64) {
+    let ok = term_key(o);
+    // C ⊑ ∀r.D (owl:allValuesFrom superclass) — RL cls-avf restriction.
+    if let Some((role, filler)) = parse_all_values(idx, &ok) {
+        push_all_values_subclass(idx, ont, s, &role, &filler, c);
+        return;
+    }
+    // (C₁ ⊔ … ⊔ Cₙ) ⊑ D (owl:unionOf subclass) ≡ each Cᵢ ⊑ D — sound EL.
+    if let Some(disjuncts) = parse_union(idx, s) {
+        push_union_subclass(idx, ont, disjuncts, &ok, c);
+        return;
+    }
+    if let (Some(lhs), Some(rhs)) = (parse_class_expr(idx, s), parse_class_expr(idx, &ok)) {
+        push_subclass(ont, lhs, rhs, format!("{} ⊑ {}", short(s), short(&ok)), c);
+    }
+}
+
+fn push_all_values_subclass(
+    idx: &TripleIndex,
+    ont: &mut Ontology,
+    s: &str,
+    role: &str,
+    filler: &str,
+    c: f64,
+) {
+    let Some(lhs) = parse_class_expr(idx, s) else {
+        return;
+    };
+    for sub in lhs {
+        let Concept::Named(sub) = sub else { continue };
+        ont.all_values.push((
+            sub.clone(),
+            role.to_string(),
+            filler.to_string(),
+            format!("{} ⊑ ∀{}.{}", short(&sub), short(role), short(filler)),
+            c,
+        ));
+        register_class(ont, &sub);
+        register_class(ont, filler);
+    }
+}
+
+fn push_union_subclass(
+    idx: &TripleIndex,
+    ont: &mut Ontology,
+    disjuncts: Vec<Concept>,
+    ok: &str,
+    c: f64,
+) {
+    let Some(rhs) = parse_class_expr(idx, ok) else {
+        return;
+    };
+    for d in disjuncts {
+        push_subclass(
+            ont,
+            vec![d.clone()],
+            rhs.clone(),
+            format!("{} ⊑ {} (∪-elim)", d.key(), short(ok)),
+            c,
+        );
+    }
+}
+
+/// `owl:equivalentClass`: recognises `A ≡ (C₁ ⊔ …)` (MEDULLA-021, sound `Cᵢ ⊑ A` direction
+/// only, checked in both subject/object orientation) before falling back to the plain
+/// `A ⊑ B` + `B ⊑ A` expansion.
+fn handle_equivalent_class(idx: &TripleIndex, ont: &mut Ontology, s: &str, o: &Term, c: f64) {
+    let sk = term_key(o);
+    if push_equivalent_class_union(idx, ont, s, &sk, c) {
+        return;
+    }
+    push_equivalent_class_biconditional(idx, ont, s, &sk, c);
+}
+
+/// The sound `Cᵢ ⊑ A` half of `A ≡ (C₁ ⊔ …)`, tried in both subject/object
+/// orientation. Returns `true` if either orientation matched (the caller then skips
+/// the plain biconditional expansion).
+fn push_equivalent_class_union(
+    idx: &TripleIndex,
+    ont: &mut Ontology,
+    s: &str,
+    sk: &str,
+    c: f64,
+) -> bool {
+    let mut handled = false;
+    for (named, union_node) in [(s, sk), (sk, s)] {
+        let single =
+            parse_class_expr(idx, named).and_then(|mut v| (v.len() == 1).then(|| v.pop().unwrap()));
+        let (Some(Concept::Named(a)), Some(disjuncts)) = (single, parse_union(idx, union_node))
+        else {
+            continue;
+        };
+        for d in disjuncts {
+            push_subclass(
+                ont,
+                vec![d.clone()],
+                vec![Concept::Named(a.clone())],
+                format!("{} ⊑ {} (≡∪-elim)", d.key(), short(&a)),
+                c,
+            );
+        }
+        handled = true;
+    }
+    handled
+}
+
+fn push_equivalent_class_biconditional(
+    idx: &TripleIndex,
+    ont: &mut Ontology,
+    s: &str,
+    sk: &str,
+    c: f64,
+) {
+    let (Some(a), Some(b)) = (parse_class_expr(idx, s), parse_class_expr(idx, sk)) else {
+        return;
+    };
+    // A ≡ B  ⇒  A ⊑ B  AND  B ⊑ A.
+    push_subclass(
+        ont,
+        a.clone(),
+        b.clone(),
+        format!("{} ≡ {} (→⊑)", short(s), short(sk)),
+        c,
+    );
+    push_subclass(ont, b, a, format!("{} ≡ {} (←⊑)", short(s), short(sk)), c);
+}
+
+fn handle_equivalent_property(ont: &mut Ontology, s: &str, o: &Term, c: f64) {
+    let Term::NamedNode(sup) = o else { return };
+    let sup = iri(sup.as_str());
+    // r ≡ s ⇒ r ⊑ s AND s ⊑ r.
+    ont.sub_roles.push((
+        s.to_string(),
+        sup.clone(),
+        format!("{} ≡ {} (→⊑)", short(s), short(&sup)),
+        c,
+    ));
+    ont.sub_roles.push((
+        sup.clone(),
+        s.to_string(),
+        format!("{} ≡ {} (←⊑)", short(s), short(&sup)),
+        c,
+    ));
+}
+
+fn handle_property_chain_axiom(idx: &TripleIndex, ont: &mut Ontology, s: &str, o: &Term, c: f64) {
+    let chain: Vec<String> = parse_rdf_list(idx, o)
+        .into_iter()
+        .map(|t| term_key(&t))
+        .collect();
+    if chain.is_empty() {
+        return;
+    }
+    let label = format!(
+        "{} ⊑ {}",
+        chain
+            .iter()
+            .map(|c| short(c))
+            .collect::<Vec<_>>()
+            .join(" ∘ "),
+        short(s)
+    );
+    ont.chains.push(RoleChain {
+        chain,
+        sup: s.to_string(),
+        label,
+        conf: c,
+    });
+}
+
+fn handle_rdf_type(ont: &mut Ontology, s: &str, o: &Term, c: f64) {
+    let Term::NamedNode(ty) = o else { return };
+    match ty.as_str() {
+        OWL_TRANSITIVE_PROPERTY => {
+            // r∘r ⊑ r (the EL role-chain form of transitivity).
+            ont.chains.push(RoleChain {
+                chain: vec![s.to_string(), s.to_string()],
+                sup: s.to_string(),
+                label: format!("{0} ∘ {0} ⊑ {0} (transitive)", short(s)),
+                conf: c,
+            });
+        }
+        OWL_SYMMETRIC_PROPERTY => {
+            ont.symmetric.insert(s.to_string());
+        }
+        OWL_FUNCTIONAL_PROPERTY => {
+            ont.functional.insert(s.to_string());
+        }
+        OWL_INVERSE_FUNCTIONAL_PROPERTY => {
+            ont.inverse_functional.insert(s.to_string());
+        }
+        OWL_CLASS => register_class(ont, s),
+        _ => {}
+    }
+}
+
+/// Lift domain rules into EL so they classify through existentials too:
+/// `domain(r, D) ≈ ∃r.⊤ ⊑ D`. A domain entailed by the range of an inverse or
+/// symmetric declaration ([`filler::transferred_domains`]) lifts the same way.
+/// Ranges are NOT lifted into a GCI: `range(r, D)` constrains the `r`-successors of
+/// an individual, not every member of a filler class, so the completion applies it to
+/// the fillers themselves ([`filler::FillerRules`]).
+fn lift_domains_into_el(ont: &mut Ontology) {
+    let transferred = filler::transferred_domains(ont);
+    for (r, d, label) in ont
+        .domains
+        .clone()
+        .into_iter()
+        .map(|(r, d)| {
+            let label = format!("dom({}) = {}", short(&r), short(&d));
+            (r, d, label)
+        })
+        .chain(transferred)
+    {
+        push_gci(
+            ont,
+            vec![Concept::Some(r, Box::new(Concept::thing()))],
+            Concept::Named(d),
+            label,
+            1.0,
+        );
+    }
+}
+
+/// Parse a class expression rooted at node `id`: a named class, an
+/// `owl:Restriction`/`someValuesFrom` existential, or an `owl:intersectionOf` (whose
+/// conjuncts each recurse). `None` if `id` is not a recognised class expression.
+fn parse_class_expr(idx: &TripleIndex, id: &str) -> Option<Vec<Concept>> {
+    // Intersection: a conjunction is its list of conjuncts.
+    if let Some(list_head) = idx.first_object(id, OWL_INTERSECTION_OF) {
+        let mut conjs = Vec::new();
+        for item in parse_rdf_list(idx, list_head) {
+            conjs.extend(parse_class_expr(idx, &term_key(&item))?);
+        }
+        if !conjs.is_empty() {
+            return Some(conjs);
+        }
+    }
+    // Restriction ∃r.C.
+    if let (Some(on_prop), Some(filler)) = (
+        idx.first_object(id, OWL_ON_PROPERTY),
+        idx.first_object(id, OWL_SOME_VALUES_FROM),
+    ) {
+        let role = term_key(on_prop);
+        let filler_concept = parse_class_expr(idx, &term_key(filler))?;
+        // someValuesFrom takes a single class expression.
+        let f = conjunction_to_concept(filler_concept);
+        return Some(vec![Concept::Some(role, Box::new(f))]);
+    }
+    // Value restriction ∃r.{a} (owl:hasValue) — the value `a` is a NOMINAL, modelled as
+    // a Named filler token so `C ⊑ ∃r.{a}` and `∃r.{a} ⊑ D` compose to `C ⊑ D` through
+    // the existing CR-some rules (a sound class-level approximation of the nominal).
+    if let (Some(on_prop), Some(val)) = (
+        idx.first_object(id, OWL_ON_PROPERTY),
+        idx.first_object(id, OWL_HAS_VALUE),
+    ) {
+        let role = term_key(on_prop);
+        let value_token = format!("{{{}}}", term_key(val)); // {<...>} nominal marker
+        return Some(vec![Concept::Some(
+            role,
+            Box::new(Concept::Named(value_token)),
+        )]);
+    }
+    // A named class / Thing / Nothing.
+    if id.starts_with('<') || id == iri(OWL_THING) || id == iri(OWL_NOTHING) {
+        return Some(vec![Concept::Named(id.to_string())]);
+    }
+    // A bare blank node with no restriction/intersection structure — unsupported.
+    None
+}
+
+/// Parse an `owl:allValuesFrom` restriction rooted at `id`: `∀role.filler`. Returns
+/// `(role, filler)` (both canonical ids) when `id` is `[onProperty role; allValuesFrom
+/// C]` with a NAMED filler `C`; `None` otherwise (a non-named filler is not RL-tractable
+/// here and is skipped). Used to record an `all_values` (cls-avf) axiom (MEDULLA-021).
+fn parse_all_values(idx: &TripleIndex, id: &str) -> Option<(String, String)> {
+    let on_prop = idx.first_object(id, OWL_ON_PROPERTY)?;
+    let filler = idx.first_object(id, OWL_ALL_VALUES_FROM)?;
+    let role = term_key(on_prop);
+    let filler = term_key(filler);
+    // Only a named class filler is admitted (the RL cls-avf consequent is a class).
+    filler.starts_with('<').then_some((role, filler))
+}
+
+/// Parse an `owl:unionOf` expression rooted at `id` into its disjuncts (MEDULLA-021). Only
+/// the SOUND direction is consumed by callers (each disjunct ⊑ the union); the union as
+/// a SUPERCLASS (`A ⊑ C₁ ⊔ C₂`, reasoning-by-cases) is DEFERRED. `None` when `id` is not
+/// a union node.
+fn parse_union(idx: &TripleIndex, id: &str) -> Option<Vec<Concept>> {
+    let head = idx.first_object(id, OWL_UNION_OF)?;
+    parse_rdf_list_mapped(idx, head, parse_class_expr)
+}
+
+/// Fold a conjunction list to a single concept: a single conjunct passes through; a
+/// multi-conjunct filler is approximated by its first conjunct (EL fillers are class
+/// expressions; full conjunctive fillers are normalised away upstream). For our
+/// supported shapes a someValuesFrom filler is a single named/existential concept.
+fn conjunction_to_concept(mut cs: Vec<Concept>) -> Concept {
+    if cs.len() == 1 {
+        cs.pop().unwrap()
+    } else if cs.is_empty() {
+        Concept::thing()
+    } else {
+        // Multiple conjuncts in a filler are rare in EL normal form; keep the first.
+        cs.into_iter().next().unwrap()
+    }
+}
+
+/// Walk an `rdf:first`/`rdf:rest`/`rdf:nil` collection into a vector of object terms.
+/// `pub(crate)` — the [`crate::tableau`] OWL-DL parser (CONCEPT:MEDULLA-KG.ontology.concept-2) walks the same
+/// `intersectionOf`/`unionOf`/`oneOf` RDF collections.
+/// Parse every member of an RDF list through `parse` and flatten. `None` when a member
+/// does not parse or the list is empty — a list with an unsupported member is not a
+/// partially-supported list.
+pub(crate) fn parse_rdf_list_mapped<T>(
+    idx: &TripleIndex,
+    head: &Term,
+    parse: impl Fn(&TripleIndex, &str) -> Option<Vec<T>>,
+) -> Option<Vec<T>> {
+    let mut out = Vec::new();
+    for item in parse_rdf_list(idx, head) {
+        out.extend(parse(idx, &term_key(&item))?);
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+pub(crate) fn parse_rdf_list(idx: &TripleIndex, head: &Term) -> Vec<Term> {
+    let mut out = Vec::new();
+    let mut cur = term_key(head);
+    let mut guard = 0;
+    while cur != iri(RDF_NIL) && guard < 10_000 {
+        guard += 1;
+        let Some(first) = idx.first_object(&cur, RDF_FIRST) else {
+            break;
+        };
+        out.push(first.clone());
+        match idx.first_object(&cur, RDF_REST) {
+            Some(rest) => cur = term_key(rest),
+            None => break,
+        }
+    }
+    out
+}
+
+fn push_gci(ont: &mut Ontology, lhs: Vec<Concept>, rhs: Concept, label: String, conf: f64) {
+    for c in lhs.iter().chain(std::iter::once(&rhs)) {
+        register_concept_classes(ont, c);
+    }
+    ont.gcis.push(Gci {
+        lhs,
+        rhs,
+        label,
+        conf,
+    });
+}
+
+/// Push a subclass axiom whose RHS may be a conjunction: `A ⊑ B ⊓ C` is EL-equivalent
+/// to `A ⊑ B` AND `A ⊑ C`, so a multi-conjunct RHS splits into one GCI per conjunct
+/// (keeping every axiom in EL normal form: a single concept on the RHS).
+fn push_subclass(
+    ont: &mut Ontology,
+    lhs: Vec<Concept>,
+    rhs: Vec<Concept>,
+    label: String,
+    conf: f64,
+) {
+    for r in rhs {
+        push_gci(ont, lhs.clone(), r, label.clone(), conf);
+    }
+}
+
+fn register_concept_classes(ont: &mut Ontology, c: &Concept) {
+    match c {
+        Concept::Named(n) => register_class(ont, n),
+        Concept::Some(_, f) => register_concept_classes(ont, f),
+    }
+}
+
+fn register_class(ont: &mut Ontology, c: &str) {
+    // Named IRIs and hasValue NOMINAL tokens (`{<value>}`) both seed into the signature
+    // so the completion's S/R relations index them (a nominal filler must subsume
+    // itself for CR-some⁻ to compose `∃r.{a}` axioms — MEDULLA-021).
+    if c.starts_with('<') || c.starts_with('{') {
+        ont.classes.insert(c.to_string());
+    }
+}
+
+/// A short, human-readable rendering of an IRI node-id (local name) for labels.
+/// `pub(crate)` — reused by the [`crate::tableau`] OWL-DL reasoner (CONCEPT:MEDULLA-KG.ontology.concept-2).
+pub(crate) fn short(id: &str) -> String {
+    let inner = id
+        .strip_prefix('<')
+        .and_then(|s| s.strip_suffix('>'))
+        .unwrap_or(id);
+    let local = inner
+        .rsplit(['#', '/'])
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(inner);
+    local.to_string()
+}
+
+// ── EL⁺ completion (classification) ──────────────────────────────────────────
+
+/// A justification for one inferred subsumption: the rule and the axiom/premises that
+/// produced it. `axioms` are the human-readable axiom labels; `premises` are prior
+/// subsumptions `(sub, sup)` the rule consumed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Justification {
+    pub rule: &'static str,
+    pub axioms: Vec<String>,
+    pub premises: Vec<(String, String)>,
+}
+
+/// The materialised classification: for each named class `A`, its set of subsumers
+/// `S(A)`; plus the role relation `R(r)` (pairs `(A,B)` with `A ⊑ ∃r.B`), the
+/// derived-subsumption justifications, and whether the ontology is consistent.
+#[derive(Clone, Debug)]
+pub struct Classification {
+    /// `subsumers[A] = { B : A ⊑ B }` (reflexive — `A ∈ S(A)` — and includes ⊤).
+    pub subsumers: BTreeMap<String, BTreeSet<String>>,
+    /// `roles[(r)] = { (A, B) : A ⊑ ∃r.B }` — the EL completion's R relation.
+    pub roles: BTreeMap<String, BTreeSet<(String, String)>>,
+    /// Justification for each DERIVED (non-reflexive, non-asserted) subsumption.
+    pub justifications: HashMap<(String, String), Justification>,
+    /// Confidence in `[0, 1]` for each subsumption `(sub, sup)` (CONCEPT:MEDULLA-KG.ontology.concept-13).
+    /// A reflexive/seed subsumption is `1.0`; a DERIVED one is the MAX over its
+    /// alternative derivations of `axiom_conf × ∏ premise_conf` — high-confidence
+    /// chains stay high, a single weak axiom drags its consequence down. Empty when
+    /// the classification was run without confidence (`classify`); populated by
+    /// [`Reasoner::classify_weighted`].
+    pub confidence: BTreeMap<(String, String), f64>,
+    /// `false` when some satisfiable class was forced to subsume `owl:Nothing`
+    /// (a ⊥-derivation) — i.e. the ontology is inconsistent / has an unsatisfiable
+    /// class. [`unsatisfiable`] lists the offending classes.
+    pub consistent: bool,
+    /// Named classes derived to be unsatisfiable (`A ⊑ ⊥`).
+    pub unsatisfiable: BTreeSet<String>,
+}
+
+impl Classification {
+    /// Does `sub ⊑ sup` hold under the classification (named-class subsumption)?
+    pub fn entails_subclass(&self, sub: &str, sup: &str) -> bool {
+        self.subsumers
+            .get(sub)
+            .map(|s| s.contains(sup))
+            .unwrap_or(false)
+    }
+
+    /// The confidence in `[0, 1]` that `sub ⊑ sup` (CONCEPT:MEDULLA-KG.ontology.concept-13). `1.0` for a
+    /// reflexive/asserted-hard subsumption; the MAX-over-derivations propagated value
+    /// for a derived one. Returns `0.0` when `sub ⊑ sup` does not hold. A confidence
+    /// is only recorded when the classification was run with
+    /// [`Reasoner::classify_weighted`]; a plain [`Reasoner::classify`] leaves the map
+    /// empty, so this returns `1.0` for any holding subsumption (every axiom hard).
+    pub fn subclass_confidence(&self, sub: &str, sup: &str) -> f64 {
+        if !self.entails_subclass(sub, sup) {
+            return 0.0;
+        }
+        self.confidence
+            .get(&(sub.to_string(), sup.to_string()))
+            .copied()
+            .unwrap_or(1.0)
+    }
+
+    /// CONCEPT:MEDULLA-KG.ontology.owl-proof-tree-explanation — reconstruct the PROOF TREE for a derived
+    /// subsumption `sub ⊑ sup` (Stardog's flagship "explanation" feature, native here).
+    /// Walks [`Self::justifications`] RECURSIVELY: each derived subsumption cites the
+    /// completion rule that fired + the axiom(s) it used + the PREMISE subsumption(s) it
+    /// consumed (CONCEPT:MEDULLA-KG.ontology.justification-tracking); resolving each premise's own
+    /// justification (recursively) down to a subsumption with NO recorded justification —
+    /// a reflexive seed (`A ⊑ A`/`A ⊑ ⊤`) or a directly-asserted axiom's reflexive premise
+    /// — which is an `asserted` LEAF. Returns `None` when `sub ⊑ sup` does not hold (there
+    /// is nothing to explain). The completion is a monotone acyclic fixpoint (see the
+    /// module docs "DAG home"), so this recursion always terminates; a `visiting` guard is
+    /// kept anyway so a hypothetical cycle degrades to an opaque leaf rather than a stack
+    /// overflow.
+    pub fn explain(&self, sub: &str, sup: &str) -> Option<ProofNode> {
+        if !self.entails_subclass(sub, sup) {
+            return None;
+        }
+        let mut visiting = BTreeSet::new();
+        Some(self.explain_inner(sub, sup, &mut visiting))
+    }
+
+    fn explain_inner(
+        &self,
+        sub: &str,
+        sup: &str,
+        visiting: &mut BTreeSet<(String, String)>,
+    ) -> ProofNode {
+        let confidence = self.subclass_confidence(sub, sup);
+        let key = (sub.to_string(), sup.to_string());
+        match self.justifications.get(&key) {
+            // A CYCLE (should be impossible — the EL⁺/RL closure is an acyclic monotone
+            // fixpoint) — stop recursing rather than overflow the stack.
+            Some(_) if visiting.contains(&key) => ProofNode {
+                sub: sub.to_string(),
+                sup: sup.to_string(),
+                rule: "cycle-guard".to_string(),
+                axioms: Vec::new(),
+                confidence,
+                premises: Vec::new(),
+            },
+            Some(just) => {
+                visiting.insert(key.clone());
+                let premises = just
+                    .premises
+                    .iter()
+                    .map(|(ps, pp)| self.explain_inner(ps, pp, visiting))
+                    .collect();
+                visiting.remove(&key);
+                ProofNode {
+                    sub: sub.to_string(),
+                    sup: sup.to_string(),
+                    rule: just.rule.to_string(),
+                    axioms: just.axioms.clone(),
+                    confidence,
+                    premises,
+                }
+            }
+            // No justification recorded ⇒ a reflexive seed (`A⊑A`/`A⊑⊤`) or a base
+            // fact — an ASSERTED leaf (the proof bottoms out here).
+            None => ProofNode {
+                sub: sub.to_string(),
+                sup: sup.to_string(),
+                rule: "asserted".to_string(),
+                axioms: Vec::new(),
+                confidence,
+                premises: Vec::new(),
+            },
+        }
+    }
+}
+
+/// CONCEPT:MEDULLA-KG.ontology.owl-proof-tree-explanation — one node of a reconstructed OWL proof tree: the
+/// subsumption `sub ⊑ sup` it proves, the rule that derived it (`"asserted"` at a LEAF —
+/// a reflexive seed or a base fact with no recorded justification), the human-readable
+/// axiom label(s) the rule cited, this node's confidence (CONCEPT:MEDULLA-KG.ontology.concept-13), and the
+/// child proofs for each premise the rule consumed (empty at a leaf). [`Classification::explain`]
+/// builds this recursively from [`Justification`]s already recorded during saturation —
+/// NO re-derivation, just reconstruction of the DAG the closure already built.
+// `Serialize`/`Deserialize` derived (beyond the existing `Clone, Debug, PartialEq`)
+// so `ProofNode` satisfies `medulla_modality::ConformanceTestable`'s bounds for the
+// ModalityContract retrofit (CONCEPT:E4, feature `contract`) — serde is already an
+// unconditional base dependency of this crate, so this adds no new dep and no
+// feature gate; a proof tree persisting/riding the wire is a reasonable capability
+// on its own merits (e.g. caching a computed explanation).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ProofNode {
+    pub sub: String,
+    pub sup: String,
+    pub rule: String,
+    pub axioms: Vec<String>,
+    pub confidence: f64,
+    pub premises: Vec<ProofNode>,
+}
+
+impl ProofNode {
+    /// `true` for a LEAF (an asserted/reflexive base fact — no further premises).
+    pub fn is_leaf(&self) -> bool {
+        self.premises.is_empty()
+    }
+
+    /// Every axiom label cited anywhere in the tree (depth-first, may repeat), the flat
+    /// "which axioms does this entailment depend on" view of the proof.
+    pub fn all_axioms(&self) -> Vec<String> {
+        let mut out = self.axioms.clone();
+        for p in &self.premises {
+            out.extend(p.all_axioms());
+        }
+        out
+    }
+
+    /// Tree depth (a leaf is depth 1).
+    pub fn depth(&self) -> usize {
+        1 + self
+            .premises
+            .iter()
+            .map(ProofNode::depth)
+            .max()
+            .unwrap_or(0)
+    }
+}
+
+/// CONCEPT:MEDULLA-KG.ontology.owl-proof-tree-explanation — explain an INSTANCE membership `instance rdf:type class`
+/// (as opposed to [`Classification::explain`]'s named-class subsumption): finds the
+/// asserted type(s) of `instance` in `asserted_conf` and, for each `ty` with `ty ⊑ class`,
+/// builds a root proof node `rule = "CR-instance"` whose premises are (1) an `asserted`
+/// leaf for the type fact `instance rdf:type ty` and (2) the TBox subsumption proof
+/// `explain(ty, class)`. When several asserted types reach `class`, the STRONGEST
+/// derivation (by combined confidence `fact_conf * subclass_confidence(ty, class)`) is
+/// returned — mirroring the max/noisy-OR combination [`materialize_instances_weighted`]
+/// uses. Returns `None` when `instance` is not (provably) a `class` member.
+pub fn explain_instance(
+    cls: &Classification,
+    asserted_conf: &HashMap<String, Vec<(String, f64)>>,
+    instance: &str,
+    class: &str,
+) -> Option<ProofNode> {
+    let types = asserted_conf.get(instance)?;
+    let mut best: Option<(f64, String, f64)> = None; // (combined_conf, ty, fact_conf)
+    for (ty, fact_conf) in types {
+        let sub_conf = if ty == class {
+            1.0
+        } else if cls.entails_subclass(ty, class) {
+            cls.subclass_confidence(ty, class)
+        } else {
+            continue;
+        };
+        let combined = fact_conf.clamp(0.0, 1.0) * sub_conf;
+        if best.as_ref().map(|(c, _, _)| combined > *c).unwrap_or(true) {
+            best = Some((combined, ty.clone(), *fact_conf));
+        }
+    }
+    let (combined, ty, fact_conf) = best?;
+
+    let fact_leaf = ProofNode {
+        sub: instance.to_string(),
+        sup: ty.clone(),
+        rule: "asserted".to_string(),
+        axioms: vec![format!("{instance} rdf:type {ty}")],
+        confidence: fact_conf.clamp(0.0, 1.0),
+        premises: Vec::new(),
+    };
+    let mut premises = vec![fact_leaf];
+    if ty != class {
+        // The TBox chain `ty ⊑ class` — recurse into the SAME subsumption explain used
+        // for named-class subsumptions, so the two proof shapes compose seamlessly.
+        if let Some(sub_proof) = cls.explain(&ty, class) {
+            premises.push(sub_proof);
+        }
+    }
+
+    Some(ProofNode {
+        sub: instance.to_string(),
+        sup: class.to_string(),
+        rule: "CR-instance".to_string(),
+        axioms: Vec::new(),
+        confidence: combined,
+        premises,
+    })
+}
+
+/// A subsumption-RHS axiom indexed by its trigger conjunct: `(consequent, label, conf)`
+/// — used for the CR-sub (`B ⊑ C`) and CR-some⁻ (`∃r.D ⊑ E`) rules.
+type RhsAxiom = (Concept, String, f64);
+/// An existential-RHS axiom `B ⊑ ∃r.D` indexed by `B`: `(role, filler, label, conf)`.
+type SomeRhsAxiom = (String, Concept, String, f64);
+
+/// Index a single GCI into the four completion-rule indexes consulted by
+/// [`Reasoner::saturate`] (via [`Reasoner::index_gcis`]).
+fn index_one_gci(
+    g: &Gci,
+    sub_index: &mut HashMap<String, Vec<RhsAxiom>>,
+    conj_axioms: &mut Vec<(Vec<String>, Concept, String, f64)>,
+    some_rhs: &mut HashMap<String, Vec<SomeRhsAxiom>>,
+    some_lhs: &mut HashMap<(String, String), Vec<RhsAxiom>>,
+) {
+    let rhs = g.rhs.clone();
+    if g.lhs.len() != 1 {
+        // Conjunctive LHS — all conjuncts must be named in EL normal form.
+        let names: Vec<String> = g.lhs.iter().map(|c| c.key()).collect();
+        conj_axioms.push((names, rhs, g.label.clone(), g.conf));
+        return;
+    }
+    match &g.lhs[0] {
+        Concept::Named(b) => match &rhs {
+            Concept::Named(_) => {
+                sub_index
+                    .entry(b.clone())
+                    .or_default()
+                    .push((rhs, g.label.clone(), g.conf));
+            }
+            Concept::Some(r, d) => {
+                some_rhs.entry(b.clone()).or_default().push((
+                    r.clone(),
+                    (**d).clone(),
+                    g.label.clone(),
+                    g.conf,
+                ));
+            }
+        },
+        Concept::Some(r, d) => {
+            // ∃r.D ⊑ E
+            some_lhs
+                .entry((r.clone(), d.key()))
+                .or_default()
+                .push((rhs, g.label.clone(), g.conf));
+        }
+    }
+}
+
+/// A reusable completion state so a DELTA can re-run incrementally (CONCEPT:MEDULLA-KG.ontology.incremental-materialization).
+/// Holds the normalised axioms + the current `S`/`R` closure; [`Reasoner::classify`]
+/// runs the fixpoint, [`Reasoner::add_axioms`] adds axioms and re-runs only the new
+/// consequences (EL completion is monotone — adding axioms only ADDS subsumers).
+#[derive(Clone, Debug, Default)]
+pub struct Reasoner {
+    ont: Ontology,
+    /// `S(A)` — subsumers per class (the completion's mutable state).
+    s: BTreeMap<String, BTreeSet<String>>,
+    /// `R(r)` — (A,B) with A ⊑ ∃r.B.
+    r: BTreeMap<String, BTreeSet<(String, String)>>,
+    just: HashMap<(String, String), Justification>,
+    /// Confidence per subsumption `(A,B)` — MAX over derivations of
+    /// `axiom_conf × ∏ premise_conf` (CONCEPT:MEDULLA-KG.ontology.concept-13). Only maintained when
+    /// `weighted` is set; an unweighted run leaves it empty.
+    conf: BTreeMap<(String, String), f64>,
+    /// Confidence per role pair `(r, (A,B))` — analogous to `conf` for the R relation,
+    /// so an existential derivation can multiply in the confidence of the role edge.
+    rconf: BTreeMap<(String, String, String), f64>,
+    /// When true, the saturation tracks + propagates confidences (CONCEPT:MEDULLA-KG.ontology.concept-13).
+    weighted: bool,
+    /// Refined role fillers `B ⊓ D₁ ⊓ …` introduced by CR-filler ([`filler`]).
+    refined: filler::RefinedFillers,
+    /// Derivation steps charged against an optional [`DerivationBudget`].
+    meter: budget::StepMeter,
+    /// `S(A)` members CR-sub/CR-some⁺ have not yet run over (`owl/fresh.rs`).
+    fresh: BTreeMap<String, BTreeSet<String>>,
+}
+
+impl Reasoner {
+    /// Build a reasoner from a parsed ontology.
+    pub fn new(ont: Ontology) -> Self {
+        Self {
+            ont,
+            ..Default::default()
+        }
+    }
+
+    /// Convenience: parse + build from a triple stream.
+    pub fn from_triples(triples: &[Triple]) -> Self {
+        Self::new(parse_ontology(triples))
+    }
+
+    /// The signature: every named class plus ⊤ and ⊥.
+    fn signature(&self) -> BTreeSet<String> {
+        let mut sig = self.ont.classes.clone();
+        sig.insert(iri(OWL_THING));
+        sig.insert(iri(OWL_NOTHING));
+        // Fillers / existential targets that appear only inside restrictions.
+        for g in &self.ont.gcis {
+            for c in g.lhs.iter().chain(std::iter::once(&g.rhs)) {
+                collect_named(c, &mut sig);
+            }
+        }
+        sig
+    }
+
+    /// Seed S(A) = {A, ⊤} for every class in the signature.
+    fn seed(&mut self) {
+        let thing = iri(OWL_THING);
+        for a in self.signature() {
+            let entry = self.s.entry(a.clone()).or_default();
+            entry.insert(a.clone());
+            entry.insert(thing.clone());
+            if self.weighted {
+                // Reflexive + ⊤ subsumptions are certain.
+                self.conf.insert((a.clone(), a.clone()), 1.0);
+                self.conf.insert((a.clone(), thing.clone()), 1.0);
+            }
+        }
+    }
+
+    /// Run EL⁺ completion to fixpoint and return the classification. Idempotent —
+    /// re-running over the same axioms yields the same closure.
+    pub fn classify(&mut self) -> Classification {
+        self.weighted = false;
+        self.seed();
+        self.saturate();
+        self.snapshot()
+    }
+
+    /// Run EL⁺ completion AND propagate per-subsumption confidence (CONCEPT:MEDULLA-KG.ontology.concept-13).
+    /// Same closure as [`classify`] (membership is identical — confidence weighting
+    /// never changes WHICH subsumptions hold, only their `[0,1]` confidence), with the
+    /// `confidence` map populated: a derived `A ⊑ B` carries the MAX over its
+    /// alternative derivations of `axiom_conf × ∏ premise_conf`. A hard ontology (all
+    /// axioms `conf = 1.0`) yields confidence `1.0` everywhere, so the weighted run is
+    /// a strict superset of the plain one.
+    pub fn classify_weighted(&mut self) -> Classification {
+        self.weighted = true;
+        self.seed();
+        self.saturate();
+        self.snapshot()
+    }
+
+    /// Add axioms (a delta) and re-saturate INCREMENTALLY: the prior `S`/`R` closure
+    /// is kept (EL completion is monotone, so nothing is retracted) and the fixpoint
+    /// resumes from it — only the NEW consequences are derived, not the whole closure
+    /// from scratch (CONCEPT:MEDULLA-KG.ontology.incremental-materialization incremental materialization). Returns the new
+    /// classification.
+    pub fn add_axioms(&mut self, delta: Ontology) -> Classification {
+        merge_ontology(&mut self.ont, delta);
+        // Seed any newly-introduced classes; keep existing S/R.
+        self.seed();
+        self.saturate();
+        self.snapshot()
+    }
+
+    /// The completion loop. Applies the EL⁺ rules until no `S`/`R` membership changes:
+    ///
+    /// * **CR-sub** — if `B ∈ S(A)` and `B ⊑ C` is an axiom (single-conjunct LHS), add
+    ///   `C` to `S(A)`.
+    /// * **CR-conj⁻** — if `{B1,…,Bn} ∈ S(A)` (a conjunctive LHS all subsume A) and
+    ///   `B1 ⊓ … ⊓ Bn ⊑ C`, add `C` to `S(A)`.
+    /// * **CR-some⁺** — if `B ∈ S(A)` and `B ⊑ ∃r.D` is an axiom, add `(A,D)` to `R(r)`.
+    /// * **CR-some⁻** — if `(A,B) ∈ R(r)` and `D ∈ S(B)` and `∃r.D ⊑ E` is an axiom, add
+    ///   `E` to `S(A)`.
+    /// * **CR-chain** — if `(A,B) ∈ R(r1)` and `(B,C) ∈ R(r2)` and `r1∘r2 ⊑ s`, add
+    ///   `(A,C)` to `R(s)` (covers transitivity via `r∘r ⊑ r`).
+    /// * **CR-subrole** — if `(A,B) ∈ R(r)` and `r ⊑ s`, add `(A,B)` to `R(s)`.
+    /// * **CR-bot** — if `⊥ ∈ S(B)` and `(A,B) ∈ R(r)`, add `⊥` to `S(A)` (the empty
+    ///   filler propagates unsatisfiability up an existential).
+    /// * **CR-disjoint** — if `D1, D2 ∈ S(A)` and `D1 ⊓ D2 ⊑ ⊥`, add `⊥` to `S(A)`.
+    /// * **CR-filler** — if `(A,B) ∈ R(r)` and a range of `r` (or a universal
+    ///   `C ⊑ ∀r.D` with `C ∈ S(A)`) is missing from `S(B)`, add `(A, B ⊓ …)` to `R(r)`
+    ///   for a refined filler ([`filler::FillerRules`]). The filler is refined, never
+    ///   `B` itself: `A ⊑ ∃r.B` says nothing about the `B`s that are not `r`-successors
+    ///   of an `A`. Inverse and symmetric declarations enter only through the domains
+    ///   and ranges they transfer; the relation `R` is never inverted, because
+    ///   `A ⊑ ∃r.B` does not entail `B ⊑ ∃r⁻.A`.
+    fn saturate(&mut self) {
+        let (sub_index, conj_axioms, some_rhs, some_lhs) = self.index_gcis();
+
+        // disjoint pairs by class for CR-disjoint.
+        let disjoint: Vec<(String, String, String)> = self.ont.disjoint.clone();
+        // Range and allValuesFrom constraints on role successors (filler refinement).
+        let fillers = filler::FillerRules::build(&self.ont);
+        let chains = self.ont.chains.clone();
+        let sub_roles = self.ont.sub_roles.clone();
+        let nothing = iri(OWL_NOTHING);
+
+        self.fresh = self.s.clone();
+        let mut changed = true;
+        let mut guard = 0;
+        while changed && guard < 100_000 && !self.meter.exhausted() {
+            guard += 1;
+            changed = false;
+
+            // Snapshot the class set we iterate (S keys can grow; iterate a copy).
+            let classes: Vec<String> = self.s.keys().cloned().collect();
+            for a in &classes {
+                changed |= self.apply_cr_sub_and_some_plus(a, &sub_index, &some_rhs);
+                changed |= self.apply_cr_conj_minus(a, &conj_axioms);
+                changed |= self.apply_cr_disjoint(a, &disjoint, &nothing);
+            }
+
+            changed |= self.apply_cr_some_minus_and_bot(&some_lhs, &nothing);
+            changed |= self.apply_cr_subrole(&sub_roles);
+            changed |= filler::apply_filler_refinement(self, &fillers);
+            changed |= self.apply_cr_chain(&chains);
+        }
+    }
+
+    /// Pre-index axioms by their trigger for O(1) rule lookup during [`Reasoner::saturate`].
+    /// Each entry carries the axiom's confidence as the last tuple element
+    /// (CONCEPT:MEDULLA-KG.ontology.concept-13).
+    #[allow(clippy::type_complexity)]
+    fn index_gcis(
+        &self,
+    ) -> (
+        HashMap<String, Vec<RhsAxiom>>,
+        Vec<(Vec<String>, Concept, String, f64)>,
+        HashMap<String, Vec<SomeRhsAxiom>>,
+        HashMap<(String, String), Vec<RhsAxiom>>,
+    ) {
+        // single-conjunct sub: B -> [(C, axiom_label, conf)]
+        let mut sub_index: HashMap<String, Vec<RhsAxiom>> = HashMap::new();
+        // conjunctive sub: list of (conjuncts, C, label, conf)
+        let mut conj_axioms: Vec<(Vec<String>, Concept, String, f64)> = Vec::new();
+        // existential RHS: B -> [(r, D, label, conf)]  (B ⊑ ∃r.D)
+        let mut some_rhs: HashMap<String, Vec<SomeRhsAxiom>> = HashMap::new();
+        // existential LHS: (r, D) -> [(E, label, conf)]  (∃r.D ⊑ E)
+        let mut some_lhs: HashMap<(String, String), Vec<RhsAxiom>> = HashMap::new();
+
+        for g in &self.ont.gcis {
+            index_one_gci(
+                g,
+                &mut sub_index,
+                &mut conj_axioms,
+                &mut some_rhs,
+                &mut some_lhs,
+            );
+        }
+
+        (sub_index, conj_axioms, some_rhs, some_lhs)
+    }
+
+    /// CR-sub (`B ⊑ C`) and CR-some⁺ (`B ⊑ ∃r.D`) for class `a`, over its fresh `S(a)`.
+    fn apply_cr_sub_and_some_plus(
+        &mut self,
+        a: &str,
+        sub_index: &HashMap<String, Vec<RhsAxiom>>,
+        some_rhs: &HashMap<String, Vec<SomeRhsAxiom>>,
+    ) -> bool {
+        let s_a = self.fresh.remove(a).unwrap_or_default();
+        let mut changed = false;
+        for b in &s_a {
+            changed |= self.apply_cr_sub_for(a, b, sub_index);
+            changed |= self.apply_cr_some_plus_for(a, b, some_rhs);
+        }
+        changed
+    }
+
+    /// CR-sub: `B ⊑ C` where `B ∈ S(a)` ⇒ `C ∈ S(a)`.
+    fn apply_cr_sub_for(
+        &mut self,
+        a: &str,
+        b: &str,
+        sub_index: &HashMap<String, Vec<RhsAxiom>>,
+    ) -> bool {
+        let Some(rules) = sub_index.get(b) else {
+            return false;
+        };
+        let mut changed = false;
+        for (c, label, axiom_conf) in rules {
+            let Concept::Named(cn) = c else { continue };
+            // conjunctive rule: conf(a⊑c) = conf(a⊑b) × conf(b⊑c).
+            let conf = self.cur_conf(a, b) * axiom_conf;
+            if self.add_sub(
+                a,
+                cn,
+                "CR-sub",
+                vec![label.clone()],
+                vec![(a.to_string(), b.to_string())],
+                conf,
+            ) {
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// CR-some⁺: `B ⊑ ∃r.D` where `B ∈ S(a)` ⇒ `(a,D) ∈ R(r)`.
+    fn apply_cr_some_plus_for(
+        &mut self,
+        a: &str,
+        b: &str,
+        some_rhs: &HashMap<String, Vec<SomeRhsAxiom>>,
+    ) -> bool {
+        let Some(rules) = some_rhs.get(b) else {
+            return false;
+        };
+        let mut changed = false;
+        for (r, d, label, axiom_conf) in rules {
+            let Concept::Named(dn) = d else { continue };
+            let conf = self.cur_conf(a, b) * axiom_conf;
+            if self.add_role_weighted(r, a, dn, conf) {
+                self.just
+                    .entry((format!("R:{r}"), format!("{a}->{dn}")))
+                    .or_insert(Justification {
+                        rule: "CR-some⁺",
+                        axioms: vec![label.clone()],
+                        premises: vec![(a.to_string(), b.to_string())],
+                    });
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// CR-conj⁻: if every conjunct of a conjunctive LHS is in `S(a)`, add the RHS.
+    fn apply_cr_conj_minus(
+        &mut self,
+        a: &str,
+        conj_axioms: &[(Vec<String>, Concept, String, f64)],
+    ) -> bool {
+        let mut changed = false;
+        for (conjuncts, c, label, axiom_conf) in conj_axioms {
+            let holds = conjuncts
+                .iter()
+                .all(|b| self.s.get(a).map(|s| s.contains(b)).unwrap_or(false));
+            if !holds {
+                continue;
+            }
+            let Concept::Named(cn) = c else { continue };
+            let premises: Vec<(String, String)> = conjuncts
+                .iter()
+                .map(|b| (a.to_string(), b.clone()))
+                .collect();
+            // conjunctive rule: ∏ over every conjunct premise × axiom.
+            let conf = conjuncts
+                .iter()
+                .fold(*axiom_conf, |acc, b| acc * self.cur_conf(a, b));
+            if self.add_sub(a, cn, "CR-conj⁻", vec![label.clone()], premises, conf) {
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// CR-disjoint: `D1, D2 ∈ S(a)` and `D1 ⊓ D2 ⊑ ⊥` ⇒ `⊥ ∈ S(a)`.
+    fn apply_cr_disjoint(
+        &mut self,
+        a: &str,
+        disjoint: &[(String, String, String)],
+        nothing: &str,
+    ) -> bool {
+        let mut changed = false;
+        for (d1, d2, label) in disjoint {
+            let has = self
+                .s
+                .get(a)
+                .map(|s| s.contains(d1) && s.contains(d2))
+                .unwrap_or(false);
+            if !has {
+                continue;
+            }
+            let conf = self.cur_conf(a, d1) * self.cur_conf(a, d2);
+            if self.add_sub(
+                a,
+                nothing,
+                "CR-disjoint",
+                vec![label.clone()],
+                vec![(a.to_string(), d1.clone()), (a.to_string(), d2.clone())],
+                conf,
+            ) {
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// CR-some⁻ (`∃r.D ⊑ E`) and CR-bot (`⊥` propagates up an existential) over the
+    /// current `R`.
+    fn apply_cr_some_minus_and_bot(
+        &mut self,
+        some_lhs: &HashMap<(String, String), Vec<RhsAxiom>>,
+        nothing: &str,
+    ) -> bool {
+        let roles_snapshot: Vec<(String, Vec<(String, String)>)> = self
+            .r
+            .iter()
+            .map(|(r, set)| (r.clone(), set.iter().cloned().collect()))
+            .collect();
+        let mut changed = false;
+        for (r, pairs) in &roles_snapshot {
+            for (a, b) in pairs {
+                changed |= self.apply_cr_some_minus_for(r, a, b, some_lhs);
+                changed |= self.apply_cr_bot_for(r, a, b, nothing);
+            }
+        }
+        changed
+    }
+
+    /// CR-some⁻: `D ∈ S(b)`, `∃r.D ⊑ E`, `(a,b) ∈ R(r)` ⇒ `E ∈ S(a)`.
+    fn apply_cr_some_minus_for(
+        &mut self,
+        r: &str,
+        a: &str,
+        b: &str,
+        some_lhs: &HashMap<(String, String), Vec<RhsAxiom>>,
+    ) -> bool {
+        let s_b: Vec<String> = self
+            .s
+            .get(b)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        let mut changed = false;
+        for d in &s_b {
+            let Some(rules) = some_lhs.get(&(r.to_string(), d.clone())) else {
+                continue;
+            };
+            for (e, label, axiom_conf) in rules {
+                let Concept::Named(en) = e else { continue };
+                let conf = self.cur_rconf(r, a, b) * self.cur_conf(b, d) * axiom_conf;
+                if self.add_sub(
+                    a,
+                    en,
+                    "CR-some⁻",
+                    vec![label.clone()],
+                    vec![(b.to_string(), d.clone())],
+                    conf,
+                ) {
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    /// CR-bot: `⊥ ∈ S(b)`, `(a,b) ∈ R(r)` ⇒ `⊥ ∈ S(a)` — the empty filler propagates
+    /// unsatisfiability up an existential.
+    fn apply_cr_bot_for(&mut self, r: &str, a: &str, b: &str, nothing: &str) -> bool {
+        if !self.s.get(b).map(|s| s.contains(nothing)).unwrap_or(false) {
+            return false;
+        }
+        let conf = self.cur_rconf(r, a, b) * self.cur_conf(b, nothing);
+        self.add_sub(
+            a,
+            nothing,
+            "CR-bot",
+            vec![],
+            vec![(b.to_string(), nothing.to_string())],
+            conf,
+        )
+    }
+
+    /// CR-subrole: `(a,b) ∈ R(r)`, `r ⊑ s` ⇒ `(a,b) ∈ R(s)`.
+    fn apply_cr_subrole(&mut self, sub_roles: &[(String, String, String, f64)]) -> bool {
+        let mut changed = false;
+        for (r, sup, _label, axiom_conf) in sub_roles {
+            let Some(pairs) = self.r.get(r).cloned() else {
+                continue;
+            };
+            for (a, b) in pairs {
+                let conf = self.cur_rconf(r, &a, &b) * axiom_conf;
+                if self.add_role_weighted(sup, &a, &b, conf) {
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    /// CR-chain: `(a,b) ∈ R(r1)`, `(b,c) ∈ R(r2)`, `r1∘r2 ⊑ s` ⇒ `(a,c) ∈ R(s)` (covers
+    /// transitivity via `r∘r ⊑ r`). Only 2-role chains are supported.
+    fn apply_cr_chain(&mut self, chains: &[RoleChain]) -> bool {
+        let mut changed = false;
+        for ch in chains {
+            if ch.chain.len() == 2 {
+                changed |= self.apply_one_cr_chain(ch);
+            }
+        }
+        changed
+    }
+
+    fn apply_one_cr_chain(&mut self, ch: &RoleChain) -> bool {
+        let (r1, r2) = (&ch.chain[0], &ch.chain[1]);
+        let left = self.r.get(r1).cloned().unwrap_or_default();
+        let right = self.r.get(r2).cloned().unwrap_or_default();
+        // index right by its source
+        let mut by_src: HashMap<String, Vec<String>> = HashMap::new();
+        for (b, c) in &right {
+            by_src.entry(b.clone()).or_default().push(c.clone());
+        }
+        let mut changed = false;
+        for (a, b) in &left {
+            let Some(cs) = by_src.get(b) else { continue };
+            for c in cs {
+                let conf = self.cur_rconf(r1, a, b) * self.cur_rconf(r2, b, c) * ch.conf;
+                if self.add_role_weighted(&ch.sup, a, c, conf) {
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    /// The confidence of a recorded entry: `1.0` when unweighted or unseen (an
+    /// unrecorded pair is treated as certain, e.g. the reflexive seed).
+    fn confidence_of(&self, recorded: Option<&f64>) -> f64 {
+        if self.weighted {
+            recorded.copied().unwrap_or(1.0)
+        } else {
+            1.0
+        }
+    }
+
+    /// Current confidence of a subsumption `(a,b)`.
+    fn cur_conf(&self, a: &str, b: &str) -> f64 {
+        self.confidence_of(self.conf.get(&(a.to_string(), b.to_string())))
+    }
+
+    /// Current confidence of a role pair `(r,(a,b))`.
+    fn cur_rconf(&self, r: &str, a: &str, b: &str) -> f64 {
+        self.confidence_of(
+            self.rconf
+                .get(&(r.to_string(), a.to_string(), b.to_string())),
+        )
+    }
+
+    /// Add (or raise the confidence of) a subsumption. Returns `true` when membership
+    /// was newly added OR (weighted) the derived `conf` raised the recorded confidence
+    /// beyond `CONF_EPS` — either is a change that re-triggers the fixpoint, so the
+    /// closure converges on BOTH the membership AND the max-confidence per pair.
+    fn add_sub(
+        &mut self,
+        a: &str,
+        b: &str,
+        rule: &'static str,
+        axioms: Vec<String>,
+        premises: Vec<(String, String)>,
+        conf: f64,
+    ) -> bool {
+        let present = self.s.get(a).is_some_and(|s| s.contains(b));
+        if !present && !self.meter.charge() {
+            return false;
+        }
+        let added = self
+            .s
+            .entry(a.to_string())
+            .or_default()
+            .insert(b.to_string());
+        if added && a != b {
+            self.just
+                .entry((a.to_string(), b.to_string()))
+                .or_insert(Justification {
+                    rule,
+                    axioms,
+                    premises,
+                });
+        }
+        let mut changed = added;
+        if self.weighted {
+            let key = (a.to_string(), b.to_string());
+            let prev = self.conf.get(&key).copied().unwrap_or(0.0);
+            // noisy-OR / MAX across alternative derivations: keep the strongest.
+            let combined = prev.max(conf.clamp(0.0, 1.0));
+            if combined > prev + CONF_EPS {
+                self.conf.insert(key, combined);
+                changed = true;
+            } else if added {
+                self.conf.entry(key).or_insert(combined);
+            }
+        }
+        self.note_fresh(a, b, changed)
+    }
+
+    /// Add (or raise the confidence of) a role pair `(r,(a,b))`.
+    fn add_role_weighted(&mut self, r: &str, a: &str, b: &str, conf: f64) -> bool {
+        let pair = (a.to_string(), b.to_string());
+        let present = self.r.get(r).is_some_and(|pairs| pairs.contains(&pair));
+        if !present && !self.meter.charge() {
+            return false;
+        }
+        let added = self.r.entry(r.to_string()).or_default().insert(pair);
+        let mut changed = added;
+        if self.weighted {
+            let key = (r.to_string(), a.to_string(), b.to_string());
+            let prev = self.rconf.get(&key).copied().unwrap_or(0.0);
+            let combined = prev.max(conf.clamp(0.0, 1.0));
+            if combined > prev + CONF_EPS {
+                self.rconf.insert(key, combined);
+                changed = true;
+            } else if added {
+                self.rconf.entry(key).or_insert(combined);
+            }
+        }
+        changed
+    }
+
+    /// Project the current closure into an immutable [`Classification`], computing
+    /// consistency: the ontology is inconsistent iff some class OTHER than ⊥ itself
+    /// is forced to subsume ⊥ (i.e. is unsatisfiable). ⊥ ⊑ ⊥ is not a defect.
+    /// Refined fillers are internal to the completion and never appear in the
+    /// projection ([`filler::NamedView`]).
+    fn snapshot(&self) -> Classification {
+        let nothing = iri(OWL_NOTHING);
+        let view = filler::NamedView::of(self);
+        let unsat: BTreeSet<String> = view
+            .subsumers
+            .iter()
+            .filter(|(a, subs)| **a != nothing && subs.contains(&nothing))
+            .map(|(a, _)| a.clone())
+            .collect();
+        Classification {
+            subsumers: view.subsumers,
+            roles: view.roles,
+            justifications: self.just.clone(),
+            confidence: view.confidence,
+            consistent: unsat.is_empty(),
+            unsatisfiable: unsat,
+        }
+    }
+}
+
+fn collect_named(c: &Concept, out: &mut BTreeSet<String>) {
+    match c {
+        Concept::Named(n) => {
+            // IRIs and hasValue nominal tokens (`{<value>}`) — both must be seeded.
+            if n.starts_with('<') || n.starts_with('{') {
+                out.insert(n.clone());
+            }
+        }
+        Concept::Some(_, f) => collect_named(f, out),
+    }
+}
+
+fn merge_ontology(into: &mut Ontology, delta: Ontology) {
+    into.gcis.extend(delta.gcis);
+    into.sub_roles.extend(delta.sub_roles);
+    into.chains.extend(delta.chains);
+    into.inverses.extend(delta.inverses);
+    into.symmetric.extend(delta.symmetric);
+    into.domains.extend(delta.domains);
+    into.ranges.extend(delta.ranges);
+    into.disjoint.extend(delta.disjoint);
+    into.all_values.extend(delta.all_values);
+    into.functional.extend(delta.functional);
+    into.inverse_functional.extend(delta.inverse_functional);
+    into.same_as.extend(delta.same_as);
+    into.different_from.extend(delta.different_from);
+    into.classes.extend(delta.classes);
+}
+
+// ── Instance materialization (the bridge to the property-graph / RowSet) ─────
+
+/// Given the classification + the concrete instance→type assignments already in the
+/// graph, return every `(instance, inferred_class)` pair: for each individual `x` of
+/// asserted type `A`, `x` is an instance of every `B ∈ S(A)`. This is what seeds a
+/// `Reason` Op's RowSet (the EL-inferred members of a target class) — including
+/// members the property-graph stored NO explicit type edge for.
+///
+/// `asserted` maps an instance id → its asserted class IRIs (canonical `<iri>`).
+pub fn materialize_instances(
+    cls: &Classification,
+    asserted: &HashMap<String, HashSet<String>>,
+) -> HashMap<String, BTreeSet<String>> {
+    let mut out: HashMap<String, BTreeSet<String>> = HashMap::new();
+    for (inst, types) in asserted {
+        let entry = out.entry(inst.clone()).or_default();
+        for ty in types {
+            if let Some(subs) = cls.subsumers.get(ty) {
+                for sup in subs {
+                    entry.insert(sup.clone());
+                }
+            } else {
+                entry.insert(ty.clone());
+            }
+        }
+    }
+    out
+}
+
+/// Every instance id that is (inferred to be) a member of `target_class` under the
+/// classification — the id set a `Reason{target}` Op projects into a RowSet.
+pub fn instances_of(
+    cls: &Classification,
+    asserted: &HashMap<String, HashSet<String>>,
+    target_class: &str,
+) -> Vec<String> {
+    let mat = materialize_instances(cls, asserted);
+    let mut out: Vec<String> = mat
+        .into_iter()
+        .filter_map(|(inst, classes)| classes.contains(target_class).then_some(inst))
+        .collect();
+    out.sort();
+    out
+}
+
+/// The confidence of a single TYPE FACT (CONCEPT:MEDULLA-KG.ontology.concept-13): the engine's per-node
+/// `confidence` in `[0,1]` (default `1.0`) MULTIPLIED by its Ebbinghaus recency weight
+/// `exp(-ln2·age/half_life)` — so an OLD fact contributes LESS even when its stored
+/// confidence is high. `age`/`half_life` share a unit. This is the epistemic
+/// differentiator: OWL inference is confidence-weighted AND time-aware over the SAME
+/// forgetting curve the memory/series tier uses ([`medulla_core::decay::ebbinghaus_weight`]).
+#[inline]
+pub fn fact_confidence(node_confidence: f64, age: f64, half_life: f64) -> f64 {
+    (node_confidence.clamp(0.0, 1.0) * medulla_core::decay::ebbinghaus_weight(age, half_life))
+        .clamp(0.0, 1.0)
+}
+
+/// Confidence-weighted instance membership (CONCEPT:MEDULLA-KG.ontology.concept-13). For each individual `x`
+/// with asserted type facts `{(A, fact_conf)}`, `x` is a member of every `B ∈ S(A)`
+/// with confidence `fact_conf × subclass_confidence(A, B)` (the conjunctive chain: the
+/// fact AND the subsumption must both hold). When several asserted types reach the same
+/// `B`, the strongest derivation wins (MAX / noisy-OR). Returns
+/// `instance -> {class -> confidence}`. `asserted_conf` maps an instance id → its
+/// asserted `(class, fact_confidence)` pairs (the fact confidence is typically
+/// [`fact_confidence`] of the node's stored `confidence` + age).
+pub fn materialize_instances_weighted(
+    cls: &Classification,
+    asserted_conf: &HashMap<String, Vec<(String, f64)>>,
+) -> HashMap<String, HashMap<String, f64>> {
+    let mut out: HashMap<String, HashMap<String, f64>> = HashMap::new();
+    for (inst, type_facts) in asserted_conf {
+        let entry = out.entry(inst.clone()).or_default();
+        merge_weighted_types(cls, type_facts, entry);
+    }
+    out
+}
+
+/// Fold one instance's asserted `(type, confidence)` facts into its weighted-type map:
+/// propagate each fact's confidence up through `cls`'s subsumers, keeping the max seen
+/// per supertype, or (when a type has no classification entry) keep the asserted type
+/// itself at fact confidence.
+fn merge_weighted_types(
+    cls: &Classification,
+    type_facts: &[(String, f64)],
+    entry: &mut HashMap<String, f64>,
+) {
+    for (ty, fact_conf) in type_facts {
+        let fact_conf = fact_conf.clamp(0.0, 1.0);
+        if let Some(subs) = cls.subsumers.get(ty) {
+            for sup in subs {
+                let c = fact_conf * cls.subclass_confidence(ty, sup);
+                let slot = entry.entry(sup.clone()).or_insert(0.0);
+                if c > *slot {
+                    *slot = c;
+                }
+            }
+        } else {
+            // No classification entry → the asserted type itself, at fact conf.
+            let slot = entry.entry(ty.clone()).or_insert(0.0);
+            if fact_conf > *slot {
+                *slot = fact_conf;
+            }
+        }
+    }
+}
+
+/// Confidence-weighted members of `target_class` (CONCEPT:MEDULLA-KG.ontology.concept-13): every individual
+/// inferred to be a `target_class` with membership confidence `≥ min_confidence`,
+/// returned as `(instance, confidence)` sorted by DESCENDING confidence (then id). A
+/// `min_confidence ≤ 0.0` keeps every member; a high `min_confidence` THRESHOLDS out
+/// the weakly-supported (low-confidence axiom chain, or a decayed/old fact) entailments.
+pub fn instances_of_weighted(
+    cls: &Classification,
+    asserted_conf: &HashMap<String, Vec<(String, f64)>>,
+    target_class: &str,
+    min_confidence: f64,
+) -> Vec<(String, f64)> {
+    let mat = materialize_instances_weighted(cls, asserted_conf);
+    let mut out: Vec<(String, f64)> = mat
+        .into_iter()
+        .filter_map(|(inst, classes)| {
+            classes
+                .get(target_class)
+                .and_then(|&c| (c >= min_confidence).then_some((inst, c)))
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    out
+}
+
+/// Bridge a node's string `type` to an OWL class KEY (CONCEPT:MEDULLA-KG.ontology.string-type-iri-class) — the string-type
+/// ↔ IRI-class bridge. An already-IRI `t` (`<...>` or `http…`) is returned in canonical
+/// `<iri>` form; a local name (`Widget`) is mapped to `<class_base + t>`. The current
+/// class base is mandatory and must be an absolute namespace ending in `/`, `#`, or
+/// `:`; there is no bare-string class key.
+/// Keeps the class key in the SAME canonical form the reasoner/ontology signature uses,
+/// so a `{"type":"Sensor"}` node becomes a member of `<base/Sensor>` and — through the
+/// TBox subclass closure — of any superclass the ontology declares.
+pub fn bridge_type_to_class(t: &str, class_base: &str) -> Result<String, String> {
+    let class_base = class_base.trim();
+    if class_base.is_empty()
+        || !(class_base.ends_with('/') || class_base.ends_with('#') || class_base.ends_with(':'))
+        || oxrdf::NamedNode::new(format!("{class_base}Class")).is_err()
+    {
+        return Err(
+            "OWL class bridge requires an absolute current class base namespace".to_string(),
+        );
+    }
+    let t = t.trim();
+    if t.is_empty() {
+        return Err("OWL class bridge received an empty type".to_string());
+    }
+    if t.starts_with('<') != t.ends_with('>') {
+        return Err("OWL class bridge received a malformed bracketed IRI".to_string());
+    }
+    let bare = t.trim_start_matches('<').trim_end_matches('>');
+    if oxrdf::NamedNode::new(bare).is_ok() {
+        Ok(iri(bare))
+    } else {
+        let candidate = format!("{class_base}{t}");
+        oxrdf::NamedNode::new(&candidate)
+            .map_err(|_| "OWL class bridge produced an invalid class IRI".to_string())?;
+        Ok(iri(&candidate))
+    }
+}
+
+/// BUG-281: [`bridge_type_to_class`] with an IDENTITY fallback when no `class_base` is
+/// configured — mirrors `sparql::Projection::raw()`'s existing "no `base_iri` configured
+/// ⇒ identity, keys emitted verbatim" convention (`class_base` here is the OWL-reasoning
+/// analog of that projection's `base_iri`). An empty `class_base` is a legitimate,
+/// deliberately-supported caller state (`OwlReason.target_class` is documented "Empty ⇒
+/// all classes" — there is no single target class to derive a namespace FROM), so it must
+/// not be treated as a caller error: [`bridge_type_to_class`] itself keeps its own
+/// mandatory-namespace contract unchanged (existing callers that always have a concrete
+/// `class_base`, e.g. `Op::Reason`'s single-target-class source, are untouched). Only the
+/// two asserted-fact readers below call this identity-aware wrapper.
+fn bridge_type_identity_or_class(t: &str, class_base: &str) -> Result<String, String> {
+    if !class_base.trim().is_empty() {
+        return bridge_type_to_class(t, class_base);
+    }
+    let t = t.trim();
+    if t.is_empty() {
+        return Err("OWL class bridge received an empty type".to_string());
+    }
+    if t.starts_with('<') != t.ends_with('>') {
+        return Err("OWL class bridge received a malformed bracketed IRI".to_string());
+    }
+    let bare = t.trim_start_matches('<').trim_end_matches('>');
+    Ok(if oxrdf::NamedNode::new(bare).is_ok() {
+        iri(bare)
+    } else {
+        // No namespace configured: keep the bare local label as the class key
+        // VERBATIM rather than fabricating or rejecting one — identity mode.
+        t.to_string()
+    })
+}
+
+/// The NAMESPACE of a class IRI (CONCEPT:MEDULLA-KG.ontology.string-type-iri-class) — everything up to and INCLUDING the
+/// last `/`, `#`, or `:`, the base the string-type↔IRI-class bridge maps a bare local name
+/// into. `<http://ex/Device>` → `http://ex/`; `<http://ex#Device>` → `http://ex#`.
+/// `None` when `iri` is not an IRI (a bare label has no namespace to inherit) or carries
+/// no namespace separator.
+pub fn class_namespace(iri: &str) -> Option<String> {
+    let bare = iri.trim().trim_start_matches('<').trim_end_matches('>');
+    if oxrdf::NamedNode::new(bare).is_err() {
+        return None;
+    }
+    let cut = bare.rfind(['/', '#', ':'])?;
+    Some(bare[..=cut].to_string())
+}
+
+/// Read the asserted `instance -> {class}` assignments out of a GraphView's node
+/// blobs (the folded `type` property + any explicit `rdf:type` edges) so a `Reason`
+/// Op can classify the live graph. The class ids are canonical `<iri>` form to match
+/// the ontology signature. `class_base` (CONCEPT:MEDULLA-KG.ontology.string-type-iri-class) bridges a BARE string `type`
+/// into that mandatory namespace so a string-typed node participates in `REASON <iri>`.
+pub fn asserted_types_from_view(
+    view: &medulla_core::graph::GraphView,
+    class_base: &str,
+) -> Result<HashMap<String, HashSet<String>>, String> {
+    let mut out: HashMap<String, HashSet<String>> = HashMap::new();
+    collect_node_types(view, class_base, &mut out)?;
+    collect_edge_types(view, &mut out);
+    Ok(out)
+}
+
+/// Read the folded `type` property off every node blob into `out` (bridging a bare
+/// IRI/local label into `class_base` per [`bridge_type_identity_or_class`]). Half of
+/// [`asserted_types_from_view`]'s two sources; see its docs.
+fn collect_node_types(
+    view: &medulla_core::graph::GraphView,
+    class_base: &str,
+    out: &mut HashMap<String, HashSet<String>>,
+) -> Result<(), String> {
+    for (id, blob) in &view.node_properties {
+        if let Ok(v) = medulla_types::msgpack::decode_property_value(blob.as_slice()) {
+            if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
+                // A folded `type` may be a bare IRI string, a bare local label (bridged
+                // to `class_base` when supplied), or already canonical `<iri>`.
+                let class = bridge_type_identity_or_class(t, class_base)?;
+                out.entry(id.clone()).or_default().insert(class);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Read explicit `rdf:type` edges into `out` (multi-typed resources): an edge whose
+/// predicate is `rdf:type` assigns the subject `s` the class node `o`. The other half
+/// of [`asserted_types_from_view`]'s two sources.
+fn collect_edge_types(
+    view: &medulla_core::graph::GraphView,
+    out: &mut HashMap<String, HashSet<String>>,
+) {
+    let rdf_type_edge = iri(RDF_TYPE);
+    for ((s, o), blobs) in &view.edge_properties {
+        for blob in blobs {
+            if let Ok(v) = medulla_types::msgpack::decode_property_value(blob.as_slice()) {
+                let pred = v.get("relationship").and_then(|x| x.as_str());
+                if pred == Some(RDF_TYPE) || pred == Some(rdf_type_edge.as_str()) {
+                    out.entry(s.clone()).or_default().insert(o.clone());
+                }
+            }
+        }
+    }
+}
+
+/// Like [`asserted_types_from_view`] but ALSO reads each fact's confidence
+/// (CONCEPT:MEDULLA-KG.ontology.concept-13): the per-node `confidence` (default `1.0`) decayed by its age
+/// `now - last_access` (→ `updated_at` → `created_at`) on the Ebbinghaus curve with
+/// `default_half_life` (or a per-node `half_life`), via [`fact_confidence`]. So an OLD
+/// type fact (one not touched in a long time) contributes a LOWER confidence to the
+/// inferred membership than a fresh one. `now`/`half_life` share a unit (seconds, like
+/// the engine's stored epoch timestamps). The result is what
+/// [`materialize_instances_weighted`] / [`instances_of_weighted`] consume. A node with
+/// no timestamp (age `0`) keeps its stored confidence unchanged.
+pub fn asserted_types_with_confidence_from_view(
+    view: &medulla_core::graph::GraphView,
+    now: u64,
+    default_half_life: f64,
+    class_base: &str,
+) -> Result<HashMap<String, Vec<(String, f64)>>, String> {
+    let mut out: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+    collect_node_type_facts(view, now, default_half_life, class_base, &mut out)?;
+    collect_edge_type_facts(view, now, default_half_life, &mut out);
+    Ok(out)
+}
+
+/// The Ebbinghaus-decayed confidence of one node/edge blob's type fact: stored
+/// `confidence` (default `1.0`) decayed by age (`now - last_access` → `updated_at` →
+/// `created_at`; `0` when no timestamp is present) over `half_life` (a per-fact
+/// override or `default_half_life`), via [`fact_confidence`].
+fn fact_conf_of(v: &serde_json::Value, now: u64, default_half_life: f64) -> f64 {
+    let confidence = v.get("confidence").and_then(|x| x.as_f64()).unwrap_or(1.0);
+    let last_access = v
+        .get("last_access")
+        .and_then(|x| x.as_u64())
+        .or_else(|| v.get("updated_at").and_then(|x| x.as_u64()))
+        .or_else(|| v.get("created_at").and_then(|x| x.as_u64()));
+    let half_life = v
+        .get("half_life")
+        .and_then(|x| x.as_f64())
+        .filter(|h| *h > 0.0)
+        .unwrap_or(default_half_life);
+    let age = match last_access {
+        Some(la) if now > la => (now - la) as f64,
+        _ => 0.0,
+    };
+    fact_confidence(confidence, age, half_life)
+}
+
+/// Read the folded `type` property + its decayed confidence off every node blob into
+/// `out`. Half of [`asserted_types_with_confidence_from_view`]'s two sources.
+fn collect_node_type_facts(
+    view: &medulla_core::graph::GraphView,
+    now: u64,
+    default_half_life: f64,
+    class_base: &str,
+    out: &mut HashMap<String, Vec<(String, f64)>>,
+) -> Result<(), String> {
+    for (id, blob) in &view.node_properties {
+        if let Ok(v) = medulla_types::msgpack::decode_property_value(blob.as_slice()) {
+            if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
+                // Bridge a bare string type into `class_base` (CONCEPT:MEDULLA-KG.ontology.string-type-iri-class) when given.
+                let class = bridge_type_identity_or_class(t, class_base)?;
+                let c = fact_conf_of(&v, now, default_half_life);
+                out.entry(id.clone()).or_default().push((class, c));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Read explicit `rdf:type` edges + their own edge-blob decayed confidence into `out`.
+/// The other half of [`asserted_types_with_confidence_from_view`]'s two sources.
+fn collect_edge_type_facts(
+    view: &medulla_core::graph::GraphView,
+    now: u64,
+    default_half_life: f64,
+    out: &mut HashMap<String, Vec<(String, f64)>>,
+) {
+    let rdf_type_edge = iri(RDF_TYPE);
+    for ((s, o), blobs) in &view.edge_properties {
+        for blob in blobs {
+            if let Ok(v) = medulla_types::msgpack::decode_property_value(blob.as_slice()) {
+                let pred = v.get("relationship").and_then(|x| x.as_str());
+                if pred == Some(RDF_TYPE) || pred == Some(rdf_type_edge.as_str()) {
+                    let c = fact_conf_of(&v, now, default_half_life);
+                    out.entry(s.clone()).or_default().push((o.clone(), c));
+                }
+            }
+        }
+    }
+}
+
+/// Extract the OWL/RDF triples (the TBox axioms + folded `rdf:type` facts) directly
+/// from a live `GraphView`, WITHOUT the lossless-literal quad table (TBox axioms are
+/// resource triples — `subClassOf`/`onProperty`/`someValuesFrom`/etc. — so the quad
+/// table, which only holds multi-valued LITERALS, is irrelevant). Each edge becomes
+/// `(s, relationship, o)`; each node `type` cell becomes `(node, rdf:type, type)`. This
+/// is what a `Reason` Op classifies when no explicit ontology document is supplied —
+/// it reasons over the axioms already loaded into the graph via `AddTriples`.
+pub fn tbox_triples_from_view(view: &medulla_core::graph::GraphView) -> Vec<Triple> {
+    let mut out = ontology_triples_from_view(view);
+    let roles_by_native_label = ontology_roles_by_native_label(&out);
+    push_edge_triples(view, &roles_by_native_label, &mut out);
+    push_node_type_triples(view, &mut out);
+    out.sort_by_key(ToString::to_string);
+    out.dedup();
+    out
+}
+
+fn ontology_triples_from_view(view: &medulla_core::graph::GraphView) -> Vec<Triple> {
+    let mut out = Vec::new();
+    let mut seen_documents = BTreeSet::new();
+    for (source_id, document) in view.schema_sources.ontologies() {
+        let document_digest = medulla_types::contract::Digest256::sha256(document.as_bytes()).to_hex();
+        if !seen_documents.insert(document_digest) {
+            continue;
+        }
+        let scope = medulla_types::contract::Digest256::sha256(source_id.as_bytes()).to_hex();
+        let triples = crate::mapping::parse_turtle(document)
+            .expect("installed graph schema ontology was validated before publication");
+        out.extend(triples.into_iter().map(|triple| {
+            scope_schema_blank_nodes(triple, &scope[..16])
+                .expect("validated schema blank nodes remain valid after deterministic scoping")
+        }));
+    }
+    out
+}
+
+fn scope_schema_blank_nodes(triple: Triple, scope: &str) -> Result<Triple, String> {
+    let scoped = |node: BlankNode| {
+        BlankNode::new(format!("s{scope}_{}", node.as_str()))
+            .map_err(|error| format!("schema blank-node scoping failed: {error}"))
+    };
+    let subject = match triple.subject {
+        NamedOrBlankNode::NamedNode(node) => NamedOrBlankNode::NamedNode(node),
+        NamedOrBlankNode::BlankNode(node) => NamedOrBlankNode::BlankNode(scoped(node)?),
+    };
+    let object = match triple.object {
+        Term::NamedNode(node) => Term::NamedNode(node),
+        Term::BlankNode(node) => Term::BlankNode(scoped(node)?),
+        Term::Literal(literal) => Term::Literal(literal),
+        #[cfg(feature = "sparql-star")]
+        Term::Triple(triple) => Term::Triple(Box::new(scope_schema_blank_nodes(*triple, scope)?)),
+    };
+    Ok(Triple::new(subject, triple.predicate, object))
+}
+
+/// Parse a stored node id (`<iri>` or `_:blank`) into an RDF node. A bare label is not a
+/// term and has no node.
+fn tbox_node(id: &str) -> Option<NamedOrBlankNode> {
+    if let Some(i) = id.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
+        NamedNode::new(i).ok().map(NamedOrBlankNode::NamedNode)
+    } else if let Some(b) = id.strip_prefix("_:") {
+        BlankNode::new(b).ok().map(NamedOrBlankNode::BlankNode)
+    } else {
+        None
+    }
+}
+
+/// The same id in object position, where a bare IRI is also accepted — a folded `type` may
+/// be stored without angle brackets.
+fn tbox_object(id: &str) -> Option<Term> {
+    match tbox_node(id) {
+        Some(n) => Some(n.into()),
+        None => NamedNode::new(id).ok().map(Term::NamedNode),
+    }
+}
+
+/// Edges → object triples (predicate is the edge `relationship`). Half of
+/// [`tbox_triples_from_view`]'s two sources.
+fn push_edge_triples(
+    view: &medulla_core::graph::GraphView,
+    roles_by_native_label: &BTreeMap<String, Vec<String>>,
+    out: &mut Vec<Triple>,
+) {
+    for ((s, o), blobs) in &view.edge_properties {
+        for blob in blobs {
+            push_decoded_edge_triples(s, o, blob.as_slice(), roles_by_native_label, out);
+        }
+    }
+}
+
+fn push_decoded_edge_triples(
+    subject: &str,
+    object: &str,
+    blob: &[u8],
+    roles_by_native_label: &BTreeMap<String, Vec<String>>,
+    out: &mut Vec<Triple>,
+) {
+    let Ok(value) = medulla_types::msgpack::decode_property_value(blob) else {
+        return;
+    };
+    let Some(label) = value.get("relationship").and_then(|value| value.as_str()) else {
+        return;
+    };
+    let predicates = edge_predicates(label, roles_by_native_label);
+    let (Some(subject), Some(object)) = (tbox_node(subject), tbox_object(object)) else {
+        return;
+    };
+    out.extend(
+        predicates
+            .into_iter()
+            .map(|predicate| Triple::new(subject.clone(), predicate, object.clone())),
+    );
+}
+
+fn edge_predicates(
+    label: &str,
+    roles_by_native_label: &BTreeMap<String, Vec<String>>,
+) -> Vec<NamedNode> {
+    if let Ok(predicate) = NamedNode::new(label) {
+        return vec![predicate];
+    }
+    roles_by_native_label
+        .get(label)
+        .into_iter()
+        .flatten()
+        .filter_map(|role| {
+            let iri = role
+                .strip_prefix('<')
+                .and_then(|value| value.strip_suffix('>'))
+                .unwrap_or(role);
+            NamedNode::new(iri).ok()
+        })
+        .collect()
+}
+
+/// Node `type` cells → folded rdf:type triples. The other half of
+/// [`tbox_triples_from_view`]'s two sources.
+fn push_node_type_triples(view: &medulla_core::graph::GraphView, out: &mut Vec<Triple>) {
+    for (id, blob) in &view.node_properties {
+        if let Ok(v) = medulla_types::msgpack::decode_property_value(blob.as_slice()) {
+            if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
+                if let (Some(su), Some(ob)) = (tbox_node(id), tbox_object(t)) {
+                    if let Ok(rt) = NamedNode::new(RDF_TYPE) {
+                        out.push(Triple::new(su, rt, ob));
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Distributed (cross-shard) reasoning (CONCEPT:MEDULLA-KG.ontology.concept-13) ────────────────────
+
+/// The materialized result of a confidence-weighted reasoning run over one or more
+/// graph views (CONCEPT:MEDULLA-KG.ontology.concept-13). `subclasses` carries the derived subsumptions WITH
+/// confidence; `instances` the inferred memberships WITH confidence, already filtered
+/// by `min_confidence`. This is the shape both the single-graph and the cross-shard
+/// paths produce — so the distributed run is provably identical to the single-graph
+/// run on the union.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WeightedReasonResult {
+    /// `(sub, sup, confidence)` — the classification hierarchy with per-edge confidence.
+    pub subclasses: Vec<(String, String, f64)>,
+    /// `(instance, class, confidence)` — inferred memberships with `confidence ≥ τ`.
+    pub instances: Vec<(String, String, f64)>,
+    /// Asserted and RL-derived object-property facts with first-derivation
+    /// evidence.  This is separate from class subsumption: dropping it was the
+    /// reason mixed OWL corpora appeared to classify while silently losing
+    /// inverse/symmetric/transitive/property-chain consequences.
+    pub property_facts: Vec<PropertyEntailment>,
+    pub consistent: bool,
+    pub unsatisfiable: Vec<String>,
+}
+
+/// One saturated object-property fact and its deterministic first proof.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PropertyEntailment {
+    pub subject: String,
+    pub predicate: String,
+    pub object: String,
+    pub asserted: bool,
+    pub rule: String,
+    pub axiom: Option<String>,
+    pub premises: Vec<(String, String, String)>,
+}
+
+/// Run confidence-weighted EL⁺/RL reasoning over the UNION of `views` (each a graph /
+/// shard snapshot) plus optional extra `ontology` triples (CONCEPT:MEDULLA-KG.ontology.concept-13). Gathers
+/// every view's TBox axioms AND its asserted type facts (each with its decayed
+/// confidence, via [`asserted_types_with_confidence_from_view`]), unions them, and runs
+/// ONE weighted closure — so facts that span MULTIPLE shards classify together exactly
+/// as if they lived in one graph. When `target_class` is non-empty the instance result
+/// is restricted to that class's (inferred) members. `now`/`half_life` drive the fact
+/// decay; `min_confidence` thresholds the returned instances. A single-element `views`
+/// slice is the ordinary single-graph path (the fast path stays a one-graph gather).
+pub fn reason_distributed_weighted(
+    views: &[&medulla_core::graph::GraphView],
+    extra_ontology_triples: &[Triple],
+    now: u64,
+    half_life: f64,
+    class_base: &str,
+    target_class: &str,
+    min_confidence: f64,
+) -> Result<WeightedReasonResult, String> {
+    // 1. Gather + UNION the TBox axioms across every shard (+ the explicit ontology).
+    let triples = gather_distributed_tbox(views, extra_ontology_triples);
+
+    // 2. Classify the unioned TBox once, with confidence propagation.
+    let (cls, dl_instances) = classify_hybrid_with_instances(&triples);
+
+    // 3. Gather + UNION the asserted (decayed-confidence) facts across every shard.
+    //    A fact for the same instance asserted on two shards keeps the STRONGER.
+    // Bridge local string types into the caller's explicit current class namespace.
+    let asserted = gather_distributed_asserted_facts(views, now, half_life, class_base)?;
+
+    // 4. Project the weighted subsumptions + the thresholded instance memberships.
+    let subclasses = project_weighted_subclasses(&cls);
+    let mut instances = project_weighted_instances(&cls, &asserted, target_class, min_confidence);
+    merge_tableau_instances(&mut instances, dl_instances, target_class, min_confidence);
+    let property_facts = saturate_object_properties(&triples);
+
+    Ok(WeightedReasonResult {
+        subclasses,
+        instances,
+        property_facts,
+        consistent: cls.consistent,
+        unsatisfiable: cls.unsatisfiable.into_iter().collect(),
+    })
+}
+
+/// Classify with the EL/RL completion retained and merge the tableau's
+/// non-tractable class consequences.  Explanation and ordinary reasoning must
+/// use this same path or a mixed ontology can be accepted yet become
+/// inexplicable through the public proof surface.
+pub fn classify_hybrid_weighted(triples: &[Triple]) -> Classification {
+    classify_hybrid_with_instances(triples).0
+}
+
+fn classify_hybrid_with_instances(
+    triples: &[Triple],
+) -> (Classification, BTreeMap<String, BTreeSet<String>>) {
+    let mut reasoner = Reasoner::from_triples(triples);
+    let classification = reasoner.classify_weighted();
+    #[cfg(feature = "owl-dl")]
+    let result = {
+        let mut classification = classification;
+        let mut instances = BTreeMap::new();
+        if crate::tableau::needs_tableau(triples) {
+            // Feed the tableau the RL-saturated ABox role facts. The tableau
+            // intentionally does not implement inverse/symmetric/arbitrary
+            // property chains itself; without this union a cardinality or
+            // universal restriction could observe fewer role fillers than the
+            // certified hybrid semantics entails.
+            let tableau_triples = tableau_input_with_property_closure(triples);
+            let dl = crate::tableau::reason_dl(&tableau_triples);
+            instances = dl.instances.clone();
+            merge_tableau_classification(&mut classification, dl);
+        }
+        (classification, instances)
+    };
+    #[cfg(not(feature = "owl-dl"))]
+    let result = (classification, BTreeMap::new());
+    result
+}
+
+#[cfg(feature = "owl-dl")]
+fn tableau_input_with_property_closure(triples: &[Triple]) -> Vec<Triple> {
+    let mut union = triples.to_vec();
+    for fact in saturate_object_properties(triples) {
+        let Some(subject) = tbox_node(&fact.subject) else {
+            continue;
+        };
+        let Some(object) = tbox_object(&fact.object) else {
+            continue;
+        };
+        let predicate = fact
+            .predicate
+            .strip_prefix('<')
+            .and_then(|value| value.strip_suffix('>'))
+            .unwrap_or(&fact.predicate);
+        let Ok(predicate) = NamedNode::new(predicate) else {
+            continue;
+        };
+        union.push(Triple::new(subject, predicate, object));
+    }
+    union.sort_by_key(ToString::to_string);
+    union.dedup();
+    union
+}
+
+/// Merge tableau-only ABox memberships into the weighted public projection.
+/// Tableau decisions are hard entailments (`1.0`) because the current DL
+/// parser has no confidence annotations.  A `BTreeMap` provides stable order
+/// and keeps the strongest derivation when EL/RL already produced the same
+/// membership.
+fn merge_tableau_instances(
+    instances: &mut Vec<(String, String, f64)>,
+    dl_instances: BTreeMap<String, BTreeSet<String>>,
+    target_class: &str,
+    min_confidence: f64,
+) {
+    if min_confidence > 1.0 {
+        return;
+    }
+    let target = (!target_class.trim().is_empty()).then(|| normalize_target_class(target_class));
+    let mut merged: BTreeMap<(String, String), f64> = instances
+        .drain(..)
+        .map(|(individual, class, confidence)| ((individual, class), confidence))
+        .collect();
+    for (individual, classes) in dl_instances {
+        for class in classes {
+            if target.as_ref().is_some_and(|target| target != &class) {
+                continue;
+            }
+            merged
+                .entry((individual.clone(), class))
+                .and_modify(|confidence| *confidence = confidence.max(1.0))
+                .or_insert(1.0);
+        }
+    }
+    *instances = merged
+        .into_iter()
+        .map(|((individual, class), confidence)| (individual, class, confidence))
+        .collect();
+}
+
+/// Saturate ABox object-property assertions under the RL property fragment.
+///
+/// TBox parsing and fact saturation deliberately share [`Ontology`], so the
+/// same inverse/symmetric/sub-property/chain declarations drive both the EL
+/// role relation and live graph edges.  Facts are keyed in a `BTreeMap`; the
+/// first derivation in the fixed rule order is the stable explanation.
+pub fn saturate_object_properties(triples: &[Triple]) -> Vec<PropertyEntailment> {
+    let ontology = parse_ontology(triples);
+    let mut facts = asserted_object_property_facts(triples);
+    saturate_property_fixpoint(&ontology, &mut facts);
+    facts.into_values().collect()
+}
+
+type ObjectPropertyFact = (String, String, String);
+
+fn asserted_object_property_facts(
+    triples: &[Triple],
+) -> BTreeMap<ObjectPropertyFact, PropertyEntailment> {
+    let mut facts = BTreeMap::new();
+    for triple in triples {
+        if is_schema_statement(triple.predicate.as_str()) {
+            continue;
+        }
+        let object = match &triple.object {
+            Term::NamedNode(node) => iri(node.as_str()),
+            Term::BlankNode(node) => format!("_:{}", node.as_str()),
+            _ => continue,
+        };
+        let fact = (
+            term_key(&triple.subject.clone().into()),
+            iri(triple.predicate.as_str()),
+            object,
+        );
+        facts.entry(fact.clone()).or_insert(PropertyEntailment {
+            subject: fact.0,
+            predicate: fact.1,
+            object: fact.2,
+            asserted: true,
+            rule: "asserted".to_string(),
+            axiom: None,
+            premises: Vec::new(),
+        });
+    }
+    facts
+}
+
+fn saturate_property_fixpoint(
+    ontology: &Ontology,
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+) {
+    let mut changed = true;
+    let mut rounds = 0usize;
+    while changed && rounds < 100_000 && facts.len() < 1_000_000 {
+        rounds += 1;
+        changed = saturate_property_round(ontology, facts);
+    }
+}
+
+fn saturate_property_round(
+    ontology: &Ontology,
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+) -> bool {
+    let snapshot: Vec<ObjectPropertyFact> = facts.keys().cloned().collect();
+    let mut changed = derive_subproperty_facts(facts, &snapshot, &ontology.sub_roles);
+    changed |= derive_symmetric_facts(facts, &snapshot, &ontology.symmetric);
+    changed |= derive_inverse_facts(facts, &snapshot, &ontology.inverses);
+    let by_role = property_fact_index(facts.keys());
+    changed |= derive_property_chain_facts(facts, &by_role, &ontology.chains);
+    changed
+}
+
+fn derive_subproperty_facts(
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+    snapshot: &[ObjectPropertyFact],
+    roles: &[(String, String, String, f64)],
+) -> bool {
+    let mut changed = false;
+    for (sub, sup, label, _) in roles {
+        for fact in snapshot.iter().filter(|fact| &fact.1 == sub) {
+            changed |= insert_property_fact(
+                facts,
+                (fact.0.clone(), sup.clone(), fact.2.clone()),
+                "RL-subPropertyOf",
+                Some(label.clone()),
+                vec![fact.clone()],
+            );
+        }
+    }
+    changed
+}
+
+fn derive_symmetric_facts(
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+    snapshot: &[ObjectPropertyFact],
+    roles: &BTreeSet<String>,
+) -> bool {
+    let mut changed = false;
+    for role in roles {
+        for fact in snapshot.iter().filter(|fact| &fact.1 == role) {
+            changed |= insert_property_fact(
+                facts,
+                (fact.2.clone(), role.clone(), fact.0.clone()),
+                "RL-symmetric",
+                Some(format!("{} rdf:type owl:SymmetricProperty", short(role))),
+                vec![fact.clone()],
+            );
+        }
+    }
+    changed
+}
+
+fn derive_inverse_facts(
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+    snapshot: &[ObjectPropertyFact],
+    inverses: &[(String, String)],
+) -> bool {
+    let mut changed = false;
+    for (left, right) in inverses {
+        for (from, to) in [(left, right), (right, left)] {
+            for fact in snapshot.iter().filter(|fact| &fact.1 == from) {
+                changed |= insert_property_fact(
+                    facts,
+                    (fact.2.clone(), to.clone(), fact.0.clone()),
+                    "RL-inverseOf",
+                    Some(format!("{} owl:inverseOf {}", short(left), short(right))),
+                    vec![fact.clone()],
+                );
+            }
+        }
+    }
+    changed
+}
+
+fn derive_property_chain_facts(
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+    by_role: &BTreeMap<String, Vec<(String, String)>>,
+    chains: &[RoleChain],
+) -> bool {
+    let mut changed = false;
+    for chain in chains {
+        changed |= derive_one_property_chain(facts, by_role, chain);
+    }
+    changed
+}
+
+fn derive_one_property_chain(
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+    by_role: &BTreeMap<String, Vec<(String, String)>>,
+    chain: &RoleChain,
+) -> bool {
+    let Some(first_role) = chain.chain.first() else {
+        return false;
+    };
+    let Some(starts) = by_role.get(first_role) else {
+        return false;
+    };
+    let mut changed = false;
+    for (subject, first_object) in starts {
+        changed |= derive_property_chain_from_start(facts, by_role, chain, subject, first_object);
+    }
+    changed
+}
+
+fn derive_property_chain_from_start(
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+    by_role: &BTreeMap<String, Vec<(String, String)>>,
+    chain: &RoleChain,
+    subject: &str,
+    first_object: &str,
+) -> bool {
+    let first_role = &chain.chain[0];
+    let mut premises = vec![(
+        subject.to_string(),
+        first_role.clone(),
+        first_object.to_string(),
+    )];
+    let mut completions = Vec::new();
+    follow_property_chain(
+        by_role,
+        &chain.chain,
+        1,
+        first_object,
+        &mut premises,
+        &mut completions,
+    );
+    completions
+        .into_iter()
+        .fold(false, |changed, (object, proof)| {
+            insert_property_fact(
+                facts,
+                (subject.to_string(), chain.sup.clone(), object),
+                "RL-propertyChain",
+                Some(chain.label.clone()),
+                proof,
+            ) || changed
+        })
+}
+
+fn is_schema_statement(predicate: &str) -> bool {
+    matches!(
+        predicate,
+        RDF_TYPE
+            | RDF_FIRST
+            | RDF_REST
+            | RDFS_SUBCLASS_OF
+            | RDFS_SUBPROPERTY_OF
+            | RDFS_DOMAIN
+            | RDFS_RANGE
+            | OWL_EQUIVALENT_CLASS
+            | OWL_EQUIVALENT_PROPERTY
+            | OWL_PROPERTY_CHAIN_AXIOM
+            | OWL_INVERSE_OF
+            | OWL_DISJOINT_WITH
+            | OWL_SAME_AS
+            | OWL_DIFFERENT_FROM
+    )
+}
+
+type PropertyFact = (String, String, String);
+type PropertyChainMatch = (String, Vec<PropertyFact>);
+
+fn insert_property_fact(
+    facts: &mut BTreeMap<PropertyFact, PropertyEntailment>,
+    fact: PropertyFact,
+    rule: &str,
+    axiom: Option<String>,
+    premises: Vec<PropertyFact>,
+) -> bool {
+    if facts.contains_key(&fact) {
+        return false;
+    }
+    facts.insert(
+        fact.clone(),
+        PropertyEntailment {
+            subject: fact.0,
+            predicate: fact.1,
+            object: fact.2,
+            asserted: false,
+            rule: rule.to_string(),
+            axiom,
+            premises,
+        },
+    );
+    true
+}
+
+fn property_fact_index<'a>(
+    facts: impl Iterator<Item = &'a PropertyFact>,
+) -> BTreeMap<String, Vec<(String, String)>> {
+    let mut index = BTreeMap::<String, Vec<(String, String)>>::new();
+    for (subject, predicate, object) in facts {
+        index
+            .entry(predicate.clone())
+            .or_default()
+            .push((subject.clone(), object.clone()));
+    }
+    index
+}
+
+fn follow_property_chain(
+    index: &BTreeMap<String, Vec<(String, String)>>,
+    chain: &[String],
+    offset: usize,
+    current: &str,
+    premises: &mut Vec<PropertyFact>,
+    out: &mut Vec<PropertyChainMatch>,
+) {
+    if offset == chain.len() {
+        out.push((current.to_string(), premises.clone()));
+        return;
+    }
+    let Some(edges) = index.get(&chain[offset]) else {
+        return;
+    };
+    for (subject, object) in edges.iter().filter(|(subject, _)| subject == current) {
+        premises.push((subject.clone(), chain[offset].clone(), object.clone()));
+        follow_property_chain(index, chain, offset + 1, object, premises, out);
+        premises.pop();
+    }
+}
+
+/// Merge the DL decision into the always-run EL/RL closure.
+///
+/// The tableau supplies satisfiability and the named-class consequences that
+/// require cardinality/negation/nominals/by-cases.  EL/RL remains authoritative
+/// for role/property saturation; replacing it wholesale would drop inverse,
+/// symmetric, transitive and arbitrary-chain consequences from a mixed corpus.
+#[cfg(feature = "owl-dl")]
+fn merge_tableau_classification(
+    classification: &mut Classification,
+    dl: crate::tableau::DlReasoningResult,
+) {
+    let nothing = iri(OWL_NOTHING);
+    merge_tableau_subsumers(classification, dl.subsumers, &nothing);
+    close_hybrid_subsumption(classification, &nothing);
+    classification.consistent =
+        classification.consistent && classification.unsatisfiable.is_empty() && dl.consistent;
+}
+
+#[cfg(feature = "owl-dl")]
+fn merge_tableau_subsumers(
+    classification: &mut Classification,
+    subsumers: BTreeMap<String, BTreeSet<String>>,
+    nothing: &str,
+) {
+    for (sub, supers) in subsumers {
+        for sup in supers {
+            record_tableau_subsumption(classification, &sub, &sup, nothing);
+        }
+    }
+}
+
+#[cfg(feature = "owl-dl")]
+fn record_tableau_subsumption(
+    classification: &mut Classification,
+    sub: &str,
+    sup: &str,
+    nothing: &str,
+) {
+    if classification
+        .subsumers
+        .entry(sub.to_string())
+        .or_default()
+        .insert(sup.to_string())
+    {
+        classification
+            .confidence
+            .insert((sub.to_string(), sup.to_string()), 1.0);
+        classification.justifications.insert(
+            (sub.to_string(), sup.to_string()),
+            Justification {
+                rule: "DL-tableau",
+                axioms: vec!["tableau refutation of subclass counter-model".to_string()],
+                premises: Vec::new(),
+            },
+        );
+    }
+    if sup == nothing && sub != nothing {
+        classification.unsatisfiable.insert(sub.to_string());
+    }
+}
+
+#[cfg(feature = "owl-dl")]
+fn close_hybrid_subsumption(classification: &mut Classification, nothing: &str) {
+    // The EL/RL result was already transitively closed before the tableau
+    // added its mixed-profile edges. Re-close that combined relation so an EL
+    // path into/out of a DL-relevant class remains visible without asking the
+    // tableau O(|classes|^2) redundant questions. Preserve an explicit
+    // two-premise proof for every newly exposed path.
+    loop {
+        let snapshot = classification.subsumers.clone();
+        let additions = collect_hybrid_subsumption_additions(&snapshot);
+        if additions.is_empty() {
+            break;
+        }
+        for ((sub, sup), mid) in additions {
+            record_hybrid_subsumption(classification, sub, sup, mid, nothing);
+        }
+    }
+}
+
+#[cfg(feature = "owl-dl")]
+fn collect_hybrid_subsumption_additions(
+    snapshot: &BTreeMap<String, BTreeSet<String>>,
+) -> BTreeMap<(String, String), String> {
+    let mut additions = BTreeMap::new();
+    for (sub, mids) in snapshot {
+        collect_class_subsumption_additions(sub, mids, snapshot, &mut additions);
+    }
+    additions
+}
+
+#[cfg(feature = "owl-dl")]
+fn collect_class_subsumption_additions(
+    sub: &str,
+    mids: &BTreeSet<String>,
+    snapshot: &BTreeMap<String, BTreeSet<String>>,
+    additions: &mut BTreeMap<(String, String), String>,
+) {
+    let Some(known_supers) = snapshot.get(sub) else {
+        return;
+    };
+    for mid in mids {
+        let Some(supers) = snapshot.get(mid) else {
+            continue;
+        };
+        collect_missing_supers(sub, mid, supers, known_supers, additions);
+    }
+}
+
+#[cfg(feature = "owl-dl")]
+fn collect_missing_supers(
+    sub: &str,
+    mid: &str,
+    supers: &BTreeSet<String>,
+    known_supers: &BTreeSet<String>,
+    additions: &mut BTreeMap<(String, String), String>,
+) {
+    for sup in supers {
+        if !known_supers.contains(sup) {
+            additions
+                .entry((sub.to_string(), sup.clone()))
+                .or_insert_with(|| mid.to_string());
+        }
+    }
+}
+
+#[cfg(feature = "owl-dl")]
+fn record_hybrid_subsumption(
+    classification: &mut Classification,
+    sub: String,
+    sup: String,
+    mid: String,
+    nothing: &str,
+) {
+    classification
+        .subsumers
+        .entry(sub.clone())
+        .or_default()
+        .insert(sup.clone());
+    let confidence = classification.subclass_confidence(&sub, &mid)
+        * classification.subclass_confidence(&mid, &sup);
+    classification
+        .confidence
+        .insert((sub.clone(), sup.clone()), confidence);
+    classification.justifications.insert(
+        (sub.clone(), sup.clone()),
+        Justification {
+            rule: "CR-sub",
+            axioms: vec!["hybrid tableau/EL closure".to_string()],
+            premises: vec![(sub.clone(), mid.clone()), (mid, sup.clone())],
+        },
+    );
+    if sup == nothing {
+        classification.unsatisfiable.insert(sub);
+    }
+}
+
+/// Step 1 of [`reason_distributed_weighted`]: union every shard's TBox triples with the
+/// caller's explicit ontology triples.
+fn gather_distributed_tbox(
+    views: &[&medulla_core::graph::GraphView],
+    extra_ontology_triples: &[Triple],
+) -> Vec<Triple> {
+    let mut triples: Vec<Triple> = Vec::new();
+    for v in views {
+        triples.extend(tbox_triples_from_view(v));
+    }
+    triples.extend_from_slice(extra_ontology_triples);
+    triples
+}
+
+/// Step 3 of [`reason_distributed_weighted`]: union every shard's decayed-confidence
+/// asserted type facts. A fact for the same instance asserted on two shards keeps both
+/// (the strongest wins later, at the point each is consumed).
+fn gather_distributed_asserted_facts(
+    views: &[&medulla_core::graph::GraphView],
+    now: u64,
+    half_life: f64,
+    class_base: &str,
+) -> Result<HashMap<String, Vec<(String, f64)>>, String> {
+    let mut asserted: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+    for v in views {
+        for (inst, facts) in
+            asserted_types_with_confidence_from_view(v, now, half_life, class_base)?
+        {
+            asserted.entry(inst).or_default().extend(facts);
+        }
+    }
+    Ok(asserted)
+}
+
+/// First half of step 4: the classified subsumption hierarchy, with per-edge
+/// confidence, in stable sorted order.
+fn project_weighted_subclasses(cls: &Classification) -> Vec<(String, String, f64)> {
+    let mut subclasses: Vec<(String, String, f64)> = Vec::new();
+    for (sub, sups) in &cls.subsumers {
+        for sup in sups {
+            subclasses.push((sub.clone(), sup.clone(), cls.subclass_confidence(sub, sup)));
+        }
+    }
+    subclasses.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    subclasses
+}
+
+/// Second half of step 4: the thresholded instance memberships, either every class
+/// (`target_class` empty) or one class's members (via [`instances_of_weighted`]).
+fn project_weighted_instances(
+    cls: &Classification,
+    asserted: &HashMap<String, Vec<(String, f64)>>,
+    target_class: &str,
+    min_confidence: f64,
+) -> Vec<(String, String, f64)> {
+    if target_class.trim().is_empty() {
+        project_all_weighted_instances(cls, asserted, min_confidence)
+    } else {
+        let target = normalize_target_class(target_class);
+        instances_of_weighted(cls, asserted, &target, min_confidence)
+            .into_iter()
+            .map(|(inst, conf)| (inst, target.clone(), conf))
+            .collect()
+    }
+}
+
+/// The `target_class`-empty branch of [`project_weighted_instances`]: every inferred
+/// membership at or above `min_confidence`, sorted by descending confidence.
+fn project_all_weighted_instances(
+    cls: &Classification,
+    asserted: &HashMap<String, Vec<(String, f64)>>,
+    min_confidence: f64,
+) -> Vec<(String, String, f64)> {
+    let mat = materialize_instances_weighted(cls, asserted);
+    let mut out = Vec::new();
+    for (inst, classes) in mat {
+        for (c, conf) in classes {
+            if conf >= min_confidence {
+                out.push((inst.clone(), c, conf));
+            }
+        }
+    }
+    out.sort_by(|a, b| {
+        b.2.partial_cmp(&a.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)))
+    });
+    out
+}
+
+/// Canonicalize a caller-supplied class id to `<iri>` form.
+fn normalize_target_class(target_class: &str) -> String {
+    if target_class.starts_with('<') {
+        target_class.to_string()
+    } else {
+        format!(
+            "<{}>",
+            target_class.trim_start_matches('<').trim_end_matches('>')
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mapping::parse_turtle;
+
+    #[test]
+    fn tableau_instance_merge_is_deterministic_filtered_and_deduplicated() {
+        let mut instances = vec![(
+            iri("http://example.org/a"),
+            iri("http://example.org/C"),
+            0.4,
+        )];
+        let dl = BTreeMap::from([(
+            iri("http://example.org/a"),
+            BTreeSet::from([iri("http://example.org/C"), iri("http://example.org/D")]),
+        )]);
+        merge_tableau_instances(&mut instances, dl, "http://example.org/C", 0.0);
+        assert_eq!(
+            instances,
+            vec![(
+                iri("http://example.org/a"),
+                iri("http://example.org/C"),
+                1.0
+            )]
+        );
+    }
+
+    #[cfg(feature = "owl-dl")]
+    #[test]
+    fn hybrid_tableau_instances_observe_rl_subproperty_role_fillers() {
+        let triples = parse_turtle(
+            r#"
+@prefix ex: <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+ex:base rdfs:subPropertyOf ex:providedBy .
+ex:Redundant owl:equivalentClass [
+  owl:onProperty ex:providedBy ;
+  owl:minCardinality "2"^^<http://www.w3.org/2001/XMLSchema#nonNegativeInteger>
+] .
+ex:a ex:base ex:b, ex:c .
+ex:b owl:differentFrom ex:c .
+"#,
+        )
+        .unwrap();
+        let (_, instances) = classify_hybrid_with_instances(&triples);
+        assert!(instances
+            .get(&iri("http://example.org/a"))
+            .is_some_and(|classes| classes.contains(&iri("http://example.org/Redundant"))));
+    }
+
+    #[test]
+    fn object_property_saturation_keeps_inverse_symmetric_transitive_and_chain_proofs() {
+        let triples = parse_turtle(
+            r#"
+@prefix ex: <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+ex:parent rdf:type owl:TransitiveProperty .
+ex:friend rdf:type owl:SymmetricProperty .
+ex:contains owl:inverseOf ex:partOf .
+ex:dependsOn owl:propertyChainAxiom ( ex:parent ex:contains ) .
+ex:a ex:parent ex:b .
+ex:b ex:parent ex:c .
+ex:a ex:friend ex:d .
+ex:c ex:contains ex:e .
+"#,
+        )
+        .unwrap();
+        let facts = saturate_object_properties(&triples);
+        let find = |subject: &str, predicate: &str, object: &str| {
+            facts
+                .iter()
+                .find(|fact| {
+                    fact.subject == iri(subject)
+                        && fact.predicate == iri(predicate)
+                        && fact.object == iri(object)
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            find(
+                "http://example.org/a",
+                "http://example.org/parent",
+                "http://example.org/c"
+            )
+            .rule,
+            "RL-propertyChain"
+        );
+        assert_eq!(
+            find(
+                "http://example.org/d",
+                "http://example.org/friend",
+                "http://example.org/a"
+            )
+            .rule,
+            "RL-symmetric"
+        );
+        assert_eq!(
+            find(
+                "http://example.org/e",
+                "http://example.org/partOf",
+                "http://example.org/c"
+            )
+            .rule,
+            "RL-inverseOf"
+        );
+        let chain = find(
+            "http://example.org/b",
+            "http://example.org/dependsOn",
+            "http://example.org/e",
+        );
+        assert_eq!(chain.rule, "RL-propertyChain");
+        assert_eq!(chain.premises.len(), 2);
+    }
+
+    #[test]
+    fn immutable_capability_source_is_present_in_normal_graph_reasoning() {
+        let core = medulla_core::graph::GraphCore::new();
+        let classification =
+            Reasoner::from_triples(&tbox_triples_from_view(&core.analysis_snapshot())).classify();
+        assert!(classification.entails_subclass(
+            "<http://knuckles.team/kg#CollaborationCapability>",
+            "<http://knuckles.team/kg#ServiceCapability>"
+        ));
+    }
+
+    #[test]
+    fn native_relationship_labels_resolve_through_the_committed_ontology() {
+        let core = medulla_core::graph::GraphCore::new();
+        for id in ["<urn:test:a>", "<urn:test:b>", "<urn:test:c>"] {
+            core.add_node(
+                id.to_string(),
+                rmp_serde::to_vec_named(&serde_json::json!({"type": "Thing"})).unwrap(),
+            );
+        }
+        for (source, target) in [
+            ("<urn:test:a>", "<urn:test:b>"),
+            ("<urn:test:b>", "<urn:test:c>"),
+        ] {
+            core.add_edge(
+                source.to_string(),
+                target.to_string(),
+                rmp_serde::to_vec_named(&serde_json::json!({"relationship": "PART_OF"})).unwrap(),
+            )
+            .unwrap();
+        }
+        let triples = tbox_triples_from_view(&core.analysis_snapshot());
+        let facts = saturate_object_properties(&triples);
+        // Facts carry canonical `<iri>` ids, like every other saturation result.
+        assert!(
+            facts.iter().any(|fact| {
+                fact.subject == iri("urn:test:a")
+                    && fact.predicate == iri("http://knuckles.team/kg#partOf")
+                    && fact.object == iri("urn:test:c")
+                    && fact.rule == "RL-propertyChain"
+            }),
+            "no transitive partOf(a, c) among {:?}",
+            facts
+                .iter()
+                .filter(|fact| fact.subject == iri("urn:test:a"))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn attached_ontology_enters_tbox_union_and_detach_withdraws_it() {
+        let core = medulla_core::graph::GraphCore::new();
+        let ontology = r#"
+@prefix ex: <http://example.org/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+ex:AttachedChild rdfs:subClassOf ex:AttachedParent .
+"#;
+        let mut sources = (*core.schema_sources()).clone();
+        sources
+            .attach_dynamic(
+                "admin:owl-test".to_string(),
+                medulla_core::graph::GraphSchemaSource::new(
+                    medulla_core::graph::SchemaSourceOrigin::Admin {
+                        name: "owl-test".to_string(),
+                    },
+                    None,
+                    Some(std::sync::Arc::from(ontology)),
+                    0,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        core.install_schema_sources(std::sync::Arc::new(sources));
+        let classification =
+            Reasoner::from_triples(&tbox_triples_from_view(&core.analysis_snapshot())).classify();
+        assert!(classification.entails_subclass(
+            "<http://example.org/AttachedChild>",
+            "<http://example.org/AttachedParent>"
+        ));
+
+        let mut sources = (*core.schema_sources()).clone();
+        assert!(sources.detach_dynamic("admin:owl-test"));
+        core.install_schema_sources(std::sync::Arc::new(sources));
+        let classification =
+            Reasoner::from_triples(&tbox_triples_from_view(&core.analysis_snapshot())).classify();
+        assert!(!classification.entails_subclass(
+            "<http://example.org/AttachedChild>",
+            "<http://example.org/AttachedParent>"
+        ));
+    }
+
+    /// The headline proof: EL derives `HumanHeart ⊑ HumanComponent` through an
+    /// existential restriction on the LHS of a subclass axiom + a role chain — an
+    /// entailment the RL `reasoning.rs` cannot reach (no concrete partOf edge exists).
+    #[test]
+    fn el_derives_existential_restriction_subsumption() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+
+ex:Heart      rdfs:subClassOf [ a owl:Restriction ;
+                                owl:onProperty ex:partOf ;
+                                owl:someValuesFrom ex:Body ] .
+[ a owl:Restriction ; owl:onProperty ex:partOf ; owl:someValuesFrom ex:Body ]
+              rdfs:subClassOf ex:HumanComponent .
+ex:HumanHeart rdfs:subClassOf ex:Heart .
+ex:partOf     owl:propertyChainAxiom ( ex:partOf ex:partOf ) .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let cls = reasoner.classify();
+        assert!(cls.consistent, "ontology is consistent");
+        assert!(
+            cls.entails_subclass(
+                "<http://example.org/HumanHeart>",
+                "<http://example.org/HumanComponent>"
+            ),
+            "EL must derive HumanHeart ⊑ HumanComponent through ∃partOf.Body on the LHS;\n S(HumanHeart) = {:?}",
+            cls.subsumers.get("<http://example.org/HumanHeart>")
+        );
+        // And a justification cites the existential-restriction axiom.
+        let j = cls.justifications.get(&(
+            "<http://example.org/HumanHeart>".into(),
+            "<http://example.org/HumanComponent>".into(),
+        ));
+        assert!(
+            j.is_some(),
+            "the derived subsumption must carry a justification"
+        );
+    }
+
+    /// equivalentClass is a two-way subclass — `Person ≡ HumanBeing` propagates
+    /// `Mortal` both ways (a class-level RL-reachable case EL also handles).
+    #[test]
+    fn el_handles_equivalent_class() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Person     owl:equivalentClass ex:HumanBeing .
+ex:HumanBeing rdfs:subClassOf      ex:Mortal .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let cls = reasoner.classify();
+        assert!(cls.entails_subclass("<http://example.org/Person>", "<http://example.org/Mortal>"));
+        // Equivalence is symmetric: HumanBeing ⊑ Person too.
+        assert!(cls.entails_subclass(
+            "<http://example.org/HumanBeing>",
+            "<http://example.org/Person>"
+        ));
+    }
+
+    /// Conjunctive LHS (EL ⊓): `Parent ⊓ Male ⊑ Father`; a class subsumed by both
+    /// conjuncts gets `Father`.
+    #[test]
+    fn el_conjunction_left_hand_side() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+[ owl:intersectionOf ( ex:Parent ex:Male ) ] rdfs:subClassOf ex:Father .
+ex:Dad rdfs:subClassOf ex:Parent .
+ex:Dad rdfs:subClassOf ex:Male .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let cls = reasoner.classify();
+        assert!(
+            cls.entails_subclass("<http://example.org/Dad>", "<http://example.org/Father>"),
+            "Dad ⊑ Parent ⊓ Male ⇒ Dad ⊑ Father; S(Dad) = {:?}",
+            cls.subsumers.get("<http://example.org/Dad>")
+        );
+    }
+
+    /// `rdfs:range` constrains CONCEPT-level classification (CONCEPT:MEDULLA-KG.ontology.owl-reasoning): with
+    /// `Person ⊑ ∃hasPet.Dog` and `range(hasPet, Animal)`, a Person's pet is a
+    /// `Dog ⊓ Animal`, so `∃hasPet.Animal ⊑ PetOwner` classifies `Person ⊑ PetOwner`
+    /// PURELY in the EL closure — no concrete `hasPet` edge exists, so the RL/instance
+    /// path cannot reach this. The range does NOT make every `Dog` an `Animal`: only
+    /// the `hasPet`-successors are constrained (EH-356).
+    #[test]
+    fn el_range_axiom_classifies_filler() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Person rdfs:subClassOf [ a owl:Restriction ;
+                            owl:onProperty ex:hasPet ;
+                            owl:someValuesFrom ex:Dog ] .
+ex:hasPet rdfs:range ex:Animal .
+[ a owl:Restriction ; owl:onProperty ex:hasPet ; owl:someValuesFrom ex:Animal ]
+    rdfs:subClassOf ex:PetOwner .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let cls = reasoner.classify();
+        assert!(cls.consistent, "ontology is consistent");
+        let (person, owner) = (
+            "<http://example.org/Person>",
+            "<http://example.org/PetOwner>",
+        );
+        assert!(
+            cls.entails_subclass(person, owner),
+            "range(hasPet, Animal) must refine the pet to Dog ⊓ Animal; S(Person) = {:?}",
+            cls.subsumers.get(person)
+        );
+        assert!(!cls.entails_subclass("<http://example.org/Dog>", "<http://example.org/Animal>"));
+        // The derived subsumption carries a justification.
+        assert!(
+            cls.justifications
+                .contains_key(&(person.into(), owner.into())),
+            "the range-derived subsumption must carry a justification"
+        );
+    }
+
+    /// Consistency checking: `owl:disjointWith` + a class subsumed by BOTH disjoint
+    /// classes derives ⊥ ⇒ the ontology is inconsistent and the class unsatisfiable.
+    #[test]
+    fn consistency_detects_bottom_derivation() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Alive owl:disjointWith ex:Dead .
+ex:Zombie rdfs:subClassOf ex:Alive .
+ex:Zombie rdfs:subClassOf ex:Dead .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let cls = reasoner.classify();
+        assert!(
+            !cls.consistent,
+            "Zombie ⊑ Alive ⊓ Dead (disjoint) ⇒ inconsistent"
+        );
+        assert!(cls.unsatisfiable.contains("<http://example.org/Zombie>"));
+    }
+
+    /// A consistent ontology with no disjointness reports consistent + no unsat.
+    #[test]
+    fn consistent_ontology_is_consistent() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Dog rdfs:subClassOf ex:Animal .
+ex:Animal rdfs:subClassOf ex:LivingThing .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let cls = reasoner.classify();
+        assert!(cls.consistent && cls.unsatisfiable.is_empty());
+        assert!(cls.entails_subclass(
+            "<http://example.org/Dog>",
+            "<http://example.org/LivingThing>"
+        ));
+    }
+
+    /// CONCEPT:MEDULLA-KG.ontology.owl-proof-tree-explanation — `explain` reconstructs the FULL proof tree for the
+    /// classic transitive-subClassOf entailment `Dog ⊑ Animal ⊑ LivingThing ⇒ Dog ⊑
+    /// LivingThing`, recursively down to the ASSERTED axiom leaves. The root cites the
+    /// `Animal ⊑ LivingThing` axiom over a premise `Dog ⊑ Animal`, which itself resolves
+    /// to the `Dog ⊑ Animal` axiom over a REFLEXIVE (asserted) leaf `Dog ⊑ Dog`.
+    #[test]
+    fn explain_reconstructs_transitive_subclass_proof_tree() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Dog rdfs:subClassOf ex:Animal .
+ex:Animal rdfs:subClassOf ex:LivingThing .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let cls = reasoner.classify();
+        const DOG: &str = "<http://example.org/Dog>";
+        const ANIMAL: &str = "<http://example.org/Animal>";
+        const LIVING: &str = "<http://example.org/LivingThing>";
+        assert!(cls.entails_subclass(DOG, LIVING));
+
+        let tree = cls.explain(DOG, LIVING).expect("Dog ⊑ LivingThing holds");
+        assert_eq!(tree.sub, DOG);
+        assert_eq!(tree.sup, LIVING);
+        assert_eq!(tree.rule, "CR-sub");
+        assert!(!tree.is_leaf(), "the root is derived, not asserted");
+        assert_eq!(tree.premises.len(), 1, "CR-sub has exactly one premise");
+
+        // The one premise is the intermediate subsumption Dog ⊑ Animal.
+        let mid = &tree.premises[0];
+        assert_eq!((mid.sub.as_str(), mid.sup.as_str()), (DOG, ANIMAL));
+        assert_eq!(mid.rule, "CR-sub");
+        assert!(!mid.is_leaf());
+        assert_eq!(mid.premises.len(), 1);
+
+        // Which bottoms out at the REFLEXIVE asserted leaf Dog ⊑ Dog.
+        let leaf = &mid.premises[0];
+        assert_eq!((leaf.sub.as_str(), leaf.sup.as_str()), (DOG, DOG));
+        assert_eq!(leaf.rule, "asserted");
+        assert!(
+            leaf.is_leaf(),
+            "a reflexive base fact has no further premises"
+        );
+
+        // Depth is 3 (root → mid → leaf); every axiom label is reachable via all_axioms.
+        assert_eq!(tree.depth(), 3);
+        let axioms = tree.all_axioms();
+        assert!(axioms.iter().any(|a| a.contains("LivingThing")));
+        assert!(axioms.iter().any(|a| a.contains("Animal")));
+    }
+
+    /// `explain` returns `None` when the subsumption does not hold (nothing to explain).
+    #[test]
+    fn explain_returns_none_for_non_entailed_subsumption() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Dog rdfs:subClassOf ex:Animal .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let cls = reasoner.classify();
+        assert!(cls
+            .explain("<http://example.org/Cat>", "<http://example.org/Animal>")
+            .is_none());
+    }
+
+    /// CONCEPT:MEDULLA-KG.ontology.owl-proof-tree-explanation — `explain_instance` composes an asserted type fact with
+    /// the TBox subsumption proof: `rex rdf:type Dog`, `Dog ⊑ Animal` ⇒ `rex : Animal`,
+    /// with a proof tree citing BOTH the asserted fact and the `Dog ⊑ Animal` axiom.
+    #[test]
+    fn explain_instance_composes_asserted_fact_and_subclass_proof() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Dog rdfs:subClassOf ex:Animal .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let cls = reasoner.classify();
+
+        let mut asserted: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+        asserted.insert(
+            "<http://example.org/rex>".to_string(),
+            vec![("<http://example.org/Dog>".to_string(), 1.0)],
+        );
+
+        let tree = explain_instance(
+            &cls,
+            &asserted,
+            "<http://example.org/rex>",
+            "<http://example.org/Animal>",
+        )
+        .expect("rex is a Dog, Dog ⊑ Animal ⇒ rex : Animal");
+        assert_eq!(tree.rule, "CR-instance");
+        assert_eq!(tree.premises.len(), 2, "asserted fact + TBox subsumption");
+        assert!(tree.premises[0].axioms[0].contains("rdf:type"));
+        assert_eq!(tree.premises[1].sub, "<http://example.org/Dog>");
+        assert_eq!(tree.premises[1].sup, "<http://example.org/Animal>");
+
+        // No membership when there is no path from any asserted type to the class.
+        assert!(explain_instance(
+            &cls,
+            &asserted,
+            "<http://example.org/rex>",
+            "<http://example.org/Plant>",
+        )
+        .is_none());
+    }
+
+    /// Incremental materialization: classify, then ADD an axiom and re-saturate —
+    /// only the new consequence appears, and the result equals a from-scratch run.
+    #[test]
+    fn incremental_add_axiom_only_adds() {
+        let base = r#"
+@prefix ex:  <http://example.org/> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Dog rdfs:subClassOf ex:Mammal .
+"#;
+        let mut reasoner = Reasoner::from_triples(&parse_turtle(base).unwrap());
+        let before = reasoner.classify();
+        assert!(before.entails_subclass("<http://example.org/Dog>", "<http://example.org/Mammal>"));
+        assert!(!before.entails_subclass("<http://example.org/Dog>", "<http://example.org/Animal>"));
+
+        // Delta: Mammal ⊑ Animal. Incrementally derive Dog ⊑ Animal.
+        let delta_ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Mammal rdfs:subClassOf ex:Animal .
+"#;
+        let delta = parse_ontology(&parse_turtle(delta_ttl).unwrap());
+        let after = reasoner.add_axioms(delta);
+        assert!(after.entails_subclass("<http://example.org/Dog>", "<http://example.org/Animal>"));
+        // Monotone: every prior subsumption still holds.
+        for (a, subs) in &before.subsumers {
+            for b in subs {
+                assert!(
+                    after.entails_subclass(a, b),
+                    "incremental dropped {a} ⊑ {b}"
+                );
+            }
+        }
+
+        // Equivalence to a from-scratch run over the union.
+        let full_ttl = format!("{base}\n{delta_ttl}");
+        let mut scratch = Reasoner::from_triples(&parse_turtle(&full_ttl).unwrap());
+        let scratch_cls = scratch.classify();
+        assert_eq!(
+            after.subsumers.get("<http://example.org/Dog>"),
+            scratch_cls.subsumers.get("<http://example.org/Dog>"),
+            "incremental S(Dog) must equal the from-scratch S(Dog)"
+        );
+    }
+
+    // ── Probabilistic / confidence-weighted reasoning (CONCEPT:MEDULLA-KG.ontology.concept-13) ─────────
+
+    /// PROOF 1 — a chain of HIGH-confidence axioms yields a HIGH-confidence entailment.
+    /// `Dog ⊑ Mammal (0.9)`, `Mammal ⊑ Animal (0.9)` ⇒ `Dog ⊑ Animal` at `0.81`
+    /// (the conjunctive product 0.9·0.9), still high.
+    #[test]
+    fn prob_high_confidence_chain_stays_high() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+@prefix eg:  <http://medulla/owl#> .
+ex:Dog    rdfs:subClassOf ex:Mammal .
+ex:Dog    eg:confidence "0.9" .
+ex:Mammal rdfs:subClassOf ex:Animal .
+ex:Mammal eg:confidence "0.9" .
+"#;
+        let mut r = Reasoner::from_triples(&parse_turtle(ttl).unwrap());
+        let cls = r.classify_weighted();
+        let c = cls.subclass_confidence("<http://example.org/Dog>", "<http://example.org/Animal>");
+        assert!(
+            (c - 0.81).abs() < 1e-9,
+            "Dog ⊑ Animal confidence = 0.9·0.9 = 0.81, got {c}"
+        );
+        // The direct asserted edge is the axiom confidence itself.
+        assert!(
+            (cls.subclass_confidence("<http://example.org/Dog>", "<http://example.org/Mammal>")
+                - 0.9)
+                .abs()
+                < 1e-9
+        );
+        // A hard ⊤ subsumption stays certain.
+        assert!(
+            (cls.subclass_confidence(
+                "<http://example.org/Dog>",
+                "<http://www.w3.org/2002/07/owl#Thing>"
+            ) - 1.0)
+                .abs()
+                < 1e-9
+        );
+    }
+
+    /// PROOF 2 — a LOW-confidence premise LOWERS the derived confidence. Same chain,
+    /// but `Mammal ⊑ Animal` drops to `0.2` ⇒ `Dog ⊑ Animal` falls to `0.9·0.2 = 0.18`.
+    #[test]
+    fn prob_low_premise_lowers_derived() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+@prefix eg:  <http://medulla/owl#> .
+ex:Dog    rdfs:subClassOf ex:Mammal .
+ex:Dog    eg:confidence "0.9" .
+ex:Mammal rdfs:subClassOf ex:Animal .
+ex:Mammal eg:confidence "0.2" .
+"#;
+        let mut r = Reasoner::from_triples(&parse_turtle(ttl).unwrap());
+        let cls = r.classify_weighted();
+        let c = cls.subclass_confidence("<http://example.org/Dog>", "<http://example.org/Animal>");
+        assert!(
+            (c - 0.18).abs() < 1e-9,
+            "a weak premise drags Dog ⊑ Animal to 0.9·0.2 = 0.18, got {c}"
+        );
+        // Membership is unchanged — confidence weighting never alters WHICH hold.
+        assert!(cls.entails_subclass("<http://example.org/Dog>", "<http://example.org/Animal>"));
+    }
+
+    /// PROOF 3 — the EXISTENTIAL-restriction headline path propagates confidence
+    /// through `∃partOf.Body` on the LHS + the role chain: every axiom 0.9 ⇒ the
+    /// multi-step `HumanHeart ⊑ HumanComponent` confidence is the product of the path.
+    #[test]
+    fn prob_existential_path_propagates_confidence() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+@prefix eg:  <http://medulla/owl#> .
+ex:Heart      rdfs:subClassOf [ a owl:Restriction ;
+                                owl:onProperty ex:partOf ;
+                                owl:someValuesFrom ex:Body ] .
+ex:Heart      eg:confidence "0.9" .
+[ a owl:Restriction ; owl:onProperty ex:partOf ; owl:someValuesFrom ex:Body ]
+              rdfs:subClassOf ex:HumanComponent .
+ex:HumanHeart rdfs:subClassOf ex:Heart .
+ex:HumanHeart eg:confidence "0.9" .
+"#;
+        let mut r = Reasoner::from_triples(&parse_turtle(ttl).unwrap());
+        let cls = r.classify_weighted();
+        assert!(cls.entails_subclass(
+            "<http://example.org/HumanHeart>",
+            "<http://example.org/HumanComponent>"
+        ));
+        let c = cls.subclass_confidence(
+            "<http://example.org/HumanHeart>",
+            "<http://example.org/HumanComponent>",
+        );
+        // HumanHeart ⊑ Heart (0.9) → ∃partOf.Body via Heart's restriction (0.9) →
+        // HumanComponent (the ∃-LHS axiom is hard 1.0). conf = 0.9·0.9 = 0.81.
+        assert!(
+            (c - 0.81).abs() < 1e-9,
+            "existential-path confidence = 0.9·0.9 = 0.81, got {c}"
+        );
+        assert!(
+            c > 0.0 && c < 1.0,
+            "a soft path is neither certain nor zero"
+        );
+    }
+
+    /// PROOF 4 — MAX across ALTERNATIVE derivations (noisy-OR). A diamond: `X ⊑ A`,
+    /// `X ⊑ B` (both at X's confidence 1.0), `A ⊑ Goal (0.5)`, `B ⊑ Goal (0.9)`. The
+    /// two derivations of `X ⊑ Goal` give `1.0·0.5 = 0.5` and `1.0·0.9 = 0.9`; the
+    /// closure keeps the STRONGER, `0.9`.
+    #[test]
+    fn prob_alternative_derivations_take_max() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+@prefix eg:  <http://medulla/owl#> .
+ex:X rdfs:subClassOf ex:A .
+ex:X rdfs:subClassOf ex:B .
+ex:A rdfs:subClassOf ex:Goal .
+ex:A eg:confidence "0.5" .
+ex:B rdfs:subClassOf ex:Goal .
+ex:B eg:confidence "0.9" .
+"#;
+        let mut r = Reasoner::from_triples(&parse_turtle(ttl).unwrap());
+        let cls = r.classify_weighted();
+        let c = cls.subclass_confidence("<http://example.org/X>", "<http://example.org/Goal>");
+        assert!(
+            (c - 0.9).abs() < 1e-9,
+            "two derivations 0.5 and 0.9 ⇒ MAX 0.9, got {c}"
+        );
+        // The weaker path is still present as the A-route confidence.
+        assert!(
+            (cls.subclass_confidence("<http://example.org/A>", "<http://example.org/Goal>") - 0.5)
+                .abs()
+                < 1e-9
+        );
+    }
+
+    /// PROOF 5 — a DECAYED (old) fact contributes LESS confidence to an inferred
+    /// membership than a fresh one. Two individuals of the SAME inferred class: a fresh
+    /// fact keeps the subsumption confidence; a fact aged one half-life halves it.
+    #[test]
+    fn prob_decayed_fact_contributes_less() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+@prefix eg:  <http://medulla/owl#> .
+ex:Mammal rdfs:subClassOf ex:Animal .
+ex:Mammal eg:confidence "0.9" .
+"#;
+        let mut r = Reasoner::from_triples(&parse_turtle(ttl).unwrap());
+        let cls = r.classify_weighted();
+        let target = "<http://example.org/Animal>";
+        let half_life = 30.0;
+
+        // fresh Mammal fact (age 0, stored confidence 1.0) → membership = 1.0·0.9 = 0.9.
+        let mut asserted: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+        asserted.insert(
+            "<http://example.org/freshOne>".into(),
+            vec![(
+                "<http://example.org/Mammal>".into(),
+                fact_confidence(1.0, 0.0, half_life),
+            )],
+        );
+        // old Mammal fact aged exactly one half-life → fact conf 0.5 → membership 0.45.
+        asserted.insert(
+            "<http://example.org/oldOne>".into(),
+            vec![(
+                "<http://example.org/Mammal>".into(),
+                fact_confidence(1.0, half_life, half_life),
+            )],
+        );
+
+        let members = instances_of_weighted(&cls, &asserted, target, 0.0);
+        let conf_of = |id: &str| members.iter().find(|(i, _)| i == id).map(|(_, c)| *c);
+        let fresh = conf_of("<http://example.org/freshOne>").unwrap();
+        let old = conf_of("<http://example.org/oldOne>").unwrap();
+        assert!(
+            (fresh - 0.9).abs() < 1e-9,
+            "fresh membership = 1.0·0.9 = 0.9, got {fresh}"
+        );
+        assert!(
+            (old - 0.45).abs() < 1e-9,
+            "decayed (one half-life) membership = 0.5·0.9 = 0.45, got {old}"
+        );
+        assert!(
+            old < fresh,
+            "a decayed fact contributes LESS than a fresh one"
+        );
+
+        // PROOF 6 — thresholding EXCLUDES sub-τ entailments. τ = 0.5 keeps fresh (0.9),
+        // drops the decayed (0.45).
+        let kept = instances_of_weighted(&cls, &asserted, target, 0.5);
+        let ids: Vec<&str> = kept.iter().map(|(i, _)| i.as_str()).collect();
+        assert!(ids.contains(&"<http://example.org/freshOne>"));
+        assert!(
+            !ids.contains(&"<http://example.org/oldOne>"),
+            "τ=0.5 must exclude the 0.45 decayed membership"
+        );
+        // Sorted by descending confidence.
+        assert_eq!(
+            kept.first().map(|(i, _)| i.as_str()),
+            Some("<http://example.org/freshOne>")
+        );
+    }
+
+    // ── Distributed (2-shard) reasoning == single-graph (CONCEPT:MEDULLA-KG.ontology.concept-13) ───────
+
+    /// Build a `GraphView` holding the given individuals as typed nodes, each with a
+    /// `confidence` + `last_access` so the decay path is exercised. (TBox is supplied
+    /// separately as an ontology document, like a shared schema over sharded ABox.)
+    fn view_with_individuals(individuals: &[(&str, &str, f64, u64)]) -> medulla_core::graph::GraphView {
+        let core = medulla_core::graph::GraphCore::new();
+        for (id, ty, conf, last_access) in individuals {
+            let blob = rmp_serde::to_vec_named(&serde_json::json!({
+                "type": ty,
+                "confidence": conf,
+                "last_access": last_access,
+            }))
+            .unwrap();
+            core.add_node(id.to_string(), blob);
+        }
+        core.analysis_snapshot()
+    }
+
+    /// PROOF — a distributed run over a 2-SHARD ontology derives the SAME entailments
+    /// AND the SAME confidences as the identical ontology in ONE graph. The TBox is
+    /// shared; the ABox (the individuals) is SPLIT across two shards.
+    #[test]
+    fn distributed_two_shard_equals_single_graph() {
+        let tbox = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+@prefix eg:  <http://medulla/owl#> .
+ex:Paper rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:about ; owl:someValuesFrom ex:Topic ] .
+ex:Paper eg:confidence "0.9" .
+[ a owl:Restriction ; owl:onProperty ex:about ; owl:someValuesFrom ex:Topic ] rdfs:subClassOf ex:ScholarlyWork .
+ex:Article rdfs:subClassOf ex:Paper .
+ex:Article eg:confidence "0.8" .
+"#;
+        let onto = parse_turtle(tbox).unwrap();
+        let now = 1_000_000u64;
+        let hl = 30.0;
+
+        // The full ABox in ONE graph.
+        let single = view_with_individuals(&[
+            (
+                "<http://example.org/p1>",
+                "<http://example.org/Paper>",
+                1.0,
+                now,
+            ),
+            (
+                "<http://example.org/p2>",
+                "<http://example.org/Article>",
+                1.0,
+                now,
+            ),
+            (
+                "<http://example.org/p3>",
+                "<http://example.org/Topic>",
+                1.0,
+                now,
+            ),
+        ]);
+        let single_res =
+            reason_distributed_weighted(&[&single], &onto, now, hl, "http://example.org/", "", 0.0)
+                .unwrap();
+
+        // The SAME ABox SPLIT across two shards: p1 on shard A, p2+p3 on shard B.
+        let shard_a = view_with_individuals(&[(
+            "<http://example.org/p1>",
+            "<http://example.org/Paper>",
+            1.0,
+            now,
+        )]);
+        let shard_b = view_with_individuals(&[
+            (
+                "<http://example.org/p2>",
+                "<http://example.org/Article>",
+                1.0,
+                now,
+            ),
+            (
+                "<http://example.org/p3>",
+                "<http://example.org/Topic>",
+                1.0,
+                now,
+            ),
+        ]);
+        let dist_res = reason_distributed_weighted(
+            &[&shard_a, &shard_b],
+            &onto,
+            now,
+            hl,
+            "http://example.org/",
+            "",
+            0.0,
+        )
+        .unwrap();
+
+        // Identical entailments + confidences.
+        assert_eq!(
+            single_res.subclasses, dist_res.subclasses,
+            "cross-shard subsumptions+confidences must equal the single-graph closure"
+        );
+        let mut a = single_res.instances.clone();
+        let mut b = dist_res.instances.clone();
+        a.sort_by(|x, y| x.0.cmp(&y.0).then(x.1.cmp(&y.1)));
+        b.sort_by(|x, y| x.0.cmp(&y.0).then(x.1.cmp(&y.1)));
+        assert_eq!(
+            a, b,
+            "cross-shard instance memberships+confidences must equal single-graph"
+        );
+        assert_eq!(single_res.consistent, dist_res.consistent);
+
+        // And the actual epistemic content is right: p2 (Article) is an inferred
+        // ScholarlyWork with confidence 0.8·0.9 = 0.72 (Article⊑Paper 0.8, Paper⊑∃ 0.9).
+        let sw = "<http://example.org/ScholarlyWork>";
+        let p2 = dist_res
+            .instances
+            .iter()
+            .find(|(i, c, _)| i == "<http://example.org/p2>" && c == sw)
+            .expect("p2 is an inferred ScholarlyWork across shards");
+        assert!(
+            (p2.2 - 0.72).abs() < 1e-9,
+            "p2 ScholarlyWork conf 0.72, got {}",
+            p2.2
+        );
+        // p3 (Topic) is NOT a ScholarlyWork.
+        assert!(!dist_res
+            .instances
+            .iter()
+            .any(|(i, c, _)| i == "<http://example.org/p3>" && c == sw));
+    }
+
+    // ── MEDULLA-021: broader OWL-2 axioms toward DL-lite ─────────────────────────────
+
+    /// `owl:equivalentProperty` is two-way subPropertyOf: a role pair under `r` also
+    /// holds under its equivalent `s` (and vice-versa). Proven via the R relation a
+    /// someValuesFrom witness creates.
+    #[test]
+    fn eg021_equivalent_property_both_ways() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:partOf owl:equivalentProperty ex:componentOf .
+ex:Heart rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:partOf ; owl:someValuesFrom ex:Body ] .
+[ a owl:Restriction ; owl:onProperty ex:componentOf ; owl:someValuesFrom ex:Body ] rdfs:subClassOf ex:Embedded .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut r = Reasoner::from_triples(&triples);
+        let cls = r.classify();
+        // Heart ⊑ ∃partOf.Body ; partOf ≡ componentOf ⇒ Heart ⊑ ∃componentOf.Body ;
+        // ∃componentOf.Body ⊑ Embedded ⇒ Heart ⊑ Embedded.
+        assert!(
+            cls.entails_subclass(
+                "<http://example.org/Heart>",
+                "<http://example.org/Embedded>"
+            ),
+            "equivalentProperty must carry the role witness; S(Heart)={:?}",
+            cls.subsumers.get("<http://example.org/Heart>")
+        );
+    }
+
+    /// `owl:allValuesFrom` (RL cls-avf): `HappyParent ⊑ ∀hasChild.Happy` makes the
+    /// `hasChild` witness of a HappyParent a `Kid ⊓ Happy` — not every `Kid` happy.
+    #[test]
+    fn eg021_all_values_from_propagates() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:HappyParent rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:hasChild ; owl:allValuesFrom ex:Happy ] .
+ex:HappyParent rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:hasChild ; owl:someValuesFrom ex:Kid ] .
+[ a owl:Restriction ; owl:onProperty ex:hasChild ; owl:someValuesFrom ex:Happy ] rdfs:subClassOf ex:ParentOfHappyChild .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut r = Reasoner::from_triples(&triples);
+        let cls = r.classify();
+        let parent = "<http://example.org/HappyParent>";
+        assert!(
+            cls.entails_subclass(parent, "<http://example.org/ParentOfHappyChild>"),
+            "cls-avf must force the witness into Happy; S(HappyParent)={:?}",
+            cls.subsumers.get(parent)
+        );
+        assert!(!cls.entails_subclass("<http://example.org/Kid>", "<http://example.org/Happy>"));
+    }
+
+    /// `owl:unionOf` (sound direction): each disjunct of a union is subsumed by a class
+    /// the union is a subclass of. `(Cat ⊔ Dog) ⊑ Pet` ⇒ `Cat ⊑ Pet` and `Dog ⊑ Pet`.
+    #[test]
+    fn eg021_union_of_subclass() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+[ owl:unionOf ( ex:Cat ex:Dog ) ] rdfs:subClassOf ex:Pet .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut r = Reasoner::from_triples(&triples);
+        let cls = r.classify();
+        assert!(cls.entails_subclass("<http://example.org/Cat>", "<http://example.org/Pet>"));
+        assert!(cls.entails_subclass("<http://example.org/Dog>", "<http://example.org/Pet>"));
+    }
+
+    /// `owl:hasValue` value restriction composes as a nominal existential: `Italian ⊑
+    /// ∃nationality.{Italy}` and `∃nationality.{Italy} ⊑ EUCitizen` ⇒ `Italian ⊑
+    /// EUCitizen`.
+    #[test]
+    fn eg021_has_value_restriction() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Italian rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:nationality ; owl:hasValue ex:Italy ] .
+[ a owl:Restriction ; owl:onProperty ex:nationality ; owl:hasValue ex:Italy ] rdfs:subClassOf ex:EUCitizen .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let mut r = Reasoner::from_triples(&triples);
+        let cls = r.classify();
+        assert!(
+            cls.entails_subclass(
+                "<http://example.org/Italian>",
+                "<http://example.org/EUCitizen>"
+            ),
+            "hasValue nominal must compose; S(Italian)={:?}",
+            cls.subsumers.get("<http://example.org/Italian>")
+        );
+    }
+
+    /// `instances_of` materializes inferred class members from the live graph types —
+    /// an individual asserted `HumanHeart` is an inferred `HumanComponent`.
+    #[test]
+    fn materialize_instances_through_el() {
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Heart rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:partOf ; owl:someValuesFrom ex:Body ] .
+[ a owl:Restriction ; owl:onProperty ex:partOf ; owl:someValuesFrom ex:Body ] rdfs:subClassOf ex:HumanComponent .
+ex:HumanHeart rdfs:subClassOf ex:Heart .
+"#;
+        let mut reasoner = Reasoner::from_triples(&parse_turtle(ttl).unwrap());
+        let cls = reasoner.classify();
+        let mut asserted: HashMap<String, HashSet<String>> = HashMap::new();
+        asserted.insert(
+            "<http://example.org/myHeart>".into(),
+            HashSet::from(["<http://example.org/HumanHeart>".into()]),
+        );
+        let members = instances_of(&cls, &asserted, "<http://example.org/HumanComponent>");
+        assert_eq!(members, vec!["<http://example.org/myHeart>".to_string()]);
+    }
+
+    #[test]
+    fn all_disjoint_classes_is_not_silently_dropped() {
+        let ttl = r#"
+@prefix ex: <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+[] a owl:AllDisjointClasses ; owl:members ( ex:A ex:B ex:C ) .
+ex:Impossible rdfs:subClassOf ex:A, ex:C .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let ontology = parse_ontology(&triples);
+        assert_eq!(ontology.disjoint.len(), 3);
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let classification = reasoner.classify();
+        assert!(!classification.consistent);
+        assert!(classification
+            .unsatisfiable
+            .contains("<http://example.org/Impossible>"));
+    }
+
+    #[test]
+    fn native_relationship_projection_matches_the_retired_au_contract() {
+        assert_eq!(
+            native_relationship_label("<http://knuckles.team/kg#dependsOn>"),
+            "DEPENDS_ON"
+        );
+        assert_eq!(
+            native_relationship_label("http://knuckles.team/kg#PART_OF"),
+            "PART_OF"
+        );
+        assert_eq!(
+            native_relationship_label("http://purl.obolibrary.org/obo/BFO_0000050"),
+            "BFO_0000050"
+        );
+        assert!(native_relationship_label("http://example.org/0000050").is_empty());
+    }
+
+    #[test]
+    fn class_bridge_requires_current_absolute_base() {
+        assert!(bridge_type_to_class("Widget", "").is_err());
+        assert!(bridge_type_to_class("Widget", "local/").is_err());
+        assert_eq!(
+            bridge_type_to_class("Widget", "http://example.org/").unwrap(),
+            "<http://example.org/Widget>"
+        );
+        assert_eq!(
+            bridge_type_to_class("urn:example:Widget", "http://example.org/").unwrap(),
+            "<urn:example:Widget>"
+        );
+        assert_eq!(
+            class_namespace("<urn:example:Widget>").as_deref(),
+            Some("urn:example:")
+        );
+        assert!(bridge_type_to_class("<urn:example:Widget", "urn:classes:").is_err());
+        assert!(bridge_type_to_class("bad type", "urn:classes:").is_err());
+    }
+}

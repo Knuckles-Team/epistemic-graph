@@ -48,7 +48,7 @@ and an executable gate.
 ## Current release references
 
 - [Capabilities and parity](capabilities.md) is the human-readable operation matrix.
-- Generated capability ledger (`crates/eg-capabilities/src/domains/`) is the machine-checked per-method contract.
+- Generated capability ledger (`crates/medulla-capabilities/src/domains/`) is the machine-checked per-method contract.
 - [North Star](north_star.md) records cross-modal seam coverage.
 - [Build feature composition](architecture/tiers.md) defines the main build, `cluster`, and `full-extras`.
 - [Native program optimization](architecture/native-program-optimization.md) defines the 13-family, 14-modality optimization plane.

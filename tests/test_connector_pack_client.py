@@ -7,21 +7,21 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph import (
+from medulla import (
     ConnectorPackArchiveBuilder,
     ConnectorPackClient,
     ConnectorPackEntryContent,
     ConnectorPackWriteError,
     pack_digest,
 )
-from epistemic_graph import (
+from medulla import (
     PackImportResultRejected as ExportedRejected,
 )
-from epistemic_graph import (
+from medulla import (
     PackImportResultUnchanged as ExportedUnchanged,
 )
-from epistemic_graph.connector_pack import connector_pack_import_key
-from epistemic_graph.generated.connector_pack import (
+from medulla.connector_pack import connector_pack_import_key
+from medulla.generated.connector_pack import (
     AgentLibraryMutationContext,
     DeclaredCost,
     DeclaredLatency,
@@ -127,7 +127,7 @@ def _vector_entries() -> list[PackEntry]:
 
 
 # Golden digests the Rust connector-pack codec computes for the same inputs
-# (crates/eg-types connector_pack tests); Python must agree byte for byte.
+# (crates/medulla-types connector_pack tests); Python must agree byte for byte.
 _GOLDEN = {
     "pack_digest/one_entry_per_kind": (
         "bf379d4af75cc24a6b8c1edb46abc5747390d9e5758ea3ea98e79ad5ed46a286"
@@ -142,7 +142,7 @@ def _expected_vector(name: str) -> str:
     return _GOLDEN[name]
 
 
-@pytest.mark.spec("EG-TYPED-PACKS-R001")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R001")
 def test_pack_digest_matches_the_rust_golden_vector() -> None:
     assert pack_digest(
         "connector-a",
@@ -262,7 +262,7 @@ class _Client:
         raise AssertionError((method, params))
 
 
-@pytest.mark.spec("EG-TYPED-PACKS-R004")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R004")
 def test_typed_status_content_and_import_use_only_generated_wire_shapes() -> None:
     async def exercise() -> tuple[_Client, PackImportResultUnchanged]:
         transport = _Client()
@@ -371,8 +371,8 @@ def test_head_conflict_is_a_typed_closed_write_error() -> None:
     assert error.detail == "connector pack head changed"
 
 
-@pytest.mark.spec("EG-TYPED-PACKS-R092")
-@pytest.mark.spec("EG-TYPED-PACKS-R004")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R092")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R004")
 def test_transport_loss_retry_reuses_the_exact_import_operation_key() -> None:
     class LostResponse(_Client):
         import_attempts = 0
@@ -416,7 +416,7 @@ def test_transport_loss_retry_reuses_the_exact_import_operation_key() -> None:
     assert import_keys[0] == import_keys[1]
 
 
-@pytest.mark.spec("EG-TYPED-PACKS-R092")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R092")
 def test_import_key_excludes_the_request_id() -> None:
     """R092: the import idempotency key ignores request_id entirely.
 
@@ -452,20 +452,20 @@ def test_import_key_excludes_the_request_id() -> None:
 
 
 def test_public_wheel_surface_exports_the_connector_pack_client() -> None:
-    import epistemic_graph
+    import medulla
 
-    assert epistemic_graph.ConnectorPackClient is ConnectorPackClient
-    assert epistemic_graph.ConnectorPackArchiveBuilder is ConnectorPackArchiveBuilder
+    assert medulla.ConnectorPackClient is ConnectorPackClient
+    assert medulla.ConnectorPackArchiveBuilder is ConnectorPackArchiveBuilder
     assert ExportedRejected is PackImportResultRejected
     assert ExportedUnchanged is PackImportResultUnchanged
-    assert epistemic_graph.ConnectorPackWriteError is ConnectorPackWriteError
-    assert epistemic_graph.PackWriteErrorCode is PackWriteErrorCode
+    assert medulla.ConnectorPackWriteError is ConnectorPackWriteError
+    assert medulla.PackWriteErrorCode is PackWriteErrorCode
 
 
-@pytest.mark.spec("EG-TYPED-PACKS-R043")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R043")
 def test_modality_annotations_replay_golden_vector_and_affect_identity() -> None:
     """R043 digest scope; served acceptance remains open in the owning spec."""
-    from epistemic_graph.connector_pack import _annotations_digest
+    from medulla.connector_pack import _annotations_digest
 
     annotations = _annotations()
     assert _annotations_digest(annotations).hex() == _expected_vector(

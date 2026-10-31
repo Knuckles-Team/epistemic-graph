@@ -32,7 +32,7 @@ struct GraphDispatchCapture<'a> {
     #[cfg(feature = "security")]
     rls: std::sync::Arc<crate::isolation::IsolationLayer>,
     #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
-    tsdb_store: Option<Arc<eg_tsdb::store::SeriesStore>>,
+    tsdb_store: Option<Arc<medulla_tsdb::store::SeriesStore>>,
 }
 
 async fn capture_graph_dispatch<'a>(

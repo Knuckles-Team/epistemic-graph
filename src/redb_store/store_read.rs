@@ -59,7 +59,7 @@ pub(crate) fn property_string<'a>(
 ///
 /// Every native write of a WorkItem row goes through here, so this is the one
 /// place the row's revision advances: `props` leaves carrying
-/// `eg_types::work_item_read::WORK_ITEM_ROW_REVISION` one past the revision it
+/// `medulla_types::work_item_read::WORK_ITEM_ROW_REVISION` one past the revision it
 /// was read at (1 for a new row). `GetWorkItem`/`ListWorkItems` project it as
 /// the caller-visible `version`.
 pub(crate) fn write_work_item_props(
@@ -69,7 +69,7 @@ pub(crate) fn write_work_item_props(
     props: &mut serde_json::Map<String, serde_json::Value>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
-    use eg_types::work_item_read::WORK_ITEM_ROW_REVISION;
+    use medulla_types::work_item_read::WORK_ITEM_ROW_REVISION;
     let revision = property_u64(props, WORK_ITEM_ROW_REVISION).saturating_add(1);
     props.insert(
         WORK_ITEM_ROW_REVISION.into(),
@@ -155,7 +155,7 @@ pub(crate) fn read_typed_graph_row<K, T, Decode>(
 ) -> Result<Option<T>, String>
 where
     K: redb::Key + 'static,
-    for<'k> K::SelfType<'k>: eg_storage::OwnerRowScope,
+    for<'k> K::SelfType<'k>: medulla_storage::OwnerRowScope,
     Decode: FnOnce(&[u8]) -> Result<T, String>,
 {
     let handle = shard.graph(graph_fname)?;
@@ -181,7 +181,7 @@ pub(crate) fn read_mutation_batch_for_graph(
     batch_id: &str,
 ) -> Result<Option<MutationBatchRecord>, String> {
     let handle = shard.graph(graph_fname)?;
-    eg_transaction::read_ledger(&shard.read(&handle)?, batch_id)
+    medulla_transaction::read_ledger(&shard.read(&handle)?, batch_id)
 }
 
 pub(crate) fn read_change_envelope(
@@ -242,7 +242,7 @@ pub(crate) fn read_mutation_outbox(
     batch_id: &str,
 ) -> Result<Vec<MutationOutboxRecord>, String> {
     let handle = shard.graph(graph_fname)?;
-    eg_transaction::read_outbox(&shard.read(&handle)?, batch_id)
+    medulla_transaction::read_outbox(&shard.read(&handle)?, batch_id)
 }
 
 /// The authoritative version of one graph.
@@ -256,7 +256,7 @@ pub(crate) fn read_mutation_outbox(
 /// deletion of the table rather than a migration.
 pub(crate) fn read_mutation_graph_version(shard: &Shard, graph_fname: &str) -> Result<u64, String> {
     let handle = shard.graph(graph_fname)?;
-    eg_transaction::version(&shard.read(&handle)?)
+    medulla_transaction::version(&shard.read(&handle)?)
 }
 
 /// Durably write/overwrite a graph_meta identity row in its OWN transaction.

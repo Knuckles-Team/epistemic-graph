@@ -1,4 +1,4 @@
-//! Online resharding + cold-tenant hibernation (CONCEPT:EG-KG.storage.100m-tenant — the 100M-tenant
+//! Online resharding + cold-tenant hibernation (CONCEPT:MEDULLA-KG.storage.100m-tenant — the 100M-tenant
 //! lever).
 //!
 //! Two elastic-tenant operations on a live [`MultiRaft`] cluster, both feature-gated
@@ -8,10 +8,10 @@
 //! ## Online resharding — move a graph A→B with NO downtime
 //!
 //! A graph belongs to exactly one Raft [`GroupId`] via the [`GroupRouter`]
-//! (CONCEPT:EG-KG.sharding.raft-resharding). Resharding re-points that ownership from a source group to a
+//! (CONCEPT:MEDULLA-KG.sharding.raft-resharding). Resharding re-points that ownership from a source group to a
 //! target group while the cluster keeps serving. The KEY simplification — and why
 //! this is safe — is the M2 architecture: **every group applies into ONE shared
-//! registry + ONE shared authoritative shard** (`store::EgStore` holds the shared
+//! registry + ONE shared authoritative shard** (`store::MedullaStore` holds the shared
 //! [`AppCtx`]; the durable rows are keyed by GRAPH NAME, not by group). So a graph's
 //! durable + in-memory state already lives in a place BOTH groups reach; "moving" it
 //! is therefore not a bulk data copy but a **quiesce → durable-presence gate → re-point
@@ -37,7 +37,7 @@
 //! ## Cold-tenant hibernation — evict a graph's RAM, rehydrate on access
 //!
 //! A COLD tenant wastes RAM holding a `GraphCore` that is never read. [`hibernate_graph`]
-//! reuses the read-through/eviction machinery (CONCEPT:EG-KG.storage.read-through-seam-exercised) at WHOLE-GRAPH
+//! reuses the read-through/eviction machinery (CONCEPT:MEDULLA-KG.storage.read-through-seam-exercised) at WHOLE-GRAPH
 //! granularity: confirm every resident node in durable authority, then
 //! `GraphCore::hibernate()` drops its in-RAM topology /
 //! properties / vectors. The durable redb rows remain. [`rehydrate_graph`] reads the
@@ -64,7 +64,7 @@ pub struct ReshardReport {
     pub nodes_transferred: usize,
 }
 
-/// The outcome of an online placement-catalog move (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1) —
+/// The outcome of an online placement-catalog move (CONCEPT:MEDULLA-KG.sharding.placement-catalog, DIST-P2-1) —
 /// see [`TenantManager::move_partition`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlacementMoveReport {
@@ -78,7 +78,7 @@ pub struct PlacementMoveReport {
     pub graphs: Vec<ReshardReport>,
 }
 
-/// Elastic-tenant operations on a live [`MultiRaft`] cluster (CONCEPT:EG-KG.storage.100m-tenant).
+/// Elastic-tenant operations on a live [`MultiRaft`] cluster (CONCEPT:MEDULLA-KG.storage.100m-tenant).
 /// Holds the manager + the shared durable backend; every op runs under the manager's
 /// per-tenant migration guard so a reshard and a hibernate of the same graph cannot
 /// race.
@@ -93,7 +93,7 @@ impl TenantManager {
     }
 
     /// Online-reshard `graph_name` from its current owning group to `to_group`
-    /// WITHOUT downtime (CONCEPT:EG-KG.storage.100m-tenant). See the module docs for the quiesce →
+    /// WITHOUT downtime (CONCEPT:MEDULLA-KG.storage.100m-tenant). See the module docs for the quiesce →
     /// durable-presence gate → re-point → resume protocol.
     ///
     /// Preconditions: the graph exists; `to_group` is running on this node (use
@@ -154,7 +154,7 @@ impl TenantManager {
     }
 
     /// Online-move the virtual partition `(tenant, range)` to `target`
-    /// (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1) — the full snapshot → CDC-catch-up →
+    /// (CONCEPT:MEDULLA-KG.sharding.placement-catalog, DIST-P2-1) — the full snapshot → CDC-catch-up →
     /// fenced-cutover state machine, reusing [`Self::reshard_graph`] (already-proven
     /// quiesce → durability-barrier → re-point → resume) as the per-graph data move:
     ///
@@ -355,7 +355,7 @@ impl TenantManager {
     ) -> tokio::sync::OwnedMutexGuard<()> {
         use sha2::{Digest, Sha256};
         let mut digest = Sha256::new();
-        digest.update(b"epistemic-graph/partition-move-lock/v1\0");
+        digest.update(b"medulla/partition-move-lock/v1\0");
         digest.update(tenant.as_bytes());
         digest.update(range.0.to_be_bytes());
         digest.update(range.1.to_be_bytes());
@@ -459,7 +459,7 @@ impl TenantManager {
     }
 
     /// Hibernate a COLD graph after confirming its resident rows are durable, then drop its in-RAM state
-    /// (CONCEPT:EG-KG.storage.100m-tenant). The durable redb rows remain; [`rehydrate_graph`] rebuilds
+    /// (CONCEPT:MEDULLA-KG.storage.100m-tenant). The durable redb rows remain; [`rehydrate_graph`] rebuilds
     /// the core on next access. Returns the node count freed. Idempotent — hibernating
     /// an already-hibernated (empty-in-RAM) graph frees 0 and stays durable.
     pub async fn hibernate_graph(&self, graph_name: &str) -> Result<usize, String> {
@@ -481,7 +481,7 @@ impl TenantManager {
         Ok(freed)
     }
 
-    /// Rehydrate a hibernated graph from its durable dump (CONCEPT:EG-KG.storage.100m-tenant). Reads the
+    /// Rehydrate a hibernated graph from its durable dump (CONCEPT:MEDULLA-KG.storage.100m-tenant). Reads the
     /// graph's redb rows back and rebuilds its `GraphCore` (the same path `load_all`
     /// uses). Idempotent — a re-rehydrate clears + reloads. Returns the node count
     /// restored. A graph with no durable rows (genuinely absent) restores 0.
@@ -512,7 +512,7 @@ impl TenantManager {
         Ok(n)
     }
 
-    /// Read ONE graph's durable dump via the redb backend (CONCEPT:EG-KG.storage.100m-tenant). Errors if
+    /// Read ONE graph's durable dump via the redb backend (CONCEPT:MEDULLA-KG.storage.100m-tenant). Errors if
     /// the backend is not the redb tier (resharding/hibernation require it).
     fn read_dump(&self, graph_fname: &str) -> Result<Option<crate::redb_store::GraphDump>, String> {
         let redb = self.backend.as_redb().ok_or_else(|| {

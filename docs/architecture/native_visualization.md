@@ -13,23 +13,23 @@ there may put this engine's visualization surface behind someone else's API chur
 
 | Lane | Crate / module | What it is | Status |
 |---|---|---|---|
-| **V0** | `eg-viz-core` | `ViewSpec` chart IR, `ViewResult` exact-vs-reduced metadata, the mark×surface capability matrix, `select_tier` | Shipped |
-| **V1** | `eg-viz-columnstore` | Canonical columns, zone maps, content-addressed chunks, dictionary categoricals | Shipped |
-| **V2** | `eg-viz-kernels` | M4 + LTTB decimation, runtime-detected AVX2 | **Shipped this change** |
-| **V3a** | `eg-viz-export` | Static PNG/SVG/PDF export | Shipped (now wired to V2's M4) |
+| **V0** | `medulla-viz-core` | `ViewSpec` chart IR, `ViewResult` exact-vs-reduced metadata, the mark×surface capability matrix, `select_tier` | Shipped |
+| **V1** | `medulla-viz-columnstore` | Canonical columns, zone maps, content-addressed chunks, dictionary categoricals | Shipped |
+| **V2** | `medulla-viz-kernels` | M4 + LTTB decimation, runtime-detected AVX2 | **Shipped this change** |
+| **V3a** | `medulla-viz-export` | Static PNG/SVG/PDF export | Shipped (now wired to V2's M4) |
 | **V3b** | `server::viz_interactive` | Interactive WebGPU/WebGL2 client + binary tile protocol | **Shipped this change** |
 | **V4** | `server::viz_engine` / `server::viz_provenance` | Persistent engine state: content-addressed render cache + durable provenance | **Shipped this change** |
-| **V6** | `eg-viz-export::graph_layout` + `resolve_graph` | Graph-native marks (force-directed layout) | Shipped (static export only, nodes-only — see VIZ-2 below) |
-| **VIZ-2** | `eg-viz-graph-tiles` + `server::graph_tile_server` + `server::graph_tile_source` | Binary chunk-streamable tile protocol for `{nodes, edges}` graph payloads, cluster-id addressed | **Shipped**, real GraphCore-backed clustering (VIZ-1) wired in as the default `GraphSource`; demo generator kept as an opt-in `?demo=1` fallback |
+| **V6** | `medulla-viz-export::graph_layout` + `resolve_graph` | Graph-native marks (force-directed layout) | Shipped (static export only, nodes-only — see VIZ-2 below) |
+| **VIZ-2** | `medulla-viz-graph-tiles` + `server::graph_tile_server` + `server::graph_tile_source` | Binary chunk-streamable tile protocol for `{nodes, edges}` graph payloads, cluster-id addressed | **Shipped**, real GraphCore-backed clustering (VIZ-1) wired in as the default `GraphSource`; demo generator kept as an opt-in `?demo=1` fallback |
 | **V7/V8** | — | Temporal repository visualization; agent-webui adoption | Not started |
 
 **Production feature-set note (2026-08-26).** `viz`/`viz-columnstore`/
 `viz-static-export`/`viz-interactive`/`viz-graph-tiles` were previously excluded
 from the `full` feature bundle the production wheel builds
 (`--features full,ast-extended`) — this whole lane map above shipped in-tree but
-was compiled OUT of `epistemic-graph-server`, which is why
+was compiled OUT of `medulla-server`, which is why
 `/api/enhanced/graph/viz/capabilities` 500'd in production and no
-`VizRenderRequest`/`eg_viz_*` symbol existed in the shipped binary. All five are
+`VizRenderRequest`/`medulla_viz_*` symbol existed in the shipped binary. All five are
 now part of `full` (root `Cargo.toml`, see that feature's own comment for the
 re-verification and rationale); `viz-interactive`'s loopback HTTP listener still
 stays off at runtime unless an operator passes `--viz-interactive-addr` — being
@@ -48,12 +48,12 @@ flowchart LR
         Handler["handlers::viz\n(RPC entry point)"]
         Interactive["server::viz_interactive\n(loopback HTTP, feature viz-interactive)"]
         EngineState["server::viz_engine::VizEngineState\n(V4 — one instance, shared)"]
-        Store["eg_viz_columnstore::ColumnStore\n(persistent, content-addressed chunks)"]
+        Store["medulla_viz_columnstore::ColumnStore\n(persistent, content-addressed chunks)"]
         Cache["RenderCache\n(bounded LRU, keyed by render_cache_key)"]
         Provenance["VizProvenanceStore\n(durable, viz_provenance.redb)"]
-        SelectTier["eg_viz_core::select_tier\n(ONE tier-selection rule)"]
-        Kernels["eg_viz_kernels\nM4 / LTTB (V2, AVX2)"]
-        Export["eg_viz_export\nPNG / SVG / PDF (V3a)"]
+        SelectTier["medulla_viz_core::select_tier\n(ONE tier-selection rule)"]
+        Kernels["medulla_viz_kernels\nM4 / LTTB (V2, AVX2)"]
+        Export["medulla_viz_export\nPNG / SVG / PDF (V3a)"]
     end
 
     RPC --> Handler
@@ -73,7 +73,7 @@ flowchart LR
 
 ## The LOD ladder
 
-`eg_viz_core::select_tier` is the **one** place tier selection happens — every
+`medulla_viz_core::select_tier` is the **one** place tier selection happens — every
 caller (static export, the interactive tile endpoint) hands it a row count, a
 mark kind, its encodings, and a `FrameBudget` (primitives + bytes, never a raw
 row count), and gets back a tier. No caller re-derives its own budget.
@@ -87,7 +87,7 @@ row count), and gets back a tier. No caller re-derives its own budget.
 
 ### V2 — M4 and LTTB
 
-Both live in `crates/eg-viz-kernels`, operate on plain `&[f64]` slices (no
+Both live in `crates/medulla-viz-kernels`, operate on plain `&[f64]` slices (no
 ColumnStore dependency), and are property-tested (`proptest`) for: output size
 bounds, y-range containment, x-sortedness, NaN/Infinity exclusion, and
 scalar/SIMD equivalence — see that crate's `tests/proptest_invariants.rs`.
@@ -95,7 +95,7 @@ scalar/SIMD equivalence — see that crate's `tests/proptest_invariants.rs`.
 - **M4** (`m4_reduce`) — four points per pixel column (first/min/max/last),
   `O(n)` single pass, bucketed by x-VALUE so unsorted input needs no sort. The
   default Decimate-tier kernel for `Line`/`Area` in the static-export path
-  (`eg-viz-export::reduce::decimate_m4`), superseding the plain min-max stand-in
+  (`medulla-viz-export::reduce::decimate_m4`), superseding the plain min-max stand-in
   V3a shipped before V2 landed.
 - **LTTB** (`lttb_reduce`) — Largest Triangle Three Buckets, selecting REAL
   data points (never a synthetic aggregate). Used by the interactive tile
@@ -110,11 +110,11 @@ scalar/SIMD equivalence — see that crate's `tests/proptest_invariants.rs`.
   scatter-reduce/serial-selection around it. Both paths are proved equivalent
   by proptest. The direct AVX2-versus-scalar parity tests need an AVX2 CPU, which
   the fleet's hosts lack, so they compile only under
-  `RUSTFLAGS="--cfg eg_avx2_tests" cargo test -p eg-viz-kernels` and fail on a CPU
+  `RUSTFLAGS="--cfg medulla_avx2_tests" cargo test -p medulla-viz-kernels` and fail on a CPU
   without AVX2. Without that cfg, a guard test asserts the CPU has no AVX2 and
   that dispatch takes the scalar path, so an AVX2 host cannot silently skip them.
 
-Measured (criterion, `cargo bench -p eg-viz-kernels`), both kernels hold
+Measured (criterion, `cargo bench -p medulla-viz-kernels`), both kernels hold
 `O(n)` — throughput stays in the same order of magnitude across four orders
 of magnitude of row count:
 
@@ -148,7 +148,7 @@ keying a render cache on a whole-graph or whole-engine version means any
 write anywhere invalidates every cached render, driving the hit rate toward
 zero under real write traffic.
 
-Instead, `eg_viz_columnstore::ColumnStore::content_fingerprint(dataset_ref)`
+Instead, `medulla_viz_columnstore::ColumnStore::content_fingerprint(dataset_ref)`
 hashes the dataset's chunk `content_id`s — already computed at ingest,
 content-addressed, no rescan. Writing an **unrelated** dataset never touches
 this fingerprint; re-ingesting **byte-identical** data still fingerprints
@@ -198,7 +198,7 @@ and legitimately get different pixel-space geometry back).
 `persistence::tenant_catalog::TenantCatalog`'s shape (an in-memory
 authoritative view, optionally backed by its own small `viz_provenance.redb`
 file — durability strictly opt-in). A render is **not** routed through the
-full `eg-jobs` `AnalyticsJob`/`JobStore` machinery: that plane is built for
+full `medulla-jobs` `AnalyticsJob`/`JobStore` machinery: that plane is built for
 graph-scoped, worker-claimed, asynchronously-executed jobs, a real mismatch
 for a synchronous, non-graph-scoped render. Instead, each record is keyed by
 `provenance_result_ref` — a namespaced reuse of the SAME content-addressed
@@ -211,7 +211,7 @@ render's provenance is written once; a later cache hit needs no new entry.
 A browser cannot speak this engine's primary transport (length-prefixed
 MessagePack over UDS/TCP, `eg2.`-enveloped). V3b is its own small,
 **loopback-only, dependency-free HTTP/1.1 listener**
-(`EPISTEMIC_GRAPH_VIZ_INTERACTIVE_ADDR`, feature `viz-interactive`) — the same
+(`MEDULLA_VIZ_INTERACTIVE_ADDR`, feature `viz-interactive`) — the same
 hand-rolled idiom `--metrics-addr`/`--obs-addr`/the Iceberg-REST listener
 already use (no axum/hyper/websocket dependency).
 
@@ -247,7 +247,7 @@ this workspace via `ros2-bridge`, but not one this lane needs) for a benefit
 
 ### Deliberately different reduction choice than static export
 
-`eg-viz-export::render::resolve` uses M4 for `Line`/`Area` and refuses
+`medulla-viz-export::render::resolve` uses M4 for `Line`/`Area` and refuses
 Decimate for `Scatter` entirely (`mark_supports_tier`: "unordered decimation
 lies," routing Scatter to a Density surface instead). The interactive tile
 endpoint uses **LTTB unconditionally for every mark it serves, including
@@ -261,15 +261,15 @@ will.
 `agent-webui`'s `engineGraphRender.ts` documents the gap this closes: a
 `VizRenderRequest` carries exactly one `dataset` field, so a caller-supplied
 `MarkKind::Graph` render was NODES-ONLY — there was no wire path for a caller
-to also submit edges. `eg-viz-graph-tiles` (a leaf crate next to
-`eg-viz-core`, feature `viz-graph-tiles`, implies `viz-interactive`) is a
+to also submit edges. `medulla-viz-graph-tiles` (a leaf crate next to
+`medulla-viz-core`, feature `viz-graph-tiles`, implies `viz-interactive`) is a
 SEPARATE binary protocol built for graph payloads specifically, not a second
 `dataset` field bolted onto `VizRenderRequest`:
 
 - **Wire types mirror the shared VIZ-1/VIZ-2/VIZ-3 contract exactly**:
   `ClusterLevel` for `clusters(graph, level, parent_cluster_id?)`,
   `ClusterExpansion` for `expand(graph, cluster_id)` — see
-  `crates/eg-viz-graph-tiles/src/contract.rs`.
+  `crates/medulla-viz-graph-tiles/src/contract.rs`.
 - **Addressing is by cluster id** (not spatial region or hop-neighbourhood):
   VIZ-1's server-side hierarchical clustering returns `clusters()`/`expand()`
   with array-index-local edges over the SAME shape, so the two compose
@@ -307,14 +307,14 @@ SEPARATE binary protocol built for graph payloads specifically, not a second
 time-series kernels; a graph has no x-axis to sort edges along, and
 "decimating" a random subset of edges from a cluster will silently drop
 structure rather than aggregate it honestly. Nothing here calls either
-kernel — see `crates/eg-viz-graph-tiles/src/wire.rs`'s module doc for the
+kernel — see `crates/medulla-viz-graph-tiles/src/wire.rs`'s module doc for the
 full reasoning.
 
 **Data source.** VIZ-1's real `GraphCore`-backed hierarchical Leiden
-clustering (`Method::ClusterHierarchyRefresh`, `eg_compute::graph_algos::
+clustering (`Method::ClusterHierarchyRefresh`, `medulla_compute::graph_algos::
 leiden_hierarchy`) is now the DEFAULT source: `server::graph_tile_source::
 RealClusterSource` wraps an already-computed, already-cached
-`eg_compute::algorithms::ClusterHierarchyResult` (loaded off
+`medulla_compute::algorithms::ClusterHierarchyResult` (loaded off
 `PersistenceBackend::load_cluster_hierarchy` — `GraphSource`'s methods are
 synchronous, so every async step happens in `graph_tile_server::
 resolve_source` BEFORE a `GraphSource` method runs) plus the live
@@ -322,7 +322,7 @@ resolve_source` BEFORE a `GraphSource` method runs) plus the live
 `?graph=` names which cached tenant graph to serve (default `__commons__`);
 a graph with no cached hierarchy yet (call `ClusterHierarchyRefresh` first)
 degrades to an honest empty tile — never a 500 — via `RealClusterSource::
-empty()`. `eg_viz_graph_tiles::demo::DemoGraph` — the deterministic, seeded,
+empty()`. `medulla_viz_graph_tiles::demo::DemoGraph` — the deterministic, seeded,
 in-memory generator this lane originally shipped as its only source — is now
 opt-in via `?demo=1`, kept for local dev/testing against a graph with no
 populated tenant. Cluster ids are the SAME `(level, local_index)` pair the
@@ -331,7 +331,7 @@ this contract's `u64` (`level << 32 | local_index`,
 `server::graph_tile_source::cluster_id_u64`) — one identity scheme, two wire
 encodings.
 
-**Measured: binary vs. JSON, same values** (`cargo run -p eg-viz-graph-tiles
+**Measured: binary vs. JSON, same values** (`cargo run -p medulla-viz-graph-tiles
 --example bench_tile_wire`, one `ClusterExpansion` per row, `3×node_count`
 edges, debug numbers below — see the example for a release run):
 
@@ -380,15 +380,15 @@ edges, debug numbers below — see the example for a release run):
 
 | Path | What |
 |---|---|
-| `crates/eg-viz-core/` | V0 — IR, tier rules, trait boundaries |
-| `crates/eg-viz-columnstore/` | V1 — ColumnStore, `content_fingerprint` |
-| `crates/eg-viz-kernels/` | V2 — M4, LTTB, SIMD |
-| `crates/eg-viz-export/` | V3a — static PNG/SVG/PDF |
+| `crates/medulla-viz-core/` | V0 — IR, tier rules, trait boundaries |
+| `crates/medulla-viz-columnstore/` | V1 — ColumnStore, `content_fingerprint` |
+| `crates/medulla-viz-kernels/` | V2 — M4, LTTB, SIMD |
+| `crates/medulla-viz-export/` | V3a — static PNG/SVG/PDF |
 | `src/server/handlers/viz.rs` | RPC entry point (`Method::Viz`) |
 | `src/server/viz_engine.rs` | V4 — persistent state, render cache |
 | `src/server/viz_provenance.rs` | V4 — durable provenance |
 | `src/server/viz_interactive.rs` | V3b — HTTP listener, tile protocol |
 | `src/server/viz_interactive_client.html` | V3b — reference WebGPU/WebGL2 client |
-| `crates/eg-viz-graph-tiles/` | VIZ-2 — contract types, binary tile encoder/decoder, streaming frames, demo `GraphSource` |
+| `crates/medulla-viz-graph-tiles/` | VIZ-2 — contract types, binary tile encoder/decoder, streaming frames, demo `GraphSource` |
 | `src/server/graph_tile_source.rs` | VIZ-1/VIZ-2 bridge — `RealClusterSource`, the real `GraphCore`-backed `GraphSource` |
 | `src/server/graph_tile_server.rs` | VIZ-2 — `/graph_tile/{clusters,expand,stream}` routes on the V3b listener |

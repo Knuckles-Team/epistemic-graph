@@ -1,4 +1,4 @@
-//! Tamper-evident hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security, Lane O).
+//! Tamper-evident hash-chained audit log (CONCEPT:MEDULLA-KG.sharding.row-level-security, Lane O).
 //!
 //! Every durable mutation appends ONE entry to a per-graph hash CHAIN stored in the
 //! redb `AUDIT` table, keyed `(graph, seq)`. Each entry binds the previous entry's
@@ -83,14 +83,14 @@ pub fn decode_entry(blob: &[u8]) -> Option<(Hash, Hash, &[u8])> {
 /// single summarizing line — the chain proves the SEQUENCE of operations was not
 /// tampered with, which is the audit property.
 ///
-/// ## Exhaustiveness (CONCEPT:EG-KG.sharding.row-level-security, L3/EG-P0-6)
+/// ## Exhaustiveness (CONCEPT:MEDULLA-KG.sharding.row-level-security, L3/MEDULLA-P0-6)
 ///
 /// `redb_store::append_audit_entry` calls this for EVERY `(graph, method)` pair that
 /// reaches `commit_ops`/`commit_crossmodal`: every method for which the capability
 /// policy declares authoritative durability and a persistence backend is
 /// configured. This match is exhaustive
 /// over the FULL durable-mutation surface (every `GraphRedb`- and `Outbox`-domain
-/// method per `eg_capabilities::policy`, see `crates/eg-capabilities`), so every
+/// method per `medulla_capabilities::policy`, see `crates/medulla-capabilities`), so every
 /// acknowledged durable mutation chains into the audit log. A method with no
 /// durable effect (`DurabilityDomain::None`) never reaches this function via the
 /// redb write path at all, so it is intentionally absent (still falls through to
@@ -229,7 +229,7 @@ const NODE_TAG: u8 = 0x01;
 /// anchor-time leaf hash (a real one is content-addressed on that node's actual
 /// bytes), so an inclusion proof for a since-removed node fails closed exactly
 /// like tampering would, rather than panicking or fabricating a pass.
-pub const MISSING_NODE_SENTINEL: &[u8] = b"EG-PROVENANCE-ANCHOR-MISSING-NODE";
+pub const MISSING_NODE_SENTINEL: &[u8] = b"MEDULLA-PROVENANCE-ANCHOR-MISSING-NODE";
 
 /// Which side of its parent a Merkle audit-path sibling hash sits on — the
 /// verifier needs this to fold `(running_hash, sibling)` in the right order.
@@ -498,7 +498,7 @@ mod tests {
     #[test]
     fn graph_schema_mutations_have_stable_source_scoped_audit_lines() {
         let detach = Method::GraphSchema {
-            op: Box::new(eg_types::graph_schema::GraphSchemaOp::Detach {
+            op: Box::new(medulla_types::graph_schema::GraphSchemaOp::Detach {
                 source_id: "admin:policy".to_string(),
                 if_composed_digest: None,
             }),
@@ -508,8 +508,8 @@ mod tests {
             Some("GRAPH_SCHEMA|detach|admin:policy")
         );
         let attach_pack = Method::GraphSchema {
-            op: Box::new(eg_types::graph_schema::GraphSchemaOp::AttachPack {
-                connector: eg_types::contract::ResourceId::new("agent-utilities").unwrap(),
+            op: Box::new(medulla_types::graph_schema::GraphSchemaOp::AttachPack {
+                connector: medulla_types::contract::ResourceId::new("agent-utilities").unwrap(),
                 if_composed_digest: None,
             }),
         };

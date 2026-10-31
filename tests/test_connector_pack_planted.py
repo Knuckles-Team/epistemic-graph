@@ -1,7 +1,7 @@
 """PA6: every validation rule G1-G21 refuses its planted defect in the live engine.
 
 Each case of the synthetic planted-pack catalogue differs from a well-formed
-pack by exactly one defect (``epistemic_graph.testing.synthetic.packs``). This
+pack by exactly one defect (``medulla.testing.synthetic.packs``). This
 test binds an importer through the admin surface, uploads the case's archive
 through the Blob CAS, imports it through ``ConnectorPack.import`` and requires
 the engine to name the planted rule:
@@ -13,7 +13,7 @@ the engine to name the planted rule:
   bounded list over its bound, an invalid connector id) is refused while the
   request is decoded, before any rule runs -- for those the refusal must be a
   decode refusal and the case's codes must be ones decoding enforces. The
-  client signs the body the engine re-derives through the same eg-types
+  client signs the body the engine re-derives through the same medulla-types
   decoder, so such a request is refused either by the engine (``RuntimeError``)
   or by the client before it is sent (``ValueError`` naming an invalid engine
   request); both are the same decode refusal.
@@ -32,10 +32,10 @@ from typing import Any, Protocol, cast
 import pytest
 from conftest import TEST_AGENT_ID, TEST_TENANT, request_context
 
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.testing.synthetic.packs.catalogue import MUTATIONS
-from epistemic_graph.testing.synthetic.packs.malformed import MalformedPack, base_spec
-from epistemic_graph.testing.synthetic.packs.model import BuiltPack
+from medulla.client import MedullaClient
+from medulla.testing.synthetic.packs.catalogue import MUTATIONS
+from medulla.testing.synthetic.packs.malformed import MalformedPack, base_spec
+from medulla.testing.synthetic.packs.model import BuiltPack
 
 #: Codes a request decoder enforces through the closed wire types, before any
 #: validation rule can run.
@@ -45,7 +45,7 @@ DECODE_ENFORCED = {
     "FORBIDDEN_ENTRY_KIND",
     "PACK_TOO_LARGE",
 }
-#: How the client names a request its eg-types decoder refuses before sending.
+#: How the client names a request its medulla-types decoder refuses before sending.
 CLIENT_DECODE_REFUSAL = "is not a valid engine request"
 IMPORTER = "principal:sha256:" + hashlib.sha256(TEST_AGENT_ID.encode()).hexdigest()
 OTHER_IMPORTER = "principal:sha256:" + "0" * 64
@@ -70,7 +70,7 @@ def _context(key: str) -> dict[str, Any]:
 
 
 async def _pack_op(
-    client: EpistemicGraphClient, op: str, request: dict[str, Any], key: str
+    client: MedullaClient, op: str, request: dict[str, Any], key: str
 ) -> Any:
     return await client._send(
         "ConnectorPack",
@@ -80,7 +80,7 @@ async def _pack_op(
     )
 
 
-async def _bind(client: EpistemicGraphClient, connector: str, importer: str) -> None:
+async def _bind(client: MedullaClient, connector: str, importer: str) -> None:
     key = f"planted:{connector}:bind"
     await _pack_op(
         client,
@@ -90,7 +90,7 @@ async def _bind(client: EpistemicGraphClient, connector: str, importer: str) -> 
     )
 
 
-async def _upload(client: EpistemicGraphClient, pack: BuiltPack, key: str) -> str:
+async def _upload(client: MedullaClient, pack: BuiltPack, key: str) -> str:
     cursor = await client._send(
         "BlobBegin", {"chunk_size": 1 << 20}, None, idempotency_key=f"{key}:begin"
     )
@@ -107,7 +107,7 @@ async def _upload(client: EpistemicGraphClient, pack: BuiltPack, key: str) -> st
 
 
 async def _import(
-    client: EpistemicGraphClient,
+    client: MedullaClient,
     pack: BuiltPack,
     *,
     expected_head: dict[str, Any] | None,
@@ -166,7 +166,7 @@ def _check(case: MalformedPack, outcome: Any) -> None:
 async def _run(index: int) -> None:
     connector = f"planted-{index:02d}"
     case = MUTATIONS[index](base_spec(0, connector))
-    client = await EpistemicGraphClient.connect(
+    client = await MedullaClient.connect(
         socket_path=os.environ["GRAPH_SERVICE_SOCKET"],
         verified_context=request_context(),
     )
@@ -213,25 +213,25 @@ def _case_id(mutation: object) -> str:
     range(len(MUTATIONS)),
     ids=[_case_id(mutation) for mutation in MUTATIONS],
 )
-@pytest.mark.spec("EG-TYPED-PACKS-R020")
-@pytest.mark.spec("EG-TYPED-PACKS-R021")
-@pytest.mark.spec("EG-TYPED-PACKS-R022")
-@pytest.mark.spec("EG-TYPED-PACKS-R023")
-@pytest.mark.spec("EG-TYPED-PACKS-R024")
-@pytest.mark.spec("EG-TYPED-PACKS-R025")
-@pytest.mark.spec("EG-TYPED-PACKS-R026")
-@pytest.mark.spec("EG-TYPED-PACKS-R027")
-@pytest.mark.spec("EG-TYPED-PACKS-R028")
-@pytest.mark.spec("EG-TYPED-PACKS-R029")
-@pytest.mark.spec("EG-TYPED-PACKS-R030")
-@pytest.mark.spec("EG-TYPED-PACKS-R031")
-@pytest.mark.spec("EG-TYPED-PACKS-R032")
-@pytest.mark.spec("EG-TYPED-PACKS-R033")
-@pytest.mark.spec("EG-TYPED-PACKS-R034")
-@pytest.mark.spec("EG-TYPED-PACKS-R035")
-@pytest.mark.spec("EG-TYPED-PACKS-R036")
-@pytest.mark.spec("EG-TYPED-PACKS-R038")
-@pytest.mark.spec("EG-TYPED-PACKS-R039")
-@pytest.mark.spec("EG-TYPED-PACKS-R040")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R020")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R021")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R022")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R023")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R024")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R025")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R026")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R027")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R028")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R029")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R030")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R031")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R032")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R033")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R034")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R035")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R036")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R038")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R039")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R040")
 def test_planted_defect_is_refused_by_its_rule(index: int) -> None:
     asyncio.run(_run(index))

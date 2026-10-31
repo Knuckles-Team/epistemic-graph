@@ -13,15 +13,15 @@ pub(super) struct MutationBatchCommitArgs<'a> {
     pub(super) result: Vec<u8>,
 }
 
-impl EgStore {
+impl MedullaStore {
     /// Ordinary (non-native, non-ChangeEnvelope) replicated graph mutation:
     /// idempotent-replay check, then stage from the durable pre-image, apply,
-    /// compile into a MutationBatch, and commit (CX WB1-EG-01 CCN reduction).
+    /// compile into a MutationBatch, and commit (CX WB1-MEDULLA-01 CCN reduction).
     /// Pure extract-method from `apply_request`'s tail, byte-identical
     /// behaviour, no signature change.
     /// The durable receipt method for this replicated command: the modality
     /// command's own receipt method when one is present (a modality-serving
-    /// build), else the plain graph method (CX WB1-EG-01 CCN reduction). Pure
+    /// build), else the plain graph method (CX WB1-MEDULLA-01 CCN reduction). Pure
     /// extract-method, byte-identical behaviour.
     pub(super) fn compute_durable_method(
         graph_method: &Option<Method>,
@@ -43,7 +43,7 @@ impl EgStore {
     }
 
     /// Compile the durable method into a `MutationBatch`, validate it, and
-    /// commit it through the universal MutationBatch kernel (CX WB1-EG-01 CCN
+    /// commit it through the universal MutationBatch kernel (CX WB1-MEDULLA-01 CCN
     /// reduction). Pure extract-method from `stage_and_commit_ordinary_mutation`,
     /// byte-identical behaviour, no signature change.
     pub(super) async fn compile_and_commit_mutation_batch(
@@ -68,7 +68,7 @@ impl EgStore {
         // `redb_store::commit_mutation_batch_inner`'s doc comment), so the
         // policy-audited answer for the REAL replicated method must be captured
         // here or it becomes unrecoverable.
-        let audited = eg_capabilities::policy(&durable_method).audited;
+        let audited = medulla_capabilities::policy(&durable_method).audited;
         let batch = crate::server::mutation_batch::compile_methods(
             crate::server::mutation_batch::CompileBatch {
                 batch_id,
@@ -205,7 +205,7 @@ impl EgStore {
     }
 
     /// Stage the ordinary mutation from the durable pre-image and apply it to
-    /// the staged (never-yet-published) `GraphCore` (CX WB1-EG-01 CCN
+    /// the staged (never-yet-published) `GraphCore` (CX WB1-MEDULLA-01 CCN
     /// reduction). This handles the complete mutation vocabulary (including
     /// runtime-result/multi-row methods) without applying a speculative write
     /// to the serving projection. Pure extract-method, byte-identical
@@ -238,7 +238,7 @@ impl EgStore {
     /// Resolve the durable pre-image to stage the ordinary mutation from: the
     /// authoritative committed snapshot if one exists, else the resident core's
     /// own current snapshot paired with its durable mutation-graph version (CX
-    /// WB1-EG-01 CCN reduction). Pure extract-method, byte-identical behaviour.
+    /// WB1-MEDULLA-01 CCN reduction). Pure extract-method, byte-identical behaviour.
     pub(super) async fn resolve_mutation_base_snapshot(
         &self,
         req: &RaftRequest,
@@ -261,7 +261,7 @@ impl EgStore {
     }
 
     /// Apply the replicated mutation to the staged (not-yet-published)
-    /// `GraphCore` (CX WB1-EG-01 CCN reduction): a modality-serving build routes
+    /// `GraphCore` (CX WB1-MEDULLA-01 CCN reduction): a modality-serving build routes
     /// a `ServedModality` command through `add_node` directly; every other
     /// build (and every non-modality command in a modality-serving build)
     /// re-runs the ordinary typed `Method` through `mutation_apply::apply`.
@@ -298,8 +298,8 @@ impl EgStore {
                 updates_msgpack,
             } => {
                 let applied = match (
-                    eg_types::msgpack::decode_property_object(conditions_msgpack),
-                    eg_types::msgpack::decode_property_object(updates_msgpack),
+                    medulla_types::msgpack::decode_property_object(conditions_msgpack),
+                    medulla_types::msgpack::decode_property_object(updates_msgpack),
                 ) {
                     (Ok(conditions), Ok(updates)) => {
                         staged.compare_and_set_fields(node_id, &conditions, &updates)
@@ -319,7 +319,7 @@ impl EgStore {
     /// `Some(command) => command.result_msgpack.clone()`, else the default
     /// encoded `ResultPayload::Bool(true)` — shared by
     /// `try_apply_idempotent_replay`'s `expected_result` and
-    /// `stage_and_commit_ordinary_mutation`'s `result` (CX WB1-EG-01 CCN
+    /// `stage_and_commit_ordinary_mutation`'s `result` (CX WB1-MEDULLA-01 CCN
     /// reduction; both computed the identical expression inline before this
     /// extraction). Pure extract-method, byte-identical behaviour.
     pub(super) fn modality_or_default_bool_result(
@@ -338,7 +338,7 @@ impl EgStore {
     }
 
     /// Install the committed replicated graph image (a phase-2-recovery replay)
-    /// or publish the freshly-staged snapshot (CX WB1-EG-01 CCN reduction). Pure
+    /// or publish the freshly-staged snapshot (CX WB1-MEDULLA-01 CCN reduction). Pure
     /// extract-method from `stage_and_commit_ordinary_mutation`'s tail,
     /// byte-identical behaviour.
     pub(super) async fn finalize_ordinary_commit(
@@ -361,7 +361,7 @@ impl EgStore {
     }
 
     /// Emit the served-modality CDC event for a freshly-committed (non-replayed)
-    /// modality write (CX WB1-EG-01 CCN reduction). Pure extract-method from
+    /// modality write (CX WB1-MEDULLA-01 CCN reduction). Pure extract-method from
     /// `stage_and_commit_ordinary_mutation`'s tail, byte-identical behaviour.
     #[cfg(all(feature = "modality-serving", feature = "streaming"))]
     pub(super) async fn emit_modality_cdc_if_needed(

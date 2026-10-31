@@ -7,8 +7,8 @@ use super::*;
 
 #[cfg(feature = "program-optimization")]
 pub(super) fn typed_program_result(
-    job: &eg_jobs::AnalyticsJob,
-    optimization: &eg_program::OptimizationResult,
+    job: &medulla_jobs::AnalyticsJob,
+    optimization: &medulla_program::OptimizationResult,
     promotion_identity: Option<&ProgramRevisionIdentity>,
     expected_policy: &PolicyEnvelope,
 ) -> Result<TypedJobResult, String> {
@@ -40,9 +40,9 @@ pub(super) fn typed_program_result(
 
 #[cfg(feature = "program-optimization")]
 fn program_candidate_row(
-    job: &eg_jobs::AnalyticsJob,
-    optimization: &eg_program::OptimizationResult,
-    candidate: &eg_program::ProgramCandidate,
+    job: &medulla_jobs::AnalyticsJob,
+    optimization: &medulla_program::OptimizationResult,
+    candidate: &medulla_program::ProgramCandidate,
     promotion_identity: Option<&ProgramRevisionIdentity>,
 ) -> Result<BTreeMap<String, serde_json::Value>, String> {
     let evidence_refs = program_evidence_refs(job, candidate);
@@ -129,8 +129,8 @@ fn program_candidate_row(
 
 #[cfg(feature = "program-optimization")]
 fn program_evidence_refs(
-    job: &eg_jobs::AnalyticsJob,
-    candidate: &eg_program::ProgramCandidate,
+    job: &medulla_jobs::AnalyticsJob,
+    candidate: &medulla_program::ProgramCandidate,
 ) -> Vec<String> {
     candidate
         .evaluation
@@ -147,7 +147,7 @@ fn program_evidence_refs(
 }
 
 #[cfg(feature = "program-optimization")]
-fn program_candidate_confidence(candidate: &eg_program::ProgramCandidate) -> f64 {
+fn program_candidate_confidence(candidate: &medulla_program::ProgramCandidate) -> f64 {
     candidate
         .evaluation
         .as_ref()
@@ -157,8 +157,8 @@ fn program_candidate_confidence(candidate: &eg_program::ProgramCandidate) -> f64
 
 #[cfg(feature = "program-optimization")]
 fn program_promotion_value(
-    optimization: &eg_program::OptimizationResult,
-    candidate: &eg_program::ProgramCandidate,
+    optimization: &medulla_program::OptimizationResult,
+    candidate: &medulla_program::ProgramCandidate,
     promotion_identity: Option<&ProgramRevisionIdentity>,
 ) -> Result<serde_json::Value, String> {
     if optimization.selected_candidate_ref.as_ref() != Some(&candidate.candidate_ref) {
@@ -195,17 +195,17 @@ fn program_modalities(
 
 #[cfg(feature = "program-optimization")]
 fn program_policy_value(
-    candidate: &eg_program::ProgramCandidate,
+    candidate: &medulla_program::ProgramCandidate,
 ) -> Result<serde_json::Value, String> {
     serde_json::to_value(&candidate.policy).map_err(|error| error.to_string())
 }
 
 #[cfg(feature = "program-optimization")]
 fn program_plan_step_row(
-    job: &eg_jobs::AnalyticsJob,
-    optimization: &eg_program::OptimizationResult,
-    plan: &eg_program::OptimizationPlan,
-    step: &eg_program::PlanStep,
+    job: &medulla_jobs::AnalyticsJob,
+    optimization: &medulla_program::OptimizationResult,
+    plan: &medulla_program::OptimizationPlan,
+    step: &medulla_program::PlanStep,
 ) -> BTreeMap<String, serde_json::Value> {
     BTreeMap::from([
         ("id".to_string(), serde_json::json!(step.step_ref.as_str())),
@@ -299,7 +299,7 @@ fn program_plan_step_row(
 
 #[cfg(feature = "program-optimization")]
 fn program_score_summary(
-    optimization: &eg_program::OptimizationResult,
+    optimization: &medulla_program::OptimizationResult,
 ) -> (Option<f64>, Option<(f64, f64)>) {
     let scores = optimization
         .candidates
@@ -395,11 +395,11 @@ mod privacy_tests {
     fn program_result_producer_and_privacy_validator_bind_policy() {
         use super::super::validate_program_result_privacy;
         use super::typed_program_result;
-        use eg_jobs::model::{
+        use medulla_jobs::model::{
             AlgoVersion, AnalyticsJob, InputSnapshotHandle, JobPolicy, JobState, RetryPolicy,
         };
-        use eg_modality::{Classification, OpaqueRef, PolicyEnvelope};
-        use eg_program::{
+        use medulla_modality::{Classification, OpaqueRef, PolicyEnvelope};
+        use medulla_program::{
             CandidateRole, OptimizationCheckpoint, OptimizationResult, OptimizerKind,
             ProgramCandidate, ProgramModality, PROGRAM_SCHEMA_VERSION,
         };

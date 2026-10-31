@@ -42,7 +42,7 @@ def _workflow(filename: str = "ci.yml") -> dict:
 
 def test_scanner_contract_versions_and_native_policy_files_exist():
     document = tomllib.loads((REPO / "pyproject.toml").read_text())
-    scanners = document["tool"]["epistemic_graph"]["scanners"]
+    scanners = document["tool"]["medulla"]["scanners"]
     assert {
         key: scanners[key]
         for key in (
@@ -112,7 +112,7 @@ def test_goc70_is_manual_only_until_execution_is_bounded():
 
 def _assert_scanner_job_removed(jobs):
     """The advisory hosted scanner job was removed to bound pull-request CI
-    (EG-CONTRACT-R053.7). Every scanner stays in the manual hook profile that
+    (MEDULLA-CONTRACT-R053.7). Every scanner stays in the manual hook profile that
     scripts/ci_parity.sh runs, with tools provisioned by install_scanners.sh."""
     assert "scanner-quality" not in jobs
     hooks = _hooks()
@@ -258,7 +258,7 @@ def test_advisory_gate_wires_exact_cargo_deny_version_check():
 def test_native_architecture_configs_are_explicit_and_scoped():
     import_linter = configparser.ConfigParser()
     import_linter.read(REPO / ".config" / "importlinter.ini")
-    assert import_linter["importlinter"]["root_package"] == "epistemic_graph"
+    assert import_linter["importlinter"]["root_package"] == "medulla"
     contracts = [
         section
         for section in import_linter.sections()

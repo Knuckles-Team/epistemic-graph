@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use eg_alignment::{subject_ref, EvidenceResolver, ResolvedArtifact, UnresolvedReason};
-use eg_core::graph::GraphView;
-use eg_modality::{EvidenceAddress, EvidenceLocus};
+use medulla_alignment::{subject_ref, EvidenceResolver, ResolvedArtifact, UnresolvedReason};
+use medulla_core::graph::GraphView;
+use medulla_modality::{EvidenceAddress, EvidenceLocus};
 
 use super::store::ChunkStore;
 use super::stream::stream_blob_get;
@@ -109,9 +109,9 @@ mod tests {
     use super::*;
     use crate::server::blob::store::RedbChunkStore;
     use crate::server::blob::stream::stream_blob_put;
-    use eg_alignment::{AlignmentGraph, AlignmentNode, AlignmentRelation};
-    use eg_core::graph::GraphCore;
-    use eg_modality::{ArtifactId, DerivationId, EvidenceLocusId, OpaqueRef, ResourceId};
+    use medulla_alignment::{AlignmentGraph, AlignmentNode, AlignmentRelation};
+    use medulla_core::graph::GraphCore;
+    use medulla_modality::{ArtifactId, DerivationId, EvidenceLocusId, OpaqueRef, ResourceId};
     use serde_json::json;
 
     fn blob(value: serde_json::Value) -> Vec<u8> {
@@ -224,14 +224,14 @@ mod tests {
         assert_eq!(resolver.resolve(&evidence), None);
     }
 
-    /// W4.7 (M3) — the cross-modal join proof: an `eg_alignment::AlignmentGraph`
+    /// W4.7 (M3) — the cross-modal join proof: an `medulla_alignment::AlignmentGraph`
     /// links a document span to an image region (`CoOccursWith`) which supports a
-    /// claim (`SupportsClaim`), exactly the shape `eg-alignment` exists for. Both
+    /// claim (`SupportsClaim`), exactly the shape `medulla-alignment` exists for. Both
     /// evidence hops are backed by DISTINCT governed subjects whose `blob_ref`
     /// points at REAL bytes committed to a fixture CAS (`RedbChunkStore::open_temp`,
     /// no live services) — resolution reads those bytes back through the SAME
     /// `CasEvidenceResolver` production code path `ExplainEvidence` uses, not a
-    /// fabricated excerpt/digest. This is the one place `eg-alignment`'s graph and
+    /// fabricated excerpt/digest. This is the one place `medulla-alignment`'s graph and
     /// the real CAS resolver are exercised together.
     ///
     /// GOC-05 note: the image hop asserts `Unresolved{CodecUnavailable}`, not a

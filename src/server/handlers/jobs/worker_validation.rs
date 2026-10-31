@@ -75,7 +75,7 @@ pub(super) fn association_rule_id(
     use sha2::{Digest, Sha256};
 
     let mut digest = Sha256::new();
-    digest.update(b"eg-jobs.association-rule.v1\0");
+    digest.update(b"medulla-jobs.association-rule.v1\0");
     for values in [antecedent, consequent] {
         digest.update((values.len() as u64).to_le_bytes());
         for value in values {

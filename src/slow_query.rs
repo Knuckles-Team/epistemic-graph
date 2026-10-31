@@ -1,6 +1,6 @@
-// CONCEPT:EG-OS.observability.slow-query-descriptor — slow-query log.
+// CONCEPT:MEDULLA-OS.observability.slow-query-descriptor — slow-query log.
 //
-// When `EPISTEMIC_GRAPH_SLOW_QUERY_MS` is set to a positive integer, any query
+// When `MEDULLA_SLOW_QUERY_MS` is set to a positive integer, any query
 // whose end-to-end execution meets/exceeds that many milliseconds is logged as a
 // structured `tracing::warn!` carrying the query kind, the (truncated) query
 // text, the elapsed ms, and — where the call site has them — the plan/pipeline
@@ -8,7 +8,7 @@
 // on the hot path is a single cached-threshold compare (`describe*` returns
 // `None`, so no descriptor is even built).
 //
-// A Prometheus counter `epistemic_graph_slow_query_total` (feature `metrics`)
+// A Prometheus counter `medulla_slow_query_total` (feature `metrics`)
 // counts the crossings; it stays at zero until the threshold is configured.
 
 use std::sync::OnceLock;
@@ -20,12 +20,12 @@ use crate::protocol::Method;
 /// SQL into a log record.
 const MAX_QUERY_CHARS: usize = 512;
 
-/// Parsed once from `EPISTEMIC_GRAPH_SLOW_QUERY_MS`. `0` (also the unset/invalid
+/// Parsed once from `MEDULLA_SLOW_QUERY_MS`. `0` (also the unset/invalid
 /// case) means slow-query logging is disabled.
 fn threshold_ms() -> u64 {
     static T: OnceLock<u64> = OnceLock::new();
     *T.get_or_init(|| {
-        std::env::var("EPISTEMIC_GRAPH_SLOW_QUERY_MS")
+        std::env::var("MEDULLA_SLOW_QUERY_MS")
             .ok()
             .and_then(|v| v.trim().parse::<u64>().ok())
             .unwrap_or(0)
@@ -81,19 +81,19 @@ impl SlowQuery {
         }
         crate::metrics::slow_query();
         tracing::warn!(
-            target: "epistemic_graph::slow_query",
+            target: "medulla::slow_query",
             kind = self.kind,
             elapsed_ms = ms,
             threshold_ms = thr,
             plan_ops = ?self.plan_ops,
             cost_estimate = ?self.cost,
             query = %self.text,
-            "slow query (CONCEPT:EG-OS.observability.slow-query-descriptor)"
+            "slow query (CONCEPT:MEDULLA-OS.observability.slow-query-descriptor)"
         );
     }
 }
 
-/// Describe a dispatch `Method` for slow-query timing (CONCEPT:EG-OS.observability.slow-query-descriptor). Returns
+/// Describe a dispatch `Method` for slow-query timing (CONCEPT:MEDULLA-OS.observability.slow-query-descriptor). Returns
 /// `None` instantly when logging is disabled or the method is not a query, so the
 /// hot path pays a single bool check for non-query traffic.
 pub fn describe(method: &Method) -> Option<SlowQuery> {
@@ -129,10 +129,10 @@ pub fn describe(method: &Method) -> Option<SlowQuery> {
 }
 
 /// Describe a raw SQL statement on a wire path (pgwire / mysql-wire / TDS / …) for
-/// slow-query timing (CONCEPT:EG-OS.observability.slow-query-descriptor). `None` when
+/// slow-query timing (CONCEPT:MEDULLA-OS.observability.slow-query-descriptor). `None` when
 /// logging is disabled. Gated with the shared `server::wire` core
-/// (CONCEPT:EG-KG.compute.subsystems-reference) whose `WireSession::execute` path calls
-/// it, so every wire adapter links it (CONCEPT:EG-KG.query.kg-2).
+/// (CONCEPT:MEDULLA-KG.compute.subsystems-reference) whose `WireSession::execute` path calls
+/// it, so every wire adapter links it (CONCEPT:MEDULLA-KG.query.kg-2).
 #[cfg(feature = "query")]
 pub fn describe_sql(sql: &str) -> Option<SlowQuery> {
     if !enabled() {

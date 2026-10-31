@@ -26,12 +26,12 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use eg_types::agent_graph::{
+use medulla_types::agent_graph::{
     AgentGraphCommittedResult, AgentGraphEntry, AgentGraphMutationKind, AgentGraphOutboxEvent,
     AgentGraphPublishRequest, AgentGraphRetireRequest, AgentGraphStatusRequest,
     AGENT_GRAPH_ENTRY_SCHEMA_VERSION,
 };
-use eg_types::agent_library::AgentLibraryMutationContext;
+use medulla_types::agent_library::AgentLibraryMutationContext;
 
 use super::agent_library::AgentLibraryStore;
 use super::agent_revision::{
@@ -40,7 +40,7 @@ use super::agent_revision::{
 
 mod write;
 
-const AGENT_GRAPH_OUTBOX_TOPIC: &str = "eg.agent-graph.revision.v1";
+const AGENT_GRAPH_OUTBOX_TOPIC: &str = "medulla.agent-graph.revision.v1";
 const AGENT_GRAPH_RESULT_SCHEMA_ID: &str = "agent-graph-result.v1";
 const MAX_AGENT_GRAPH_REVISIONS: usize = 16_384;
 const MAX_AGENT_GRAPH_HISTORY_BYTES: usize = 256 * 1024 * 1024;
@@ -58,8 +58,8 @@ pub(super) struct GraphLayer;
 /// The graph layer's head and revision tables.
 fn graph_tables() -> RevisionTables {
     RevisionTables {
-        heads: eg_storage::AGENT_GRAPH_HEADS,
-        revisions: eg_storage::AGENT_GRAPH_REVISIONS,
+        heads: medulla_storage::AGENT_GRAPH_HEADS,
+        revisions: medulla_storage::AGENT_GRAPH_REVISIONS,
     }
 }
 
@@ -118,7 +118,7 @@ impl RevisionLayer for GraphLayer {
             action_actor_scope: context.actor_scope.clone(),
         };
         event.validate()?;
-        eg_storage::encode_bounded(&event, "agent graph outbox event")
+        medulla_storage::encode_bounded(&event, "agent graph outbox event")
     }
 
     fn extend_outbox_headers(graph: &AgentGraphEntry, headers: &mut BTreeMap<String, String>) {
@@ -184,8 +184,8 @@ impl AgentLibraryStore {
         &self,
         write: &super::agent_pin_resolution::Write<'_>,
         tenant_id: &str,
-        graph: &eg_types::agent_graph::AgentGraphDraft,
-    ) -> Result<eg_types::agent_graph::CompositionFacts, String> {
+        graph: &medulla_types::agent_graph::AgentGraphDraft,
+    ) -> Result<medulla_types::agent_graph::CompositionFacts, String> {
         self.resolve_component_pins_in_write(
             write,
             tenant_id,
@@ -217,7 +217,7 @@ impl AgentLibraryStore {
             "agent graph",
             &templates,
         )?;
-        eg_types::agent_graph::validate_composition(tenant_id, &graph.shape, |graph_id, shape| {
+        medulla_types::agent_graph::validate_composition(tenant_id, &graph.shape, |graph_id, shape| {
             self.resolve_composed_graph(write, tenant_id, graph_id, shape)
         })
     }
@@ -274,17 +274,17 @@ impl AgentLibraryStore {
     /// been withdrawn.
     fn resolve_composed_graph(
         &self,
-        txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+        txn: &medulla_transaction::AdmittedMutation<'_, medulla_storage::AgentLibraryOwner>,
         tenant_id: &str,
         graph_id: &str,
         shape_digest: &str,
-    ) -> Result<eg_types::agent_graph::ResolvedGraph, String> {
+    ) -> Result<medulla_types::agent_graph::ResolvedGraph, String> {
         let head_revision = txn
-            .open_read_table(eg_storage::AGENT_GRAPH_HEADS)?
+            .open_read_table(medulla_storage::AGENT_GRAPH_HEADS)?
             .get((tenant_id, graph_id))?
             .map(|value| value.value())
             .ok_or_else(|| "no such graph in this tenant".to_string())?;
-        let revisions = txn.open_read_table(eg_storage::AGENT_GRAPH_REVISIONS)?;
+        let revisions = txn.open_read_table(medulla_storage::AGENT_GRAPH_REVISIONS)?;
         let head = revisions
             .get((tenant_id, graph_id, head_revision))?
             .ok_or_else(|| "agent graph head points to a missing revision".to_string())?;
@@ -306,7 +306,7 @@ impl AgentLibraryStore {
             }
             let entry = decode_revision::<GraphLayer>(value.value())?;
             if entry.shape_digest == shape_digest {
-                return Ok(eg_types::agent_graph::ResolvedGraph {
+                return Ok(medulla_types::agent_graph::ResolvedGraph {
                     shape: entry.shape,
                     lifecycle: head_lifecycle,
                     tenant_id: entry.tenant_id,

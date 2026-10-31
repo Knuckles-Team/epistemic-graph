@@ -11,7 +11,7 @@ use super::*;
 /// (Claim/Renew/Cancel/Defer/CasMetadata) keeps the original strict
 /// single-operation rule enforced further down -- this relaxation is
 /// deliberately narrow to `CommitWorkItemResult` alone, which is the one
-/// terminal transition `crates/eg-types/src/outcome_bundle.rs`'s
+/// terminal transition `crates/medulla-types/src/outcome_bundle.rs`'s
 /// `CommitOutcomeBundle` (GOC-20) is designed to accompany.
 pub(crate) fn validate_native_operations_commit_work_item_result_shape(
     batch: &MutationBatch,
@@ -68,7 +68,7 @@ fn validate_terminal_provenance_shape(batch: &MutationBatch) -> Result<(), Strin
 
 fn validate_terminal_outcome_extension(
     batch: &MutationBatch,
-    extension: &eg_types::outcome_bundle::TerminalOutcomeExtension,
+    extension: &medulla_types::outcome_bundle::TerminalOutcomeExtension,
 ) -> Result<(), String> {
     if batch.operations.len() != 1 {
         return Err(
@@ -77,7 +77,7 @@ fn validate_terminal_outcome_extension(
         );
     }
     let event_intent = terminal_run_event_intent(batch)?;
-    let event: eg_types::outcome_bundle::RunEvent = rmp_serde::from_slice(&event_intent.payload)
+    let event: medulla_types::outcome_bundle::RunEvent = rmp_serde::from_slice(&event_intent.payload)
         .map_err(|_| "terminal run-event outbox payload is not a valid RunEvent".to_string())?;
     event.validate_for_bundle(&extension.outcome_bundle)?;
     validate_terminal_event_headers(batch, extension, event_intent)
@@ -87,7 +87,7 @@ fn terminal_run_event_intent(batch: &MutationBatch) -> Result<&MutationOutboxInt
     let event_intents: Vec<_> = batch
         .outbox
         .iter()
-        .filter(|intent| intent.topic == eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC)
+        .filter(|intent| intent.topic == medulla_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC)
         .collect();
     if event_intents.len() != 1 {
         return Err(
@@ -104,7 +104,7 @@ fn terminal_run_event_intent(batch: &MutationBatch) -> Result<&MutationOutboxInt
 
 fn validate_terminal_event_headers(
     batch: &MutationBatch,
-    extension: &eg_types::outcome_bundle::TerminalOutcomeExtension,
+    extension: &medulla_types::outcome_bundle::TerminalOutcomeExtension,
     event_intent: &MutationOutboxIntent,
 ) -> Result<(), String> {
     let fence_token = extension.outcome_bundle.fence_token.to_string();
@@ -347,7 +347,7 @@ fn apply_native_submit_operation<'batch, 'crypto, M, ApplyRows>(
     apply_rows: ApplyRows,
 ) -> Result<(), String>
 where
-    M: eg_types::result_contract::MethodResult,
+    M: medulla_types::result_contract::MethodResult,
     ApplyRows: FnOnce(WorkItemCommitScope<'crypto, 'batch>) -> Result<M::Body, String>,
 {
     let NativeSubmitScope {
@@ -402,7 +402,7 @@ fn apply_native_publication(
             committed_at_ms,
         )?;
         let payload = crate::protocol::ResultPayload::of::<
-            eg_types::result_contract::coordination::IssueHostStartGrant,
+            medulla_types::result_contract::coordination::IssueHostStartGrant,
         >(result)?;
         *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
         return Ok(true);
@@ -424,7 +424,7 @@ fn apply_native_publication(
             return Err("checkpoint publication requires one operation".into());
         }
         let payload = crate::protocol::ResultPayload::of::<
-            eg_types::result_contract::coordination::PublishRunCheckpoint,
+            medulla_types::result_contract::coordination::PublishRunCheckpoint,
         >(result)?;
         *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
         return Ok(true);
@@ -446,7 +446,7 @@ fn apply_native_publication(
             return Err("current-plan publication requires one operation".into());
         }
         let payload = crate::protocol::ResultPayload::of::<
-            eg_types::result_contract::coordination::PublishCurrentPlan,
+            medulla_types::result_contract::coordination::PublishCurrentPlan,
         >(result)?;
         *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
         return Ok(true);
@@ -584,7 +584,7 @@ fn apply_one_native_operation_row(
         }
         Method::ClearLedger => clear_ledger_rows(graph_fname, &mut tables.graph.ledger),
         Method::SubmitWorkItem { request } => apply_native_submit_operation::<
-            eg_types::result_contract::coordination::SubmitWorkItem,
+            medulla_types::result_contract::coordination::SubmitWorkItem,
             _,
         >(
             NativeSubmitScope {
@@ -605,7 +605,7 @@ fn apply_one_native_operation_row(
             },
         ),
         Method::SubmitWorkItems { request } => apply_native_submit_operation::<
-            eg_types::result_contract::coordination::SubmitWorkItems,
+            medulla_types::result_contract::coordination::SubmitWorkItems,
             _,
         >(
             NativeSubmitScope {
@@ -759,13 +759,13 @@ fn validate_ordinary_completion_shape(batch: &MutationBatch) -> Result<(), Strin
         .operations
         .iter()
         .map(|op| {
-            eg_types::run_completion::RunCompletionPayload::from_method(&op.method, &batch.batch_id)
+            medulla_types::run_completion::RunCompletionPayload::from_method(&op.method, &batch.batch_id)
         })
         .collect::<Result<Vec<_>, _>>()?;
     let intents: Vec<_> = batch
         .outbox
         .iter()
-        .filter(|i| i.topic == eg_types::run_completion::RUN_COMPLETION_TOPIC)
+        .filter(|i| i.topic == medulla_types::run_completion::RUN_COMPLETION_TOPIC)
         .collect();
     if let Some(payload) = ordinary.into_iter().flatten().next() {
         if batch.operations.len() != 1
@@ -773,7 +773,7 @@ fn validate_ordinary_completion_shape(batch: &MutationBatch) -> Result<(), Strin
             || batch
                 .outbox
                 .iter()
-                .any(|i| i.topic == eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC)
+                .any(|i| i.topic == medulla_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC)
         {
             return Err(
                 "ordinary completion requires one operation and one exclusive receipt".into(),

@@ -1,4 +1,4 @@
-# EG-IDENTITY — Implementation plan
+# MEDULLA-IDENTITY — Implementation plan
 
 1. Define a versioned issuer-entry schema and validation for duplicate issuer, invalid URL, key ambiguity and unsupported algorithm. Upgrade primary OIDC loading while preserving separate ancillary protocol validators. Add local signed-JWT fixtures for two issuers and key rotation.
 2. Add typed full-replacement identity mutation in the ControlRedb write transaction. Couple the identity audit record and chain head to that transaction; add `AuditVerify` and bounded denial storage. Route existing `RegisterIdentity` and `RbacAdmin` through the same mutation path.
@@ -70,11 +70,11 @@ Handoff: Arbora must check the same bound when work enters; Meristem only applie
 
 ## Principal-scoped knowledge segments (R023)
 
-Data flow: content-read wire method -> the retrieval function -> `visible_units` (`crates/eg-types/src/identity/segment.rs`) -> permitted current units plus an audit entry.
+Data flow: content-read wire method -> the retrieval function -> `visible_units` (`crates/medulla-types/src/identity/segment.rs`) -> permitted current units plus an audit entry.
 
 Types: `KnowledgeUnit`, `share_scope`. Attach point: the retrieval function in the content-read path. Production caller: the content-read handler, created by the Wiring row. Failure behavior: out-of-scope reads return `OutOfScope` with the id only.
 
-Reused: the visibility pattern at `crates/eg-types/src/rbac_elevation/ledger.rs:268` and the audit append from R002. New: version lineage and share scope on stored units.
+Reused: the visibility pattern at `crates/medulla-types/src/rbac_elevation/ledger.rs:268` and the audit append from R002. New: version lineage and share scope on stored units.
 
 Decision: access labels live in the unit itself, so every reader enforces them. Rejected alternative: a separate access table, because it can diverge from the unit it guards.
 
@@ -85,14 +85,14 @@ Decision: access labels live in the unit itself, so every reader enforces them. 
 
 Medulla owns typed preferences, client descriptions and interaction networks as graph records.
 The canonical identity store remains the sole principal, credential and grant authority.
-`crates/eg-types/src/identity/model.rs:41` defines UserRecord and its stable principal_id.
-`crates/eg-types/src/identity.rs:1` documents that authority and its RBAC projection.
+`crates/medulla-types/src/identity/model.rs:41` defines UserRecord and its stable principal_id.
+`crates/medulla-types/src/identity.rs:1` documents that authority and its RBAC projection.
 Metadata references exact canonical principal IDs. It never infers identity from an alias, hash or display name.
 A client description references its controlling principal. It does not register a principal or confer a credential.
 Interaction links describe observed relationships. They never create membership, sharing grants or trust.
 R023 sharing still requires an explicit authorized scope. Private scope is the default.
 
-Extend the proposed `crates/eg-types/src/identity/segment.rs` model from R023.1.
+Extend the proposed `crates/medulla-types/src/identity/segment.rs` model from R023.1.
 Its metadata payload is a closed union: Preference, ClientMetadata or InteractionNetwork.
 Common fields are node ID, owner principal, tenant, graph incarnation, revision, schema digest and provenance.
 Preference contains a registered preference key and a value matching that key's declared type.
@@ -130,7 +130,7 @@ Existing code: `src/server/auth.rs:901` binds the verified caller; `src/server/a
 `src/server/mutation_batch/commit/` owns durable commit and projection publication.
 `src/server/handlers/graph_ops/nodes.rs:85` serves GetNodeProperties through the authorized read path.
 `src/server/graph_schema/compose.rs` uses validate_and_compose for existing named schema sources.
-`src/server/handlers/rdf/validation.rs:21` calls eg_shacl::validate through the served ShaclValidate boundary.
+`src/server/handlers/rdf/validation.rs:21` calls medulla_shacl::validate through the served ShaclValidate boundary.
 ShaclValidate is read-only inspection. It is not a mandatory metadata admission gate today.
 Reachable today: no. The mandatory metadata domain, typed variants and common admission predicate remain proposed.
 
@@ -192,15 +192,15 @@ automated policy/security inspection without conferring administrative authority
 Regenerate both contract catalogs and their receipt using `gen_contract`.
 Installed-wheel Arbora acceptance remains separate consumer evidence.
 
-## EG-IDENTITY-R023.13 — served share grant and revoke
+## MEDULLA-IDENTITY-R023.13 — served share grant and revoke
 
 Replaces: `agent_utilities/knowledge_graph/core/tenant_sharing.py` (`share_with_org`, `make_private`, `promote_to_commons`, `_set_scope`). The harness keeps no share logic after this row lands.
 
 Meristem acceptance case: `tests/integration/knowledge_graph/test_goc61_commons_sharing_live.py::test_org_share_revocation_persists_across_a_real_restart`.
 
-Call path: served `RbacAdmin` -> `src/server/dispatch/router/identity_access.rs:47` -> `share_transition` (`crates/eg-core/src/isolation/share.rs`, new) -> mutation gateway commit -> `row_visibility` (`crates/eg-core/src/isolation.rs:157`) on every read.
+Call path: served `RbacAdmin` -> `src/server/dispatch/router/identity_access.rs:47` -> `share_transition` (`crates/medulla-core/src/isolation/share.rs`, new) -> mutation gateway commit -> `row_visibility` (`crates/medulla-core/src/isolation.rs:157`) on every read.
 
-Crate: `eg-core` for the transition, `eg-types` for the wire operations.
+Crate: `medulla-core` for the transition, `medulla-types` for the wire operations.
 
 Data structures: grantee sets are sorted vectors of interned `u32` principal ids, capped at 64. The node keeps `_owner_id`, `_shared_scope` and `_grants`. Memory per operation is O(g).
 
@@ -217,7 +217,7 @@ References
 
 ## Amendments: 2026-10-22
 
-EG-IDENTITY-R003.1 adds an explicit, isolated anonymous durable-store authority for Arbora's local no-auth admission. Arbora owns public admission and mode selection; Medulla owns the fixed anonymous provenance record, store separation, client/native protocol projection and existing ACL/mutation machinery. Default verified-envelope/OIDC behavior remains unchanged. This narrow opt-in supersedes earlier unconditional no-development-escape wording only for fresh anonymous-marked local stores. No deployment, credential or mode migration is authorized.
+MEDULLA-IDENTITY-R003.1 adds an explicit, isolated anonymous durable-store authority for Arbora's local no-auth admission. Arbora owns public admission and mode selection; Medulla owns the fixed anonymous provenance record, store separation, client/native protocol projection and existing ACL/mutation machinery. Default verified-envelope/OIDC behavior remains unchanged. This narrow opt-in supersedes earlier unconditional no-development-escape wording only for fresh anonymous-marked local stores. No deployment, credential or mode migration is authorized.
 
 Unsigned replay metadata uses `anon1.` plus a strict JSON object containing only a 1..256-byte UTF-8 `idempotency_key` in the legacy envelope slot named `auth_token`. It is not a credential and carries no identity, MAC or signature. Only explicit anonymous mode accepts it. Durable request provenance uses authentication_method `none`; verified modes reject that provenance.
 

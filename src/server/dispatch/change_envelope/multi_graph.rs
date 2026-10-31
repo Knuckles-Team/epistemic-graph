@@ -1,8 +1,8 @@
 use super::*;
 #[cfg(feature = "redb")]
-use eg_types::result_contract::transactions as txn_results;
+use medulla_types::result_contract::transactions as txn_results;
 
-/// Apply a batched cross-graph write (CONCEPT:EG-KG.storage.multi-graph-batch-write).
+/// Apply a batched cross-graph write (CONCEPT:MEDULLA-KG.storage.multi-graph-batch-write).
 ///
 /// `batches_msgpack` decodes to `Vec<(graph_name, operations_msgpack)>` where each
 /// inner blob is exactly a [`Method::BatchUpdate`] payload. Every sub-batch is
@@ -252,7 +252,7 @@ pub(in crate::server::dispatch) async fn multi_graph_batch_update(
     )
 }
 
-const MAX_MULTI_GRAPH_BATCHES: usize = eg_types::mutation_batch::MAX_FANOUT_SUB_BATCHES;
+const MAX_MULTI_GRAPH_BATCHES: usize = medulla_types::mutation_batch::MAX_FANOUT_SUB_BATCHES;
 const MAX_MULTI_GRAPH_NAME_BYTES: usize = 512;
 const MAX_MULTI_GRAPH_OPERATIONS_BYTES: usize = 32 * 1024 * 1024;
 const MAX_MULTI_GRAPH_TOTAL_OPERATIONS_BYTES: usize = 64 * 1024 * 1024;
@@ -263,9 +263,9 @@ pub(in crate::server::dispatch) fn decode_multi_graph_batches(
 ) -> Result<Vec<(String, serde_bytes::ByteBuf)>, String> {
     // The outer request preflight protects this decoder on the served path. Keep
     // the check local as well so direct unit/library callers cannot bypass it.
-    let batches: Vec<(String, serde_bytes::ByteBuf)> = eg_types::msgpack::decode_bounded(
+    let batches: Vec<(String, serde_bytes::ByteBuf)> = medulla_types::msgpack::decode_bounded(
         batches_msgpack,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_NESTED_MSGPACK_BYTES,
             MAX_NESTED_MSGPACK_ITEMS,
             64,
@@ -314,7 +314,7 @@ mod fanout_cap_tests {
         rmp_serde::to_vec(&batches).unwrap()
     }
 
-    // spec: EG-DURABLE-KERNEL-R099.1
+    // spec: MEDULLA-DURABLE-KERNEL-R099.1
     #[test]
     fn sub_batch_cap_is_the_fanout_limit() {
         assert_eq!(MAX_MULTI_GRAPH_BATCHES, 256);

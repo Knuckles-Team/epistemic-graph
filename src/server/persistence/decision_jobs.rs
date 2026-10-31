@@ -10,8 +10,8 @@
 //! full-label receipts written after this index was introduced; older receipts
 //! remain available through digest lookup and are never assigned a fake time.
 
-use eg_storage::{AgentLibraryOwner, DECISION_ARTIFACTS};
-use eg_transaction::AdmittedOwnerWrite;
+use medulla_storage::{AgentLibraryOwner, DECISION_ARTIFACTS};
+use medulla_transaction::AdmittedOwnerWrite;
 use redb::ReadableTable;
 
 use super::agent_library::AgentLibraryStore;
@@ -227,9 +227,9 @@ pub fn decode_artifact<T: serde::de::DeserializeOwned>(
     bytes: &[u8],
     noun: &str,
 ) -> Result<T, String> {
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(16 * 1024 * 1024, 1_000_000, 64),
+        medulla_types::msgpack::MsgpackLimits::new(16 * 1024 * 1024, 1_000_000, 64),
     )
     .map_err(|_| format!("CORRUPT_DECISION_ARTIFACT: invalid {noun}"))
 }
@@ -246,10 +246,10 @@ pub fn encode_artifact<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, String
 /// publish it guards.
 pub fn require_head_receipt(
     store: &AgentLibraryStore,
-    request: &eg_types::agent_component::AgentComponentPublishRequest,
+    request: &medulla_types::agent_component::AgentComponentPublishRequest,
 ) -> Result<(), String> {
-    use eg_types::decision::statistical::StatisticalErrorCode::EvaluationReceiptMismatch;
-    if request.component.kind != eg_types::agent_component::AgentComponentKind::DecisionHead {
+    use medulla_types::decision::statistical::StatisticalErrorCode::EvaluationReceiptMismatch;
+    if request.component.kind != medulla_types::agent_component::AgentComponentKind::DecisionHead {
         return Ok(());
     }
     let Some(digest) = request.evaluation_receipt_digest.as_deref() else {
@@ -262,7 +262,7 @@ pub fn require_head_receipt(
         .ok_or_else(|| {
             EvaluationReceiptMismatch.refusal("no evaluation receipt with that digest")
         })?;
-    let receipt: eg_types::decision::DecisionEvalReceipt =
+    let receipt: medulla_types::decision::DecisionEvalReceipt =
         decode_artifact(&bytes, "evaluation receipt")?;
     if !receipt.passed {
         return Err(EvaluationReceiptMismatch.refusal(format!(

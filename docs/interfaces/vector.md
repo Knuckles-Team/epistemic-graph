@@ -1,14 +1,14 @@
 # Vector / ANN interface
 
-The `ann` feature gives a native, pure-Rust approximate-nearest-neighbour index (`eg-ann`) as the
+The `ann` feature gives a native, pure-Rust approximate-nearest-neighbour index (`medulla-ann`) as the
 `SemanticStore` backend — no faiss, no GPU at serve time, no rebuild-on-load. Cargo
 `full` includes it in the main durable server.
 
-> Status snapshot: single-shard ANN is production-grade. An **HNSW** index (EG-KG.retrieval.hnsw-vector-index), **cross-shard kNN
-> scatter-gather** (EG-319, completing the EG-KG.retrieval.scatter-gather gather leaf), hybrid metadata pre-filtering pushed into the
-> ANN probe (EG-070), an exact/flat index + recall harness (EG-KG.query.concept-5), and pgvector distance operators + **real
-> ANN index pushdown** (EG-115/116/313) are all shipped. See the
-> [capability matrix](../capabilities.md#vector-ann-eg-ann-eg-core).
+> Status snapshot: single-shard ANN is production-grade. An **HNSW** index (MEDULLA-KG.retrieval.hnsw-vector-index), **cross-shard kNN
+> scatter-gather** (MEDULLA-319, completing the MEDULLA-KG.retrieval.scatter-gather gather leaf), hybrid metadata pre-filtering pushed into the
+> ANN probe (MEDULLA-070), an exact/flat index + recall harness (MEDULLA-KG.query.concept-5), and pgvector distance operators + **real
+> ANN index pushdown** (MEDULLA-115/116/313) are all shipped. See the
+> [capability matrix](../capabilities.md#vector-ann-medulla-ann-medulla-core).
 
 ## What the index is
 
@@ -48,29 +48,29 @@ rebuilt in a single O(N) integer pass. Writes are atomic (temp + rename). A redb
 - Cosine similarity is served via normalized-L2 (`cos = 1 − d/2`); overwrites tombstone the prior row,
   and a VACUUM compaction reclaims them.
 
-## HNSW index (EG-KG.retrieval.hnsw-vector-index)
+## HNSW index (MEDULLA-KG.retrieval.hnsw-vector-index)
 
-Alongside IVF-PQ, eg-ann carries an **HNSW** (hierarchical-navigable-small-world) graph index for **higher
+Alongside IVF-PQ, medulla-ann carries an **HNSW** (hierarchical-navigable-small-world) graph index for **higher
 recall-per-probe** than IVF-PQ on multiple datasets. It supports insert, search, and **serde persistence**
-(load without rebuild), and is tuned against the EG-KG.query.concept-5 recall@k harness so the operator can pick IVF-PQ vs HNSW by
+(load without rebuild), and is tuned against the MEDULLA-KG.query.concept-5 recall@k harness so the operator can pick IVF-PQ vs HNSW by
 the measured accuracy/latency trade-off. Over pgwire, `CREATE INDEX … USING hnsw` selects it for the
-pgvector pushdown (EG-KG.query.real-pgvector-ann-top).
+pgvector pushdown (MEDULLA-KG.query.real-pgvector-ann-top).
 
-## Exact / flat index & recall harness (EG-KG.query.concept-5)
+## Exact / flat index & recall harness (MEDULLA-KG.query.concept-5)
 
 Alongside the IVF-PQ ANN, a **brute-force exact kNN index** provides ground truth for small sets and a
 **re-rank stage** over ANN candidates for high precision (a hybrid combining ANN recall with exact-distance
 refinement). A **recall@k / precision self-evaluation harness** measures the ANN against the exact ground
 truth, so the operator can quantify the accuracy/latency trade-off for a given dataset.
 
-## Cross-shard & pre-filtered search (EG-319/070)
+## Cross-shard & pre-filtered search (MEDULLA-319/070)
 
-- **Cross-shard kNN scatter-gather** (EG-319): a vector search **scatters** across shards / Raft groups and
-  merges the per-shard top-k into a **deterministic global top-k** via the `merge_topk` gather leaf (EG-KG.retrieval.scatter-gather).
-  Program B wires the full scatter (per-shard fan-out over the `eg-ann` indexes at the server/router layer),
+- **Cross-shard kNN scatter-gather** (MEDULLA-319): a vector search **scatters** across shards / Raft groups and
+  merges the per-shard top-k into a **deterministic global top-k** via the `merge_topk` gather leaf (MEDULLA-KG.retrieval.scatter-gather).
+  Program B wires the full scatter (per-shard fan-out over the `medulla-ann` indexes at the server/router layer),
   completing the earlier gather-only primitive — so a kNN query on a resharded, multi-group cluster returns
   the true global neighbours.
-- **Hybrid pre-filter** (EG-070): a graph/SQL predicate is pushed *into* the `ivfpq::search` scan (a
+- **Hybrid pre-filter** (MEDULLA-070): a graph/SQL predicate is pushed *into* the `ivfpq::search` scan (a
   candidate-id allowlist / predicate arg) so filtering happens during the ANN probe, not as
   over-fetch-then-post-filter.
 
@@ -87,7 +87,7 @@ MATCH (:Doc) WHERE year > 2024
 
 Over pgwire, the same index answers pgvector `ORDER BY emb <-> $1 LIMIT k` (L2 `<->` / cosine `<=>` /
 neg-inner `<#>`), pushed down to the ANN index by `CREATE INDEX … USING hnsw/ivfflat` — a **real ANN top-k**
-(HNSW/IVF) with an exact re-rank tier, not the brute-force fallback (EG-115/116/313) — see
+(HNSW/IVF) with an exact re-rank tier, not the brute-force fallback (MEDULLA-115/116/313) — see
 [sql](sql.md#create-extension).
 
 ---

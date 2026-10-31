@@ -1,10 +1,10 @@
-//! `epistemic-graph-server restore` — rebuild a durable persist-dir from an EG-090 backup bundle (CONCEPT:EG-KG.sharding.reshard-on-restore).
+//! `medulla-server restore` — rebuild a durable persist-dir from an MEDULLA-090 backup bundle (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore).
 //!
 //! Reads a backup bundle produced by the online backup path (`Method::Backup` /
 //! `RedbBackend::backup`) — a directory of verbatim `graph-<n>.redb` shard
 //! files + a `MANIFEST.json` — and rebuilds a fresh persist-dir from it, verbatim (value
 //! blobs, encryption-at-rest ciphertext, and the KG-2.231 audit chain are copied
-//! byte-for-byte). Mirrors the offline `migrate-shards` CLI (CONCEPT:EG-KG.sharding.atomic-shard-swap) — restore
+//! byte-for-byte). Mirrors the offline `migrate-shards` CLI (CONCEPT:MEDULLA-KG.sharding.atomic-shard-swap) — restore
 //! delegates to that same verbatim-import engine.
 //!
 //! Run with NOTHING serving out of `--persist-dir` (redb holds an exclusive per-file
@@ -12,22 +12,22 @@
 //!
 //! ```text
 //! # Restore at the bundle's own shard count K (state K explicitly).
-//! epistemic-graph-server restore --bundle /backups/eg-2026-07-01 --persist-dir /var/lib/epistemic-graph --shards 1
+//! medulla-server restore --bundle /backups/medulla-2026-07-01 --persist-dir /var/lib/medulla --shards 1
 //!
-//! # Re-shard on restore: rebuild at a DIFFERENT K (each graph re-routed by EG-026).
-//! epistemic-graph-server restore --bundle /backups/eg-2026-07-01 --persist-dir /var/lib/eg-k8 --shards 8
+//! # Re-shard on restore: rebuild at a DIFFERENT K (each graph re-routed by MEDULLA-026).
+//! medulla-server restore --bundle /backups/medulla-2026-07-01 --persist-dir /var/lib/medulla-k8 --shards 8
 //! ```
 
 use std::path::Path;
 
 use clap::Parser;
 
-use epistemic_graph::server::persistence::backup;
+use medulla::server::persistence::backup;
 
 #[derive(Parser, Debug)]
-#[command(name = "epistemic-graph-server restore")]
+#[command(name = "medulla-server restore")]
 #[command(
-    about = "Rebuild a durable persist-dir from an EG-090 backup bundle (CONCEPT:EG-KG.sharding.reshard-on-restore)"
+    about = "Rebuild a durable persist-dir from an MEDULLA-090 backup bundle (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore)"
 )]
 struct Args {
     /// Backup bundle directory (holds graph*.redb + MANIFEST.json).
@@ -39,7 +39,7 @@ struct Args {
     persist_dir: String,
 
     /// Required target shard count K. Use the bundle's K for a 1:1 restore or a
-    /// different K to re-shard through EG-026 `FNV-1a % K`.
+    /// different K to re-shard through MEDULLA-026 `FNV-1a % K`.
     #[arg(long)]
     shards: usize,
 }

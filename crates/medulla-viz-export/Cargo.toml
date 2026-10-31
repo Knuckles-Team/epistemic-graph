@@ -1,0 +1,26 @@
+[package]
+name = "medulla-viz-export"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Static chart export (D-VZ-1 / lane V3a): PNG/SVG/PDF from a ViewSpec resolved against an medulla-viz-columnstore ColumnStore, honoring the medulla-viz-core tier decision rather than re-deriving its own limits. Decimate-tier Line/Area marks route through medulla-viz-kernels' real M4 kernel (lane V2). The matplotlib replacement -- pure Rust, hand-rolled PNG/PDF encoders, zero new external dependencies."
+license = "MIT"
+
+[lib]
+name = "medulla_viz_export"
+
+# V3a sits right of V1 in the DAG (`medulla-viz-core -> medulla-viz-columnstore -> medulla-viz-export`).
+# Deliberately NO new external crates: the PNG encoder (stored/uncompressed zlib
+# deflate blocks -- valid per RFC 1950/1951, just not size-optimal) and the PDF
+# writer (a minimal single-page vector-graphics document) are hand-rolled in this
+# crate rather than pulling `image`/`png`/`printpdf` -- keeping V3a's own dependency
+# footprint at zero beyond the viz crates it naturally builds on. `medulla-viz-kernels`
+# (V2) supplies the real M4 decimation kernel this crate's `reduce::decimate_m4`
+# delegates to, in place of the plain min-max stand-in V3a shipped before V2 landed.
+[dependencies]
+medulla-viz-core = { path = "../medulla-viz-core" }
+medulla-viz-columnstore = { path = "../medulla-viz-columnstore" }
+medulla-viz-kernels = { path = "../medulla-viz-kernels" }
+
+[features]
+default = []

@@ -65,9 +65,9 @@ impl GraphTxnState {
         };
         let bytes = rmp_serde::to_vec_named(&plan)
             .map_err(|_| "transaction recovery plan encode failed".to_string())?;
-        eg_types::msgpack::validate_single_value(
+        medulla_types::msgpack::validate_single_value(
             &bytes,
-            eg_types::msgpack::MsgpackLimits::new(
+            medulla_types::msgpack::MsgpackLimits::new(
                 MAX_DURABLE_TXN_PLAN_BYTES,
                 MAX_DURABLE_TXN_PLAN_ITEMS,
                 64,
@@ -81,9 +81,9 @@ impl GraphTxnState {
     /// recovery bytes.  The retrying caller is held only in RAM; its durable scope
     /// was already verified against the parent receipt before this method is called.
     pub(crate) fn decode_recovery_plan(bytes: &[u8], agent: String) -> Result<Self, String> {
-        let plan: DurableTxnPlan = eg_types::msgpack::decode_bounded(
+        let plan: DurableTxnPlan = medulla_types::msgpack::decode_bounded(
             bytes,
-            eg_types::msgpack::MsgpackLimits::new(
+            medulla_types::msgpack::MsgpackLimits::new(
                 MAX_DURABLE_TXN_PLAN_BYTES,
                 MAX_DURABLE_TXN_PLAN_ITEMS,
                 64,

@@ -14,16 +14,16 @@
 
 use std::collections::BTreeMap;
 
-use eg_numeric::attribution::{additive_fit, shapley_exact, Attribution, LoggedGame};
-use eg_numeric::decision::aggregate::{label_use, LabelUse};
-use eg_numeric::decision::quant::q32;
-use eg_types::contract::BoundedVec;
-use eg_types::decision::digest::digest_text;
-use eg_types::decision::statistical::log::{
+use medulla_numeric::attribution::{additive_fit, shapley_exact, Attribution, LoggedGame};
+use medulla_numeric::decision::aggregate::{label_use, LabelUse};
+use medulla_numeric::decision::quant::q32;
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::digest::digest_text;
+use medulla_types::decision::statistical::log::{
     ComponentContribution, SlateAttribution, SlateAttributionMethod, SlateAttributionRequest,
     StoredEvaluation,
 };
-use eg_types::decision::{EvidenceClass, RecordWindow};
+use medulla_types::decision::{EvidenceClass, RecordWindow};
 
 use super::stat_log::{LogReader, MAX_LOG_ROWS};
 use super::stat_slate::{evaluated_slates, Slate, SLATE_QUESTION};

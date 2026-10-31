@@ -16,18 +16,18 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "msgpack>=1.2.3",
-    # RF-RULING-003: `epistemic_graph/generated/*` (imported at module scope by
+    # RF-RULING-003: `medulla/generated/*` (imported at module scope by
     # `client.py`, which `__init__.py` imports) declares its request models with
     # pydantic v2. It is a HARD runtime dependency of the wheel, not an extra --
-    # `import epistemic_graph` fails without it. v2 is what agent-utilities already
+    # `import medulla` fails without it. v2 is what agent-utilities already
     # standardises on, so a consumer resolves one model layer, not two.
     "pydantic>=2.14.1,<3",
-    # numeric is a NATIVE core primitive, NOT an extra (CONCEPT:EG-346): the compiled
+    # numeric is a NATIVE core primitive, NOT an extra (CONCEPT:MEDULLA-346): the compiled
     # pure-Rust faer/ndarray kernel ships as always-bundled package data
-    # (`epistemic_graph/numeric.abi3.so`). It has no Python package dependency; the
+    # (`medulla/numeric.abi3.so`). It has no Python package dependency; the
     # wheel gate and release smoke test prove the bundled native module is callable
     # without resolving an interpreter-side numeric implementation.
-    # FULL-BY-DEFAULT (CONCEPT:EG-346, 2026-07-25): the UNIFIED binary is the default install
+    # FULL-BY-DEFAULT (CONCEPT:MEDULLA-346, 2026-07-25): the UNIFIED binary is the default install
     # — `pip install medulla` (NO extra tag) ships the complete engine. OWL/SPARQL
     # (pyoxigraph) and the LMCache HTTP driver (httpx) join numeric in the base so `[full]` is
     # no longer needed to get the whole engine. A slimmer serving consumer still chooses what
@@ -85,20 +85,20 @@ server = ["medulla-stem==2.27.10"]
 # `dependencies`. `pip install medulla` (no tag) is now the complete engine;
 # `[full]` is retained only so existing installs/refs keep resolving.
 full = []
-# CONCEPT:EG-337 — the Python LMCache/vLLM remote-backend driver for the EG-187
-# KV-cache endpoint (`epistemic_graph.kvcache`). The driver itself imports with
+# CONCEPT:MEDULLA-337 — the Python LMCache/vLLM remote-backend driver for the MEDULLA-187
+# KV-cache endpoint (`medulla.kvcache`). The driver itself imports with
 # STDLIB ONLY (urllib), so this extra only pulls the optional httpx acceleration
 # (pooled keep-alive on the inference hot path). `pip install medulla[lmcache]`.
 lmcache = [
     "httpx>=0.28.1",
 ]
-# CONCEPT:EG-346 — numeric is NATIVE; this extra is retained as a NO-OP alias so existing
+# CONCEPT:MEDULLA-346 — numeric is NATIVE; this extra is retained as a NO-OP alias so existing
 # `medulla[numeric]`/`[full]` installs and the `all` aggregate keep resolving. The
 # compiled faer/ndarray kernel remains always-bundled as package data
-# `epistemic_graph/numeric.abi3.so` (pure-Rust, BLAS/LAPACK-free) and does not add a
+# `medulla/numeric.abi3.so` (pure-Rust, BLAS/LAPACK-free) and does not add a
 # Python numeric dependency.
 numeric = []
-# W4.8 (CONCEPT:EG-317) — TEST-ONLY reference-implementation readers for the lake/
+# W4.8 (CONCEPT:MEDULLA-317) — TEST-ONLY reference-implementation readers for the lake/
 # lake-rest read-parity suite (`tests/test_lake_iceberg_delta_parity.py`): real
 # pyiceberg/deltalake open the engine's own materialized Delta + Iceberg artifacts and
 # assert they read back correctly. Not a runtime dependency of the engine or the
@@ -122,19 +122,19 @@ all = []
 # Expose the engine's operator skills to the same provider federation used by
 # agent-utilities and every agents/* package.  This is metadata only: consumers
 # discover the entry point when agent-utilities is installed, without imposing it
-# as an epistemic-graph runtime dependency.
+# as an medulla runtime dependency.
 [project.entry-points."agent_utilities.skill_providers"]
-epistemic-graph = "epistemic_graph.skills"
+medulla = "medulla.skills"
 
 # GOC-33 (`OWNER-VOICE-ASR`): registers this package's native whisper-rs-backed
-# ASR provider (`epistemic_graph/asr_provider.py`) under the pluggable
+# ASR provider (`medulla/asr_provider.py`) under the pluggable
 # transcription-backend seam `agent-packages/agents/audio-transcriber` owns
 # (`audio_transcriber/asr_providers.py`'s `TranscriptionProvider` Protocol).
 # Discovery is by entry point ONLY, guarded try/except on the consumer side —
 # this package never imports `audio_transcriber`, so listing this metadata
 # imposes no runtime dependency here.
 [project.entry-points."audio_transcriber.asr_providers"]
-epistemic-graph = "epistemic_graph.asr_provider:build_provider"
+medulla = "medulla.asr_provider:build_provider"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -175,7 +175,7 @@ min_confidence = 95
 # sensors.  The hooks resolve already-installed binaries only; they never
 # invoke a package manager.  Keeping the versions here makes a tool upgrade a
 # deliberate change to the same file as the thresholds and format universe.
-[tool.epistemic_graph.scanners]
+[tool.medulla.scanners]
 cccc_version = "1.6.0"
 kiss_version = "0.4.12"
 dupehound_version = "0.1.2"
@@ -225,17 +225,17 @@ jscpd_exclusions = [
 # The published server extra keeps its exact version pin. Release wheel and
 # public-index validation remain separate from this development-only source.
 [tool.uv.sources]
-medulla-stem = { path = "packaging/epistemic-graph-server" }
+medulla-stem = { path = "packaging/medulla-server" }
 
 [tool.maturin]
 python-source = "."
-# The public wheel compiles ONLY the extension modules (EG-CONTRACT-R053.8):
-# the base is the in-process engine binding `epistemic_graph.engine`, built from the
-# `eg-pyengine` crate with the pure-Python package; `build_backend.py` and the
-# release `folded-wheel` action fold `epistemic_graph.numeric` in. No server crate
+# The public wheel compiles ONLY the extension modules (MEDULLA-CONTRACT-R053.8):
+# the base is the in-process engine binding `medulla.engine`, built from the
+# `medulla-pyengine` crate with the pure-Python package; `build_backend.py` and the
+# release `folded-wheel` action fold `medulla.numeric` in. No server crate
 # or bin target is built here -- the server ships in `medulla-stem`.
-manifest-path = "crates/eg-pyengine/Cargo.toml"
-module-name = "epistemic_graph.engine"
+manifest-path = "crates/medulla-pyengine/Cargo.toml"
+module-name = "medulla.engine"
 strip = true
 # Never carry interpreter caches from a reused checkout into a wheel or sdist.
 # These are source-level Maturin globs, so the checkout itself remains untouched.

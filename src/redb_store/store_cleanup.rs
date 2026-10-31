@@ -52,7 +52,7 @@ pub(crate) fn clear_graph_rows(
     for seq in seqs {
         let _ = ledger.remove((graph, seq));
     }
-    // EG-029: every edge for `graph` is gone — drop all cached ordinals so a later
+    // MEDULLA-029: every edge for `graph` is gone — drop all cached ordinals so a later
     // AddEdge (incl. checkpoint re-population, which clears then re-adds) re-seeds from
     // the post-clear state. Covers ClearGraph, purge_graph_rows, and apply_checkpoint.
     invalidate_graph_edge_ords(graph);
@@ -692,7 +692,7 @@ pub(crate) fn clear_change_material_rows_in_wtx(
 }
 
 /// Retire one graph entirely: its authority and every row it owns, in ONE
-/// transaction (CONCEPT:EG-KG.backend.tenant-delete-recreate-same, the tenant-DELETE path).
+/// transaction (CONCEPT:MEDULLA-KG.backend.tenant-delete-recreate-same, the tenant-DELETE path).
 ///
 /// Unlike `clear_graph_rows`, which empties a LIVE graph's data and keeps its
 /// identity, this ends the graph's durable existence: the scope's binding is

@@ -16,7 +16,7 @@ use crate::redb_store::shard::{Shard, ShardWrite};
 
 fn temp_path(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
-        "eg-shard-control-{tag}-{}-{}.redb",
+        "medulla-shard-control-{tag}-{}-{}.redb",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -34,10 +34,10 @@ fn bootstrap(path: &std::path::Path) -> Shard {
 #[test]
 fn the_kernel_reserves_the_same_control_scope_the_durable_tier_refuses() {
     assert_eq!(
-        eg_storage::reserved_control_graph(eg_storage::OwnerLayout::GraphShard),
+        medulla_storage::reserved_control_graph(medulla_storage::OwnerLayout::GraphShard),
         Some(SHARD_CONTROL_GRAPH)
     );
-    assert!(reject_reserved_graph(eg_storage::GRAPH_SHARD_CONTROL_GRAPH).is_err());
+    assert!(reject_reserved_graph(medulla_storage::GRAPH_SHARD_CONTROL_GRAPH).is_err());
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn every_durable_chokepoint_refuses_the_reserved_control_scope() {
 fn the_canonical_bootstrap_matches_the_declared_shard_census() {
     let path = temp_path("census");
     let shard = bootstrap(&path);
-    let declared = eg_storage::owner_table_names(eg_storage::OwnerLayout::GraphShard);
+    let declared = medulla_storage::owner_table_names(medulla_storage::OwnerLayout::GraphShard);
     // 58 -> 59: the tenant-scoped operation audit-append idempotency index
     // `audit_requests`.
     // 59 -> 60: the private current-plan snapshot table `work_item_current_plans`.

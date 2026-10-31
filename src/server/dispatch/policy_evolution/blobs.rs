@@ -6,7 +6,7 @@
 //! that reference here rather than trusting the digest. A build without the
 //! blob store cannot hold anything, so it fails closed.
 
-use eg_types::policy_evolution::{HeldBlobRef, PolicyEvolutionRecord, PolicyRefusal};
+use medulla_types::policy_evolution::{HeldBlobRef, PolicyEvolutionRecord, PolicyRefusal};
 
 use super::*;
 

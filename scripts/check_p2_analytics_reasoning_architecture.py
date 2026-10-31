@@ -42,13 +42,13 @@ def require(path: str, needles: list[str], failures: list[str]) -> str:
 #: Every source that must carry a declared set of literal markers, in the
 #: order this gate reports them.
 _REQUIRED_MARKERS: dict[str, tuple[str, ...]] = {
-    "crates/eg-jobs/src/model.rs": (
+    "crates/medulla-jobs/src/model.rs": (
         "Publishing {",
         "WorkerLease",
         "content_digest",
         "not_before_ms",
     ),
-    "crates/eg-jobs/src/store.rs": (
+    "crates/medulla-jobs/src/store.rs": (
         "claim_next(",
         "renew_lease(",
         "checkpoint_fenced(",
@@ -72,7 +72,7 @@ _REQUIRED_MARKERS: dict[str, tuple[str, ...]] = {
         "validate_remote_result_privacy(",
         "association_rule_id_from_row(",
         "refresh_job_metrics(",
-        'std::env::var("EG_ANALYTICS_WORKERS")',
+        'std::env::var("MEDULLA_ANALYTICS_WORKERS")',
         "for slot in 0..workers",
         "analytics jobs require a configured durable persistence directory",
         '"kernel_cancelled"',
@@ -93,7 +93,7 @@ _REQUIRED_MARKERS: dict[str, tuple[str, ...]] = {
         "JobPublicationCommit {",
         "JobPublicationFinalize {",
     ),
-    "crates/eg-types/src/jobs.rs": (
+    "crates/medulla-types/src/jobs.rs": (
         "WorkerClaim {",
         "WorkerRenew {",
         "WorkerCheckpoint {",
@@ -124,7 +124,7 @@ _REQUIRED_MARKERS: dict[str, tuple[str, ...]] = {
         "file.sync_all()",
         "ack_mutation_outbox(",
     ),
-    "crates/eg-epistemic/src/incremental.rs": (
+    "crates/medulla-epistemic/src/incremental.rs": (
         "IncrementalReasoningIndex",
         "stale_dependents",
         "CONTRADICTS",
@@ -152,7 +152,7 @@ _REQUIRED_MARKERS: dict[str, tuple[str, ...]] = {
 
 #: `Succeeded` is reachable only from `Publishing`, so no publication-completion
 #: entry point may carry a `Running` source arm. The historical check named a
-#: `pub fn succeed` that has not existed since eg-jobs was split: `str.find`
+#: `pub fn succeed` that has not existed since medulla-jobs was split: `str.find`
 #: returned -1, the slice was empty, and the assertion could never fire. Every
 #: offset-based contract below therefore treats an absent marker as FATAL.
 _PUBLICATION_COMPLETION_FNS = (
@@ -160,7 +160,7 @@ _PUBLICATION_COMPLETION_FNS = (
     "pub fn complete_publication_prepared(",
 )
 _RUNNING_SOURCE_ARM = "JobState::Running {"
-_JOB_STORE = "crates/eg-jobs/src/store.rs"
+_JOB_STORE = "crates/medulla-jobs/src/store.rs"
 
 
 def _method_body(source: str, signature: str) -> str | None:
@@ -249,7 +249,7 @@ def _full_build_failures(sources: dict[str, str]) -> list[str]:
     for feature in ("jobs", "epistemic-tms", "epistemic-causal"):
         if f'"{feature}"' not in full_line:
             failures.append(f"full build omits {feature}")
-    if "Publishing" not in sources["crates/eg-jobs/src/model.rs"]:
+    if "Publishing" not in sources["crates/medulla-jobs/src/model.rs"]:
         failures.append("analytics state machine has no publication barrier")
     return failures
 

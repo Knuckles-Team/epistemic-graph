@@ -4,9 +4,9 @@
 //! (EH-037) without ever gaining an option it did not hold.
 
 use super::*;
-use eg_types::decision::statistical::declared::{DeclaredNumber, DeclaredOption};
-use eg_types::decision::statistical::enrichment_schedule::{COST_KEY, EXPECTED_VALUE_KEY};
-use eg_types::decision::statistical::log::{
+use medulla_types::decision::statistical::declared::{DeclaredNumber, DeclaredOption};
+use medulla_types::decision::statistical::enrichment_schedule::{COST_KEY, EXPECTED_VALUE_KEY};
+use medulla_types::decision::statistical::log::{
     AbstentionResolution, AbstentionResolver, StoredResolution,
 };
 
@@ -33,7 +33,7 @@ fn enrichment_option(id: &str, expected_value_q32: i64, cost_q32: i64) -> Declar
         // ("enrichment.cost_q32") sorts before EXPECTED_VALUE_KEY
         // ("enrichment.expected_value_q32"), so it must come first here or
         // every call is refused PARAMETER_INVALID at the generic
-        // check_declared gate before the EG-DECISION-ENGINE-R031-specific
+        // check_declared gate before the MEDULLA-DECISION-ENGINE-R031-specific
         // negative-cost check ever runs.
         numbers: BoundedVec::new(vec![
             DeclaredNumber {
@@ -127,7 +127,7 @@ async fn logged_abstention(h: &Harness) -> DecisionLogCommitted {
     decode(log_op(h, "decider", commit).await).unwrap()
 }
 
-/// EG-DECISION-ENGINE-R029: a retrieval-plan decision refuses a declared
+/// MEDULLA-DECISION-ENGINE-R029: a retrieval-plan decision refuses a declared
 /// option that claims the registry's reserved namespace but does not name a
 /// registered plan, through the real served `Decide` path (`handle_decide`,
 /// the same handler `Method::Decide` dispatches to) -- not just the typed
@@ -180,7 +180,7 @@ async fn declared_options_decide_as_claims_under_the_declaring_principal() {
     ));
     assert!(matches!(
         record.candidate_source,
-        eg_types::decision::CandidateSourceRecord::Declared { .. }
+        medulla_types::decision::CandidateSourceRecord::Declared { .. }
     ));
     assert_eq!(record.evidence_class, EvidenceClass::Claim);
     let claims = record
@@ -222,7 +222,7 @@ async fn declared_options_decide_as_claims_under_the_declaring_principal() {
     assert!(refused.starts_with("PARAMETER_INVALID"), "{refused}");
 }
 
-// spec: EG-DECISION-ENGINE-R037
+// spec: MEDULLA-DECISION-ENGINE-R037
 #[tokio::test]
 async fn a_logged_abstention_takes_a_resolution_of_its_resolver_class() {
     let h = Harness::new().await;
@@ -285,7 +285,7 @@ async fn a_logged_abstention_takes_a_resolution_of_its_resolver_class() {
 /// EH-039: cost-aware routing reads observed L5 cost; with no L5 accounting
 /// store no option carries it, and the decision abstains NAMING the missing
 /// fact instead of reading it as zero.
-// spec: EG-DECISION-ENGINE-R039.1
+// spec: MEDULLA-DECISION-ENGINE-R039.1
 #[tokio::test]
 async fn cost_routing_without_l5_accounting_abstains_naming_the_fact() {
     let h = Harness::new().await;
@@ -318,14 +318,14 @@ async fn cost_routing_without_l5_accounting_abstains_naming_the_fact() {
     };
     assert_eq!(
         reasons.as_slice(),
-        [eg_types::decision::AbstainReason::UnknownFact {
+        [medulla_types::decision::AbstainReason::UnknownFact {
             component_id: "model-a".to_string(),
             field: "l5.observed_cost".to_string(),
         }]
     );
 }
 
-/// EG-DECISION-ENGINE-R030: an ingestion-lane decision refuses a declared
+/// MEDULLA-DECISION-ENGINE-R030: an ingestion-lane decision refuses a declared
 /// option outside the fixed lane registry, through the real served `Decide`
 /// path (`handle_decide`, the same handler `Method::Decide` dispatches to;
 /// see `src/server/dispatch/router/decision_plane.rs`) -- not just the
@@ -362,7 +362,7 @@ async fn an_unregistered_ingestion_lane_is_refused_through_decide() {
     assert!(error.contains("UNSUPPORTED_INGESTION_LANE"), "got: {error}");
 }
 
-/// EG-DECISION-ENGINE-R031: an enrichment-schedule decision refuses a
+/// MEDULLA-DECISION-ENGINE-R031: an enrichment-schedule decision refuses a
 /// declared candidate with a negative cost, through the real served
 /// `Decide` path (`handle_decide`, the same handler `Method::Decide`
 /// dispatches to) -- not just the typed request's own unit check. The
@@ -401,7 +401,7 @@ async fn a_negative_enrichment_cost_is_refused_through_decide() {
     );
 }
 
-/// EG-DECISION-ENGINE-R035: `graph.decide()` returns a valid typed choice
+/// MEDULLA-DECISION-ENGINE-R035: `graph.decide()` returns a valid typed choice
 /// and its evidence class for declared candidates representative of EVERY
 /// routing category the requirement enumerates (model, prompt, skill,
 /// tool, harness mode, account mode, sandbox configuration), through the
@@ -418,10 +418,10 @@ async fn a_negative_enrichment_cost_is_refused_through_decide() {
 /// act, so an Ordinary exploration policy supplies the typed choice
 /// (`Explored`); its evidence class is always `Claim` (never stronger than
 /// a claim for a draw, not a calibrated act).
-// spec: EG-DECISION-ENGINE-R035
+// spec: MEDULLA-DECISION-ENGINE-R035
 #[tokio::test]
 async fn graph_decide_answers_every_execution_routing_category() {
-    use eg_types::decision::statistical::execution_routing::ExecutionRoutingCategory;
+    use medulla_types::decision::statistical::execution_routing::ExecutionRoutingCategory;
 
     let h = Harness::new().await;
     let schema_pin = h
@@ -527,7 +527,7 @@ async fn an_assembly_outcome_is_credited_to_its_slate() {
             &digest,
         )
         .unwrap();
-    let eg_types::decision::DecisionOutcome::Solved { graph_digest, .. } = &record.outcome else {
+    let medulla_types::decision::DecisionOutcome::Solved { graph_digest, .. } = &record.outcome else {
         panic!("solved")
     };
     let evaluator = VerifiedRequestContext::verified_for_test_in_tenant("evaluator", v1::TENANT);
@@ -567,10 +567,10 @@ fn uql_decisions(h: &Harness, who: &str) -> Vec<String> {
     let authority = crate::server::access::CarrierAuthority::from_verified(&verified).unwrap();
     let views = DecisionViews::of(h.store.clone(), &authority);
     let graph = crate::graph::GraphCore::new().analysis_snapshot();
-    let semantic = eg_core::compute::semantic::SemanticStore::new();
-    let plan = eg_plan::uql::parse("DECISIONS WHERE outcome = 'abstained'").unwrap();
-    let ctx = eg_plan::PlanCtx::new(&graph, &semantic).with_decisions(&views);
-    eg_plan::execute(&plan, &ctx).unwrap().ids()
+    let semantic = medulla_core::compute::semantic::SemanticStore::new();
+    let plan = medulla_plan::uql::parse("DECISIONS WHERE outcome = 'abstained'").unwrap();
+    let ctx = medulla_plan::PlanCtx::new(&graph, &semantic).with_decisions(&views);
+    medulla_plan::execute(&plan, &ctx).unwrap().ids()
 }
 
 /// The relation names the decision views materialize for `who`.
@@ -591,7 +591,7 @@ fn view_names(h: &Harness, who: &str) -> Vec<String> {
 /// `decision_resolutions` relations every served SQL surface projects, and the UQL
 /// `DECISIONS` source — answer only from what the caller may read.
 #[cfg(feature = "query")]
-// spec: EG-DECISION-ENGINE-R064
+// spec: MEDULLA-DECISION-ENGINE-R064
 #[tokio::test]
 async fn decision_record_views_answer_only_from_visible_rows() {
     use super::retrieval_tests::sql;
@@ -614,7 +614,7 @@ async fn decision_record_views_answer_only_from_visible_rows() {
         sql(&h, "decider", joined).await,
         vec![vec![json!("plan-deep")]]
     );
-    for table in eg_query::READ_ONLY_RELATION_NAMES {
+    for table in medulla_query::READ_ONLY_RELATION_NAMES {
         let theirs = sql(&h, "stranger", &format!("SELECT count(*) FROM {table}")).await;
         assert_eq!(
             theirs,
@@ -624,7 +624,7 @@ async fn decision_record_views_answer_only_from_visible_rows() {
     }
     assert_eq!(
         view_names(&h, "decider"),
-        eg_query::READ_ONLY_RELATION_NAMES
+        medulla_query::READ_ONLY_RELATION_NAMES
     );
 
     // UQL `DECISIONS`: the same visibility through the plan source.

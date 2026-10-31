@@ -1,4 +1,4 @@
-"""EG-CONTRACT-R022: the jscpd duplication gate must eliminate a new clone
+"""MEDULLA-CONTRACT-R022: the jscpd duplication gate must eliminate a new clone
 pair by consolidating the shared implementation, never by a scanner
 suppression comment or a baseline-exception file.
 
@@ -24,7 +24,7 @@ from check_duplication import _parser, guard_ambient_config
 pytestmark = pytest.mark.no_engine
 
 
-@pytest.mark.spec("EG-CONTRACT-R022")
+@pytest.mark.spec("MEDULLA-CONTRACT-R022")
 def test_gate_cli_has_no_baseline_or_suppression_flag() -> None:
     parser = _parser()
     subparsers_action = next(
@@ -39,7 +39,7 @@ def test_gate_cli_has_no_baseline_or_suppression_flag() -> None:
     assert flag_names == {"-h", "--help", "--base-ref", "--diff"}
 
 
-@pytest.mark.spec("EG-CONTRACT-R022")
+@pytest.mark.spec("MEDULLA-CONTRACT-R022")
 def test_ambient_suppression_config_fails_closed(tmp_path: Path) -> None:
     (tmp_path / ".jscpd.json").write_text("{}", encoding="utf-8")
     with pytest.raises(SystemExit) as excinfo:

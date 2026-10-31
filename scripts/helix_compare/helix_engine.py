@@ -4,7 +4,7 @@ The server runs from its own build of the pinned commit, disk-backed
 (``HELIX_DATA_DIR``), and is driven through the pinned revision's Python SDK
 (``sdks/python``, async HTTPX client with a reused connection pool). Every write
 sets ``X-Helix-Await-Durable`` so an acknowledged write has been flushed, the
-same contract as Epistemic Graph's commit-before-ack. The idiomatic Helix
+same contract as Medulla's commit-before-ack. The idiomatic Helix
 schema is declared up front: a node-equality index on the prefilter property
 and the text and vector indexes the ranked workloads search, all activated
 before any data is written.

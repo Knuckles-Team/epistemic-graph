@@ -1,6 +1,6 @@
-pub(super) use eg_storage::GRAPH_SHARD_CONTROL_GRAPH as SHARD_CONTROL_GRAPH;
-pub(super) use eg_storage::{GraphShardOwner, OwnedStoreHandle, ScopedOwnerTableMut};
-pub(super) use eg_transaction::{AdmittedGroup, AdmittedOwnerWrite, Begin, OwnerPayloadWrite};
+pub(super) use medulla_storage::GRAPH_SHARD_CONTROL_GRAPH as SHARD_CONTROL_GRAPH;
+pub(super) use medulla_storage::{GraphShardOwner, OwnedStoreHandle, ScopedOwnerTableMut};
+pub(super) use medulla_transaction::{AdmittedGroup, AdmittedOwnerWrite, Begin, OwnerPayloadWrite};
 pub(super) use redb::{ReadableTable, TableDefinition};
 pub(super) use std::borrow::Cow;
 pub(super) use std::cell::RefCell;

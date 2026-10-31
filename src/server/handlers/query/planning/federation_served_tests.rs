@@ -6,11 +6,11 @@
 #[cfg(feature = "tsdb")]
 use super::TsdbLegBind;
 use super::{execute_rows, run_unified_with, ServedIndexes};
-use eg_core::compute::semantic::SemanticStore;
-use eg_core::graph::GraphCore;
-use eg_plan::federation::ForeignSourceRegistry;
-use eg_plan::Op;
-use eg_types::wire::{ForeignSourceSpec, HttpFieldMap};
+use medulla_core::compute::semantic::SemanticStore;
+use medulla_core::graph::GraphCore;
+use medulla_plan::federation::ForeignSourceRegistry;
+use medulla_plan::Op;
+use medulla_types::wire::{ForeignSourceSpec, HttpFieldMap};
 
 fn blob(v: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&v).unwrap()
@@ -31,7 +31,7 @@ fn run(
         ..ServedIndexes::default()
     };
     run_unified_with(
-        eg_plan::Plan::new(ops),
+        medulla_plan::Plan::new(ops),
         &view,
         &semantic,
         served,
@@ -69,7 +69,7 @@ fn a_served_scan_of_a_key_only_source_is_refused_by_the_optimizer() {
     )
     .unwrap_err();
     assert!(
-        err.starts_with(eg_plan::federation_opt::REQUIRES_KEYS),
+        err.starts_with(medulla_plan::federation_opt::REQUIRES_KEYS),
         "the served path must plan with source capabilities: {err}"
     );
 }

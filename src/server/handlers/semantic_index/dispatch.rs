@@ -1,4 +1,4 @@
-use eg_types::semantic_index::SemanticIndexOp;
+use medulla_types::semantic_index::SemanticIndexOp;
 
 use crate::protocol::Response;
 

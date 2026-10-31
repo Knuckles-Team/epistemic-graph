@@ -15,10 +15,10 @@ from typing import Any
 import msgpack
 import pytest
 
-from epistemic_graph import client as client_module
-from epistemic_graph.client import (
+from medulla import client as client_module
+from medulla.client import (
     EdgeClient,
-    EpistemicGraphClient,
+    MedullaClient,
     LifecycleClient,
     NodeClient,
     StatechartClient,
@@ -29,7 +29,7 @@ from epistemic_graph.client import (
 )
 
 # Fake-client unit tests only -- never needs the shared native engine (see
-# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# conftest.py's session-scoped `start_medulla_server` fixture,
 # which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
@@ -44,7 +44,7 @@ def test_result_decoder_preserves_only_declared_opaque_binary_methods() -> None:
     assert _decode_send_result("Sql", structured) == {"rows": [1, 2]}
 
 
-class _CaptureClient(EpistemicGraphClient):
+class _CaptureClient(MedullaClient):
     def __init__(self) -> None:
         self.sent: list[tuple[str, dict[str, Any] | None]] = []
 

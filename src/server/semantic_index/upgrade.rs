@@ -9,7 +9,7 @@ use super::{
     legacy_semantic_owner_dir, sanitize_owner_segment, tenant_semantic_migration_fence_file,
     tenant_semantic_owner_file,
 };
-use eg_storage::{
+use medulla_storage::{
     adopt_recovery, layout_digest_hex, merge_semantic_owner_files, open_read_only, open_recovery,
     prove_scope_bindings_reanchored_read_only, prove_semantic_owner_partition_read_only,
     prove_semantic_owner_union_read_only, strict_recovery_evidence,
@@ -100,7 +100,7 @@ pub(super) fn inspect_tenant_owner_upgrade(
     // This is the same process-wide engine.lock as normal EG startup. Keep it
     // until the final source fingerprint is captured. The later copy/activation
     // phase must take and retain it through the destination rename too.
-    let _lease = eg_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
+    let _lease = medulla_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
     inspect_under_lease(persist_dir, tenant, binding_ids, max_total_bytes)
 }
 
@@ -164,7 +164,7 @@ pub(super) fn recover_promoted_tenant_owner(
     binding_ids: &[String],
     max_total_bytes: u64,
 ) -> Result<TenantOwnerPromotion, String> {
-    let _lease = eg_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
+    let _lease = medulla_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
     verify_promoted_under_lease(persist_dir, tenant, binding_ids, max_total_bytes)
 }
 
@@ -180,7 +180,7 @@ pub(super) fn observe_promoted_tenant_owner(
     max_source_bytes: u64,
     max_owner_bytes: u64,
 ) -> Result<VerifiedTenantMigrationObservation, String> {
-    let _lease = eg_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
+    let _lease = medulla_core::persist_lock::acquire(&persist_dir.to_string_lossy())?;
     observe_promoted_tenant_owner_under_existing_lease(
         persist_dir,
         tenant,
@@ -621,7 +621,7 @@ fn install_migration_fence(
         Err(error) => return Err(format!("semantic migration fence unavailable: {error}")),
     }
     let mut file =
-        eg_core::fs::create_private_new_file(&path).map_err(|error| error.to_string())?;
+        medulla_core::fs::create_private_new_file(&path).map_err(|error| error.to_string())?;
     file.write_all(&migration_fence_bytes(tenant, destination)?)
         .and_then(|()| file.sync_all())
         .map_err(|error| error.to_string())?;
@@ -853,7 +853,7 @@ fn require_single_regular_file(directory: &Path, expected: &Path) -> Result<(), 
 }
 
 fn legacy_store_file_name(tenant: &str, binding: &str) -> String {
-    eg_core::compute::semantic_ann_codes::binding_owner_file_name(tenant, binding)
+    medulla_core::compute::semantic_ann_codes::binding_owner_file_name(tenant, binding)
 }
 
 fn census_digest(tenant: &str, sources: &[InspectedBindingOwner]) -> [u8; 32] {
@@ -885,11 +885,11 @@ fn hash_field(hasher: &mut Sha256, bytes: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_core::compute::semantic_index_service::SemanticIndexService;
+    use medulla_core::compute::semantic_index_service::SemanticIndexService;
     use std::sync::Arc;
 
-    fn populated_binding(tenant: &str, binding: &str) -> eg_types::semantic_index::SemanticBinding {
-        use eg_types::semantic_index::{
+    fn populated_binding(tenant: &str, binding: &str) -> medulla_types::semantic_index::SemanticBinding {
+        use medulla_types::semantic_index::{
             SemanticAnnIndexMethod, SemanticAnnIndexSpec, SemanticBinding, SemanticBindingDraft,
             SemanticLexicalIndexSpec, SemanticModelIdentity, SemanticPolicyComponents,
             SemanticSourceSelector, SemanticVectorMetric, SqlColumnRef, SEMANTIC_SQL_CATALOG_ID,
@@ -944,7 +944,7 @@ mod tests {
     }
 
     fn create_empty_two_binding_owners(root: &Path, tenant: &str) -> Vec<PathBuf> {
-        use eg_core::compute::semantic_index_service::SemanticIndexService;
+        use medulla_core::compute::semantic_index_service::SemanticIndexService;
         use std::sync::Arc;
 
         let (proof, _) = *super::super::semantic_server_secrets();
@@ -972,8 +972,8 @@ mod tests {
 
     #[test]
     fn populated_two_binding_observation_is_exact_and_source_mutation_refused() {
-        use eg_core::compute::semantic_index_service::SemanticIndexService;
-        use eg_types::contract::Nonce;
+        use medulla_core::compute::semantic_index_service::SemanticIndexService;
+        use medulla_types::contract::Nonce;
         use std::io::Write;
         use std::sync::Arc;
 
@@ -1206,7 +1206,7 @@ mod tests {
 
     #[test]
     fn singleton_copy_preserves_source_and_can_be_rolled_back() {
-        use eg_core::compute::semantic_index_service::SemanticIndexService;
+        use medulla_core::compute::semantic_index_service::SemanticIndexService;
         use std::sync::Arc;
 
         let root = std::env::temp_dir().join(format!("semantic-upgrade-{}", uuid::Uuid::new_v4()));
@@ -1276,7 +1276,7 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    // spec: EG-DURABLE-KERNEL-R006.3
+    // spec: MEDULLA-DURABLE-KERNEL-R006.3
     #[test]
     fn tenant_census_removes_only_ordinary_named_clean_markers() {
         let root = tempfile::tempdir().unwrap();
@@ -1304,7 +1304,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R006.3
+    // spec: MEDULLA-DURABLE-KERNEL-R006.3
     #[test]
     fn source_census_accepts_only_ordinary_named_clean_markers() {
         let root = tempfile::tempdir().unwrap();

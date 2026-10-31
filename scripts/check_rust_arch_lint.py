@@ -487,7 +487,7 @@ def _alias_calls(
         line, column = _line_column(line_starts, offset)
         found.append(
             {
-                "code": "EG-AL002-ALIAS",
+                "code": "MEDULLA-AL002-ALIAS",
                 "operation": f"std::fs::{operation}",
                 "expression": expression.strip(),
                 "location": {"file": path, "line": line, "column": column},

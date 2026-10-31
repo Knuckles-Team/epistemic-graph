@@ -1,6 +1,6 @@
 """EH-192: every method's request and result has a strict nested model.
 
-``epistemic_graph/generated/models.py`` declares every request and result shape once,
+``medulla/generated/models.py`` declares every request and result shape once,
 ``extra="forbid"``. These checks replay a canonical request through the models.
 """
 
@@ -12,8 +12,8 @@ from typing import Any
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from epistemic_graph.generated import models
-from epistemic_graph.generated._runtime import ContractViolation, OpaqueResult
+from medulla.generated import models
+from medulla.generated._runtime import ContractViolation, OpaqueResult
 
 pytestmark = pytest.mark.no_engine
 
@@ -104,7 +104,7 @@ _DECIDE_REQUEST: dict[str, Any] = {
     ],
     ids=lambda path: "/".join(path) or "method",
 )
-@pytest.mark.spec("EG-CONTRACT-R001")
+@pytest.mark.spec("MEDULLA-CONTRACT-R001")
 def test_unknown_fields_are_refused_at_every_depth(path: tuple[str, ...]) -> None:
     request = copy.deepcopy(_DECIDE_REQUEST)
     _METHOD.validate_python(request)
@@ -120,10 +120,10 @@ def test_unknown_fields_are_refused_at_every_depth(path: tuple[str, ...]) -> Non
     assert errors[0]["loc"][-1] == "unknown"
 
 
-@pytest.mark.spec("EG-CONTRACT-R001")
-@pytest.mark.spec("EG-CONTRACT-R005")
+@pytest.mark.spec("MEDULLA-CONTRACT-R001")
+@pytest.mark.spec("MEDULLA-CONTRACT-R005")
 def test_decode_validates_a_result_against_its_contract_model() -> None:
-    from epistemic_graph.generated import reasoning
+    from medulla.generated import reasoning
 
     fields = models.SparqlResult.model_fields
     payload: dict[str, Any] = {"vars": ["x"], "rows": [["1"]]}
@@ -137,10 +137,10 @@ def test_decode_validates_a_result_against_its_contract_model() -> None:
         reasoning.decode_sparql(OpaqueResult("Cypher", payload))
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R063")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R063")
 @pytest.mark.parametrize("method", ["DecisionFit", "DecisionEval"])
 def test_decision_job_decode_selects_the_exact_operation(method: str) -> None:
-    from epistemic_graph.generated import coordination
+    from medulla.generated import coordination
 
     decode = (
         coordination.decode_decision_fit
@@ -174,9 +174,9 @@ def test_decision_job_decode_selects_the_exact_operation(method: str) -> None:
         decode(OpaqueResult("Decide", None), operation="status")
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R063")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R063")
 def test_decision_eval_pages_cannot_decode_as_a_different_operation() -> None:
-    from epistemic_graph.generated import coordination
+    from medulla.generated import coordination
 
     assert (
         coordination.decode_decision_eval(

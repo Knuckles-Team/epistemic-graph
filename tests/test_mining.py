@@ -1,5 +1,5 @@
 """End-to-end round-trip tests for the data-mining surface
-(CONCEPT:EG-KG.mining.frequent-itemset-mining).
+(CONCEPT:MEDULLA-KG.mining.frequent-itemset-mining).
 
 Exercises the full path: Python client → UDS → Rust dispatch → mining handler →
 result, plus the graph-derived transaction source and KG write-back of

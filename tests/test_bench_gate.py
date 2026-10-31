@@ -1,5 +1,5 @@
 """Behavior tests for scripts/bench_gate.py
-(CONCEPT:EG-KG.query.perf-recall-ci-gate).
+(CONCEPT:MEDULLA-KG.query.perf-recall-ci-gate).
 
 Exercises the CLI end-to-end (subprocess, like the bench_scale smoke test)
 so the recall gate, the latency gate, and their combination are pinned before
@@ -18,7 +18,7 @@ import sys
 import pytest
 
 # Pure/static test -- reads only local JSON artifacts, never the shared native
-# engine (see conftest.py's session-scoped `start_epistemic_graph_server`
+# engine (see conftest.py's session-scoped `start_medulla_server`
 # fixture, which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 

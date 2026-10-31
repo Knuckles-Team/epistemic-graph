@@ -1,14 +1,14 @@
 //! `Method::Asr { op }` (GOC-33, `OWNER-VOICE-ASR`, feature `asr-whisper`): a
 //! direct, non-durable batch-file transcription call over the whisper-rs/
-//! whisper.cpp provider in `eg-asr-whisper`. This is the wire surface
+//! whisper.cpp provider in `medulla-asr-whisper`. This is the wire surface
 //! `audio-transcriber`'s pluggable `TranscriptionProvider` seam reaches over
-//! the existing `epistemic_graph.client` MessagePack/UDS transport — no
+//! the existing `medulla.client` MessagePack/UDS transport — no
 //! second transport is introduced.
 //!
 //! NOT graph-row-scoped: a transcription reads no persisted graph state and
 //! commits no durable `asr.result.v1` here (that governed, `CarrierRef`-bound
 //! commit is future worker/AU-orchestration work — W03/W06 in the GOC-33 lane
-//! doc; see `crates/eg-audio/src/asr.rs`'s module doc for the authority
+//! doc; see `crates/medulla-audio/src/asr.rs`'s module doc for the authority
 //! boundary this handler deliberately stays on the near side of). This module
 //! therefore self-routes in `dispatch.rs`, ahead of the per-graph
 //! `dispatch_graph_op` chain, exactly like `handlers::quantum`/
@@ -17,24 +17,24 @@
 //! tenant, or server-side result handle, there is no cross-tenant row target
 //! for this pure caller-supplied computation to address or disclose.
 //!
-//! Every [`eg_audio::asr::AsrSegment`] the provider constructs is validated
+//! Every [`medulla_audio::asr::AsrSegment`] the provider constructs is validated
 //! through that frozen contract's own `AsrSegment::validate()` before this
-//! handler will include it in a response (see `eg-asr-whisper`'s module doc)
+//! handler will include it in a response (see `medulla-asr-whisper`'s module doc)
 //! — this handler only serializes an already-validated outcome, it performs
 //! no additional inference or timing/quality logic of its own.
 //!
 //! Model acquisition/verification governance is explicitly NOT this
 //! surface's job (GOC-36): `model_path`/`model_sha256` in [`AsrOp::
 //! TranscribeFile`] must already name a caller-resolved, digest-declared
-//! model file. `eg_asr_whisper::verify_model` fails closed — distinctly from
+//! model file. `medulla_asr_whisper::verify_model` fails closed — distinctly from
 //! every other rejection reason — when that file is absent or the digest
 //! does not match; this handler never falls back to a network fetch.
 
-use eg_asr_whisper::{
+use medulla_asr_whisper::{
     decode_wav_16k_mono, verify_model, CancelFlag, TranscribeOptions, WhisperAsrProvider,
 };
-use eg_audio::asr::AsrError;
-use eg_types::asr_wire::{AsrOp, AsrTranscriptSegment, AsrTranscription};
+use medulla_audio::asr::AsrError;
+use medulla_types::asr_wire::{AsrOp, AsrTranscriptSegment, AsrTranscription};
 
 use crate::protocol::{Response, ResultPayload};
 
@@ -74,7 +74,7 @@ pub(crate) async fn handle(req_id: u64, op: AsrOp) -> Response {
             match outcome {
                 Ok(Ok(transcription)) => Response::ok(
                     req_id,
-                    ResultPayload::of::<eg_types::result_contract::ingestion::AsrTranscribeFile>(
+                    ResultPayload::of::<medulla_types::result_contract::ingestion::AsrTranscribeFile>(
                         transcription,
                     ),
                 ),
@@ -99,7 +99,7 @@ fn transcribe_file(
     settings: TranscriptionSettings,
 ) -> Result<AsrTranscription, AsrError> {
     let verified = verify_model(model_path, model_sha256)?;
-    let provider = WhisperAsrProvider::load(&verified, "eg-asr-whisper-rpc", false)?;
+    let provider = WhisperAsrProvider::load(&verified, "medulla-asr-whisper-rpc", false)?;
     let audio = decode_wav_16k_mono(audio_wav)?;
     let opts = TranscribeOptions {
         language: settings.language,
@@ -115,13 +115,13 @@ fn transcribe_file(
         .iter()
         .map(|s| {
             let (start_ms, end_ms) = match &s.segment.timing {
-                eg_audio::asr::SegmentTiming::Provided {
+                medulla_audio::asr::SegmentTiming::Provided {
                     start_ms, end_ms, ..
                 } => (*start_ms, *end_ms),
-                eg_audio::asr::SegmentTiming::Unavailable => (0, 0),
+                medulla_audio::asr::SegmentTiming::Unavailable => (0, 0),
             };
             let (avg_logprob, no_speech_prob) = match &s.segment.quality {
-                eg_audio::asr::Quality::Calibrated {
+                medulla_audio::asr::Quality::Calibrated {
                     avg_logprob,
                     no_speech_prob,
                 } => (Some(*avg_logprob), Some(*no_speech_prob)),

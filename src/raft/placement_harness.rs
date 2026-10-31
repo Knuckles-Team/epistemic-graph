@@ -1,4 +1,4 @@
-//! Placement-catalog gauntlet (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1).
+//! Placement-catalog gauntlet (CONCEPT:MEDULLA-KG.sharding.placement-catalog, DIST-P2-1).
 //!
 //! Spins a live one-node, two-group cluster (the SAME `bring_up` pattern
 //! [`super::reshard_harness`] uses) and proves the placement-catalog invariants:
@@ -47,7 +47,7 @@ fn current_request(id: u64, method: Method) -> crate::protocol::Request {
             agent_id: TEST_AGENT,
             nonce: "placement",
             idempotency: "placement-request",
-            security_state: "epistemic-graph-unit-auth",
+            security_state: "medulla-unit-auth",
         },
     )
 }
@@ -111,7 +111,7 @@ fn epoch_cas_request(
         0,
         0,
     );
-    mutation.attempt_nonce = Some(eg_types::contract::Nonce::from_bytes([nonce; 32]));
+    mutation.attempt_nonce = Some(medulla_types::contract::Nonce::from_bytes([nonce; 32]));
     let mut request = RaftRequest {
         graph_fname: crate::persist::sanitize(super::placement::PLACEMENT_GRAPH),
         graph_name: super::placement::PLACEMENT_GRAPH.to_string(),
@@ -146,14 +146,14 @@ fn bool_response(response: Result<super::RaftResponse, String>) -> bool {
 // same epoch CAS concurrently. Exactly one receipt may be true. The winner's
 // stored boolean must be replayable with a fresh caller nonce, while reusing the
 // consumed nonce must fail before the replay shortcut can answer it.
-// spec: EG-DURABLE-KERNEL-R054
+// spec: MEDULLA-DURABLE-KERNEL-R054
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn placement_state_machine_binds_plan_identity_and_replay_nonce() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = fixture::fresh_dir("eg-placement", "cas-replay-integrity");
+    let dir = fixture::fresh_dir("medulla-placement", "cas-replay-integrity");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     multi
@@ -247,7 +247,7 @@ async fn assign_then_route_returns_new_group_and_epoch() {
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = fixture::fresh_dir("eg-placement", "assign");
+    let dir = fixture::fresh_dir("medulla-placement", "assign");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
 
@@ -305,7 +305,7 @@ async fn stale_epoch_request_gets_redirected() {
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = fixture::fresh_dir("eg-placement", "stale");
+    let dir = fixture::fresh_dir("medulla-placement", "stale");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
     let placement = multi.placement();
@@ -354,7 +354,7 @@ async fn catalog_persists_and_reloads_with_epoch() {
     // `crate::crypto::acquire_test_env_lock`'s doc.
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let (dir, backend) = fixture::fresh_backend("eg-placement", "persist");
+    let (dir, backend) = fixture::fresh_backend("medulla-placement", "persist");
     let epoch = {
         let (multi, _state) = bring_up(&dir, backend.clone()).await;
         let epoch = multi
@@ -401,7 +401,7 @@ async fn online_move_preserves_data_and_lands_new_epoch() {
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let (dir, backend) = fixture::fresh_backend("eg-placement", "move");
+    let (dir, backend) = fixture::fresh_backend("medulla-placement", "move");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
 
@@ -468,7 +468,7 @@ async fn pre_cutover_move_abort_restores_source_and_journals_terminal_state() {
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = fixture::fresh_dir("eg-placement", "move-abort");
+    let dir = fixture::fresh_dir("medulla-placement", "move-abort");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
@@ -519,7 +519,7 @@ async fn orphaned_moving_partition_fails_recovery_closed() {
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = fixture::fresh_dir("eg-placement", "move-orphan");
+    let dir = fixture::fresh_dir("medulla-placement", "move-orphan");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
     let range = (0u64, u64::MAX);
@@ -552,7 +552,7 @@ async fn abort_intent_behind_committed_cutover_reconciles_forward() {
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = fixture::fresh_dir("eg-placement", "move-abort-fence-race");
+    let dir = fixture::fresh_dir("medulla-placement", "move-abort-fence-race");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
@@ -610,7 +610,7 @@ async fn split_lets_one_tenant_span_two_groups() {
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = fixture::fresh_dir("eg-placement", "split");
+    let dir = fixture::fresh_dir("medulla-placement", "split");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
 
@@ -672,10 +672,10 @@ async fn split_lets_one_tenant_span_two_groups() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// 6. The wire `Method::PlacementRoute` RPC (CONCEPT:EG-KG.sharding.placement-route-rpc, DIST-P2-4)
+// 6. The wire `Method::PlacementRoute` RPC (CONCEPT:MEDULLA-KG.sharding.placement-route-rpc, DIST-P2-4)
 //    resolves through the REAL served dispatch path — not just the in-process
 //    `PlacementCatalog` API the tests above exercise directly. This is the
-//    external-caller seam `epistemic_graph.client`'s `placement.route(...)` (and
+//    external-caller seam `medulla.client`'s `placement.route(...)` (and
 //    AU's `placement_catalog.py`) drives.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -688,7 +688,7 @@ async fn wire_placement_route_resolves_through_dispatch() {
     use crate::protocol::ResultPayload;
     use crate::server::dispatch;
 
-    let dir = fixture::fresh_dir("eg-placement", "wire-route");
+    let dir = fixture::fresh_dir("medulla-placement", "wire-route");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     // `MultiRaft::start` installs the live catalog into ServerState through the
@@ -708,7 +708,7 @@ async fn wire_placement_route_resolves_through_dispatch() {
             // (extra `endpoints` key); the canonical deny_unknown_fields DTO
             // rejects it, so the wire type is the only correct reader.
             Some(ResultPayload::Raw(bytes)) => {
-                let route: eg_types::result_contract::cluster::PlacementRouteWire =
+                let route: medulla_types::result_contract::cluster::PlacementRouteWire =
                     rmp_serde::from_slice(&bytes).expect("typed PlacementRouteWire");
                 serde_json::to_value(route).expect("PlacementRouteWire JSON projection")
             }

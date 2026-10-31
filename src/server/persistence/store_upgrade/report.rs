@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use eg_storage::{
+use medulla_storage::{
     layout_digest_hex, OwnerLayout, OwnerLayoutUpgradeReport, OwnerStoreFormat,
     OFFLINE_UPGRADE_APPLY_COMMAND,
 };

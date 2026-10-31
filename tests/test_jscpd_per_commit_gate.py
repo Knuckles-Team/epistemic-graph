@@ -1,4 +1,4 @@
-"""EG-DURABLE-KERNEL-R010: the jscpd clone gate runs on every commit.
+"""MEDULLA-DURABLE-KERNEL-R010: the jscpd clone gate runs on every commit.
 
 Collected by the existing python-suite job. These checks parse configuration;
 they do not replace the gate's own structural-clone detection, which
@@ -26,7 +26,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R010")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R010")
 def test_precommit_config_declares_the_jscpd_differential_hook() -> None:
     config = yaml.safe_load((ROOT / ".config/pre-commit.yaml").read_text())
     hook_ids = {
@@ -36,7 +36,7 @@ def test_precommit_config_declares_the_jscpd_differential_hook() -> None:
     assert "jscpd-census" in hook_ids
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R010")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R010")
 def test_manual_gate_profile_runs_jscpd_enforce_against_a_base() -> None:
     config = yaml.safe_load((ROOT / ".config/pre-commit.yaml").read_text())
     hook = next(
@@ -53,6 +53,6 @@ def test_manual_gate_profile_runs_jscpd_enforce_against_a_base() -> None:
     assert "--base-ref" in inner
     parity = (ROOT / "scripts/ci_parity.sh").read_text(encoding="utf-8")
     assert "--hook-stage manual" in parity
-    # The advisory hosted scanner job was removed (EG-CONTRACT-R053.7).
+    # The advisory hosted scanner job was removed (MEDULLA-CONTRACT-R053.7).
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     assert "scanner-quality" not in workflow["jobs"]

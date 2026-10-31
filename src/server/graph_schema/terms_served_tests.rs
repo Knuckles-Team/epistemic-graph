@@ -12,7 +12,7 @@ use crate::graph::{GraphSchemaSource, GraphSchemaSources, SchemaSourceOrigin};
 use crate::protocol::{GraphType, Method, Response, ResultPayload};
 use crate::server::auth::{build_current_test_request, dispatch_test_on_heap};
 use crate::server::state::ServerState;
-use eg_types::graph_schema::{GraphSchemaClassesView, GraphSchemaSourcesView};
+use medulla_types::graph_schema::{GraphSchemaClassesView, GraphSchemaSourcesView};
 
 const SECRET: &str = "graph-schema-classes-served-secret";
 const AGENT: &str = "schema-vocabulary-reader";

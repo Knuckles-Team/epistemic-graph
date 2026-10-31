@@ -152,12 +152,12 @@ pub(crate) fn decode_broker_result<T: serde::de::DeserializeOwned>(
     max_bytes: usize,
     max_items: usize,
 ) -> Option<T> {
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             max_bytes,
             max_items,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .ok()

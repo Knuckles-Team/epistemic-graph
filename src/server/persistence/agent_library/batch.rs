@@ -4,7 +4,7 @@ use super::*;
 use crate::server::persistence::agent_revision::{definition_headers, RevisionDefinition};
 
 pub(super) fn build_batch(
-    owner: &eg_storage::OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
+    owner: &medulla_storage::OwnedStoreHandle<medulla_storage::AgentLibraryOwner>,
     context: &AgentLibraryMutationContext,
     kind: AgentLibraryMutationKind,
     entry: &AgentLibraryEntry,
@@ -37,7 +37,7 @@ pub(super) fn build_batch(
 /// Shared by every agent layer. `version` is the native version the batch is
 /// expected to apply over.
 pub(in crate::server::persistence) fn native_lifecycle_batch(
-    owner: &eg_storage::OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
+    owner: &medulla_storage::OwnedStoreHandle<medulla_storage::AgentLibraryOwner>,
     context: &AgentLibraryMutationContext,
     batch_id: &str,
     version: u64,
@@ -140,7 +140,7 @@ pub(super) fn build_batch_headers(
 }
 
 fn compile_batch_envelope(
-    owner: &eg_storage::OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
+    owner: &medulla_storage::OwnedStoreHandle<medulla_storage::AgentLibraryOwner>,
     context: &AgentLibraryMutationContext,
     operations: &[MutationOperation],
     outbox: &[MutationOutboxIntent],
@@ -150,8 +150,8 @@ fn compile_batch_envelope(
         outbox,
         authoritative_state: None,
     };
-    let method_schema_digest = eg_capabilities::method_schema("ApplyMutation")
-        .map(|(_, digest)| eg_types::contract::Digest256::from_bytes(digest))
+    let method_schema_digest = medulla_capabilities::method_schema("ApplyMutation")
+        .map(|(_, digest)| medulla_types::contract::Digest256::from_bytes(digest))
         .ok_or_else(|| "ApplyMutation is missing from the contract catalog".to_string())?;
     let compiled = CompiledOperation::for_content(owner.identity(), content, method_schema_digest)?;
     let mut compiled_envelope = CompiledEnvelope::new(
@@ -167,7 +167,7 @@ fn compile_batch_envelope(
         compiled,
     )?;
     compiled_envelope.catalog_digest =
-        eg_types::contract::Digest256::parse(eg_capabilities::contract_catalog_digest())?;
+        medulla_types::contract::Digest256::parse(medulla_capabilities::contract_catalog_digest())?;
     compiled_envelope.policy_digest = parse_prefixed_digest(&context.policy_digest)?;
     compiled_envelope.policy_revision = context.policy_revision.clone();
     compiled_envelope.policy_decision_id = context.policy_decision_id.clone();

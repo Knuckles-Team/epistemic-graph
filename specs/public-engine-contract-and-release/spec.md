@@ -1,4 +1,4 @@
-# EG-CONTRACT — Public engine contract and reproducible clients
+# MEDULLA-CONTRACT — Public engine contract and reproducible clients
 
 **Owner:** Medulla. **Specification state:** PROPOSED. **Build state:** PARTIAL. **Acceptance:** PENDING.
 
@@ -16,26 +16,26 @@ A contributor must be able to change an engine method once and regenerate the sa
 
 The current repository includes a generated method catalog, error catalog, Python typed models, Go and JavaScript codec clients and a package contract receipt. Their presence establishes a partial source baseline only. No release acceptance is claimed here.
 
-[PR #3](https://github.com/Knuckles-Team/medulla/pull/3) merged a source repair at [a7f4dd74e7b2](https://github.com/Knuckles-Team/medulla/commit/a7f4dd74e7b2d01832fc9c3359046255d0e606d4). This establishes source landing for that repair only. The EG-CONTRACT-R014 wheel and consumer proof, EG-CONTRACT-R022 duplication gate, EG-CONTRACT-R023 hooks, and exact-revision release acceptance remain open under this spec's test contract.
+[PR #3](https://github.com/Knuckles-Team/medulla/pull/3) merged a source repair at [a7f4dd74e7b2](https://github.com/Knuckles-Team/medulla/commit/a7f4dd74e7b2d01832fc9c3359046255d0e606d4). This establishes source landing for that repair only. The MEDULLA-CONTRACT-R014 wheel and consumer proof, MEDULLA-CONTRACT-R022 duplication gate, MEDULLA-CONTRACT-R023 hooks, and exact-revision release acceptance remain open under this spec's test contract.
 
 ## Normative requirements
 
 | ID | Required behavior | Verifiable result |
 |---|---|---|
-| EG-C-01 | Rust method declarations are the sole authority for method identity, request/result schemas, stability, policy, replay class, consumer profiles, `is_wire_callable` and `error_set`. | The served descriptor set (`EG-CONTRACT-R054`) carries every declared method with these fields; every declared wire method is reachable through an intentional dispatch path. No generated contract file exists. |
-| EG-C-02 | Rust `ErrorCode` is the sole authority for stable error code, class, retryability and HTTP status hint. Every method error set contains its actual reachable errors, including transaction conflict rather than a generic internal error. | `contract/errors.json` regenerates byte for byte and induced failures return the declared code at every supported client surface. |
-| EG-C-03 | The method and scope catalogs are served by the engine at run time (`EG-CONTRACT-R054`), never packaged as files in the wheel. | A clean wheel install contains no `contract/` directory; a served test reads the catalogs. |
-| EG-C-04 | Python request and result decoding uses generated strict nested models with unknown fields refused. Handwritten convenience modules re-export generated types instead of defining competing wire shapes. | One class per wire shape and a typed round trip for every callable method. |
-| EG-C-05 | Go and JavaScript sign the exact canonical method body produced by the Rust codec. They must not independently reimplement canonicalization. | Both replay all `contract/fixtures/method_body_vectors.json` fixtures and agree with the Python/Rust body digest. |
-| EG-C-06 | Embedded WASM codec artifacts derive from a declared Rust source revision and deterministic toolchain recipe. A change in source or toolchain refreshes both copies and receipt; size is measured, not silently suppressed. | `scripts/build_method_codec_wasm.py --check` succeeds and Go/JS tests use the checked-in bytes. |
-| EG-C-07 | A released artifact carries an exact source revision and catalog digest. The installed clients prove the same method/error behavior as source tests. | Rebuild, wheel completeness/privacy, consumer and package smoke evidence all identify the same commit. |
-| EG-C-08 | A public PR gate uses vendored fixtures, temporary directories and provisioned local services where needed. No test requires a preexisting private deployment or a live operator host. Expensive soak and deployment tests run separately with documented provisioning. | A fresh checkout can run the blocking gate in CI, while skipped external integrations are reported as separate nonacceptance evidence. |
-| EG-C-09 | CCCC, KISS, jscpd and Dupehound checks examine only relevant source and fixtures with committed configurations. A changed source tree introduces no new unsanctioned duplicate implementations or complexity regressions. | Differential scanner results and normal hosted checks pass on the exact release tree. |
-| EG-C-10 | The installed Python client has a served Agent Library journey that publishes, reads and imports a pack, then runs a Decide request through the actual server and authorization boundary. | The hosted job starts a disposable engine and runs both authorized and denied cases against the installed wheel, with no source-tree imports or live service dependency. |
+| MEDULLA-C-01 | Rust method declarations are the sole authority for method identity, request/result schemas, stability, policy, replay class, consumer profiles, `is_wire_callable` and `error_set`. | The served descriptor set (`MEDULLA-CONTRACT-R054`) carries every declared method with these fields; every declared wire method is reachable through an intentional dispatch path. No generated contract file exists. |
+| MEDULLA-C-02 | Rust `ErrorCode` is the sole authority for stable error code, class, retryability and HTTP status hint. Every method error set contains its actual reachable errors, including transaction conflict rather than a generic internal error. | `contract/errors.json` regenerates byte for byte and induced failures return the declared code at every supported client surface. |
+| MEDULLA-C-03 | The method and scope catalogs are served by the engine at run time (`MEDULLA-CONTRACT-R054`), never packaged as files in the wheel. | A clean wheel install contains no `contract/` directory; a served test reads the catalogs. |
+| MEDULLA-C-04 | Python request and result decoding uses generated strict nested models with unknown fields refused. Handwritten convenience modules re-export generated types instead of defining competing wire shapes. | One class per wire shape and a typed round trip for every callable method. |
+| MEDULLA-C-05 | Go and JavaScript sign the exact canonical method body produced by the Rust codec. They must not independently reimplement canonicalization. | Both replay all `contract/fixtures/method_body_vectors.json` fixtures and agree with the Python/Rust body digest. |
+| MEDULLA-C-06 | Embedded WASM codec artifacts derive from a declared Rust source revision and deterministic toolchain recipe. A change in source or toolchain refreshes both copies and receipt; size is measured, not silently suppressed. | `scripts/build_method_codec_wasm.py --check` succeeds and Go/JS tests use the checked-in bytes. |
+| MEDULLA-C-07 | A released artifact carries an exact source revision and catalog digest. The installed clients prove the same method/error behavior as source tests. | Rebuild, wheel completeness/privacy, consumer and package smoke evidence all identify the same commit. |
+| MEDULLA-C-08 | A public PR gate uses vendored fixtures, temporary directories and provisioned local services where needed. No test requires a preexisting private deployment or a live operator host. Expensive soak and deployment tests run separately with documented provisioning. | A fresh checkout can run the blocking gate in CI, while skipped external integrations are reported as separate nonacceptance evidence. |
+| MEDULLA-C-09 | CCCC, KISS, jscpd and Dupehound checks examine only relevant source and fixtures with committed configurations. A changed source tree introduces no new unsanctioned duplicate implementations or complexity regressions. | Differential scanner results and normal hosted checks pass on the exact release tree. |
+| MEDULLA-C-10 | The installed Python client has a served Agent Library journey that publishes, reads and imports a pack, then runs a Decide request through the actual server and authorization boundary. | The hosted job starts a disposable engine and runs both authorized and denied cases against the installed wheel, with no source-tree imports or live service dependency. |
 
 ## Architecture and ownership
 
-The generator in `crates/eg-capabilities/src/bin/gen_contract.rs` reads Rust method and error declarations and writes `contract/`. `scripts/generated_artifacts.py` and the contract receipt detect drift. `epistemic_graph/contract/` is the package projection. `epistemic_graph/generated/models.py` is the Python type projection. `clients/go/codec.go` and `clients/js/codec.mjs` execute the embedded Rust codec WASM. The server owns dispatch and policy; clients only encode, send and decode. The HTTP hint is presentation metadata, never the policy decision itself.
+The generator in `crates/medulla-capabilities/src/bin/gen_contract.rs` reads Rust method and error declarations and writes `contract/`. `scripts/generated_artifacts.py` and the contract receipt detect drift. `medulla/contract/` is the package projection. `medulla/generated/models.py` is the Python type projection. `clients/go/codec.go` and `clients/js/codec.mjs` execute the embedded Rust codec WASM. The server owns dispatch and policy; clients only encode, send and decode. The HTTP hint is presentation metadata, never the policy decision itself.
 
 The build graph is: Rust declarations → generated catalogs/schemas/fixtures → Rust codec WASM → Go/JS embedding and vector tests → Python wheel with receipt → clean-install consumer tests → release gate. Each arrow must have a deterministic check. Do not create a second method registry, error classifier, Python model hierarchy or signed-body encoder.
 
@@ -45,22 +45,22 @@ External applications consume only the published public catalog and clients. The
 
 | Group | IDs and disposition in this spec |
 |---|---|
-| Client contract baseline | EG-CONTRACT-R001 strict models; EG-CONTRACT-R004 signed Go/JS vectors. Verify exact default-branch source and package evidence. |
-| Consumer convergence and tree hygiene | EG-CONTRACT-R002 Agent Library served-Python substrate. EG-CONTRACT-R005 generated Python convergence. EG-CONTRACT-R006 codec WASM. EG-CONTRACT-R007 dispatch gate. EG-CONTRACT-R008 correct tree selection. EG-CONTRACT-R009 root Python CI suite. EG-CONTRACT-R014 error catalog. EG-CONTRACT-R016 generated client parity. EG-CONTRACT-R017 compiler dispatch census. EG-CONTRACT-R018 feature matrix. EG-CONTRACT-R019 current dispatch reachability. EG-CONTRACT-R020 component naming. EG-CONTRACT-R021 client lifecycle. EG-CONTRACT-R022 duplicate scan. EG-CONTRACT-R023 full tree hygiene. |
-| Packaging and tooling compatibility | EG-CONTRACT-R015 contract packaging and `is_wire_callable`; EG-CONTRACT-R011 bounded CI fanout; EG-CONTRACT-R012 and EG-CONTRACT-R013 KISS parser/config compatibility. |
-| Cross-cutting | EG-CONTRACT-R003 wheel privacy; EG-CONTRACT-R010 complexity scoring. |
+| Client contract baseline | MEDULLA-CONTRACT-R001 strict models; MEDULLA-CONTRACT-R004 signed Go/JS vectors. Verify exact default-branch source and package evidence. |
+| Consumer convergence and tree hygiene | MEDULLA-CONTRACT-R002 Agent Library served-Python substrate. MEDULLA-CONTRACT-R005 generated Python convergence. MEDULLA-CONTRACT-R006 codec WASM. MEDULLA-CONTRACT-R007 dispatch gate. MEDULLA-CONTRACT-R008 correct tree selection. MEDULLA-CONTRACT-R009 root Python CI suite. MEDULLA-CONTRACT-R014 error catalog. MEDULLA-CONTRACT-R016 generated client parity. MEDULLA-CONTRACT-R017 compiler dispatch census. MEDULLA-CONTRACT-R018 feature matrix. MEDULLA-CONTRACT-R019 current dispatch reachability. MEDULLA-CONTRACT-R020 component naming. MEDULLA-CONTRACT-R021 client lifecycle. MEDULLA-CONTRACT-R022 duplicate scan. MEDULLA-CONTRACT-R023 full tree hygiene. |
+| Packaging and tooling compatibility | MEDULLA-CONTRACT-R015 contract packaging and `is_wire_callable`; MEDULLA-CONTRACT-R011 bounded CI fanout; MEDULLA-CONTRACT-R012 and MEDULLA-CONTRACT-R013 KISS parser/config compatibility. |
+| Cross-cutting | MEDULLA-CONTRACT-R003 wheel privacy; MEDULLA-CONTRACT-R010 complexity scoring. |
 
 Adjacent Medulla capabilities specify their own semantics. This spec governs their published method/error projection and release proof. This table groups the obligations tracked when this spec was last reviewed; [requirements.md](requirements.md) is the authoritative full set.
 
 ## Completion criteria
 
-All EG-C requirements have linked implementation commits, focused tests and an exact revision release matrix in [tasks.md](tasks.md). The published wheel and both embedded client codecs share one contract digest. Unknown/invalid payloads and policy failures have typed error parity. Hosted gates pass without private environment dependencies. Only then set **ACCEPTED**.
+All MEDULLA-C requirements have linked implementation commits, focused tests and an exact revision release matrix in [tasks.md](tasks.md). The published wheel and both embedded client codecs share one contract digest. Unknown/invalid payloads and policy failures have typed error parity. Hosted gates pass without private environment dependencies. Only then set **ACCEPTED**.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
 
 ## Current architecture contract
 
-EG-CONTRACT-R052 owns the source-linked architecture map in [plan.md](plan.md#2026-10-12-current-architecture-boundaries).
+MEDULLA-CONTRACT-R052 owns the source-linked architecture map in [plan.md](plan.md#2026-10-12-current-architecture-boundaries).
 The map preserves existing subsystem owners and distinguishes design, source wiring, generated delivery state, and execution evidence.
 It changes no architecture, enabled feature, package recipe, or release version.
 
@@ -73,7 +73,7 @@ No implementation or served evidence is claimed here.
 
 | Requirement | Parent | Source record | SHA-256 |
 |---|---|---|---|
-| `EG-CONTRACT-R001.1` | `EG-CONTRACT-R001` | `AU:109` | `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2` |
-| `EG-CONTRACT-R001.2` | `EG-CONTRACT-R001` | `AU:121` | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` |
+| `MEDULLA-CONTRACT-R001.1` | `MEDULLA-CONTRACT-R001` | `AU:109` | `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2` |
+| `MEDULLA-CONTRACT-R001.2` | `MEDULLA-CONTRACT-R001` | `AU:121` | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` |
 
 Both definitions remain SPECIFIED pending owner review and served evidence.

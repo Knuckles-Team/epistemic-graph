@@ -71,7 +71,7 @@ pub(super) async fn dispatch_op_resource_reservation_query(
                 Ok(result) => Response::ok(
                     req_id,
                     ResultPayload::of::<
-                        eg_types::result_contract::coordination::QueryWorkItemReservation,
+                        medulla_types::result_contract::coordination::QueryWorkItemReservation,
                     >(result),
                 ),
                 Err(error) => {
@@ -133,24 +133,24 @@ fn capacity_owner_matches(method: &Method, verified_context: &VerifiedRequestCon
 fn capacity_commit_result(method: &Method) -> fn(&[u8]) -> Result<ResultPayload, String> {
     match method {
         Method::AcquireCapacity { .. } => {
-            ResultPayload::of_receipt::<eg_types::result_contract::coordination::AcquireCapacity>
+            ResultPayload::of_receipt::<medulla_types::result_contract::coordination::AcquireCapacity>
         }
         Method::RenewCapacity { .. } => {
-            ResultPayload::of_receipt::<eg_types::result_contract::coordination::RenewCapacity>
+            ResultPayload::of_receipt::<medulla_types::result_contract::coordination::RenewCapacity>
         }
         Method::ReleaseCapacity { .. } => {
-            ResultPayload::of_receipt::<eg_types::result_contract::coordination::ReleaseCapacity>
+            ResultPayload::of_receipt::<medulla_types::result_contract::coordination::ReleaseCapacity>
         }
         Method::ReclaimExpiredCapacity { .. } => {
             ResultPayload::of_receipt::<
-                eg_types::result_contract::coordination::ReclaimExpiredCapacity,
+                medulla_types::result_contract::coordination::ReclaimExpiredCapacity,
             >
         }
         Method::UpdateCapacityCell { .. } => {
-            ResultPayload::of_receipt::<eg_types::result_contract::coordination::UpdateCapacityCell>
+            ResultPayload::of_receipt::<medulla_types::result_contract::coordination::UpdateCapacityCell>
         }
         Method::ThrottleCapacityCell { .. } => {
-            ResultPayload::of_receipt::<eg_types::result_contract::coordination::ThrottleCapacityCell>
+            ResultPayload::of_receipt::<medulla_types::result_contract::coordination::ThrottleCapacityCell>
         }
         _ => |_| Err("capacity commit receipt for a non-capacity method".to_string()),
     }
@@ -221,20 +221,20 @@ pub(super) async fn dispatch_op_capacity_ops(
 /// The declared result a capacity status read answers `method` with.
 fn capacity_status_result(
     method: &Method,
-) -> fn(eg_types::native_control::CapacityStatusResult) -> Result<ResultPayload, String> {
+) -> fn(medulla_types::native_control::CapacityStatusResult) -> Result<ResultPayload, String> {
     match method {
         Method::ReconcileCapacity { .. } => {
-            ResultPayload::of::<eg_types::result_contract::coordination::ReconcileCapacity>
+            ResultPayload::of::<medulla_types::result_contract::coordination::ReconcileCapacity>
         }
-        _ => ResultPayload::of::<eg_types::result_contract::coordination::CapacityStatus>,
+        _ => ResultPayload::of::<medulla_types::result_contract::coordination::CapacityStatus>,
     }
 }
 
 async fn capacity_status_response(
     backend: &Arc<dyn crate::server::persistence::PersistenceBackend>,
     fname: &str,
-    request: &eg_types::native_control::CapacityStatusRequest,
-    declared: fn(eg_types::native_control::CapacityStatusResult) -> Result<ResultPayload, String>,
+    request: &medulla_types::native_control::CapacityStatusRequest,
+    declared: fn(medulla_types::native_control::CapacityStatusResult) -> Result<ResultPayload, String>,
     req_id: u64,
 ) -> Response {
     backend
@@ -344,7 +344,7 @@ pub(super) async fn dispatch_op_workitem_claim_capability(
                     Response::ok(
                         req_id,
                         ResultPayload::of::<
-                            eg_types::result_contract::coordination::MintWorkItemClaimCapability,
+                            medulla_types::result_contract::coordination::MintWorkItemClaimCapability,
                         >(result),
                     )
                 })
@@ -361,7 +361,7 @@ pub(super) async fn dispatch_op_workitem_claim_capability(
                     Response::ok(
                         req_id,
                         ResultPayload::of::<
-                            eg_types::result_contract::coordination::VerifyWorkItemClaimCapability,
+                            medulla_types::result_contract::coordination::VerifyWorkItemClaimCapability,
                         >(result),
                     )
                 })

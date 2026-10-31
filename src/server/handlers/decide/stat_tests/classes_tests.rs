@@ -7,7 +7,7 @@ fn model_profile(h: &Harness, id: &str, supports_tools: bool) {
     let mut draft = test_component_draft(TENANT, id);
     draft.kind = AgentComponentKind::ModelProfile;
     draft.summary = format!("model {id}");
-    draft.facts = eg_types::agent_component::AgentComponentFacts::ModelProfile {
+    draft.facts = medulla_types::agent_component::AgentComponentFacts::ModelProfile {
         provider: "provider".to_string(),
         model_identity: format!("model:{id}"),
         context_window_tokens: 8_192,
@@ -72,9 +72,9 @@ async fn derived_classes_select_candidates_as_claims_under_a_pinned_rule_set() {
         .iter()
         .find(|p| p.fact.starts_with("derived:eg:profile/tool-calling"))
         .expect("the derived class is a named premise");
-    assert_eq!(derived.class, eg_types::decision::PremiseClass::Claim);
+    assert_eq!(derived.class, medulla_types::decision::PremiseClass::Claim);
     assert_eq!(
         record.evidence_class,
-        eg_types::decision::EvidenceClass::Claim
+        medulla_types::decision::EvidenceClass::Claim
     );
 }

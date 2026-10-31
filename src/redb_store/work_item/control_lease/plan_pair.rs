@@ -1,6 +1,6 @@
 //! Optional immutable plan pairing; no human or execution authority.
 use super::*;
-use eg_types::control_lease::{ControlLeaseStatus, PendingPlanPreimage};
+use medulla_types::control_lease::{ControlLeaseStatus, PendingPlanPreimage};
 
 const PLAN_BINDING: &str = "pending_call_plan_binding";
 

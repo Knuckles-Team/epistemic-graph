@@ -14,14 +14,14 @@ pub(super) async fn begin_txn(
     graph: Option<String>,
     isolation: Option<&str>,
 ) -> Response {
-    // Parse the isolation hint up front (CONCEPT:EG-KG.txn.serializable-zero-cost); an unknown value is
+    // Parse the isolation hint up front (CONCEPT:MEDULLA-KG.txn.serializable-zero-cost); an unknown value is
     // rejected before any graph/ACL work so the contract is unambiguous.
     let (level, predicate) = match parse_isolation(isolation) {
         Ok(parsed) => parsed,
         Err(msg) => {
             return Response::err(
                 req_id,
-                eg_types::contract::classify_refusal("INVALID_ARGUMENT", "", &msg),
+                medulla_types::contract::classify_refusal("INVALID_ARGUMENT", "", &msg),
             )
         }
     };
@@ -58,7 +58,7 @@ pub(super) async fn begin_txn(
     }
     let begin_version = entry.core.version();
 
-    // Open-txn caps (CONCEPT:EG-KG.txn.multi-op-occ-acid): bound memory the way per_graph_inflight
+    // Open-txn caps (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid): bound memory the way per_graph_inflight
     // bounds request concurrency. Count current open txns for this graph/agent.
     let agent = txn_owner.to_string();
     if let Err(response) = check_open_txn_caps(&s, req_id, &graph_name, &agent) {
@@ -87,7 +87,7 @@ pub(super) async fn begin_txn(
     Response::ok(req_id, ResultPayload::String(txn_id))
 }
 
-/// Enforce the per-graph / per-agent open-txn caps (CONCEPT:EG-KG.txn.multi-op-occ-acid): bound
+/// Enforce the per-graph / per-agent open-txn caps (CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid): bound
 /// memory the way `per_graph_inflight` bounds request concurrency.
 pub(super) fn check_open_txn_caps(
     s: &ServerState,
@@ -123,7 +123,7 @@ pub(super) fn check_open_txn_caps(
 /// Stage one durable mutation into the open txn (no graph/persistence touch).
 /// Acks `Bool(true)`; errors if the txn id is unknown (expired/committed/rolled).
 ///
-/// `target_graph` (CONCEPT:EG-KG.txn.routes-cross-shard-txn): when `None` (or equal to the txn's default
+/// `target_graph` (CONCEPT:MEDULLA-KG.txn.routes-cross-shard-txn): when `None` (or equal to the txn's default
 /// graph) the op stages against the default graph through the single-graph OCC
 /// read-set path — unchanged. When it names a DIFFERENT graph, the op accumulates in
 /// the txn's multi-graph `extra_writes`; the default `core` is still passed so a
@@ -158,7 +158,7 @@ pub(super) async fn stage(
     Response::ok(req_id, ResultPayload::Bool(true))
 }
 
-/// Stage a VECTOR upsert into the txn's cross-modal write-set (CONCEPT:EG-KG.txn.reader-never-sees-node). The
+/// Stage a VECTOR upsert into the txn's cross-modal write-set (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node). The
 /// one-`WriteTransaction` cross-modal barrier is per-graph, so a vector targets the
 /// txn's DEFAULT graph; a `graph` naming anything else is rejected because each
 /// cross-modal atomic batch has exactly one authoritative graph owner. Acks `Bool(true)`.
@@ -195,7 +195,7 @@ pub(super) async fn stage_vector(
     Response::ok(req_id, ResultPayload::Bool(true))
 }
 
-/// Stage a BLOB REFERENCE into the txn's cross-modal write-set (CONCEPT:EG-KG.txn.reader-never-sees-node). Same
+/// Stage a BLOB REFERENCE into the txn's cross-modal write-set (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node). Same
 /// per-graph constraint as [`stage_vector`]. Acks `Bool(true)`.
 pub(super) async fn stage_blob_ref(
     state: &Arc<RwLock<ServerState>>,
@@ -230,7 +230,7 @@ pub(super) async fn stage_blob_ref(
     Response::ok(req_id, ResultPayload::Bool(true))
 }
 
-/// Default bucket width for a NEW cross-modal series (CONCEPT:EG-KG.backend.cross-modal-atomic-commit). The Lane-0
+/// Default bucket width for a NEW cross-modal series (CONCEPT:MEDULLA-KG.backend.cross-modal-atomic-commit). The Lane-0
 /// `TxnAddMeasurement` wire carries only `series` + `points` (no schema), so a
 /// brand-new series is materialized with this 1-hour partition; an EXISTING series'
 /// stored meta is authoritative and this is ignored.
@@ -238,7 +238,7 @@ pub(super) async fn stage_blob_ref(
 pub(super) const DEFAULT_MEASUREMENT_BUCKET_NS: u64 = 3_600_000_000_000;
 
 /// Stage a TIME-SERIES measurement batch into the txn's cross-modal write-set
-/// (CONCEPT:EG-KG.backend.cross-modal-atomic-commit). Same per-graph constraint as [`stage_vector`]: the batch targets the
+/// (CONCEPT:MEDULLA-KG.backend.cross-modal-atomic-commit). Same per-graph constraint as [`stage_vector`]: the batch targets the
 /// txn's DEFAULT graph (the one-`WriteTransaction` barrier is per-graph). The points are
 /// decoded here (the SAME `Vec<(i64, Vec<f64>)>` MessagePack shape `TsAppend` carries), so
 /// the commit path is a pure durable append. Acks `Bool(true)`.
@@ -274,7 +274,7 @@ pub(super) async fn stage_measurement(
     // at commit, so this only seeds a NEW series (with generated `f0..fN` names).
     let n_fields = points.first().map(|(_, v)| v.len()).unwrap_or(0);
     let field_names = (0..n_fields).map(|i| format!("f{i}")).collect();
-    let scoped_series = eg_tsdb::store::SeriesKey::new(
+    let scoped_series = medulla_tsdb::store::SeriesKey::new(
         authority.tenant_scope(),
         authority.namespace("timeseries-graph", &default_graph),
         series,
@@ -295,7 +295,7 @@ pub(super) async fn stage_measurement(
 }
 
 /// Lower a stream of RDF triples to graph-native `AddNode`/`AddEdge` methods
-/// (CONCEPT:EG-KG.txn.extended-cross-modal/362), mirroring the canonical `eg_rdf::mapping::load_triples`
+/// (CONCEPT:MEDULLA-KG.txn.extended-cross-modal/362), mirroring the canonical `medulla_rdf::mapping::load_triples`
 /// property-graph projection so the durable rows match the in-memory model:
 ///   * literal object  → a property `{predicate: literal-cell}` on the subject node;
 ///   * resource object → subject + object nodes + an edge `{"relationship": predicate}`,
@@ -304,7 +304,7 @@ pub(super) async fn stage_measurement(
 /// The SAME lowered `Vec<Method>` is applied both durably (`apply_method_rows`) and
 /// in-memory (`apply_staged`), so the two are identical by construction.
 /// Returns `(methods, schema_refs)` — `schema_refs` (BUG A3, 2026-08-12) is
-/// [`eg_rdf::mapping::LoweredTripleGraph::schema_refs`] passed through
+/// [`medulla_rdf::mapping::LoweredTripleGraph::schema_refs`] passed through
 /// unchanged: one entry per schema-defining triple occurrence this batch
 /// contributed. This lowering produces GENERIC `AddNode`/`AddEdge` methods
 /// with no room to carry a "this is schema" signal on the wire, so a caller
@@ -314,9 +314,9 @@ pub(super) async fn stage_measurement(
 /// a staged (explicit multi-statement transaction) caller does not yet.
 #[cfg(feature = "sparql")]
 pub(crate) fn triples_to_methods(
-    triples: &[eg_rdf::oxrdf::Triple],
+    triples: &[medulla_rdf::oxrdf::Triple],
 ) -> Result<(Vec<Method>, Vec<String>), String> {
-    let lowered = eg_rdf::mapping::lower_triples(triples.iter().cloned())?;
+    let lowered = medulla_rdf::mapping::lower_triples(triples.iter().cloned())?;
     let mut methods = Vec::with_capacity(lowered.nodes.len() + lowered.edges.len());
     for (id, blob) in lowered.nodes {
         methods.push(Method::AddNode {
@@ -335,7 +335,7 @@ pub(crate) fn triples_to_methods(
 }
 
 /// Lower a SPARQL CONSTRUCT/DESCRIBE query's produced triples to graph-native
-/// `AddNode`/`AddEdge` methods (CONCEPT:EG-KG.query.extended-cross-modal/EG-372), evaluating the query against
+/// `AddNode`/`AddEdge` methods (CONCEPT:MEDULLA-KG.query.extended-cross-modal/MEDULLA-372), evaluating the query against
 /// `core`'s committed snapshot. Shared by the RPC [`stage_construct`] and the pgwire
 /// cross-modal txn seam so both surfaces lower a CONSTRUCT identically.
 /// Returns `(methods, schema_refs)` — see [`triples_to_methods`]'s doc.
@@ -354,10 +354,10 @@ pub(crate) fn construct_view_to_methods(
     snap: &crate::graph::GraphView,
     sparql: &str,
 ) -> Result<(Vec<Method>, Vec<String>), String> {
-    let proj = eg_rdf::sparql::Projection::from_wire("", "");
-    let dataset = eg_rdf::sparql::Dataset::new(snap, Vec::new());
-    let triples = match eg_rdf::sparql::execute(&dataset, sparql, &proj, None) {
-        Ok(eg_rdf::sparql::QueryOutcome::Graph(t)) => t,
+    let proj = medulla_rdf::sparql::Projection::from_wire("", "");
+    let dataset = medulla_rdf::sparql::Dataset::new(snap, Vec::new());
+    let triples = match medulla_rdf::sparql::execute(&dataset, sparql, &proj, None) {
+        Ok(medulla_rdf::sparql::QueryOutcome::Graph(t)) => t,
         Ok(_) => return Err("SPARQL CONSTRUCT/DESCRIBE query required".to_string()),
         Err(e) => return Err(e),
     };
@@ -365,14 +365,14 @@ pub(crate) fn construct_view_to_methods(
 }
 
 /// Lower a SPARQL UPDATE's `INSERT DATA` triples to graph-native `AddNode`/`AddEdge`
-/// methods (CONCEPT:EG-KG.txn.isolation-ryow-begin-set), reusing the SAME `triples_to_methods` lowering as the OWL
+/// methods (CONCEPT:MEDULLA-KG.txn.isolation-ryow-begin-set), reusing the SAME `triples_to_methods` lowering as the OWL
 /// axiom path. Used by the pgwire cross-modal txn seam's `SPARQL UPDATE` verb.
 /// Returns `(methods, schema_refs)` — see [`triples_to_methods`]'s doc.
 #[cfg(feature = "sparql")]
 pub(crate) fn sparql_update_to_methods(
     update_str: &str,
 ) -> Result<(Vec<Method>, Vec<String>), String> {
-    let triples = eg_rdf::update::insert_data_triples(update_str)?;
+    let triples = medulla_rdf::update::insert_data_triples(update_str)?;
     triples_to_methods(&triples)
 }
 
@@ -414,7 +414,7 @@ pub(super) fn resolve_txn_default_core(
     }
 }
 
-/// Stage OWL AXIOMS (Turtle) into the txn's cross-modal write-set (CONCEPT:EG-KG.txn.extended-cross-modal). The
+/// Stage OWL AXIOMS (Turtle) into the txn's cross-modal write-set (CONCEPT:MEDULLA-KG.txn.extended-cross-modal). The
 /// axioms are parsed + lowered to `AddNode`/`AddEdge` methods HERE (at stage time) so the
 /// commit path treats them as ordinary graph mutations riding the one cross-modal
 /// `WriteTransaction`. Acks `Bool(true)`.
@@ -431,7 +431,7 @@ pub(super) async fn stage_axiom(
         Ok(c) => c,
         Err(resp) => return resp,
     };
-    let triples = match eg_rdf::mapping::parse_turtle(&turtle) {
+    let triples = match medulla_rdf::mapping::parse_turtle(&turtle) {
         Ok(t) => t,
         Err(e) => return Response::err(req_id, format!("TxnAxiom: {e}")),
     };
@@ -455,7 +455,7 @@ pub(super) async fn stage_axiom(
     Response::ok(req_id, ResultPayload::Bool(true))
 }
 
-/// Stage a SPARQL CONSTRUCT into the txn's cross-modal write-set (CONCEPT:EG-KG.query.extended-cross-modal). The
+/// Stage a SPARQL CONSTRUCT into the txn's cross-modal write-set (CONCEPT:MEDULLA-KG.query.extended-cross-modal). The
 /// CONSTRUCT is evaluated NOW against the graph's committed snapshot; its produced triples
 /// are lowered to `AddNode`/`AddEdge` methods that land in the SAME cross-modal
 /// `WriteTransaction` at commit. (Read-your-own-writes over the txn's OTHER staged writes
@@ -488,7 +488,7 @@ pub(super) async fn stage_construct(
     Response::ok(req_id, ResultPayload::Bool(true))
 }
 
-/// Lower a planner writeback (CONCEPT:EG-KG.query.plan-dag, D7 — the planner-writeback
+/// Lower a planner writeback (CONCEPT:MEDULLA-KG.query.plan-dag, D7 — the planner-writeback
 /// ACID seam) to graph-native `AddEdge` methods: run `plan` READ-ONLY against `core`'s
 /// COMMITTED snapshot (the same "evaluate now, lower the result" shape
 /// [`construct_to_methods`] uses for SPARQL CONSTRUCT), then materialize each id in the
@@ -497,14 +497,14 @@ pub(super) async fn stage_construct(
 #[cfg(feature = "query")]
 pub(crate) fn plan_writeback_to_methods(
     core: &crate::graph::GraphCore,
-    plan: eg_plan::Plan,
+    plan: medulla_plan::Plan,
     anchor_id: &str,
     relationship: &str,
 ) -> Result<Vec<Method>, String> {
     let view = core.analysis_snapshot();
     let semantic = core.semantic_store.read().clone();
-    let ctx = eg_plan::PlanCtx::new(&view, &semantic);
-    let rs = eg_plan::execute(&plan, &ctx)?;
+    let ctx = medulla_plan::PlanCtx::new(&view, &semantic);
+    let rs = medulla_plan::execute(&plan, &ctx)?;
     let props = rmp_serde::to_vec_named(&serde_json::json!({ "relationship": relationship }))
         .map_err(|e| format!("plan writeback property encode: {e}"))?;
     Ok(rs
@@ -518,7 +518,7 @@ pub(crate) fn plan_writeback_to_methods(
         .collect())
 }
 
-/// Stage a PLANNER WRITEBACK into the txn's cross-modal write-set (CONCEPT:EG-KG.query.plan-dag,
+/// Stage a PLANNER WRITEBACK into the txn's cross-modal write-set (CONCEPT:MEDULLA-KG.query.plan-dag,
 /// D7). Mirrors [`stage_construct`]'s shape exactly: evaluate now against the committed
 /// snapshot, lower to `AddEdge` methods, stage via `GraphTxnState::stage_plan_writeback`
 /// so the materialized edges land in the SAME cross-modal `WriteTransaction` as the
@@ -527,14 +527,14 @@ pub(crate) fn plan_writeback_to_methods(
 /// [`stage_plan_writeback`] stays under the clippy argument-count ceiling.
 #[cfg(feature = "query")]
 pub(super) struct PlanWritebackArgs {
-    plan: eg_plan::Plan,
+    plan: medulla_plan::Plan,
     anchor_id: String,
     relationship: String,
 }
 
 #[cfg(feature = "query")]
 impl PlanWritebackArgs {
-    pub(super) fn new(plan: eg_plan::Plan, anchor_id: String, relationship: String) -> Self {
+    pub(super) fn new(plan: medulla_plan::Plan, anchor_id: String, relationship: String) -> Self {
         Self {
             plan,
             anchor_id,
@@ -569,7 +569,7 @@ pub(super) async fn stage_plan_writeback(
         // the SAME txn as the writeback"). `projected` alone only reflects the RLS-filtered
         // COMMITTED snapshot, so a same-txn-staged anchor would wrongly read as invisible.
         // Overlay the txn's own staged write-set onto that snapshot first -- the same
-        // technique `run_unified_overlaid` uses for in-txn reads (CONCEPT:EG-KG.query.overlay-leg-rls-filter)
+        // technique `run_unified_overlaid` uses for in-txn reads (CONCEPT:MEDULLA-KG.query.overlay-leg-rls-filter)
         // -- before deciding visibility. The PLAN ITSELF still evaluates against `projected`
         // (committed-only, unchanged below): only the anchor's own existence is RYOW-aware.
         let mut anchor_view = projected.analysis_snapshot();
@@ -596,8 +596,8 @@ pub(super) async fn stage_plan_writeback(
 /// Compute the propagated belief for `node_id` over `core`'s COMMITTED snapshot and
 /// lower it to ONE unconditional `CompareAndSetNodeFields` method that writes the
 /// derived `BeliefState.confidence` back onto that node's `NodeData.confidence`
-/// (CONCEPT:EG-KG.epistemic.epistemic-substrate, D5 — the "explicit, logged
-/// materialize belief" op the `eg_epistemic` crate docs call for: the derived belief
+/// (CONCEPT:MEDULLA-KG.epistemic.epistemic-substrate, D5 — the "explicit, logged
+/// materialize belief" op the `medulla_epistemic` crate docs call for: the derived belief
 /// is otherwise NEVER written back). `conditions_msgpack` is an EMPTY object
 /// (vacuously true — `compare_and_set_fields` still requires the node to exist, which
 /// is checked HERE so a missing node is rejected with a clear error at STAGE time
@@ -619,9 +619,9 @@ pub(crate) fn materialize_belief_to_methods(
         return Err(format!("node '{node_id}' not found"));
     }
     let view = core.analysis_snapshot();
-    let bg = eg_epistemic::BeliefGraph::from_graph_view(&view);
-    let policy = eg_epistemic::AuthorityPolicy::default();
-    let confidence = eg_epistemic::propagate_confidence(&bg, node_id, &policy)
+    let bg = medulla_epistemic::BeliefGraph::from_graph_view(&view);
+    let policy = medulla_epistemic::AuthorityPolicy::default();
+    let confidence = medulla_epistemic::propagate_confidence(&bg, node_id, &policy)
         .confidence
         .clamp(0.0, 1.0);
     let updates_msgpack = rmp_serde::to_vec_named(&serde_json::json!({ "confidence": confidence }))
@@ -640,12 +640,12 @@ pub(crate) fn materialize_belief_to_methods(
 }
 
 /// Stage a MATERIALIZE-BELIEF op into the txn's cross-modal write-set (CONCEPT:
-/// EG-KG.epistemic.epistemic-substrate, D5). Mirrors [`stage_plan_writeback`]'s shape
+/// MEDULLA-KG.epistemic.epistemic-substrate, D5). Mirrors [`stage_plan_writeback`]'s shape
 /// exactly: evaluate now against the committed snapshot, lower to a durable Method,
 /// stage via `GraphTxnState::stage_plan_writeback` so the write lands in the SAME
 /// cross-modal `WriteTransaction` as the txn's other staged modalities at commit —
 /// where it rides the ALREADY-audited `CompareAndSetNodeFields` path (the
-/// tamper-evident hash chain, CONCEPT:EG-KG.sharding.row-level-security, when
+/// tamper-evident hash chain, CONCEPT:MEDULLA-KG.sharding.row-level-security, when
 /// `security` is built, PLUS the unconditional in-memory ledger every CAS appends to
 /// regardless) — never silent, no new audit mechanism. OPT-IN: nothing else stages
 /// this op; it only ever runs when a caller explicitly sends `TxnMaterializeBelief`.
@@ -690,8 +690,8 @@ pub(super) async fn stage_materialize_belief(
     }
     Response::ok(
         req_id,
-        ResultPayload::of::<eg_types::result_contract::transactions::TxnMaterializeBelief>(
-            eg_types::result_contract::transactions::BeliefMaterialization {
+        ResultPayload::of::<medulla_types::result_contract::transactions::TxnMaterializeBelief>(
+            medulla_types::result_contract::transactions::BeliefMaterialization {
                 node_id,
                 confidence,
             },
@@ -707,7 +707,7 @@ pub(super) async fn stage_materialize_belief(
 /// `Bool(false)`. Non-authoritative deployments fail closed: a transaction is never
 /// acknowledged through a data-only mirror path.
 ///
-/// **Cross-shard routing (CONCEPT:EG-KG.storage.lane-n-increment + KG-2.226).** A txn whose staged ops all
+/// **Cross-shard routing (CONCEPT:MEDULLA-KG.storage.lane-n-increment + KG-2.226).** A txn whose staged ops all
 /// target ONE graph (or graphs that resolve to ONE Raft group) stays on this
 /// byte-for-byte-unchanged single-group FAST PATH. A MULTI-GRAPH txn whose staged
 /// write-set ([`crate::server::txn::GraphTxnState::extra_writes`]) spans graphs in ≥2

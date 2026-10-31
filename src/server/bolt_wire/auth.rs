@@ -36,12 +36,12 @@ pub(super) fn decode_session_credential(credential: &str) -> Result<Request, Str
         return Err("authentication failed".to_string());
     }
     let bytes = hex::decode(credential).map_err(|_| "authentication failed".to_string())?;
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         &bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_SESSION_REQUEST_BYTES,
             MAX_SESSION_REQUEST_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| "authentication failed".to_string())

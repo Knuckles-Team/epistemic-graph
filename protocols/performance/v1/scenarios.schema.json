@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:epistemic-graph:g37:performance-scenarios:v1",
-  "title": "Epistemic Graph G-37 exact performance scenarios",
+  "title": "Medulla G-37 exact performance scenarios",
   "type": "object",
   "additionalProperties": false,
   "required": [

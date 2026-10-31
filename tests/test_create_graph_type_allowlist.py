@@ -1,5 +1,5 @@
 """U-96/U-98: `MultiTenantClient.create`'s `graph_type` must be validated
-against the engine's closed `GraphType` wire enum (`crates/eg-types/src/
+against the engine's closed `GraphType` wire enum (`crates/medulla-types/src/
 protocol.rs`: `Agent | Team | Global | Commons`) BEFORE any request is sent.
 
 Before this fix, a semantic content label like `"Ontology"` (the live
@@ -24,9 +24,9 @@ from __future__ import annotations
 import pytest
 from _client_fixtures import unused_reader, unused_writer
 
-from epistemic_graph.client import VALID_GRAPH_TYPES, EpistemicGraphClient
+from medulla.client import VALID_GRAPH_TYPES, MedullaClient
 
-# Pure client-side logic: `EpistemicGraphClient` is constructed over dummy
+# Pure client-side logic: `MedullaClient` is constructed over dummy
 # `object()` reader/writer and `_send` is monkeypatched -- never a real
 # connection. No test here needs the shared native engine.
 pytestmark = pytest.mark.no_engine
@@ -45,8 +45,8 @@ def _context() -> dict[str, object]:
     }
 
 
-def _client() -> EpistemicGraphClient:
-    return EpistemicGraphClient(
+def _client() -> MedullaClient:
+    return MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",

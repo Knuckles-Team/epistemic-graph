@@ -1,11 +1,11 @@
-//! MSSQL TDS wire round-trip smoke test (CONCEPT:EG-KG.query.hand-rolled-tds-server).
+//! MSSQL TDS wire round-trip smoke test (CONCEPT:MEDULLA-KG.query.hand-rolled-tds-server).
 //!
 //! Starts the real hand-rolled TDS listener over an in-process `ServerState`, then
 //! drives the raw protocol from a plain `TcpStream` (no `tiberius` — the server side
 //! is hand-rolled, so the test hand-rolls the client too): PRELOGIN → authenticated LOGIN7
 //! → a hand-built `SQLBatch` (`SELECT id FROM nodes …`), and asserts a correct
 //! COLMETADATA + ROW* + DONE token stream comes back over the seeded graph — proving
-//! the adapter reuses the SAME eg-query DataFusion path the shared `WireSession` runs.
+//! the adapter reuses the SAME medulla-query DataFusion path the shared `WireSession` runs.
 //!
 //! Only compiled with `--features mssql-wire`.
 
@@ -19,7 +19,7 @@ use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use epistemic_graph::server::mssql_wire::{self, derive_mssql_password, protocol};
+use medulla::server::mssql_wire::{self, derive_mssql_password, protocol};
 
 use protocol::{
     frame_message, parse_header, utf16le_bytes, utf16le_to_string, TdsType, HEADER_LEN, PKT_LOGIN7,
@@ -40,7 +40,7 @@ fn sql_test_persist_dir() -> String {
 /// means every graph-node write now routes through the universal cross-modal
 /// MutationBatch kernel, which fails closed ("cross-modal mutation requires durable
 /// persistence") against `persistence: None`. Also provisions
-/// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` once, before the first backend opens, for the
+/// `MEDULLA_ENCRYPTION_KEY` once, before the first backend opens, for the
 /// multi-op commit's transaction-recovery-plan seal (`redb_backend::tests::cm_dir`'s
 /// identical requirement).
 fn default_persistence() -> Option<test_support::SharedPersistence> {
@@ -282,10 +282,10 @@ async fn tds_select_returns_colmetadata_rows_done() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Cross-modal transaction round-trip (CONCEPT:EG-KG.query.per-surface-parity) — per-surface parity.
+// Cross-modal transaction round-trip (CONCEPT:MEDULLA-KG.query.per-surface-parity) — per-surface parity.
 //
 // The in-txn cross-modal seam routes through the SHARED `WireSession`
-// (CONCEPT:EG-KG.compute.subsystems-reference/EG-372), so the TDS wire INHERITS the pgwire seam. These tests
+// (CONCEPT:MEDULLA-KG.compute.subsystems-reference/MEDULLA-372), so the TDS wire INHERITS the pgwire seam. These tests
 // MIRROR the pgwire cross-modal cases (`tests/pgwire_roundtrip.rs`) over the TDS
 // SQLBatch protocol — every batch is handed verbatim to `WireSession::execute`, the
 // SAME core the pgwire shim runs:
@@ -361,7 +361,7 @@ fn first_col(rows: &[Vec<Value>]) -> Vec<String> {
         .collect()
 }
 
-/// Mirrors pgwire `wire_txn_update_then_cross_modal_read` (CONCEPT:EG-KG.query.per-surface-parity / EG-372):
+/// Mirrors pgwire `wire_txn_update_then_cross_modal_read` (CONCEPT:MEDULLA-KG.query.per-surface-parity / MEDULLA-372):
 /// inside an open txn, a staged graph UPDATE AND a staged vector `SET EMBEDDING` are BOTH
 /// read back by an in-txn cross-modal `UQL` read over the TDS wire (read-your-own-writes
 /// across the graph + vector modalities before COMMIT).
@@ -401,8 +401,8 @@ async fn tds_txn_update_then_cross_modal_read() {
     batch(&mut c, "COMMIT").await;
 }
 
-/// Mirrors pgwire `wire_txn_crossmodal_ryow_isolated_until_commit` (CONCEPT:EG-KG.query.per-surface-parity /
-/// EG-372) — the headline per-surface parity proof over TDS. A `BEGIN; INSERT node;
+/// Mirrors pgwire `wire_txn_crossmodal_ryow_isolated_until_commit` (CONCEPT:MEDULLA-KG.query.per-surface-parity /
+/// MEDULLA-372) — the headline per-surface parity proof over TDS. A `BEGIN; INSERT node;
 /// SET EMBEDDING; INSERT INTO series; <UQL join over graph+vector>; COMMIT` reads its OWN
 /// writes inside the txn, while a SECOND connection sees NONE of them until COMMIT. After
 /// COMMIT the second connection reads the committed cross-modal state.

@@ -2,12 +2,12 @@
 //! manager (shared listener + group map), open the DEFAULT group for this cluster
 //! member, and return a [`RaftHandle`] the dispatch path routes writes through.
 //!
-//! Single-group by default: with `cfg.groups <= 1` (no `EPISTEMIC_GRAPH_RAFT_GROUPS`,
+//! Single-group by default: with `cfg.groups <= 1` (no `MEDULLA_RAFT_GROUPS`,
 //! DIST-P2-2) the cluster runs ONE group ([`DEFAULT_GROUP`]) so behavior matches the
 //! pre-multi single-group path — but it now runs over the production multi-group
 //! machinery (one shared listener, durable redb log keyed by group id).
 //!
-//! ## Multi-group production startup (DIST-P2-2, CONCEPT:EG-KG.sharding.placement-catalog)
+//! ## Multi-group production startup (DIST-P2-2, CONCEPT:MEDULLA-KG.sharding.placement-catalog)
 //!
 //! With `cfg.groups > 1`, `start` additionally stands up groups `1..groups` on this
 //! node and spreads un-pinned graphs across the FULL `0..groups` set via the
@@ -50,7 +50,7 @@ async fn shutdown_after_start_error<T>(
 ///
 /// * Builds the [`MultiRaft`] manager and its single shared RPC listener.
 /// * Opens the DEFAULT group over the shared M2 redb backend (its durable log +
-///   meta are keyed by the group id in the authoritative shard — CONCEPT:EG-KG.storage.one-fsync-covers-raft).
+///   meta are keyed by the group id in the authoritative shard — CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft).
 /// * On the bootstrap node (lowest id) the group `initialize`s the cluster.
 ///
 /// Returns a [`StartedNode`]: the [`RaftHandle`] for routing writes + the
@@ -102,7 +102,7 @@ pub async fn start(
     shutdown_after_start_error(&multi, result).await?;
 
     // DIST-P2-2: multi-group production startup. `cfg.groups <= 1` (the default —
-    // `EPISTEMIC_GRAPH_RAFT_GROUPS` unset) makes this call a documented no-op (see
+    // `MEDULLA_RAFT_GROUPS` unset) makes this call a documented no-op (see
     // `MultiRaft::configure_group_ring`): the ring stays empty and every graph falls
     // back to `DEFAULT_GROUP`, so a single-group deployment is BYTE-FOR-BYTE unchanged.
     // `cfg.groups > 1` stands up the additional groups and sets the ring, so the
@@ -161,7 +161,7 @@ pub async fn start(
     .await?
     .handle;
 
-    // ADR-1 / W1.1 (CONCEPT:EG-KG.sharding.cluster-topology, `reports/wave1/ADR-scale-trio.md` §ADR-1):
+    // ADR-1 / W1.1 (CONCEPT:MEDULLA-KG.sharding.cluster-topology, `reports/wave1/ADR-scale-trio.md` §ADR-1):
     // self-report this node's identity into the durable, Raft-replicated
     // cluster-topology store so `Method::ClusterMembers`/`PlacementRoute.endpoints`
     // can discover it -- replacing the static `GRAPH_RAFT_GROUP_ENDPOINTS` client

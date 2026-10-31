@@ -12,15 +12,15 @@ import pytest
 from _client_fixtures import unused_reader, unused_writer
 from _untyped import untyped
 
-from epistemic_graph.client import (
+from medulla.client import (
     ChangeEnvelopeClient,
-    EpistemicGraphClient,
+    MedullaClient,
     TimeSeriesClient,
     _canonical_method_body,
     validate_request_context,
 )
 
-# Every test in this file is pure client-side logic: `EpistemicGraphClient` is
+# Every test in this file is pure client-side logic: `MedullaClient` is
 # always constructed over dummy `object()` reader/writer (never a real
 # connection), and the two `async def` tests monkeypatch `client._send`
 # instead of performing I/O. No test here needs the shared native engine.
@@ -98,7 +98,7 @@ def test_change_draft_carries_no_caller_authority() -> None:
     """The draft body is only what a caller may author: the engine mints the
     scope identity, version expectation and admission envelope from the
     verified request, so no tenant, principal or request id is sent."""
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -139,7 +139,7 @@ def test_change_canonical_rejects_retired_or_incomplete_mutation_draft() -> None
 def test_bolt_auth_token_is_fresh_signed_request_with_opaque_display_principal() -> (
     None
 ):
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -160,7 +160,7 @@ def test_bolt_auth_token_is_fresh_signed_request_with_opaque_display_principal()
 
 
 def test_v2_token_contains_no_secret_and_binds_stable_idempotency_key() -> None:
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -198,7 +198,7 @@ def _decode_envelope(token: str) -> dict[str, Any]:
 
 
 def test_v2_token_includes_node_claim_when_connection_node_id_is_known() -> None:
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -216,7 +216,7 @@ def test_v2_token_omits_node_claim_when_unknown() -> None:
     """The default -- no `node_id` on connect -- must be genuinely additive:
     the exact pre-ADR-3 payload shape, not a `"node": null` key."""
 
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -235,7 +235,7 @@ def test_v2_token_node_claim_changes_the_mac() -> None:
     claim is part of the SIGNED context, not an unsigned label appended after
     signing."""
 
-    client_a = EpistemicGraphClient(
+    client_a = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -243,7 +243,7 @@ def test_v2_token_node_claim_changes_the_mac() -> None:
         verified_context=_context(),
         node_id="node-a",
     )
-    client_b = EpistemicGraphClient(
+    client_b = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -269,7 +269,7 @@ def test_two_connections_with_different_node_ids_mint_independently() -> None:
     own envelope with its own claim -- no shared, stale, or cached state."""
 
     request = _node_bound_request()
-    first = EpistemicGraphClient(
+    first = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -277,7 +277,7 @@ def test_two_connections_with_different_node_ids_mint_independently() -> None:
         verified_context=_context(),
         node_id="node-a",
     )
-    second = EpistemicGraphClient(
+    second = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -302,7 +302,7 @@ def test_explicit_context_node_overrides_connection_node_id() -> None:
     """A caller that deliberately sets `node` on the effective verified_context
     (e.g. via `use_verified_context`) wins over the connection's own node_id."""
 
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -339,12 +339,12 @@ def test_validate_request_context_rejects_invalid_node_claim(bad_node: object) -
 # is the trust anchor, and the engine's `bind_verified_identity` independently
 # cross-checks its subject/tenant against `context`, so MAC coverage would add
 # no real protection (see `build_envelope_v2_bytes`'s doc comment in
-# `crates/eg-types/src/protocol.rs`).
+# `crates/medulla-types/src/protocol.rs`).
 
 
 def test_v2_token_includes_oidc_token_when_present() -> None:
     synthetic_token = "eyJhbGciOiJSUzI1NiJ9.fixture.sig"  # sanitizer:ignore fixture
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -367,7 +367,7 @@ def test_v2_token_omits_oidc_token_when_absent() -> None:
     `null`), so an un-upgraded caller's envelope is byte-for-byte the same
     shape as before this claim existed."""
 
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -391,26 +391,26 @@ def test_v2_token_oidc_token_does_not_change_the_mac(monkeypatch) -> None:
     reason alone regardless of `oidc_token` -- freeze both to isolate
     `oidc_token` as the ONLY variable between calls.
     """
-    import epistemic_graph.client as client_module
+    import medulla.client as client_module
 
     monkeypatch.setattr(client_module.time, "time", lambda: 1_700_000_000)
     monkeypatch.setattr(client_module.secrets, "token_hex", lambda _n: "fixed-nonce")
 
-    client_no_token = EpistemicGraphClient(
+    client_no_token = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
     )
-    client_with_token = EpistemicGraphClient(
+    client_with_token = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=dict(_context(), oidc_token="token-a"),
     )
-    client_with_other_token = EpistemicGraphClient(
+    client_with_other_token = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -469,7 +469,7 @@ def test_signed_f32_body_matches_rust_rmp_serde_fixture() -> None:
 
 
 def test_v2_signer_derives_idempotency_from_typed_f32_body() -> None:
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -537,12 +537,12 @@ def test_signer_never_marks_f32_inside_arbitrary_json(
     assert body.count(b"\xcb") == 3
 
 
-class _CaptureClient(EpistemicGraphClient):
+class _CaptureClient(MedullaClient):
     """A proper test double: subclasses the real client (never calling its
     heavyweight ``__init__``, which mypy does not require to match -- see
     https://mypy.readthedocs.io/en/stable/class_basics.html#properties, the
     same exemption ``__new__`` gets) so it satisfies ``TimeSeriesClient``'s
-    declared ``client: EpistemicGraphClient`` parameter type exactly, instead
+    declared ``client: MedullaClient`` parameter type exactly, instead
     of a per-call cast."""
 
     def __init__(self) -> None:
@@ -604,7 +604,7 @@ def test_timeseries_multifield_append_requires_exact_explicit_schema() -> None:
 
 
 def test_task_local_verified_context_restores_shared_client_authority() -> None:
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -641,7 +641,7 @@ def test_request_context_rejects_incomplete_or_ambiguous_claims(context) -> None
 
 def test_client_requires_secret_and_current_context() -> None:
     with pytest.raises(ValueError, match="authentication secret"):
-        EpistemicGraphClient(
+        MedullaClient(
             unused_reader(),
             unused_writer(),
             "",
@@ -651,7 +651,7 @@ def test_client_requires_secret_and_current_context() -> None:
     with pytest.raises(TypeError, match="verified_context"):
         # The named untyped boundary lets this negative test omit a statically
         # required keyword and prove the constructor also rejects it at runtime.
-        untyped(EpistemicGraphClient)(
+        untyped(MedullaClient)(
             unused_reader(),
             unused_writer(),
             "fixture-secret",
@@ -671,7 +671,7 @@ async def test_bootstrap_operation_is_detached_signed_and_context_bound(
         "scopes": ["security:bootstrap"],
         "delegation": [],
     }
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",
@@ -719,7 +719,7 @@ async def test_bootstrap_operation_is_detached_signed_and_context_bound(
     ],
 )
 async def test_parse_file_rejects_host_paths(host_path: str) -> None:
-    client = EpistemicGraphClient(
+    client = MedullaClient(
         unused_reader(),
         unused_writer(),
         "fixture-secret",

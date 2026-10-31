@@ -12,15 +12,15 @@
 //! sweep that fails half way and runs again replays the same request under the same
 //! idempotency key.
 //!
-//! The policy is `EPISTEMIC_GRAPH_SEALED_RETENTION`, a comma-separated list of
+//! The policy is `MEDULLA_SEALED_RETENTION`, a comma-separated list of
 //! `Class=milliseconds` (for example `AnalysisSnapshot=2592000000` for 30 days). It is
 //! empty by default: no sealed record expires unless a retention is configured. The
-//! sweep runs every `EPISTEMIC_GRAPH_SEALED_RETENTION_SECS` seconds (default 3600)
+//! sweep runs every `MEDULLA_SEALED_RETENTION_SECS` seconds (default 3600)
 //! when a policy is configured.
 
 use std::sync::Arc;
 
-use eg_types::sealed_record::{
+use medulla_types::sealed_record::{
     expires_at_ms, sealed_class, sealed_record_class, RetireSealedRecordRequest, SealedClass,
     SEALED_TOMBSTONE_TYPE,
 };
@@ -71,7 +71,7 @@ fn parse_entry(entry: &str) -> Result<Retention, String> {
 
 /// The configured policy; an invalid policy is logged and treated as empty.
 pub fn configured_policy() -> Vec<Retention> {
-    let spec = std::env::var("EPISTEMIC_GRAPH_SEALED_RETENTION").unwrap_or_default();
+    let spec = std::env::var("MEDULLA_SEALED_RETENTION").unwrap_or_default();
     parse_policy(&spec).unwrap_or_else(|error| {
         tracing::error!(%error, "sealed record retention policy ignored");
         Vec::new()
@@ -81,7 +81,7 @@ pub fn configured_policy() -> Vec<Retention> {
 /// The configured positive sweep interval.
 pub fn sweep_interval_secs() -> u64 {
     crate::server::state::positive_runtime_limit_from_env(
-        "EPISTEMIC_GRAPH_SEALED_RETENTION_SECS",
+        "MEDULLA_SEALED_RETENTION_SECS",
         DEFAULT_SWEEP_SECS,
     )
 }
@@ -124,7 +124,7 @@ pub fn due_in_graph(
     core.get_nodes()
         .into_iter()
         .filter_map(|(node_id, blob)| {
-            let row = eg_types::msgpack::decode_property_object(&blob).ok()?;
+            let row = medulla_types::msgpack::decode_property_object(&blob).ok()?;
             due_retirement(tenant, graph, &node_id, &row, policy, now_ms)
         })
         .collect()
@@ -151,7 +151,7 @@ pub async fn expire_sealed_records(
             .collect();
         (graphs, state.persistence.clone())
     };
-    let tenant = std::env::var("EPISTEMIC_GRAPH_TENANT").ok();
+    let tenant = std::env::var("MEDULLA_TENANT").ok();
     let mut retired = 0;
     for (graph, core) in graphs {
         let tenant = tenant.as_deref().unwrap_or(&graph);

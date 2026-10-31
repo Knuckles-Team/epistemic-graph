@@ -1,0 +1,330 @@
+# Wire models for the engine methods, maintained by hand alongside the Rust
+# serde types in crates/medulla-types (the source of truth).
+"""Generated GraphSchema nested wire DTOs."""
+
+from __future__ import annotations
+
+from enum import Enum
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from ._shared import (
+    Digest256,
+)
+
+
+class FieldContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    required: bool
+    types: list[JsonType]
+
+
+class GraphSchemaClassesView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    composed_digest: str
+    graph: str
+    next_cursor: str | None = None
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    terms: BoundedVec_GraphSchemaTermView_1000
+    total_terms: Annotated[int, Field(ge=0)]
+
+
+class GraphSchemaCommitted(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    changed: bool
+    composed_digest: str
+    graph: str
+    graph_version: Annotated[int, Field(ge=0)]
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+
+
+class GraphSchemaOpAttach(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    if_composed_digest: str | None = None
+    ontology_ttl: str | None = None
+    op: Literal["attach"]
+    shapes_ttl: str | None = None
+    source_id: str
+
+
+class GraphSchemaOpAttachPack(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    connector: str
+    if_composed_digest: str | None = None
+    op: Literal["attach_pack"]
+
+
+class GraphSchemaOpImportOntology(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    connector: str
+    content_digest: Digest256
+    expected_prior_revision: Annotated[int, Field(ge=0)] | None = None
+    ontology_iri: str
+    ontology_ttl: str
+    op: Literal["import_ontology"]
+    shapes_ttl: str | None = None
+    version: str
+
+
+class GraphSchemaOpWithdrawOntology(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    connector: str
+    expected_revision: Annotated[int, Field(ge=0)]
+    ontology_iri: str
+    op: Literal["withdraw_ontology"]
+
+
+class GraphSchemaOpDetach(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    if_composed_digest: str | None = None
+    op: Literal["detach"]
+    source_id: str
+
+
+class GraphSchemaOpAttachApproved(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    approval_lease_id: str
+    contract: RecordContract
+    if_composed_digest: str | None = None
+    op: Literal["attach_approved"]
+    source_id: str
+
+
+class GraphSchemaOpValidateRepair(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    contract: RecordContract
+    if_composed_digest: str | None = None
+    op: Literal["validate_repair"]
+    source_id: str
+
+
+GraphSchemaOp = Annotated[
+    GraphSchemaOpAttach
+    | GraphSchemaOpAttachPack
+    | GraphSchemaOpImportOntology
+    | GraphSchemaOpWithdrawOntology
+    | GraphSchemaOpDetach
+    | GraphSchemaOpAttachApproved
+    | GraphSchemaOpValidateRepair,
+    Field(discriminator="op"),
+]
+
+
+class GraphSchemaSourceView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    attached_at_ms: Annotated[int, Field(ge=0)]
+    ontology_bytes: Annotated[int, Field(ge=0)]
+    ontology_sha256: str | None = None
+    origin: SchemaSourceOriginView
+    shapes_bytes: Annotated[int, Field(ge=0)]
+    shapes_sha256: str | None = None
+    source_id: str
+
+
+class GraphSchemaSourcesView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    composed_digest: str
+    core_catalog_digest: str
+    core_sources: BoundedVec_GraphSchemaSourceView_64
+    dynamic_sources: BoundedVec_GraphSchemaSourceView_32
+    graph: str
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+
+
+class GraphSchemaTermKind(str, Enum):
+    CLASS = "class"
+    OBJECT_PROPERTY = "object_property"
+    DATATYPE_PROPERTY = "datatype_property"
+    ANNOTATION_PROPERTY = "annotation_property"
+    PROPERTY = "property"
+
+
+class GraphSchemaTermView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    iri: str
+    kind: GraphSchemaTermKind
+    local_name: str
+    source_id: str
+
+
+class JsonType(str, Enum):
+    NULL = "null"
+    BOOLEAN = "boolean"
+    INTEGER = "integer"
+    NUMBER = "number"
+    STRING = "string"
+    ARRAY = "array"
+    OBJECT = "object"
+
+
+class RecordContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    fields_: dict[str, FieldContract] = Field(..., alias="fields")
+
+
+class SchemaSourceOriginViewCore(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    module: str
+    origin: Literal["core"]
+    set_digest: str
+    version: Annotated[int, Field(ge=0)]
+
+
+class SchemaSourceOriginViewOperator(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    origin: Literal["operator"]
+
+
+class SchemaSourceOriginViewAdmin(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    name: str
+    origin: Literal["admin"]
+
+
+class SchemaSourceOriginViewPack(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    connector: str
+    origin: Literal["pack"]
+    record_id: str
+
+
+class SchemaSourceOriginViewIngestion(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    mapping: str
+    origin: Literal["ingestion"]
+    revision: Annotated[int, Field(ge=0)]
+
+
+class SchemaSourceOriginViewApproved(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    approval_lease_id: str
+    name: str
+    origin: Literal["approved"]
+
+
+SchemaSourceOriginView = Annotated[
+    SchemaSourceOriginViewCore
+    | SchemaSourceOriginViewOperator
+    | SchemaSourceOriginViewAdmin
+    | SchemaSourceOriginViewPack
+    | SchemaSourceOriginViewIngestion
+    | SchemaSourceOriginViewApproved,
+    Field(discriminator="origin"),
+]
+
+
+BoundedVec_GraphSchemaSourceView_32 = Annotated[
+    list[GraphSchemaSourceView],
+    Field(
+        max_length=32,
+    ),
+]
+
+
+BoundedVec_GraphSchemaSourceView_64 = Annotated[
+    list[GraphSchemaSourceView],
+    Field(
+        max_length=64,
+    ),
+]
+
+
+BoundedVec_GraphSchemaTermView_1000 = Annotated[
+    list[GraphSchemaTermView],
+    Field(
+        max_length=1000,
+    ),
+]
+
+FieldContract.model_rebuild()
+
+GraphSchemaClassesView.model_rebuild()
+
+GraphSchemaCommitted.model_rebuild()
+
+GraphSchemaOpAttach.model_rebuild()
+
+GraphSchemaOpAttachPack.model_rebuild()
+
+GraphSchemaOpImportOntology.model_rebuild()
+
+GraphSchemaOpWithdrawOntology.model_rebuild()
+
+GraphSchemaOpDetach.model_rebuild()
+
+GraphSchemaOpAttachApproved.model_rebuild()
+
+GraphSchemaOpValidateRepair.model_rebuild()
+
+GraphSchemaSourceView.model_rebuild()
+
+GraphSchemaSourcesView.model_rebuild()
+
+GraphSchemaTermView.model_rebuild()
+
+RecordContract.model_rebuild()
+
+SchemaSourceOriginViewCore.model_rebuild()
+
+SchemaSourceOriginViewOperator.model_rebuild()
+
+SchemaSourceOriginViewAdmin.model_rebuild()
+
+SchemaSourceOriginViewPack.model_rebuild()
+
+SchemaSourceOriginViewIngestion.model_rebuild()
+
+SchemaSourceOriginViewApproved.model_rebuild()
+
+
+__all__ = [
+    "BoundedVec_GraphSchemaSourceView_32",
+    "BoundedVec_GraphSchemaSourceView_64",
+    "BoundedVec_GraphSchemaTermView_1000",
+    "Digest256",
+    "FieldContract",
+    "GraphSchemaClassesView",
+    "GraphSchemaCommitted",
+    "GraphSchemaOp",
+    "GraphSchemaOpAttach",
+    "GraphSchemaOpAttachApproved",
+    "GraphSchemaOpAttachPack",
+    "GraphSchemaOpDetach",
+    "GraphSchemaOpImportOntology",
+    "GraphSchemaOpValidateRepair",
+    "GraphSchemaOpWithdrawOntology",
+    "GraphSchemaSourceView",
+    "GraphSchemaSourcesView",
+    "GraphSchemaTermKind",
+    "GraphSchemaTermView",
+    "JsonType",
+    "RecordContract",
+    "SchemaSourceOriginView",
+    "SchemaSourceOriginViewAdmin",
+    "SchemaSourceOriginViewApproved",
+    "SchemaSourceOriginViewCore",
+    "SchemaSourceOriginViewIngestion",
+    "SchemaSourceOriginViewOperator",
+    "SchemaSourceOriginViewPack",
+]

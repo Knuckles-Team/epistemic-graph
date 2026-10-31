@@ -21,13 +21,13 @@ runs:
       env:
         CARGO_EG_PREPARE_SCRIPT: ${{ inputs.prepare-script }}
       with:
-        target: ${{ env.EG_WHEEL_TARGET }}
+        target: ${{ env.MEDULLA_WHEEL_TARGET }}
         args: ${{ inputs.args }}
-        manylinux: ${{ env.EG_WHEEL_MANYLINUX }}
+        manylinux: ${{ env.MEDULLA_WHEEL_MANYLINUX }}
         container: ${{ inputs.container }}
         maturin-version: ${{ inputs.maturin-version }}
         before-script-linux: |
-          source scripts/configure_arm64_linker.sh '${{ env.EG_WHEEL_TARGET }}'
+          source scripts/configure_arm64_linker.sh '${{ env.MEDULLA_WHEEL_TARGET }}'
           if [ -n "${CARGO_EG_PREPARE_SCRIPT:-}" ]; then
             source "$CARGO_EG_PREPARE_SCRIPT"
           fi

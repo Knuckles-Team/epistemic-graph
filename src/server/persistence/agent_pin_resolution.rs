@@ -46,15 +46,15 @@
 //! graphs. The KIND check belongs to the layer: only the component layer has
 //! one, and its resolver makes it.
 
-use eg_types::agent_library::AgentLibraryLifecycle;
+use medulla_types::agent_library::AgentLibraryLifecycle;
 
 /// A revision table of one agent layer. All four are keyed and valued alike.
 pub(super) type RevisionTable<'a> =
-    eg_storage::OwnerReadTable<'a, (&'static str, &'static str, u64), &'static [u8]>;
+    medulla_storage::OwnerReadTable<'a, (&'static str, &'static str, u64), &'static [u8]>;
 /// A head table of one agent layer.
-pub(super) type HeadTable<'a> = eg_storage::OwnerReadTable<'a, (&'static str, &'static str), u64>;
+pub(super) type HeadTable<'a> = medulla_storage::OwnerReadTable<'a, (&'static str, &'static str), u64>;
 /// The admitted write a resolution runs inside.
-pub(super) type Write<'a> = eg_transaction::AdmittedMutation<'a, eg_storage::AgentLibraryOwner>;
+pub(super) type Write<'a> = medulla_transaction::AdmittedMutation<'a, medulla_storage::AgentLibraryOwner>;
 
 /// Most revision rows one publish may read while resolving its pins.
 ///
@@ -84,7 +84,7 @@ const MAX_RESOLVED_AGENT_PINS: usize = 1_024;
 /// One pinned reference to a durable template revision.
 ///
 /// `entry_revision` is `Some` only where the pinning site records one --
-/// [`eg_types::agent_template::TemplateInstanceRef`] does, an
+/// [`medulla_types::agent_template::TemplateInstanceRef`] does, an
 /// `AgentGraphNodeKind::Template` does not. Where it is recorded it is checked,
 /// because a stored revision number that disagreed with the revision the digest
 /// actually resolves to is a provenance record that points at the wrong row.
@@ -151,8 +151,8 @@ pub(super) fn resolve_agent_pins_in_write(
     resolve_pins(
         PinLayer {
             record_kind: "agent",
-            heads: eg_storage::AGENT_LIBRARY_HEADS,
-            revisions: eg_storage::AGENT_LIBRARY_REVISIONS,
+            heads: medulla_storage::AGENT_LIBRARY_HEADS,
+            revisions: medulla_storage::AGENT_LIBRARY_REVISIONS,
             max_pins: MAX_RESOLVED_AGENT_PINS,
             retained_revision_bound: super::agent_library::MAX_AGENT_LIBRARY_REVISIONS,
             decode: |bytes: &[u8]| {
@@ -181,8 +181,8 @@ pub(super) fn resolve_template_pins_in_write(
     resolve_pins(
         PinLayer {
             record_kind: "template",
-            heads: eg_storage::AGENT_TEMPLATE_HEADS,
-            revisions: eg_storage::AGENT_TEMPLATE_REVISIONS,
+            heads: medulla_storage::AGENT_TEMPLATE_HEADS,
+            revisions: medulla_storage::AGENT_TEMPLATE_REVISIONS,
             max_pins: MAX_RESOLVED_TEMPLATE_PINS,
             retained_revision_bound: super::agent_template::MAX_AGENT_TEMPLATE_REVISIONS,
             decode: |bytes: &[u8]| {
@@ -412,12 +412,12 @@ pub(crate) fn seed_template_for_test(
     nonce_bytes[0] = 0x50u8.wrapping_add(nonce_index);
     let policy_digest = super::agent_library::current_agent_library_policy_digest().unwrap();
     store
-        .publish_template(eg_types::agent_template::AgentTemplatePublishRequest {
-            context: eg_types::agent_library::AgentLibraryMutationContext {
+        .publish_template(medulla_types::agent_template::AgentTemplatePublishRequest {
+            context: medulla_types::agent_library::AgentLibraryMutationContext {
                 request_id: 95_000 + u64::from(nonce_index),
                 principal: store.owner_principal().to_string(),
                 caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
-                attempt_nonce: eg_types::contract::Nonce::from_bytes(nonce_bytes),
+                attempt_nonce: medulla_types::contract::Nonce::from_bytes(nonce_bytes),
                 tenant_id: tenant_id.to_string(),
                 actor_scope: "action-scope:template-seed".to_string(),
                 purpose_id: "agent-template:publish".to_string(),
@@ -429,7 +429,7 @@ pub(crate) fn seed_template_for_test(
                 trace_id: None,
                 created_at_ms: 5,
             },
-            template: eg_types::agent_template::AgentTemplateDraft {
+            template: medulla_types::agent_template::AgentTemplateDraft {
                 template_id: template_id.to_string(),
                 version: "1.0.0".to_string(),
                 base,
@@ -449,10 +449,10 @@ pub(crate) fn seed_template_for_test(
 #[cfg(test)]
 mod tests {
     use super::super::agent_library::AgentLibraryStore;
-    use eg_types::agent_library::{
+    use medulla_types::agent_library::{
         AgentLibraryEntryDraft, AgentLibraryMutationContext, AgentLibraryPublishRequest,
     };
-    use eg_types::agent_template::AgentTemplateInstantiateRequest;
+    use medulla_types::agent_template::AgentTemplateInstantiateRequest;
     use std::collections::BTreeMap;
 
     const TEMPLATE_ID: &str = "template:researcher";

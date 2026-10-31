@@ -59,7 +59,7 @@ use crate::server::mutation_batch::compile::{compile_methods, CompileBatch};
 #[cfg(all(test, feature = "redb"))]
 use crate::server::persistence::PersistenceBackend;
 #[cfg(test)]
-use eg_types::contract::Nonce;
+use medulla_types::contract::Nonce;
 #[cfg(test)]
 use sha2::{Digest, Sha256};
 
@@ -68,9 +68,9 @@ mod internal_replay_tests {
     use super::*;
 
     /// The opaque serving principal this test's job store is opened as.
-    /// `eg_types::mutation_batch`'s `validate_serving_principal` requires the
+    /// `medulla_types::mutation_batch`'s `validate_serving_principal` requires the
     /// `principal:sha256:<64 hex>` shape for every durable mutation authority,
-    /// exactly like `eg_jobs::dev_scope_grant::DEV_PRINCIPAL`; a human-readable
+    /// exactly like `medulla_jobs::dev_scope_grant::DEV_PRINCIPAL`; a human-readable
     /// label is refused by the jobs codec before the store ever opens.
     #[cfg(all(feature = "redb", feature = "program-optimization"))]
     const PROMOTION_TEST_PRINCIPAL: &str =
@@ -80,16 +80,16 @@ mod internal_replay_tests {
     struct PromotionJobScopeVerifier;
 
     #[cfg(all(feature = "redb", feature = "program-optimization"))]
-    impl eg_storage::ScopeGrantVerifier for PromotionJobScopeVerifier {
+    impl medulla_storage::ScopeGrantVerifier for PromotionJobScopeVerifier {
         fn verify(
             &self,
-            _physical: &eg_storage::PhysicalStoreIdentity,
-            layout: eg_storage::OwnerLayout,
-            _identity: &eg_types::MutationScopeIdentity,
+            _physical: &medulla_storage::PhysicalStoreIdentity,
+            layout: medulla_storage::OwnerLayout,
+            _identity: &medulla_types::MutationScopeIdentity,
             principal: &str,
             proof: &[u8],
         ) -> Result<(), String> {
-            if layout == eg_storage::OwnerLayout::Jobs
+            if layout == medulla_storage::OwnerLayout::Jobs
                 && principal == PROMOTION_TEST_PRINCIPAL
                 && proof == b"promotion-test-proof"
             {
@@ -108,7 +108,7 @@ mod internal_replay_tests {
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = crate::test_support::temp_dir(
-            "eg-internal-mutation-replay",
+            "medulla-internal-mutation-replay",
             "terminal-result-conflict",
         );
         let persistence: Arc<dyn PersistenceBackend> = Arc::new(
@@ -285,74 +285,74 @@ mod internal_replay_tests {
         // takes it whole rather than restating its four fields positionally.
         fn identity(
             revision: u64,
-            parent_ref: Option<eg_modality::OpaqueRef>,
-            result_input: eg_program::ProgramResultInput,
+            parent_ref: Option<medulla_modality::OpaqueRef>,
+            result_input: medulla_program::ProgramResultInput,
             tool_policy_token: &str,
             model_profile_token: &str,
-        ) -> eg_program::ProgramRevisionIdentity {
+        ) -> medulla_program::ProgramRevisionIdentity {
             // The corpus is read at the SAME snapshot as the result input, and
             // the candidate digest binds that version, so read it out before
             // the input itself is moved into the constructor below.
             let result_input_snapshot_version = result_input.snapshot_version;
-            let program_ref = eg_modality::OpaqueRef::scoped("program", &"1".repeat(64)).unwrap();
-            let policy = eg_modality::PolicyEnvelope {
-                tenant_ref: eg_modality::OpaqueRef::scoped("tenant", &"2".repeat(64)).unwrap(),
-                access_policy_ref: eg_modality::OpaqueRef::scoped("policy", &"3".repeat(64))
+            let program_ref = medulla_modality::OpaqueRef::scoped("program", &"1".repeat(64)).unwrap();
+            let policy = medulla_modality::PolicyEnvelope {
+                tenant_ref: medulla_modality::OpaqueRef::scoped("tenant", &"2".repeat(64)).unwrap(),
+                access_policy_ref: medulla_modality::OpaqueRef::scoped("policy", &"3".repeat(64))
                     .unwrap(),
-                classification: eg_modality::Classification::Internal,
-                retention_policy_ref: eg_modality::OpaqueRef::scoped("retention", &"4".repeat(64))
+                classification: medulla_modality::Classification::Internal,
+                retention_policy_ref: medulla_modality::OpaqueRef::scoped("retention", &"4".repeat(64))
                     .unwrap(),
-                deletion_policy_ref: eg_modality::OpaqueRef::scoped("deletion", &"5".repeat(64))
+                deletion_policy_ref: medulla_modality::OpaqueRef::scoped("deletion", &"5".repeat(64))
                     .unwrap(),
                 legal_hold_ref: None,
                 purpose_refs: vec![
-                    eg_modality::OpaqueRef::scoped("purpose", &"6".repeat(64)).unwrap()
+                    medulla_modality::OpaqueRef::scoped("purpose", &"6".repeat(64)).unwrap()
                 ],
             };
             let tool_policy_ref =
-                Some(eg_modality::OpaqueRef::scoped("tool_policy", tool_policy_token).unwrap());
+                Some(medulla_modality::OpaqueRef::scoped("tool_policy", tool_policy_token).unwrap());
             let model_profile_ref =
-                Some(eg_modality::OpaqueRef::scoped("model_profile", model_profile_token).unwrap());
+                Some(medulla_modality::OpaqueRef::scoped("model_profile", model_profile_token).unwrap());
             let demonstration_refs =
-                vec![eg_modality::OpaqueRef::scoped("example", &"9".repeat(64)).unwrap()];
-            let corpus_ref = eg_modality::OpaqueRef::scoped("corpus", &"a".repeat(64)).unwrap();
+                vec![medulla_modality::OpaqueRef::scoped("example", &"9".repeat(64)).unwrap()];
+            let corpus_ref = medulla_modality::OpaqueRef::scoped("corpus", &"a".repeat(64)).unwrap();
             let seed: u64 = 17;
-            let program = eg_program::ProgramRevision {
-                schema_version: eg_program::PROGRAM_SCHEMA_VERSION,
+            let program = medulla_program::ProgramRevision {
+                schema_version: medulla_program::PROGRAM_SCHEMA_VERSION,
                 program_ref: program_ref.clone(),
                 revision: revision - 1,
                 parent_ref: parent_ref.clone(),
-                signature: eg_program::SignatureSpec {
-                    signature_ref: eg_modality::OpaqueRef::scoped("signature", &"9".repeat(64))
+                signature: medulla_program::SignatureSpec {
+                    signature_ref: medulla_modality::OpaqueRef::scoped("signature", &"9".repeat(64))
                         .unwrap(),
-                    instruction_ref: eg_modality::OpaqueRef::scoped("instruction", &"a".repeat(64))
+                    instruction_ref: medulla_modality::OpaqueRef::scoped("instruction", &"a".repeat(64))
                         .unwrap(),
                     fields: vec![
-                        eg_program::FieldSpec {
+                        medulla_program::FieldSpec {
                             name: "input".to_string(),
-                            role: eg_program::FieldRole::Input,
-                            schema_ref: eg_modality::OpaqueRef::scoped("schema", &"b".repeat(64))
+                            role: medulla_program::FieldRole::Input,
+                            schema_ref: medulla_modality::OpaqueRef::scoped("schema", &"b".repeat(64))
                                 .unwrap(),
                             description_ref: None,
                             required: true,
                         },
-                        eg_program::FieldSpec {
+                        medulla_program::FieldSpec {
                             name: "output".to_string(),
-                            role: eg_program::FieldRole::Output,
-                            schema_ref: eg_modality::OpaqueRef::scoped("schema", &"c".repeat(64))
+                            role: medulla_program::FieldRole::Output,
+                            schema_ref: medulla_modality::OpaqueRef::scoped("schema", &"c".repeat(64))
                                 .unwrap(),
                             description_ref: None,
                             required: true,
                         },
                     ],
                 },
-                module: eg_program::ModuleKind::Predict,
-                adapter: eg_program::AdapterKind::Chat,
+                module: medulla_program::ModuleKind::Predict,
+                adapter: medulla_program::AdapterKind::Chat,
                 tool_refs: Vec::new(),
                 policy: policy.clone(),
             };
             let mut digest = Sha256::new();
-            digest.update(b"eg-program.candidate.v3\0");
+            digest.update(b"medulla-program.candidate.v3\0");
             digest.update(program.program_ref.as_str().as_bytes());
             digest.update(program.revision.to_le_bytes());
             digest.update(program.signature.signature_ref.as_str().as_bytes());
@@ -364,12 +364,12 @@ mod internal_replay_tests {
             digest.update(corpus_ref.as_str().as_bytes());
             digest.update(result_input_snapshot_version.to_le_bytes());
             digest.update(
-                eg_program::OptimizerKind::LabeledFewShot
+                medulla_program::OptimizerKind::LabeledFewShot
                     .as_str()
                     .as_bytes(),
             );
             digest.update(seed.to_le_bytes());
-            digest.update(eg_program::CandidateRole::Proposal.as_str().as_bytes());
+            digest.update(medulla_program::CandidateRole::Proposal.as_str().as_bytes());
             digest.update(b"demonstrations".len().to_le_bytes());
             digest.update(b"demonstrations");
             digest.update((demonstration_refs.len() as u64).to_le_bytes());
@@ -402,29 +402,29 @@ mod internal_replay_tests {
             digest.update(b"text");
             let content_digest = hex::encode(digest.finalize());
             let candidate_ref =
-                eg_modality::OpaqueRef::scoped("program_candidate", &content_digest).unwrap();
-            let candidate = eg_program::ProgramCandidate {
+                medulla_modality::OpaqueRef::scoped("program_candidate", &content_digest).unwrap();
+            let candidate = medulla_program::ProgramCandidate {
                 candidate_ref,
                 program_ref,
-                optimizer: eg_program::OptimizerKind::LabeledFewShot,
-                role: eg_program::CandidateRole::Proposal,
+                optimizer: medulla_program::OptimizerKind::LabeledFewShot,
+                role: medulla_program::CandidateRole::Proposal,
                 demonstration_refs,
                 artifact_refs: Vec::new(),
                 composition_refs: Vec::new(),
                 instruction_ref: None,
                 tool_policy_ref,
                 model_profile_ref,
-                modalities: std::collections::BTreeSet::from([eg_program::ProgramModality::Text]),
+                modalities: std::collections::BTreeSet::from([medulla_program::ProgramModality::Text]),
                 policy,
                 content_digest,
                 evaluation: None,
             };
-            eg_program::ProgramRevisionIdentity::from_candidate_with_binding(
+            medulla_program::ProgramRevisionIdentity::from_candidate_with_binding(
                 &program,
                 &candidate,
                 parent_ref,
                 result_input,
-                eg_program::ProgramCorpusBinding {
+                medulla_program::ProgramCorpusBinding {
                     corpus_ref,
                     snapshot_version: result_input_snapshot_version,
                 },
@@ -434,7 +434,7 @@ mod internal_replay_tests {
         }
 
         fn candidate_knowledge(
-            identity: &eg_program::ProgramRevisionIdentity,
+            identity: &medulla_program::ProgramRevisionIdentity,
             evidence_ref: &str,
             promotion_identity: serde_json::Value,
         ) -> serde_json::Value {
@@ -442,7 +442,7 @@ mod internal_replay_tests {
                 .candidate_record
                 .as_ref()
                 .expect("promotion test identity has a candidate record");
-            let references = |values: &[eg_modality::OpaqueRef]| {
+            let references = |values: &[medulla_modality::OpaqueRef]| {
                 serde_json::Value::Array(
                     values
                         .iter()
@@ -450,7 +450,7 @@ mod internal_replay_tests {
                         .collect(),
                 )
             };
-            let optional_reference = |reference: Option<&eg_modality::OpaqueRef>| {
+            let optional_reference = |reference: Option<&medulla_modality::OpaqueRef>| {
                 reference.map_or(serde_json::Value::Null, |value| {
                     serde_json::json!(value.as_str())
                 })
@@ -487,7 +487,7 @@ mod internal_replay_tests {
             })
         }
 
-        fn candidate_claim_method(identity: &eg_program::ProgramRevisionIdentity) -> Method {
+        fn candidate_claim_method(identity: &medulla_program::ProgramRevisionIdentity) -> Method {
             let record = identity
                 .candidate_record
                 .as_ref()
@@ -511,9 +511,9 @@ mod internal_replay_tests {
         }
 
         fn actual_job_result(
-            identity: &eg_program::ProgramRevisionIdentity,
-            job: &eg_jobs::AnalyticsJob,
-        ) -> eg_jobs::TypedJobResult {
+            identity: &medulla_program::ProgramRevisionIdentity,
+            job: &medulla_jobs::AnalyticsJob,
+        ) -> medulla_jobs::TypedJobResult {
             let knowledge = candidate_knowledge(
                 identity,
                 job.input_snapshot.dataset_ref.as_str(),
@@ -556,20 +556,20 @@ mod internal_replay_tests {
                 ("promotion_identity", "object", true),
             ]
             .into_iter()
-            .map(|(name, logical_type, nullable)| eg_jobs::ResultColumn {
+            .map(|(name, logical_type, nullable)| medulla_jobs::ResultColumn {
                 name: name.to_string(),
                 logical_type: logical_type.to_string(),
                 nullable,
             })
             .collect();
-            eg_jobs::TypedJobResult::new(
+            medulla_jobs::TypedJobResult::new(
                 schema,
                 vec![row],
                 vec![job.input_snapshot.dataset_ref.clone()],
                 Vec::new(),
                 None,
                 None,
-                eg_jobs::ReproducibilityManifest {
+                medulla_jobs::ReproducibilityManifest {
                     input_dataset_ref: job.input_snapshot.dataset_ref.clone(),
                     input_content_digest: job.input_snapshot.content_digest.clone(),
                     input_snapshot_version: job.input_snapshot.version,
@@ -583,7 +583,7 @@ mod internal_replay_tests {
             .expect("construct actual typed program result")
         }
 
-        fn result_claim_method(identity: &eg_program::ProgramRevisionIdentity) -> Method {
+        fn result_claim_method(identity: &medulla_program::ProgramRevisionIdentity) -> Method {
             let record = identity
                 .candidate_record
                 .as_ref()
@@ -612,14 +612,14 @@ mod internal_replay_tests {
             }
         }
 
-        fn claim_methods(identity: &eg_program::ProgramRevisionIdentity) -> Vec<Method> {
+        fn claim_methods(identity: &medulla_program::ProgramRevisionIdentity) -> Vec<Method> {
             vec![
                 result_claim_method(identity),
                 candidate_claim_method(identity),
             ]
         }
 
-        let dir = crate::test_support::temp_dir("eg-program-promotion", "cas-replay");
+        let dir = crate::test_support::temp_dir("medulla-program-promotion", "cas-replay");
         let persistence: Arc<dyn PersistenceBackend> = Arc::new(
             crate::server::persistence::redb_backend::RedbBackend::open(
                 dir.to_string_lossy().into_owned(),
@@ -629,9 +629,9 @@ mod internal_replay_tests {
         );
         let core = Arc::new(GraphCore::new());
         let seeded_tool_policy_ref =
-            eg_modality::OpaqueRef::scoped("tool_policy", &"7".repeat(64)).unwrap();
+            medulla_modality::OpaqueRef::scoped("tool_policy", &"7".repeat(64)).unwrap();
         let seeded_model_profile_ref =
-            eg_modality::OpaqueRef::scoped("model_profile", &"8".repeat(64)).unwrap();
+            medulla_modality::OpaqueRef::scoped("model_profile", &"8".repeat(64)).unwrap();
         let binding_seed_result = ResultPayload::Json(serde_json::json!({
             "seed": "governed-program-bindings"
         }));
@@ -668,11 +668,11 @@ mod internal_replay_tests {
         ))
         .await
         .expect("seed governed program bindings through an earlier durable commit");
-        let job_dir = crate::test_support::temp_dir("eg-program-promotion", "job-store");
+        let job_dir = crate::test_support::temp_dir("medulla-program-promotion", "job-store");
         std::fs::create_dir_all(&job_dir).expect("create separate job-store directory");
         let job_path = job_dir.join("jobs.redb");
         assert_ne!(job_path, dir.join("graph-0.redb"));
-        let job_store = eg_jobs::JobStore::open(
+        let job_store = medulla_jobs::JobStore::open(
             &job_path,
             &PromotionJobScopeVerifier,
             PROMOTION_TEST_PRINCIPAL,
@@ -681,19 +681,19 @@ mod internal_replay_tests {
         .expect("open physically separate job store");
         let dataset_ref =
             "eg:job_input:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-        let input_snapshot = eg_jobs::InputSnapshotHandle::new("program-graph", 7)
+        let input_snapshot = medulla_jobs::InputSnapshotHandle::new("program-graph", 7)
             .with_dataset(dataset_ref, "b".repeat(64));
         let submitted = job_store
-            .submit(eg_jobs::SubmitSpec {
+            .submit(medulla_jobs::SubmitSpec {
                 input_snapshot,
-                policy: eg_jobs::JobPolicy {
+                policy: medulla_jobs::JobPolicy {
                     tenant: "promotion-test-tenant".to_string(),
                     actor: "promotion-test-actor".to_string(),
                     purpose: "program-promotion-test".to_string(),
                     policy_fingerprint: "promotion-policy".to_string(),
                     ..Default::default()
                 },
-                algo: eg_jobs::AlgoVersion {
+                algo: medulla_jobs::AlgoVersion {
                     family: "program.optimization".to_string(),
                     algorithm: "labeled_few_shot".to_string(),
                     params_digest: "promotion-params".to_string(),
@@ -715,18 +715,18 @@ mod internal_replay_tests {
                 &[],
                 now_ms,
                 60_000,
-                eg_jobs::TenantJobQuota::default(),
+                medulla_jobs::TenantJobQuota::default(),
             )
             .expect("claim actual optimization job")
             .expect("actual optimization job is ready");
-        let actual_result_ref = eg_modality::OpaqueRef::new(worker_claim.job.result_ref())
+        let actual_result_ref = medulla_modality::OpaqueRef::new(worker_claim.job.result_ref())
             .expect("job store issues an opaque result reference");
-        let result_input_dataset_ref = eg_modality::OpaqueRef::new(dataset_ref.to_string())
+        let result_input_dataset_ref = medulla_modality::OpaqueRef::new(dataset_ref.to_string())
             .expect("job input dataset is an opaque reference");
         let first_identity = identity(
             2,
             None,
-            eg_program::ProgramResultInput {
+            medulla_program::ProgramResultInput {
                 result_ref: actual_result_ref,
                 dataset_ref: result_input_dataset_ref.clone(),
                 content_digest: "b".repeat(64),
@@ -744,7 +744,7 @@ mod internal_replay_tests {
                 now_ms + 1,
             )
             .expect("stage actual typed optimization result");
-        let actual_claim_plan = eg_jobs::plan_result_claim(&staged, 0.5, None)
+        let actual_claim_plan = medulla_jobs::plan_result_claim(&staged, 0.5, None)
             .expect("publish actual job result as claim methods");
         let actual_claim_methods = actual_claim_plan.methods;
         let first_result = ResultPayload::Json(serde_json::json!({"receipt": "first"}));
@@ -797,23 +797,23 @@ mod internal_replay_tests {
             .expect("complete publication after graph commit");
         assert!(matches!(
             published.state,
-            eg_jobs::JobState::Succeeded { .. }
+            medulla_jobs::JobState::Succeeded { .. }
         ));
 
         let second_dataset_ref =
             "eg:job_input:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
         let second_submitted = job_store
-            .submit(eg_jobs::SubmitSpec {
-                input_snapshot: eg_jobs::InputSnapshotHandle::new("program-graph", 8)
+            .submit(medulla_jobs::SubmitSpec {
+                input_snapshot: medulla_jobs::InputSnapshotHandle::new("program-graph", 8)
                     .with_dataset(second_dataset_ref, "c".repeat(64)),
-                policy: eg_jobs::JobPolicy {
+                policy: medulla_jobs::JobPolicy {
                     tenant: "promotion-test-tenant".to_string(),
                     actor: "promotion-test-actor".to_string(),
                     purpose: "program-promotion-test-second".to_string(),
                     policy_fingerprint: "promotion-policy".to_string(),
                     ..Default::default()
                 },
-                algo: eg_jobs::AlgoVersion {
+                algo: medulla_jobs::AlgoVersion {
                     family: "program.optimization".to_string(),
                     algorithm: "labeled_few_shot".to_string(),
                     params_digest: "promotion-params-second".to_string(),
@@ -831,18 +831,18 @@ mod internal_replay_tests {
                 &[],
                 now_ms + 3,
                 60_000,
-                eg_jobs::TenantJobQuota::default(),
+                medulla_jobs::TenantJobQuota::default(),
             )
             .expect("claim second actual optimization job")
             .expect("second actual optimization job is ready");
-        let second_result_ref = eg_modality::OpaqueRef::new(second_worker_claim.job.result_ref())
+        let second_result_ref = medulla_modality::OpaqueRef::new(second_worker_claim.job.result_ref())
             .expect("second job store result reference is opaque");
-        let second_input_dataset_ref = eg_modality::OpaqueRef::new(second_dataset_ref.to_string())
+        let second_input_dataset_ref = medulla_modality::OpaqueRef::new(second_dataset_ref.to_string())
             .expect("second job input dataset is opaque");
         let second_identity_seed = identity(
             3,
             Some(first_identity.revision_ref.clone()),
-            eg_program::ProgramResultInput {
+            medulla_program::ProgramResultInput {
                 result_ref: second_result_ref,
                 dataset_ref: second_input_dataset_ref,
                 content_digest: "c".repeat(64),
@@ -860,7 +860,7 @@ mod internal_replay_tests {
                 now_ms + 4,
             )
             .expect("stage second actual typed optimization result");
-        let second_identity: eg_program::ProgramRevisionIdentity = second_staged
+        let second_identity: medulla_program::ProgramRevisionIdentity = second_staged
             .output
             .as_ref()
             .and_then(|output| output.rows.first())
@@ -871,7 +871,7 @@ mod internal_replay_tests {
         second_identity
             .validate()
             .expect("staged second promotion identity remains valid");
-        let second_claim_plan = eg_jobs::plan_result_claim(&second_staged, 0.5, None)
+        let second_claim_plan = medulla_jobs::plan_result_claim(&second_staged, 0.5, None)
             .expect("publish second actual job result as claim methods");
         let second_result = ResultPayload::Json(serde_json::json!({"receipt": "second"}));
         let second = commit_program_promotion(
@@ -903,13 +903,13 @@ mod internal_replay_tests {
             .expect("complete second publication after graph commit");
         assert!(matches!(
             published_second.state,
-            eg_jobs::JobState::Succeeded { .. }
+            medulla_jobs::JobState::Succeeded { .. }
         ));
 
         let missing_binding_identity = identity(
             3,
             Some(first_identity.revision_ref.clone()),
-            eg_program::ProgramResultInput {
+            medulla_program::ProgramResultInput {
                 result_ref: second_identity
                     .candidate_record
                     .as_ref()
@@ -976,7 +976,7 @@ mod internal_replay_tests {
             .is_none());
 
         let wrong_tool_policy_ref =
-            eg_modality::OpaqueRef::scoped("tool_policy", &"9".repeat(64)).unwrap();
+            medulla_modality::OpaqueRef::scoped("tool_policy", &"9".repeat(64)).unwrap();
         let wrong_binding_seed_result = ResultPayload::Json(serde_json::json!({
             "seed": "wrong-type-program-binding"
         }));
@@ -1004,7 +1004,7 @@ mod internal_replay_tests {
         let wrong_binding_identity = identity(
             3,
             Some(first_identity.revision_ref.clone()),
-            eg_program::ProgramResultInput {
+            medulla_program::ProgramResultInput {
                 result_ref: second_identity
                     .candidate_record
                     .as_ref()
@@ -1080,7 +1080,7 @@ mod internal_replay_tests {
                 },
                 "program-graph",
                 "program-promotion-one", // The SAME operation the key was committed with above -- the real
-                // `eg_jobs::plan_result_claim` output, not the hand-built
+                // `medulla_jobs::plan_result_claim` output, not the hand-built
                 // `claim_methods` pair. A replay is identified by its operation, so
                 // presenting different methods under the same idempotency key is an
                 // IDEMPOTENCY_CONFLICT by contract (which is what the other
@@ -1105,9 +1105,9 @@ mod internal_replay_tests {
         let before_failed_bytes = before_failed.0.to_msgpack().unwrap();
         let failed_identity = identity(
             3,
-            Some(eg_modality::OpaqueRef::scoped("program_revision", &"4".repeat(64)).unwrap()),
-            eg_program::ProgramResultInput {
-                result_ref: eg_modality::OpaqueRef::scoped(
+            Some(medulla_modality::OpaqueRef::scoped("program_revision", &"4".repeat(64)).unwrap()),
+            medulla_program::ProgramResultInput {
+                result_ref: medulla_modality::OpaqueRef::scoped(
                     "job_result",
                     &format!("{}3", "b".repeat(63)),
                 )
@@ -1157,7 +1157,7 @@ mod internal_replay_tests {
         );
         std::fs::remove_file(&job_path).expect("remove only the temporary job-store file");
         assert!(!job_path.exists(), "temporary job-store file was removed");
-        let fresh_job_store = eg_jobs::JobStore::open(
+        let fresh_job_store = medulla_jobs::JobStore::open(
             &job_path,
             &PromotionJobScopeVerifier,
             PROMOTION_TEST_PRINCIPAL,
@@ -1205,7 +1205,7 @@ mod internal_replay_tests {
         let pointer_bytes = restarted
             .get_node_properties(pointer.as_str())
             .expect("active pointer survives restart");
-        let pointer_value = eg_types::msgpack::decode_property_value(&pointer_bytes)
+        let pointer_value = medulla_types::msgpack::decode_property_value(&pointer_bytes)
             .expect("decode active pointer");
         assert_eq!(
             pointer_value
@@ -1230,7 +1230,7 @@ mod internal_replay_tests {
             second_identity
                 .tool_policy_ref
                 .as_ref()
-                .map(eg_modality::OpaqueRef::as_str),
+                .map(medulla_modality::OpaqueRef::as_str),
         );
         assert_eq!(
             pointer_value
@@ -1239,15 +1239,15 @@ mod internal_replay_tests {
             second_identity
                 .model_profile_ref
                 .as_ref()
-                .map(eg_modality::OpaqueRef::as_str),
+                .map(medulla_modality::OpaqueRef::as_str),
         );
         let revision_properties = restarted
             .get_node_properties(second_identity.revision_ref.as_str())
             .expect("durable revision survives restart after job retention");
-        let revision_value = eg_types::msgpack::decode_property_value(&revision_properties)
+        let revision_value = medulla_types::msgpack::decode_property_value(&revision_properties)
             .expect("decode durable revision");
         let resolved =
-            eg_program::ProgramRevisionIdentity::from_durable_properties(&revision_value)
+            medulla_program::ProgramRevisionIdentity::from_durable_properties(&revision_value)
                 .expect("resolve durable revision identity after job purge");
         assert_eq!(resolved, second_identity);
         assert_eq!(resolved.policy, second_identity.policy);
@@ -1267,7 +1267,7 @@ mod internal_replay_tests {
             snapshot: &crate::graph::GraphSnapshot,
             version: u64,
             claim_ref: &str,
-            revision_ref: &eg_modality::OpaqueRef,
+            revision_ref: &medulla_modality::OpaqueRef,
             mutate: impl FnOnce(&mut serde_json::Value),
         ) {
             let fixture = GraphCore::from_snapshot(snapshot.clone(), version)
@@ -1275,7 +1275,7 @@ mod internal_replay_tests {
             let properties = fixture
                 .get_node_properties(claim_ref)
                 .expect("selected claim exists in tamper fixture");
-            let mut value = eg_types::msgpack::decode_property_value(&properties)
+            let mut value = medulla_types::msgpack::decode_property_value(&properties)
                 .expect("decode selected claim tamper fixture");
             mutate(&mut value);
             fixture.add_node(
@@ -1328,7 +1328,7 @@ mod internal_replay_tests {
         let result_properties = result_digest_tamper
             .get_node_properties(&result_claim_ref)
             .expect("result claim exists in tamper fixture");
-        let mut result_value = eg_types::msgpack::decode_property_value(&result_properties)
+        let mut result_value = medulla_types::msgpack::decode_property_value(&result_properties)
             .expect("decode result claim tamper fixture");
         // A digest that differs from the claim's real `input_content_digest` BY
         // CONSTRUCTION. The hardcoded `"c".repeat(64)` that stood here WAS
@@ -1372,7 +1372,7 @@ mod internal_replay_tests {
         let revision_properties = modality_tamper
             .get_node_properties(second_identity.revision_ref.as_str())
             .expect("revision exists in modality tamper fixture");
-        let mut modality_value = eg_types::msgpack::decode_property_value(&revision_properties)
+        let mut modality_value = medulla_types::msgpack::decode_property_value(&revision_properties)
             .expect("decode modality tamper fixture");
         modality_value["candidate_record"]["modalities"] = serde_json::json!(["image"]);
         modality_tamper.add_node(
@@ -1380,7 +1380,7 @@ mod internal_replay_tests {
             rmp_serde::to_vec_named(&modality_value).expect("encode modality tamper fixture"),
         );
         assert!(
-            eg_program::ProgramRevisionIdentity::from_durable_properties(&modality_value).is_err(),
+            medulla_program::ProgramRevisionIdentity::from_durable_properties(&modality_value).is_err(),
             "candidate modality tamper must invalidate the canonical candidate digest"
         );
         assert!(
@@ -1420,13 +1420,13 @@ mod internal_replay_tests {
         let revision_properties = authority_digest_tamper
             .get_node_properties(second_identity.revision_ref.as_str())
             .expect("revision exists in authority digest tamper fixture");
-        let mut authority_value = eg_types::msgpack::decode_property_value(&revision_properties)
+        let mut authority_value = medulla_types::msgpack::decode_property_value(&revision_properties)
             .expect("decode authority digest tamper fixture");
         let coordinated_tamper_identity = identity(
             3,
             Some(first_identity.revision_ref.clone()),
-            eg_program::ProgramResultInput {
-                result_ref: eg_modality::OpaqueRef::scoped("job_result", &"e".repeat(64)).unwrap(),
+            medulla_program::ProgramResultInput {
+                result_ref: medulla_modality::OpaqueRef::scoped("job_result", &"e".repeat(64)).unwrap(),
                 dataset_ref: second_identity
                     .candidate_record
                     .as_ref()
@@ -1470,16 +1470,16 @@ mod internal_replay_tests {
         let revision_properties = alias_tamper
             .get_node_properties(second_identity.revision_ref.as_str())
             .expect("revision exists in opaque reference alias fixture");
-        let mut alias_value = eg_types::msgpack::decode_property_value(&revision_properties)
+        let mut alias_value = medulla_types::msgpack::decode_property_value(&revision_properties)
             .expect("decode opaque reference alias fixture");
         alias_value["candidate_record"]["result_input_dataset_ref"] =
             serde_json::json!(format!("eg:job_input:alias:{}", "c".repeat(64)));
         assert!(
-            eg_program::ProgramRevisionIdentity::from_durable_properties(&alias_value).is_err(),
+            medulla_program::ProgramRevisionIdentity::from_durable_properties(&alias_value).is_err(),
             "result-input namespace aliases must not validate as canonical refs"
         );
 
-        let mut candidate_alias_value = eg_types::msgpack::decode_property_value(
+        let mut candidate_alias_value = medulla_types::msgpack::decode_property_value(
             &alias_tamper
                 .get_node_properties(second_identity.revision_ref.as_str())
                 .expect("revision remains available in candidate alias fixture"),
@@ -1490,7 +1490,7 @@ mod internal_replay_tests {
             second_identity.content_digest
         ));
         assert!(
-            eg_program::ProgramRevisionIdentity::from_durable_properties(&candidate_alias_value)
+            medulla_program::ProgramRevisionIdentity::from_durable_properties(&candidate_alias_value)
                 .is_err(),
             "candidate namespace aliases must not validate as canonical refs"
         );

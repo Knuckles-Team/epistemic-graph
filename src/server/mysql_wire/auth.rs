@@ -1,6 +1,6 @@
-//! MySQL wire authentication bridged to the engine identity (CONCEPT:EG-KG.query.kg-2).
+//! MySQL wire authentication bridged to the engine identity (CONCEPT:MEDULLA-KG.query.kg-2).
 //!
-//! Mirrors the pgwire auth policy (CONCEPT:EG-KG.query.concept-13) for the MySQL wire: a connection's
+//! Mirrors the pgwire auth policy (CONCEPT:MEDULLA-KG.query.concept-13) for the MySQL wire: a connection's
 //! `user` IS an engine `agent_id`, and its password is a deterministic per-user token
 //! DERIVED from the engine's shared `GRAPH_SERVICE_AUTH_SECRET`:
 //! `derived_password(user) = hex(HMAC-SHA256(secret, "mysql:" || user))`. An operator
@@ -10,7 +10,7 @@
 //! set to `user`, so every subsequent query runs under that `AgentIdentity` against the
 //! engine ACL (`IsolationLayer::check_access`).
 //!
-//! ## Mode (`EPISTEMIC_GRAPH_MYSQL_AUTH`)
+//! ## Mode (`MEDULLA_MYSQL_AUTH`)
 //!   * `native` — `mysql_native_password` (what mysql/mariadb clients negotiate by
 //!     default). This is the only accepted mode and requires a non-empty
 //!     `GRAPH_SERVICE_AUTH_SECRET`; there is no anonymous/trust fallback.
@@ -31,7 +31,7 @@ use sha1::{Digest, Sha1};
 
 /// Env var selecting the MySQL wire auth mode. Only `native` is accepted; unset
 /// also selects native authentication.
-pub const MYSQL_AUTH_ENV: &str = "EPISTEMIC_GRAPH_MYSQL_AUTH";
+pub const MYSQL_AUTH_ENV: &str = "MEDULLA_MYSQL_AUTH";
 
 /// The name of the auth plugin the server advertises + validates.
 pub const MYSQL_NATIVE_PASSWORD: &str = "mysql_native_password";

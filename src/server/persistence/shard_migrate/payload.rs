@@ -11,8 +11,8 @@ use crate::redb_store::{
 };
 #[cfg(feature = "security")]
 use crate::redb_store::{AUDIT_REQUESTS, PROVENANCE_ANCHOR_MEMBERS};
-use eg_storage::{GraphShardOwner, OwnerRowScope, OwnerRowScopeStart, ScopedRead};
-use eg_transaction::{GraftOwnerWrite, OwnerPayloadTransfer, OwnerPayloadWrite};
+use medulla_storage::{GraphShardOwner, OwnerRowScope, OwnerRowScopeStart, ScopedRead};
+use medulla_transaction::{GraftOwnerWrite, OwnerPayloadTransfer, OwnerPayloadWrite};
 use redb::TableDefinition;
 
 /// Copy the graph-shard payload under the destination's exact graft
@@ -40,7 +40,7 @@ impl OwnerPayloadTransfer<GraphShardOwner, GraphShardOwner> for GraphShardPayloa
         &mut self,
         source: &ScopedRead<'_, GraphShardOwner>,
         destination: &GraftOwnerWrite<'_, '_, GraphShardOwner>,
-        _identity: &eg_types::MutationScopeIdentity,
+        _identity: &medulla_types::MutationScopeIdentity,
     ) -> Result<u64, String> {
         clear_every_owner_table(destination)?;
         let mut discarded = MigrationReport::default();

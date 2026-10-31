@@ -19,13 +19,13 @@ WORK_ITEM_METHODS = {
     "CancelWorkItem",
     "DeferWorkItem",
     "CasWorkItemMetadata",
-    # graph-os EG-2: native control-lease writes share the WorkItem kernel.
+    # graph-os MEDULLA-2: native control-lease writes share the WorkItem kernel.
     "IssueHostStartGrant",
     "IssueControlLease",
     "TransitionControlLease",
-    # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
+    # MEDULLA-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
     "PublishCurrentPlan",
-    # EG-DURABLE-KERNEL-R028.1: checkpoints share the same fenced kernel.
+    # MEDULLA-DURABLE-KERNEL-R028.1: checkpoints share the same fenced kernel.
     "PublishRunCheckpoint",
     # EH-346: the engine-internal policy-record store shares the kernel.
     "PolicyEvolutionStore",
@@ -112,7 +112,7 @@ def test_deleted_lane_classifier_is_absent_from_authority_evidence() -> None:
         ROOT / "src" / "raft" / "mod.rs",
         ROOT / "src" / "server" / "access.rs",
         ROOT / "src" / "server" / "mutation.rs",
-        ROOT / "crates" / "eg-capabilities" / "tests" / "consistency" / "divergence.rs",
+        ROOT / "crates" / "medulla-capabilities" / "tests" / "consistency" / "divergence.rs",
     )
     for path in evidence_paths:
         assert "is_development_lane_method" not in path.read_text(), path

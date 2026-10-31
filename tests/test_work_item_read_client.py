@@ -1,6 +1,6 @@
-"""EH-219 typed WorkItem reads through ``EpistemicGraphClient.work_items``."""
+"""EH-219 typed WorkItem reads through ``MedullaClient.work_items``."""
 
-# spec: EG-DECISION-ENGINE-R801.8
+# spec: MEDULLA-DECISION-ENGINE-R801.8
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ from typing import Any, cast
 import pytest
 from _client_send_stub import CapturingEngine as FakeEngine
 
-from epistemic_graph.client import (
+from medulla.client import (
     ControlLeaseClient,
-    EpistemicGraphClient,
+    MedullaClient,
     WorkItemClient,
 )
 
@@ -31,7 +31,7 @@ VIEW: dict[str, Any] = {
 
 
 def _work_items(engine: FakeEngine) -> WorkItemClient:
-    return WorkItemClient(cast(EpistemicGraphClient, engine))
+    return WorkItemClient(cast(MedullaClient, engine))
 
 
 def test_get_sends_the_typed_request_and_returns_the_view() -> None:
@@ -91,7 +91,7 @@ def test_list_refuses_a_limit_outside_the_engine_bound(limit: int) -> None:
     assert engine.sent == []
 
 
-# -- graph-os EG-2 native control leases -------------------------------------
+# -- graph-os MEDULLA-2 native control leases -------------------------------------
 
 LEASE: dict[str, Any] = {
     "lease_id": "browserlease_1",
@@ -106,7 +106,7 @@ LEASE: dict[str, Any] = {
 
 
 def _leases(engine: FakeEngine) -> ControlLeaseClient:
-    return ControlLeaseClient(cast(EpistemicGraphClient, engine))
+    return ControlLeaseClient(cast(MedullaClient, engine))
 
 
 def test_issue_sends_the_typed_request_and_validates_the_answer() -> None:
@@ -170,10 +170,10 @@ def test_a_lease_answer_outside_the_contract_is_refused() -> None:
         )
 
 
-# -- graph-os EG-3 committed provenance ---------------------------------------
+# -- graph-os MEDULLA-3 committed provenance ---------------------------------------
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R028.2")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R028.2")
 def test_get_outcome_returns_the_verified_provenance_view() -> None:
     outcome = {
         "work_item": VIEW,
@@ -360,7 +360,7 @@ def test_session_usage_rejects_malformed_native_receipts(patch: dict[str, Any]) 
 @pytest.fixture
 def session_response_transport(monkeypatch: pytest.MonkeyPatch) -> None:
     """Isolate response validation; the unpatched transport test stays separate."""
-    from epistemic_graph import client as client_module
+    from medulla import client as client_module
 
     async def send(
         engine: FakeEngine, params: object, graph: str | None
@@ -404,7 +404,7 @@ def test_session_response_validation_preserves_unknown_zero_and_exact_maximum(
 def test_session_usage_forwards_explicit_owner_graph(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from epistemic_graph import client as client_module
+    from medulla import client as client_module
 
     seen: list[str | None] = []
     result = {

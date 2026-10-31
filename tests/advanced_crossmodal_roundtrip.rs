@@ -1,4 +1,4 @@
-//! Advanced cross-modal seam ROUNDTRIP proofs (CONCEPT:EG-KG.txn.one-transaction-stage-five..EG-397).
+//! Advanced cross-modal seam ROUNDTRIP proofs (CONCEPT:MEDULLA-KG.txn.one-transaction-stage-five..MEDULLA-397).
 //!
 //! The advanced cross-modal tests whose assertions need a LIVE server/txn surface a
 //! hand-built `PlanCtx` cannot stand up — driven through the REAL `dispatch` shell over an
@@ -6,33 +6,33 @@
 //! the SAME harness `query.rs`'s `txn_ryow_dispatch_tests` uses.
 //!
 //! GREEN here:
-//!  * **EG-390 (capstone, test 2)** — 5-modality in-txn read-your-own-writes → atomic
+//!  * **MEDULLA-390 (capstone, test 2)** — 5-modality in-txn read-your-own-writes → atomic
 //!    commit → consistent off-txn re-read: a graph node, a vector embedding, a graph edge,
 //!    a native tsdb measurement and a staged OWL axiom, all staged in ONE txn, all visible
 //!    to in-txn cross-modal queries (RYOW) and invisible off-txn, then committed atomically
 //!    (the committed graph/vector/axiom durable-in-memory) and re-read.
-//!  * **EG-392 (test 9)** — concurrent SERIALIZABLE across modalities: a serializable txn
+//!  * **MEDULLA-392 (test 9)** — concurrent SERIALIZABLE across modalities: a serializable txn
 //!    with a captured predicate read-set commits AFTER a concurrent txn inserts a phantom
 //!    matching that predicate → the phantom flips `validate()` and the serializable txn
 //!    rolls back (`Commit` returns `false`), while its own cross-modal writes never land.
-//!  * **EG-391 (test 5, CONCEPT:EG-KG.query.overlay-leg-rls-filter)** — RLS per-agent visibility on a fused Reason→Rank
+//!  * **MEDULLA-391 (test 5, CONCEPT:MEDULLA-KG.query.overlay-leg-rls-filter)** — RLS per-agent visibility on a fused Reason→Rank
 //!    over BOTH the committed base and the staged-overlay legs (identities + `_owner`/
 //!    `_visibility` node blobs + caller-threaded `agent_id`; the overlay-leg seam is a
 //!    post-overlay `rls.filter_view` in `run_unified_overlaid`).
-//!  * **EG-393 (test 10, CONCEPT:EG-KG.query.tri-surface-snapshot-harness)** — pgwire + `/sparql` + native consistent snapshot:
+//!  * **MEDULLA-393 (test 10, CONCEPT:MEDULLA-KG.query.tri-surface-snapshot-harness)** — pgwire + `/sparql` + native consistent snapshot:
 //!    three listeners on ONE `ServerState` all observe the SAME mixed committed snapshot.
-//!  * **EG-394 (test 7, CONCEPT:EG-KG.storage.encryption-reopen-roundtrip)** — encryption-at-rest + cross-modal read; a keyed
+//!  * **MEDULLA-394 (test 7, CONCEPT:MEDULLA-KG.storage.encryption-reopen-roundtrip)** — encryption-at-rest + cross-modal read; a keyed
 //!    `RedbBackend` reopened with the WRONG key FAILS the read (no silent plaintext).
-//!  * **EG-395 (test 8, CONCEPT:EG-KG.query.cdc-live-view-rebuild)** — streaming/CDC → live materialized cross-modal
+//!  * **MEDULLA-395 (test 8, CONCEPT:MEDULLA-KG.query.cdc-live-view-rebuild)** — streaming/CDC → live materialized cross-modal
 //!    view rebuild via a `CdcHub` continuous query maintained off the change stream.
 //!
-//! EG-396 (test 4, CONCEPT:EG-KG.txn.crossshard-2pc-modality-harness) is now GREEN under
+//! MEDULLA-396 (test 4, CONCEPT:MEDULLA-KG.txn.crossshard-2pc-modality-harness) is now GREEN under
 //! `--features cluster`: it is `cfg(feature = "cluster")`-gated (compiles out of the
 //! `--features full` gate, runs under `--features cluster`) and drives the in-crate
 //! `raft::xshard_modality_harness` multi-group 2PC coordinator-kill proof.
 //!
 //! Tracked-but-`#[ignore]`d (a north_star.md open row with its refined precise gap):
-//!  * EG-397 (test 11, CONCEPT:EG-KG.query.warmfork-fanout-open-reason) — KV-cache warm-fork fan-out. CROSS-REPO gap (the
+//!  * MEDULLA-397 (test 11, CONCEPT:MEDULLA-KG.query.warmfork-fanout-open-reason) — KV-cache warm-fork fan-out. CROSS-REPO gap (the
 //!    warm-fork primitive lives in agent-utilities, not this engine).
 //!
 //! Gated at the module level on `query` + `tsdb` + `owl-plan` (the in-txn cross-modal
@@ -49,8 +49,8 @@ use std::sync::Arc;
 use serde_json::json;
 use tokio::sync::RwLock;
 
-use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
-use epistemic_graph::server::ServerState;
+use medulla::protocol::{Method, Request, Response, ResultPayload};
+use medulla::server::ServerState;
 
 const SECRET: &str = "advanced-crossmodal-secret";
 
@@ -67,7 +67,7 @@ const SECRET: &str = "advanced-crossmodal-secret";
 ///
 /// The multi-op `BeginTxn`..`Commit` path additionally seals its transaction recovery
 /// plan (`server::handlers::txn::seal_txn_recovery_plan`), which fail-closed REQUIRES
-/// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` at the backend's `open()` call -- the same
+/// `MEDULLA_ENCRYPTION_KEY` at the backend's `open()` call -- the same
 /// requirement `redb_backend::tests::cm_dir` provisions. Encryption is symmetric and
 /// transparent to every round-trip these tests make, so a keyed store behaves
 /// identically for their assertions.
@@ -83,7 +83,7 @@ const SECRET: &str = "advanced-crossmodal-secret";
 /// `open()` happened to land in the window after eg394 removed the var (but after
 /// `Once` had already fired for some earlier, unrelated test) saw no key configured at
 /// all and failed closed with "transaction durability requires
-/// EPISTEMIC_GRAPH_ENCRYPTION_KEY to be configured", regardless of what THIS test
+/// MEDULLA_ENCRYPTION_KEY to be configured", regardless of what THIS test
 /// actually needed. On a highly parallel dev host that interleaving rarely landed on
 /// the removed window; on a 2-core CI runner it reliably did.
 ///
@@ -104,7 +104,7 @@ async fn state() -> test_support::SharedState {
         let _guard = ENC_ENV_LOCK.lock().await;
         #[cfg(feature = "redb")]
         std::env::set_var(
-            epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
+            medulla::crypto::ENCRYPTION_KEY_ENV,
             "advanced-crossmodal-recovery-key",
         );
         common::configure_authority();
@@ -120,7 +120,7 @@ async fn state() -> test_support::SharedState {
 }
 
 /// `common::current_isolation()` plus a "commons-user" RBAC role granted Read+Write on
-/// `__commons__`. RBAC (CONCEPT:EG-KG.compute.feature) is the mandatory access decision under
+/// `__commons__`. RBAC (CONCEPT:MEDULLA-KG.compute.feature) is the mandatory access decision under
 /// `feature = "security"` (`isolation.rs::check_access`) -- there is no pre-RBAC
 /// Commons-open-to-all fall-through any more for a non-`System` identity (see the
 /// `#[cfg(not(feature = "security"))]` branch vs. the RBAC branch in `check_access`).
@@ -128,14 +128,14 @@ async fn state() -> test_support::SharedState {
 /// needed this; but the `agent_a`/`agent_b`/etc. peers this file registers through
 /// `register_identity_req` (plain `AgentRole::Agent`) do, or every RPC they make against
 /// `__commons__` is `ACCESS_DENIED`. Same fix shape as `server::mod::multi_tenant_state`'s
-/// `"commons-user"` role (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence): the role +
+/// `"commons-user"` role (CONCEPT:MEDULLA-KG.compute.durable-rbac-identity-persistence): the role +
 /// grants live on the policy, `register_identity_req` threads the role NAME onto each
 /// registered peer's `AgentIdentity.roles`.
-fn commons_isolation() -> epistemic_graph::isolation::IsolationLayer {
+fn commons_isolation() -> medulla::isolation::IsolationLayer {
     let mut isolation = common::current_isolation();
     #[cfg(feature = "security")]
     {
-        use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+        use medulla::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
         isolation.add_role(Role::new("commons-user"));
         let grant = |action: RbacAction| Grant {
             role: "commons-user".to_string(),
@@ -183,7 +183,7 @@ fn pack(v: serde_json::Value) -> Vec<u8> {
 }
 
 /// MessagePack `Vec<(i64 ts_ns, Vec<f64> values)>` — the exact `TxnAddMeasurement.points`
-/// blob shape (CONCEPT:EG-KG.backend.cross-modal-atomic-commit).
+/// blob shape (CONCEPT:MEDULLA-KG.backend.cross-modal-atomic-commit).
 fn pack_points(points: &[(i64, Vec<f64>)]) -> Vec<u8> {
     rmp_serde::to_vec_named(&points.to_vec()).unwrap()
 }
@@ -239,7 +239,7 @@ async fn stage_rls_overlay(state: &Arc<RwLock<ServerState>>, first_id: u64, agen
         Method::TxnAddNode {
             txn_id: txn_id.clone(),
             node_id: "stg_pub".into(),
-            // Default-deny RLS (`eg_core::isolation::row_visibility`) hides ANY
+            // Default-deny RLS (`medulla_core::isolation::row_visibility`) hides ANY
             // untagged row from a non-`System` actor -- an unowned row needs an
             // EXPLICIT `_visibility: "public"` tag to be seen by `agent_b` at all.
             // BUG-064: a bare `_visibility: "public"` tag on an unowned row with
@@ -321,10 +321,10 @@ async fn off_txn_text(state: &Arc<RwLock<ServerState>>, id: u64, text: &str) -> 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EG-390 (test 2, capstone) — 5-modality in-txn RYOW → atomic commit → re-read
+// MEDULLA-390 (test 2, capstone) — 5-modality in-txn RYOW → atomic commit → re-read
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// THE capstone (CONCEPT:EG-KG.txn.one-transaction-stage-five): in ONE transaction stage FIVE modalities — a graph node
+/// THE capstone (CONCEPT:MEDULLA-KG.txn.one-transaction-stage-five): in ONE transaction stage FIVE modalities — a graph node
 /// (`sn` typed `Robot`), a vector embedding, a graph edge (`sn -LINKS-> tn`), a native tsdb
 /// measurement (series `sensor.temp`), and an OWL axiom (`Robot ⊑ Machine`) — then prove:
 ///  1. **RYOW**: every staged modality is visible to an in-txn cross-modal query — the
@@ -440,7 +440,7 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
         "the staged edge must make tn BFS-reachable in-txn"
     );
     // ── 1. RYOW: native tsdb measurement via TsScan over the StagedSeries overlay ──
-    let ts_plan = eg_plan::Plan::new(vec![eg_plan::Op::TsScan {
+    let ts_plan = medulla_plan::Plan::new(vec![medulla_plan::Op::TsScan {
         series: vec!["sensor.temp".into()],
         from: 0.0,
         to: 10.0,
@@ -464,11 +464,11 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
     );
     // ── 1. RYOW: OWL reasoning over the staged graph write (inline ontology — the staged
     // axiom lands in the graph at COMMIT, so in-txn the ontology is supplied to REASON). ──
-    let reason_plan = eg_plan::Plan::new(vec![
-        eg_plan::Op::Scan {
+    let reason_plan = medulla_plan::Plan::new(vec![
+        medulla_plan::Op::Scan {
             label: "Robot".into(),
         },
-        eg_plan::Op::Reason {
+        medulla_plan::Op::Reason {
             target_class: "<http://ex/Machine>".into(),
             ontology: "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
                        <http://ex/Robot> rdfs:subClassOf <http://ex/Machine> .\n"
@@ -548,11 +548,11 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
     );
     // ── 4. the committed OWL axiom is in the TBox: REASON with EMPTY ontology (read from
     // the committed graph) now infers sn a Machine — the axiom modality committed atomically. ──
-    let committed_reason = eg_plan::Plan::new(vec![
-        eg_plan::Op::Scan {
+    let committed_reason = medulla_plan::Plan::new(vec![
+        medulla_plan::Op::Scan {
             label: "Robot".into(),
         },
-        eg_plan::Op::Reason {
+        medulla_plan::Op::Reason {
             target_class: "<http://ex/Machine>".into(),
             ontology: String::new(),
         },
@@ -578,10 +578,10 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EG-392 (test 9) — concurrent SERIALIZABLE across modalities: phantom → conflict
+// MEDULLA-392 (test 9) — concurrent SERIALIZABLE across modalities: phantom → conflict
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// THE serializable proof (CONCEPT:EG-KG.txn.serializable-txn-captures-predicate): a SERIALIZABLE txn `A` captures a predicate
+/// THE serializable proof (CONCEPT:MEDULLA-KG.txn.serializable-txn-captures-predicate): a SERIALIZABLE txn `A` captures a predicate
 /// read-set (nodes labelled `Sensor`) at begin and stages a cross-modal write (a node + its
 /// embedding). A concurrent txn `B` INSERTS a phantom `Sensor` and COMMITS. When `A` then
 /// commits, its serializable validation re-evaluates the predicate, sees the phantom, and
@@ -693,9 +693,9 @@ async fn concurrent_serializable_phantom_conflict_eg392() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Advanced roundtrips CLOSED (handoff-1 track F, CONCEPT:EG-KG.query.overlay-leg-rls-filter..EG-KG.query.cdc-live-view-rebuild) — the
+// Advanced roundtrips CLOSED (handoff-1 track F, CONCEPT:MEDULLA-KG.query.overlay-leg-rls-filter..MEDULLA-KG.query.cdc-live-view-rebuild) — the
 // achievable specs turned GREEN by building the missing test-surface fixtures /
-// harnesses. The two genuinely-hard rows (EG-396 cross-shard Raft 2PC, EG-397
+// harnesses. The two genuinely-hard rows (MEDULLA-396 cross-shard Raft 2PC, MEDULLA-397
 // warm-fork) stay `#[ignore]`d below with a refined, precise reason + a north_star row.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -719,7 +719,7 @@ fn register_identity_req(
     id: u64,
     actor: &str,
     agent_id: &str,
-    role: epistemic_graph::acl::AgentRole,
+    role: medulla::acl::AgentRole,
 ) -> Request {
     common::signed_register_identity_request(common::SignedRegisterIdentity {
         secret: SECRET,
@@ -756,7 +756,7 @@ fn register_root_req(id: u64, actor: &str) -> Request {
         graph: "__commons__",
         actor,
         registered_agent: "root",
-        role: epistemic_graph::acl::AgentRole::Agent,
+        role: medulla::acl::AgentRole::Agent,
         teams: Vec::new(),
         // `root` never itself reads/writes `__commons__` in these fixtures -- it only
         // signs `RegisterIdentity` for the ordinary peers below, which needs admin
@@ -767,11 +767,11 @@ fn register_root_req(id: u64, actor: &str) -> Request {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EG-391 (test 5) — RLS per-agent visibility on a fused Reason→Rank + the overlay path
+// MEDULLA-391 (test 5) — RLS per-agent visibility on a fused Reason→Rank + the overlay path
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// EG-391 (test 5) — RLS per-agent visibility on a fused Reason→Rank AND the overlay path.
-/// GREEN (CONCEPT:EG-391 / seam CONCEPT:EG-KG.query.overlay-leg-rls-filter): with an `IsolationLayer` carrying per-agent
+/// MEDULLA-391 (test 5) — RLS per-agent visibility on a fused Reason→Rank AND the overlay path.
+/// GREEN (CONCEPT:MEDULLA-391 / seam CONCEPT:MEDULLA-KG.query.overlay-leg-rls-filter): with an `IsolationLayer` carrying per-agent
 /// row-visibility rules, an in-txn `run_unified_overlaid` must hide rows agent B may not see
 /// from BOTH the committed base AND the staged-overlay legs of a fused `Reason → Rank`, while
 /// agent A (the owner) sees them.
@@ -782,13 +782,13 @@ fn register_root_req(id: u64, actor: &str) -> Request {
 /// A txn STAGES two more `Robot` rows (one public, one `agent_a`-private) with embeddings.
 /// The fused plan `[Reason<Machine> |> Rank ~[1,0] |> Limit]` runs in-txn as each agent:
 ///   * agent_b sees ONLY the public rows (`pub_r`, `stg_pub`) — the committed private row is
-///     dropped by `filter_view` on the base, the STAGED private row by the EG-KG.query.overlay-leg-rls-filter post-overlay
+///     dropped by `filter_view` on the base, the STAGED private row by the MEDULLA-KG.query.overlay-leg-rls-filter post-overlay
 ///     `filter_view` (without it the staged private row would leak);
 ///   * agent_a (the owner) sees ALL FOUR.
 #[cfg(feature = "security")]
 #[tokio::test]
 async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
-    use epistemic_graph::isolation::AgentRole;
+    use medulla::isolation::AgentRole;
 
     let state = state().await;
 
@@ -841,7 +841,7 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
 
     // ── register the two agent identities → RLS enforcing mode. ──
     //
-    // EG-P0-6: the provisioned system test actor registers a `System`-role `root`
+    // MEDULLA-P0-6: the provisioned system test actor registers a `System`-role `root`
     // using a detached operation signature. Root then registers `agent_a`/`agent_b`
     // as plain `Agent`-role identities for the RLS peer-isolation fixture below.
     let r = Box::pin(dispatch(
@@ -873,17 +873,17 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
     // The fused Reason→Rank plan: infer Machine members over the (RLS-filtered) view, then
     // vector-rank them. `Reason` bridges the bare `Robot` type ↔ `<http://ex/Robot>`.
     let fused = || {
-        eg_plan::Plan::new(vec![
-            eg_plan::Op::Reason {
+        medulla_plan::Plan::new(vec![
+            medulla_plan::Op::Reason {
                 target_class: "<http://ex/Machine>".into(),
                 ontology: "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
                            <http://ex/Robot> rdfs:subClassOf <http://ex/Machine> .\n"
                     .into(),
             },
-            eg_plan::Op::Rank {
+            medulla_plan::Op::Rank {
                 query: vec![1.0, 0.0],
             },
-            eg_plan::Op::Limit { k: 10 },
+            medulla_plan::Op::Limit { k: 10 },
         ])
     };
     let run_as = |id: u64, agent: &'static str, txn: String| {
@@ -902,7 +902,7 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
     };
 
     // agent_b: ONLY the public rows — the committed private row is hidden on the base leg,
-    // the STAGED private row on the overlay leg (the EG-KG.query.overlay-leg-rls-filter post-overlay filter).
+    // the STAGED private row on the overlay leg (the MEDULLA-KG.query.overlay-leg-rls-filter post-overlay filter).
     assert_eq!(
         run_as(30, "agent_b", txn_b).await,
         vec!["pub_r".to_string(), "stg_pub".to_string()],
@@ -924,7 +924,7 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EG-393 (test 10) — pgwire + /sparql + native consistent snapshot after a mixed commit
+// MEDULLA-393 (test 10) — pgwire + /sparql + native consistent snapshot after a mixed commit
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// The `/sparql` SELECT/CONSTRUCT/ASK read leg's carrier credential (A18) —
@@ -965,8 +965,8 @@ async fn sparql_post(addr: &str, query: &str) -> String {
         .unwrap_or(raw)
 }
 
-/// EG-393 (test 10) — pgwire + `/sparql` + native consistent snapshot after a mixed commit.
-/// GREEN (CONCEPT:EG-KG.query.tri-surface-snapshot-harness): a pgwire listener, a `/sparql` HTTP listener and the native
+/// MEDULLA-393 (test 10) — pgwire + `/sparql` + native consistent snapshot after a mixed commit.
+/// GREEN (CONCEPT:MEDULLA-KG.query.tri-surface-snapshot-harness): a pgwire listener, a `/sparql` HTTP listener and the native
 /// `dispatch` path all bound to the SAME in-process `ServerState`. After ONE mixed
 /// cross-modal `BEGIN…COMMIT` (graph node + embedding + a second node + a `subClassOf`
 /// graph edge + an OWL axiom), a read over EACH of the three surfaces observes the SAME
@@ -975,7 +975,7 @@ async fn sparql_post(addr: &str, query: &str) -> String {
 #[cfg(all(feature = "pgwire", feature = "sparql-http"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pgwire_sparql_native_consistent_snapshot_eg393() {
-    use epistemic_graph::server::{pgwire, sparql_http};
+    use medulla::server::{pgwire, sparql_http};
 
     let state = state().await;
 
@@ -996,7 +996,7 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
     // A18: `serve()` resolves its bearer/JWT read-leg credential from the
     // environment ONCE at startup (mirroring `kvcache_http`), so the env var
     // must be set before it is spawned. CORRECTION (found while fixing the
-    // `EPISTEMIC_GRAPH_ENCRYPTION_KEY` ambient-env defect elsewhere in this file):
+    // `MEDULLA_ENCRYPTION_KEY` ambient-env defect elsewhere in this file):
     // the previous comment here claimed "`--test-threads=1` (this crate's
     // mandatory test-run mode)" makes this safe -- that is FALSE; this binary is
     // run with the default parallel test-threads in CI (`cargo test --test
@@ -1006,7 +1006,7 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
     // test in this binary that reads OR mutates `SPARQL_BEARER_TOKEN_ENV` (grep
     // confirmed), so there is no second participant to race. That is exactly the
     // same shape of false assumption ("this is the ONLY test that touches X")
-    // that made the `EPISTEMIC_GRAPH_ENCRYPTION_KEY` bug invisible — it holds only
+    // that made the `MEDULLA_ENCRYPTION_KEY` bug invisible — it holds only
     // as long as nobody adds a second sparql-serving test to this file without
     // also serializing it against this one (the `ENC_ENV_LOCK` pattern above is
     // the template to copy if that happens).
@@ -1048,9 +1048,9 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
     {
         let mut s = state.write().await;
         s.isolation
-            .register_agent(epistemic_graph::isolation::AgentIdentity {
+            .register_agent(medulla::isolation::AgentIdentity {
                 agent_id: "tester".to_string(),
-                role: epistemic_graph::isolation::AgentRole::Agent,
+                role: medulla::isolation::AgentRole::Agent,
                 teams: Vec::new(),
                 roles: vec!["commons-user".to_string()],
             });
@@ -1234,10 +1234,10 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EG-394 (test 7) — encryption-at-rest + cross-modal read; a wrong key FAILS
+// MEDULLA-394 (test 7) — encryption-at-rest + cross-modal read; a wrong key FAILS
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Serialize the process-global `EPISTEMIC_GRAPH_ENCRYPTION_KEY` env toggle so the keyed
+/// Serialize the process-global `MEDULLA_ENCRYPTION_KEY` env toggle so the keyed
 /// open/reopen roundtrip below never races another test reading OR mutating it.
 /// **Not** this test's private lock: `state()` above (the fixture nearly every other
 /// test in this binary calls) ALSO provisions this same env var before opening its own
@@ -1248,8 +1248,8 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
 #[cfg(all(feature = "security", feature = "redb"))]
 static ENC_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// EG-394 (test 7) — encryption-at-rest + cross-modal read; a wrong key FAILS (no silent
-/// plaintext). GREEN (CONCEPT:EG-KG.storage.encryption-reopen-roundtrip): a keyed `RedbBackend` (`EPISTEMIC_GRAPH_ENCRYPTION_KEY`
+/// MEDULLA-394 (test 7) — encryption-at-rest + cross-modal read; a wrong key FAILS (no silent
+/// plaintext). GREEN (CONCEPT:MEDULLA-KG.storage.encryption-reopen-roundtrip): a keyed `RedbBackend` (`MEDULLA_ENCRYPTION_KEY`
 /// = K1) takes a cross-modal commit (graph node + edge + a vector embedding, sealed with
 /// ChaCha20-Poly1305). Reopened with K1 the fused cross-modal read (`read_graph_dump` = nodes
 /// + edges + the semantic/embedding blob) DECRYPTS; reopened with a WRONG key K2 the read
@@ -1258,14 +1258,14 @@ static ENC_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 #[cfg(all(feature = "security", feature = "redb"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn encryption_at_rest_wrong_key_fails_eg394() {
-    use epistemic_graph::crypto::ENCRYPTION_KEY_ENV;
-    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-    use epistemic_graph::server::persistence::PersistenceBackend;
+    use medulla::crypto::ENCRYPTION_KEY_ENV;
+    use medulla::server::persistence::redb_backend::RedbBackend;
+    use medulla::server::persistence::PersistenceBackend;
 
     let _guard = ENC_ENV_LOCK.lock().await;
     let prev = std::env::var(ENCRYPTION_KEY_ENV).ok();
 
-    let dir = std::env::temp_dir().join(format!("eg-enc-xmodal-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("medulla-enc-xmodal-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let dir_s = dir.to_string_lossy().to_string();
 
@@ -1392,11 +1392,11 @@ async fn encryption_at_rest_wrong_key_fails_eg394() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EG-395 (test 8) — streaming/CDC → live materialized cross-modal view rebuild
+// MEDULLA-395 (test 8) — streaming/CDC → live materialized cross-modal view rebuild
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// EG-395 (test 8) — streaming/CDC → live materialized cross-modal view rebuild. GREEN
-/// (CONCEPT:EG-KG.query.cdc-live-view-rebuild): a materialized view (a `CdcHub` continuous query — the streaming-native
+/// MEDULLA-395 (test 8) — streaming/CDC → live materialized cross-modal view rebuild. GREEN
+/// (CONCEPT:MEDULLA-KG.query.cdc-live-view-rebuild): a materialized view (a `CdcHub` continuous query — the streaming-native
 /// live view available in the `full` build; the `MatViewStore` variant needs the cluster-tier
 /// `compute-dist`/`raft` layer, NOT in `full`) is subscribed to `state.cdc`. A cross-modal
 /// write (graph nodes + a vector embedding + a graph edge) emits CDC change events; the view
@@ -1405,7 +1405,7 @@ async fn encryption_at_rest_wrong_key_fails_eg394() {
 #[cfg(feature = "streaming")]
 #[tokio::test]
 async fn streaming_cdc_matview_rebuild_eg395() {
-    use epistemic_graph::wire::{ContinuousAgg, ContinuousQuerySpec};
+    use medulla::wire::{ContinuousAgg, ContinuousQuerySpec};
 
     let state = state().await;
     let hub = {
@@ -1504,7 +1504,7 @@ async fn streaming_cdc_matview_rebuild_eg395() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// D7 (CONCEPT:EG-KG.query.plan-dag) — the planner-writeback ACID seam: a `TxnPlanWriteback`
+// D7 (CONCEPT:MEDULLA-KG.query.plan-dag) — the planner-writeback ACID seam: a `TxnPlanWriteback`
 // staged alongside an ordinary `TxnAddNode`, in ONE txn, commits atomically.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1565,7 +1565,7 @@ async fn plan_writeback_stages_and_commits_inferred_edges_atomically_d7() {
         6,
         Method::TxnPlanWriteback {
             txn_id: txn.clone(),
-            plan: eg_plan::Plan::new(vec![eg_plan::Op::Scan {
+            plan: medulla_plan::Plan::new(vec![medulla_plan::Op::Scan {
                 label: "Entity".into(),
             }]),
             anchor_id: "hub".into(),
@@ -1620,13 +1620,13 @@ async fn plan_writeback_stages_and_commits_inferred_edges_atomically_d7() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EXPLAIN surfaces (CONCEPT:EG-KG.query.plan-dag, E5 phase 4).
+// EXPLAIN surfaces (CONCEPT:MEDULLA-KG.query.plan-dag, E5 phase 4).
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// `EXPLAIN PLAN` over a `[Scan, Rank, Filter{selective}]` plan surfaces the DAG-aware
 /// optimizer's rewrite: the `after` dag pushes the selective filter ahead of the vector
 /// `Rank` (the SAME decision `optimizer_never_reorders_across_a_branch_boundary`
-/// unit-tests in eg-plan), and the active rule set is non-empty.
+/// unit-tests in medulla-plan), and the active rule set is non-empty.
 #[tokio::test]
 async fn explain_plan_surfaces_the_optimizer_rewrite() {
     let state = state().await;
@@ -1641,7 +1641,7 @@ async fn explain_plan_surfaces_the_optimizer_rewrite() {
         )
         .await;
         // Every Doc carries an embedding so the vector `Rank` has real coverage (an
-        // uncovered candidate set would zero out `Rank`'s output, tripping the EG-405
+        // uncovered candidate set would zero out `Rank`'s output, tripping the MEDULLA-405
         // "both orders stay non-empty" guard and blocking the reorder entirely).
         ok(
             &state,
@@ -1653,21 +1653,21 @@ async fn explain_plan_surfaces_the_optimizer_rewrite() {
         )
         .await;
     }
-    let plan = eg_plan::Plan::new(vec![
-        eg_plan::Op::Scan {
+    let plan = medulla_plan::Plan::new(vec![
+        medulla_plan::Op::Scan {
             label: "Doc".into(),
         },
-        eg_plan::Op::Rank {
+        medulla_plan::Op::Rank {
             query: vec![1.0, 0.0],
         },
-        eg_plan::Op::Filter {
-            preds: vec![eg_plan::Pred::GtNum {
+        medulla_plan::Op::Filter {
+            preds: vec![medulla_plan::Pred::GtNum {
                 prop: "year".into(),
                 n: 2045.0,
             }],
         },
     ]);
-    let expected_plan_digest = eg_types::contract::Digest256::sha256(
+    let expected_plan_digest = medulla_types::contract::Digest256::sha256(
         &rmp_serde::to_vec_named(&plan).expect("serialize ExplainPlan input"),
     );
     let resp = Box::pin(dispatch(&state, req(200, Method::ExplainPlan { plan }))).await;
@@ -1676,7 +1676,7 @@ async fn explain_plan_surfaces_the_optimizer_rewrite() {
         Some(ResultPayload::Raw(b)) => b.clone(),
         other => panic!("expected Raw result, got {other:?}"),
     };
-    let result: epistemic_graph::protocol::ExplainPlanResult =
+    let result: medulla::protocol::ExplainPlanResult =
         rmp_serde::from_slice(&bytes).expect("ExplainPlanResult decodes");
     assert_eq!(
         result.plan_digest,
@@ -1757,7 +1757,7 @@ async fn explain_plan_surfaces_the_optimizer_rewrite() {
 #[cfg(feature = "security")]
 #[tokio::test]
 async fn explain_plan_cost_estimate_respects_rls_eg_goc12() {
-    use epistemic_graph::isolation::AgentRole;
+    use medulla::isolation::AgentRole;
 
     let state = state().await;
 
@@ -1809,11 +1809,11 @@ async fn explain_plan_cost_estimate_respects_rls_eg_goc12() {
     }
 
     let plan = || {
-        eg_plan::Plan::new(vec![
-            eg_plan::Op::Scan {
+        medulla_plan::Plan::new(vec![
+            medulla_plan::Op::Scan {
                 label: "Robot".into(),
             },
-            eg_plan::Op::Rank {
+            medulla_plan::Op::Rank {
                 query: vec![1.0, 0.0],
             },
         ])
@@ -1836,7 +1836,7 @@ async fn explain_plan_cost_estimate_respects_rls_eg_goc12() {
                 Some(ResultPayload::Raw(b)) => b.clone(),
                 other => panic!("expected Raw result for {agent}, got {other:?}"),
             };
-            let result: epistemic_graph::protocol::ExplainPlanResult =
+            let result: medulla::protocol::ExplainPlanResult =
                 rmp_serde::from_slice(&bytes).expect("ExplainPlanResult decodes");
             result
                 .before
@@ -1916,7 +1916,7 @@ async fn explain_belief_returns_full_justification_tree() {
         Some(ResultPayload::Raw(b)) => b.clone(),
         other => panic!("expected Raw result, got {other:?}"),
     };
-    let result: epistemic_graph::protocol::ExplainBeliefResult =
+    let result: medulla::protocol::ExplainBeliefResult =
         rmp_serde::from_slice(&bytes).expect("ExplainBeliefResult decodes");
     assert_eq!(result.root.claim, "claim1");
     assert!(
@@ -1930,22 +1930,22 @@ async fn explain_belief_returns_full_justification_tree() {
 /// through the redaction-aware path end-to-end: a `stranger` actor with no visibility
 /// into a private evidence node gets a `Skeleton` proof (evidence content masked, proof
 /// SHAPE preserved) via the served RPC surface, not just the crate-internal unit tests.
-/// Fixture mirrors `eg_epistemic::redact`'s own: `claim <- evidence(public) <-
+/// Fixture mirrors `medulla_epistemic::redact`'s own: `claim <- evidence(public) <-
 /// secret(private, owned by agent_a)`.
 #[cfg(feature = "epistemic-redaction")]
 #[tokio::test]
 async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
-    use epistemic_graph::isolation::AgentRole;
-    use epistemic_graph::protocol::{DisclosureLevelWire, ExplainBeliefRedactedResult};
+    use medulla::isolation::AgentRole;
+    use medulla::protocol::{DisclosureLevelWire, ExplainBeliefRedactedResult};
 
     let state = state().await;
 
     // Seed the claim/evidence/secret topology as the provisioned system identity.
     // `claim1`/`evidence1` are meant PUBLIC (visible to `stranger` too, so its earned
     // level is `Skeleton` rather than `ExistenceOnly`) -- default-deny RLS
-    // (`eg_core::isolation::row_visibility`) hides an untagged, unowned row from a
+    // (`medulla_core::isolation::row_visibility`) hides an untagged, unowned row from a
     // non-`System` actor just like `filter_view` would, so they need an EXPLICIT
-    // `_visibility: "public"` tag (see `eg_epistemic::redact`'s own `untagged_hidden`).
+    // `_visibility: "public"` tag (see `medulla_epistemic::redact`'s own `untagged_hidden`).
     ok(
         &state,
         1,
@@ -2004,7 +2004,7 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
     .await;
 
     // Register root as System through the signed admin operation, then have root
-    // register agent_a + stranger — the same governed two-step flow EG-391 uses.
+    // register agent_a + stranger — the same governed two-step flow MEDULLA-391 uses.
     let r = Box::pin(dispatch(&state, register_root_req(100, common::TEST_AGENT))).await;
     assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
     for (i, agent) in [(101u64, "agent_a"), (102, "stranger")] {
@@ -2105,7 +2105,7 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
 #[cfg(feature = "epistemic-tms")]
 #[tokio::test]
 async fn epistemic_status_returns_every_facet_over_rpc() {
-    use epistemic_graph::protocol::EpistemicStatusResult;
+    use medulla::protocol::EpistemicStatusResult;
 
     let state = state().await;
     ok(
@@ -2185,12 +2185,12 @@ async fn epistemic_status_returns_every_facet_over_rpc() {
     assert_eq!(status.what_would_invalidate, None);
 }
 
-/// X-1 (CONCEPT:EG-X1) — `Method::ExplainEvidence`, over the served RPC surface: a
+/// X-1 (CONCEPT:MEDULLA-X1) — `Method::ExplainEvidence`, over the served RPC surface: a
 /// claim whose evidence node carries one complete governed page-region locus.
 #[cfg(feature = "evidence-graph")]
 #[tokio::test]
 async fn explain_evidence_resolves_a_located_citation_over_rpc() {
-    use epistemic_graph::protocol::{
+    use medulla::protocol::{
         EvidenceAddressWire, EvidenceLocusWire, EvidenceResourceWire, ExplainEvidenceResult,
     };
 
@@ -2302,8 +2302,8 @@ async fn explain_evidence_resolves_a_located_citation_over_rpc() {
 #[cfg(all(feature = "evidence-graph", feature = "security"))]
 #[tokio::test]
 async fn explain_evidence_hides_other_agents_private_evidence_over_rpc() {
-    use epistemic_graph::isolation::AgentRole;
-    use epistemic_graph::protocol::ExplainEvidenceResult;
+    use medulla::isolation::AgentRole;
+    use medulla::protocol::ExplainEvidenceResult;
 
     let state = state().await;
     let locus = json!({
@@ -2471,14 +2471,14 @@ async fn explain_evidence_hides_other_agents_private_evidence_over_rpc() {
 }
 
 /// EPI-P3-3 — `Method::CausalEstimate`, over the served RPC surface: the SAME
-/// confounded-graph fixture (`Z -> X`, `Z -> Y`, `X -> Y`) `eg_epistemic::causal`'s
+/// confounded-graph fixture (`Z -> X`, `Z -> Y`, `X -> Y`) `medulla_epistemic::causal`'s
 /// own unit tests use, proving `do(X)` genuinely differs from a naive conditional —
 /// the confounder's contribution is severed by graph surgery, not merely
 /// conditioned away.
 #[cfg(feature = "epistemic-causal")]
 #[tokio::test]
 async fn causal_estimate_do_calculus_matches_hand_derivation_over_rpc() {
-    use epistemic_graph::protocol::{
+    use medulla::protocol::{
         CausalEstimateResult, CausalQueryModeWire, StructuralEquationWire,
     };
     use std::collections::BTreeMap;
@@ -2561,11 +2561,11 @@ async fn causal_estimate_do_calculus_matches_hand_derivation_over_rpc() {
 /// EPI-P3-3 — `Method::RankByProvenance`, over the served RPC surface: a
 /// better-sourced, well-corroborated candidate must outrank a MERELY
 /// more-similar, unsourced one — the same "provenance beats raw similarity"
-/// fixture `eg_epistemic::ranking`'s own unit tests use.
+/// fixture `medulla_epistemic::ranking`'s own unit tests use.
 #[cfg(feature = "epistemic-causal")]
 #[tokio::test]
 async fn rank_by_provenance_favors_corroborated_evidence_over_raw_similarity_over_rpc() {
-    use epistemic_graph::protocol::{
+    use medulla::protocol::{
         CalibrationWire, RankByProvenanceResult, RetrievalCandidateWire,
     };
 
@@ -2627,7 +2627,7 @@ async fn rank_by_provenance_favors_corroborated_evidence_over_raw_similarity_ove
 }
 
 /// EPI-P3-7 (gap-fill) — `Method::ResolveConflict`, over the served RPC surface: the
-/// SAME textbook mutual-conflict AF `eg_epistemic::tms`'s own unit tests use — `a` and
+/// SAME textbook mutual-conflict AF `medulla_epistemic::tms`'s own unit tests use — `a` and
 /// `b` directly ATTACK each other (symmetric conflict, no other evidence either way),
 /// `c` is unattacked/unattacking. Proves the standalone op matches the crate's own
 /// grounded/preferred/stable semantics: grounded leaves the conflict pair UNDECIDED
@@ -2637,7 +2637,7 @@ async fn rank_by_provenance_favors_corroborated_evidence_over_raw_similarity_ove
 #[cfg(feature = "epistemic-tms")]
 #[tokio::test]
 async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
-    use epistemic_graph::protocol::ResolveConflictResult;
+    use medulla::protocol::ResolveConflictResult;
 
     let state = state().await;
     let mut setup_id = 0u64;
@@ -2782,8 +2782,8 @@ async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
 #[cfg(all(feature = "epistemic-tms", feature = "security"))]
 #[tokio::test]
 async fn resolve_conflict_hides_other_agents_private_argument_over_rpc() {
-    use epistemic_graph::isolation::AgentRole;
-    use epistemic_graph::protocol::ResolveConflictResult;
+    use medulla::isolation::AgentRole;
+    use medulla::protocol::ResolveConflictResult;
 
     let state = state().await;
     // `a`/`c` are meant PUBLIC (this test's own doc comment: the SAME textbook AF
@@ -2942,10 +2942,10 @@ async fn resolve_conflict_hides_other_agents_private_argument_over_rpc() {
 // Genuinely-hard rows — kept `#[ignore]`d with a REFINED precise reason (north_star OPEN).
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// EG-396 (test 4) — cross-shard txn spanning modalities under Raft; kill the coordinator
+/// MEDULLA-396 (test 4) — cross-shard txn spanning modalities under Raft; kill the coordinator
 /// mid-2PC → a SINGLE decision (all shards commit or all abort — no split-brain).
 ///
-/// GREEN under `--features cluster` (CONCEPT:EG-KG.txn.crossshard-2pc-modality-harness):
+/// GREEN under `--features cluster` (CONCEPT:MEDULLA-KG.txn.crossshard-2pc-modality-harness):
 /// the `CrossShardCoordinator` + `multi_raft` live behind `cluster`/`raft`+`compute-dist`,
 /// NOT in `full` — so this spec is `cfg`-gated to `cluster` rather than `#[ignore]`d
 /// (under `--features full` it simply compiles out; under `--features cluster` it runs).
@@ -2963,17 +2963,17 @@ async fn cross_shard_raft_2pc_single_decision_eg396() {
     // The proof below opens the SAME durable directory TWICE per scenario (it drops a
     // whole node + backend to simulate `kill -9`, then reopens to prove recovery), and
     // `RedbBackend::open` resolves its at-rest cipher from the process-global
-    // `EPISTEMIC_GRAPH_ENCRYPTION_KEY` on EVERY open. `encryption_at_rest_wrong_key_
+    // `MEDULLA_ENCRYPTION_KEY` on EVERY open. `encryption_at_rest_wrong_key_
     // fails_eg394` in this same binary legitimately drives that var K1 -> K2-wrong ->
     // restore, and this test held NOTHING -- so a mutation could land between the two
-    // opens of one scenario and the reopen failed with "EPISTEMIC_GRAPH_ENCRYPTION_KEY
+    // opens of one scenario and the reopen failed with "MEDULLA_ENCRYPTION_KEY
     // does not match the key that previously encrypted this store (canary decryption
     // failed)". Hold the binary's env lock for this whole body, the same way eg394
     // holds it for its whole body; `state()` takes it for its provisioning window.
     #[cfg(all(feature = "security", feature = "redb"))]
     let _enc_env_guard = ENC_ENV_LOCK.lock().await;
     let report =
-        epistemic_graph::raft::xshard_modality_harness::prove_crossshard_modality_2pc_single_decision()
+        medulla::raft::xshard_modality_harness::prove_crossshard_modality_2pc_single_decision()
             .await
             .expect("cross-shard modality 2PC coordinator-kill proof runs");
     assert!(
@@ -2982,18 +2982,18 @@ async fn cross_shard_raft_2pc_single_decision_eg396() {
     );
 }
 
-/// EG-397 (test 11) — KV-cache warm-fork fan-out reusing cross-modal context, isolated on
+/// MEDULLA-397 (test 11) — KV-cache warm-fork fan-out reusing cross-modal context, isolated on
 /// divergent writes.
 #[tokio::test]
-#[ignore = "CROSS-REPO GAP (CONCEPT:EG-KG.query.warmfork-fanout-open-reason): the warm-FORK sandbox primitive (ForkableSandbox / \
+#[ignore = "CROSS-REPO GAP (CONCEPT:MEDULLA-KG.query.warmfork-fanout-open-reason): the warm-FORK sandbox primitive (ForkableSandbox / \
             WarmParentRegistry / forkserver, ORCH-1.86..93) lives in agent-utilities, NOT this \
-            engine. Reachable engine-side seams are the KV page store (eg-kvcache: dedup/LRU/\
-            data-version EG-364) and the cross-modal read surface this file already proves — but \
+            engine. Reachable engine-side seams are the KV page store (medulla-kvcache: dedup/LRU/\
+            data-version MEDULLA-364) and the cross-modal read surface this file already proves — but \
             NEITHER is a fork primitive: there is no in-engine `os.fork`/forkserver/CoW child that \
             shares a warm parent's read context while isolating divergent writes. The fan-out test \
             belongs to the agent-utilities warm-fork surface CONSUMING this engine's cross-modal \
             context (the child would open its own client/txn against the same engine); it cannot \
-            be written green inside epistemic-graph. Tracked in docs/north_star.md."]
+            be written green inside medulla. Tracked in docs/north_star.md."]
 async fn kvcache_warm_fork_fanout_eg397() {
     // Contract asserted above; the warm-fork primitive lives in agent-utilities, not here.
 }

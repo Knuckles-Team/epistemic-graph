@@ -1,4 +1,4 @@
-# Distribution, Robotics & GPU tail (EG-3.x)
+# Distribution, Robotics & GPU tail (MEDULLA-3.x)
 
 The last engine features of Program B, closing the distribution / robotics / GPU tail. Every
 one is **feature-gated into the opt-in `full-extras` layer** — the heavy deps (`cudarc`,
@@ -7,18 +7,18 @@ one is **feature-gated into the opt-in `full-extras` layer** — the heavy deps 
 
 | Feature | Concept | Module | Feature flag |
 |---------|---------|--------|--------------|
-| Cross-region async read-replica tier | `CONCEPT:EG-KG.sharding.follower-pull-loop` | `src/server/replica.rs` | `federation-search` |
-| Capacity guardrails (breaker/quota/backpressure) | `CONCEPT:EG-KG.coordination.circuit-breaker` | `src/server/replica.rs` | `federation-search` |
-| Full Calvin deterministic-ordering commit | `CONCEPT:EG-KG.txn.calvin-deterministic-ordering` | `src/raft/cross_shard_txn/` | `calvin` (⇒ `nonblocking`) |
-| ROS2 bridge over rosbridge-WebSocket | `CONCEPT:EG-KG.domains.robotics-gpu-distribution` | `src/server/ros2_bridge.rs` | `ros2-bridge` |
-| GPU distance/tensor dispatch seam | `CONCEPT:EG-KG.compute.gpu-distance-seam` | `crates/eg-ann/src/distance.rs`, `crates/eg-tensor/src/gpu.rs` | `gpu` |
-| Real CUDA distance/tensor backend | `CONCEPT:EG-KG.backend.real-cuda-tensor-backend` | same | `gpu-cuda` |
+| Cross-region async read-replica tier | `CONCEPT:MEDULLA-KG.sharding.follower-pull-loop` | `src/server/replica.rs` | `federation-search` |
+| Capacity guardrails (breaker/quota/backpressure) | `CONCEPT:MEDULLA-KG.coordination.circuit-breaker` | `src/server/replica.rs` | `federation-search` |
+| Full Calvin deterministic-ordering commit | `CONCEPT:MEDULLA-KG.txn.calvin-deterministic-ordering` | `src/raft/cross_shard_txn/` | `calvin` (⇒ `nonblocking`) |
+| ROS2 bridge over rosbridge-WebSocket | `CONCEPT:MEDULLA-KG.domains.robotics-gpu-distribution` | `src/server/ros2_bridge.rs` | `ros2-bridge` |
+| GPU distance/tensor dispatch seam | `CONCEPT:MEDULLA-KG.compute.gpu-distance-seam` | `crates/medulla-ann/src/distance.rs`, `crates/medulla-tensor/src/gpu.rs` | `gpu` |
+| Real CUDA distance/tensor backend | `CONCEPT:MEDULLA-KG.backend.real-cuda-tensor-backend` | same | `gpu-cuda` |
 
 ---
 
-## Cross-region async read-replica tier + guardrails (EG-322 / EG-323)
+## Cross-region async read-replica tier + guardrails (MEDULLA-322 / MEDULLA-323)
 
-Beyond the synchronous multi-Raft groups + the EG-KG.ontology.federation-client federated *read*, a distant region gets
+Beyond the synchronous multi-Raft groups + the MEDULLA-KG.ontology.federation-client federated *read*, a distant region gets
 a **local, eventually-consistent read copy** that never pays a cross-region Raft round-trip on
 every write. The primary appends every committed mutation to a bounded monotone-LSN
 `ReplicationLog` and serves the tail over `/replicate?since=<lsn>`; a follower pulls it and
@@ -41,7 +41,7 @@ flowchart LR
     CB -->|open: fail fast| SKIP[skip tick]
   end
   CLIENT[Local reads] --> REG
-  subgraph Guards [EG-323 capacity guardrails]
+  subgraph Guards [MEDULLA-323 capacity guardrails]
     G[CapacityGuard\nper-tenant quota + backpressure]
   end
   REQ[Requests] --> G -->|Admit / Quota / Backpressure| REG
@@ -54,15 +54,15 @@ flowchart LR
   Instant` (deterministically testable): it opens after N consecutive failures for a cooldown,
   then admits one half-open trial whose outcome closes or re-opens it.
 * **`CapacityGuard`** enforces a per-tenant hard concurrency quota (`QuotaExceeded`) and a global
-  high-water backpressure shed (`Backpressure`), complementing the EG-320 QoS scheduler's
+  high-water backpressure shed (`Backpressure`), complementing the MEDULLA-320 QoS scheduler's
   priority reordering with absolute ceilings.
 
-Enabled by `EPISTEMIC_GRAPH_REPLICATE=1` (primary log) + `EPISTEMIC_GRAPH_REPLICA_PRIMARY=<url>`
+Enabled by `MEDULLA_REPLICATE=1` (primary log) + `MEDULLA_REPLICA_PRIMARY=<url>`
 (follower). Off by default — a non-replicated primary pays nothing.
 
 ---
 
-## Full Calvin deterministic-ordering commit (EG-KG.txn.calvin-deterministic-ordering)
+## Full Calvin deterministic-ordering commit (MEDULLA-KG.txn.calvin-deterministic-ordering)
 
 A **third** cross-shard commit branch alongside 2PC (`commit_cross_shard`) and Paxos-Commit-lite
 (`commit_cross_shard_nonblocking`). Where those are *agreement-first* (every writing participant
@@ -87,7 +87,7 @@ sequenceDiagram
   Note over C,P: Crash after replicate_sequence? recover_sequenced() on ANY node<br/>learns the seq and REPLAYS to completion — no blocking window
 ```
 
-Opt-in per call via the `calvin` feature (implies `nonblocking` to reuse the EG-KG.txn.harness-crash replicated
+Opt-in per call via the `calvin` feature (implies `nonblocking` to reuse the MEDULLA-KG.txn.harness-crash replicated
 decision-graph helpers); the default cross-shard path is byte-for-byte unchanged. **Honest
 scope:** the sequencer + total order + replicated input log + vote-free deterministic execution +
 crash-replay recovery are implemented and proven (live `calvin_*` harness tests). The distributed
@@ -97,7 +97,7 @@ weaken no shipped invariant.
 
 ---
 
-## ROS2 bridge over rosbridge-WebSocket (EG-KG.domains.robotics-gpu-distribution)
+## ROS2 bridge over rosbridge-WebSocket (MEDULLA-KG.domains.robotics-gpu-distribution)
 
 Joins a ROS2 graph WITHOUT a DDS stack by speaking the standard `rosbridge_suite` protocol —
 JSON messages over a WebSocket to a `rosbridge_server`. No CycloneDDS/rmw/`ros` C toolchain — a
@@ -126,7 +126,7 @@ flowchart LR
 
 The protocol framing (`RosbridgeOp`) + the CDC↔ROS2 mapping are pure and unit-tested; the
 WebSocket driver (`run_ros2_bridge`) wires them onto a live connection. Enabled by
-`EPISTEMIC_GRAPH_ROSBRIDGE_URL=ws://host:9090`.
+`MEDULLA_ROSBRIDGE_URL=ws://host:9090`.
 
 Two further legs sit behind the SAME `DdsTransport` trait (`src/server/dds.rs`), both
 `full-extras`-only (never in `default`/`full`):
@@ -143,7 +143,7 @@ Two further legs sit behind the SAME `DdsTransport` trait (`src/server/dds.rs`),
   live-`ros2` interop — a real `ros2` node discovers/pubs/subs with no bridge.
 
 Both legs apply the rmw name/type mangling convention (`mangle_topic_name`/
-`mangle_type_name` in `src/server/dds.rs`, CONCEPT:EG-KG.ingest.rmw-topic-prefix) so a
+`mangle_type_name` in `src/server/dds.rs`, CONCEPT:MEDULLA-KG.ingest.rmw-topic-prefix) so a
 topic published either way is discoverable by a live `ros2` daemon with zero config: the
 `rt/` topic prefix + the `<pkg>::<ns>::dds_::<Msg>_` type descriptor. Neither leg is
 folded into the workspace `--all-features` build (toolchain-gated, `full-extras` opt-in
@@ -151,7 +151,7 @@ only).
 
 ---
 
-## GPU distance/tensor dispatch seam + CUDA backend (EG-KG.compute.gpu-distance-seam / EG-KG.backend.real-cuda-tensor-backend)
+## GPU distance/tensor dispatch seam + CUDA backend (MEDULLA-KG.compute.gpu-distance-seam / MEDULLA-KG.backend.real-cuda-tensor-backend)
 
 Vector search and tensor ops are dominated by one embarrassingly-parallel kernel each (batch
 distance; elementwise map). Both are factored behind a backend trait so the compute device is
@@ -168,7 +168,7 @@ flowchart TD
   CUDA -.transient failure.-> CPU
 ```
 
-* **`DistanceBackend`** (eg-ann) / **`TensorBackend`** (eg-tensor): `batch_distance` /
+* **`DistanceBackend`** (medulla-ann) / **`TensorBackend`** (medulla-tensor): `batch_distance` /
   `elementwise` over a flat buffer. Every backend must agree with the CPU backend to within
   floating-point tolerance, so GPU and CPU results are interchangeable.
 * **`CudaBackend`** (feature `gpu-cuda`): NVRTC-compiles the CUDA-C kernel at first use, ships
@@ -181,7 +181,7 @@ and `cudarc` links only under `gpu-cuda`. **Deferred:** live validation of the k
 hardware (none in CI) and GPU offload of reasoning / ANN *build* beyond the distance/elementwise
 kernels.
 
-**Testing the CUDA legs.** Each `gpu-cuda` crate (`eg-tensor`, `eg-ann`, `eg-compute`) has two
+**Testing the CUDA legs.** Each `gpu-cuda` crate (`medulla-tensor`, `medulla-ann`, `medulla-compute`) has two
 kinds of test, selected by a test-only `--cfg`, not a Cargo feature, so `--all-features` never
 turns it on:
 
@@ -189,7 +189,7 @@ turns it on:
   `cuda_probe_without_a_device_falls_back_to_cpu` runs. It asserts that the CUDA probe returns
   `None` without panicking and that dispatch selects and runs the CPU backend. If a device does
   initialise, it fails and names the command below.
-* With `RUSTFLAGS="--cfg eg_gpu_device_tests" cargo test -p <crate> --features gpu-cuda`, the
+* With `RUSTFLAGS="--cfg medulla_gpu_device_tests" cargo test -p <crate> --features gpu-cuda`, the
   GPU/CPU parity tests run instead, and they fail when no device initialises. They never skip.
 
 ---

@@ -1,0 +1,131 @@
+//! # medulla-audio — native governed audio serving
+//!
+//! The current pure-Rust runtime strictly decodes bounded 8/16-bit PCM/WAV into a
+//! request-local mono buffer, then materializes complete-coverage waveform windows,
+//! RMS/peak statistics, bounded spectral-centroid features, energy VAD segments,
+//! opaque channel grouping, and reference-only transcript alignment. Durable
+//! [`AudioData`] contains SHA-256 content identity and normalized features, never PCM
+//! samples, transcript text, or speaker identity. Other encodings are rejected by the
+//! current codec contract.
+//!
+//! ## `ModalityContract`
+//!
+//! Behind the crate's `contract` feature, `AudioData::evidence_address()` returns a real
+//! `medulla_modality::EvidenceAddress::AudioRange` from the first stored segment (or `None`
+//! when the recording carries no segment index yet — never fabricated). See
+//! `src/contract.rs`.
+//!
+//! ## `runtime` (CONCEPT:MEDULLA-P1-3, OPT-IN, default OFF)
+//!
+//! `src/runtime.rs`, behind `runtime`, provides the native codec, temporal posting
+//! index, and exact time/RMS predicates. Governed persistence is exposed through
+//! [`AudioServingRuntime`].
+//!
+//! ## `ingress` (GOC-32, OPT-IN, default OFF)
+//!
+//! `src/ingress.rs`, behind `ingress`, is the versioned realtime audio-ingress
+//! wire contract (`audio.ingress.*`) plus a pure, dependency-light in-process
+//! runtime: frame shape/integrity validation, sequence/watermark tracking with a
+//! bounded reorder window, and a bounded admission queue that proves backpressure
+//! rather than unbounded growth. It adds no codec, transport, device, or CAS
+//! dependency — see the module doc for the exact authority boundary and what is
+//! (and is not) proven there.
+//!
+//! ## `asr` (GOC-33, OPT-IN, default OFF)
+//!
+//! `src/asr.rs`, behind `asr` (which requires `ingress`), is the versioned
+//! native-ASR wire contract (`asr.*`) plus pure request/segment validation
+//! and a structural carrier-authorization gate. It links no whisper-rs,
+//! ONNX Runtime, codec, model-loader, or model weight, and no
+//! `medulla-voice-worker` process exists yet — see the module doc
+//! for the exact authority boundary and what is (and is not) proven there.
+//!
+//! ## `tts` (GOC-34, OPT-IN, default OFF)
+//!
+//! `src/tts.rs`, behind `tts` (which requires `ingress`), is the versioned
+//! native-TTS wire contract (`tts.*`) plus pure request/chunk validation and
+//! a structural carrier-authorization gate, mirroring `asr`'s design. It
+//! links no `ort`, ONNX Runtime, eSpeak-ng, Piper fork/vendor mirror, or
+//! voice model weight, and no `medulla-voice-worker` process exists
+//! yet — see the module doc for the exact authority boundary and what is
+//! (and is not) proven there. No voice model was vendored or downloaded.
+
+mod audio;
+mod header;
+
+// Governed contract implementation.
+#[cfg(feature = "contract")]
+mod contract;
+
+// Pure-Rust native runtime.
+#[cfg(feature = "runtime")]
+pub mod runtime;
+
+// Realtime audio-ingress contract + bounded in-process runtime (GOC-32).
+#[cfg(feature = "ingress")]
+pub mod ingress;
+
+// Native ASR contract (GOC-33).
+#[cfg(feature = "asr")]
+pub mod asr;
+
+// Native TTS contract (GOC-34).
+#[cfg(feature = "tts")]
+pub mod tts;
+
+pub use audio::{AudioData, AudioFeatureWindow, AudioSegment};
+
+#[cfg(feature = "serving")]
+pub type AudioServingRuntime = medulla_modality::ServedModalityRuntime<AudioData>;
+pub use header::{content_hash, read_wav_header, WavInfo};
+
+// The leaf default stays value-only; the main facade enables the native runtime.
+#[cfg(all(test, not(feature = "runtime")))]
+mod default_build_guardrail {
+    #[test]
+    fn default_build_has_no_runtime() {
+        assert!(
+            !cfg!(feature = "runtime"),
+            "the `runtime` feature must stay opt-in, never part of `default`"
+        );
+    }
+}
+
+// The realtime ingress contract stays opt-in until GOC-32-W03..W07 wire a real
+// worker/transport around it — see crates/medulla-audio/src/ingress.rs.
+#[cfg(all(test, not(feature = "ingress")))]
+mod default_build_guardrail_ingress {
+    #[test]
+    fn default_build_has_no_ingress() {
+        assert!(
+            !cfg!(feature = "ingress"),
+            "the `ingress` feature must stay opt-in, never part of `default`"
+        );
+    }
+}
+
+// The native ASR contract stays opt-in until GOC-33-W03..W07 wire a real
+// worker/provider around it — see crates/medulla-audio/src/asr.rs.
+#[cfg(all(test, not(feature = "asr")))]
+mod default_build_guardrail_asr {
+    #[test]
+    fn default_build_has_no_asr() {
+        assert!(
+            !cfg!(feature = "asr"),
+            "the `asr` feature must stay opt-in, never part of `default`"
+        );
+    }
+}
+
+// The native TTS contract stays opt-in until GOC-34-W03..W07 wire a real
+// worker/Piper provider around it — see crates/medulla-audio/src/tts.rs.
+#[cfg(all(test, not(feature = "tts")))]
+mod default_build_guardrail_tts {
+    #[test]
+    fn default_build_has_no_tts() {
+        assert!(
+            !cfg!(feature = "tts"),
+            "the `tts` feature must stay opt-in, never part of `default`"
+        );
+    }
+}

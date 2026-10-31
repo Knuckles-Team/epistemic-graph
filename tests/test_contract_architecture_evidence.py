@@ -1,4 +1,4 @@
-"""EG-T-12.4: real entry-point evidence rows resolve against source."""
+"""MEDULLA-T-12.4: real entry-point evidence rows resolve against source."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ REFUSED_EVIDENCE = (".md", ".svg", "status.json", ".toml", ".yml", ".yaml")
 
 def _rows() -> list[tuple[str, str, str]]:
     text = TEST_SPEC.read_text(encoding="utf-8")
-    section = text.split("### EG-T-12.4 real entry-point evidence", 1)[1]
+    section = text.split("### MEDULLA-T-12.4 real entry-point evidence", 1)[1]
     rows = []
     for line in section.splitlines()[1:]:
         if line.startswith("#"):
@@ -35,8 +35,8 @@ def _defines(path: Path, symbol: str) -> bool:
     )
 
 
-# spec: EG-CONTRACT-R052.4
-@pytest.mark.spec("EG-CONTRACT-R052.4")
+# spec: MEDULLA-CONTRACT-R052.4
+@pytest.mark.spec("MEDULLA-CONTRACT-R052.4")
 def test_entry_point_evidence_resolves_and_refuses_non_execution_proof() -> None:
     rows = _rows()
     assert {name for name, _, _ in rows} >= {"Served mutation", "Planned query"}

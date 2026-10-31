@@ -3,7 +3,7 @@
 
 use super::super::test_shard::{check_guard as check, open, with_nodes, GRAPH};
 use super::*;
-use eg_types::policy_evolution::PolicyEvolutionRecord;
+use medulla_types::policy_evolution::PolicyEvolutionRecord;
 
 fn stamped(tenant: &str) -> StoredPolicyRecord {
     let record: PolicyEvolutionRecord = serde_json::from_value(serde_json::json!({

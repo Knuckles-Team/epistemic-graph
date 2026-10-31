@@ -1,5 +1,5 @@
 """Streaming / CDC / continuous-query / watch / trigger round-trip against a live
-engine (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230, feature `streaming`, folded
+engine (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions/230, feature `streaming`, folded
 into `full`).
 
 These drive the `StreamingClient` over the framed-MessagePack socket the conftest
@@ -15,13 +15,13 @@ import os
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
 
 @pytest.fixture
 def client():
     socket_path = os.environ["GRAPH_SERVICE_SOCKET"]
-    c = SyncEpistemicGraphClient.connect(
+    c = SyncMedullaClient.connect(
         socket_path=socket_path, verified_context=request_context()
     )
     c.graph.clear()

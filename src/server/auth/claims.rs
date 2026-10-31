@@ -43,7 +43,7 @@ pub(super) fn validate_context_claims(
     // ── ADR-3 / W1.9: node-bound envelopes ──────────────────────────────
     // A present claim is ALWAYS exact-matched against this node's own
     // identity, in every posture -- only an ABSENT claim's handling varies
-    // by `EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING`. Checked here (inside the
+    // by `MEDULLA_REQUIRE_NODE_BINDING`. Checked here (inside the
     // same pre-dispatch claims check `verify_envelope_v2_with` runs BEFORE
     // its nonce/replay lookup) so a captured envelope replayed against a
     // DIFFERENT node fails fast, at zero consensus/replication cost, before
@@ -146,7 +146,7 @@ fn absent_node_claim(principal: &str) -> Result<(), String> {
             Ok(())
         }
         NodeBindingMode::On => Err("NODE_MISMATCH: request context is missing the required \
-                     node-binding claim (EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING=on)"
+                     node-binding claim (MEDULLA_REQUIRE_NODE_BINDING=on)"
             .to_string()),
     }
 }
@@ -180,8 +180,8 @@ mod tests {
 
     /// The deployment-binding validator is the source of these three
     /// authorization refusals. Keep their response code stable while retaining
-    /// the validator's descriptive detail (EG-TYPED-PACKS-R087).
-    // spec: EG-TYPED-PACKS-R087
+    /// the validator's descriptive detail (MEDULLA-TYPED-PACKS-R087).
+    // spec: MEDULLA-TYPED-PACKS-R087
     #[test]
     fn deployment_binding_refusals_publish_stable_response_codes() {
         let cases = [

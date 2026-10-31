@@ -1,6 +1,6 @@
 # Epistemic Operations Protocol
 
-`eg-types::epistemic_operations` declares the current engine-owned
+`medulla-types::epistemic_operations` declares the current engine-owned
 Epistemic Operations Protocol. It gives the engine one current-only vocabulary
 for request authority, mutation, ingestion, delegation, artifacts, streamed
 knowledge, analytics jobs, trace outcomes, placement, atomic claims, evidence,
@@ -11,7 +11,7 @@ The canonical contract generator derives schemas, client models, method-body
 vectors and contract receipts from those declarations. Agent Utilities consumes
 the generated public engine client; its retired schema catalog is not an
 alternate authority or a compatibility contract. This is the current hard
-cutover contract under EG-C-01 and EG-C-04.
+cutover contract under MEDULLA-C-01 and MEDULLA-C-04.
 
 ## Engine contract and projections
 

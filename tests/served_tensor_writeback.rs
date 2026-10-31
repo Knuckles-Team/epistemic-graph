@@ -1,10 +1,10 @@
-//! SERVED TENSOR WRITEBACK (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink, W0.5) — proof
+//! SERVED TENSOR WRITEBACK (CONCEPT:MEDULLA-KG.storage.derived-tensor-writeback-sink, W0.5) — proof
 //! that a served `UnifiedQuery` carrying a `TensorScan` + `TensorOp` plan actually EXECUTES
-//! the writeback op against a LIVE in-process server, not just `eg-plan`'s own executor
-//! (`crates/eg-plan/src/tensor_tests.rs`) or `run_unified` called directly (the existing
+//! the writeback op against a LIVE in-process server, not just `medulla-plan`'s own executor
+//! (`crates/medulla-plan/src/tensor_tests.rs`) or `run_unified` called directly (the existing
 //! `tensor_served_round_trip_tests` unit tests inside `src/server/handlers/query.rs`).
 //!
-//! Before `run_unified` bound a `.with_tensor_store(...)` (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink),
+//! Before `run_unified` bound a `.with_tensor_store(...)` (CONCEPT:MEDULLA-KG.storage.derived-tensor-writeback-sink),
 //! this EXACT request deterministically failed with "TensorOp requires a bound tensor
 //! store" — a served `Op::TensorScan` read still worked (it reads its input straight off
 //! the queried `GraphView`), but a served `Op::TensorOp` derived-tensor writeback was dead.
@@ -21,11 +21,11 @@ mod test_support;
 
 use serde_json::json;
 
-use eg_plan::{Op, Plan};
-use eg_tensor::{Buffer, Tensor};
-use eg_types::wire::{TensorElementwiseOp, TensorOpKind, TensorReduceKind};
-use epistemic_graph::protocol::Method;
-use epistemic_graph::server::dispatch;
+use medulla_plan::{Op, Plan};
+use medulla_tensor::{Buffer, Tensor};
+use medulla_types::wire::{TensorElementwiseOp, TensorOpKind, TensorReduceKind};
+use medulla::protocol::Method;
+use medulla::server::dispatch;
 
 const SECRET: &str = "served-tensor-writeback-secret";
 
@@ -59,7 +59,7 @@ async fn seed_frames(state: &test_support::SharedState) {
     }
 }
 
-/// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — a served `UnifiedQuery` whose plan
+/// CONCEPT:MEDULLA-KG.storage.derived-tensor-writeback-sink — a served `UnifiedQuery` whose plan
 /// is `TensorScan → TensorOp(Reduce)` now EXECUTES against a live in-process server and
 /// returns the scanned rows, instead of deterministically erroring with "TensorOp requires
 /// a bound tensor store" (the pre-fix behavior: `run_unified` built a `PlanCtx` with no
