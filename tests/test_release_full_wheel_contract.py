@@ -485,10 +485,13 @@ def test_release_concurrency_never_cancels_a_publication() -> None:
 
 
 def test_ci_concurrency_supersedes_older_runs_per_pr_only() -> None:
-    """spec MEDULLA-CONTRACT-R053.7: a PR push cancels the older PR run; main runs finish."""
+    """spec MEDULLA-CONTRACT-R053.7: a PR push cancels the older run; main finishes."""
     doc = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
     concurrency = doc["concurrency"]
-    assert concurrency["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
+    assert (
+        concurrency["cancel-in-progress"]
+        == "${{ github.event_name == 'pull_request' }}"
+    )
     group = concurrency["group"]
     assert "github.workflow" in group
     assert "github.event.pull_request.number" in group
