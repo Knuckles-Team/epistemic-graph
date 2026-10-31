@@ -30,5 +30,7 @@ closed_error_codes! {
         EngineUnavailable => "ENGINE_UNAVAILABLE",
         EngineResourceExhausted => "ENGINE_RESOURCE_EXHAUSTED",
         EngineDeadlineExceeded => "ENGINE_DEADLINE_EXCEEDED",
+        /// A spec artifact line matched no known form (MEDULLA-SDLC-R014.1).
+        SpecArtifactUnparseable => "SPEC_ARTIFACT_UNPARSEABLE",
     }
 }
