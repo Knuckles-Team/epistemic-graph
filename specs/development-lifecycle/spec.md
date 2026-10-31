@@ -133,4 +133,3 @@ views (the UIs) and incident correlation (MEDULLA-UNIFIED-DATA-PLANE-R760).
 | FR-013 | `MEDULLA-SDLC-R018` | plan.md "Spec artifact graph" | T-013 |  |
 
 A question that blocks a row carries the marker `[NEEDS CLARIFICATION: <question>]` in `spec.md`. No marker is open.
-
