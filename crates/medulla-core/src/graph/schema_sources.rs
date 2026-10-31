@@ -1431,7 +1431,7 @@ mod tests {
             ),
             (
                 "argumentation",
-                "72b9f83c590e65272e289224610e9d3b1231e19886943d66767b6749f3fb9ea8",
+                "24e316b2d064ab433bb40d3c055c67d2e9ca7bb764456988f9a5828ecb29be9b",
             ),
             (
                 "calendar",
@@ -1439,7 +1439,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "2609d11179adc65fa951b045c656e1d0444bc5f9c6e9c7c2108e7096cc858ec6",
+                "60b86fdb76138be025edde422ee7338c91994fa5aafee385f98795b61d4e49b1",
             ),
             (
                 "company",
@@ -1451,19 +1451,19 @@ mod tests {
             ),
             (
                 "connector-pack",
-                "129b2707c8bbd818bfd71d2678d0352152a5aacadc0704e27d5951e5a00f2fae",
+                "d682c64cb20840bbf25912c878bf579929827162bffc0864b000be99db5fda07",
             ),
             (
                 "concepts",
-                "297fad75a6d0ef0135a6f8026fcc72ea4cddadcc79531c9e62fb57d35eb5fa6a",
+                "6713cdc3435cd0f4f76991b37667583f522d4610ba0aa6191aab052c81feb8b3",
             ),
             (
                 "foundation",
-                "60aad5fa80fb5c30da26dbc3e89d28f39bfa61f333cfe311b568778a3dd1ab0e",
+                "4a4a2ce28ed70060e4daa1625db6ccd5e00062982dc77c8f534db837a0118dd7",
             ),
             (
                 "foundation-shapes",
-                "ba532a3f531cc41b195ef7bce35bde44676046928fa300ba46574ed3f8c75e23",
+                "405805a8b246426bffcaacc5e3caf1b54d6e1340a281379ca7a5678c87f69cfe",
             ),
             (
                 "documentation",
@@ -1487,7 +1487,7 @@ mod tests {
             ),
             (
                 "government-shapes",
-                "46bd34ae2277727244c99ff0bea6eaa15d781481ebe90f61443764b3d021cb40",
+                "cf6514787314e925a4afb5e9019e9a45d40af8f1393ca5005375ffa4559fed0a",
             ),
             (
                 "harness",
@@ -1515,15 +1515,15 @@ mod tests {
             ),
             (
                 "orchestration",
-                "71d5ceee33e90c545ddb427679a44a88b5a8781a93a4065df2faf3a4dcd9f43d",
+                "4fad6ec67c290ced83c2fb2094c4803495d0626c754145202ccae65bd4b8b569",
             ),
             (
                 "orchestration-shapes",
-                "816fc9d0bafd4e57026d36131351410a89fb483b6342402c52e676732292fac8",
+                "62c239552be131ed21d89eeb9ef223af12de40a6e60c10e0d1ca2dc855f2f96e",
             ),
             (
                 "personal",
-                "399357c7ed3cecc8537010390c1d5c6708ea96b233c951c5cd473d8827a79511",
+                "5099df9af829db1d2b9d19896b7b4297d800b2bdfb343c5f97550e2b4d4147c2",
             ),
             (
                 "process_intelligence",
@@ -1535,27 +1535,27 @@ mod tests {
             ),
             (
                 "service_operations",
-                "12498d7bb52e26cca7a40f3bb1dff60a06290cb70a6b319659697c6986184295",
+                "a50574c51353dacee487673774dc7779666239846adb5667d549e22b0f2fc949",
             ),
             (
                 "dataplatform",
-                "f31c8ded176afd68dfd0649a97929f4761520214e4efb97a67617d20439ec94f",
+                "665654965e1654c57ead46670dcec5b491e440d983c247167130031ee80640bb",
             ),
             (
                 "data-platform",
-                "03d30f8521e1adbfce3ac284bade4df85909801b3051a521b0bca3a7a1475f5e",
+                "0f95936c3e5317d79598369974870262f29cca2e0b5dddbdf69892164b7bbe62",
             ),
             (
                 "it4it_delivery",
-                "0ce2b6adf9c9994f62f8d3422e21aa574fe8487f395bb4615f62602bce449eff",
+                "d5c898494bfb99a8bd5368c139e1767b41d66561d007d73e48fe7b7f1ed4355b",
             ),
             (
                 "media",
-                "a4c41ee1403bdf8727412c669515c7cc3aff8a914b1fe2498ce63f900245e7de",
+                "35e04e76c65e03f700bae25793022f0eefdf3d0f755ac40b65726665df5a78ac",
             ),
             (
                 "retrieval",
-                "2c45883c6dd7bac72e96447e8033f500ec7feb8b6d4a6d7969571ee45680e311",
+                "0ed0901d7f65bf09a8c00f3a168672f21d8e10db827b65a6d3be467c39f43d26",
             ),
             (
                 "sdlc_lifecycle",
@@ -1591,7 +1591,7 @@ mod tests {
             ),
             (
                 "swarm-topology",
-                "bd849e8b40e5cf4b5ca018660ca5c1ad735559abec8d83d88b2aaf57cc5318a1",
+                "7288d5236ddae0c7ede3214392ee4c48c99d5cf0d958b64bd68061a05160ffbd",
             ),
             (
                 "swarm-topology-shapes",
@@ -1603,11 +1603,11 @@ mod tests {
             // R004.2.3-R004.2.6 added the portfolio-group, strategy and leverage records.
             (
                 "finance",
-                "98d273a5a8a8118c3c750a656e57c477668adaa3af923afa33ef1f127fc3901c",
+                "57e4049671f6950d37ed62eac3dfbe8d0130a92ef53f0ed95d347738b3e8b49f",
             ),
             (
                 "finance-shapes",
-                "f541fb730a8852eab40265eefeeb3ff1ad445415cf95a17a403df87a5279362c",
+                "0afc4138a767f75b324255540840beb66f53989db86c88b54e9aa303e3699e03",
             ),
             (
                 "worldview",
@@ -1615,11 +1615,11 @@ mod tests {
             ),
             (
                 "metadata_catalog",
-                "21df7a425790fd7d2682888a02c627dd0027344a21817c5bea4137dfb288af4f",
+                "ff5be56deb01101a40a7c1fb078576b5287a210bfee11e7b0e444ea8be2817a6",
             ),
             (
                 "metadata_catalog-shapes",
-                "f6eec758f38a7f1fb24755fd973034569949cf625eab3891df5a504f340d6677",
+                "e29bccfcec0ccf8812fffbd33a642bb9df71304bb72d7328fcdd17b25a02b0f6",
             ),
             (
                 "temporal-shapes",
@@ -1627,21 +1627,21 @@ mod tests {
             ),
             (
                 "virtual-graph",
-                "1dc1e43c3f9565bbece22a981a1b07e8cbe97034776f50d08ff279368eb0a963",
+                "cbcec36092637964d49faf2178d3930bb2a0a32d7d0586b9b4acadf9fc2eaa57",
             ),
             (
                 "virtual-graph-shapes",
-                "96af31e002d61552f35d86e352505ffa6513da805b3186f4190804893b0b306c",
+                "57bf2d274d3be29000b236f466bf65960455652fc0d022c7f2ece3dc180b8340",
             ),
             // MEDULLA-SUPPLY-VOCAB-R003.13: the commercial module (ontology plus its
             // shapes companion) joins the catalog; the pin follows the ontology.
             (
                 "commercial",
-                "a1227d29e42a22461f44b06fae393cd3b808aedfa7ba4ed5dca89c6c67d35bda",
+                "ca878cd9d46952541a01907179a922bdbf28b25f1a4e54eb7fc9202cb7483635",
             ),
             (
                 "supply_chain",
-                "1845b8cfbe9ded296a785de466e422f186072868bccfaa528ac4b89b79e627e0",
+                "d06f36d5b305d9fe9e38b3fc2257d0f305ad326e70cd5a8bb5b68fcf73f41203",
             ),
             // MEDULLA-TYPED-PACKS-R101.1/R102.1: the connector-pack module (ontology
             // plus its surface shapes companion) joins the catalog; the pin
