@@ -1,6 +1,7 @@
-"""MEDULLA-CONTRACT-R056: the crate graph must match the crate-split manifest.
+"""MEDULLA-CONTRACT-R056: the crate graph must match the crate-split layering.
 
-Each failure mode of scripts/check_crate_graph.py gets a small fixture tree.
+Each failure mode of scripts/check_crate_graph.py, the back-edge inventory and the
+placement resolver gets a small fixture tree.
 """
 
 from __future__ import annotations
@@ -9,11 +10,24 @@ from pathlib import Path
 
 import pytest
 from check_crate_graph import main, run_checks
-from crate_split.edges import collect_edges
-from crate_split.ownership import load_manifest
+from crate_split.edges import violating_edges
+from crate_split.ownership import (
+    build_owner_map,
+    list_src_files,
+    load_manifest,
+    load_placement,
+)
+from crate_split.resolve import resolve, write_placement
+from crate_split.rewrite_paths import run as rewrite_run
 
 pytestmark = pytest.mark.no_engine
 
+KERNEL, DECIDE, QUERY, ENGINE = (
+    "medulla-kernel",
+    "medulla-h-decide",
+    "medulla-h-query",
+    "medulla-engine",
+)
 MANIFEST = """
 [delete]
 enforce = {enforce}
@@ -22,23 +36,23 @@ entries = ["src/legacy"]
 
 [crates.medulla-kernel]
 kind = "existing"
-allowed_deps = []
+level = 0
 paths = ["src/kernel"]
 
-[crates.medulla-h-a]
+[crates.medulla-h-decide]
 kind = "handler"
-allowed_deps = ["medulla-kernel"]
+level = 5
 paths = ["src/a"]
 
-[crates.medulla-h-b]
+[crates.medulla-h-query]
 kind = "handler"
-allowed_deps = ["medulla-kernel", "medulla-h-a"]
+level = 5
 paths = ["src/b"]
 
 [crates.medulla-engine]
 kind = "facade"
-allowed_deps = ["medulla-kernel", "medulla-h-a", "medulla-h-b"]
-paths = ["src/lib.rs"{extra}]
+level = 7
+paths = ["src/lib.rs", "src/legacy.rs", "src/shared.rs"]
 """
 
 
@@ -63,34 +77,55 @@ def _tree(
     for rel in ("src/lib.rs", "src/kernel/mod.rs", "src/a/mod.rs", "src/b/mod.rs"):
         _src(root, rel)
     _src(root, "src/legacy.rs")
+    _src(root, "src/shared.rs")
     (root / "scripts").mkdir()
-    manifest = MANIFEST.format(enforce=str(enforce).lower(), extra=', "src/legacy.rs"')
+    manifest = MANIFEST.format(enforce=str(enforce).lower())
     (root / "scripts" / "manifest.toml").write_text(manifest, encoding="utf-8")
     for name, found in (deps or {}).items():
         _cargo(root / "crates" / name / "Cargo.toml", found)
     return root
 
 
-def _problems(root: Path) -> list[str]:
-    return run_checks(load_manifest(root / "scripts" / "manifest.toml"), root)
+def _problems(root: Path, placement: Path | None = None) -> list[str]:
+    return run_checks(
+        load_manifest(root / "scripts" / "manifest.toml"), root, placement
+    )
+
+
+def _placement(root: Path, body: str) -> Path:
+    path = root / "scripts" / "placement.toml"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+FULL = (
+    '[files]\n"src/lib.rs" = "medulla-engine"\n"src/kernel/mod.rs" = "medulla-kernel"\n'
+    '"src/a/mod.rs" = "medulla-h-decide"\n"src/b/mod.rs" = "medulla-h-query"\n'
+    '"src/legacy.rs" = "medulla-engine"\n"src/shared.rs" = "medulla-engine"\n'
+)
 
 
 @pytest.mark.spec("MEDULLA-CONTRACT-R056")
 def test_clean_tree_passes(tmp_path: Path) -> None:
-    root = _tree(tmp_path, {"medulla-h-a": ["medulla-kernel"]})
+    root = _tree(tmp_path, {KERNEL: [], DECIDE: [KERNEL], ENGINE: [KERNEL, DECIDE]})
     assert _problems(root) == []
+    assert _problems(root, _placement(root, FULL)) == []
 
 
 @pytest.mark.spec("MEDULLA-CONTRACT-R056")
-def test_dependency_outside_allowed_deps_fails(tmp_path: Path) -> None:
-    root = _tree(tmp_path, {"medulla-kernel": ["medulla-h-a"]})
-    assert any("medulla-kernel depends on medulla-h-a" in p for p in _problems(root))
+def test_dependency_on_a_higher_layer_fails(tmp_path: Path) -> None:
+    root = _tree(tmp_path, {KERNEL: [DECIDE]})
+    assert any(
+        "medulla-kernel depends on medulla-h-decide" in p for p in _problems(root)
+    )
 
 
 @pytest.mark.spec("MEDULLA-CONTRACT-R056")
 def test_sibling_handler_edge_fails(tmp_path: Path) -> None:
-    root = _tree(tmp_path, {"medulla-h-b": ["medulla-h-a"]})
-    assert any("sibling handler crate medulla-h-a" in p for p in _problems(root))
+    root = _tree(tmp_path, {QUERY: [DECIDE]})
+    problems = _problems(root)
+    assert any("sibling handler crate medulla-h-decide" in p for p in problems)
+    assert any("not below it in the layering" in p for p in problems)
 
 
 @pytest.mark.spec("MEDULLA-CONTRACT-R056")
@@ -109,48 +144,123 @@ def test_missing_manifest_path_fails(tmp_path: Path) -> None:
 
 
 @pytest.mark.spec("MEDULLA-CONTRACT-R056")
-def test_unassigned_src_file_fails(tmp_path: Path) -> None:
+def test_unassigned_and_double_assigned_files_fail(tmp_path: Path) -> None:
     root = _tree(tmp_path)
     _src(root, "src/stray.rs")
     assert any("assigned to no crate: src/stray.rs" in p for p in _problems(root))
-
-
-@pytest.mark.spec("MEDULLA-CONTRACT-R056")
-def test_file_assigned_twice_fails(tmp_path: Path) -> None:
-    root = _tree(tmp_path)
     path = root / "scripts" / "manifest.toml"
     path.write_text(
-        path.read_text().replace('paths = ["src/b"]', 'paths = ["src/b", "src/a"]'),
-        encoding="utf-8",
+        path.read_text().replace('["src/b"]', '["src/b", "src/a"]'), encoding="utf-8"
     )
     assert any("assigned twice: src/a/mod.rs" in p for p in _problems(root))
 
 
 @pytest.mark.spec("MEDULLA-CONTRACT-R056")
-def test_cli_exit_codes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    root = _tree(tmp_path, {"medulla-h-b": ["medulla-h-a"]})
-    manifest = str(root / "scripts" / "manifest.toml")
-    assert main(["--root", str(root), "--manifest", manifest]) == 1
-    assert "sibling" in capsys.readouterr().err
-    clean = _tree(tmp_path / "clean")
-    assert (
-        main(
-            ["--root", str(clean), "--manifest", manifest.replace("repo", "clean/repo")]
-        )
-        == 0
+def test_placement_gaps_fail(tmp_path: Path) -> None:
+    root = _tree(tmp_path)
+    body = FULL.replace(
+        '"src/shared.rs" = "medulla-engine"\n', '"src/gone.rs" = "medulla-nope"\n'
+    )
+    problems = _problems(root, _placement(root, body))
+    assert any("placement path does not exist: src/gone.rs" in p for p in problems)
+    assert any("unknown crate medulla-nope" in p for p in problems)
+    assert any("assigned to no crate: src/shared.rs" in p for p in problems)
+
+
+@pytest.mark.spec("MEDULLA-CONTRACT-R056")
+def test_placement_must_match_crate_directory(tmp_path: Path) -> None:
+    root = _tree(tmp_path)
+    _src(root, "crates/medulla-h-query/src/lib.rs")
+    body = FULL + '"crates/medulla-h-query/src/lib.rs" = "medulla-h-decide"\n'
+    assert any(
+        "not its crate directory" in p for p in _problems(root, _placement(root, body))
     )
 
 
 @pytest.mark.spec("MEDULLA-CONTRACT-R056")
-def test_back_edge_inventory_reports_grouped_and_super_uses(tmp_path: Path) -> None:
-    root = _tree(tmp_path)
-    _src(root, "src/a/mod.rs", "use crate::{kernel::K, b::{self, T}};\nuse super::x;\n")
-    _src(root, "src/b/mod.rs", "fn f() { let _ = crate::a::Thing; }\n")
-    edges, stats = collect_edges(
-        root, load_manifest(root / "scripts" / "manifest.toml")
+def test_cli_exit_codes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    bad = _tree(tmp_path / "bad", {QUERY: [DECIDE]})
+    manifest = str(bad / "scripts" / "manifest.toml")
+    assert (
+        main(["--root", str(bad), "--manifest", manifest, "--placement", "none.toml"])
+        == 1
     )
-    got = {(e.from_crate, e.to_crate, e.item, e.line) for e in edges}
-    assert ("medulla-h-a", "medulla-h-b", "crate::b::T", 1) in got
-    assert ("medulla-h-a", "medulla-h-b", "crate::b", 1) in got
-    assert not any(e.from_crate == "medulla-h-b" for e in edges)
-    assert stats["medulla-h-a"]["files"] == 1
+    assert "sibling" in capsys.readouterr().err
+    good = _tree(tmp_path / "good")
+    manifest = str(good / "scripts" / "manifest.toml")
+    assert (
+        main(["--root", str(good), "--manifest", manifest, "--placement", "none.toml"])
+        == 0
+    )
+
+
+def _edges(root: Path):
+    manifest = load_manifest(root / "scripts" / "manifest.toml")
+    owners = {f: c for f, c in build_owner_map(manifest, list_src_files(root)).items()}
+    return violating_edges(manifest, owners, root, {})
+
+
+@pytest.mark.spec("MEDULLA-CONTRACT-R056")
+def test_back_edge_inventory_reads_grouped_uses_and_skips_visibility(
+    tmp_path: Path,
+) -> None:
+    root = _tree(tmp_path)
+    _src(root, "src/a/mod.rs", "use crate::{kernel::K, b::{self, T}};\n")
+    _src(root, "src/b/mod.rs", "pub(in crate::a) fn f() { let _ = crate::a::Thing; }\n")
+    _src(root, "src/kernel/mod.rs", "use crate::shared::S;\n")
+    got = {(e.from_crate, e.to_crate, e.item, e.line) for e in _edges(root)}
+    assert (DECIDE, QUERY, "crate::b::T", 1) in got
+    assert (DECIDE, QUERY, "crate::b", 1) in got
+    assert (QUERY, DECIDE, "crate::a::Thing", 1) in got
+    assert (KERNEL, ENGINE, "crate::shared::S", 1) in got
+    assert not any(e[2] == "crate::a" for e in got)
+
+
+@pytest.mark.spec("MEDULLA-CONTRACT-R056")
+def test_resolver_moves_shared_file_down_and_labels_sibling_edges(
+    tmp_path: Path,
+) -> None:
+    root = _tree(tmp_path)
+    _src(root, "src/a/mod.rs", "use crate::shared::S;\nuse crate::b::Widget;\n")
+    _src(root, "src/b/mod.rs", "use crate::shared::S;\nfn g() { crate::a::run(); }\n")
+    manifest = root / "scripts" / "manifest.toml"
+    ctx, labels, _unplanned = resolve(root, manifest)
+    assert ctx.placement["src/shared.rs"] == KERNEL
+    cats = {(x.file, x.item): x.category for x in labels}
+    assert cats[("src/a/mod.rs", "crate::b::Widget")] == "extract-type"
+    assert cats[("src/b/mod.rs", "crate::a::run")] == "seam:DecideApi"
+    write_placement(root / "scripts" / "placement.toml", ctx, [], labels)
+    assert (
+        load_placement(root / "scripts" / "placement.toml")["src/shared.rs"] == KERNEL
+    )
+
+
+@pytest.mark.spec("MEDULLA-CONTRACT-R056")
+def test_scaffold_done_requires_every_crate(tmp_path: Path) -> None:
+    root = _tree(tmp_path)
+    path = root / "scripts" / "manifest.toml"
+    path.write_text("[scaffold]\ndone = true\n" + path.read_text(), encoding="utf-8")
+    problems = _problems(root)
+    assert any("scaffold incomplete: crate medulla-h-query" in p for p in problems)
+
+
+@pytest.mark.spec("MEDULLA-CONTRACT-R056")
+def test_codemod_rewrites_callers_and_flags_stay_behind_refs(tmp_path: Path) -> None:
+    root = _tree(tmp_path)
+    _src(root, "src/b/mod.rs", "pub fn f() {}\n")
+    _src(root, "src/a/mod.rs", "use crate::b::f;\nuse crate::{b::f as g, kernel};\n")
+    _src(root, "src/lib.rs", "pub mod a;\npub mod b;\n")
+    placement = _placement(
+        root,
+        FULL.replace(
+            '"src/b/mod.rs" = "medulla-h-query"', '"src/b/mod.rs" = "medulla-h-query"'
+        ),
+    )
+    changed, problems = rewrite_run(root, "medulla-h-query", placement, check=True)
+    assert changed == ["src/a/mod.rs"] and problems == []
+    rewrite_run(root, "medulla-h-query", placement, check=False)
+    text = (root / "src/a/mod.rs").read_text()
+    assert "use medulla_h_query::b::f;" in text
+    assert "use medulla_h_query::b::f as g;" in text
+    assert "use crate::kernel;" in text
+    assert '"crates/medulla-h-query/src/b/mod.rs"' in placement.read_text()

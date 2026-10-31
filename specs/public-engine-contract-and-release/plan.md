@@ -619,3 +619,22 @@ Resource benchmarks, complete served image admission, installed session usage an
 Main `28ceffdbcff7042f266aa7b8be999d89635a4e7d` adds `NlQueryExplain`, the canonical task-plan feature-schema export and connector ontology parents. This necessary union retains those sources and the four existing feature slices. Its exact method inventory is 476, not the historical 475 above.
 
 The initial union's 2,405 passing native tests and reviewed generated artifacts remain evidence for their recorded source only. All 74 canonical outputs, both codec copies and the artifact ledger now retain exact current-main bytes as explicitly stale placeholders. No receipt or codec hash is combined by hand. Fresh current-union generation and native, client and parity gates must qualify this composition. The installed, served and resource residuals above remain open.
+
+## Build contract
+
+The crate split (`MEDULLA-CONTRACT-R056`) must pass the repository quality gates unchanged.
+The numbers come from `.config/kiss.toml`, `.config/pre-commit.yaml` and `[tool.medulla.scanners]`.
+
+- **KISS:** at most 35 statements, 8 arguments, 20 local variables and 45 calls per function.
+  At most 900 lines, 250 statements and 40 functions per file. Indentation depth 5. No cycles.
+- **cccc:** no new function over cyclomatic 10 or cognitive 15, and none may regress.
+- **dupehound:** similarity threshold 0.85 with at least 40 tokens. A move must not create a clone.
+- **jscpd:** at least 50 tokens and 5 lines in mild mode. New clone pairs fail the gate.
+
+Shapes for every move lane:
+
+- A move is re-export-free. Callers are rewritten to the new path; no `pub use` bridge stays.
+- Widen `pub(crate)` to `pub` only where `placement.toml` puts a caller in another crate.
+- Move helpers, do not copy them. A copied helper fails dupehound and jscpd.
+- A lane touches the files placement assigns to its crate and the callers `rewrite_paths.py` edits.
+- `scripts/check_crate_graph.py` and `scripts/crate_split/edges.py` pass before the train is enqueued.

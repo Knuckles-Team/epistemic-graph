@@ -16,7 +16,7 @@ class Crate:
     name: str
     kind: str
     exists: bool
-    allowed_deps: tuple[str, ...]
+    level: int
     paths: tuple[str, ...]
 
 
@@ -25,7 +25,25 @@ class Manifest:
     crates: dict[str, Crate]
     delete_paths: tuple[str, ...]
     delete_enforced: bool
+    scaffold_done: bool = False
     extra: dict[str, object] = field(default_factory=dict)
+
+    def level(self, crate: str) -> int:
+        """Layer of a crate; the delete set sits outside the layering."""
+        return self.crates[crate].level if crate in self.crates else -1
+
+    def may_depend(self, crate: str, dep: str) -> bool:
+        """Whether `crate` may use `dep`: itself or any strictly lower layer."""
+        if crate == dep or crate == DELETE:
+            return True
+        if dep == DELETE or dep not in self.crates:
+            return False
+        return self.crates[dep].level < self.crates[crate].level
+
+    def allowed_deps(self, crate: str) -> list[str]:
+        return sorted(
+            c for c in self.crates if c != crate and self.may_depend(crate, c)
+        )
 
     def entries(self) -> list[tuple[str, str]]:
         """All (path entry, owner crate) pairs, the delete set owning as `delete`."""
@@ -40,7 +58,7 @@ def load_manifest(path: Path = DEFAULT_MANIFEST) -> Manifest:
             name=name,
             kind=str(body.get("kind", "")),
             exists=bool(body.get("exists", False)),
-            allowed_deps=tuple(body.get("allowed_deps", [])),
+            level=int(body["level"]),
             paths=tuple(body.get("paths", [])),
         )
         for name, body in data.get("crates", {}).items()
@@ -50,6 +68,7 @@ def load_manifest(path: Path = DEFAULT_MANIFEST) -> Manifest:
         crates=crates,
         delete_paths=tuple(delete.get("paths", {}).get("entries", [])),
         delete_enforced=bool(delete.get("enforce", False)),
+        scaffold_done=bool(data.get("scaffold", {}).get("done", False)),
     )
 
 
@@ -86,3 +105,17 @@ def build_owner_map(manifest: Manifest, files: list[str]) -> dict[str, str | Non
         found = owners_of(manifest, rel)
         result[rel] = found[0] if len(found) == 1 else None
     return result
+
+
+DEFAULT_PLACEMENT = Path(__file__).resolve().parent / "placement.toml"
+
+
+def load_placement(path: Path = DEFAULT_PLACEMENT) -> dict[str, str]:
+    """File -> crate table written by resolve.py (the file-to-crate authority)."""
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    return dict(data.get("files", {}))
+
+
+def load_test_moves(path: Path = DEFAULT_PLACEMENT) -> list[str]:
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    return list(data.get("test_moves", {}).get("files", []))
