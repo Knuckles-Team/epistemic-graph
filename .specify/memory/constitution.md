@@ -1,23 +1,59 @@
-# medulla constitution
+# Medulla constitution
 
-Status: PROPOSED. Drafted: 2026-09-28. Version: 0.1.0. Specification index: [specs/README.md](../../specs/README.md).
+This repository inherits the [organization constitution](https://github.com/Knuckles-Team/pipelines/blob/main/.specify/memory/constitution.md) version 1.0.0. Every article of that constitution applies here. This file adds only the rules and limits of this repository.
 
-## I. Single owner and reusable architecture
+**Inherits**: organization constitution v1.0.0 | **Version**: 1.0.0 | **Ratified**: 2026-10-31 | **Last amended**: 2026-10-31
 
-This repository owns durable graph/ontology storage, governed ingestion, query and compute, and public protocols. A design must inventory existing public components and callers before adding code, name one legal owner, preserve dependency direction, and reuse the existing live wiring. Cross-repository capabilities cite the owner spec by stable ID; no second authority or dormant parallel implementation is accepted.
+## Organization standards
 
-## II. Complete specification before construction
+- [Spec standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/spec-standard.md): one owning spec per capability, computed states, `Spec:` trailers.
+- [Ecosystem boundaries](https://github.com/Knuckles-Team/pipelines/blob/main/reference/ecosystem-boundaries.md): which repository owns which requirement.
+- [Wording standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/ste.md): sentences of 20 words or fewer, with `must`, `should`, or `may`.
 
-A contribution records behavior and acceptance in `spec.md`, architecture/data/security/failure design in `plan.md`, exact positive and negative proof in `test-spec.md`, and sequenced work in `tasks.md`. Unresolved choices are explicit. The checked-in spec, not a local plan draft or generated report, is the contributor-facing build contract.
+## Repository articles
 
-## III. Observable integration and evidence
+### R-I. The engine is native Rust and the only fact store
 
-Acceptance follows a real entrypoint through the intended owner and effect boundary. Tests cover refusal, authorization, idempotency and recovery where applicable. Evidence names the exact revision, command, environment and result; source-only success never claims served or release acceptance.
+Facts, records, storage, query, retrieval, ingest, reasoning and decisions are native Rust code in this repository. No other repository stores or decides these things.
 
-## IV. Quality and release discipline
+**Enforced by:** `cargo clippy -- -D warnings`, `.config/arch-lint.toml`, `.config/deny.toml` and the forbidden-import matrix of the [ecosystem boundaries](https://github.com/Knuckles-Team/pipelines/blob/main/reference/ecosystem-boundaries.md).
 
-Apply this repository's CCCC, jscpd, dupehound, KISS, language-native, contract, package and release gates as relevant. Fix real complexity and duplication at the owner; do not suppress findings or split logic merely to satisfy a scanner. Update public docs and delete superseded paths after consumers move.
+**Plan check:** Does the change put facts, storage and decisions in Rust code here, with no second store?
 
-## V. Amendment and status
+### R-II. Every wait has a deadline
 
-Amend this constitution in a reviewed change that states the reason and impact. Mark a spec `LANDED` only when its source is merged at an exact owning-repository revision. Mark it `ACCEPTED` only after the required consumer, runtime, quality and release receipts meet the checked-in spec's acceptance gates. Record both states separately.
+Code never blocks without a deadline. It uses a bounded wait that fails naming the missed rendezvous. Lock poisoning is an explicit decision through the shared recovery helper.
+
+**Enforced by:** `clippy.toml` `disallowed-methods`, which the clippy gate runs with warnings denied.
+
+**Plan check:** Does every wait and lock in the change use a bounded or explicit-recovery form?
+
+### R-III. Every row sets budgets and names a benchmark
+
+A requirement row states a latency budget and a memory budget and names the benchmark that measures them.
+
+**Enforced by:** [Ecosystem boundaries](https://github.com/Knuckles-Team/pipelines/blob/main/reference/ecosystem-boundaries.md), medulla row; `.config/nextest.toml` for the test profile.
+
+**Plan check:** Does each new row state both budgets and name its benchmark?
+
+## Repository limits
+
+The Rust KISS limits below replace the Python limits of the organization table for Rust code. Complexity and clone limits follow the organization table.
+
+| Limit | Value | Source |
+|---|---|---|
+| Indentation depth | 5 | `.config/kiss.toml` |
+| Returns per function | 8 | `.config/kiss.toml` |
+| Arguments per function | 8 | `.config/kiss.toml` |
+| Statements per function | 35 | `.config/kiss.toml` |
+| Local variables per function | 20 | `.config/kiss.toml` |
+| Calls per function | 45 | `.config/kiss.toml` |
+| Methods per class | 13 | `.config/kiss.toml` |
+| Imported names per file | 50 | `.config/kiss.toml` |
+| Statements per file | 250 | `.config/kiss.toml` |
+| Lines per file | 900 | `.config/kiss.toml` |
+| Functions per file | 40 | `.config/kiss.toml` |
+| Import cycle size | 0 | `.config/kiss.toml` |
+| Dependency depth | 4 | `.config/kiss.toml` |
+
+Amend this file in a reviewed change. State the impact in the pull request. When the organization constitution changes its version, update the **Inherits** line in the same change.

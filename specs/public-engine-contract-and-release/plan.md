@@ -638,3 +638,13 @@ Shapes for every move lane:
 - Move helpers, do not copy them. A copied helper fails dupehound and jscpd.
 - A lane touches the files placement assigns to its crate and the callers `rewrite_paths.py` edits.
 - `scripts/check_crate_graph.py` and `scripts/crate_split/edges.py` pass before the train is enqueued.
+
+## North star
+
+Deployment comes only from published package releases. Releases ship delivered cross-repository spec bundles. Development is graph-native. The whole ecosystem is ingested into the engine. Developers work through arbora. The repository connector reads code from the graph.
+
+## Delivery phase
+
+Rows `MEDULLA-CONTRACT-R056.14` to `.16` serve P5, scale and breadth. They lower build cost for every later delivery lane.
+
+Crate split: the generated-contract machinery goes first. Then each subsystem moves behind the handler registry (`MEDULLA-CONTRACT-R056.1` to `.10`). Build profiles, test layout and feature layout are part of the split, not follow-ups. A timings report before and after proves the gain.
