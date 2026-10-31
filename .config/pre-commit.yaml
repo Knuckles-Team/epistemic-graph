@@ -81,7 +81,7 @@ repos:
       ))\.py$
     stages: [pre-commit, pre-push, manual]
 - repo: https://github.com/Knuckles-Team/pipelines
-  rev: e07c5568e725e9dd3dd34b37ac175800e81dd112 # shared public-surface/spec hooks at the reviewed pipelines main
+  rev: 6cf6326c467bb3cfc278ab19eece68ba496b924c # shared public-surface/spec hooks at the reviewed pipelines main
   hooks:
   - id: public-surface
     stages: [pre-commit, manual]
