@@ -2702,783 +2702,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
-name = "eg-alignment"
-version = "0.1.0"
-dependencies = [
- "eg-audio",
- "eg-document",
- "eg-image",
- "eg-modality",
- "eg-video",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "eg-ann"
-version = "0.1.0"
-dependencies = [
- "cudarc",
- "eg-modality",
- "eg-numeric",
- "ndarray 0.17.2",
- "postcard",
- "rand 0.8.8",
- "rand_chacha 0.3.1",
- "rayon",
- "serde",
- "tracing",
-]
-
-[[package]]
-name = "eg-asr-whisper"
-version = "0.1.0"
-dependencies = [
- "eg-audio",
- "eg-resource",
- "sha2 0.10.9",
- "whisper-rs",
-]
-
-[[package]]
-name = "eg-audio"
-version = "0.1.0"
-dependencies = [
- "eg-modality",
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "eg-capabilities"
-version = "0.1.0"
-dependencies = [
- "eg-types",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "eg-compute"
-version = "0.27.0"
-dependencies = [
- "criterion",
- "cudarc",
- "eg-core",
- "eg-geo",
- "eg-modality",
- "eg-numeric",
- "eg-stream",
- "eg-types",
- "hex",
- "nalgebra",
- "petgraph",
- "rand 0.8.8",
- "rand_chacha 0.3.1",
- "rayon",
- "rmp-serde",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tracing",
- "tree-sitter",
- "tree-sitter-bash",
- "tree-sitter-c",
- "tree-sitter-c-sharp",
- "tree-sitter-cpp",
- "tree-sitter-css",
- "tree-sitter-dm",
- "tree-sitter-elixir",
- "tree-sitter-fortran",
- "tree-sitter-go",
- "tree-sitter-groovy",
- "tree-sitter-hcl",
- "tree-sitter-html",
- "tree-sitter-java",
- "tree-sitter-javascript",
- "tree-sitter-json",
- "tree-sitter-julia",
- "tree-sitter-kotlin-ng",
- "tree-sitter-lua",
- "tree-sitter-objc",
- "tree-sitter-pascal",
- "tree-sitter-php",
- "tree-sitter-powershell",
- "tree-sitter-python",
- "tree-sitter-ruby",
- "tree-sitter-rust",
- "tree-sitter-scala",
- "tree-sitter-sequel",
- "tree-sitter-swift",
- "tree-sitter-typescript",
- "tree-sitter-verilog",
- "tree-sitter-zig",
-]
-
-[[package]]
-name = "eg-core"
-version = "0.27.0"
-dependencies = [
- "aho-corasick",
- "dashmap",
- "eg-ann",
- "eg-modality",
- "eg-rdf",
- "eg-shacl",
- "eg-storage",
- "eg-transaction",
- "eg-types",
- "hex",
- "hmac 0.12.1",
- "parking_lot",
- "petgraph",
- "rayon",
- "redb",
- "rmp-serde",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tracing",
-]
-
-[[package]]
-name = "eg-document"
-version = "0.1.0"
-dependencies = [
- "eg-modality",
- "eg-types",
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "eg-durable"
-version = "0.1.0"
-dependencies = [
- "rmp-serde",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "eg-enrich"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "eg-epistemic"
-version = "0.1.0"
-dependencies = [
- "eg-compute",
- "eg-core",
- "eg-modality",
- "eg-types",
- "hex",
- "rmp-serde",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tracing",
-]
-
-[[package]]
-name = "eg-geo"
-version = "0.1.0"
-dependencies = [
- "eg-modality",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "eg-graphql"
-version = "0.1.0"
-dependencies = [
- "eg-core",
- "eg-plan",
- "eg-query",
- "eg-rdf",
- "eg-types",
- "petgraph",
- "rmp-serde",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "uuid",
-]
-
-[[package]]
-name = "eg-image"
-version = "0.1.0"
-dependencies = [
- "eg-modality",
- "flate2",
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "eg-jobs"
-version = "0.1.0"
-dependencies = [
- "eg-core",
- "eg-jobs",
- "eg-storage",
- "eg-transaction",
- "eg-types",
- "hex",
- "proptest",
- "redb",
- "rmp-serde",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
-]
-
-[[package]]
-name = "eg-kvcache"
-version = "0.1.0"
-dependencies = [
- "eg-compute",
- "eg-modality",
- "eg-storage",
- "eg-transaction",
- "eg-types",
- "lz4_flex 0.14.0",
- "redb",
- "serde",
- "tempfile",
- "zstd",
-]
-
-[[package]]
-name = "eg-lake"
-version = "0.1.0"
-dependencies = [
- "apache-avro 0.22.0",
- "eg-modality",
- "eg-types",
- "iceberg",
- "iceberg-storage-opendal",
- "polars-core",
- "polars-io",
- "polars-parquet",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "eg-method-codec"
-version = "0.1.0"
-dependencies = [
- "eg-types",
- "rmp-serde",
- "serde_json",
-]
-
-[[package]]
-name = "eg-modality"
-version = "0.1.0"
-dependencies = [
- "eg-audio",
- "eg-document",
- "eg-geo",
- "eg-image",
- "eg-tensor",
- "eg-types",
- "eg-video",
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "eg-numeric"
-version = "0.1.0"
-dependencies = [
- "eg-modality",
- "eg-types",
- "libc",
- "libm",
- "nalgebra",
- "ndarray 0.17.2",
- "num-complex",
- "pyo3",
- "rand 0.8.8",
- "rand_chacha 0.3.1",
- "rand_distr",
- "rmp-serde",
- "rustfft",
- "serde",
- "serde_json",
- "statrs",
-]
-
-[[package]]
-name = "eg-plan"
-version = "0.33.0"
-dependencies = [
- "arrow",
- "base64 0.23.1",
- "criterion",
- "eg-compute",
- "eg-core",
- "eg-epistemic",
- "eg-geo",
- "eg-modality",
- "eg-numeric",
- "eg-query",
- "eg-rdf",
- "eg-shacl",
- "eg-stream",
- "eg-tensor",
- "eg-text",
- "eg-tsdb",
- "eg-types",
- "eg-wasm",
- "futures-util",
- "hex",
- "hmac 0.12.1",
- "insta",
- "parking_lot",
- "petgraph",
- "proptest",
- "rayon",
- "rmp-serde",
- "rustls",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sqlparser",
- "sqlx",
- "tokio",
- "tracing",
- "ureq",
- "url",
- "wat",
- "webpki-root-certs",
-]
-
-[[package]]
-name = "eg-program"
-version = "0.1.0"
-dependencies = [
- "eg-modality",
- "eg-types",
- "hex",
- "rmp-serde",
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "eg-pyengine"
-version = "2.27.10"
-dependencies = [
- "eg-compute",
- "eg-core",
- "eg-jobs",
- "eg-plan",
- "eg-query",
- "eg-rdf",
- "eg-statechart",
- "eg-tsdb",
- "eg-wasm",
- "parking_lot",
- "pyo3",
- "rmp-serde",
- "serde_json",
-]
-
-[[package]]
-name = "eg-quantum-core"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "eg-quantum-gates"
-version = "0.1.0"
-dependencies = [
- "eg-numeric",
- "eg-quantum-core",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "eg-quantum-hardware"
-version = "0.1.0"
-dependencies = [
- "eg-quantum-core",
- "hex",
- "hmac 0.12.1",
- "reqwest 0.13.5",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "eg-quantum-jobs"
-version = "0.1.0"
-dependencies = [
- "eg-jobs",
- "eg-numeric",
- "eg-plan",
- "eg-quantum-core",
- "eg-quantum-sim",
- "eg-types",
- "ndarray 0.17.2",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "eg-quantum-sim"
-version = "0.1.0"
-dependencies = [
- "eg-numeric",
- "eg-quantum-core",
- "eg-quantum-gates",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "eg-quantum-workloads"
-version = "0.1.0"
-dependencies = [
- "eg-core",
- "eg-epistemic",
- "eg-numeric",
- "eg-plan",
- "eg-quantum-core",
- "eg-quantum-gates",
- "eg-quantum-sim",
- "eg-types",
- "rmp-serde",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "eg-query"
-version = "0.31.0"
-dependencies = [
- "arrow",
- "arrow-schema",
- "async-trait",
- "base64 0.23.1",
- "datafusion",
- "eg-ann",
- "eg-compute",
- "eg-core",
- "eg-numeric",
- "eg-storage",
- "eg-text",
- "eg-transaction",
- "eg-tsdb",
- "eg-types",
- "futures-util",
- "hex",
- "iceberg",
- "iceberg-catalog-rest",
- "iceberg-storage-opendal",
- "ipnet",
- "md-5 0.10.6",
- "ndarray 0.17.2",
- "petgraph",
- "redb",
- "rmp-serde",
- "serde",
- "serde_json",
- "sha1 0.10.7",
- "sha2 0.10.9",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "eg-rdf"
-version = "0.1.0"
-dependencies = [
- "eg-core",
- "eg-geo",
- "eg-modality",
- "eg-shacl",
- "eg-types",
- "md-5 0.10.6",
- "oxjsonld",
- "oxrdf",
- "oxttl",
- "quick-xml 0.41.0",
- "regex",
- "rmp-serde",
- "serde",
- "serde_json",
- "sha1 0.10.7",
- "sha2 0.10.9",
- "spargebra",
-]
-
-[[package]]
-name = "eg-resource"
-version = "0.1.0"
-
-[[package]]
-name = "eg-shacl"
-version = "0.1.0"
-dependencies = [
- "eg-modality",
- "eg-rdf",
- "regex",
- "serde",
- "serde_json",
- "spargebra",
-]
-
-[[package]]
-name = "eg-shex"
-version = "0.1.0"
-dependencies = [
- "eg-modality",
- "eg-rdf",
- "regex",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "eg-sqlite-format"
-version = "0.1.0"
-dependencies = [
- "tempfile",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "eg-statechart"
-version = "0.1.0"
-dependencies = [
- "eg-storage",
- "eg-transaction",
- "eg-types",
- "proptest",
- "redb",
- "rmp-serde",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "eg-storage"
-version = "0.1.0"
-dependencies = [
- "eg-types",
- "redb",
- "rmp-serde",
- "rustix 1.1.5",
- "serde",
- "serde_bytes",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "eg-stream"
-version = "0.1.0"
-dependencies = [
- "eg-modality",
- "rdkafka",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "eg-tensor"
-version = "0.1.0"
-dependencies = [
- "cudarc",
- "eg-modality",
- "eg-tsdb",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "eg-text"
-version = "0.33.0"
-dependencies = [
- "eg-modality",
- "serde",
- "tantivy",
- "tempfile",
-]
-
-[[package]]
-name = "eg-transaction"
-version = "0.1.0"
-dependencies = [
- "eg-storage",
- "eg-types",
- "hex",
- "redb",
- "rmp-serde",
- "serde",
- "serde_bytes",
- "sha2 0.10.9",
- "tempfile",
- "tracing",
-]
-
-[[package]]
-name = "eg-tsdb"
-version = "0.1.0"
-dependencies = [
- "arrow",
- "async-trait",
- "datafusion",
- "eg-compute",
- "eg-core",
- "eg-modality",
- "eg-numeric",
- "eg-storage",
- "eg-transaction",
- "eg-types",
- "redb",
- "rmp-serde",
- "serde",
- "serde_bytes",
- "tempfile",
- "tokio",
-]
-
-[[package]]
-name = "eg-tts-piper"
-version = "0.1.0"
-dependencies = [
- "eg-audio",
- "espeak-rs",
- "ort",
- "piper-rs",
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "eg-types"
-version = "0.27.0"
-dependencies = [
- "hex",
- "oxiri",
- "rmp-serde",
- "schemars 1.2.3",
- "serde",
- "serde_bytes",
- "serde_json",
- "sha2 0.10.9",
- "strum 0.28.0",
- "thiserror 2.0.21",
- "tracing",
-]
-
-[[package]]
-name = "eg-video"
-version = "0.1.0"
-dependencies = [
- "eg-modality",
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "eg-viz-columnstore"
-version = "0.1.0"
-dependencies = [
- "arrow",
- "bitvec",
- "eg-viz-core",
- "hex",
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "eg-viz-core"
-version = "0.1.0"
-dependencies = [
- "eg-jobs",
- "hex",
- "rmp-serde",
- "serde",
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "eg-viz-export"
-version = "0.1.0"
-dependencies = [
- "eg-viz-columnstore",
- "eg-viz-core",
- "eg-viz-kernels",
-]
-
-[[package]]
-name = "eg-viz-graph-tiles"
-version = "0.1.0"
-dependencies = [
- "eg-viz-core",
- "proptest",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "eg-viz-kernels"
-version = "0.1.0"
-dependencies = [
- "criterion",
- "eg-viz-core",
- "proptest",
-]
-
-[[package]]
-name = "eg-wasm"
-version = "0.1.0"
-dependencies = [
- "serde",
- "wasmtime",
- "wat",
-]
-
-[[package]]
 name = "either"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3504,115 +2727,6 @@ name = "encode_unicode"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
-
-[[package]]
-name = "epistemic-graph"
-version = "2.27.10"
-dependencies = [
- "ahash",
- "anyhow",
- "argon2",
- "arrow",
- "async-trait",
- "chacha20poly1305",
- "chrono",
- "clap",
- "criterion",
- "cyclonedds",
- "dashmap",
- "dust_dds",
- "eg-alignment",
- "eg-ann",
- "eg-asr-whisper",
- "eg-audio",
- "eg-capabilities",
- "eg-compute",
- "eg-core",
- "eg-document",
- "eg-durable",
- "eg-epistemic",
- "eg-geo",
- "eg-graphql",
- "eg-image",
- "eg-jobs",
- "eg-kvcache",
- "eg-lake",
- "eg-modality",
- "eg-numeric",
- "eg-plan",
- "eg-program",
- "eg-pyengine",
- "eg-quantum-core",
- "eg-quantum-gates",
- "eg-quantum-hardware",
- "eg-quantum-jobs",
- "eg-quantum-sim",
- "eg-query",
- "eg-rdf",
- "eg-resource",
- "eg-shacl",
- "eg-shex",
- "eg-sqlite-format",
- "eg-statechart",
- "eg-storage",
- "eg-stream",
- "eg-tensor",
- "eg-text",
- "eg-transaction",
- "eg-tsdb",
- "eg-tts-piper",
- "eg-types",
- "eg-video",
- "eg-viz-columnstore",
- "eg-viz-core",
- "eg-viz-export",
- "eg-viz-graph-tiles",
- "eg-viz-kernels",
- "eg-wasm",
- "fs4 1.1.0",
- "futures",
- "hex",
- "hmac 0.12.1",
- "jsonwebtoken",
- "lazy_static",
- "object_store 0.14.2",
- "openraft",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
- "parking_lot",
- "petgraph",
- "pgwire",
- "polars-core",
- "polars-io",
- "prometheus",
- "prost",
- "rand 0.8.8",
- "rayon",
- "redb",
- "rmp-serde",
- "rustix 1.1.5",
- "rustls",
- "serde",
- "serde_bytes",
- "serde_json",
- "sha1 0.10.7",
- "sha2 0.10.9",
- "snap",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-postgres",
- "tokio-rustls",
- "tokio-tungstenite",
- "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "ureq",
- "uuid",
- "wat",
- "windows-sys 0.61.2",
-]
 
 [[package]]
 name = "equivalent"
@@ -5169,6 +4283,892 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51c55d61e72fc3ab704396c5fa16f4c184db37978ae4e94ca8959693a235fc0e"
 dependencies = [
  "log",
+]
+
+[[package]]
+name = "medulla-alignment"
+version = "0.1.0"
+dependencies = [
+ "medulla-audio",
+ "medulla-document",
+ "medulla-image",
+ "medulla-modality",
+ "medulla-video",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "medulla-ann"
+version = "0.1.0"
+dependencies = [
+ "cudarc",
+ "medulla-modality",
+ "medulla-numeric",
+ "ndarray 0.17.2",
+ "postcard",
+ "rand 0.8.8",
+ "rand_chacha 0.3.1",
+ "rayon",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "medulla-asr-whisper"
+version = "0.1.0"
+dependencies = [
+ "medulla-audio",
+ "medulla-resource",
+ "sha2 0.10.9",
+ "whisper-rs",
+]
+
+[[package]]
+name = "medulla-audio"
+version = "0.1.0"
+dependencies = [
+ "medulla-modality",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "medulla-capabilities"
+version = "0.1.0"
+dependencies = [
+ "medulla-types",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "medulla-compute"
+version = "0.27.0"
+dependencies = [
+ "criterion",
+ "cudarc",
+ "hex",
+ "medulla-core",
+ "medulla-geo",
+ "medulla-modality",
+ "medulla-numeric",
+ "medulla-stream",
+ "medulla-types",
+ "nalgebra",
+ "petgraph",
+ "rand 0.8.8",
+ "rand_chacha 0.3.1",
+ "rayon",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tracing",
+ "tree-sitter",
+ "tree-sitter-bash",
+ "tree-sitter-c",
+ "tree-sitter-c-sharp",
+ "tree-sitter-cpp",
+ "tree-sitter-css",
+ "tree-sitter-dm",
+ "tree-sitter-elixir",
+ "tree-sitter-fortran",
+ "tree-sitter-go",
+ "tree-sitter-groovy",
+ "tree-sitter-hcl",
+ "tree-sitter-html",
+ "tree-sitter-java",
+ "tree-sitter-javascript",
+ "tree-sitter-json",
+ "tree-sitter-julia",
+ "tree-sitter-kotlin-ng",
+ "tree-sitter-lua",
+ "tree-sitter-objc",
+ "tree-sitter-pascal",
+ "tree-sitter-php",
+ "tree-sitter-powershell",
+ "tree-sitter-python",
+ "tree-sitter-ruby",
+ "tree-sitter-rust",
+ "tree-sitter-scala",
+ "tree-sitter-sequel",
+ "tree-sitter-swift",
+ "tree-sitter-typescript",
+ "tree-sitter-verilog",
+ "tree-sitter-zig",
+]
+
+[[package]]
+name = "medulla-core"
+version = "0.27.0"
+dependencies = [
+ "aho-corasick",
+ "dashmap",
+ "hex",
+ "hmac 0.12.1",
+ "medulla-ann",
+ "medulla-modality",
+ "medulla-rdf",
+ "medulla-shacl",
+ "medulla-storage",
+ "medulla-transaction",
+ "medulla-types",
+ "parking_lot",
+ "petgraph",
+ "rayon",
+ "redb",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tracing",
+]
+
+[[package]]
+name = "medulla-document"
+version = "0.1.0"
+dependencies = [
+ "medulla-modality",
+ "medulla-types",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "medulla-durable"
+version = "0.1.0"
+dependencies = [
+ "rmp-serde",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "medulla-engine"
+version = "2.27.10"
+dependencies = [
+ "ahash",
+ "anyhow",
+ "argon2",
+ "arrow",
+ "async-trait",
+ "chacha20poly1305",
+ "chrono",
+ "clap",
+ "criterion",
+ "cyclonedds",
+ "dashmap",
+ "dust_dds",
+ "fs4 1.1.0",
+ "futures",
+ "hex",
+ "hmac 0.12.1",
+ "jsonwebtoken",
+ "lazy_static",
+ "medulla-alignment",
+ "medulla-ann",
+ "medulla-asr-whisper",
+ "medulla-audio",
+ "medulla-capabilities",
+ "medulla-compute",
+ "medulla-core",
+ "medulla-document",
+ "medulla-durable",
+ "medulla-epistemic",
+ "medulla-geo",
+ "medulla-graphql",
+ "medulla-image",
+ "medulla-jobs",
+ "medulla-kvcache",
+ "medulla-lake",
+ "medulla-modality",
+ "medulla-numeric",
+ "medulla-plan",
+ "medulla-program",
+ "medulla-pyengine",
+ "medulla-quantum-core",
+ "medulla-quantum-gates",
+ "medulla-quantum-hardware",
+ "medulla-quantum-jobs",
+ "medulla-quantum-sim",
+ "medulla-query",
+ "medulla-rdf",
+ "medulla-resource",
+ "medulla-shacl",
+ "medulla-shex",
+ "medulla-sqlite-format",
+ "medulla-statechart",
+ "medulla-storage",
+ "medulla-stream",
+ "medulla-tensor",
+ "medulla-text",
+ "medulla-transaction",
+ "medulla-tsdb",
+ "medulla-tts-piper",
+ "medulla-types",
+ "medulla-video",
+ "medulla-viz-columnstore",
+ "medulla-viz-core",
+ "medulla-viz-export",
+ "medulla-viz-graph-tiles",
+ "medulla-viz-kernels",
+ "medulla-wasm",
+ "object_store 0.14.2",
+ "openraft",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "parking_lot",
+ "petgraph",
+ "pgwire",
+ "polars-core",
+ "polars-io",
+ "prometheus",
+ "prost",
+ "rand 0.8.8",
+ "rayon",
+ "redb",
+ "rmp-serde",
+ "rustix 1.1.5",
+ "rustls",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "sha1 0.10.7",
+ "sha2 0.10.9",
+ "snap",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-postgres",
+ "tokio-rustls",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "ureq",
+ "uuid",
+ "wat",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "medulla-enrich"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "medulla-epistemic"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "medulla-compute",
+ "medulla-core",
+ "medulla-modality",
+ "medulla-types",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "medulla-geo"
+version = "0.1.0"
+dependencies = [
+ "medulla-modality",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "medulla-graphql"
+version = "0.1.0"
+dependencies = [
+ "medulla-core",
+ "medulla-plan",
+ "medulla-query",
+ "medulla-rdf",
+ "medulla-types",
+ "petgraph",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "uuid",
+]
+
+[[package]]
+name = "medulla-image"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "medulla-modality",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "medulla-jobs"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "medulla-core",
+ "medulla-jobs",
+ "medulla-storage",
+ "medulla-transaction",
+ "medulla-types",
+ "proptest",
+ "redb",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+]
+
+[[package]]
+name = "medulla-kvcache"
+version = "0.1.0"
+dependencies = [
+ "lz4_flex 0.14.0",
+ "medulla-compute",
+ "medulla-modality",
+ "medulla-storage",
+ "medulla-transaction",
+ "medulla-types",
+ "redb",
+ "serde",
+ "tempfile",
+ "zstd",
+]
+
+[[package]]
+name = "medulla-lake"
+version = "0.1.0"
+dependencies = [
+ "apache-avro 0.22.0",
+ "iceberg",
+ "iceberg-storage-opendal",
+ "medulla-modality",
+ "medulla-types",
+ "polars-core",
+ "polars-io",
+ "polars-parquet",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "medulla-method-codec"
+version = "0.1.0"
+dependencies = [
+ "medulla-types",
+ "rmp-serde",
+ "serde_json",
+]
+
+[[package]]
+name = "medulla-modality"
+version = "0.1.0"
+dependencies = [
+ "medulla-audio",
+ "medulla-document",
+ "medulla-geo",
+ "medulla-image",
+ "medulla-tensor",
+ "medulla-types",
+ "medulla-video",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "medulla-numeric"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "libm",
+ "medulla-modality",
+ "medulla-types",
+ "nalgebra",
+ "ndarray 0.17.2",
+ "num-complex",
+ "pyo3",
+ "rand 0.8.8",
+ "rand_chacha 0.3.1",
+ "rand_distr",
+ "rmp-serde",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "statrs",
+]
+
+[[package]]
+name = "medulla-plan"
+version = "0.33.0"
+dependencies = [
+ "arrow",
+ "base64 0.23.1",
+ "criterion",
+ "futures-util",
+ "hex",
+ "hmac 0.12.1",
+ "insta",
+ "medulla-compute",
+ "medulla-core",
+ "medulla-epistemic",
+ "medulla-geo",
+ "medulla-modality",
+ "medulla-numeric",
+ "medulla-query",
+ "medulla-rdf",
+ "medulla-shacl",
+ "medulla-stream",
+ "medulla-tensor",
+ "medulla-text",
+ "medulla-tsdb",
+ "medulla-types",
+ "medulla-wasm",
+ "parking_lot",
+ "petgraph",
+ "proptest",
+ "rayon",
+ "rmp-serde",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlparser",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "ureq",
+ "url",
+ "wat",
+ "webpki-root-certs",
+]
+
+[[package]]
+name = "medulla-program"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "medulla-modality",
+ "medulla-types",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "medulla-pyengine"
+version = "2.27.10"
+dependencies = [
+ "medulla-compute",
+ "medulla-core",
+ "medulla-jobs",
+ "medulla-plan",
+ "medulla-query",
+ "medulla-rdf",
+ "medulla-statechart",
+ "medulla-tsdb",
+ "medulla-wasm",
+ "parking_lot",
+ "pyo3",
+ "rmp-serde",
+ "serde_json",
+]
+
+[[package]]
+name = "medulla-quantum-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "medulla-quantum-gates"
+version = "0.1.0"
+dependencies = [
+ "medulla-numeric",
+ "medulla-quantum-core",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "medulla-quantum-hardware"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "hmac 0.12.1",
+ "medulla-quantum-core",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "medulla-quantum-jobs"
+version = "0.1.0"
+dependencies = [
+ "medulla-jobs",
+ "medulla-numeric",
+ "medulla-plan",
+ "medulla-quantum-core",
+ "medulla-quantum-sim",
+ "medulla-types",
+ "ndarray 0.17.2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "medulla-quantum-sim"
+version = "0.1.0"
+dependencies = [
+ "medulla-numeric",
+ "medulla-quantum-core",
+ "medulla-quantum-gates",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "medulla-quantum-workloads"
+version = "0.1.0"
+dependencies = [
+ "medulla-core",
+ "medulla-epistemic",
+ "medulla-numeric",
+ "medulla-plan",
+ "medulla-quantum-core",
+ "medulla-quantum-gates",
+ "medulla-quantum-sim",
+ "medulla-types",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "medulla-query"
+version = "0.31.0"
+dependencies = [
+ "arrow",
+ "arrow-schema",
+ "async-trait",
+ "base64 0.23.1",
+ "datafusion",
+ "futures-util",
+ "hex",
+ "iceberg",
+ "iceberg-catalog-rest",
+ "iceberg-storage-opendal",
+ "ipnet",
+ "md-5 0.10.6",
+ "medulla-ann",
+ "medulla-compute",
+ "medulla-core",
+ "medulla-numeric",
+ "medulla-storage",
+ "medulla-text",
+ "medulla-transaction",
+ "medulla-tsdb",
+ "medulla-types",
+ "ndarray 0.17.2",
+ "petgraph",
+ "redb",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "sha1 0.10.7",
+ "sha2 0.10.9",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "medulla-rdf"
+version = "0.1.0"
+dependencies = [
+ "md-5 0.10.6",
+ "medulla-core",
+ "medulla-geo",
+ "medulla-modality",
+ "medulla-shacl",
+ "medulla-types",
+ "oxjsonld",
+ "oxrdf",
+ "oxttl",
+ "quick-xml 0.41.0",
+ "regex",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "sha1 0.10.7",
+ "sha2 0.10.9",
+ "spargebra",
+]
+
+[[package]]
+name = "medulla-resource"
+version = "0.1.0"
+
+[[package]]
+name = "medulla-shacl"
+version = "0.1.0"
+dependencies = [
+ "medulla-modality",
+ "medulla-rdf",
+ "regex",
+ "serde",
+ "serde_json",
+ "spargebra",
+]
+
+[[package]]
+name = "medulla-shex"
+version = "0.1.0"
+dependencies = [
+ "medulla-modality",
+ "medulla-rdf",
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "medulla-sqlite-format"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "medulla-statechart"
+version = "0.1.0"
+dependencies = [
+ "medulla-storage",
+ "medulla-transaction",
+ "medulla-types",
+ "proptest",
+ "redb",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "medulla-storage"
+version = "0.1.0"
+dependencies = [
+ "medulla-types",
+ "redb",
+ "rmp-serde",
+ "rustix 1.1.5",
+ "serde",
+ "serde_bytes",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "medulla-stream"
+version = "0.1.0"
+dependencies = [
+ "medulla-modality",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "medulla-tensor"
+version = "0.1.0"
+dependencies = [
+ "cudarc",
+ "medulla-modality",
+ "medulla-tsdb",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "medulla-text"
+version = "0.33.0"
+dependencies = [
+ "medulla-modality",
+ "serde",
+ "tantivy",
+ "tempfile",
+]
+
+[[package]]
+name = "medulla-transaction"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "medulla-storage",
+ "medulla-types",
+ "redb",
+ "rmp-serde",
+ "serde",
+ "serde_bytes",
+ "sha2 0.10.9",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "medulla-tsdb"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "async-trait",
+ "datafusion",
+ "medulla-compute",
+ "medulla-core",
+ "medulla-modality",
+ "medulla-numeric",
+ "medulla-storage",
+ "medulla-transaction",
+ "medulla-types",
+ "redb",
+ "rmp-serde",
+ "serde",
+ "serde_bytes",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "medulla-tts-piper"
+version = "0.1.0"
+dependencies = [
+ "espeak-rs",
+ "medulla-audio",
+ "ort",
+ "piper-rs",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "medulla-types"
+version = "0.27.0"
+dependencies = [
+ "hex",
+ "oxiri",
+ "rmp-serde",
+ "schemars 1.2.3",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "sha2 0.10.9",
+ "strum 0.28.0",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
+name = "medulla-video"
+version = "0.1.0"
+dependencies = [
+ "medulla-modality",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "medulla-viz-columnstore"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "bitvec",
+ "hex",
+ "medulla-viz-core",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "medulla-viz-core"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "medulla-jobs",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "medulla-viz-export"
+version = "0.1.0"
+dependencies = [
+ "medulla-viz-columnstore",
+ "medulla-viz-core",
+ "medulla-viz-kernels",
+]
+
+[[package]]
+name = "medulla-viz-graph-tiles"
+version = "0.1.0"
+dependencies = [
+ "medulla-viz-core",
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "medulla-viz-kernels"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "medulla-viz-core",
+ "proptest",
+]
+
+[[package]]
+name = "medulla-wasm"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "wasmtime",
+ "wat",
 ]
 
 [[package]]
