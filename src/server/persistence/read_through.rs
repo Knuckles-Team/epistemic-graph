@@ -1,11 +1,11 @@
-//! Facade adapter wiring the durable [`PersistenceBackend`] to eg-core's
-//! read-through seam (CONCEPT:EG-KG.storage.read-through-seam-exercised).
+//! Facade adapter wiring the durable [`PersistenceBackend`] to medulla-core's
+//! read-through seam (CONCEPT:MEDULLA-KG.storage.read-through-seam-exercised).
 //!
-//! eg-core defines `ReadThrough` / `ReadThroughFactory` but must not know about
+//! medulla-core defines `ReadThrough` / `ReadThroughFactory` but must not know about
 //! `PersistenceBackend` (that would invert the crate DAG). This module — in the
-//! FACADE, ABOVE eg-core — implements those eg-core traits over a backend trait
-//! object, so the dependency points the correct way (facade → eg-core, facade →
-//! backend) and no facade type leaks down into eg-core.
+//! FACADE, ABOVE medulla-core — implements those medulla-core traits over a backend trait
+//! object, so the dependency points the correct way (facade → medulla-core, facade →
+//! backend) and no facade type leaks down into medulla-core.
 //!
 //! Installed once at startup via
 //! `GraphRegistry::set_read_through_factory`. On a RAM miss, `GraphCore` calls
@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use eg_core::read_through::{ReadThrough, ReadThroughFactory};
+use medulla_core::read_through::{ReadThrough, ReadThroughFactory};
 
 use super::PersistenceBackend;
 use crate::persist::sanitize;
@@ -25,7 +25,7 @@ mod production_wiring_tests {
     use crate::registry::GraphRegistry;
     use crate::server::persistence::redb_backend::RedbBackend;
 
-    // spec: EG-DURABLE-KERNEL-R086.4
+    // spec: MEDULLA-DURABLE-KERNEL-R086.4
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn production_factory_reads_durable_rows_for_existing_and_future_graphs() {
         let _env_guard = crate::crypto::acquire_test_env_read_lock().await;
@@ -102,7 +102,7 @@ struct BackendReadThrough {
     graph_fname: String,
 }
 
-// `eg_core::ReadThrough` requires `Debug`, but the backend trait object is not
+// `medulla_core::ReadThrough` requires `Debug`, but the backend trait object is not
 // Debug; print only the graph key (the backend pointer carries no useful debug).
 impl std::fmt::Debug for BackendReadThrough {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -116,7 +116,7 @@ impl ReadThrough for BackendReadThrough {
     fn read_node_blob(&self, node_id: &str) -> Option<Vec<u8>> {
         // A durable read error (writer gone, etc.) is treated as "not found": the
         // read path returns None rather than surfacing an I/O error type into
-        // eg-core. The miss is logged so a real durability fault is observable.
+        // medulla-core. The miss is logged so a real durability fault is observable.
         match self.backend.read_node_blocking(&self.graph_fname, node_id) {
             Ok(blob) => blob,
             Err(e) => {
@@ -133,7 +133,7 @@ impl ReadThrough for BackendReadThrough {
 }
 
 /// Builds per-graph read-throughs over a shared backend. The factory sanitizes the
-/// logical graph name to the durable key, so eg-core stays unaware of the
+/// logical graph name to the durable key, so medulla-core stays unaware of the
 /// filename-sanitization rule.
 pub struct BackendReadThroughFactory {
     backend: Arc<dyn PersistenceBackend>,
@@ -154,8 +154,8 @@ impl ReadThroughFactory for BackendReadThroughFactory {
     }
 }
 
-/// A [`eg_core::registry::GraphMaterializer`] over a [`PersistenceBackend`]
-/// (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3): fetches ONE graph's durable material
+/// A [`medulla_core::registry::GraphMaterializer`] over a [`PersistenceBackend`]
+/// (CONCEPT:MEDULLA-KG.sharding.lazy-graph-catalog, DIST-P2-3): fetches ONE graph's durable material
 /// (nodes/edges/semantic store) on lazy first-open by calling
 /// [`PersistenceBackend::read_graph_material_blocking`]. Installed once at
 /// startup when lazy startup is enabled, mirroring
@@ -170,8 +170,8 @@ impl BackendGraphMaterializer {
     }
 }
 
-impl eg_core::registry::GraphMaterializer for BackendGraphMaterializer {
-    fn materialize(&self, graph_name: &str) -> Option<eg_core::registry::GraphMaterial> {
+impl medulla_core::registry::GraphMaterializer for BackendGraphMaterializer {
+    fn materialize(&self, graph_name: &str) -> Option<medulla_core::registry::GraphMaterial> {
         let fname = sanitize(graph_name);
         match self.backend.read_graph_material_blocking(&fname) {
             Ok(material) => material,
@@ -186,7 +186,7 @@ impl eg_core::registry::GraphMaterializer for BackendGraphMaterializer {
         }
     }
 
-    /// Bounded-page override (CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged adjacency") — routes to
+    /// Bounded-page override (CONCEPT:MEDULLA-KG.sharding.paged-lazy-open, L38 "paged adjacency") — routes to
     /// [`PersistenceBackend::read_graph_material_page_blocking`] instead of
     /// inheriting the trait's own default (which would call [`materialize`](Self::materialize)
     /// above and slice in memory). Only the redb backend gives this a genuinely
@@ -195,9 +195,9 @@ impl eg_core::registry::GraphMaterializer for BackendGraphMaterializer {
     fn materialize_page(
         &self,
         graph_name: &str,
-        cursor: Option<eg_core::registry::MaterializeCursor>,
+        cursor: Option<medulla_core::registry::MaterializeCursor>,
         page_size: usize,
-    ) -> Option<eg_core::registry::MaterialPage> {
+    ) -> Option<medulla_core::registry::MaterialPage> {
         let fname = sanitize(graph_name);
         match self
             .backend
@@ -258,7 +258,7 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R086.7
+    // spec: MEDULLA-DURABLE-KERNEL-R086.7
     #[test]
     fn backend_failure_is_not_absence_evidence() {
         let committed_bytes = vec![0, 255, 7, 0];

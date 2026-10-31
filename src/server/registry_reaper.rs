@@ -1,4 +1,4 @@
-//! Stale-lease reaper for the fleet server registry (CONCEPT:EG-KG.sharding.server-registry, W2.5).
+//! Stale-lease reaper for the fleet server registry (CONCEPT:MEDULLA-KG.sharding.server-registry, W2.5).
 //!
 //! `Method::RegisterServer` (`dispatch.rs`) writes/renews a `:Server` node in
 //! `__commons__` carrying a `lease_expires_at_ms` the SERVER computed from its
@@ -39,7 +39,7 @@ use tokio::sync::RwLock;
 use crate::protocol::Method;
 use crate::server::ServerState;
 
-/// Default sweep interval, seconds (`EPISTEMIC_GRAPH_SERVER_REGISTRY_REAP_SECS`
+/// Default sweep interval, seconds (`MEDULLA_SERVER_REGISTRY_REAP_SECS`
 /// overrides). Short enough that even the minimum `RegisterServer.ttl_secs`
 /// lease (1s) is reaped within a small, bounded number of sweeps — the cost is
 /// one bounded scan of `__commons__`'s resident `:Server` nodes (never the
@@ -49,14 +49,14 @@ const DEFAULT_REAP_INTERVAL_SECS: u64 = 15;
 /// The configured positive sweep interval.
 pub fn reap_interval_secs() -> u64 {
     crate::server::state::positive_runtime_limit_from_env(
-        "EPISTEMIC_GRAPH_SERVER_REGISTRY_REAP_SECS",
+        "MEDULLA_SERVER_REGISTRY_REAP_SECS",
         DEFAULT_REAP_INTERVAL_SECS,
     )
 }
 
 /// One `:Server` node's lease state, decoded from its property blob.
 fn is_expired_server_node(blob: &[u8], now_ms: u64) -> Option<bool> {
-    let value = eg_types::msgpack::decode_property_value(blob).ok()?;
+    let value = medulla_types::msgpack::decode_property_value(blob).ok()?;
     if value.get("node_type").and_then(|v| v.as_str()) != Some("Server") {
         return None; // not a fleet-registry row -- never a reap candidate
     }
@@ -136,7 +136,7 @@ pub async fn reap_expired_servers(state: &Arc<RwLock<ServerState>>, now_ms: u64)
                 reaped += 1;
                 tracing::info!(
                     node_id = %node_id,
-                    "stale-lease reaper expired fleet server registration (CONCEPT:EG-KG.sharding.server-registry, W2.5)"
+                    "stale-lease reaper expired fleet server registration (CONCEPT:MEDULLA-KG.sharding.server-registry, W2.5)"
                 );
             }
             Err(error) => {
@@ -209,7 +209,7 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-reaper-live-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-reaper-live-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let state = redb_state(&dir_s).await;
@@ -243,7 +243,7 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-reaper-expired-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-reaper-expired-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let state = redb_state(&dir_s).await;
@@ -260,7 +260,7 @@ mod tests {
             s.registry
                 .get("__commons__")
                 .and_then(|entry| entry.core.get_node_properties("srv:dead-server"))
-                .and_then(|blob| eg_types::msgpack::decode_property_value(&blob).ok())
+                .and_then(|blob| medulla_types::msgpack::decode_property_value(&blob).ok())
                 .and_then(|value| value.get("lease_expires_at_ms").and_then(|v| v.as_u64()))
                 .expect("registration must persist its lease boundary")
         };
@@ -332,7 +332,7 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-reaper-race-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-reaper-race-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let state = redb_state(&dir_s).await;
@@ -364,7 +364,7 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-reaper-malformed-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-reaper-malformed-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let state = redb_state(&dir_s).await;
@@ -415,7 +415,7 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-reaper-multi-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-reaper-multi-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let state = redb_state(&dir_s).await;
@@ -494,7 +494,7 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        let dir = std::env::temp_dir().join(format!("eg-reaper-repair-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("medulla-reaper-repair-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let state = redb_state(&dir_s).await;
@@ -530,7 +530,7 @@ mod tests {
                 .unwrap()
                 .core
                 .get_node_properties("srv:graph-os")
-                .and_then(|blob| eg_types::msgpack::decode_property_value(&blob).ok())
+                .and_then(|blob| medulla_types::msgpack::decode_property_value(&blob).ok())
                 .expect("broken row exists")
         };
         assert_eq!(
@@ -549,7 +549,7 @@ mod tests {
                 .unwrap()
                 .core
                 .get_node_properties("srv:graph-os")
-                .and_then(|blob| eg_types::msgpack::decode_property_value(&blob).ok())
+                .and_then(|blob| medulla_types::msgpack::decode_property_value(&blob).ok())
                 .expect("repaired row exists")
         };
         assert_eq!(

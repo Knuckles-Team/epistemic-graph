@@ -26,10 +26,10 @@
 | **AU-KG** — agent-utilities KG concepts exercised against this engine | 34 | 0 |
 | **AU-ORCH** — agent-utilities orchestration concepts exercised against this engine | 3 | 0 |
 | **AU-OS** — agent-utilities OS concepts exercised against this engine | 2 | 0 |
-| **EG-AHE** — harness-facing engine concepts | 1 | 0 |
-| **EG-KG** — knowledge-graph engine core | 621 | 1 |
-| **EG-ORCH** — routing / orchestration | 2 | 0 |
-| **EG-OS** — deployment | 9 | 0 |
+| **MEDULLA-AHE** — harness-facing engine concepts | 1 | 0 |
+| **MEDULLA-KG** — knowledge-graph engine core | 621 | 1 |
+| **MEDULLA-ORCH** — routing / orchestration | 2 | 0 |
+| **MEDULLA-OS** — deployment | 9 | 0 |
 | **Total** | 672 | 1 |
 
 > 2 additional unique `CONCEPT:<ID>` markers use a pre-migration prefix outside the current 9-pillar taxonomy (e.g. `KG-2.*`, `ORCH-1.*`, `OS-5.*`, `AHE-3.*`) and are not broken out above — this page defines an owning subtree/gate only for the pillars in "Domain ownership" below. See `docs/concepts.md` for those markers in prose form.
@@ -59,10 +59,10 @@ Structural ownership — which doc subtree and which CI/pre-commit gate is autho
 | **AU-KG** | `agent-utilities: docs/pillars/2_epistemic_knowledge_graph/` | agent-utilities' `scripts/check_concepts.py` |
 | **AU-ORCH** | `agent-utilities: docs/pillars/1_graph_orchestration.md` | agent-utilities' `scripts/check_concepts.py` |
 | **AU-OS** | `agent-utilities: docs/pillars/5_agent_os_infrastructure.md` | agent-utilities' `scripts/check_concepts.py` |
-| **EG-AHE** | `docs/architecture/` | `scripts/build_status_page.py` (generated-ledger regen check) |
-| **EG-KG** | `docs/interfaces/ + docs/architecture/engine.md` | `scripts/build_status_page.py` (generated-ledger regen check) |
-| **EG-ORCH** | `docs/architecture/` | `scripts/build_status_page.py` (generated-ledger regen check) |
-| **EG-OS** | `docs/deploy/ + docs/deployment.md` | `scripts/build_status_page.py` (generated-ledger regen check) |
+| **MEDULLA-AHE** | `docs/architecture/` | `scripts/build_status_page.py` (generated-ledger regen check) |
+| **MEDULLA-KG** | `docs/interfaces/ + docs/architecture/engine.md` | `scripts/build_status_page.py` (generated-ledger regen check) |
+| **MEDULLA-ORCH** | `docs/architecture/` | `scripts/build_status_page.py` (generated-ledger regen check) |
+| **MEDULLA-OS** | `docs/deploy/ + docs/deployment.md` | `scripts/build_status_page.py` (generated-ledger regen check) |
 
 ## How this page stays honest
 

@@ -7,9 +7,9 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from epistemic_graph.testing.synthetic import vocabulary as vocab
-from epistemic_graph.testing.synthetic.catalog import Catalog, SyntheticComponent
-from epistemic_graph.testing.synthetic.catalog_generate import generate_catalog
+from medulla.testing.synthetic import vocabulary as vocab
+from medulla.testing.synthetic.catalog import Catalog, SyntheticComponent
+from medulla.testing.synthetic.catalog_generate import generate_catalog
 
 pytestmark = pytest.mark.no_engine
 

@@ -10,7 +10,7 @@ use crate::acl::RequestContextClaims;
 #[cfg(feature = "oidc")]
 use crate::server::auth::iceberg_bearer_scopes;
 use crate::server::auth::{coarse_kg_admin_only, request_context_policy};
-use eg_types::contract::{Digest256, Nonce};
+use medulla_types::contract::{Digest256, Nonce};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::HashSet;
@@ -55,7 +55,7 @@ impl VerifiedRequestContext {
                 principal: "anonymous".into(),
                 agent_id: "anonymous".into(),
                 tenant: "local".into(),
-                audience: "epistemic-graph".into(),
+                audience: "medulla".into(),
                 policy_version: "no-auth".into(),
                 scopes: vec!["*".into()],
                 roles: vec!["anonymous-local-owner".into()],
@@ -164,7 +164,7 @@ impl VerifiedRequestContext {
         server_name: &str,
     ) -> Result<Digest256, String> {
         if self.tenant().is_empty()
-            || !eg_types::result_contract::cluster::is_valid_server_name(server_name)
+            || !medulla_types::result_contract::cluster::is_valid_server_name(server_name)
         {
             return Err("invalid tenant-local catalog partition".into());
         }
@@ -275,7 +275,7 @@ impl VerifiedRequestContext {
                 principal: format!("principal:{agent_id}"),
                 tenant: tenant.to_string(),
                 agent_id: agent_id.to_string(),
-                audience: "epistemic-graph".to_string(),
+                audience: "medulla".to_string(),
                 policy_version: "policy-test".to_string(),
                 scopes: vec!["kg:read".to_string()],
                 ..RequestContextClaims::default()
@@ -308,7 +308,7 @@ impl VerifiedRequestContext {
                 principal: format!("principal:{agent_id}"),
                 tenant: "tenant-shared".to_string(),
                 agent_id: agent_id.to_string(),
-                audience: "epistemic-graph".to_string(),
+                audience: "medulla".to_string(),
                 policy_version: "policy-test".to_string(),
                 scopes: vec!["kg:read".to_string()],
                 ..RequestContextClaims::default()
@@ -332,7 +332,7 @@ impl VerifiedRequestContext {
                 principal: format!("principal:{agent_id}"),
                 tenant: tenant.to_string(),
                 agent_id: agent_id.to_string(),
-                audience: "epistemic-graph".to_string(),
+                audience: "medulla".to_string(),
                 policy_version: "policy-test".to_string(),
                 scopes: scopes.iter().map(|s| s.to_string()).collect(),
                 ..RequestContextClaims::default()
@@ -436,7 +436,7 @@ impl VerifiedRequestContext {
     /// Iceberg bearer's verified `tenant`/`tenant_id`/`org`/`org_id`/`tid`
     /// claim (projected by `oidc::JwtValidator::validate_claims`) is itself
     /// compared against this deployment's own configured tenant
-    /// (`EPISTEMIC_GRAPH_TENANT`) and REJECTED on any mismatch — a
+    /// (`MEDULLA_TENANT`) and REJECTED on any mismatch — a
     /// validly-signed bearer minted for a different tenant must never open a
     /// `CarrierAuthority` against this deployment's catalog. Namespace/table-
     /// level per-tenant projection of the catalog itself is a separate,
@@ -576,7 +576,7 @@ pub(crate) fn signed_test_claims(agent: &str) -> RequestContextClaims {
     RequestContextClaims {
         principal: agent.to_string(),
         tenant: "tenant-shared".to_string(),
-        audience: "epistemic-graph-test".to_string(),
+        audience: "medulla-test".to_string(),
         agent_id: agent.to_string(),
         roles: vec!["test".to_string()],
         scopes: vec!["*".to_string()],

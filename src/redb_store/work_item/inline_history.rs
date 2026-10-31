@@ -4,8 +4,8 @@
 //! retained byte and quota counter is in the same graph-owner-scoped native
 //! private table. V1 refuses scope retirement while any profile is retained.
 use super::*;
-use eg_types::inline_history::InlineCheckpointRef;
-use eg_types::native_control::SubmitWorkItemRequest;
+use medulla_types::inline_history::InlineCheckpointRef;
+use medulla_types::native_control::SubmitWorkItemRequest;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -230,13 +230,13 @@ fn validate_binding(
     input: &CommitWorkItemResultInput<'_, '_, '_>,
     props: &Row,
     admission: &SubmitWorkItemRequest,
-    profile: &eg_types::inline_history::CompletedTextAdmission,
-    candidate: &eg_types::inline_history::CompletedTextInput,
+    profile: &medulla_types::inline_history::CompletedTextAdmission,
+    candidate: &medulla_types::inline_history::CompletedTextInput,
 ) -> Result<(), String> {
     let run = input.run_completion.map(|value| value.run_id.as_str());
     if profile.version != 1
         || profile.user_text_digest
-            != eg_types::inline_history::content_digest(&candidate.user_text)
+            != medulla_types::inline_history::content_digest(&candidate.user_text)
         || admission.run_id.as_deref() != run
         || admission.context.tenant_id != input.tenant
         || sanitize(&admission.context.graph) != input.graph

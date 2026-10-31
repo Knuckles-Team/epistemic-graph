@@ -178,7 +178,7 @@ fn work_item_mutations() -> Vec<Method> {
     ]
 }
 
-// spec: EG-DURABLE-KERNEL-R009
+// spec: MEDULLA-DURABLE-KERNEL-R009
 #[test]
 fn work_item_mutations_round_trip_through_sealed_native_command() {
     for method in work_item_mutations() {
@@ -278,7 +278,7 @@ fn assert_native_round_trip(method: Method, expected_domain: NativeMutationDomai
     assert_eq!(rmp_serde::to_vec_named(&opened).unwrap(), expected);
 }
 
-// spec: EG-DURABLE-KERNEL-R027.3
+// spec: MEDULLA-DURABLE-KERNEL-R027.3
 #[test]
 fn native_catalog_is_complete_unique_and_has_domain_representatives() {
     let unique = NATIVE_CONSENSUS_METHODS
@@ -295,7 +295,7 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
         .collect::<std::collections::BTreeSet<_>>();
     for name in &unique {
         assert!(variants.contains(name), "{name} is not a Method variant");
-        let (_, policy, _) = eg_capabilities::method_policy_entries()
+        let (_, policy, _) = medulla_capabilities::method_policy_entries()
             .find(|(row, _, _)| row == name)
             .unwrap_or_else(|| panic!("{name} has no method policy"));
         assert!(
@@ -333,7 +333,7 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
     #[cfg(feature = "shacl")]
     assert_native_round_trip(
         Method::GraphSchema {
-            op: Box::new(eg_types::graph_schema::GraphSchemaOp::Detach {
+            op: Box::new(medulla_types::graph_schema::GraphSchemaOp::Detach {
                 source_id: "admin:policy".to_string(),
                 if_composed_digest: None,
             }),
@@ -371,7 +371,7 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
     #[cfg(feature = "jobs")]
     assert_native_round_trip(
         Method::AnalyticsJob {
-            op: eg_types::jobs::JobOp::Status {
+            op: medulla_types::jobs::JobOp::Status {
                 job_id: "job".to_string(),
             },
         },
@@ -400,14 +400,14 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
     );
     assert_native_round_trip(
         Method::Identity {
-            op: eg_types::identity::IdentityOp::Config(eg_types::identity::ConfigOp::Get),
+            op: medulla_types::identity::IdentityOp::Config(medulla_types::identity::ConfigOp::Get),
             stamp: None,
         },
         NativeMutationDomain::Identity,
     );
     assert_native_round_trip(
         Method::GovernedChange {
-            op: eg_types::governed_change::GovernedChangeOp::List,
+            op: medulla_types::governed_change::GovernedChangeOp::List,
             actor: None,
         },
         NativeMutationDomain::Identity,
@@ -437,7 +437,7 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
     #[cfg(feature = "statechart")]
     assert_native_round_trip(
         Method::Statechart {
-            op: eg_types::statechart::StatechartOp::List { def_id: None },
+            op: medulla_types::statechart::StatechartOp::List { def_id: None },
         },
         NativeMutationDomain::Statechart,
     );

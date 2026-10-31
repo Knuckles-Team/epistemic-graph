@@ -1,5 +1,5 @@
 """TxnClient stages the Txn* RPCs and threads the server-issued txn_id
-(CONCEPT:EG-KG.txn.multi-op-occ-acid — multi-op OCC ACID transactions).
+(CONCEPT:MEDULLA-KG.txn.multi-op-occ-acid — multi-op OCC ACID transactions).
 
 Fake client only — no running engine. Verifies the client builds the right
 wire methods/params (msgpack-packed property/condition blobs, txn_id threading)
@@ -13,15 +13,15 @@ from typing import Any
 import msgpack
 import pytest
 
-from epistemic_graph.client import EpistemicGraphClient, TxnClient
+from medulla.client import MedullaClient, TxnClient
 
 # Fake-client unit tests only -- never needs the shared native engine (see
-# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# conftest.py's session-scoped `start_medulla_server` fixture,
 # which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient(EpistemicGraphClient):
+class _FakeClient(MedullaClient):
     """Records each (method, params) and returns canned, per-method results that
     mimic the engine: BeginTxn → a txn_id String; Txn*/Commit/Rollback → Bool."""
 

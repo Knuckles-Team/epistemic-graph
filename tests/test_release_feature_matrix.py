@@ -1,4 +1,4 @@
-"""EG-CONTRACT-R018: the crates gate follows the declared pyo3 feature surface.
+"""MEDULLA-CONTRACT-R018: the crates gate follows the declared pyo3 feature surface.
 
 Collected by the existing python-suite job. These checks parse configuration;
 they do not replace the native crates gate's compilation and test evidence.
@@ -14,7 +14,7 @@ import yaml
 pytestmark = pytest.mark.no_engine
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGES = ("eg-numeric", "eg-pyengine")
+PACKAGES = ("medulla-numeric", "medulla-pyengine")
 
 
 @pytest.fixture
@@ -73,7 +73,7 @@ def _assert_matrix(workflow, manifests):
         for feature in manifest["features"]
         if feature not in {"default", "python"}
     }
-    assert "eg-numeric/motif" in expected, "motif must remain a declared feature"
+    assert "medulla-numeric/motif" in expected, "motif must remain a declared feature"
     assert selected <= expected, (
         f"release feature drift: unexpected={sorted(selected - expected)}"
     )
@@ -84,7 +84,7 @@ def _assert_matrix(workflow, manifests):
     )
 
 
-@pytest.mark.spec("EG-CONTRACT-R018")
+@pytest.mark.spec("MEDULLA-CONTRACT-R018")
 def test_release_crates_match_manifest_features(release_matrix):
     _assert_matrix(*release_matrix)
 
@@ -142,7 +142,7 @@ def test_unexpected_release_features_fail(release_matrix, feature):
     workflow, manifests = release_matrix
     step = _crates_step(workflow)
     step["run"] = step["run"].replace(
-        "--features ", f"--features eg-numeric/{feature},"
+        "--features ", f"--features medulla-numeric/{feature},"
     )
     with pytest.raises(AssertionError, match="release feature drift"):
         _assert_matrix(workflow, manifests)
@@ -150,17 +150,17 @@ def test_unexpected_release_features_fail(release_matrix, feature):
 
 def test_removing_motif_from_both_surfaces_still_fails(release_matrix):
     workflow, manifests = release_matrix
-    del manifests["eg-numeric"]["features"]["motif"]
+    del manifests["medulla-numeric"]["features"]["motif"]
     step = _crates_step(workflow)
-    step["run"] = step["run"].replace("eg-numeric/motif,", "")
+    step["run"] = step["run"].replace("medulla-numeric/motif,", "")
     with pytest.raises(AssertionError, match="motif must remain"):
         _assert_matrix(workflow, manifests)
 
 
 def test_transitive_feature_drift_fails(release_matrix):
     workflow, manifests = release_matrix
-    manifests["eg-pyengine"]["features"]["ml-pipeline"].remove("graphlearn")
-    with pytest.raises(AssertionError, match="eg-pyengine/graphlearn"):
+    manifests["medulla-pyengine"]["features"]["ml-pipeline"].remove("graphlearn")
+    with pytest.raises(AssertionError, match="medulla-pyengine/graphlearn"):
         _assert_matrix(workflow, manifests)
 
 
@@ -230,9 +230,9 @@ def _assert_required_clippy_declarations(workflow):
 
 
 # This is partial parent declaration coverage, not native execution evidence.
-@pytest.mark.spec("EG-DURABLE-KERNEL-R011")
-@pytest.mark.spec("EG-DURABLE-KERNEL-R011.5")
-@pytest.mark.spec("EG-CONTRACT-R037")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R011")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R011.5")
+@pytest.mark.spec("MEDULLA-CONTRACT-R037")
 def test_required_clippy_profiles_and_command_are_declared(release_matrix):
     workflow, _ = release_matrix
     _assert_required_clippy_declarations(workflow)
@@ -285,7 +285,7 @@ CLIPPY_DECLARATION_MUTATIONS = {
 }
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R011.5")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R011.5")
 @pytest.mark.parametrize("mutation", list(CLIPPY_DECLARATION_MUTATIONS))
 def test_required_clippy_declaration_drift_is_refused(release_matrix, mutation):
     workflow, _ = release_matrix
@@ -294,7 +294,7 @@ def test_required_clippy_declaration_drift_is_refused(release_matrix, mutation):
         _assert_required_clippy_declarations(workflow)
 
 
-# spec: EG-CONTRACT-R018
+# spec: MEDULLA-CONTRACT-R018
 def test_pyo3_gate_is_independent_required_and_keeps_trusted_cache_policy(
     release_matrix,
 ):
@@ -314,7 +314,7 @@ def test_pyo3_gate_is_independent_required_and_keeps_trusted_cache_policy(
     )
     assert job["runs-on"] == "ubuntu-24.04"
     assert job["env"] == jobs["gates-crates"]["env"]
-    assert job["env"]["SCCACHE_GHA_VERSION"] == "eg-ci-ubuntu-24.04-v1"
+    assert job["env"]["SCCACHE_GHA_VERSION"] == "medulla-ci-ubuntu-24.04-v1"
     assert (
         job["env"]["SCCACHE_GHA_RW_MODE"]
         == "${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}"
@@ -325,7 +325,7 @@ def test_pyo3_gate_is_independent_required_and_keeps_trusted_cache_policy(
         if step.get("uses", "").startswith("Swatinem/rust-cache@")
     ]
     assert len(caches) == 1
-    assert caches[0]["with"]["shared-key"] == "eg-ci-gates-ubuntu-24.04-v1"
+    assert caches[0]["with"]["shared-key"] == "medulla-ci-gates-ubuntu-24.04-v1"
     assert caches[0]["with"]["save-if"] == "${{ github.ref == 'refs/heads/main' }}"
     steps = {step.get("name"): step for step in job["steps"]}
     assert steps["Test (pyo3 crates, every feature except python)"]["if"] == (
@@ -341,7 +341,7 @@ def test_pyo3_gate_is_independent_required_and_keeps_trusted_cache_policy(
 
 # Partial declaration coverage, not native execution evidence: the slim
 # profile's compile-and-lint evidence remains owned by the CI legs.
-@pytest.mark.spec("EG-CONTRACT-R046")
+@pytest.mark.spec("MEDULLA-CONTRACT-R046")
 def test_release_workflow_checks_the_slim_server_profile(release_matrix):
     workflow, _ = release_matrix
     profiles = _clippy_profiles(workflow)
@@ -362,7 +362,7 @@ def test_release_workflow_checks_the_slim_server_profile(release_matrix):
 # `--no-default-features --features server` with warnings denied (not merely
 # reported) by the single blocking Clippy command. The native execution
 # evidence remains owned by the CI leg.
-@pytest.mark.spec("EG-CONTRACT-R032")
+@pytest.mark.spec("MEDULLA-CONTRACT-R032")
 def test_slim_server_clippy_profile_lints_with_warnings_denied(release_matrix):
     workflow, _ = release_matrix
     job = workflow["jobs"]["clippy-release-profiles"]
@@ -385,13 +385,13 @@ def test_slim_server_clippy_profile_lints_with_warnings_denied(release_matrix):
     assert not job.get("continue-on-error", False)
 
 
-@pytest.mark.spec("EG-CONTRACT-R047")
+@pytest.mark.spec("MEDULLA-CONTRACT-R047")
 def test_engine_main_wheel_publishes_a_prerelease_on_main_push_only(release_matrix):
     workflow, _ = release_matrix
     job = workflow["jobs"]["engine-main-wheel"]
     assert "push" in job["if"] and "refs/heads/main" in job["if"]
     assert "gates-variants" in job["needs"]
-    assert job["env"]["EG_WHEEL_TARGET"] == "x86_64-unknown-linux-gnu"
+    assert job["env"]["MEDULLA_WHEEL_TARGET"] == "x86_64-unknown-linux-gnu"
     names = [str(step.get("name", "")) for step in job["steps"]]
     assert any("Smoke test" in name for name in names)
     assert any("SHA256SUMS" in str(step.get("run", "")) for step in job["steps"])

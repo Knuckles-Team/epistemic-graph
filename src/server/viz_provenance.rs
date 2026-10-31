@@ -5,7 +5,7 @@
 //! attach a `:ToolCall`/`RunTrace` node to (viz is explicitly NOT graph-scoped;
 //! see `handlers::viz`'s module doc). It still needs an auditable record of
 //! WHAT was rendered, from WHAT data, and HOW, that survives a restart. Rather
-//! than adopting the full `eg-jobs` `AnalyticsJob`/`JobStore` machinery (built
+//! than adopting the full `medulla-jobs` `AnalyticsJob`/`JobStore` machinery (built
 //! for graph-scoped, worker-claimed, async-executed jobs — a real mismatch for
 //! a synchronous request/response render with no `GraphCore` to snapshot and
 //! no worker pool to claim it), this module identifies a record by
@@ -13,9 +13,9 @@
 //! from the SAME `render_cache_key` the render cache itself keys on, so
 //! provenance and cache entries for one render always agree on "which render
 //! this is" without a second, independently-computed identity scheme. (An
-//! `eg_jobs`-shaped binding for this data — `AlgoVersion`/
+//! `medulla_jobs`-shaped binding for this data — `AlgoVersion`/
 //! `InputSnapshotHandle`/`compute_result_ref` — is proven interop-compatible
-//! at the `eg-viz-core::job` layer's own dev-test, should a later lane want to
+//! at the `medulla-viz-core::job` layer's own dev-test, should a later lane want to
 //! surface a render through the shared analytics-job plane; this store does
 //! not require adopting that machinery to be useful today.) It persists ONE
 //! record per distinct `result_ref` in a small durable side-store — the SAME
@@ -39,7 +39,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "redb")]
 use redb::{ReadableTable, TableDefinition};
 
-/// The one owner table of `OwnerLayout::VizProvenance`. `eg-storage` declares
+/// The one owner table of `OwnerLayout::VizProvenance`. `medulla-storage` declares
 /// it; this module only names it (RF-RULING-004).
 #[cfg(feature = "redb")]
 const PROVENANCE_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("viz_provenance");
@@ -59,18 +59,18 @@ const MAX_RESULT_REF_BYTES: usize = 512;
 /// bounded/evictable; provenance is meant to outlive an evicted cache entry).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct VizProvenanceRecord {
-    /// `eg_jobs::compute_result_ref(&InputSnapshotHandle, &AlgoVersion)` — the
+    /// `medulla_jobs::compute_result_ref(&InputSnapshotHandle, &AlgoVersion)` — the
     /// SAME content-derived identity scheme the durable analytics-job plane
     /// uses, so a viz render's provenance sits in the same identity space as
     /// every other computed result this engine produces.
     pub result_ref: String,
-    /// `eg_viz_core::job::query_hash(spec, dataset_ref, content_fingerprint)` —
+    /// `medulla_viz_core::job::query_hash(spec, dataset_ref, content_fingerprint)` —
     /// what [`super::viz_engine`]'s render cache itself keys on (folded with
     /// canvas size/format there); recorded here too so a caller can go
     /// `query_hash -> result_ref` without recomputing it.
     pub query_hash: String,
     pub dataset_ref: String,
-    /// `eg_viz_columnstore::ColumnStore::content_fingerprint` at render time —
+    /// `medulla_viz_columnstore::ColumnStore::content_fingerprint` at render time —
     /// the exact "what changed" scope this record is pinned to.
     pub content_fingerprint: u64,
     pub algo_family: String,
@@ -101,7 +101,7 @@ fn validate_key(key: &str) -> Result<(), String> {
 pub(crate) struct VizProvenanceStore {
     entries: RwLock<HashMap<String, VizProvenanceRecord>>,
     #[cfg(feature = "redb")]
-    durable: Option<crate::sidecar_store::SidecarStore<eg_storage::VizProvenanceOwner>>,
+    durable: Option<crate::sidecar_store::SidecarStore<medulla_storage::VizProvenanceOwner>>,
 }
 
 impl VizProvenanceStore {
@@ -140,12 +140,12 @@ impl VizProvenanceStore {
                 }
                 let (k, v) = row.map_err(|e| e.to_string())?;
                 validate_key(k.value())?;
-                let record: VizProvenanceRecord = eg_types::msgpack::decode_bounded(
+                let record: VizProvenanceRecord = medulla_types::msgpack::decode_bounded(
                     v.value(),
-                    eg_types::msgpack::MsgpackLimits::new(
+                    medulla_types::msgpack::MsgpackLimits::new(
                         2048,
                         32,
-                        eg_types::msgpack::DEFAULT_MAX_DEPTH,
+                        medulla_types::msgpack::DEFAULT_MAX_DEPTH,
                     ),
                 )
                 .map_err(|_| {
@@ -276,7 +276,7 @@ mod tests {
     fn tempfile_dir() -> String {
         let mut dir = std::env::temp_dir();
         dir.push(format!(
-            "eg-viz-provenance-test-{}-{}",
+            "medulla-viz-provenance-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

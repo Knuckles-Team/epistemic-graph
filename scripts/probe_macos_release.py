@@ -67,7 +67,7 @@ def branch_probe(root: Path) -> None:
         [
             "xcrun",
             "clang",
-            f"-fuse-ld={os.environ['EG_MACHO_LINKER']}",
+            f"-fuse-ld={os.environ['MEDULLA_MACHO_LINKER']}",
             str(assembly),
             "-Wl,-map," + str(root / "branches.map"),
             "-o",
@@ -84,32 +84,32 @@ def packaging_fixture(root: Path) -> tuple[Path, Path]:
     project = root / "package"
     (project / "src/bin").mkdir(parents=True)
     (project / "Cargo.toml").write_text(
-        '[package]\nname="eg-mac-probe"\nversion="0.1.0"\nedition="2021"\n'
+        '[package]\nname="medulla-mac-probe"\nversion="0.1.0"\nedition="2021"\n'
         '[profile.release]\nopt-level=3\nlto="thin"\ncodegen-units=1\n'
         'panic="unwind"\nstrip=true\n'
         "[features]\nfull=[]\nast-extended=[]\n"
     )
     (project / "pyproject.toml").write_text(
         '[build-system]\nrequires=["maturin==1.15.0"]\nbuild-backend="maturin"\n'
-        '[project]\nname="eg-mac-probe"\nversion="0.1.0"\n'
+        '[project]\nname="medulla-mac-probe"\nversion="0.1.0"\n'
         '[tool.maturin]\nbindings="bin"\nstrip=true\n'
     )
     (project / "src/lib.rs").write_text("pub fn value() -> u32 { 42 }\n")
     for number in range(5):
         (project / f"src/bin/tool{number}.rs").write_text(
-            'fn main() { assert_eq!(eg_mac_probe::value(), 42); println!("42"); }\n'
+            'fn main() { assert_eq!(medulla_mac_probe::value(), 42); println!("42"); }\n'
         )
     wrapper = root / "rustc-wrapper.py"
     wrapper.write_text(
         "#!/usr/bin/env python3\nimport json,os,sys\n"
-        'with open(os.environ["EG_PROBE_RUSTC_LOG"],"a") as log:\n'
+        'with open(os.environ["MEDULLA_PROBE_RUSTC_LOG"],"a") as log:\n'
         ' log.write(json.dumps(sys.argv[2:])+"\\n")\n'
         "os.execvp(sys.argv[1], sys.argv[1:])\n"
     )
     wrapper.chmod(0o755)
     os.environ["RUSTC_WRAPPER"] = str(wrapper)
     log = root / "rustc.jsonl"
-    os.environ["EG_PROBE_RUSTC_LOG"] = str(log)
+    os.environ["MEDULLA_PROBE_RUSTC_LOG"] = str(log)
     os.environ["CARGO_TARGET_DIR"] = str(root / "target")
     return project, log
 
@@ -121,7 +121,7 @@ def packaging_probe(root: Path) -> None:
         if mode == "batched":
             os.environ["CARGO_TARGET_DIR"] = str(root / "batch-target")
             run(["cargo", "generate-lockfile", "--offline"], project)
-            os.environ["EG_WHEEL_JOBS_ARG"] = "--jobs 2"
+            os.environ["MEDULLA_WHEEL_JOBS_ARG"] = "--jobs 2"
             os.environ["MATURIN_FEATURES"] = "full,ast-extended"
             durations["prebuild"] = run(
                 [
@@ -142,7 +142,7 @@ def packaging_probe(root: Path) -> None:
                 "--features",
                 "full,ast-extended",
                 "--target",
-                os.environ["EG_WHEEL_TARGET"],
+                os.environ["MEDULLA_WHEEL_TARGET"],
                 "--out",
                 str(root / mode),
                 *(["--strip=false"] if mode == "batched" else []),
@@ -177,7 +177,7 @@ def verify_packaged_tools(root: Path, mode: str) -> None:
                 original = (
                     root
                     / "batch-target"
-                    / os.environ["EG_WHEEL_TARGET"]
+                    / os.environ["MEDULLA_WHEEL_TARGET"]
                     / "release"
                     / Path(name).name
                 ).read_bytes()
@@ -207,7 +207,7 @@ def failed_prebuild_probe(root: Path) -> None:
     ]
     result = subprocess.run(command, cwd=project, check=False, timeout=60)
     assert result.returncode == 101
-    metrics = Path(os.environ["RUNNER_TEMP"]) / "eg-macos-build-metrics"
+    metrics = Path(os.environ["RUNNER_TEMP"]) / "medulla-macos-build-metrics"
     assert (metrics / "reproduction/exit-status.txt").read_text().strip() == "101"
     assert (metrics / "reproduction/build.log").stat().st_size > 0
     assert list((metrics / "primary/cargo-timings").glob("*.html"))
@@ -218,8 +218,8 @@ def abi3_probe(root: Path) -> None:
     project = root / "abi3"
     (project / "src").mkdir(parents=True)
     (project / "Cargo.toml").write_text(
-        '[package]\nname="eg-mac-abi3"\nversion="0.1.0"\nedition="2021"\n'
-        '[lib]\nname="eg_mac_abi3"\ncrate-type=["cdylib"]\n'
+        '[package]\nname="medulla-mac-abi3"\nversion="0.1.0"\nedition="2021"\n'
+        '[lib]\nname="medulla_mac_abi3"\ncrate-type=["cdylib"]\n'
         '[dependencies]\npyo3={version="=0.29.2",'
         'features=["extension-module","abi3-py39"]}\n'
         '[profile.release]\nopt-level=3\nlto="thin"\ncodegen-units=1\n'
@@ -227,7 +227,7 @@ def abi3_probe(root: Path) -> None:
     )
     (project / "src/lib.rs").write_text(
         "use pyo3::prelude::*;\n#[pymodule]\n"
-        "fn eg_mac_abi3(m: &Bound<'_, PyModule>) -> PyResult<()> {"
+        "fn medulla_mac_abi3(m: &Bound<'_, PyModule>) -> PyResult<()> {"
         'm.add("answer", 42)?; Ok(())}\n'
     )
     run(["maturin", "build", "--release", "--jobs", "2", "--out", "dist"], project)
@@ -252,7 +252,7 @@ def abi3_probe(root: Path) -> None:
             "-c",
             "import sys;sys.path.insert(0,"
             + repr(str(project / "site"))
-            + ");import eg_mac_abi3;assert eg_mac_abi3.answer==42",
+            + ");import medulla_mac_abi3;assert medulla_mac_abi3.answer==42",
         ],
         project,
     )
@@ -262,7 +262,7 @@ def abi3_probe(root: Path) -> None:
 def main() -> None:
     assert os.uname().sysname == "Darwin"
     with tempfile.TemporaryDirectory(
-        prefix="eg-macos-probe-", dir=os.environ["RUNNER_TEMP"]
+        prefix="medulla-macos-probe-", dir=os.environ["RUNNER_TEMP"]
     ) as path:
         root = Path(path)
         linker_probe(root)

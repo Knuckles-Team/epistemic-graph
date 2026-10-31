@@ -1,0 +1,179 @@
+// CONCEPT:MEDULLA-KG.compute.signal-generation — Signal Generation Engine
+//
+// Rolling Z-score, alpha combination, signal decay, and cross-sectional ranking.
+// Core signal primitives for quantitative alpha research.
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SignalOutput {
+    pub values: Vec<f64>,
+    pub signal_name: String,
+}
+
+/// Rolling Z-score `(x - rolling_mean) / rolling_std` (population deviation, `0` on a
+/// flat window, `NaN` during warm-up; empty for a zero window). The finance entry of the
+/// one series kernel `medulla_numeric::series` (EH-522/EH-530) — the same values UQL
+/// `DERIVE zscore(v0, w)` and SQL `medulla_zscore(v, w)` produce.
+pub fn rolling_zscore(values: &[f64], window: usize) -> Vec<f64> {
+    use medulla_numeric::series::{apply_nan, Rolling, Spec};
+    apply_nan(Spec::Rolling(Rolling::Zscore, window), values).unwrap_or_default()
+}
+
+/// Exponential weighted moving average (EWMA) signal, `α = 2/(span+1)`, seeded with the
+/// first value (empty for a zero span). The finance entry of `medulla_numeric::series`
+/// (UQL `DERIVE ewma(v0, span)`, SQL `medulla_ewma(v, span)`).
+pub fn ewma_signal(values: &[f64], span: usize) -> Vec<f64> {
+    use medulla_numeric::series::{apply_nan, Smoothing, Spec};
+    apply_nan(Spec::Ewma(Smoothing::Span(span as f64)), values).unwrap_or_default()
+}
+
+/// Signal decay — exponential decay applied to a signal.
+pub fn signal_decay(signal: &[f64], half_life: f64) -> Vec<f64> {
+    if signal.is_empty() {
+        return vec![];
+    }
+    let decay_factor = (-0.693 / half_life).exp(); // ln(2) ≈ 0.693
+    let n = signal.len();
+    let mut decayed = vec![0.0; n];
+    decayed[n - 1] = signal[n - 1];
+
+    for i in (0..n - 1).rev() {
+        decayed[i] = signal[i] + decay_factor * decayed[i + 1];
+    }
+    decayed
+}
+
+/// Alpha combination — weighted linear combination of multiple alpha signals.
+pub fn combine_alphas(signals: &[Vec<f64>], weights: &[f64]) -> Vec<f64> {
+    if signals.is_empty() || weights.is_empty() {
+        return vec![];
+    }
+    let n = signals[0].len();
+    let mut combined = vec![0.0; n];
+
+    for (signal, &weight) in signals.iter().zip(weights.iter()) {
+        for i in 0..n.min(signal.len()) {
+            let val = signal[i];
+            if val.is_finite() {
+                combined[i] += weight * val;
+            }
+        }
+    }
+    combined
+}
+
+/// Cross-sectional rank — rank values at each time step.
+/// Returns ranks as percentiles (0.0 to 1.0).
+pub fn cross_sectional_rank(cross_section: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    if cross_section.is_empty() {
+        return vec![];
+    }
+    let n_assets = cross_section.len();
+    let n_times = cross_section[0].len();
+    let mut ranked = vec![vec![0.0; n_times]; n_assets];
+
+    for t in 0..n_times {
+        let mut vals: Vec<(usize, f64)> = (0..n_assets)
+            .map(|a| {
+                (
+                    a,
+                    if t < cross_section[a].len() {
+                        cross_section[a][t]
+                    } else {
+                        f64::NAN
+                    },
+                )
+            })
+            .filter(|(_, v)| v.is_finite())
+            .collect();
+
+        vals.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let count = vals.len();
+        for (rank, (asset_idx, _)) in vals.iter().enumerate() {
+            ranked[*asset_idx][t] = if count > 1 {
+                rank as f64 / (count - 1) as f64
+            } else {
+                0.5
+            };
+        }
+    }
+    ranked
+}
+
+/// Momentum signal — (price / price_n_periods_ago) - 1
+pub fn momentum(prices: &[f64], lookback: usize) -> Vec<f64> {
+    let n = prices.len();
+    if n <= lookback {
+        return vec![f64::NAN; n];
+    }
+    let mut result = vec![f64::NAN; n];
+    for i in lookback..n {
+        if prices[i - lookback].abs() > 1e-12 {
+            result[i] = prices[i] / prices[i - lookback] - 1.0;
+        }
+    }
+    result
+}
+
+/// Mean reversion signal — deviation from rolling mean, normalized.
+pub fn mean_reversion(values: &[f64], window: usize) -> Vec<f64> {
+    let zscore = rolling_zscore(values, window);
+    // Negate: large positive z-score → sell signal (expect reversion)
+    zscore
+        .iter()
+        .map(|z| if z.is_finite() { -z } else { f64::NAN })
+        .collect()
+}
+
+/// Information Coefficient — the Pearson correlation of a signal with forward returns
+/// over their finite pairs. The evaluation kernel (EH-530).
+pub use medulla_numeric::evaluation::skill::information_coefficient;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rolling_zscore() {
+        let values = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+        let result = rolling_zscore(&values, 3);
+        assert_eq!(result.len(), 10);
+        assert!(result[0].is_nan());
+        assert!(result[2].is_finite());
+    }
+
+    #[test]
+    fn test_ewma() {
+        let values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let result = ewma_signal(&values, 3);
+        assert_eq!(result.len(), 5);
+        assert_eq!(result[0], 1.0);
+    }
+
+    #[test]
+    fn test_combine_alphas() {
+        let s1 = vec![1.0, 2.0, 3.0];
+        let s2 = vec![3.0, 2.0, 1.0];
+        let combined = combine_alphas(&[s1, s2], &[0.6, 0.4]);
+        assert_eq!(combined.len(), 3);
+        assert!((combined[0] - 1.8).abs() < 1e-10); // 0.6*1 + 0.4*3
+    }
+
+    #[test]
+    fn test_momentum() {
+        let prices = vec![100.0, 105.0, 110.0, 108.0, 112.0];
+        let result = momentum(&prices, 2);
+        assert!(result[2].is_finite());
+        assert!((result[2] - 0.10).abs() < 1e-10); // 110/100 - 1
+    }
+
+    #[test]
+    fn test_information_coefficient() {
+        let signal = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let returns = vec![0.1, 0.2, 0.3, 0.4, 0.5];
+        let ic = information_coefficient(&signal, &returns);
+        assert!((ic - 1.0).abs() < 1e-10); // Perfectly correlated
+    }
+}

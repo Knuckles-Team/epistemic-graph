@@ -17,7 +17,7 @@ use crate::epistemic_operations::{
     DevelopmentLaneResult, DevelopmentLaneResultSchemaVersion,
 };
 use crate::protocol::Method;
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 
 pub(super) const REDACTED_PRIVATE_ID: &str = "redacted";
 

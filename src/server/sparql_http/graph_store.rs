@@ -128,7 +128,7 @@ fn graph_body_as_ntriples(req: &HttpMessage) -> Result<String, String> {
         &req.text(),
     )
     .map_err(|error| format!("parse RDF body: {error}"))?;
-    eg_rdf::mapping::to_ntriples(&triples)
+    medulla_rdf::mapping::to_ntriples(&triples)
 }
 
 async fn graph_delete(
@@ -186,17 +186,17 @@ pub(super) fn gsp_default_graph() -> String {
 pub(super) fn parse_rdf_body(
     content_type: &str,
     body: &str,
-) -> Result<Vec<eg_rdf::oxrdf::Triple>, String> {
+) -> Result<Vec<medulla_rdf::oxrdf::Triple>, String> {
     if content_type.contains("n-triples") || content_type.contains("ntriples") {
-        eg_rdf::mapping::parse_ntriples(body)
+        medulla_rdf::mapping::parse_ntriples(body)
     } else {
-        eg_rdf::mapping::parse_turtle(body)
+        medulla_rdf::mapping::parse_turtle(body)
     }
 }
 
 pub(super) fn export_graph(
     core: &GraphCore,
     name: &str,
-) -> Result<Vec<eg_rdf::oxrdf::Triple>, String> {
-    eg_rdf::mapping::export_triples(core, name)
+) -> Result<Vec<medulla_rdf::oxrdf::Triple>, String> {
+    medulla_rdf::mapping::export_triples(core, name)
 }

@@ -7,15 +7,15 @@ from collections import Counter
 import pytest
 from pydantic import ValidationError
 
-from epistemic_graph.testing.synthetic import assembly_oracle as oracle
-from epistemic_graph.testing.synthetic.assembly import (
+from medulla.testing.synthetic import assembly_oracle as oracle
+from medulla.testing.synthetic.assembly import (
     Abstained,
     Constraints,
     GoldSet,
     PlanItem,
     Solved,
 )
-from epistemic_graph.testing.synthetic.assembly_generate import (
+from medulla.testing.synthetic.assembly_generate import (
     DEFAULT_MIX,
     generate_gold_set,
 )

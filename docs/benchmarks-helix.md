@@ -19,7 +19,7 @@ pipelines' job.
 | input | value |
 |---|---|
 | HelixDB | `81e1e741e8d3d61e6b09577e1d46137850fc9343`, `cargo build --release --locked -p server` (rustc 1.97.1), driven through the same commit's Python SDK (`sdks/python/src`) |
-| Medulla | engine tree `6ce3516ef` (release `epistemic-graph-server`, default features), driven through this repository's Python client |
+| Medulla | engine tree `6ce3516ef` (release `medulla-server`, default features), driven through this repository's Python client |
 | Corpus | seed 20260924: 20,000 `Doc` nodes (16 categories, year 2000–2025, 24-word Zipf text body, 32-dim unit embedding clustered by category), 99,985 `CITES` edges. Every doc cites up to 5 earlier docs, so the graph is a DAG. Corpus sha256 `0c4b9989…51c1` |
 | Query set | seeded separately (seed + 1). sha256 `f38f5d9c…2974` |
 | Spec | [`benches/helix_compare/spec.json`](https://github.com/Knuckles-Team/medulla/blob/main/benches/helix_compare/spec.json) holds both digests, workload sizes, the plan (gate 100 ops, warm-up 200, cold 50, concurrency 1 and 8) and CPU pinning (server CPUs 0–3, client CPUs 4–7) |
@@ -185,17 +185,17 @@ Build both servers, then run on one quiet host:
 
 ```bash
 # Medulla (this tree)
-cargo build --release --locked --bin epistemic-graph-server
+cargo build --release --locked --bin medulla-server
 python3 scripts/build_numeric_kernel.py      # the client's eg2. signing codec
 # HelixDB at the pinned commit
 git clone https://github.com/HelixDB/helix-db helix && git -C helix checkout 81e1e741e8d3d61e6b09577e1d46137850fc9343
 (cd helix && cargo build --release --locked -p server)
 
 PYTHONPATH=$PWD:$PWD/scripts python3 scripts/bench_helix_compare.py \
-  --eg-server target/release/epistemic-graph-server \
+  --medulla-server target/release/medulla-server \
   --helix-server helix/target/release/server \
   --helix-sdk helix/sdks/python/src \
-  --eg-commit "$(git rev-parse HEAD)" \
+  --medulla-commit "$(git rev-parse HEAD)" \
   --workdir ./helix-compare-work \
   --out report.json --markdown report.md
 ```

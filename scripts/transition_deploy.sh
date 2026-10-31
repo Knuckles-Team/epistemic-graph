@@ -74,30 +74,30 @@ NODE_LABEL="$(manager_ssh "docker service inspect $ENGINE_SERVICE --format '{{ra
 NODE_IP="$(manager_ssh "docker node inspect $NODE_LABEL --format '{{.Status.Addr}}'" | tr -d ' \r')"
 [[ -n "$NODE_IP" ]] || die "could not resolve IP for node $NODE_LABEL"
 # the binary's host bind-mount source (Source of the mount whose Target is the server binary)
-BIND_SRC="$(manager_ssh "docker service inspect $ENGINE_SERVICE --format '{{range .Spec.TaskTemplate.ContainerSpec.Mounts}}{{if eq .Target \"/usr/local/bin/epistemic-graph-server\"}}{{.Source}}{{end}}{{end}}'" | tr -d ' \r')"
-[[ -n "$BIND_SRC" ]] || die "could not find the engine-binary bind mount (Target=/usr/local/bin/epistemic-graph-server) on $ENGINE_SERVICE"
+BIND_SRC="$(manager_ssh "docker service inspect $ENGINE_SERVICE --format '{{range .Spec.TaskTemplate.ContainerSpec.Mounts}}{{if eq .Target \"/usr/local/bin/medulla-server\"}}{{.Source}}{{end}}{{end}}'" | tr -d ' \r')"
+[[ -n "$BIND_SRC" ]] || die "could not find the engine-binary bind mount (Target=/usr/local/bin/medulla-server) on $ENGINE_SERVICE"
 say "engine runs on node=$NODE_LABEL ip=$NODE_IP  bind-path=$BIND_SRC"
 
 # ── 1b. preflight — fail FAST on the traps that cause crash-loops on restart ────────
-# (a) the compiled eg-numeric kernel must be importable — /au hard-requires it and it
+# (a) the compiled medulla-numeric kernel must be importable — /au hard-requires it and it
 #     ships as a .so in the medulla[numeric] wheel, NOT the /eg source tree, so a
 #     source-mounted deploy crash-loops the host-daemon on restart without it; (b) the
 #     engine must be reachable; (c) warn if the node config.json shadows a local engine.
 preflight() {
   local fail=0
   # (a) numeric kernel importable via the repo's editable tree
-  if PYTHONPATH="$REPO:${PYTHONPATH:-}" python3 -c "import epistemic_graph.numeric as n; assert getattr(n,'__kernel__','')=='eg-numeric'" 2>/dev/null; then
-    say "preflight: eg-numeric kernel importable ✓"
+  if PYTHONPATH="$REPO:${PYTHONPATH:-}" python3 -c "import medulla.numeric as n; assert getattr(n,'__kernel__','')=='medulla-numeric'" 2>/dev/null; then
+    say "preflight: medulla-numeric kernel importable ✓"
   else
-    echo "!! preflight: eg-numeric kernel NOT importable ($REPO/epistemic_graph/numeric.abi3.so missing)." >&2
-    echo "   fix: pip download --no-deps medulla==<ver>; unzip epistemic_graph/numeric.abi3.so into $REPO/epistemic_graph/" >&2
+    echo "!! preflight: medulla-numeric kernel NOT importable ($REPO/medulla/numeric.abi3.so missing)." >&2
+    echo "   fix: pip download --no-deps medulla==<ver>; unzip medulla/numeric.abi3.so into $REPO/medulla/" >&2
     fail=1
   fi
   # (c) client-node config.json shadowing check (best-effort)
   local cfg="${ARBORA_CONFIG_DIR:-$HOME/.config/arbora}/config.json"
-  if [[ -f "$cfg" ]] && python3 -c "import json,sys; d=json.load(open('$cfg')); sys.exit(0 if (d.get('GRAPH_SERVICE_SOCKET') and not d.get('GRAPH_SERVICE_TCP_ADDR') and str(d.get('EPISTEMIC_GRAPH_AUTOSTART'))=='1') else 1)" 2>/dev/null; then
+  if [[ -f "$cfg" ]] && python3 -c "import json,sys; d=json.load(open('$cfg')); sys.exit(0 if (d.get('GRAPH_SERVICE_SOCKET') and not d.get('GRAPH_SERVICE_TCP_ADDR') and str(d.get('MEDULLA_AUTOSTART'))=='1') else 1)" 2>/dev/null; then
     echo "!! preflight: node config.json ($cfg) declares a LOCAL engine socket + AUTOSTART=1 on what looks like a client node." >&2
-    echo "   fix: set GRAPH_SERVICE_TCP_ADDR/ENGINE_ENDPOINT (remote), EPISTEMIC_GRAPH_AUTOSTART=0, drop GRAPH_SERVICE_SOCKET." >&2
+    echo "   fix: set GRAPH_SERVICE_TCP_ADDR/ENGINE_ENDPOINT (remote), MEDULLA_AUTOSTART=0, drop GRAPH_SERVICE_SOCKET." >&2
     fail=1
   fi
   return $fail
@@ -108,7 +108,7 @@ if ! preflight; then
 fi
 
 # ── 2. build (glibc-compat-checked) ────────────────────────────────────────────────
-SRC="$REPO/target/release/epistemic-graph-server"
+SRC="$REPO/target/release/medulla-server"
 if [[ "$DO_BUILD" == 1 ]]; then
   say "building engine (--features $BUILD_FEATURES) in $REPO …"
   run "( cd '$REPO' && cargo build --release --features '$BUILD_FEATURES' )"
@@ -183,13 +183,13 @@ served_verify() {  # returns 0 if the engine answers a real query through the de
   python3 - "$tcp" "$VERIFY_GRAPH" <<'PY'
 import asyncio, sys
 try:
-    from epistemic_graph.client import EpistemicGraphClient
+    from medulla.client import MedullaClient
 except Exception as e:
     print(f"(skip) client not importable: {e}"); sys.exit(0)
 tcp, graph = sys.argv[1], sys.argv[2]
 async def main():
     try:
-        c = await EpistemicGraphClient.connect(tcp_addr=tcp, graph_name=graph, connect_timeout=8)
+        c = await MedullaClient.connect(tcp_addr=tcp, graph_name=graph, connect_timeout=8)
         await c.query.uql("MATCH (n) |> LIMIT 1"); await c.close()
         print(f"[PASS] engine answers a real query @ {tcp}"); sys.exit(0)
     except Exception as e:

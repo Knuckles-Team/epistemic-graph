@@ -37,11 +37,11 @@ Generated predecessor fixtures remain outstanding.
 Before making the change ready:
 
 1. Capture `dump_graph_shard_manifest` from exact base `d92c682c` in an isolated
-   worktree using the procedure in `crates/eg-storage/fixtures/lineage/README.md`.
+   worktree using the procedure in `crates/medulla-storage/fixtures/lineage/README.md`.
    Preserve that real base-build output as the new predecessor fixture.
 2. Run the native owner-lineage tests to calculate and independently review the
    successor table fingerprint. Update the source pin only to the actual result.
-3. Run `cargo run -p eg-storage --example gen_owner_store_formats`; never hand-edit
+3. Run `cargo run -p medulla-storage --example gen_owner_store_formats`; never hand-edit
    the generated owner-format document.
 4. Run storage census, lineage, old-layout refusal and data-preserving upgrade
    tests, including `inline_history_upgrade_preserves_graph_and_private_plan_rows`.

@@ -17,7 +17,7 @@ pub(crate) fn resource_decode<T: serde::de::DeserializeOwned>(
 }
 
 pub(crate) fn resource_put_host(
-    hosts: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    hosts: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     graph: &str,
     host: &DurableResourceHost,
     crypto: DurableCrypto<'_>,
@@ -28,7 +28,7 @@ pub(crate) fn resource_put_host(
 }
 
 pub(crate) fn resource_put_reservation(
-    reservations: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    reservations: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     graph: &str,
     reservation: &DurableResourceReservation,
     crypto: DurableCrypto<'_>,
@@ -42,7 +42,7 @@ pub(crate) fn resource_put_reservation(
 }
 
 pub(crate) fn resource_load_fairness(
-    fairness: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    fairness: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     graph: &str,
     tenant: &str,
     group: &str,
@@ -57,7 +57,7 @@ pub(crate) fn resource_load_fairness(
 }
 
 pub(crate) fn resource_put_fairness(
-    fairness: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    fairness: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     graph: &str,
     tenant: &str,
     group: &str,
@@ -71,7 +71,7 @@ pub(crate) fn resource_put_fairness(
 }
 
 pub(crate) fn resource_load_host(
-    hosts: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    hosts: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     graph: &str,
     host_ref: &str,
     crypto: DurableCrypto<'_>,
@@ -83,7 +83,7 @@ pub(crate) fn resource_load_host(
 }
 
 pub(crate) fn resource_load_reservation(
-    reservations: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    reservations: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     graph: &str,
     reservation_id: &str,
     crypto: DurableCrypto<'_>,
@@ -95,7 +95,7 @@ pub(crate) fn resource_load_reservation(
 }
 
 pub(crate) fn resource_adjust_concurrency(
-    concurrency: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), u64>,
+    concurrency: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), u64>,
     graph: &str,
     key: &str,
     delta: i64,
@@ -122,7 +122,7 @@ pub(crate) fn resource_adjust_concurrency(
 }
 
 pub(crate) fn resource_adjust_anti_affinity(
-    anti_affinity: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str, &str), u64>,
+    anti_affinity: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str, &str), u64>,
     graph: &str,
     host_ref: &str,
     tag: &str,

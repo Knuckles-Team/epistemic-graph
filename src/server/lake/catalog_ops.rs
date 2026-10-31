@@ -104,11 +104,11 @@ pub(super) fn publish_artifacts(
 pub(super) fn prepare_materialization(
     input: &MaterializeInput<'_>,
     existing: Option<&TableEntry>,
-    lsn: eg_lake::snapshot::Lsn,
+    lsn: medulla_lake::snapshot::Lsn,
     ts_ms: i64,
 ) -> Result<PreparedMaterialization, String> {
     let mut candidate = existing.cloned().unwrap_or_else(|| TableEntry {
-        table: eg_lake::LakeTable::new(
+        table: medulla_lake::LakeTable::new(
             input.namespace.to_string(),
             input.table.to_string(),
             input.schema.clone(),
@@ -132,7 +132,7 @@ pub(super) fn prepare_materialization(
         .last()
         .ok_or_else(|| "materialization produced no Delta commit".to_string())?;
     let manifests = candidate.table.iceberg_manifests()?;
-    eg_lake::record_iceberg_commit(&mut candidate.table, ts_ms);
+    medulla_lake::record_iceberg_commit(&mut candidate.table, ts_ms);
     candidate.mutation_revision = candidate.mutation_revision.wrapping_add(1);
     let iceberg = candidate.table.iceberg(ts_ms);
     let artifacts = vec![
@@ -202,8 +202,8 @@ impl LakeManager {
                 current_lsn,
             });
         }
-        let requested = eg_lake::snapshot::Lsn(lsn);
-        if !eg_lake::has_iceberg_snapshot_as_of(&entry.table, requested) {
+        let requested = medulla_lake::snapshot::Lsn(lsn);
+        if !medulla_lake::has_iceberg_snapshot_as_of(&entry.table, requested) {
             return Ok(None);
         }
         let ts_ms = super::lineage::now_ms();
@@ -327,7 +327,7 @@ impl LakeManager {
         store: &dyn ChunkStore,
         namespace: &str,
         table: &str,
-        schema: eg_lake::schema::LakeSchema,
+        schema: medulla_lake::schema::LakeSchema,
         owner_tenant: Option<&str>,
     ) -> Result<Value, CreateTableError> {
         {
@@ -336,7 +336,7 @@ impl LakeManager {
                 return Err(CreateTableError::AlreadyExists);
             }
         }
-        let batch = eg_lake::schema::LakeBatch::new(schema.clone(), Vec::new())
+        let batch = medulla_lake::schema::LakeBatch::new(schema.clone(), Vec::new())
             .map_err(CreateTableError::Other)?;
         self.materialize_batch(
             store,

@@ -7,14 +7,14 @@ use super::retrieval_tests::{
     attest, clone_executed, evaluate_by, executed_template, learn, outcome, sql,
 };
 use super::*;
-use eg_types::decision::statistical::retrieval::{
+use medulla_types::decision::statistical::retrieval::{
     LearningRecorded, LearningWrite, PointerMovement, PointerRef, QueryVector,
 };
-use eg_types::decision::statistical::retrieval_adapter::{AdapterFitRequest, AdapterFitted};
-use eg_types::decision::statistical::retrieval_generation::{
+use medulla_types::decision::statistical::retrieval_adapter::{AdapterFitRequest, AdapterFitted};
+use medulla_types::decision::statistical::retrieval_generation::{
     GenerationEvalItem, GenerationEvalRequest, GenerationEvaluated,
 };
-use eg_types::decision::statistical::retrieval_pointer::PointerState;
+use medulla_types::decision::statistical::retrieval_pointer::PointerState;
 use serde_json::json;
 
 const GRAPH: &str = "kg-retrieval";
@@ -46,7 +46,7 @@ fn activate(target: &str, receipt_digest: &str) -> PointerMovement {
 /// Nodes `p<i>` (what answers cite) are the unit axis 1 and `n<i>` (what the
 /// base query prefers) the unit axis 0; every judged run returned `n<i>` above
 /// `p<i>`.
-async fn embedded_graph(h: &Harness) -> Arc<eg_core::graph::GraphCore> {
+async fn embedded_graph(h: &Harness) -> Arc<medulla_core::graph::GraphCore> {
     let rows = (0..40).flat_map(|i| {
         [
             (format!("p{i}"), vec![0.0, 1.0, 0.0]),
@@ -58,7 +58,7 @@ async fn embedded_graph(h: &Harness) -> Arc<eg_core::graph::GraphCore> {
 
 /// The digest of the test model's space at `revision`.
 fn space_of(revision: &str, dims: usize) -> String {
-    eg_types::embedding::EmbeddingSpaceRef::pinned(
+    medulla_types::embedding::EmbeddingSpaceRef::pinned(
         "m", revision, "sha256:w", "sha256:p", dims, false,
     )
     .unwrap()
@@ -72,14 +72,14 @@ async fn graph_with(
     revision: &str,
     dims: usize,
     rows: Vec<(String, Vec<f32>)>,
-) -> Arc<eg_core::graph::GraphCore> {
+) -> Arc<medulla_core::graph::GraphCore> {
     let mut guard = h.state.write().await;
     guard
         .registry
         .create_graph(name, crate::protocol::GraphType::Team, None)
         .unwrap();
     let core = guard.registry.get(name).unwrap().core.clone();
-    let space = eg_types::embedding::EmbeddingSpaceRef::pinned(
+    let space = medulla_types::embedding::EmbeddingSpaceRef::pinned(
         "m", revision, "sha256:w", "sha256:p", dims, false,
     )
     .unwrap();
@@ -136,13 +136,13 @@ fn fit_request(space: &str) -> AdapterFitRequest {
     }
 }
 
-fn top(core: &eg_core::graph::GraphCore, query: &[f32]) -> String {
+fn top(core: &medulla_core::graph::GraphCore, query: &[f32]) -> String {
     core.semantic_store.read().semantic_search(query, 1)[0]
         .0
         .clone()
 }
 
-// spec: EG-DECISION-ENGINE-R101
+// spec: MEDULLA-DECISION-ENGINE-R101
 #[tokio::test]
 async fn an_adapter_is_served_only_after_its_passing_receipt_and_rolls_back() {
     let h = Harness::with_isolation(ServerState::test_isolation("decider")).await;
@@ -221,7 +221,7 @@ async fn an_adapter_is_served_only_after_its_passing_receipt_and_rolls_back() {
 #[cfg(feature = "query")]
 #[test]
 fn a_plan_rewrite_re_aims_every_vector_rank_only() {
-    use eg_numeric::decision::adapter::{to_body, Direction};
+    use medulla_numeric::decision::adapter::{to_body, Direction};
     let body = to_body(
         &[Direction {
             unit: vec![0.0, 1.0],
@@ -233,30 +233,30 @@ fn a_plan_rewrite_re_aims_every_vector_rank_only() {
     )
     .unwrap();
     let adapter = super::super::served_adapter::ServedAdapter::for_body("d", &body).unwrap();
-    let plan = eg_plan::Plan::new(vec![
-        eg_plan::Op::Scan {
+    let plan = medulla_plan::Plan::new(vec![
+        medulla_plan::Op::Scan {
             label: "Doc".to_string(),
         },
-        eg_plan::Op::FuseRrf {
-            branches: vec![vec![eg_plan::Op::Rank {
+        medulla_plan::Op::FuseRrf {
+            branches: vec![vec![medulla_plan::Op::Rank {
                 query: vec![1.0, 1.0],
             }]],
             k: 60.0,
         },
-        eg_plan::Op::Rank {
+        medulla_plan::Op::Rank {
             query: vec![1.0, 1.0],
         },
     ]);
     let rewritten = super::super::served_adapter::adapt_plan(plan, Some(Arc::new(adapter)));
-    let expected = eg_plan::Op::Rank {
+    let expected = medulla_plan::Op::Rank {
         query: vec![1.0, 1.5],
     };
     assert_eq!(rewritten.ops[2], expected);
-    let eg_plan::Op::FuseRrf { branches, .. } = &rewritten.ops[1] else {
+    let medulla_plan::Op::FuseRrf { branches, .. } = &rewritten.ops[1] else {
         panic!("fuse")
     };
     assert_eq!(branches[0][0], expected);
-    assert!(matches!(rewritten.ops[0], eg_plan::Op::Scan { .. }));
+    assert!(matches!(rewritten.ops[0], medulla_plan::Op::Scan { .. }));
 }
 
 fn axis(dims: usize, index: usize, scale: f32) -> Vec<f32> {

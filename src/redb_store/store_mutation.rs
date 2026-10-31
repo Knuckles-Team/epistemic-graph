@@ -45,7 +45,7 @@ pub(crate) fn commit_mutation_batch(
 /// deltas are supplied out-of-line so status/outbox do not duplicate them.
 ///
 /// `audited` is the CALLER's already-resolved `MutationPlan::audited` (or
-/// equivalent `eg_capabilities::policy(method).audited`) for the ORIGINAL,
+/// equivalent `medulla_capabilities::policy(method).audited`) for the ORIGINAL,
 /// pre-opaque-wrapped method -- see the doc comment on `commit_mutation_batch_inner`
 /// for why this cannot be re-derived downstream once the operation is compiled.
 /// Borrowed carrier for [`commit_mutation_batch_state`]'s graph-identifying and
@@ -212,7 +212,7 @@ type ReactivationStage<'a> = dyn for<'g> FnMut(&ShardWrite<'g>) -> Result<(), St
 pub(crate) fn commit_mutation_batch_with_outbox_lease(
     shard: &Shard,
     input: BatchCommitInput<'_>,
-    lease: &eg_types::MutationOutboxLease,
+    lease: &medulla_types::MutationOutboxLease,
     stage_reactivation: &mut ReactivationStage<'_>,
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
@@ -254,7 +254,7 @@ pub(crate) fn commit_mutation_batch_with_reactivation_rows(
 fn commit_mutation_batch_with_reactivation_effect(
     shard: &Shard,
     input: BatchCommitInput<'_>,
-    lease: Option<&eg_types::MutationOutboxLease>,
+    lease: Option<&medulla_types::MutationOutboxLease>,
     stage_reactivation: &mut ReactivationStage<'_>,
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
@@ -329,7 +329,7 @@ pub(crate) fn commit_repository_enrichment_top_up(
 }
 
 struct OutboxBatchEffect<'a> {
-    lease: Option<&'a eg_types::MutationOutboxLease>,
+    lease: Option<&'a medulla_types::MutationOutboxLease>,
     #[cfg(feature = "raft")]
     top_up: Option<TopUpSourceEffect<'a>>,
     stage_reactivation: &'a mut ReactivationStage<'a>,
@@ -362,7 +362,7 @@ struct OutboxBatchEffect<'a> {
 /// "authoritative_state_operation", ..}`) by design, so sensitive row payloads
 /// never enter the durable batch/audit/outbox record -- and by the time this
 /// function sees the operation, the original method's own
-/// `eg_capabilities::policy(..).audited` answer is unrecoverable. Callers pass
+/// `medulla_capabilities::policy(..).audited` answer is unrecoverable. Callers pass
 /// their already-resolved `MutationPlan::audited`.
 pub(crate) fn commit_mutation_batch_inner(
     shard: &Shard,
@@ -720,9 +720,9 @@ fn finish_replayed_batch(
 #[cfg(test)]
 mod outbox_reactivation_tests {
     use super::*;
-    use eg_transaction::OutboxClaimBudget;
-    use eg_types::mutation_batch::COMPILED_BATCH_INCARNATION;
-    use eg_types::{
+    use medulla_transaction::OutboxClaimBudget;
+    use medulla_types::mutation_batch::COMPILED_BATCH_INCARNATION;
+    use medulla_types::{
         contract::Digest256, MutationOperation, MutationOutboxIntent, MutationScopeIdentity,
         MutationSurface, VersionExpectation, MUTATION_BATCH_VERSION,
     };
@@ -771,7 +771,7 @@ mod outbox_reactivation_tests {
     fn commit(
         shard: &Shard,
         batch: &MutationBatch,
-        lease: Option<&eg_types::MutationOutboxLease>,
+        lease: Option<&medulla_types::MutationOutboxLease>,
         stage: &mut ReactivationStage<'_>,
     ) -> Result<MutationBatchCommit, String> {
         #[cfg(feature = "security")]
@@ -816,7 +816,7 @@ mod outbox_reactivation_tests {
         )
     }
 
-    fn held_source(shard: &Shard) -> eg_types::MutationOutboxLease {
+    fn held_source(shard: &Shard) -> medulla_types::MutationOutboxLease {
         commit(
             shard,
             &batch("source", "source-key", 0, "source-node"),

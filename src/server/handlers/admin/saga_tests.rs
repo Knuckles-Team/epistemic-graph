@@ -8,7 +8,7 @@ fn authority(actor: &str, tenant: &str, key: &str) -> CarrierAuthority {
         principal: actor.to_string(),
         agent_id: actor.to_string(),
         tenant: tenant.to_string(),
-        audience: "epistemic-graph".into(),
+        audience: "medulla".into(),
         policy_version: "test".into(),
         ..Default::default()
     };
@@ -95,7 +95,7 @@ fn channel_departure_receipt_keeps_json_string_variant() {
 fn channel_group_join_leave_rejoin_replays_each_tagged_result() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock_blocking();
     let directory = tempfile::Builder::new()
-        .prefix("eg-admin-channel-rejoin-contract-")
+        .prefix("medulla-admin-channel-rejoin-contract-")
         .tempdir()
         .unwrap();
     let backend = crate::server::persistence::redb_backend::RedbBackend::open_with_shards(
@@ -132,7 +132,7 @@ fn channel_group_join_leave_rejoin_replays_each_tagged_result() {
         1,
         "channel-group-join",
         &join,
-        crate::protocol::ResultPayload::scalar::<eg_types::result_contract::messaging::JoinChannel>(
+        crate::protocol::ResultPayload::scalar::<medulla_types::result_contract::messaging::JoinChannel>(
             "joined".to_string(),
         ),
     );
@@ -159,10 +159,10 @@ fn channel_group_join_leave_rejoin_replays_each_tagged_result() {
         3,
         "channel-group-leave",
         &leave,
-        crate::protocol::ResultPayload::of::<eg_types::result_contract::messaging::LeaveChannel>(
-            eg_types::messaging_wire::ChannelDeparture::new(
+        crate::protocol::ResultPayload::of::<medulla_types::result_contract::messaging::LeaveChannel>(
+            medulla_types::messaging_wire::ChannelDeparture::new(
                 None,
-                eg_types::messaging_wire::ChannelDepartureStatus::Left,
+                medulla_types::messaging_wire::ChannelDepartureStatus::Left,
             ),
         )
         .unwrap(),
@@ -192,7 +192,7 @@ fn channel_group_join_leave_rejoin_replays_each_tagged_result() {
         5,
         "channel-group-rejoin",
         &join,
-        crate::protocol::ResultPayload::scalar::<eg_types::result_contract::messaging::JoinChannel>(
+        crate::protocol::ResultPayload::scalar::<medulla_types::result_contract::messaging::JoinChannel>(
             "joined".to_string(),
         ),
     );
@@ -287,8 +287,8 @@ fn sparql_result(operations: u64) -> crate::protocol::ResultPayload {
     }))
 }
 
-fn reshard_report(graph: &str) -> eg_types::result_contract::cluster::ShardReshardReport {
-    eg_types::result_contract::cluster::ShardReshardReport {
+fn reshard_report(graph: &str) -> medulla_types::result_contract::cluster::ShardReshardReport {
+    medulla_types::result_contract::cluster::ShardReshardReport {
         graph: graph.into(),
         from_shard: 0,
         to_shard: 1,
@@ -321,7 +321,7 @@ fn opaque_recovery_batch(
     event_type: &str,
     payload_digest: &str,
 ) -> MutationBatch {
-    let expected = eg_transaction::version(&backend.admin_mutations_read().unwrap()).unwrap();
+    let expected = medulla_transaction::version(&backend.admin_mutations_read().unwrap()).unwrap();
     crate::server::mutation_batch::compile_opaque_digest(
         crate::server::mutation_batch::CompileBatch {
             batch_id,
@@ -351,7 +351,7 @@ fn legacy_public_batch(
     batch_id: &str,
     method: &Method,
 ) -> MutationBatch {
-    let expected = eg_transaction::version(&backend.admin_mutations_read().unwrap()).unwrap();
+    let expected = medulla_transaction::version(&backend.admin_mutations_read().unwrap()).unwrap();
     crate::server::mutation_batch::compile_opaque_method(
         crate::server::mutation_batch::CompileBatch {
             batch_id,
@@ -380,7 +380,7 @@ fn legacy_public_batch(
 fn recovery_rejects_unknown_prepared_and_committed_events_but_replays_known_private() {
     let _env_read_lock = crate::crypto::provisioned_test_env_read_lock_blocking();
     let directory = tempfile::Builder::new()
-        .prefix("eg-admin-saga-recovery-contract-")
+        .prefix("medulla-admin-saga-recovery-contract-")
         .tempdir()
         .unwrap();
     let backend = crate::server::persistence::redb_backend::RedbBackend::open_with_shards(
@@ -402,7 +402,7 @@ fn recovery_rejects_unknown_prepared_and_committed_events_but_replays_known_priv
         backend
             .admin_saga_step(&prepared, 90, Some(&prepared_payload))
             .unwrap(),
-        eg_transaction::SagaBegin::Execute
+        medulla_transaction::SagaBegin::Execute
     ));
     let Err(error) =
         resume_named_admin_saga(&backend, "unknown-prepared", Some("contract-test-actor"))
@@ -423,7 +423,7 @@ fn recovery_rejects_unknown_prepared_and_committed_events_but_replays_known_priv
         backend
             .admin_saga_step(&committed, 91, Some(&committed_payload))
             .unwrap(),
-        eg_transaction::SagaBegin::Execute
+        medulla_transaction::SagaBegin::Execute
     ));
     let encoded = rmp_serde::to_vec_named(&crate::protocol::ResultPayload::Bool(true)).unwrap();
     backend.admin_saga_end(&committed, encoded, 91).unwrap();
@@ -470,7 +470,7 @@ fn recovery_rejects_unknown_prepared_and_committed_events_but_replays_known_priv
 fn sparql_recovery_rejects_untyped_results_while_prepared_and_replays_exact_outcomes() {
     let _env_read_lock = crate::crypto::provisioned_test_env_read_lock_blocking();
     let directory = tempfile::Builder::new()
-        .prefix("eg-admin-sparql-recovery-contract-")
+        .prefix("medulla-admin-sparql-recovery-contract-")
         .tempdir()
         .unwrap();
     let backend = crate::server::persistence::redb_backend::RedbBackend::open_with_shards(
@@ -522,7 +522,7 @@ fn sparql_recovery_rejects_untyped_results_while_prepared_and_replays_exact_outc
                 .is_err()
         );
         let record =
-            eg_transaction::read_ledger(&backend.admin_mutations_read().unwrap(), "sparql-success")
+            medulla_transaction::read_ledger(&backend.admin_mutations_read().unwrap(), "sparql-success")
                 .unwrap()
                 .unwrap();
         assert_eq!(
@@ -594,7 +594,7 @@ fn sparql_recovery_rejects_untyped_results_while_prepared_and_replays_exact_outc
 fn method_bearing_retry_recovers_legacy_public_sagas_but_direct_resume_refuses() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock_blocking();
     let directory = tempfile::Builder::new()
-        .prefix("eg-admin-public-legacy-contract-")
+        .prefix("medulla-admin-public-legacy-contract-")
         .tempdir()
         .unwrap();
     let backend = crate::server::persistence::redb_backend::RedbBackend::open_with_shards(
@@ -610,7 +610,7 @@ fn method_bearing_retry_recovers_legacy_public_sagas_but_direct_resume_refuses()
     let prepared = legacy_public_batch(&backend, "legacy-public-prepared", &method);
     assert!(matches!(
         backend.admin_saga_step(&prepared, 102, None).unwrap(),
-        eg_transaction::SagaBegin::Execute
+        medulla_transaction::SagaBegin::Execute
     ));
     let Err(error) = resume_named_admin_saga(
         &backend,
@@ -648,7 +648,7 @@ fn method_bearing_retry_recovers_legacy_public_sagas_but_direct_resume_refuses()
     let committed = legacy_public_batch(&backend, "legacy-public-committed", &method);
     assert!(matches!(
         backend.admin_saga_step(&committed, 104, None).unwrap(),
-        eg_transaction::SagaBegin::Execute
+        medulla_transaction::SagaBegin::Execute
     ));
     let result = crate::protocol::ResultPayload::Json(
         serde_json::to_value(reshard_report("legacy-public")).unwrap(),
@@ -678,7 +678,7 @@ fn method_bearing_retry_recovers_legacy_public_sagas_but_direct_resume_refuses()
         panic!("method-bearing legacy public recovery lost its typed result");
     };
     assert_eq!(
-        serde_json::from_value::<eg_types::result_contract::cluster::ShardReshardReport>(body)
+        serde_json::from_value::<medulla_types::result_contract::cluster::ShardReshardReport>(body)
             .unwrap(),
         reshard_report("legacy-public")
     );
@@ -711,7 +711,7 @@ fn method_bearing_retry_recovers_legacy_public_sagas_but_direct_resume_refuses()
 fn durable_reshard_saga_rejects_wrong_result_then_replays_typed_result() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock_blocking();
     let directory = tempfile::Builder::new()
-        .prefix("eg-admin-saga-contract-")
+        .prefix("medulla-admin-saga-contract-")
         .tempdir()
         .unwrap();
     let backend = crate::server::persistence::redb_backend::RedbBackend::open_with_shards(
@@ -754,7 +754,7 @@ fn durable_reshard_saga_rejects_wrong_result_then_replays_typed_result() {
         crate::protocol::ResultPayload::Bool(true),
     );
     assert!(wrong.is_err());
-    let prepared = eg_transaction::read_ledger(
+    let prepared = medulla_transaction::read_ledger(
         &backend.admin_mutations_read().unwrap(),
         "reshard-contract-test",
     )
@@ -807,7 +807,7 @@ fn durable_reshard_saga_rejects_wrong_result_then_replays_typed_result() {
         panic!("reshard replay lost its typed JSON result");
     };
     assert_eq!(
-        serde_json::from_value::<eg_types::result_contract::cluster::ShardReshardReport>(body)
+        serde_json::from_value::<medulla_types::result_contract::cluster::ShardReshardReport>(body)
             .unwrap(),
         report
     );

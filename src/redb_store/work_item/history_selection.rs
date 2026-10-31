@@ -1,11 +1,11 @@
 //! Owner-bound terminal-text selection from one native graph read transaction.
 use super::*;
-use eg_types::inline_history::*;
-use eg_types::work_item_read::RunWorkItemView;
+use medulla_types::inline_history::*;
+use medulla_types::work_item_read::RunWorkItemView;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
-type Snapshot<'a> = eg_storage::ScopedRead<'a, eg_storage::GraphShardOwner>;
+type Snapshot<'a> = medulla_storage::ScopedRead<'a, medulla_storage::GraphShardOwner>;
 type Row = serde_json::Map<String, serde_json::Value>;
 const UNAVAILABLE: &str = "RUN_ADMISSION_UNAVAILABLE: completed history unavailable";
 
@@ -34,7 +34,7 @@ pub(crate) fn read_selection(
     crypto: DurableCrypto<'_>,
     now_ms: u64,
 ) -> Result<Option<RunWorkItemView>, String> {
-    eg_types::work_item_read::validate_work_item_get(tenant, run)?;
+    medulla_types::work_item_read::validate_work_item_get(tenant, run)?;
     let handle = shard.graph(graph)?;
     let snapshot = shard.read(&handle)?;
     let Some(mut view) =
@@ -143,7 +143,7 @@ pub(crate) fn read_selection(
             .checked_add(1)
             .ok_or(UNAVAILABLE)?,
         scope: snapshot.scope().clone(),
-        snapshot_version: eg_transaction::version(&snapshot)?,
+        snapshot_version: medulla_transaction::version(&snapshot)?,
         current_run_checkpoint: None,
         completed_history,
         checkpoints: references,
@@ -236,7 +236,7 @@ pub(crate) fn read_head(
     actor: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<ConversationHeadView>, String> {
-    eg_types::work_item_read::validate_work_item_get(tenant, context)?;
+    medulla_types::work_item_read::validate_work_item_get(tenant, context)?;
     let mut digest = Sha256::new();
     for field in ["conversation-head", tenant, context] {
         digest.update((field.len() as u64).to_be_bytes());

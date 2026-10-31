@@ -15,7 +15,7 @@ fn oversize_edge_dump_error(count: usize, cap: usize) -> Option<String> {
             "RESULT_TOO_LARGE: GetEdges would return {count} edges (> cap {cap}); \
              the full-graph dump is refused to protect the connection. Use a \
              bounded query instead (GetEdgesPage(after, limit) / paginate), or \
-             raise EPISTEMIC_GRAPH_MAX_RESPONSE_EDGES."
+             raise MEDULLA_MAX_RESPONSE_EDGES."
         ))
     } else {
         None
@@ -43,18 +43,18 @@ fn handle_get_edge_properties_batch(
     // One round-trip for N edges. Each entry is the list of property blobs
     // for that (src, tgt) pair (a pair may have multiple edges), in input
     // order; an empty inner list ⇒ no such edge.
-    let out: Vec<Vec<eg_types::types::PropertyBlob>> = edges
+    let out: Vec<Vec<medulla_types::types::PropertyBlob>> = edges
         .into_iter()
         .map(|(src, tgt)| {
             g.get_edge_properties(&src, &tgt)
                 .into_iter()
-                .map(eg_types::types::PropertyBlob)
+                .map(medulla_types::types::PropertyBlob)
                 .collect()
         })
         .collect();
     Response::ok(
         req_id,
-        ResultPayload::of_ref::<eg_types::result_contract::graph::GetEdgePropertiesBatch>(&out),
+        ResultPayload::of_ref::<medulla_types::result_contract::graph::GetEdgePropertiesBatch>(&out),
     )
 }
 
@@ -73,7 +73,7 @@ pub(super) async fn try_handle_edge_writes(
             "RemoveEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
                  through try_handle_gateway before it ever reaches this terminal handler"
         ),
-        // InvalidateEdge/SupersedeEdge (CONCEPT:EG-P0-2 bypass guard, L11):
+        // InvalidateEdge/SupersedeEdge (CONCEPT:MEDULLA-P0-2 bypass guard, L11):
         // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
         Method::InvalidateEdge { .. } => unreachable!(
             "InvalidateEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
@@ -106,7 +106,7 @@ pub(super) async fn try_handle_edge_reads(
         }
         Method::GetEdges => {
             let g = core;
-            // Intelligent overload backstop (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation), the edge-count
+            // Intelligent overload backstop (CONCEPT:MEDULLA-KG.ingest.resets-socket-so-assimilation), the edge-count
             // sibling of the `GetNodes` guard just above `try_handle`'s match:
             // check the cheap O(1) edge count BEFORE building the Vec, and
             // return a typed, catchable error instead of the pathological
@@ -125,7 +125,7 @@ pub(super) async fn try_handle_edge_reads(
             let edges = g.get_edges_page(after_ref, limit);
             Response::ok(
                 req_id,
-                ResultPayload::of_ref::<eg_types::result_contract::graph::GetEdgesPage>(&edges),
+                ResultPayload::of_ref::<medulla_types::result_contract::graph::GetEdgesPage>(&edges),
             )
         }
         Method::GetEdgeProperties {
@@ -137,12 +137,12 @@ pub(super) async fn try_handle_edge_reads(
             let val: Vec<serde_json::Value> = props
                 .into_iter()
                 .map(|p| {
-                    eg_types::msgpack::decode_property_value(&p).unwrap_or(serde_json::json!({}))
+                    medulla_types::msgpack::decode_property_value(&p).unwrap_or(serde_json::json!({}))
                 })
                 .collect();
             Response::ok(
                 req_id,
-                ResultPayload::of_dynamic::<eg_types::result_contract::graph::GetEdgeProperties, _>(
+                ResultPayload::of_dynamic::<medulla_types::result_contract::graph::GetEdgeProperties, _>(
                     &val,
                 ),
             )
@@ -150,7 +150,7 @@ pub(super) async fn try_handle_edge_reads(
         Method::GetEdgePropertiesBatch { edges } => {
             handle_get_edge_properties_batch(req_id, core, edges)
         }
-        // ClearGraph (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED — see
+        // ClearGraph (CONCEPT:MEDULLA-P0-2 bypass guard, L11): GATEWAY_ROUTED — see
         // the AddNode/RemoveNode comment above.
         other => return ControlFlow::Continue(other),
     })

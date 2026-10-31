@@ -43,7 +43,7 @@ async fn every_graph_of_a_sweep_is_leased_from_the_moment_it_is_claimed() {
         persist_dir: Some(root_str.clone()),
         graphs: graph_names
             .iter()
-            .map(|graph| (graph.clone(), Arc::new(eg_core::graph::GraphCore::new())))
+            .map(|graph| (graph.clone(), Arc::new(medulla_core::graph::GraphCore::new())))
             .collect(),
         clock: stepping_clock,
     };

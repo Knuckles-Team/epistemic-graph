@@ -1,7 +1,7 @@
 //! Private operation-family routing for the data-science handler.
 
-use eg_types::compute_result::datascience::TrainTestSplitResult;
-use eg_types::result_contract::compute as results;
+use medulla_types::compute_result::datascience::TrainTestSplitResult;
+use medulla_types::result_contract::compute as results;
 
 use crate::protocol::{Method, Response, ResultPayload};
 #[derive(Clone, Copy)]
@@ -42,7 +42,7 @@ pub(super) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
 
 fn handle_primitives(req_id: u64, method: Method) -> Result<Response, Method> {
     Ok(match method {
-        // ── Data Science Primitives (CONCEPT:EG-KG.compute.rust-native-training-loss) ─────────────
+        // ── Data Science Primitives (CONCEPT:MEDULLA-KG.compute.rust-native-training-loss) ─────────────
         Method::DsLinearRegression { x, y } => {
             let result = crate::datascience::primitives::linear_regression(&x, &y);
             Response::ok(
@@ -105,7 +105,7 @@ fn handle_primitives(req_id: u64, method: Method) -> Result<Response, Method> {
 
 fn handle_training(req_id: u64, method: Method) -> Result<Response, Method> {
     Ok(match method {
-        // ── Training loss / optimizer kernels (CONCEPT:EG-KG.compute.rust-native-training-loss) ──
+        // ── Training loss / optimizer kernels (CONCEPT:MEDULLA-KG.compute.rust-native-training-loss) ──
         Method::DsSoftmax {
             logits,
             temperature,

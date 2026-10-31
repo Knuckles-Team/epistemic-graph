@@ -8,7 +8,7 @@ state machine, and one streaming query/job result currency.
 
 ## Universal artifact protocol
 
-`eg-modality::ArtifactBundle` is the atomic semantic payload for every modality:
+`medulla-modality::ArtifactBundle` is the atomic semantic payload for every modality:
 
 | Tier | Meaning |
 |---|---|
@@ -174,9 +174,9 @@ construction:
 
 | Setting | Default | Hard ceiling |
 |---|---:|---:|
-| `EPISTEMIC_GRAPH_MAX_REQUEST_BYTES` | 64 MiB | 384 MiB |
-| `EPISTEMIC_GRAPH_MODALITY_MAX_SOURCE_BYTES` | 16 MiB | 256 MiB |
-| `EPISTEMIC_GRAPH_MODALITY_MAX_BUNDLE_BYTES` | 4 MiB | 32 MiB |
+| `MEDULLA_MAX_REQUEST_BYTES` | 64 MiB | 384 MiB |
+| `MEDULLA_MODALITY_MAX_SOURCE_BYTES` | 16 MiB | 256 MiB |
+| `MEDULLA_MODALITY_MAX_BUNDLE_BYTES` | 4 MiB | 32 MiB |
 
 Values must be positive integers. Missing or invalid values use the defaults; values
 above the hard ceiling are clamped. Query pages are bounded to 1,000 records and
@@ -203,10 +203,10 @@ the supported Hamming radius, followed by exact distance filtering.
 
 The four public serving types are:
 
-- `eg_document::DocumentServingRuntime` and `NativeDocumentRuntime`;
-- `eg_image::ImageServingRuntime` and `NativeImageRuntime`;
-- `eg_audio::AudioServingRuntime` and `NativeAudioRuntime`;
-- `eg_video::VideoServingRuntime` and `NativeVideoRuntime`.
+- `medulla_document::DocumentServingRuntime` and `NativeDocumentRuntime`;
+- `medulla_image::ImageServingRuntime` and `NativeImageRuntime`;
+- `medulla_audio::AudioServingRuntime` and `NativeAudioRuntime`;
+- `medulla_video::VideoServingRuntime` and `NativeVideoRuntime`.
 
 ## Dependency-light native execution
 
@@ -255,7 +255,7 @@ G-37 performance evidence.
 | Failure/restart | Event cursor and index reconstruction |
 | Interop/workload | Common contract and KnowledgeBatch stream |
 
-`crates/eg-modality/tests/served_runtime.rs` also ingests 4,096 governed records,
+`crates/medulla-modality/tests/served_runtime.rs` also ingests 4,096 governed records,
 runs a selective native lexical query, asserts that only the 64 posting candidates
 are examined, snapshots/rebuilds the runtime, and repeats the same bound after
 recovery. Leaf probes cover format-specific malformed and structural ceilings.
@@ -263,7 +263,7 @@ recovery. Leaf probes cover format-specific malformed and structural ceilings.
 ## Native streaming result currency
 
 `Method::KnowledgeStream` is the single served pull protocol, and
-`eg-plan::KnowledgeBatchStream` is its bounded result plane for every family:
+`medulla-plan::KnowledgeBatchStream` is its bounded result plane for every family:
 
 | Family | Adapter |
 |---|---|
@@ -354,15 +354,15 @@ Run these serially on a resource-constrained build host:
 
 ```bash
 python3 scripts/check_p2_modality_architecture.py
-cargo test -p eg-modality --test served_runtime
-cargo test -p eg-modality --test fleet_tck -- --nocapture
+cargo test -p medulla-modality --test served_runtime
+cargo test -p medulla-modality --test fleet_tck -- --nocapture
 cargo test --features modality-serving server::handlers::modality::tests::resource_gate_is_bounded_and_every_leaf_is_12_of_12
 cargo test --features raft,modality-serving sanitized_modality_command_tests
-cargo test -p eg-plan --features knowledge-batch,epistemic result_stream
-cargo test -p eg-document --features contract,serving
-cargo test -p eg-image --features contract,serving,runtime
-cargo test -p eg-audio --features contract,serving,runtime
-cargo test -p eg-video --features contract,serving,runtime
+cargo test -p medulla-plan --features knowledge-batch,epistemic result_stream
+cargo test -p medulla-document --features contract,serving
+cargo test -p medulla-image --features contract,serving,runtime
+cargo test -p medulla-audio --features contract,serving,runtime
+cargo test -p medulla-video --features contract,serving,runtime
 ```
 
 Do not run more than one compilation command concurrently on a constrained host.

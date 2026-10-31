@@ -15,8 +15,8 @@ An unavailable, non-executable, symlinked, or digest-mismatched artifact fails
 before a server starts. The evidence destination must be new, preventing a failed
 rerun from leaving an older successful artifact that can be mistaken for the
 current result. The pytest wrapper is opt-in through
-`EPISTEMIC_GRAPH_TEST_BINARY` and
-`EPISTEMIC_GRAPH_TEST_BINARY_SHA256`; supplying only one, or supplying an
+`MEDULLA_TEST_BINARY` and
+`MEDULLA_TEST_BINARY_SHA256`; supplying only one, or supplying an
 invalid artifact, is a test failure rather than a skip.
 
 ## What is certified

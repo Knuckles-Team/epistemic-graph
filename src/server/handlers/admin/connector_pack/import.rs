@@ -4,9 +4,9 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use eg_types::connector_pack::{ConnectorPackImportRequest, PackImportResult};
+use medulla_types::connector_pack::{ConnectorPackImportRequest, PackImportResult};
 #[cfg(test)]
-use eg_types::contract::Digest256;
+use medulla_types::contract::Digest256;
 #[cfg(test)]
 use sha2::{Digest, Sha256};
 
@@ -108,13 +108,13 @@ mod tests {
     #[test]
     fn section_ranges_are_checked_without_wrapping() {
         let bytes = b"abcdef";
-        let valid = eg_types::connector_pack::PackSection {
+        let valid = medulla_types::connector_pack::PackSection {
             offset: 1,
             length: 3,
             sha256: Digest256::from_bytes(Sha256::digest(b"bcd").into()),
         };
         assert_eq!(section_bytes(bytes, &valid).unwrap(), b"bcd");
-        let overflow = eg_types::connector_pack::PackSection {
+        let overflow = medulla_types::connector_pack::PackSection {
             offset: u64::MAX,
             length: 2,
             sha256: valid.sha256,

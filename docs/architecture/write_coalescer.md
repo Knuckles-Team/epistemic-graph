@@ -1,4 +1,4 @@
-# Per-Graph Write Coalescer (`CONCEPT:EG-KG.sharding.per-graph-write-coalescer`)
+# Per-Graph Write Coalescer (`CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer`)
 
 > Turns N concurrent single-op writes to ONE graph into ONE topology-lock
 > acquisition per batch — the within-graph parallelism that lets the `__commons__`
@@ -7,7 +7,7 @@
 ## The contention point
 
 Every structural write to a graph (`add_node` / `add_edge` / `compare_and_set` /
-`remove_*`) opens a one-shot [`GraphTxn`](https://github.com/Knuckles-Team/medulla/blob/main/crates/eg-core/src/graph.rs), which
+`remove_*`) opens a one-shot [`GraphTxn`](https://github.com/Knuckles-Team/medulla/blob/main/crates/medulla-core/src/graph.rs), which
 holds that graph's single `topo.write()` lock for the op's duration
 (`GraphCore::topo`, `graph.rs`). DIFFERENT graphs already isolate — each has its own
 `GraphCore` with its own lock, so `__control__` vs `__commons__` never contend (proved
@@ -121,9 +121,9 @@ current write path rather than a deployment profile or compatibility switch.
 
 Two Prometheus counters per graph (bounded label space):
 
-- `epistemic_graph_write_batches_total{graph}` — topology-lock acquisitions on the
+- `medulla_write_batches_total{graph}` — topology-lock acquisitions on the
   coalesced path (= committed batches).
-- `epistemic_graph_write_batched_ops_total{graph}` — single-op writes those
+- `medulla_write_batched_ops_total{graph}` — single-op writes those
   acquisitions applied.
 
 `ops / batches` is the average batch size = the lock-acquisitions-saved ratio. The

@@ -11,7 +11,7 @@ from _client_send_stub import CapturingEngine
 from test_work_item_read_client import VIEW
 from test_work_item_retry_identity import _submit_request
 
-from epistemic_graph.client import EpistemicGraphClient, WorkItemClient
+from medulla.client import MedullaClient, WorkItemClient
 
 pytestmark = pytest.mark.no_engine
 
@@ -27,7 +27,7 @@ def admission() -> dict[str, Any]:
 
 
 def read(engine: CapturingEngine) -> dict[str, Any] | None:
-    client = WorkItemClient(cast(EpistemicGraphClient, engine))
+    client = WorkItemClient(cast(MedullaClient, engine))
     return asyncio.run(client.get_run(tenant="tenant-fixture", run_id="run"))
 
 
@@ -70,7 +70,7 @@ def test_owner_run_read_refuses_wrong_binding(field: str, value: str) -> None:
 @pytest.mark.parametrize("value", ["true", 1, None])
 def test_history_read_opt_in_requires_boolean(value: Any) -> None:
     engine = CapturingEngine(None)
-    client = WorkItemClient(cast(EpistemicGraphClient, engine))
+    client = WorkItemClient(cast(MedullaClient, engine))
     with pytest.raises(TypeError):
         asyncio.run(
             client.get_run(
@@ -82,7 +82,7 @@ def test_history_read_opt_in_requires_boolean(value: Any) -> None:
 
 def test_history_read_opt_in_is_a_wrapper_parameter() -> None:
     engine = CapturingEngine(None)
-    client = WorkItemClient(cast(EpistemicGraphClient, engine))
+    client = WorkItemClient(cast(MedullaClient, engine))
     assert (
         asyncio.run(
             client.get_run(

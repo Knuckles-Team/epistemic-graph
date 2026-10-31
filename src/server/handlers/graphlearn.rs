@@ -1,4 +1,4 @@
-//! Graph-learning ops (CONCEPT:EG-KG.graphlearn.link-predictor): a KAN link-predictor
+//! Graph-learning ops (CONCEPT:MEDULLA-KG.graphlearn.link-predictor): a KAN link-predictor
 //! learned over a graph-derived subgraph, with KG write-back of BOTH the predicted
 //! links (`:PredictedEdge`) and — the differentiator — the learned per-feature edge
 //! functions (`:EdgeFunction`), so the learned scoring curve is itself queryable.
@@ -16,19 +16,19 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use eg_compute::graph_algos::AdjacencyGraph;
-use eg_compute::graphlearn::edge_fn::Basis;
-use eg_compute::graphlearn::link_predict::{self, FeatureCtx, KanLinkConfig, KanLinkModel};
-use eg_types::compute_result::graphlearn::{
+use medulla_compute::graph_algos::AdjacencyGraph;
+use medulla_compute::graphlearn::edge_fn::Basis;
+use medulla_compute::graphlearn::link_predict::{self, FeatureCtx, KanLinkConfig, KanLinkModel};
+use medulla_types::compute_result::graphlearn::{
     EdgeFunctionRow, LinkPrediction, LinkPredictorFit, PredictedLink,
 };
-use eg_types::result_contract::compute as results;
+use medulla_types::result_contract::compute as results;
 
 use crate::graph::GraphCore;
 use crate::protocol::{GraphLearnParams, GraphSource, Method, Response, ResultPayload};
 
 /// Handle a `GraphLearn*` method. `Err(method)` hands a non-graphlearn method back to
-/// the dispatcher (routing fall-through). (CONCEPT:EG-KG.query.dispatch-convention.)
+/// the dispatcher (routing fall-through). (CONCEPT:MEDULLA-KG.query.dispatch-convention.)
 pub(crate) fn try_handle(
     // Both params are now unused: every `GraphLearn*` variant is `mutation::
     // GATEWAY_ROUTED` (runtime-conditional), so `dispatch_graph_op` always routes
@@ -40,7 +40,7 @@ pub(crate) fn try_handle(
     method: Method,
 ) -> Result<Response, Method> {
     match method {
-        // GraphLearnFit/GraphLearnPredict (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GraphLearnFit/GraphLearnPredict (CONCEPT:MEDULLA-P0-2 bypass guard, L11):
         // GATEWAY_ROUTED (runtime-conditional on `writeback`) — `dispatch_graph_op`
         // routes both through `graph_ops::try_handle_gateway` BEFORE this handler is
         // ever reached (see `mutation::commit_conditional_mutation`), so this arm is
@@ -57,7 +57,7 @@ pub(crate) fn try_handle(
     }
 }
 
-/// Test-only dispatch shim (CONCEPT:EG-P0-2 bypass guard, L11): this module's
+/// Test-only dispatch shim (CONCEPT:MEDULLA-P0-2 bypass guard, L11): this module's
 /// white-box unit tests exercise `handle_fit`/`handle_predict` directly against a
 /// `Method` value WITHOUT going through `dispatch_graph_op`/`graph_ops::
 /// try_handle_gateway`/`commit_conditional_mutation`, so they never see the real
@@ -97,7 +97,7 @@ fn dispatch_for_test(
 }
 
 /// Re-run a `GraphLearn*` writeback purely for its side effect on WAL replay
-/// (CONCEPT:EG-KG.graphlearn.link-predictor). Deterministic given the seed; the
+/// (CONCEPT:MEDULLA-KG.graphlearn.link-predictor). Deterministic given the seed; the
 /// response is discarded.
 #[allow(dead_code)]
 pub(crate) fn replay(core: &GraphCore, method: &Method) {
@@ -134,7 +134,7 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
 
 // `pub(crate)` (not module-private): `graph_ops::try_handle_gateway` calls these
 // directly for the RUNTIME-conditional gateway routing of `GraphLearnFit`/
-// `GraphLearnPredict` (CONCEPT:EG-P0-2, L11) — the `writeback` field decides, per
+// `GraphLearnPredict` (CONCEPT:MEDULLA-P0-2, L11) — the `writeback` field decides, per
 // call, whether THIS invocation mutates, so the gateway match arm calls the SAME
 // handler either way and only drives the durable/audit/CDC side through
 // `commit_mutation` when `writeback` is true (see `mutation::commit_conditional_mutation`).
@@ -189,7 +189,7 @@ pub(crate) fn handle_fit(
 }
 
 /// Materialize each learned edge function as a typed `:EdgeFunction` node
-/// (CONCEPT:EG-KG.graphlearn.edge-function-writeback). Id is a deterministic digest of
+/// (CONCEPT:MEDULLA-KG.graphlearn.edge-function-writeback). Id is a deterministic digest of
 /// `node_label` + feature + hidden-output index, so re-fitting the same subgraph
 /// idempotently replaces the curve. The coefficients ARE the interpretable artifact.
 fn materialize_edge_functions(core: &GraphCore, node_label: &str, model: &KanLinkModel) -> usize {
@@ -319,7 +319,7 @@ pub(crate) fn handle_predict(
 }
 
 /// Materialize each scored pair as a typed `:PredictedEdge` node
-/// (CONCEPT:EG-KG.graphlearn.predicted-edge-writeback), linked to its endpoints via
+/// (CONCEPT:MEDULLA-KG.graphlearn.predicted-edge-writeback), linked to its endpoints via
 /// `PREDICTED_LINK` edges when they are resident. Id is a deterministic digest of the
 /// endpoints + model id, so replay is idempotent.
 fn materialize_predicted_edges(
@@ -466,7 +466,7 @@ fn edge_matches_relation(
     };
     for &(s, t) in pairs {
         for blob in core.get_edge_properties(s, t) {
-            if let Ok(val) = eg_types::msgpack::decode_property_value(&blob) {
+            if let Ok(val) = medulla_types::msgpack::decode_property_value(&blob) {
                 if val.get("relationship").and_then(|v| v.as_str()) == Some(relation) {
                     return true;
                 }

@@ -1,0 +1,259 @@
+"""numpy-parity CI gate for the compiled ``medulla-numeric`` kernel
+(CONCEPT:AU-KG.compute.is-installed-kernel-discovery).
+
+Unlike the agent-utilities corpus (``tests/test_numeric_parity.py``, KG-2.312) which
+exercises the ``xp`` *shim* (kernel OR numpy fallback), this test is **engine-side and
+self-contained**: it imports the compiled Surface-A extension DIRECTLY and asserts every
+kernel op equals its numpy reference (``np.allclose``), including the mandatory edge
+cases
+(nan/inf, singular matrix, empty). It is the gate that FAILS CI if the Rust kernel ever
+diverges from numpy — so the ``xp`` shim can be made kernel-LIVE
+(CONCEPT:AU-KG.compute.shim-goes-kernel-live) with a
+standing correctness guarantee, not just the numpy fallback.
+
+Run against the freshly-built, folded wheel — there is NO separately published/installed
+``medulla-numeric`` package (CONCEPT:MEDULLA-346, see ``scripts/inject_numeric_kernel.py``)::
+
+    maturin build --release -m crates/medulla-numeric/Cargo.toml --features python \
+        --out numdist
+    maturin build --release --features "$MATURIN_FEATURES" --out dist
+    python scripts/inject_numeric_kernel.py dist/medulla-*.whl numdist/*.whl
+    pip install dist/medulla-*.whl
+    pytest crates/medulla-numeric/tests/test_kernel_parity.py --noconftest -q
+
+The module is discovered ONLY as ``medulla.numeric`` (the folded-in, natively
+injected extension) — the same name the ``xp`` shim probes first. There is deliberately
+no fallback to a bare top-level ``numeric`` import: that name only resolves when
+``medulla-numeric`` was installed as its own standalone package, which is the exact
+architectural remnant this test must never validate against (a standalone install's
+version is permanently ``0.1.0``, which let a stale build masquerade as fresh — see
+``scripts/ci_gate_replica.py``'s 2026-08-21 incident note). If the folded module doesn't
+import the test is SKIPPED (so a no-wheel checkout is green), but the CI job
+builds+folds+installs the wheel first, so in CI it always runs the real kernel.
+"""
+
+from __future__ import annotations
+
+import importlib
+from typing import Any
+
+import numpy as np
+import pytest
+
+# `Any`-typed: `_k` is the dynamically-discovered compiled kernel module (or `None`
+# if the wheel isn't installed — the `pytestmark` skip below covers that case), not
+# a value with a static Python type, so every `_k.<op>(...)` call below is exempt
+# from mypy's "may be None" attribute checks by construction.
+_kernel_module: Any = None
+# `_m` is `Any` for the same reason `_kernel_module` is: `import_module` returns a
+# `Module`, so a plain `_m = None` in the except branch is a type error. The
+# module is discovered at runtime and its surface is not statically known either
+# way.
+_m: Any = None
+try:
+    _m = importlib.import_module("medulla.numeric")
+except ImportError:
+    pass
+if _m is not None and getattr(_m, "__kernel__", None) == "medulla-numeric":
+    _kernel_module = _m
+
+pytestmark = pytest.mark.skipif(
+    _kernel_module is None,
+    reason="medulla-numeric kernel wheel not installed (build with maturin --features "
+    "python)",
+)
+
+
+def _plain(value: Any) -> Any:
+    """Keep NumPy isolated to the reference side of this parity test."""
+
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, list):
+        return [_plain(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_plain(item) for item in value)
+    return value
+
+
+class _BuiltinKernel:
+    """Call the native module with built-ins while retaining NumPy references."""
+
+    def __init__(self, module: Any) -> None:
+        self._module = module
+
+    def __getattr__(self, name: str) -> Any:
+        function = getattr(self._module, name)
+        if not callable(function) or isinstance(function, type):
+            return function
+
+        def call(*args: Any, **kwargs: Any) -> Any:
+            return function(*(_plain(arg) for arg in args), **kwargs)
+
+        return call
+
+
+_k: Any = _BuiltinKernel(_kernel_module) if _kernel_module is not None else None
+
+
+def _close(a, b, atol=1e-6, rtol=1e-6):
+    return np.allclose(
+        np.asarray(a, float), np.asarray(b, float), atol=atol, rtol=rtol, equal_nan=True
+    )
+
+
+# --------------------------------------------------------------------------- #
+# reductions / stats
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("seed", range(8))
+def test_reductions(seed):
+    rng = np.random.default_rng(seed)
+    a = rng.normal(0, 5, int(rng.integers(2, 40))).astype(np.float64)
+    assert _close(_k.sum(a), np.sum(a))
+    assert _close(_k.prod(a), np.prod(a))
+    assert _close(_k.mean(a), np.mean(a))
+    assert _close(_k.std(a, ddof=0), np.std(a))
+    assert _close(_k.std(a, ddof=1), np.std(a, ddof=1))
+    assert _close(_k.var(a, ddof=0), np.var(a))
+    assert _close(_k.var(a, ddof=1), np.var(a, ddof=1))
+    assert _close(_k.amin(a), np.min(a))
+    assert _close(_k.amax(a), np.max(a))
+    assert _k.argmin(a) == int(np.argmin(a))
+    assert _k.argmax(a) == int(np.argmax(a))
+    assert _close(_k.argsort(a), np.argsort(a, kind="stable"))
+    assert _close(_k.cumsum(a), np.cumsum(a))
+    assert _close(_k.cumprod(a), np.cumprod(a))
+    for q in (0.0, 25.0, 50.0, 90.0, 100.0):
+        assert _close(_k.percentile(a, q), np.percentile(a, q))
+    for q in (0.1, 0.5, 0.99):
+        assert _close(_k.quantile(a, q), np.quantile(a, q))
+
+
+# --------------------------------------------------------------------------- #
+# element-wise
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("seed", range(6))
+def test_elementwise(seed):
+    rng = np.random.default_rng(100 + seed)
+    a = rng.normal(0, 3, int(rng.integers(2, 30))).astype(np.float64)
+    b = rng.normal(0, 3, a.size).astype(np.float64)
+    pos = np.abs(a) + 0.01
+    assert _close(_k.sqrt(pos), np.sqrt(pos))
+    assert _close(_k.log(pos), np.log(pos))
+    assert _close(_k.exp(a), np.exp(a))
+    assert _close(_k.absolute(a), np.abs(a))
+    assert _close(_k.tanh(a), np.tanh(a))
+    assert _close(_k.clip(a, -1.0, 1.0), np.clip(a, -1.0, 1.0))
+    assert _close(_k.maximum(a, b), np.maximum(a, b))
+    assert _close(_k.minimum(a, b), np.minimum(a, b))
+    assert _close(_k.where_((a > 0).tolist(), a, b), np.where(a > 0, a, b))
+    assert np.array_equal(np.asarray(_k.isnan(a)), np.isnan(a))
+
+
+def test_elementwise_edge_nan_inf():
+    edge = np.array([np.nan, np.inf, -np.inf, 0.0, -2.5, 7.0], dtype=np.float64)
+    assert _close(
+        _k.nan_to_num(edge, 0.0, 1e300, -1e300),
+        np.nan_to_num(edge, nan=0.0, posinf=1e300, neginf=-1e300),
+    )
+    assert np.array_equal(np.asarray(_k.isnan(edge)), np.isnan(edge))
+    assert _close(_k.absolute(edge), np.abs(edge))
+    z = np.zeros_like(edge)
+    assert _close(_k.maximum(edge, z), np.maximum(edge, z))
+    assert _k.argmin(edge) == int(np.argmin(edge))
+    assert _k.argmax(edge) == int(np.argmax(edge))
+
+
+def test_empty_edges():
+    # mean of empty is nan (numpy parity); min/max reject empty with LinAlgError.
+    assert np.isnan(_k.mean(np.array([], dtype=np.float64)))
+    with pytest.raises((ValueError, _k.LinAlgError)):
+        _k.amin(np.array([], dtype=np.float64))
+    with pytest.raises((ValueError, _k.LinAlgError)):
+        _k.amax(np.array([], dtype=np.float64))
+
+
+def test_single_element():
+    assert _k.amin(np.array([3.0])) == 3.0
+    assert _k.amax(np.array([3.0])) == 3.0
+
+
+# --------------------------------------------------------------------------- #
+# linalg — reconstruction for factorizations (factor signs/bases are
+# implementation-defined), exact for solve/det/inv/norm/dot.
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("seed", range(8))
+def test_linalg(seed):
+    rng = np.random.default_rng(200 + seed)
+    n = int(rng.integers(2, 7))
+    m = n + int(rng.integers(0, 4))
+    A = rng.normal(0, 2, (m, n)).astype(np.float64)
+    Sq = (rng.normal(0, 2, (n, n)) + n * np.eye(n)).astype(np.float64)
+    x = rng.normal(0, 2, n).astype(np.float64)
+    v = rng.normal(0, 2, n).astype(np.float64)
+
+    assert _close(_k.norm(v), np.linalg.norm(v))
+    assert _close(_k.norm_ord(v, 1.0), np.linalg.norm(v, 1))
+    assert _close(_k.norm_ord(v, np.inf), np.linalg.norm(v, np.inf))
+    assert _close(_k.dot(v, x), np.dot(v, x))
+
+    b = Sq @ x
+    assert _close(_k.solve(Sq, b), np.linalg.solve(Sq, b))
+
+    B = rng.normal(0, 2, (n, n)).astype(np.float64)
+    assert _close(_k.matmul(Sq, B), Sq @ B)
+
+    assert _close(_k.svdvals(A), np.linalg.svd(A, compute_uv=False))
+    U, s, Vt = (np.asarray(part) for part in _k.svd(A))
+    assert _close(U[:, : len(s)] @ np.diag(s) @ Vt[: len(s), :], A)
+
+    S = (Sq + Sq.T) / 2
+    w, V = (np.asarray(part) for part in _k.eigh(S))
+    assert _close(w, np.linalg.eigvalsh(S))
+    assert _close(V @ np.diag(w) @ V.T, S)
+
+    assert _close(_k.pinv(A), np.linalg.pinv(A))
+
+    bt = rng.normal(0, 2, m).astype(np.float64)
+    assert _close(_k.lstsq(A, bt), np.linalg.lstsq(A, bt, rcond=None)[0])
+
+    Q, R = (np.asarray(part) for part in _k.qr(A))
+    assert _close(Q @ R, A)
+
+    SPD = (S @ S.T + n * np.eye(n)).astype(np.float64)
+    L = np.asarray(_k.cholesky(SPD))
+    assert _close(L @ L.T, SPD)
+
+    assert _close(_k.det(Sq), np.linalg.det(Sq))
+    assert _close(_k.inv(Sq), np.linalg.inv(Sq))
+    for p in (0, 1, 3, -2):
+        assert _close(_k.matrix_power(Sq, p), np.linalg.matrix_power(Sq, p), atol=1e-5)
+
+
+def test_linalg_singular_raises():
+    sing = np.array([[1.0, 2.0], [2.0, 4.0]])
+    with pytest.raises(_k.LinAlgError):
+        _k.solve(sing, np.array([1.0, 2.0]))
+    with pytest.raises(_k.LinAlgError):
+        _k.inv(sing)
+    with pytest.raises(_k.LinAlgError):
+        _k.cholesky(np.array([[1.0, 2.0], [2.0, 1.0]]))  # not positive-definite
+
+
+# --------------------------------------------------------------------------- #
+# random — determinism (seed-reproducible) + distributional parity.
+# --------------------------------------------------------------------------- #
+def test_random_determinism_and_distribution():
+    a1 = _k.normal(0.0, 1.0, 100000, 42)
+    a2 = _k.normal(0.0, 1.0, 100000, 42)
+    assert np.array_equal(a1, a2)  # same seed → identical stream
+    assert abs(float(np.mean(a1))) < 0.02
+    assert abs(float(np.std(a1)) - 1.0) < 0.02
+    u = np.asarray(_k.uniform(-1.0, 1.0, 100000, 7))
+    assert u.min() >= -1.0 and u.max() <= 1.0
+    ints = np.asarray(_k.integers(0, 10, 10000, 5))
+    assert ints.min() >= 0 and ints.max() < 10
+
+
+def test_kernel_marker():
+    assert _k.__kernel__ == "medulla-numeric"

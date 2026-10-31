@@ -6,7 +6,7 @@
 use super::*;
 use crate::isolation::AccessLevel;
 use crate::protocol::{GraphType, Request};
-use eg_types::rbac_elevation::{
+use medulla_types::rbac_elevation::{
     ElevationAction, ElevationApproval, ElevationRequest, ElevationRevoke, ElevationScope,
 };
 use std::sync::Arc;
@@ -142,7 +142,7 @@ fn approval_standing_needs_the_exact_scope_and_delegation_is_recorded() {
         &["user:carol", "bot"],
     ));
     assert_eq!(delegated.delegation, ElevationDelegation::Delegated);
-    assert!(delegated.shares_party(&[eg_types::rbac_elevation::party_id("user:carol")]));
+    assert!(delegated.shares_party(&[medulla_types::rbac_elevation::party_id("user:carol")]));
 }
 
 #[tokio::test(flavor = "multi_thread")]

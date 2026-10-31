@@ -1,0 +1,100 @@
+[package]
+name = "medulla-tsdb"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Native time-series store + TS query primitives (time_bucket/ASOF/gap-fill/OHLC/rollup) for the medulla-engine engine"
+license = "MIT"
+
+[lib]
+name = "medulla_tsdb"
+
+# Measured benchmark (append/scan/range/footprint + every primitive). Needs the
+# store, so it only builds with `redb-store`. Run `--release` for the real numbers.
+[[bin]]
+name = "tsdb_bench"
+required-features = ["redb-store", "dev-scope-grant"]
+
+[features]
+default = []
+# redb composite-key (series_id, bucket_start) chunked store — the lean/Pi path.
+# Sits ABOVE medulla-compute in the DAG; pulls redb (an medulla-core/persistence concern) +
+# the finance kernels (medulla-compute) for the primitive reuse. The native TS
+# primitives (ASOF / gap-fill / time_bucket / OHLC / decay_weighted_mean) need
+# NOTHING but this — no DataFusion (the Pi contract).
+redb-store = ["dep:redb", "dep:medulla-types", "dep:medulla-storage", "dep:medulla-transaction"]
+# The development/test composition root for the store's scope grants
+# (`dev_scope_grant`). OFF by default and deliberately folded into NO tier
+# aggregate: the benchmark binary and the integration tests need a
+# `ScopeGrantVerifier` and have no real root, while a production build must not
+# be able to link one.
+dev-scope-grant = ["redb-store"]
+# Arrow columnar segment + DataFusion `time_bucket = GROUP BY (ts/w)*w` scan path.
+# Heavy (Arrow + DataFusion); OFF in the lean build, folded only into node/cluster/
+# full via the facade `query` feature.
+arrow-seg = ["dep:arrow", "dep:datafusion", "datafusion/sql", "dep:tokio", "dep:async-trait"]
+# CONCEPT:MEDULLA-172 — the pure-Rust PromQL parser + evaluator (`promql` module). A
+# hand-rolled recursive-descent parser + an evaluator over a `SeriesSource` trait,
+# with a dependency-free anchored regex matcher for `=~`/`!~`. NO new deps (the Pi
+# contract holds; its moments are the always-linked medulla-numeric series kernels) —
+# enabling it only lights up the `promql` module. The facade wires
+# the Prometheus HTTP API over this behind its own `promql` feature (which implies
+# `obs`); the orchestrator folds that into obs/node/full at merge time.
+promql = []
+# EH-522 / EH-524 — derived series: a wire `SeriesExpr` compiled into a tree of
+# `medulla_numeric::series` kernels, checkpointed (`derive` module). medulla-types' `timeseries`
+# gives the canonical expression printer the provenance digest hashes.
+derive = ["dep:medulla-types", "medulla-types/timeseries"]
+# CONCEPT:MEDULLA-163 — distributed traces: the span model + indexed in-memory span store
+# + parent→children trace assembly + service-dependency graph (`traces` module). A
+# hand-rolled store over std collections — NO new deps (the Pi contract holds).
+# Enabling it only lights up the `traces` module; the facade wires the OTLP-JSON
+# ingest + Jaeger/OpenObserve trace-search HTTP API over this behind its own `traces`
+# sub-feature (which implies `obs`).
+traces = []
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+# store::SeriesMeta` AND `impl ModalityContract for traces::Span` (the X1 real
+# `evidence_address()` -> `EvidenceAddress::TraceSpan` resolver) + the
+# `modality_conformance_tests!` battery for each. OFF by default, deliberately NOT
+# folded into any tier aggregate (pi/node/full) — it is a capability-discovery/
+# testing seam, not a serving feature. Implies `redb-store` (since `SeriesMeta`
+# lives there) AND `traces` (since `Span` lives there). `cargo test -p medulla-tsdb
+# --features contract` runs the suite.
+contract = ["dep:medulla-modality", "redb-store", "traces"]
+
+[dependencies]
+# The ONE shared decay curve (CONCEPT:KG-2.211) lives in medulla-core; the finance
+# kernels (ewma_signal/rolling_zscore) we REUSE live in medulla-compute. Depending on
+# both puts medulla-tsdb ABOVE medulla-compute in the DAG — parallel to where medulla-query sits.
+medulla-core = { path = "../medulla-core" }
+medulla-compute = { path = "../medulla-compute", features = ["finance"] }
+
+# Same pins as the engine so footprint/throughput findings transfer 1:1.
+redb = { workspace = true, optional = true }
+medulla-types = { path = "../medulla-types", optional = true }
+# The series kernels (EH-522): `derive`, the `series_*` helpers and PromQL's moments,
+# and the barrier / time-to-exhaustion law behind the PromQL functions (EH-527).
+# Always in the tree already (medulla-compute's `finance` links it); named directly here.
+medulla-numeric = { path = "../medulla-numeric" }
+# RF-RULING-004: `medulla-storage` is the sole physical owner of `series.redb`
+# (declared `OwnerLayout::TimeSeries`) and `medulla-transaction` the sole writer. Both
+# are gated behind the SAME `redb-store` feature redb itself is behind, so the
+# lean/Pi build links none of them.
+medulla-storage = { path = "../medulla-storage", optional = true }
+medulla-transaction = { path = "../medulla-transaction", optional = true }
+arrow = { version = "58.4", optional = true }
+datafusion = { version = "54", default-features = false, optional = true }
+tokio = { version = "1.53", features = ["rt", "rt-multi-thread", "macros"], optional = true }
+async-trait = { version = "0.1", optional = true }
+
+serde = { version = "1.0", features = ["derive"] }
+rmp-serde = "1.3"
+# A derived series' state rides in its metadata as one MessagePack `bin` (EH-524).
+serde_bytes = "0.11"
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/node/full build links none of it and `SeriesMeta` carries no new
+# required trait. See `src/contract.rs`.
+medulla-modality = { path = "../medulla-modality", optional = true }
+
+[dev-dependencies]
+tempfile = "3"

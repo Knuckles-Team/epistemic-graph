@@ -10,14 +10,14 @@
 # Reader: scripts/generated_artifacts.py (EG security sanitizer).
 
 [[artifact]]
-path = "clients/go/eg_method_codec.wasm"
+path = "clients/go/medulla_method_codec.wasm"
 sha256 = "f3510cab709c7514e47f31511e257c2c065fceb6fc93f30e880191c9e59e3934"
 reproducer = "python3 scripts/build_method_codec_wasm.py --check"
 proven_by = "language-clients"
-reason = "The eg2 method-body codec (crates/eg-method-codec, wasm32-unknown-unknown) the Go client embeds with //go:embed, which cannot reach outside the Go module, so the module must carry the bytes. --check rebuilds it and requires the committed copy byte-identical."
+reason = "The eg2 method-body codec (crates/medulla-method-codec, wasm32-unknown-unknown) the Go client embeds with //go:embed, which cannot reach outside the Go module, so the module must carry the bytes. --check rebuilds it and requires the committed copy byte-identical."
 
 [[artifact]]
-path = "clients/js/eg_method_codec.wasm"
+path = "clients/js/medulla_method_codec.wasm"
 sha256 = "f3510cab709c7514e47f31511e257c2c065fceb6fc93f30e880191c9e59e3934"
 reproducer = "python3 scripts/build_method_codec_wasm.py --check"
 proven_by = "language-clients"

@@ -1,6 +1,6 @@
-"""Read-parity tests for the eg-lake Delta + Iceberg write path (W4.8, CONCEPT:EG-317).
+"""Read-parity tests for the medulla-lake Delta + Iceberg write path (W4.8, CONCEPT:MEDULLA-317).
 
-Drives the REAL `eg-lake` production write path directly via the `lake-fixture-export`
+Drives the REAL `medulla-lake` production write path directly via the `lake-fixture-export`
 subcommand of the server binary (`src/offline_tools/lake_fixture_export.rs`) — the
 identical `LakeTable::materialize`/
 `delta_log`/`iceberg`/`iceberg_manifests` calls `src/server/lake::LakeManager` makes
@@ -22,7 +22,7 @@ proof.
 Run standalone with already-built artifacts (bypass the slow shared-engine
 conftest fixture, matching `test_kvcache_connector.py`'s documented pattern)::
 
-    EPISTEMIC_GRAPH_TEST_BINARY=target-isolated/debug/epistemic-graph-server \
+    MEDULLA_TEST_BINARY=target-isolated/debug/medulla-server \
       python3 -m pytest tests/test_lake_iceberg_delta_parity.py --noconftest -q
 
 Without those artifacts an ordinary developer run skips the corresponding
@@ -39,7 +39,7 @@ their own protocol-native proof (SigV4 / `eg2.` envelope / bearer-JWT / OAuth2 b
 respectively) and work for an authenticated carrier. The Iceberg-REST catalog protocol's
 native mechanism is an OAuth2 bearer token (the spec's own `/v1/oauth/tokens`
 convention), verified against a configured Keycloak-compatible JWKS issuer
-(`EPISTEMIC_GRAPH_ICEBERG_JWT_*`, `crate::server::oidc::JwtValidator`) — a
+(`MEDULLA_ICEBERG_JWT_*`, `crate::server::oidc::JwtValidator`) — a
 validly-signed
 bearer whose tenant claim matches the deployment's own configured tenant now mints a
 `CarrierAuthority` and is served; an unauthenticated request, or a validly-signed bearer
@@ -51,7 +51,7 @@ the REAL Rust JWKS/RSA verification path is exercised without a live network
 dependency). Same open question as before for `obs`/`federation-search` and SPARQL's own
 read (SELECT/CONSTRUCT) leg — unaffected by this fix. The read-parity tests above
 deliberately do NOT read table bytes back over `--iceberg-addr` HTTP — they drive
-`eg-lake`'s real write path directly instead, which exercises 100% of the same
+`medulla-lake`'s real write path directly instead, which exercises 100% of the same
 materialize/render code the live listener's `LakeManager` calls, only skipping the HTTP
 hop (now gated by a real carrier check rather than a stub).
 """
@@ -68,7 +68,7 @@ from pathlib import Path
 import pytest
 from conftest import _prebuilt_test_binary
 
-# This module drives its OWN dedicated `lake-fixture-export`/`epistemic-graph-server`
+# This module drives its OWN dedicated `lake-fixture-export`/`medulla-server`
 # subprocesses; it does not need the shared session-scoped engine conftest starts for
 # the rest of the suite (see pyproject.toml's [tool.pytest.ini_options] marker doc
 # + tests/conftest.py's check).
@@ -78,7 +78,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_PROCESS_TIMEOUT_S = 120
 # GOC-70: redb recovery can legitimately make a cold CI start exceed 30 seconds.
 SERVER_STARTUP_TIMEOUT_S = 60
-STRICT_PARITY = os.environ.get("EPISTEMIC_GRAPH_LAKE_PARITY_STRICT") == "1"
+STRICT_PARITY = os.environ.get("MEDULLA_LAKE_PARITY_STRICT") == "1"
 
 try:
     import pyarrow as pa
@@ -119,7 +119,7 @@ def _configured_executable(variable: str) -> str | None:
 
     The strict parity harness supplies both engine binaries explicitly. Keeping
     this check in the test module as well means invoking pytest directly with
-    ``EPISTEMIC_GRAPH_LAKE_PARITY_STRICT=1`` cannot accidentally fall back to a
+    ``MEDULLA_LAKE_PARITY_STRICT=1`` cannot accidentally fall back to a
     source rebuild or run against an unrelated artifact.
     """
 
@@ -161,8 +161,8 @@ def _require_strict_parity_prerequisites() -> None:
         missing.append("pandas")
     if not _OAUTH_DEPS_AVAILABLE:
         missing.append("pyjwt + cryptography")
-    if _configured_executable("EPISTEMIC_GRAPH_TEST_BINARY") is None:
-        missing.append("EPISTEMIC_GRAPH_TEST_BINARY (executable full server)")
+    if _configured_executable("MEDULLA_TEST_BINARY") is None:
+        missing.append("MEDULLA_TEST_BINARY (executable full server)")
     if missing:
         raise RuntimeError(
             "strict lake parity prerequisites are missing: "
@@ -192,8 +192,8 @@ def _run_lake_fixture_export(out_dir: Path) -> dict:
     """
 
     prebuilt = _required_executable(
-        _configured_executable("EPISTEMIC_GRAPH_TEST_BINARY"),
-        "EPISTEMIC_GRAPH_TEST_BINARY",
+        _configured_executable("MEDULLA_TEST_BINARY"),
+        "MEDULLA_TEST_BINARY",
         "lake read parity",
     )
     proc = subprocess.run(
@@ -378,7 +378,7 @@ class TestIcebergReadParity:
     @_SKIP_PYICEBERG
     def test_pyiceberg_row_filter_pushdown_matches_expected_subset(self, lake_fixture):
         """A predicate scan (not just a full table read) returns the right rows —
-        exercises the REAL Iceberg Avro manifest stats (EG-350) pyiceberg's planner
+        exercises the REAL Iceberg Avro manifest stats (MEDULLA-350) pyiceberg's planner
         reads for file/row-group pruning, not only that the bytes parse."""
         from pyiceberg.expressions import GreaterThan
 
@@ -422,7 +422,7 @@ class TestDeltaReadParity:
 
 # --------------------------------------------------------------------------------- #
 # Live listener smoke test — proves --iceberg-addr actually starts an HTTP surface in
-# the real compiled `epistemic-graph-server` binary (the "serves the /iceberg catalog
+# the real compiled `medulla-server` binary (the "serves the /iceberg catalog
 # when configured" acceptance bar), while being honest about today's known gap rather
 # than silently skipping status-code assertions (see the module docstring).
 # --------------------------------------------------------------------------------- #
@@ -435,16 +435,16 @@ def _free_tcp_port() -> int:
 # --------------------------------------------------------------------------------- #
 # BUG-222: a local RSA keypair + JWKS HTTP server standing in for Keycloak, so the
 # REAL Rust `oidc::JwtValidator` RSA/JWKS/issuer/audience/expiry verification path
-# (`EPISTEMIC_GRAPH_ICEBERG_JWT_*`) is exercised end-to-end without depending on
+# (`MEDULLA_ICEBERG_JWT_*`) is exercised end-to-end without depending on
 # network reachability to the live homelab Keycloak from wherever this suite runs.
 # The issuer/audience strings below are arbitrary (never resolved over the network —
 # only string-compared against the signed token's `iss`/`aud`), independent of the
-# `EPISTEMIC_GRAPH_AUDIENCE`/`EPISTEMIC_GRAPH_TENANT` pair the PRIMARY `eg2.` protocol
+# `MEDULLA_AUDIENCE`/`MEDULLA_TENANT` pair the PRIMARY `eg2.` protocol
 # uses below (a separate, independently-configured credential namespace).
 # --------------------------------------------------------------------------------- #
 ICEBERG_OAUTH_ISSUER = "https://iceberg-test-issuer.invalid/realms/test"
-ICEBERG_OAUTH_AUDIENCE = "epistemic-graph-iceberg-test"
-ICEBERG_TENANT = "tenant:test"  # matches EPISTEMIC_GRAPH_TENANT in iceberg_server's env
+ICEBERG_OAUTH_AUDIENCE = "medulla-iceberg-test"
+ICEBERG_TENANT = "tenant:test"  # matches MEDULLA_TENANT in iceberg_server's env
 ICEBERG_OTHER_TENANT = "tenant:intruder"
 
 try:
@@ -578,7 +578,7 @@ def _wait_for_iceberg_server(proc: subprocess.Popen[str], port: int) -> None:
         if proc.poll() is not None:
             out, err = proc.communicate()
             pytest.fail(
-                f"epistemic-graph-server exited early (code {proc.returncode}):\n"
+                f"medulla-server exited early (code {proc.returncode}):\n"
                 f"stdout={out}\nstderr={err}"
             )
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
@@ -610,36 +610,36 @@ def iceberg_server(tmp_path_factory, iceberg_oauth_fixture):
     env = {
         **os.environ,
         "GRAPH_SERVICE_AUTH_SECRET": auth_secret,
-        "EPISTEMIC_GRAPH_REQUIRE_OIDC": "false",
-        "EPISTEMIC_GRAPH_AUDIENCE": "epistemic-graph-test",
-        "EPISTEMIC_GRAPH_TENANT": ICEBERG_TENANT,
-        "EPISTEMIC_GRAPH_POLICY_VERSION": "policy:test",
-        "EPISTEMIC_GRAPH_SECURITY_STATE_DIR": state_dir,
-        "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON": json.dumps(
+        "MEDULLA_REQUIRE_OIDC": "false",
+        "MEDULLA_AUDIENCE": "medulla-test",
+        "MEDULLA_TENANT": ICEBERG_TENANT,
+        "MEDULLA_POLICY_VERSION": "policy:test",
+        "MEDULLA_SECURITY_STATE_DIR": state_dir,
+        "MEDULLA_SIGNER_KEYS_JSON": json.dumps(
             {"service:test-suite": "test-key"}
         ),
         "GRAPH_SERVICE_PERSIST_DIR": str(persist_dir),
         # This fixture validates Iceberg authentication and routing, not sharding.
         # One shard keeps its cold-start cost bounded without changing that surface.
-        "EPISTEMIC_GRAPH_REDB_SHARDS": "1",
-        "EPISTEMIC_GRAPH_ICEBERG_ADDR": f"127.0.0.1:{iceberg_port}",
+        "MEDULLA_REDB_SHARDS": "1",
+        "MEDULLA_ICEBERG_ADDR": f"127.0.0.1:{iceberg_port}",
         # BUG-222: the Iceberg-REST surface's OWN, independently-configured
         # OAuth2 bearer verifier — points at the local JWKS server above
         # rather than the live Keycloak so this suite has no network
         # dependency.
-        "EPISTEMIC_GRAPH_ICEBERG_JWT_ISSUER": ICEBERG_OAUTH_ISSUER,
-        "EPISTEMIC_GRAPH_ICEBERG_JWT_AUDIENCE": ICEBERG_OAUTH_AUDIENCE,
-        "EPISTEMIC_GRAPH_ICEBERG_JWKS_URL": iceberg_oauth_fixture["jwks_url"],
+        "MEDULLA_ICEBERG_JWT_ISSUER": ICEBERG_OAUTH_ISSUER,
+        "MEDULLA_ICEBERG_JWT_AUDIENCE": ICEBERG_OAUTH_AUDIENCE,
+        "MEDULLA_ICEBERG_JWKS_URL": iceberg_oauth_fixture["jwks_url"],
     }
-    # Prefer the shared `EPISTEMIC_GRAPH_TEST_BINARY` (see conftest.py's
+    # Prefer the shared `MEDULLA_TEST_BINARY` (see conftest.py's
     # `_prebuilt_test_binary()`) so this module never pays for its own `cargo
     # build`/`cargo run` compile of the real server binary when a caller
-    # already has a matching one -- this is the same `epistemic-graph-server`
+    # already has a matching one -- this is the same `medulla-server`
     # binary the shared session fixture uses, just launched on a private
     # socket/port so `--iceberg-addr` can be exercised in isolation.
     prebuilt = _required_executable(
         _prebuilt_test_binary(),
-        "EPISTEMIC_GRAPH_TEST_BINARY",
+        "MEDULLA_TEST_BINARY",
         "Iceberg REST parity",
     )
     proc = subprocess.Popen(
@@ -718,7 +718,7 @@ def test_iceberg_rest_authenticated_bearer_is_allowed(
     iceberg_server, iceberg_oauth_fixture
 ):
     """A bearer that RSA/JWKS/issuer/audience/expiry-verifies AND asserts this
-    deployment's own tenant (`EPISTEMIC_GRAPH_TENANT`) mints a real `CarrierAuthority`
+    deployment's own tenant (`MEDULLA_TENANT`) mints a real `CarrierAuthority`
     — the Iceberg-REST catalog surface serves the request instead of denying it."""
     token = _sign_iceberg_bearer(
         iceberg_oauth_fixture, subject="agent:reader", tenant=ICEBERG_TENANT

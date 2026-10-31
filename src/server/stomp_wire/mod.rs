@@ -1,4 +1,4 @@
-//! STOMP 1.2 wire-protocol listener (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit) — a HAND-ROLLED STOMP text-frame
+//! STOMP 1.2 wire-protocol listener (CONCEPT:MEDULLA-KG.ontology.stomp-frame-codec-unit) — a HAND-ROLLED STOMP text-frame
 //! server that lets a standard STOMP client (stomp.py, stompjs, an ActiveMQ/RabbitMQ
 //! STOMP consumer) speak to the native message broker built on the KG-2.303 work-queue.
 //!
@@ -7,7 +7,7 @@
 //! broker. Every exchange/binding/queue/message lives as graph nodes on a control graph
 //! (`crate::broker`); this module only frames STOMP 1.2 text frames on the wire and maps
 //! each command onto the SAME broker primitives THROUGH the engine dispatch
-//! (`crate::server::dispatch::dispatch`) that the AMQP wire (CONCEPT:EG-KG.compute.message-broker-exchanges/276..280)
+//! (`crate::server::dispatch::dispatch`) that the AMQP wire (CONCEPT:MEDULLA-KG.compute.message-broker-exchanges/276..280)
 //! uses — no parallel mechanism, no new broker method.
 //!
 //! A STOMP `destination` (`/queue/foo`, `/topic/bar`) maps onto a broker DIRECT exchange
@@ -21,7 +21,7 @@
 //! STOMP 1.2 spec (the Pi-contract idiom pgwire / amqp-wire / mqtt-wire use), so a
 //! default/pi build carries zero STOMP dependency.
 //!
-//! ## Protocol subset (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit)
+//! ## Protocol subset (CONCEPT:MEDULLA-KG.ontology.stomp-frame-codec-unit)
 //! LANDED: CONNECT/STOMP → CONNECTED, SEND (→ broker publish), SUBSCRIBE/MESSAGE
 //! (destination → per-subscription queue, streamed), ACK/NACK (ack modes
 //! `auto`/`client`/`client-individual`), UNSUBSCRIBE, DISCONNECT, and `receipt`-header
@@ -40,12 +40,12 @@ use crate::server::ServerState;
 /// Env var: when set (and the binary is built `--features stomp-wire`), the STOMP wire
 /// listener binds this address (documented loopback default `127.0.0.1:61613`). Unset ⇒
 /// no listener.
-pub const STOMP_ADDR_ENV: &str = "EPISTEMIC_GRAPH_STOMP_ADDR";
+pub const STOMP_ADDR_ENV: &str = "MEDULLA_STOMP_ADDR";
 /// Env var: the control graph broker state lives on. Defaults to `__commons__`.
-pub const STOMP_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_STOMP_GRAPH";
+pub const STOMP_GRAPH_ENV: &str = "MEDULLA_STOMP_GRAPH";
 /// Env var: the broker DIRECT exchange STOMP destinations route through. Defaults to
 /// `stomp.direct`.
-pub const STOMP_EXCHANGE_ENV: &str = "EPISTEMIC_GRAPH_STOMP_EXCHANGE";
+pub const STOMP_EXCHANGE_ENV: &str = "MEDULLA_STOMP_EXCHANGE";
 
 const WIRE: BrokerProtocol = BrokerProtocol::Stomp;
 
@@ -122,7 +122,7 @@ pub fn validate_startup_policy(addr: &str, secret: &str) -> std::io::Result<()> 
     crate::server::validate_direct_wire_security(addr, "stomp-wire", !secret.is_empty())
 }
 
-/// Serve the STOMP 1.2 wire protocol on `addr` until the listener errors (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit).
+/// Serve the STOMP 1.2 wire protocol on `addr` until the listener errors (CONCEPT:MEDULLA-KG.ontology.stomp-frame-codec-unit).
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let graph = std::env::var(STOMP_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
     let exchange =
@@ -182,7 +182,7 @@ async fn requeue_message(
 
 // ── Per-connection state ──────────────────────────────────────────────────
 
-/// STOMP subscription ack discipline (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit).
+/// STOMP subscription ack discipline (CONCEPT:MEDULLA-KG.ontology.stomp-frame-codec-unit).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AckMode {
     /// The message is considered acked the instant it is sent (no ACK expected).
@@ -384,7 +384,7 @@ async fn handle_connect(
         "CONNECTED",
         vec![
             ("version".into(), "1.2".into()),
-            ("server".into(), "epistemic-graph".into()),
+            ("server".into(), "medulla".into()),
             ("session".into(), session),
             ("heart-beat".into(), "0,0".into()),
         ],
@@ -561,7 +561,7 @@ async fn maybe_receipt(socket: &mut TcpStream, frame: &Frame) -> std::io::Result
 }
 
 /// Deliver pending messages from each subscription's queue as MESSAGE frames
-/// (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit). Auto-ack subscriptions finalize immediately; client-ack ones record
+/// (CONCEPT:MEDULLA-KG.ontology.stomp-frame-codec-unit). Auto-ack subscriptions finalize immediately; client-ack ones record
 /// the message for a later ACK/NACK.
 async fn pump_subscriptions(
     socket: &mut TcpStream,
@@ -861,7 +861,7 @@ async fn write_frame(socket: &mut TcpStream, frame: &Frame) -> std::io::Result<(
 
 #[cfg(test)]
 mod tests {
-    //! CONCEPT:EG-KG.ontology.stomp-frame-codec-unit — STOMP frame-codec unit tests (round-trips, header escaping,
+    //! CONCEPT:MEDULLA-KG.ontology.stomp-frame-codec-unit — STOMP frame-codec unit tests (round-trips, header escaping,
     //! body/NUL framing) + a served listener round-trip (CONNECT/SEND/SUBSCRIBE/MESSAGE)
     //! that proves the mapping onto the broker end-to-end.
     use super::*;
@@ -975,11 +975,11 @@ mod tests {
         assert!(validate_stomp_frame_bounds(b"SEND\ncontent-length:4\n\nbody\0").is_ok());
     }
 
-    // ── Served listener round-trip (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit) ───────────────────────
+    // ── Served listener round-trip (CONCEPT:MEDULLA-KG.ontology.stomp-frame-codec-unit) ───────────────────────
 
     async fn spawn_listener() -> String {
         broker_wire::spawn_broker_test_listener(
-            "eg-stomp-wire-test",
+            "medulla-stomp-wire-test",
             |listener, state| async move {
                 accept_loop(
                     listener,
@@ -1017,7 +1017,7 @@ mod tests {
         // Held for the whole test: `spawn_listener`/`test_state` opens a `RedbBackend`
         // for the `__commons__` graph on the request-dispatch path this listener
         // drives; a concurrent `crypto::tests::EnvGuard`-protected test transiently
-        // mutating the shared `EPISTEMIC_GRAPH_ENCRYPTION_KEY`/`_TXN_RECOVERY_KEY` env
+        // mutating the shared `MEDULLA_ENCRYPTION_KEY`/`_TXN_RECOVERY_KEY` env
         // vars elsewhere in the crate can otherwise land mid-flight of this test's
         // message round trip. See `crate::crypto::acquire_test_env_lock`'s doc for the
         // full mechanism.

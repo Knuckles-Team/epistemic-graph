@@ -1,5 +1,5 @@
 //! The backend's side of the bounded background node-payload scrub (EH-384,
-//! CONCEPT:EG-KG.storage.node-payload-scrub).
+//! CONCEPT:MEDULLA-KG.storage.node-payload-scrub).
 //!
 //! One step runs one bounded pass per shard: the pass reads its cursor and
 //! walks node payloads off the writer thread (an MVCC read, no write lock),

@@ -8,49 +8,49 @@
   },
   {
     "code": "E0433",
-    "message": "cannot find module or crate `eg_program` in this scope",
+    "message": "cannot find module or crate `medulla_program` in this scope",
     "file": "src/server/handlers/jobs/program_validation.rs",
     "line": 462,
     "column": 22
   },
   {
     "code": "E0433",
-    "message": "cannot find module or crate `eg_program` in this scope",
+    "message": "cannot find module or crate `medulla_program` in this scope",
     "file": "src/server/handlers/jobs/program_validation.rs",
     "line": 464,
     "column": 14
   },
   {
     "code": "E0433",
-    "message": "cannot find module or crate `eg_program` in this scope",
+    "message": "cannot find module or crate `medulla_program` in this scope",
     "file": "src/server/handlers/jobs/program_validation.rs",
     "line": 466,
     "column": 22
   },
   {
     "code": "E0433",
-    "message": "cannot find module or crate `eg_program` in this scope",
+    "message": "cannot find module or crate `medulla_program` in this scope",
     "file": "src/server/handlers/jobs/program_validation.rs",
     "line": 473,
     "column": 27
   },
   {
     "code": "E0433",
-    "message": "cannot find module or crate `eg_program` in this scope",
+    "message": "cannot find module or crate `medulla_program` in this scope",
     "file": "src/server/handlers/jobs/program_validation.rs",
     "line": 475,
     "column": 14
   },
   {
     "code": "E0433",
-    "message": "cannot find module or crate `eg_program` in this scope",
+    "message": "cannot find module or crate `medulla_program` in this scope",
     "file": "src/server/handlers/jobs/program_validation.rs",
     "line": 477,
     "column": 26
   },
   {
     "code": "E0433",
-    "message": "cannot find module or crate `eg_program` in this scope",
+    "message": "cannot find module or crate `medulla_program` in this scope",
     "file": "src/server/handlers/jobs/program_validation.rs",
     "line": 479,
     "column": 14
@@ -183,7 +183,7 @@
   },
   {
     "code": "E0433",
-    "message": "cannot find module or crate `eg_program` in this scope",
+    "message": "cannot find module or crate `medulla_program` in this scope",
     "file": "src/server/handlers/jobs/program_validation.rs",
     "line": 406,
     "column": 49

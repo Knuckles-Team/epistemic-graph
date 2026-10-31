@@ -8,11 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from epistemic_graph import decision_stat as ds
-from epistemic_graph.testing.synthetic import decision_export as export
-from epistemic_graph.testing.synthetic.assembly import Solved
-from epistemic_graph.testing.synthetic.assembly_generate import generate_gold_set
-from epistemic_graph.testing.synthetic.outcomes_generate import generate_outcome_stream
+from medulla import decision_stat as ds
+from medulla.testing.synthetic import decision_export as export
+from medulla.testing.synthetic.assembly import Solved
+from medulla.testing.synthetic.assembly_generate import generate_gold_set
+from medulla.testing.synthetic.outcomes_generate import generate_outcome_stream
 
 pytestmark = pytest.mark.no_engine
 
@@ -37,7 +37,7 @@ def test_the_gold_set_exports_one_full_label_item_per_solvable_plan() -> None:
     )
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R053")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R053")
 def test_the_gold_set_loads_each_item_is_labelled_and_class_coverage_is_reported() -> (
     None
 ):
@@ -60,7 +60,7 @@ def _served_item(acceptable: list[str], candidate_ids: list[str]) -> dict:
     }
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R093.1")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R093.1")
 def test_verify_ground_truth_accepts_a_served_item_with_a_grounded_acceptable_set() -> (
     None
 ):
@@ -68,21 +68,21 @@ def test_verify_ground_truth_accepts_a_served_item_with_a_grounded_acceptable_se
     export.verify_ground_truth(item)  # does not raise
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R093.1")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R093.1")
 def test_verify_ground_truth_ignores_a_non_served_source() -> None:
     item = _served_item([], ["a", "b"])
     item["label"]["source"] = export.SOURCE_IN_PROCESS
     export.verify_ground_truth(item)  # does not raise: not a served-path claim
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R093.1")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R093.1")
 def test_verify_ground_truth_refuses_a_served_item_with_no_acceptable_set() -> None:
     item = _served_item([], ["a", "b"])
     with pytest.raises(export.UnverifiableGroundTruthError, match="no acceptable set"):
         export.verify_ground_truth(item)
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R093.1")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R093.1")
 def test_verify_ground_truth_refuses_a_served_item_whose_acceptable_set_leaks() -> None:
     item = _served_item(["a", "ghost"], ["a", "b"])
     with pytest.raises(export.UnverifiableGroundTruthError, match="not a subset"):

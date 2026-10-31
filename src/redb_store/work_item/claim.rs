@@ -270,8 +270,8 @@ pub(crate) fn claim_not_claimed_payload(
     inflight: u32,
     changed_work_item_ids: Vec<String>,
 ) -> Result<crate::protocol::ResultPayload, String> {
-    crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::ClaimWorkItem>(
-        eg_types::inline_history::NativeClaimWorkItemResult {
+    crate::protocol::ResultPayload::of::<medulla_types::result_contract::coordination::ClaimWorkItem>(
+        medulla_types::inline_history::NativeClaimWorkItemResult {
             fresh_execution_grant: None,
             claim: ClaimWorkItemResult {
                 schema_version: ClaimWorkItemResultSchemaVersion::V1,
@@ -386,7 +386,7 @@ fn require_history_opt_in(
     if !completed_text_history && profile.is_some_and(|value| !value.is_null()) {
         return Err(format!(
             "{}: claim requires completed_text_history opt-in",
-            eg_types::contract::ServerErrorCode::RunAdmissionUnavailable
+            medulla_types::contract::ServerErrorCode::RunAdmissionUnavailable
         ));
     }
     Ok(())
@@ -414,7 +414,7 @@ fn profile_execution_grant(
     {
         return Ok(None);
     }
-    let admission: eg_types::native_control::SubmitWorkItemRequest =
+    let admission: medulla_types::native_control::SubmitWorkItemRequest =
         serde_json::from_value(original.clone())
             .map_err(|_| "invalid immutable history-profile admission")?;
     let profile = admission
@@ -493,8 +493,8 @@ fn apply_claimed_work_item(
         crypto,
     )?;
     changed_work_item_ids.push(node_id.clone());
-    crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::ClaimWorkItem>(
-        eg_types::inline_history::NativeClaimWorkItemResult {
+    crate::protocol::ResultPayload::of::<medulla_types::result_contract::coordination::ClaimWorkItem>(
+        medulla_types::inline_history::NativeClaimWorkItemResult {
             fresh_execution_grant,
             claim: ClaimWorkItemResult {
                 schema_version: ClaimWorkItemResultSchemaVersion::V1,

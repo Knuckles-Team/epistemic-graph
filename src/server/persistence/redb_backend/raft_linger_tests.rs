@@ -9,11 +9,11 @@ use super::*;
 /// append holds the writer at the receive window until the second is queued.
 /// Both acknowledgements still happen only after their shared commit, and
 /// reopening proves both entries crossed that durable barrier.
-// spec: EG-DURABLE-KERNEL-R016
+// spec: MEDULLA-DURABLE-KERNEL-R016
 #[tokio::test(flavor = "multi_thread")]
 async fn micro_linger_coalesces_shallow_raft_appends() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let dir = std::env::temp_dir().join(format!("eg-redb-raft-linger-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("medulla-redb-raft-linger-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let dir_s = dir.to_string_lossy().to_string();
     let (control, entered_rx, release_tx) = RedbGroupCommitTestControl::new();

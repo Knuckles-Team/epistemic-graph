@@ -9,7 +9,7 @@
 //! their tables are scope-prefixed, so each transition works through one graph
 //! member's owner-row write.
 
-use eg_storage::ScopedOwnerTableMut;
+use medulla_storage::ScopedOwnerTableMut;
 
 use super::*;
 

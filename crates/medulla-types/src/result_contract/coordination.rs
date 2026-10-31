@@ -1,0 +1,160 @@
+//! Declared results of the `coordination` contract domain.
+
+#[cfg(feature = "jobs")]
+mod jobs;
+mod resources;
+#[cfg(feature = "statechart")]
+mod statechart;
+mod work_items;
+
+#[cfg(feature = "jobs")]
+pub use jobs::*;
+pub use resources::*;
+#[cfg(feature = "statechart")]
+pub use statechart::*;
+pub use work_items::*;
+
+use crate::control_lease::{
+    ControlLeaseIssued, ControlLeasePage, ControlLeaseTransition, ControlLeaseView,
+};
+use crate::decision::statistical::log::{
+    DecisionLogCommitted, DecisionLogCompacted, DecisionLogEntry, DecisionLogVerification,
+    OutcomeAggregate, StoredEvaluation, StoredResolution,
+};
+use crate::decision::statistical::retrieval::LearningRecorded;
+use crate::decision::DecisionJobRecord;
+use crate::delegation::KgDelegateResult;
+use crate::epistemic_operations::{
+    DevelopmentLaneCleanupCompleteResult, DevelopmentLaneFinishResult,
+    DevelopmentLaneObserveResult, DevelopmentLaneQueryResult, DevelopmentLaneQuotaUpdateResult,
+    DevelopmentLaneRenewResult, DevelopmentLaneResult, DevelopmentLaneStatusResult,
+    ResourceHostUpdateResult, ResourceReservationResult, ResourceReservationStatusResult,
+};
+use crate::epistemic_operations_ext::{CasWorkItemMetadataResult, WorkItemClaimCapabilityResult};
+use crate::native_control::{
+    CapacityAcquireResult, CapacityCellUpdateResult, CapacityMutationResult, CapacityReclaimResult,
+    CapacityStatusResult, SubmitWorkItemResult, SubmitWorkItemsResult,
+};
+use crate::sealed_record::SealedRecordRetirement;
+use crate::work_item_read::{WorkItemOutcomeView, WorkItemPage, WorkItemView};
+use crate::work_market::{
+    GapPage, GapSettled, GapTransitioned, GapUpserted, GapView, WorkOfferRecorded,
+};
+
+method_results! {
+    visit_coordination;
+    // The claimed node's id and its updated properties, or nil when nothing matched.
+    ClaimNext(ClaimNext) => Raw<Option<(String, serde_json::Value)>>;
+    ClaimWorkItem(ClaimWorkItem) => Raw<crate::inline_history::NativeClaimWorkItemResult>;
+    AcquireCapacity(AcquireCapacity) => Raw<CapacityAcquireResult>;
+    RenewCapacity(RenewCapacity) => Raw<CapacityMutationResult>;
+    ReleaseCapacity(ReleaseCapacity) => Raw<CapacityMutationResult>;
+    ReclaimExpiredCapacity(ReclaimExpiredCapacity) => Raw<CapacityReclaimResult>;
+    ReconcileCapacity(ReconcileCapacity) => Raw<CapacityStatusResult>;
+    CapacityStatus(CapacityStatus) => Raw<CapacityStatusResult>;
+    UpdateCapacityCell(UpdateCapacityCell) => Raw<CapacityCellUpdateResult>;
+    ThrottleCapacityCell(ThrottleCapacityCell) => Raw<crate::native_control::CapacityThrottleResult>;
+    KgDelegate(KgDelegate) => Raw<KgDelegateResult>;
+    SubmitWorkItem(SubmitWorkItem) => Raw<SubmitWorkItemResult>;
+    SubmitWorkItems(SubmitWorkItems) => Raw<SubmitWorkItemsResult>;
+    MintWorkItemClaimCapability(MintWorkItemClaimCapability) => Raw<WorkItemClaimCapabilityResult>;
+    VerifyWorkItemClaimCapability(VerifyWorkItemClaimCapability) => Raw<WorkItemClaimCapabilityResult>;
+    RenewWorkItemLease(RenewWorkItemLease) => Json<WorkItemLeaseRenewal>;
+    CommitWorkItemResult(CommitWorkItemResult) => Json<WorkItemTransition<WorkItemCommitStatus>>;
+    CancelWorkItem(CancelWorkItem) => Json<WorkItemTransition<WorkItemCancelStatus>>;
+    DeferWorkItem(DeferWorkItem) => Json<WorkItemDeferral>;
+    CasWorkItemMetadata(CasWorkItemMetadata) => Raw<CasWorkItemMetadataResult>;
+    // EH-219 typed WorkItem reads. `null` when no WorkItem with this id is
+    // visible to the verified tenant.
+    PublishCurrentPlan(PublishCurrentPlan) => Raw<crate::current_plan::CurrentPlanPublished>;
+    PublishRunCheckpoint(PublishRunCheckpoint) => Raw<crate::run_checkpoint::RunCheckpointPublished>;
+    GetRunCheckpoint(GetRunCheckpoint) => Raw<Option<crate::run_checkpoint::RunCheckpointRead>>;
+    GetCurrentPlan(GetCurrentPlan) => Raw<Option<crate::current_plan::CurrentPlanSnapshot>>;
+    GetConversationHead(GetConversationHead) => Raw<Option<crate::inline_history::ConversationHeadView>>;
+    GetSessionUsage(GetSessionUsage) => Raw<crate::run_usage::SessionUsage>;
+    GetRunWorkItem(GetRunWorkItem) => Raw<Option<crate::work_item_read::RunWorkItemView>>;
+    GetWorkItem(GetWorkItem) => Raw<Option<WorkItemView>>;
+    ListWorkItems(ListWorkItems) => Raw<WorkItemPage>;
+    // graph-os MEDULLA-3: `null` when the WorkItem is not visible or has no bundle.
+    GetWorkItemOutcome(GetWorkItemOutcome) => Raw<Option<WorkItemOutcomeView>>;
+    // graph-os MEDULLA-2 native control leases. `null` when no lease with this id
+    // is visible to the verified tenant.
+    IssueHostStartGrant(IssueHostStartGrant) => Json<ControlLeaseIssued>;
+    IssueControlLease(IssueControlLease) => Json<ControlLeaseIssued>;
+    TransitionControlLease(TransitionControlLease) => Json<ControlLeaseTransition>;
+    GetControlLease(GetControlLease) => Raw<Option<ControlLeaseView>>;
+    ListControlLeases(ListControlLeases) => Raw<ControlLeasePage>;
+    // EH-348 work market. `GapGet` is `null` when no Gap with this id is
+    // visible to the verified tenant.
+    GapUpsert(GapUpsert) => Json<GapUpserted>;
+    GapTransition(GapTransition) => Json<GapTransitioned>;
+    GapSettle(GapSettle) => Json<GapSettled>;
+    WorkOfferPut(WorkOfferPut) => Json<WorkOfferRecorded>;
+    GapGet(GapGet) => Raw<Option<GapView>>;
+    GapList(GapList) => Raw<GapPage>;
+    // EH-558 sealed-record retirement (the owning op).
+    RetireSealedRecord(RetireSealedRecord) => Json<SealedRecordRetirement>;
+    ReserveWorkItemResources(ReserveWorkItemResources) => Raw<ResourceReservationResult>;
+    ReleaseWorkItemResources(ReleaseWorkItemResources) => Raw<ResourceReservationResult>;
+    ReclaimWorkItemResources(ReclaimWorkItemResources) => Raw<ResourceReservationResult>;
+    QueryWorkItemReservation(QueryWorkItemReservation) => Raw<ResourceReservationResult>;
+    ResourceReservationStatus(ResourceReservationStatus) => Raw<ResourceReservationStatusResult>;
+    UpdateResourceHost(UpdateResourceHost) => Raw<ResourceHostUpdateResult>;
+    ReserveDevelopmentLane(ReserveDevelopmentLane) => Raw<DevelopmentLaneResult>;
+    RenewDevelopmentLane(RenewDevelopmentLane) => Raw<DevelopmentLaneRenewResult>;
+    ObserveDevelopmentLane(ObserveDevelopmentLane) => Raw<DevelopmentLaneObserveResult>;
+    FinishDevelopmentLane(FinishDevelopmentLane) => Raw<DevelopmentLaneFinishResult>;
+    CleanupDevelopmentLane(CleanupDevelopmentLane) => Raw<DevelopmentLaneCleanupCompleteResult>;
+    QueryDevelopmentLane(QueryDevelopmentLane) => Raw<DevelopmentLaneQueryResult>;
+    DevelopmentLaneStatus(DevelopmentLaneStatus) => Raw<DevelopmentLaneStatusResult>;
+    UpdateDevelopmentLaneQuota(UpdateDevelopmentLaneQuota) => Raw<DevelopmentLaneQuotaUpdateResult>;
+    ResourceStatsPage(ResourceStatsPage) => Json<ResourceSnapshot>;
+    #[cfg(feature = "jobs")]
+    JobSubmit(AnalyticsJob / "Submit") => Json<AnalyticsJobRecord>;
+    #[cfg(feature = "jobs")]
+    JobStatus(AnalyticsJob / "Status") => Json<AnalyticsJobRecord>;
+    #[cfg(feature = "jobs")]
+    JobCancel(AnalyticsJob / "Cancel") => Json<AnalyticsJobRecord>;
+    #[cfg(feature = "jobs")]
+    JobResume(AnalyticsJob / "Resume") => Json<AnalyticsJobRecord>;
+    // `null` when no eligible job is waiting.
+    #[cfg(feature = "jobs")]
+    JobWorkerClaim(AnalyticsJob / "WorkerClaim") => Json<Option<WorkerJobClaim>>;
+    #[cfg(feature = "jobs")]
+    JobWorkerRenew(AnalyticsJob / "WorkerRenew") => Json<JobWorkerLease>;
+    #[cfg(feature = "jobs")]
+    JobWorkerCheckpoint(AnalyticsJob / "WorkerCheckpoint") => Json<AnalyticsJobRecord>;
+    #[cfg(feature = "jobs")]
+    JobWorkerStage(AnalyticsJob / "WorkerStage") => Json<AnalyticsJobRecord>;
+    #[cfg(feature = "jobs")]
+    JobWorkerPublish(AnalyticsJob / "WorkerPublish") => Json<AnalyticsJobRecord>;
+    #[cfg(feature = "jobs")]
+    JobWorkerFail(AnalyticsJob / "WorkerFail") => Json<AnalyticsJobRecord>;
+    #[cfg(feature = "jobs")]
+    JobWorkerCancel(AnalyticsJob / "WorkerCancel") => Json<AnalyticsJobRecord>;
+    #[cfg(feature = "statechart")]
+    StatechartDefine(Statechart / "Define") => Json<StatechartDefinitionId>;
+    #[cfg(feature = "statechart")]
+    StatechartInstantiate(Statechart / "Instantiate") => Json<StatechartInstance>;
+    #[cfg(feature = "statechart")]
+    StatechartSendEvent(Statechart / "SendEvent") => Json<StatechartEventOutcome>;
+    #[cfg(feature = "statechart")]
+    StatechartGetState(Statechart / "GetState") => Json<StatechartInstance>;
+    #[cfg(feature = "statechart")]
+    StatechartList(Statechart / "List") => Json<StatechartInstanceList>;
+    DecisionFitSubmit(DecisionFit / "submit") => Raw<DecisionJobRecord>;
+    DecisionFitStatus(DecisionFit / "status") => Raw<Option<DecisionJobRecord>>;
+    DecisionEvalSubmit(DecisionEval / "submit") => Raw<DecisionJobRecord>;
+    DecisionEvalStatus(DecisionEval / "status") => Raw<Option<DecisionJobRecord>>;
+    DecisionEvalReceiptGet(DecisionEval / "receipt") => Raw<Option<crate::decision::DecisionEvalReceipt>>;
+    DecisionEvalReceipts(DecisionEval / "receipts") => Raw<crate::decision::DecisionReceiptPage>;
+    DecisionEvalTimeline(DecisionEval / "timeline") => Raw<crate::decision::DecisionReceiptTimelinePage>;
+    DecisionLogCommit(DecisionLog / "commit") => Raw<DecisionLogCommitted>;
+    DecisionLogEvaluate(DecisionLog / "evaluate") => Raw<StoredEvaluation>;
+    DecisionLogGet(DecisionLog / "get") => Raw<Option<DecisionLogEntry>>;
+    DecisionLogAggregate(DecisionLog / "aggregate") => Raw<OutcomeAggregate>;
+    DecisionLogCompact(DecisionLog / "compact") => Raw<DecisionLogCompacted>;
+    DecisionLogVerify(DecisionLog / "verify") => Raw<DecisionLogVerification>;
+    DecisionLogResolve(DecisionLog / "resolve") => Raw<StoredResolution>;
+    DecisionLogLearn(DecisionLog / "learn") => Raw<LearningRecorded>;
+}

@@ -3,11 +3,11 @@
 //! policy. Each is read by (id, exact revision digest), in the tenant, both at
 //! assembly time and again inside the commit's write.
 
-use eg_types::agent_component::{AgentComponentEntry, AgentComponentKind, ComponentDependency};
-use eg_types::agent_graph::AgentGraphEntry;
-use eg_types::decision::policy::policy_from_attributes;
-use eg_types::decision::{DecisionErrorCode, DecisionPolicy, DecisionRecord, TemplateFacts};
-use eg_types::delegation::AgentGraphEntryRef;
+use medulla_types::agent_component::{AgentComponentEntry, AgentComponentKind, ComponentDependency};
+use medulla_types::agent_graph::AgentGraphEntry;
+use medulla_types::decision::policy::policy_from_attributes;
+use medulla_types::decision::{DecisionErrorCode, DecisionPolicy, DecisionRecord, TemplateFacts};
+use medulla_types::delegation::AgentGraphEntryRef;
 
 use super::super::agent_component::ComponentLayer;
 use super::super::agent_graph::GraphLayer;
@@ -15,7 +15,7 @@ use super::super::agent_library::AgentLibraryStore;
 use super::super::agent_revision::decode_revision;
 use super::refuse;
 
-type Write<'a> = eg_transaction::AdmittedMutation<'a, eg_storage::AgentLibraryOwner>;
+type Write<'a> = medulla_transaction::AdmittedMutation<'a, medulla_storage::AgentLibraryOwner>;
 
 /// Most revisions of one record the in-write lookups below will walk.
 const MAX_REVISION_SCAN: usize = 16_384;
@@ -96,7 +96,7 @@ impl AgentLibraryStore {
 /// body the record stores.
 pub(super) fn check_sources(txn: &Write<'_>, record: &DecisionRecord) -> Result<(), String> {
     let tenant_id = record.tenant_id.as_str();
-    let graphs = txn.open_read_table(eg_storage::AGENT_GRAPH_REVISIONS)?;
+    let graphs = txn.open_read_table(medulla_storage::AGENT_GRAPH_REVISIONS)?;
     for template in &record.inputs.templates {
         let key = (
             tenant_id,
@@ -120,7 +120,7 @@ pub(super) fn check_sources(txn: &Write<'_>, record: &DecisionRecord) -> Result<
             ));
         }
     }
-    let eg_types::decision::DecisionPolicyRef::Pinned { component } = &record.inputs.request.policy
+    let medulla_types::decision::DecisionPolicyRef::Pinned { component } = &record.inputs.request.policy
     else {
         return Ok(());
     };
@@ -139,7 +139,7 @@ fn pinned_in_write(
     tenant_id: &str,
     pin: &ComponentDependency,
 ) -> Result<DecisionPolicy, String> {
-    let revisions = txn.open_read_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
+    let revisions = txn.open_read_table(medulla_storage::AGENT_COMPONENT_REVISIONS)?;
     for (scanned, row) in revisions
         .range_from((tenant_id, pin.component_id.as_str(), 0))?
         .enumerate()

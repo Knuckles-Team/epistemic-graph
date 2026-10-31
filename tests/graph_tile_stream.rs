@@ -29,9 +29,9 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use eg_viz_graph_tiles::{decode_cluster_expansion, decode_cluster_level, read_frames, TileKind};
-use epistemic_graph::server::viz_engine::VizEngineState;
-use epistemic_graph::server::viz_interactive::serve;
+use medulla_viz_graph_tiles::{decode_cluster_expansion, decode_cluster_level, read_frames, TileKind};
+use medulla::server::viz_engine::VizEngineState;
+use medulla::server::viz_interactive::serve;
 
 /// Start a real `viz_interactive` listener on an OS-assigned loopback port and
 /// return its address. The server task is detached (test-process lifetime is

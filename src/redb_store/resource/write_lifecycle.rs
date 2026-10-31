@@ -8,7 +8,7 @@ pub(crate) fn resource_release_row_precheck(
     request: &ResourceReservationRequest,
     stored: &DurableResourceReservation,
     is_reserve: bool,
-    hosts: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    hosts: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<ResourceReservationResult>, String> {
     if stored.record.tenant_ref != request.tenant_ref {
@@ -139,8 +139,8 @@ pub(crate) fn resource_release_exclusivity_and_disk(
     graph: &str,
     request: &ResourceReservationRequest,
     host: &DurableResourceHost,
-    exclusivity: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &str>,
-    disk_policies: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    exclusivity: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &str>,
+    disk_policies: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
     for key in resource_exclusivity_keys(request) {
@@ -261,8 +261,8 @@ pub(crate) fn resource_commit_release_or_reclaim(
 
 /// Phase 5 (reserve-only path): the attempt-index winner check. Literal relocation.
 pub(crate) fn resource_check_attempt_winner_conflict(
-    attempts: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str, u64), &str>,
-    reservations: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    attempts: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str, u64), &str>,
+    reservations: &mut medulla_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     graph: &str,
     request: &ResourceReservationRequest,
     crypto: DurableCrypto<'_>,

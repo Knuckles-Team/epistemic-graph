@@ -6,7 +6,7 @@ use crate::protocol::Method;
 fn sealed_repository_budget_is_bound_to_exact_source_intent() {
     use crate::parser::enrichment_snapshot::EligibleSnapshot;
     use crate::redb_store::enrichment_budget::SourceBudgetAuthority;
-    use eg_types::ingestion_wire::{ExtractedNode, IndexResult};
+    use medulla_types::ingestion_wire::{ExtractedNode, IndexResult};
 
     let result = IndexResult {
         nodes: vec![ExtractedNode {
@@ -69,7 +69,7 @@ fn sealed_repository_budget_is_bound_to_exact_source_intent() {
 
 #[test]
 fn enrichment_park_command_is_sealed_and_not_public() {
-    let park = eg_types::native_control::EnrichmentBudgetPark {
+    let park = medulla_types::native_control::EnrichmentBudgetPark {
         schema_version: 1,
         source_envelope: "repository-index:source".into(),
         snapshot_digest: "a".repeat(64),
@@ -166,7 +166,7 @@ fn graph_request(graph_name: &str, group_id: crate::raft::GroupId) -> crate::raf
                 "batch",
             ),
             request_id: 7,
-            attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([3; 32])),
+            attempt_nonce: Some(medulla_types::contract::Nonce::from_bytes([3; 32])),
             tenant_scope: crate::server::mutation_batch::opaque_coordinator_key(
                 "carrier-tenant",
                 "verified",
@@ -273,7 +273,7 @@ fn ordinary_graph_command_is_bound_to_request_group_and_authenticated_authority(
     wrong_nonce
         .bind_graph_command("cluster-test-key", 2)
         .unwrap();
-    wrong_nonce.mutation.attempt_nonce = Some(eg_types::contract::Nonce::from_bytes([4; 32]));
+    wrong_nonce.mutation.attempt_nonce = Some(medulla_types::contract::Nonce::from_bytes([4; 32]));
     assert!(wrong_nonce
         .validate_graph_command("cluster-test-key", 2)
         .is_err());
@@ -333,7 +333,7 @@ fn internal_graph_command_requires_the_typed_internal_authority() {
     let claimed = crate::raft::RaftMutationContext::from_verified_request(
         "caller-batch".to_string(),
         1,
-        Some(eg_types::contract::Nonce::from_bytes([8; 32])),
+        Some(medulla_types::contract::Nonce::from_bytes([8; 32])),
         &request.mutation.tenant_scope,
         request.mutation.principal_fingerprint.clone(),
         false,

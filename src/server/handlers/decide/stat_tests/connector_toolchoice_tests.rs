@@ -1,4 +1,4 @@
-//! EG-DECISION-ENGINE-R042: connector tool-choice advisory via `Decide`.
+//! MEDULLA-DECISION-ENGINE-R042: connector tool-choice advisory via `Decide`.
 //! `Decide` evaluates which internal tool a connector should use for a task
 //! and returns a proposal with evidence only; the connector's own
 //! deterministic authorization path, never `Decide`, governs whether any
@@ -21,7 +21,7 @@ fn connector_tool_choice_request(schema: &ComponentDependency) -> DecideRequest 
     asked
 }
 
-// spec: EG-DECISION-ENGINE-R042
+// spec: MEDULLA-DECISION-ENGINE-R042
 #[tokio::test]
 async fn connector_tool_choice_is_a_proposal_that_cannot_itself_trigger_a_write_back() {
     let h = Harness::new().await;

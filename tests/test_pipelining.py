@@ -1,12 +1,12 @@
-"""CONCEPT:EG-KG.backend.framed-response — TRUE single-connection request PIPELINING.
+"""CONCEPT:MEDULLA-KG.backend.framed-response — TRUE single-connection request PIPELINING.
 
 The follow-up E flagged for the connection POOL
-(CONCEPT:EG-KG.backend.multiplexed-connections): remove the
+(CONCEPT:MEDULLA-KG.backend.multiplexed-connections): remove the
 per-connection *serialization* so ONE TCP/UDS connection carries many in-flight
 requests at once. The engine (``src/server/transport.rs::handle_connection``) now
 reads frames in a loop and ``tokio::spawn``s a dispatch task per request, writing
 the id-tagged responses back OUT OF ORDER through a single writer task; the Python
-client (``epistemic_graph/client.py``) runs a background reader that demultiplexes
+client (``medulla/client.py``) runs a background reader that demultiplexes
 each ``Response`` to its caller by ``Response.id``.
 
 Two layers of proof:
@@ -33,7 +33,7 @@ import msgpack
 import pytest
 from conftest import WRITE_SEQUENCE, request_context
 
-from epistemic_graph.client import EpistemicGraphClient, StaleRouteError
+from medulla.client import MedullaClient, StaleRouteError
 
 # ── Deterministic client-demux proof against a mock of the pipelined engine ──
 
@@ -155,8 +155,8 @@ class PipelinedMockServer:
             await self.server.wait_closed()
 
 
-async def _client_to(port: int) -> EpistemicGraphClient:
-    return await EpistemicGraphClient.connect(
+async def _client_to(port: int) -> MedullaClient:
+    return await MedullaClient.connect(
         tcp_addr=f"127.0.0.1:{port}",
         auth_secret="s",
         verified_context=request_context(),
@@ -357,16 +357,16 @@ async def _assert_concurrent_results_match_serial(client):
 
 
 @pytest.mark.asyncio
-async def test_real_engine_single_connection_pipelines(start_epistemic_graph_server):
-    _ = start_epistemic_graph_server  # fixture manages server lifecycle (vulture ref)
+async def test_real_engine_single_connection_pipelines(start_medulla_server):
+    _ = start_medulla_server  # fixture manages server lifecycle (vulture ref)
     # The real engine: N concurrent HEAVY ops (BetweennessCentrality, O(V*E)) on ONE
     # connection must run concurrently server-side — wall-clock ≪ the serial sum —
     # proving handle_connection no longer serializes one connection's requests.
     socket_path = os.environ.get(
-        "GRAPH_SERVICE_SOCKET", "/tmp/test_epistemic_graph_local.sock"
+        "GRAPH_SERVICE_SOCKET", "/tmp/test_medulla_local.sock"
     )
-    secret = os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "test-epistemic-graph-secret")
-    client = await EpistemicGraphClient.connect(
+    secret = os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "test-medulla-secret")
+    client = await MedullaClient.connect(
         socket_path=socket_path,
         auth_secret=secret,
         verified_context=request_context(),

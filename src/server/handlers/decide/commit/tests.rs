@@ -2,18 +2,18 @@
 
 use std::sync::Arc;
 
-use eg_compute::assemble::{assemble, inputs, replay_check, RecordIdentity};
-use eg_types::capacity_lease::{CapacityCell, CapacityResourceClass};
-use eg_types::contract::BoundedVec;
-use eg_types::decision::{
+use medulla_compute::assemble::{assemble, inputs, replay_check, RecordIdentity};
+use medulla_types::capacity_lease::{CapacityCell, CapacityResourceClass};
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::{
     CapacityHeadroom, DecisionCommitRequest, DecisionCommitResult, DecisionRecord, SchemaAuthority,
     TemplateFacts, TopologyAdmission, TopologyInputs,
 };
-use eg_types::delegation::AgentGraphEntryRef;
-use eg_types::native_control::{
+use medulla_types::delegation::AgentGraphEntryRef;
+use medulla_types::native_control::{
     CapacityCellUpdateRequest, CapacityStatusRequest, NativeControlSchemaVersion,
 };
-use eg_types::test_support::topology::{facts, requirements, FAN_OUT_JOIN, INDEPENDENT_SUBTASKS};
+use medulla_types::test_support::topology::{facts, requirements, FAN_OUT_JOIN, INDEPENDENT_SUBTASKS};
 use tokio::sync::RwLock;
 
 use crate::protocol::{Method, ResultPayload};
@@ -118,7 +118,7 @@ fn owner_bytes(dir: &std::path::Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
     files
 }
 
-// spec: EG-DECISION-ENGINE-R113.2.1
+// spec: MEDULLA-DECISION-ENGINE-R113.2.1
 #[tokio::test]
 async fn topology_commit_refuses_uncoordinated_owners() {
     #[cfg(any(feature = "security", feature = "raft"))]
@@ -181,7 +181,7 @@ async fn topology_commit_refuses_uncoordinated_owners() {
     let verified = VerifiedRequestContext::from_verified_claims_with_nonce(
         claims.claims().clone(),
         "ordinary-commit".into(),
-        Some(eg_types::contract::Nonce::from_bytes([3; 32])),
+        Some(medulla_types::contract::Nonce::from_bytes([3; 32])),
     );
     let response = super::handle_decision_commit(&state, 1, &verified, request.clone()).await;
     assert_eq!(response.error.as_deref(), Some("DERIVATION_REJECTED"));

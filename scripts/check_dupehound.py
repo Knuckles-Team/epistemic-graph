@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed, changed-source ``dupehound`` gate for epistemic-graph.
+"""Fail-closed, changed-source ``dupehound`` gate for medulla.
 
 Dupehound owns the structural whole-function clone question: does a changed
 function reimplement an existing function after identifiers and literals have

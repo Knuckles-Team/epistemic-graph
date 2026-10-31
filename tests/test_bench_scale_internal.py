@@ -3,7 +3,7 @@
 measurement arithmetic and shard shutdown, and `main`'s scaling,
 median-RSS and extrapolation computation and report shape.
 
-These pin behavior WITHOUT needing a built `epistemic-graph-server` binary
+These pin behavior WITHOUT needing a built `medulla-server` binary
 (this lane is pure Python; building the Rust server is out of scope here and
 already covered end-to-end, when a binary is present, by
 `test_bench_scale_smoke.py`). `_spawn_shards`/`_rss_kb`/`_driver_proc` (for
@@ -58,7 +58,7 @@ class _HangingProc(_FakeProc):
     """A shard that does not exit within the shutdown timeout."""
 
     def _exit_within(self, timeout: float) -> None:
-        raise subprocess.TimeoutExpired("epistemic-graph-server", timeout)
+        raise subprocess.TimeoutExpired("medulla-server", timeout)
 
 
 # `_bench` dispatches `_driver_proc` through `multiprocessing.Process`, which

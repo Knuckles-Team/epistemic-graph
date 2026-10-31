@@ -1,6 +1,6 @@
 //! Conversation order is reserved with native run admission, not a second store.
 use super::*;
-use eg_types::native_control::{
+use medulla_types::native_control::{
     ConversationTurnAdmission, NativeControlSchemaVersion, SubmitWorkItemRequest,
 };
 use serde::{Deserialize, Serialize};

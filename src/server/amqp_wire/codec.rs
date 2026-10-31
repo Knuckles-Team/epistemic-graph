@@ -21,7 +21,7 @@ pub(super) const C_CHANNEL: u16 = 20;
 pub(super) const C_EXCHANGE: u16 = 40;
 pub(super) const C_QUEUE: u16 = 50;
 pub(super) const C_BASIC: u16 = 60;
-/// AMQP `confirm` class (CONCEPT:EG-KG.ingest.broker-reject-publish publisher confirms).
+/// AMQP `confirm` class (CONCEPT:MEDULLA-KG.ingest.broker-reject-publish publisher confirms).
 pub(super) const C_CONFIRM: u16 = 85;
 
 /// Hard per-frame allocation ceiling for untrusted AMQP size prefixes.
@@ -68,7 +68,7 @@ pub(super) async fn read_protocol_header(socket: &mut TcpStream) -> std::io::Res
     Ok(true)
 }
 /// Idempotency / priority fields lifted from a `basic.publish` content header
-/// (CONCEPT:EG-KG.ingest.broker-reject-publish). All optional — an absent header leaves the default (no producer
+/// (CONCEPT:MEDULLA-KG.ingest.broker-reject-publish). All optional — an absent header leaves the default (no producer
 /// stamp, priority 0), so a publish with no properties behaves exactly as before.
 #[derive(Default)]
 pub(super) struct ContentProps {
@@ -76,12 +76,12 @@ pub(super) struct ContentProps {
     pub(super) producer_id: Option<String>,
     /// `x-producer-seq` application header (the per-producer monotonic sequence).
     pub(super) producer_seq: Option<i64>,
-    /// AMQP basic `priority` property → EG-278 priority band.
+    /// AMQP basic `priority` property → MEDULLA-278 priority band.
     pub(super) priority: i64,
 }
 
 /// Read the content-header frame (body size + basic-properties) then accumulate body
-/// frames. Parses the idempotency application-headers + priority (CONCEPT:EG-KG.ingest.broker-reject-publish).
+/// frames. Parses the idempotency application-headers + priority (CONCEPT:MEDULLA-KG.ingest.broker-reject-publish).
 pub(super) async fn read_content(
     socket: &mut TcpStream,
     expected_channel: u16,
@@ -162,7 +162,7 @@ pub(super) async fn read_content_body(
 }
 
 /// Parse a `basic.publish` content-header payload for the idempotency headers +
-/// priority (CONCEPT:EG-KG.ingest.broker-reject-publish). Walks the AMQP basic-properties in flag order to reach
+/// priority (CONCEPT:MEDULLA-KG.ingest.broker-reject-publish). Walks the AMQP basic-properties in flag order to reach
 /// the application-`headers` table (bit `0x2000`) and the `priority` octet (`0x0800`).
 /// A multi-word property-flags preamble (continuation bit `0x0001`, vanishingly rare
 /// for a publish) is not decoded — extraction is skipped and the publish still lands.
@@ -248,7 +248,7 @@ pub(super) fn parse_content_properties_metadata(c: &mut Cursor<'_>, flags: u16) 
     }
 }
 
-/// Scan an AMQP field-table for the idempotency headers (CONCEPT:EG-KG.ingest.broker-reject-publish): `x-producer-id`
+/// Scan an AMQP field-table for the idempotency headers (CONCEPT:MEDULLA-KG.ingest.broker-reject-publish): `x-producer-id`
 /// (a string value) and `x-producer-seq` (an int, or a numeric string). Unknown value
 /// types whose width can't be determined end the scan (the already-found keys stand).
 pub(super) fn parse_headers_table(bytes: &[u8], props: &mut ContentProps) -> bool {
@@ -280,7 +280,7 @@ pub(super) fn parse_headers_table(bytes: &[u8], props: &mut ContentProps) -> boo
     c.valid
 }
 
-/// A decoded AMQP field-table value we care about (CONCEPT:EG-KG.ingest.broker-reject-publish) — a string, an
+/// A decoded AMQP field-table value we care about (CONCEPT:MEDULLA-KG.ingest.broker-reject-publish) — a string, an
 /// integer, or a correctly-sized value we skip over.
 pub(super) enum FieldVal {
     Str(String),
@@ -288,7 +288,7 @@ pub(super) enum FieldVal {
     Skip,
 }
 /// Build a server `basic.ack` (class 60 / method 80): delivery-tag + `multiple` bit
-/// (CONCEPT:EG-KG.ingest.broker-reject-publish publisher confirms).
+/// (CONCEPT:MEDULLA-KG.ingest.broker-reject-publish publisher confirms).
 pub(super) fn build_basic_ack(delivery_tag: u64, multiple: bool) -> Vec<u8> {
     let mut p = method_header(C_BASIC, 80);
     put_u64(&mut p, delivery_tag);
@@ -297,7 +297,7 @@ pub(super) fn build_basic_ack(delivery_tag: u64, multiple: bool) -> Vec<u8> {
 }
 
 /// Build a server `basic.nack` (class 60 / method 120): delivery-tag + `multiple`/
-/// `requeue` bits (CONCEPT:EG-KG.ingest.broker-reject-publish — a publish the broker could not accept).
+/// `requeue` bits (CONCEPT:MEDULLA-KG.ingest.broker-reject-publish — a publish the broker could not accept).
 pub(super) fn build_basic_nack(delivery_tag: u64, multiple: bool, requeue: bool) -> Vec<u8> {
     let mut p = method_header(C_BASIC, 120);
     put_u64(&mut p, delivery_tag);

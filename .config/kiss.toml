@@ -1,4 +1,4 @@
-# CX program — kiss thresholds for epistemic-graph.
+# CX program — kiss thresholds for medulla.
 #
 # ═══ THIS FILE IS NOT A BASELINE. ═══════════════════════════════════════════
 # Every number is HAND-SET at a final, justified value; none was derived from
@@ -66,7 +66,7 @@ returns_per_function      = 8      # 2026-09-11: p90=2, p95=3, p99=5, max=29
                                    # validators -- the exact shape its own advice
                                    # string tells you to write ("early guard
                                    # returns at the top, then a single main
-                                   # return path"). eg-audio ingress.rs
+                                   # return path"). medulla-audio ingress.rs
                                    # ::validate_frame, 6 returns, all of them
                                    # `return Err(..)` refusals, is that case.
                                    # JUDGEMENT, labelled: the measurement fixes
@@ -118,7 +118,7 @@ concrete_types_per_file   = 20     # 2026-09-11: p90=7, p95=9, p99=18, max=140
                                    # new. The 30 it flags ALONE are uniformly the
                                    # Rust contract-module pattern: small, type-
                                    # dense modules whose types share one
-                                   # vocabulary. eg-types/native_control.rs is
+                                   # vocabulary. medulla-types/native_control.rs is
                                    # 276 lines and 19 types -- a Capacity* /
                                    # SubmitWorkItem* request+result vocabulary
                                    # that is reviewable precisely because it is

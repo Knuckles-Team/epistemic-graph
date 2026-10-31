@@ -1,4 +1,4 @@
-//! Startup steps of the `epistemic-graph-server` binary.
+//! Startup steps of the `medulla-server` binary.
 //!
 //! Each function owns one boot concern `run_inner` used to spell out inline:
 //! startup refusals, admission sizing, opening one durable store, the shutdown
@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use tracing::info;
 
-use epistemic_graph::server::{self, ServerState};
+use medulla::server::{self, ServerState};
 
 type SharedState = Arc<tokio::sync::RwLock<ServerState>>;
 type BoxError = Box<dyn std::error::Error>;
@@ -95,14 +95,14 @@ pub(super) async fn prepare_tcp_tls(
 pub(super) fn detect_capacity_and_log_startup(
     args: &super::Args,
     tcp_tls: bool,
-) -> epistemic_graph::autosize::Capacity {
-    info!("Starting epistemic-graph-server");
+) -> medulla::autosize::Capacity {
+    info!("Starting medulla-server");
     if args.tcp_only {
         info!("  Native TCP-only transport configured");
     } else {
         info!("  UDS: private local socket configured");
     }
-    let capacity = epistemic_graph::autosize::detect_capacity();
+    let capacity = medulla::autosize::detect_capacity();
     info!(
         "  Capacity: {} cpu(s), {} MiB RAM, tier {:?} (auto-sizing inflight/writer/node-cap defaults)",
         capacity.cpus,
@@ -113,7 +113,7 @@ pub(super) fn detect_capacity_and_log_startup(
         tracing::warn!(
             "  RAM undetectable (non-Linux or a restricted /proc) — defaulting the \
              per-graph node cap to a conservative {} (the same cap a real 1 GiB Pi \
-             gets); override with EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH",
+             gets); override with MEDULLA_MAX_NODES_PER_GRAPH",
             capacity.node_cap()
         );
     }
@@ -148,19 +148,19 @@ pub(super) fn flush_durable_state(persistence: Persistence) {
 /// held for the whole process lifetime by the caller.
 pub(super) fn acquire_persist_lock(
     persist_dir: Option<&str>,
-) -> Option<epistemic_graph::persist_lock::PersistDirLock> {
+) -> Option<medulla::persist_lock::PersistDirLock> {
     let dir = persist_dir?;
-    let lock = epistemic_graph::persist_lock::acquire(dir).unwrap_or_else(|e| exit_with(e, 1));
+    let lock = medulla::persist_lock::acquire(dir).unwrap_or_else(|e| exit_with(e, 1));
     info!("Acquired the configured single-writer persistence lock");
     migrate_stores_on_open(dir, &lock);
     Some(lock)
 }
 
 /// Migrate an older but supported store before anything opens it, under the
-/// lock just taken (EG-DURABLE-KERNEL-R070.1). With the switch off, nothing is
+/// lock just taken (MEDULLA-DURABLE-KERNEL-R070.1). With the switch off, nothing is
 /// migrated and `open_persistence` refuses such a store and names the command.
 #[cfg(feature = "redb")]
-fn migrate_stores_on_open(dir: &str, lock: &epistemic_graph::persist_lock::PersistDirLock) {
+fn migrate_stores_on_open(dir: &str, lock: &medulla::persist_lock::PersistDirLock) {
     use server::persistence::store_upgrade as upgrade;
 
     let enabled = upgrade::auto_migrate_enabled().unwrap_or_else(|error| exit_with(error, 2));
@@ -169,7 +169,7 @@ fn migrate_stores_on_open(dir: &str, lock: &epistemic_graph::persist_lock::Persi
             "Automatic store migration is off ({}=false)",
             upgrade::AUTO_MIGRATE_ENV
         );
-        epistemic_graph::metrics::store_migration_step("run", "disabled");
+        medulla::metrics::store_migration_step("run", "disabled");
         return;
     }
     let migration = upgrade::migrate_on_open(std::path::Path::new(dir), lock)
@@ -180,7 +180,7 @@ fn migrate_stores_on_open(dir: &str, lock: &epistemic_graph::persist_lock::Persi
 }
 
 #[cfg(not(feature = "redb"))]
-fn migrate_stores_on_open(_dir: &str, _lock: &epistemic_graph::persist_lock::PersistDirLock) {}
+fn migrate_stores_on_open(_dir: &str, _lock: &medulla::persist_lock::PersistDirLock) {}
 
 /// A positive `variable` override, bounded by `bound`. Absent, unparsable and
 /// zero values yield `None`.
@@ -189,12 +189,12 @@ fn bounded_env_override(variable: &str, bound: usize) -> Option<usize> {
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
-        .map(|value| epistemic_graph::autosize::bound_explicit(value, bound))
+        .map(|value| medulla::autosize::bound_explicit(value, bound))
 }
 
 /// Bound an explicit `requested` value by `automatic`, warning when it clamps.
 fn clamp_to_automatic(variable: &str, requested: usize, automatic: usize) -> usize {
-    let bounded = epistemic_graph::autosize::bound_explicit(requested, automatic);
+    let bounded = medulla::autosize::bound_explicit(requested, automatic);
     if bounded != requested {
         tracing::warn!(
             requested,
@@ -215,15 +215,15 @@ pub(super) struct AdmissionLimits {
 
 /// Size the admission pools from effective CPU capacity. A positive env
 /// override can only lower each cgroup-aware default.
-pub(super) fn admission_limits(capacity: &epistemic_graph::autosize::Capacity) -> AdmissionLimits {
+pub(super) fn admission_limits(capacity: &medulla::autosize::Capacity) -> AdmissionLimits {
     let automatic_max_in_flight = capacity.max_inflight();
-    let max_in_flight = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT")
+    let max_in_flight = std::env::var("MEDULLA_MAX_INFLIGHT")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
         .map(|value| {
             clamp_to_automatic(
-                "EPISTEMIC_GRAPH_MAX_INFLIGHT",
+                "MEDULLA_MAX_INFLIGHT",
                 value,
                 automatic_max_in_flight,
             )
@@ -233,23 +233,23 @@ pub(super) fn admission_limits(capacity: &epistemic_graph::autosize::Capacity) -
     // so any one hot graph holds at most 25% of capacity and ~4 graphs can saturate
     // the server, instead of a single tenant monopolizing all in-flight slots.
     let per_graph_inflight_limit =
-        bounded_env_override("EPISTEMIC_GRAPH_MAX_INFLIGHT_PER_GRAPH", max_in_flight)
+        bounded_env_override("MEDULLA_MAX_INFLIGHT_PER_GRAPH", max_in_flight)
             .unwrap_or_else(|| (max_in_flight / 4).max(1));
-    // Reserved READ-admission lane (CONCEPT:EG-KG.coordination.reserved-read-lane): a
+    // Reserved READ-admission lane (CONCEPT:MEDULLA-KG.coordination.reserved-read-lane): a
     // dedicated pool of in-flight slots that ONLY reads/queries may use, so a write
     // firehose that saturates the global pool + per-graph cap can never shed an
     // interactive MCP read to BUSY (an eighth of the admission cap, floored).
     let automatic_read_reserved = capacity.read_reserved().min(max_in_flight).max(1);
     let read_reserved =
-        bounded_env_override("EPISTEMIC_GRAPH_READ_RESERVED", automatic_read_reserved)
+        bounded_env_override("MEDULLA_READ_RESERVED", automatic_read_reserved)
             .unwrap_or(automatic_read_reserved);
     info!(
         "Backpressure: max in-flight = {} (per-graph cap = {}, reserved read lane = {})",
         max_in_flight, per_graph_inflight_limit, read_reserved
     );
-    // Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): batch
+    // Per-graph write coalescer (CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer): batch
     // size auto-sized from cpu count and always enabled with bounded queues.
-    let coalescer = epistemic_graph::write_coalescer::CoalescerConfig::auto();
+    let coalescer = medulla::write_coalescer::CoalescerConfig::auto();
     info!(
         "Write coalescer: batch up to {} ops/lock (queue {}, linger {:?})",
         coalescer.max_batch, coalescer.queue_capacity, coalescer.max_linger
@@ -269,11 +269,11 @@ type Persistence = Option<Arc<dyn server::persistence::PersistenceBackend>>;
 #[cfg(feature = "redb")]
 pub(super) fn open_persistence(
     persist_dir: Option<&str>,
-    capacity: &epistemic_graph::autosize::Capacity,
+    capacity: &medulla::autosize::Capacity,
 ) -> Persistence {
     let dir = persist_dir?;
     let automatic_writer_queue = capacity.writer_queue();
-    let queue = bounded_env_override("EPISTEMIC_GRAPH_REDB_WRITER_QUEUE", automatic_writer_queue)
+    let queue = bounded_env_override("MEDULLA_REDB_WRITER_QUEUE", automatic_writer_queue)
         .unwrap_or(automatic_writer_queue);
     refuse_upgradable_stores(dir);
     info!("Persistence: authoritative redb (queue {})", queue);
@@ -292,18 +292,18 @@ pub(super) fn open_persistence(
 /// Best-effort and logged, never enforced: startup continues either way. It
 /// runs the same guarded service client the live `SERVICE <endpoint> {…}`
 /// dispatch uses, so a reachable line is evidence the federation path works.
-/// A no-op unless both `EPISTEMIC_GRAPH_FUSEKI_HEALTH_CHECK_ENDPOINT` (the
-/// endpoint to probe) and `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW` (the
+/// A no-op unless both `MEDULLA_FUSEKI_HEALTH_CHECK_ENDPOINT` (the
+/// endpoint to probe) and `MEDULLA_SPARQL_SERVICE_ALLOW` (the
 /// fail-closed allowlist) are set.
 pub(super) fn run_fuseki_startup_health_check() {
     #[cfg(feature = "sparql-fuseki")]
     {
-        let outcome = epistemic_graph::server::sparql_service::startup_health_check();
+        let outcome = medulla::server::sparql_service::startup_health_check();
         match outcome {
-            epistemic_graph::server::sparql_service::HealthCheckOutcome::Reachable { .. } => {
+            medulla::server::sparql_service::HealthCheckOutcome::Reachable { .. } => {
                 info!("{}", outcome.summary());
             }
-            epistemic_graph::server::sparql_service::HealthCheckOutcome::NotConfigured => {
+            medulla::server::sparql_service::HealthCheckOutcome::NotConfigured => {
                 tracing::debug!("{}", outcome.summary());
             }
             _ => tracing::warn!("{}", outcome.summary()),
@@ -330,7 +330,7 @@ fn refuse_upgradable_stores(dir: &str) {
 #[cfg(not(feature = "redb"))]
 pub(super) fn open_persistence(
     persist_dir: Option<&str>,
-    _capacity: &epistemic_graph::autosize::Capacity,
+    _capacity: &medulla::autosize::Capacity,
 ) -> Persistence {
     if persist_dir.is_some() {
         exit_with(
@@ -346,14 +346,14 @@ pub(super) fn open_persistence(
 #[cfg(feature = "tsdb")]
 pub(super) fn open_tsdb_store(
     persist_dir: Option<&str>,
-) -> Option<Arc<eg_tsdb::store::SeriesStore>> {
+) -> Option<Arc<medulla_tsdb::store::SeriesStore>> {
     let path = match persist_dir {
         Some(dir) => std::path::Path::new(dir).join("series.redb"),
-        None => std::env::temp_dir().join(format!("eg-tsdb-{}.redb", std::process::id())),
+        None => std::env::temp_dir().join(format!("medulla-tsdb-{}.redb", std::process::id())),
     };
-    let authority = epistemic_graph::store_authority::process_authority();
-    let verifier = epistemic_graph::store_authority::process_verifier();
-    match eg_tsdb::store::SeriesStore::open(
+    let authority = medulla::store_authority::process_authority();
+    let verifier = medulla::store_authority::process_verifier();
+    match medulla_tsdb::store::SeriesStore::open(
         &path,
         verifier,
         authority.principal(),
@@ -373,12 +373,12 @@ pub(super) fn open_tsdb_store(
 #[cfg(feature = "blob")]
 type BlobSubstrate = (Option<Arc<server::blob::BlobCursors>>, u64);
 
-/// Streamed content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace).
+/// Streamed content-addressed BLOB substrate (CONCEPT:MEDULLA-KG.storage.blob-namespace).
 /// With no persist dir there is no durable place for the bytes, so the substrate
 /// is disabled and the Blob* methods report "not available".
 #[cfg(feature = "blob")]
 pub(super) fn open_blob_substrate(persist_dir: Option<&str>) -> BlobSubstrate {
-    let ttl = std::env::var("EPISTEMIC_GRAPH_BLOB_CURSOR_TTL_SECS")
+    let ttl = std::env::var("MEDULLA_BLOB_CURSOR_TTL_SECS")
         .ok()
         .and_then(|v| v.parse().ok())
         .filter(|&n| n > 0)
@@ -416,7 +416,7 @@ pub(super) fn open_kv_store(persist_dir: Option<&str>) -> Option<Arc<server::kv:
         .unwrap_or_else(|e| exit_with(format_args!("failed to open kv store: {e}"), 1));
     if store.is_durable() {
         info!(
-            "Key→Value store (kv): durable kv.redb (CONCEPT:EG-OS.config.configurable-listeners)"
+            "Key→Value store (kv): durable kv.redb (CONCEPT:MEDULLA-OS.config.configurable-listeners)"
         );
     } else {
         info!("Key→Value store (kv): in-memory scratch — no persist dir");
@@ -428,7 +428,7 @@ pub(super) fn open_kv_store(persist_dir: Option<&str>) -> Option<Arc<server::kv:
 pub(super) struct DurableStores {
     pub(super) persistence: Persistence,
     #[cfg(feature = "tsdb")]
-    tsdb_store: Option<Arc<eg_tsdb::store::SeriesStore>>,
+    tsdb_store: Option<Arc<medulla_tsdb::store::SeriesStore>>,
     #[cfg(feature = "blob")]
     blob: BlobSubstrate,
     #[cfg(feature = "kv")]
@@ -439,7 +439,7 @@ pub(super) struct DurableStores {
 /// that order.
 pub(super) fn open_durable_stores(
     persist_dir: Option<&str>,
-    capacity: &epistemic_graph::autosize::Capacity,
+    capacity: &medulla::autosize::Capacity,
 ) -> DurableStores {
     DurableStores {
         persistence: open_persistence(persist_dir, capacity),
@@ -501,7 +501,7 @@ pub(super) fn open_isolation_layer(
     auth_secret: &str,
     persist_dir: Option<&str>,
     anonymous: bool,
-) -> epistemic_graph::isolation::IsolationLayer {
+) -> medulla::isolation::IsolationLayer {
     info!("RLS default-deny ACTIVE: rows require explicit public visibility or an owner grant");
     let Some(dir) = persist_dir else {
         exit_with(
@@ -509,8 +509,8 @@ pub(super) fn open_isolation_layer(
             1,
         );
     };
-    let authority = epistemic_graph::store_authority::process_authority();
-    let mut isolation = epistemic_graph::isolation::IsolationLayer::with_persist_dir(
+    let authority = medulla::store_authority::process_authority();
+    let mut isolation = medulla::isolation::IsolationLayer::with_persist_dir(
         dir,
         authority.as_ref(),
         authority.principal(),
@@ -524,9 +524,9 @@ pub(super) fn open_isolation_layer(
     });
     if anonymous {
         isolation
-            .try_register_agent(epistemic_graph::acl::AgentIdentity {
+            .try_register_agent(medulla::acl::AgentIdentity {
                 agent_id: "anonymous".into(),
-                role: epistemic_graph::acl::AgentRole::System,
+                role: medulla::acl::AgentRole::System,
                 teams: Vec::new(),
                 roles: Vec::new(),
             })
@@ -594,7 +594,7 @@ async fn wait_for_shutdown_signal() -> bool {
     true
 }
 
-/// Optional reference-counted idle shutdown (CONCEPT:EG-KG.backend.tiny-shared).
+/// Optional reference-counted idle shutdown (CONCEPT:MEDULLA-KG.backend.tiny-shared).
 /// `0` means no watcher: the engine is long-living and never self-terminates.
 pub(super) fn spawn_idle_shutdown_watcher(
     coordinator: &Arc<server::ShutdownCoordinator>,
@@ -628,7 +628,7 @@ pub(super) struct Transports {
 ///
 /// The bind is split from the accept loop precisely so the post-bind
 /// maintenance (matview reload, time-series startup reconciliation —
-/// EG-DURABLE-KERNEL-R006.4) starts only once the listener is up: it must
+/// MEDULLA-DURABLE-KERNEL-R006.4) starts only once the listener is up: it must
 /// run in the background AFTER serving begins, never before it.
 #[cfg(unix)]
 pub(super) async fn serve_transports(
@@ -716,8 +716,8 @@ pub(super) fn env_or_exit<T>(
 
 /// The per-graph resident node cap: auto-sized from effective RAM; an explicit
 /// override must be positive and may only lower it.
-pub(super) fn max_nodes_per_graph(capacity: &epistemic_graph::autosize::Capacity) -> usize {
-    const VARIABLE: &str = "EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH";
+pub(super) fn max_nodes_per_graph(capacity: &medulla::autosize::Capacity) -> usize {
+    const VARIABLE: &str = "MEDULLA_MAX_NODES_PER_GRAPH";
     let automatic = capacity.node_cap();
     env_or_exit(
         VARIABLE,
@@ -729,7 +729,7 @@ pub(super) fn max_nodes_per_graph(capacity: &epistemic_graph::autosize::Capacity
                 .filter(|&limit| limit > 0)
                 .map(|limit| clamp_to_automatic(VARIABLE, limit, automatic))
         },
-        "EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH must be positive",
+        "MEDULLA_MAX_NODES_PER_GRAPH must be positive",
     )
 }
 
@@ -742,15 +742,15 @@ pub(super) fn optional_sweep_secs(variable: &str) -> u64 {
 }
 
 pub(super) async fn memcap_tick(state: SharedState, max_nodes_per_graph: usize) {
-    let evicted = epistemic_graph::persist::evict_oversized_all(&state, max_nodes_per_graph).await;
+    let evicted = medulla::persist::evict_oversized_all(&state, max_nodes_per_graph).await;
     if evicted > 0 {
         tracing::info!("Memory cap: evicted {} LRU node(s) over cap", evicted);
     }
 }
 
 #[cfg(feature = "cost")]
-pub(super) async fn budget_tick(state: SharedState, config: epistemic_graph::cost::CostConfig) {
-    let (evicted, hibernated) = epistemic_graph::cost::enforce_memory_budgets(&state, config).await;
+pub(super) async fn budget_tick(state: SharedState, config: medulla::cost::CostConfig) {
+    let (evicted, hibernated) = medulla::cost::enforce_memory_budgets(&state, config).await;
     if evicted > 0 || hibernated > 0 {
         tracing::info!(
             "Memory budget: evicted {} node(s), hibernated {} graph(s) to keep \
@@ -817,7 +817,7 @@ pub(super) async fn txn_ttl_tick(state: SharedState, ttl: u64) {
     }
 }
 
-/// Narrow opt-in consumed from Arbora's local admission mode (EG-IDENTITY-R003.1).
+/// Narrow opt-in consumed from Arbora's local admission mode (MEDULLA-IDENTITY-R003.1).
 /// Never infer anonymous authority from an absent secret.
 pub(super) fn validate_auth_mode(args: &super::Args, socket_mode: u32) -> Result<(), BoxError> {
     if args.auth_mode != "none" {
@@ -868,7 +868,7 @@ pub(super) fn validate_auth_mode(args: &super::Args, socket_mode: u32) -> Result
 
 fn anonymous_env_conflicts(name: &str, value: &str) -> bool {
     !value.is_empty()
-        && ((name.starts_with("EPISTEMIC_GRAPH_")
+        && ((name.starts_with("MEDULLA_")
             && (name.ends_with("_ADDR")
                 || name.contains("RAFT_")
                 || name.contains("FEDERATION_")
@@ -888,7 +888,7 @@ pub(super) fn prepare_auth_store(mode: &str, dir: &str) -> Result<(), BoxError> 
         Ok(meta) => {
             if mode != "none"
                 || !meta.file_type().is_file()
-                || std::fs::read(&marker)? != b"epistemic-graph anonymous local store v1\n"
+                || std::fs::read(&marker)? != b"medulla anonymous local store v1\n"
             {
                 return Err(
                     "store authentication mode conflict or invalid anonymous marker".into(),
@@ -914,7 +914,7 @@ pub(super) fn prepare_auth_store(mode: &str, dir: &str) -> Result<(), BoxError> 
         .write(true)
         .create_new(true)
         .open(&marker)?;
-    file.write_all(b"epistemic-graph anonymous local store v1\n")?;
+    file.write_all(b"medulla anonymous local store v1\n")?;
     file.sync_all()?;
     std::fs::File::open(root)?.sync_all()?;
     Ok(())
@@ -927,13 +927,13 @@ mod anonymous_store_tests {
     #[test]
     fn anonymous_environment_conflicts_preserve_exact_prefix_and_value_rules() {
         for (name, conflicts) in [
-            ("EPISTEMIC_GRAPH_PGWIRE_ADDR", true),
-            ("EPISTEMIC_GRAPH_RAFT_NODE_ID", true),
-            ("EPISTEMIC_GRAPH_FEDERATION_TOKEN", true),
-            ("EPISTEMIC_GRAPH_OIDC_ISSUER", true),
-            ("EPISTEMIC_GRAPH_SIGNER_KEY", true),
+            ("MEDULLA_PGWIRE_ADDR", true),
+            ("MEDULLA_RAFT_NODE_ID", true),
+            ("MEDULLA_FEDERATION_TOKEN", true),
+            ("MEDULLA_OIDC_ISSUER", true),
+            ("MEDULLA_SIGNER_KEY", true),
             ("OIDC_ISSUER", true),
-            ("EPISTEMIC_GRAPH_OTHER", false),
+            ("MEDULLA_OTHER", false),
             ("OTHER_RAFT_NODE_ID", false),
             ("OTHER_ADDR", false),
             ("GRAPH_SERVICE_AUTH_SECRET", false),
@@ -975,7 +975,7 @@ mod anonymous_store_tests {
     fn anonymous_refuses_symlink_marker() {
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("target");
-        std::fs::write(&target, b"epistemic-graph anonymous local store v1\n").unwrap();
+        std::fs::write(&target, b"medulla anonymous local store v1\n").unwrap();
         std::os::unix::fs::symlink(&target, dir.path().join("anonymous-store-v1")).unwrap();
         assert!(prepare_auth_store("none", dir.path().to_str().unwrap()).is_err());
     }

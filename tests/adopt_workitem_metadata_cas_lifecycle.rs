@@ -55,17 +55,17 @@ mod test_support;
 
 use std::sync::Arc;
 
-use epistemic_graph::epistemic_operations::{
+use medulla::epistemic_operations::{
     ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion, ClaimWorkItemResult,
     ClaimWorkItemResultReason,
 };
-use epistemic_graph::epistemic_operations_ext::{
+use medulla::epistemic_operations_ext::{
     CasWorkItemMetadataLeaseFence, CasWorkItemMetadataOutcome, CasWorkItemMetadataRequest,
     CasWorkItemMetadataRequestSchemaVersion, CasWorkItemMetadataResult,
 };
-use epistemic_graph::protocol::{GraphType, Method, Request, Response, ResultPayload};
-use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::persistence::{redb_backend::RedbBackend, PersistenceBackend};
+use medulla::protocol::{GraphType, Method, Request, Response, ResultPayload};
+use medulla::registry::GraphRegistry;
+use medulla::server::persistence::{redb_backend::RedbBackend, PersistenceBackend};
 
 const SECRET: &str = "adopt-workitem-cas-lifecycle-secret";
 // Lowercase-alnum-and-hyphen ⇒ this engine's graph-name sanitize() is identity,
@@ -105,9 +105,9 @@ fn decode_raw<T: serde::de::DeserializeOwned>(response: &Response, label: &str) 
         Some(ResultPayload::Raw(bytes)) => bytes,
         other => panic!("{label} did not return a typed byte result: {other:?}"),
     };
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
+        medulla_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
     )
     .unwrap_or_else(|error| panic!("decode {label} result: {error:?}"))
 }
@@ -221,7 +221,7 @@ fn cas_priority_request(lease: CasWorkItemMetadataLeaseFence, now_ms: u64) -> Me
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028
+// spec: MEDULLA-DURABLE-KERNEL-R028
 #[tokio::test]
 async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     let dir = std::env::temp_dir().join(format!(

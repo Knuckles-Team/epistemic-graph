@@ -1,4 +1,4 @@
-"""EG-CONTRACT-R043: the full-range secret-history gate reports zero hits.
+"""MEDULLA-CONTRACT-R043: the full-range secret-history gate reports zero hits.
 
 ``scripts/security/check_secret_history.py`` is the absolute, forward-looking
 secret-history gate: no baseline allowlist file, the only exemptions being the
@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 # Pure/static test -- never needs the shared native engine (see
-# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# conftest.py's session-scoped `start_medulla_server` fixture,
 # which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _gate():
     path = ROOT / "scripts" / "security" / "check_secret_history.py"
-    spec = importlib.util.spec_from_file_location("eg_secret_history_gate", path)
+    spec = importlib.util.spec_from_file_location("medulla_secret_history_gate", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -103,7 +103,7 @@ def _full_range_base(gate) -> str:
     )
 
 
-@pytest.mark.spec("EG-CONTRACT-R043")
+@pytest.mark.spec("MEDULLA-CONTRACT-R043")
 def test_full_range_secret_history_scan_reports_zero_credential_hits() -> None:
     gate = _gate()
     base = _full_range_base(gate)

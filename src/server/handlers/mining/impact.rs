@@ -1,21 +1,21 @@
 //! The probabilistic impact models of `MineRiskPropagation` (EH-526): noisy-OR
-//! and independent cascade over `eg_compute::graph_algos::impact`, with hop
+//! and independent cascade over `medulla_compute::graph_algos::impact`, with hop
 //! depth, the strongest paths, per-seed Shapley attribution, a provenance
 //! digest, and `:ImpactAssessment` writeback that a WAL replay reproduces
 //! (the request carries the scope, the as-of time and the Monte Carlo seed).
 
 use super::*;
 use super::{process::edge_indices, vector::link_writeback_source, writeback::*};
-use eg_compute::graph_algos::impact::{
+use medulla_compute::graph_algos::impact::{
     independent_cascade, noisy_or, noisy_or_attribution, strongest_paths, CascadeSpec, ImpactGraph,
     ImpactPath, Seed, Semantics,
 };
-use eg_types::compute_result::mining::{
+use medulla_types::compute_result::mining::{
     ImpactOptions, ImpactPathRow, ImpactReport, ImpactSemantics, RiskPropagationMiningResult,
     RiskScoreRow, SeedAttributionRow,
 };
-use eg_types::decision::digest::digest_text;
-use eg_types::result_contract::compute as results;
+use medulla_types::decision::digest::digest_text;
+use medulla_types::result_contract::compute as results;
 
 /// Domain of an impact run's provenance digest.
 pub(crate) const IMPACT_DIGEST_DOMAIN: &str = "eg/impact-propagation/v1";
@@ -193,7 +193,7 @@ fn noisy_or_run(
             None => {
                 report.attribution_note = Some(format!(
                     "exact noisy-OR attribution is limited to {} seeds; use independent_cascade",
-                    eg_compute::graph_algos::impact::MAX_EXACT_SEEDS
+                    medulla_compute::graph_algos::impact::MAX_EXACT_SEEDS
                 ))
             }
         }
@@ -223,7 +223,7 @@ fn cascade_run(
         seed: options.rng_seed,
     };
     let out = independent_cascade(graph, seeds, attributed, &spec);
-    let depth = eg_compute::graph_algos::impact::hop_depths(graph, seeds, options.hops);
+    let depth = medulla_compute::graph_algos::impact::hop_depths(graph, seeds, options.hops);
     let rows = score_rows(
         inputs.nodes,
         &out.probability,

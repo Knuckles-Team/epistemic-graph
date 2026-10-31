@@ -1,4 +1,4 @@
-//! Offline operator commands of the `epistemic-graph-server` binary.
+//! Offline operator commands of the `medulla-server` binary.
 //!
 //! They run instead of the service: the process parses the command, does the
 //! work against a stopped engine's data directory, prints a report whose last
@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use epistemic_graph::server::persistence::store_upgrade::{self, ApplyOptions};
+use medulla::server::persistence::store_upgrade::{self, ApplyOptions};
 
 #[derive(clap::Subcommand, Debug)]
 pub(super) enum OperatorCommand {

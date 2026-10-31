@@ -46,7 +46,7 @@ fn concurrent_temporary_paths_are_unique() {
             .map(|_| {
                 scope.spawn(|| {
                     (0..256)
-                        .map(|_| temp_dir("eg-path", "parallel"))
+                        .map(|_| temp_dir("medulla-path", "parallel"))
                         .collect::<Vec<_>>()
                 })
             })
@@ -71,7 +71,7 @@ pub(crate) struct FederationAllowGuard {
 #[cfg(feature = "federation-sql")]
 impl FederationAllowGuard {
     fn install(origin: &str, lock: tokio::sync::RwLockWriteGuard<'static, ()>) -> Self {
-        let key = eg_plan::federation::HTTP_JSON_FEDERATION_ALLOW_ENV;
+        let key = medulla_plan::federation::HTTP_JSON_FEDERATION_ALLOW_ENV;
         let previous = std::env::var_os(key);
         std::env::set_var(key, origin);
         Self {
@@ -104,7 +104,7 @@ impl FederationAllowGuard {
 #[cfg(feature = "federation-sql")]
 impl Drop for FederationAllowGuard {
     fn drop(&mut self) {
-        let key = eg_plan::federation::HTTP_JSON_FEDERATION_ALLOW_ENV;
+        let key = medulla_plan::federation::HTTP_JSON_FEDERATION_ALLOW_ENV;
         if let Some(previous) = self.previous.take() {
             std::env::set_var(key, previous);
         } else {

@@ -1,7 +1,7 @@
 # Owner-store formats
 
-Generated from `crates/eg-storage/src/owner/lineage.rs`; do not edit by hand.
-Regenerate with `cargo run -p eg-storage --example gen_owner_store_formats`.
+Generated from `crates/medulla-storage/src/owner/lineage.rs`; do not edit by hand.
+Regenerate with `cargo run -p medulla-storage --example gen_owner_store_formats`.
 
 Every durable owner file records the digest of its exact table layout. A file whose layout is a declared predecessor below is refused on ordinary open with the named error. SQL and immediate pre-MCP Agent Library predecessors have explicit offline, data-preserving upgrades. GraphShard also supports these upgrades for pre-enrichment, immediate pre-audit-request-index and pre-current-plan predecessors. Other predecessors require moving files aside and recreating them. Any other digest is refused as `OWNER_STORE_FORMAT_UNKNOWN`.
 
@@ -40,7 +40,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 - Refused generation: SQL catalog store before durable source checkpoints
 - Data lost: its SQL catalog and rows require an explicit offline upgrade before normal open. Alternatively, re-ingestion after moving the file aside
 - Tables: `__sql_catalog__`, `__sql_functions__`, `__sql_ann_indexes__`, `__sql_secondary_indexes__`, `__sql_secondary_index_entries__`, `__sql_hypertables__`, `__sql_source_authority__`, `__sql_views__`, `__sql_extensions__`, `__sql_rows__`, `__sql_seq__`, `__sql_schema_catalog_versions__`, `__sql_schema_versions__`, `__sql_schema_migrations__`, `__sql_schema_migration_order__`, `__sql_schema_catalog_order__`, `__sql_property_graphs__`, `__sql_property_graph_seq__`
-- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
+- Removal step: none. This generation is upgraded in place with `medulla-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
 
 ## `SQL_FORMAT_UPGRADE_REQUIRED`: SQL catalog store before durable ANN and edge index generations
 
@@ -48,7 +48,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 - Refused generation: SQL catalog store before durable ANN and edge index generations
 - Data lost: its SQL catalog and rows require an explicit offline upgrade before normal open. Alternatively, re-ingestion after moving the file aside
 - Tables: Same table set as **SQL catalog store before durable source checkpoints** above. Added tables: `__sql_source_checkpoints__`.
-- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
+- Removal step: none. This generation is upgraded in place with `medulla-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
 
 ## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard store before the background node-payload scrub
 
@@ -64,7 +64,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 - Refused generation: graph shard before repository enrichment budgets and supersession
 - Data lost: its graph rows require the explicit offline enrichment layout upgrade before normal open. Alternatively, re-ingestion after moving the file aside
 - Tables: Same table set as **graph shard store before the background node-payload scrub** above. Added tables: `storage_scrub_cursor`.
-- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
+- Removal step: none. This generation is upgraded in place with `medulla-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
 
 ## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard before repository enrichment policy revisions
 
@@ -80,7 +80,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 - Refused generation: graph shard before the operation audit-append idempotency index
 - Data lost: its graph rows require the explicit offline audit-request-index layout upgrade before normal open. Alternatively, re-ingestion after moving the file aside
 - Tables: Same table set as **graph shard before repository enrichment policy revisions** above. Added tables: `repository_enrichment_policy_revisions`.
-- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
+- Removal step: none. This generation is upgraded in place with `medulla-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
 
 ## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard before private current-plan snapshots
 
@@ -88,7 +88,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 - Refused generation: graph shard before private current-plan snapshots
 - Data lost: none after the explicit offline current-plan layout upgrade. Normal open refuses this predecessor.
 - Tables: Same table set as **graph shard before the operation audit-append idempotency index** above. Added tables: `audit_requests`.
-- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
+- Removal step: none. This generation is upgraded in place with `medulla-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
 
 ## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard before private run checkpoints
 
@@ -96,7 +96,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 - Refused generation: graph shard before private run checkpoints
 - Data lost: none. an explicit offline layout upgrade is required. Normal open refuses this predecessor.
 - Tables: Same table set as **graph shard before private current-plan snapshots** above. Added tables: `work_item_current_plans`.
-- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
+- Removal step: none. This generation is upgraded in place with `medulla-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
 
 ## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard before private inline conversation history
 
@@ -104,7 +104,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 - Refused generation: graph shard before private inline conversation history
 - Data lost: none after the offline inline-history upgrade. Normal open refuses this predecessor.
 - Tables: Same table set as **graph shard before private run checkpoints** above. Added tables: `work_item_run_checkpoints`.
-- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
+- Removal step: none. This generation is upgraded in place with `medulla-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
 
 ## `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED`: Agent Library before connector packs and governed write-back
 
@@ -120,15 +120,15 @@ Every durable owner file records the digest of its exact table layout. A file wh
 - Refused generation: Agent Library before served MCP catalog authority
 - Data lost: its rows require the explicit offline MCP catalog layout upgrade before normal open. Alternatively, republishing after moving the file aside
 - Tables: Same table set as **Agent Library before connector packs and governed write-back** above. Added tables: `connector_pack_heads`, `connector_pack_members`, `connector_pack_imports`, `connector_pack_body_holders`, `connector_pack_bindings`, `decision_artifacts`, `decision_records`, `write_back_change_sets`, `write_back_idempotency`, `write_back_receipts`, `write_back_receipt_heads`.
-- Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
+- Removal step: none. This generation is upgraded in place with `medulla-server store-upgrade apply <data-dir> --confirm` while the engine is stopped. see the procedure below. Moving the file aside instead loses its rows.
 
 ## Offline upgrade procedure
 
-A predecessor listed in the table below is upgraded in place, with its rows preserved. By default the engine runs these upgrades itself when it opens the data directory. It holds its own lock and keeps a crash-safe journal. Set `EPISTEMIC_GRAPH_STORE_AUTO_MIGRATE=false` to turn that off: the engine then refuses to start on such a store and names the command below.
+A predecessor listed in the table below is upgraded in place, with its rows preserved. By default the engine runs these upgrades itself when it opens the data directory. It holds its own lock and keeps a crash-safe journal. Set `MEDULLA_STORE_AUTO_MIGRATE=false` to turn that off: the engine then refuses to start on such a store and names the command below.
 
 1. Stop the engine. Both verbs refuse while an engine holds the data directory.
-2. Inspect: `epistemic-graph-server store-upgrade inspect <data-dir>`. This reads every store's manifest and changes nothing. Exit status `0` means nothing to do, `10` an upgrade is available, `20` a store is in a format this build neither opens nor upgrades, `30` a store can not be read, and `1` the command was refused.
-3. Apply: `epistemic-graph-server store-upgrade apply <data-dir> --confirm`. Each upgrade is one atomic commit that creates the missing empty tables and replaces the owner manifest. Existing rows are not rewritten, and a failed or interrupted upgrade leaves the file in its previous layout. No separate copy of the store is kept, so take a filesystem snapshot first if one is wanted. The run stops at the first failure with exit status `1`. A store it does not upgrade is never written; a second run reports nothing to do. Before an upgrade is admitted the store is checked on a private scratch copy, which needs free space of about the store's size under `<data-dir>/.store-upgrade-staging` (`--staging-dir` names another local directory, which must have mode 0700 and sit inside a mode 0700 directory; `--max-store-bytes` sets the per-store budget).
+2. Inspect: `medulla-server store-upgrade inspect <data-dir>`. This reads every store's manifest and changes nothing. Exit status `0` means nothing to do, `10` an upgrade is available, `20` a store is in a format this build neither opens nor upgrades, `30` a store can not be read, and `1` the command was refused.
+3. Apply: `medulla-server store-upgrade apply <data-dir> --confirm`. Each upgrade is one atomic commit that creates the missing empty tables and replaces the owner manifest. Existing rows are not rewritten, and a failed or interrupted upgrade leaves the file in its previous layout. No separate copy of the store is kept, so take a filesystem snapshot first if one is wanted. The run stops at the first failure with exit status `1`. A store it does not upgrade is never written; a second run reports nothing to do. Before an upgrade is admitted the store is checked on a private scratch copy, which needs free space of about the store's size under `<data-dir>/.store-upgrade-staging` (`--staging-dir` names another local directory, which must have mode 0700 and sit inside a mode 0700 directory; `--max-store-bytes` sets the per-store budget).
 4. Start the engine.
 
 A store that was not closed cleanly, as after a killed engine, cannot be read without recovering it, which `inspect` never does: it reports the store as not inspectable (`30`). `apply` recovers a private copy of such a store, upgrades the store if a registered upgrade admits it, and otherwise leaves it untouched and reports `30`. The engine recovers that store at its next start and then opens it or refuses it by name.

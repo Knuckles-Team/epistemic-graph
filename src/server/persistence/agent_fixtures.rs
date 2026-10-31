@@ -5,7 +5,7 @@
 //! temporary store and read the same ledger record. One definition keeps the
 //! four test modules from drifting apart on what a well-formed attempt is.
 
-use eg_types::agent_library::AgentLibraryMutationContext;
+use medulla_types::agent_library::AgentLibraryMutationContext;
 
 use super::agent_library::{batch_id, current_agent_library_policy_digest, AgentLibraryStore};
 
@@ -35,7 +35,7 @@ pub(crate) fn mutation_context(
         request_id: u64::from(nonce),
         principal: store.owner_principal().to_string(),
         caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
-        attempt_nonce: eg_types::contract::Nonce::from_bytes([nonce; 32]),
+        attempt_nonce: medulla_types::contract::Nonce::from_bytes([nonce; 32]),
         tenant_id: tenant_id.to_string(),
         actor_scope: "action-scope:a".to_string(),
         purpose_id: purpose_id.to_string(),
@@ -54,11 +54,11 @@ pub(crate) fn ledger_record(
     store: &AgentLibraryStore,
     tenant_id: &str,
     idempotency_key: &str,
-) -> eg_types::MutationBatchRecord {
+) -> medulla_types::MutationBatchRecord {
     let owner = store.scope_handle(tenant_id).unwrap();
     let read = store.kernel.read_scope(&owner).unwrap();
     let batch_id = batch_id(idempotency_key).unwrap();
-    eg_transaction::read_ledger(&read, &batch_id)
+    medulla_transaction::read_ledger(&read, &batch_id)
         .unwrap()
         .expect("durable status record")
 }

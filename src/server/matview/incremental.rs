@@ -1,15 +1,15 @@
 //! CDC-feed glue for DBSP-style incremental plan-backed matviews
-//! (CONCEPT:EG-KG.storage.incremental-matview).
+//! (CONCEPT:MEDULLA-KG.storage.incremental-matview).
 //!
-//! The facade side of the eg-plan `incremental` circuit: it translates a `CdcEvent`
+//! The facade side of the medulla-plan `incremental` circuit: it translates a `CdcEvent`
 //! into the circuit's [`Delta`] (the "update = retract old + insert new" idiom the CDC
 //! hub already captures as before/after images — no new capture code), seeds a fresh
 //! circuit from the current graph state, and (de)serializes a circuit's maintained
 //! operator state for the `matview_operator_state` redb table. This is the analogue of
 //! turso's `incremental/persistence.rs`.
 
-use eg_plan::incremental::{Circuit, Delta, ZRow};
-use eg_types::wire::{CdcEvent, CdcKind};
+use medulla_plan::incremental::{Circuit, Delta, ZRow};
+use medulla_types::wire::{CdcEvent, CdcKind};
 use serde_json::{Map, Value};
 
 /// Decode a msgpack node-property blob into the circuit's prop-map shape. Absent / empty
@@ -20,7 +20,7 @@ fn decode_props(blob: &[u8], present: bool) -> Map<String, Value> {
     if !present || blob.is_empty() {
         return Map::new();
     }
-    eg_types::msgpack::decode_property_value(blob)
+    medulla_types::msgpack::decode_property_value(blob)
         .ok()
         .and_then(|v| v.as_object().cloned())
         .unwrap_or_default()
@@ -67,7 +67,7 @@ pub fn event_to_delta(event: &CdcEvent) -> Delta {
 /// path uses, so window (bucket) and set (membership) state are both correctly seeded —
 /// exactly how `execute` would have produced the initial rows, but leaving the circuit
 /// ready to retract on later deltas.
-pub fn seed_delta_from_core(core: &eg_core::graph::GraphCore) -> Delta {
+pub fn seed_delta_from_core(core: &medulla_core::graph::GraphCore) -> Delta {
     let ids = core.node_ids();
     let mut rows = Vec::with_capacity(ids.len());
     for id in ids {

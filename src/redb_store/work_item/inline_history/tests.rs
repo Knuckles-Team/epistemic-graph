@@ -1,6 +1,6 @@
 use super::super::test_shard::{apply, check_guard, open, with_write, GRAPH};
 use super::*;
-use eg_types::inline_history::{content_digest, CompletedTextInput};
+use medulla_types::inline_history::{content_digest, CompletedTextInput};
 
 fn with_history<R>(
     shard: &Shard,
@@ -73,8 +73,8 @@ fn seed(shard: &Shard) -> (String, u64, u64) {
     let id = admit_profile(shard, true).unwrap();
     let claim = Method::ClaimWorkItem {
         completed_text_history: true,
-        request: eg_types::epistemic_operations::ClaimWorkItemRequest {
-            schema_version: eg_types::epistemic_operations::ClaimWorkItemRequestSchemaVersion::V1,
+        request: medulla_types::epistemic_operations::ClaimWorkItemRequest {
+            schema_version: medulla_types::epistemic_operations::ClaimWorkItemRequestSchemaVersion::V1,
             tenant_ref: "tenant".into(),
             work_item_id: Some(id.clone()),
             queue_ref: None,
@@ -90,7 +90,7 @@ fn seed(shard: &Shard) -> (String, u64, u64) {
     let crate::protocol::ResultPayload::Raw(bytes) = result else {
         panic!("claim payload")
     };
-    let claim: eg_types::inline_history::NativeClaimWorkItemResult =
+    let claim: medulla_types::inline_history::NativeClaimWorkItemResult =
         decode_durable(&bytes).unwrap();
     (id, claim.lease_epoch.unwrap(), claim.fencing_token.unwrap())
 }
@@ -119,7 +119,7 @@ fn complete(id: &str, epoch: u64, fence: u64, value: CompletedTextInput) -> Meth
         retryable: false,
         now_ms: 3000,
         outcome_extension: None,
-        run_completion: Some(Box::new(eg_types::run_completion::RunCompletionInput {
+        run_completion: Some(Box::new(medulla_types::run_completion::RunCompletionInput {
             schema_version: 1,
             run_id: "run".into(),
             usage: None,
@@ -160,7 +160,7 @@ fn quota_boundary_does_not_partially_charge() {
     assert_eq!(quota.bytes, 0);
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.6
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.6
 #[test]
 fn incomplete_profile_predecessor_refuses_without_advancing_head() {
     for status in ["running", "failed"] {
@@ -229,7 +229,7 @@ fn incomplete_profile_predecessor_refuses_without_advancing_head() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.5
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.5
 #[test]
 fn terminal_text_and_pointer_are_atomic_and_protected() {
     let temp = open("inline-terminal");
@@ -321,7 +321,7 @@ fn exact_expiry_and_foreign_tenant_cannot_attach() {
 
 #[test]
 fn retained_text_and_quota_survive_reopen_and_refuse_retirement() {
-    let path = crate::redb_store::temp_path("eg-inline-history", "reopen");
+    let path = crate::redb_store::temp_path("medulla-inline-history", "reopen");
     let expected;
     let checkpoint_id;
     {
@@ -416,7 +416,7 @@ fn reacquired_attempt_and_bad_digest_do_not_become_completed_history() {
 
 #[test]
 fn first_selection_requires_owner_and_refuses_any_current_pointer() {
-    use eg_types::inline_history::RunSelectionRequest;
+    use medulla_types::inline_history::RunSelectionRequest;
     let temp = open("inline-first-selection");
     let (id, epoch, fence) = seed(&temp.shard);
     let request = RunSelectionRequest {
@@ -478,12 +478,12 @@ fn first_selection_requires_owner_and_refuses_any_current_pointer() {
 // Real native compiler/ledger/outbox and close/reopen; still not a served client
 // journey or proof that Arbora delivered these bytes to a model.
 #[cfg(feature = "server")]
-// spec: EG-DURABLE-KERNEL-R028.4.6
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.6
 #[test]
 fn two_turn_selection_uses_committed_snapshot_after_restart() {
     use crate::server::mutation_batch::{compile_methods, principal_fingerprint, CompileBatch};
-    use eg_types::inline_history::RunSelectionRequest;
-    let path = crate::redb_store::temp_path("eg-inline-selection", "restart");
+    use medulla_types::inline_history::RunSelectionRequest;
+    let path = crate::redb_store::temp_path("medulla-inline-selection", "restart");
     let execute = |shard: &Shard, tag: &str, method: Method, now| {
         let mut batch = compile_methods(
             CompileBatch {
@@ -511,7 +511,7 @@ fn two_turn_selection_uses_committed_snapshot_after_restart() {
         assert!(!batch
             .verified_capabilities()
             .unwrap()
-            .contains(&eg_types::mutation_batch::MutationCapability::EnableInlineHistoryProfile));
+            .contains(&medulla_types::mutation_batch::MutationCapability::EnableInlineHistoryProfile));
         if tag == "first-submit" {
             let version = crate::redb_store::read_mutation_graph_version(shard, GRAPH).unwrap();
             let denied = crate::redb_store::commit_mutation_batch(
@@ -529,10 +529,10 @@ fn two_turn_selection_uses_committed_snapshot_after_restart() {
                 version
             );
         }
-        if let eg_types::MutationEnvelope::Operation(envelope) = &mut batch.envelope {
+        if let medulla_types::MutationEnvelope::Operation(envelope) = &mut batch.envelope {
             envelope
                 .verified_capabilities
-                .insert(eg_types::mutation_batch::MutationCapability::EnableInlineHistoryProfile);
+                .insert(medulla_types::mutation_batch::MutationCapability::EnableInlineHistoryProfile);
         }
         crate::redb_store::commit_mutation_batch(
             shard,
@@ -562,8 +562,8 @@ fn two_turn_selection_uses_committed_snapshot_after_restart() {
     };
     let claim = |id: &str| Method::ClaimWorkItem {
         completed_text_history: true,
-        request: eg_types::epistemic_operations::ClaimWorkItemRequest {
-            schema_version: eg_types::epistemic_operations::ClaimWorkItemRequestSchemaVersion::V1,
+        request: medulla_types::epistemic_operations::ClaimWorkItemRequest {
+            schema_version: medulla_types::epistemic_operations::ClaimWorkItemRequestSchemaVersion::V1,
             tenant_ref: "tenant".into(),
             work_item_id: Some(id.into()),
             queue_ref: None,
@@ -903,8 +903,8 @@ fn batched_profile_admission_refuses_without_retirement_presence() {
         }))
         .unwrap(),
     ));
-    let request = eg_types::native_control::SubmitWorkItemsRequest {
-        schema_version: eg_types::native_control::NativeControlSchemaVersion::V1,
+    let request = medulla_types::native_control::SubmitWorkItemsRequest {
+        schema_version: medulla_types::native_control::NativeControlSchemaVersion::V1,
         context: child.context.clone(),
         idempotency_key: "batch".into(),
         requests: vec![child],
@@ -994,7 +994,7 @@ fn admission_before_atomic_graft_validation_leaves_no_fence_or_reservation() {
     let destination_handle = destination.shard.graph(GRAPH).unwrap();
     seed(&source.shard);
     let version = crate::redb_store::read_mutation_graph_version(&source.shard, GRAPH).unwrap();
-    let target = eg_transaction::GraftDestination::new(
+    let target = medulla_transaction::GraftDestination::new(
         destination.shard.mutations(),
         destination.shard.kernel(),
         destination_handle.as_ref(),
@@ -1035,7 +1035,7 @@ fn atomic_graft_before_profile_admission_fences_the_native_write() {
     let destination = open("inline-graft-first-target");
     let source_handle = source.shard.graph(GRAPH).unwrap();
     let destination_handle = destination.shard.graph(GRAPH).unwrap();
-    let target = eg_transaction::GraftDestination::new(
+    let target = medulla_transaction::GraftDestination::new(
         destination.shard.mutations(),
         destination.shard.kernel(),
         destination_handle.as_ref(),
@@ -1138,8 +1138,8 @@ fn outer_failure_after_attachment_rolls_back_content_quota_pointer_and_receipt()
             let bytes = nodes.get((GRAPH, id.as_str()))?.unwrap();
             let staged: Row = decode_durable(bytes.value())?;
             assert!(staged.contains_key(POINTER));
-            assert!(staged.contains_key(eg_types::run_completion::RUN_COMPLETION_BATCH));
-            assert!(staged.contains_key(eg_types::run_completion::RUN_COMPLETION_DIGEST));
+            assert!(staged.contains_key(medulla_types::run_completion::RUN_COMPLETION_BATCH));
+            assert!(staged.contains_key(medulla_types::run_completion::RUN_COMPLETION_DIGEST));
             assert!(history.get((GRAPH, checkpoint.as_str()))?.is_some());
             assert!(history.get((GRAPH, quota_id("tenant").as_str()))?.is_some());
             reached.set(true);
@@ -1157,7 +1157,7 @@ fn outer_failure_after_attachment_rolls_back_content_quota_pointer_and_receipt()
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.6
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.6
 #[cfg(feature = "server")]
 #[test]
 fn profile_claim_opt_out_refuses_without_rows_version_or_receipts() {
@@ -1186,9 +1186,9 @@ fn profile_claim_opt_out_refuses_without_rows_version_or_receipts() {
         let version = crate::redb_store::read_mutation_graph_version(&temp.shard, GRAPH).unwrap();
         let claim = Method::ClaimWorkItem {
             completed_text_history: false,
-            request: eg_types::epistemic_operations::ClaimWorkItemRequest {
+            request: medulla_types::epistemic_operations::ClaimWorkItemRequest {
                 schema_version:
-                    eg_types::epistemic_operations::ClaimWorkItemRequestSchemaVersion::V1,
+                    medulla_types::epistemic_operations::ClaimWorkItemRequestSchemaVersion::V1,
                 tenant_ref: "tenant".into(),
                 work_item_id: selected.then(|| id.clone()),
                 queue_ref: None,
@@ -1238,10 +1238,10 @@ fn profile_claim_opt_out_refuses_without_rows_version_or_receipts() {
         );
         let handle = temp.shard.graph(GRAPH).unwrap();
         let snapshot = temp.shard.read(&handle).unwrap();
-        assert!(eg_transaction::read_ledger(&snapshot, "optout-claim")
+        assert!(medulla_transaction::read_ledger(&snapshot, "optout-claim")
             .unwrap()
             .is_none());
-        assert!(eg_transaction::read_outbox(&snapshot, "optout-claim")
+        assert!(medulla_transaction::read_outbox(&snapshot, "optout-claim")
             .unwrap()
             .is_empty());
     }
@@ -1259,7 +1259,7 @@ fn atomic_graft_validation_ignores_other_graphs_history() {
     let other_graph = "another-graph";
     let source_handle = source.shard.graph(other_graph).unwrap();
     let destination_handle = destination.shard.graph(other_graph).unwrap();
-    let target = eg_transaction::GraftDestination::new(
+    let target = medulla_transaction::GraftDestination::new(
         destination.shard.mutations(),
         destination.shard.kernel(),
         destination_handle.as_ref(),

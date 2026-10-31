@@ -20,7 +20,7 @@ impl Drop for TempShard {
 }
 
 pub(super) fn open(tag: &str) -> TempShard {
-    let path = crate::redb_store::temp_path("eg-work-item-rows", tag);
+    let path = crate::redb_store::temp_path("medulla-work-item-rows", tag);
     let shard = Shard::open(&path).expect("temp shard opens");
     TempShard { path, shard }
 }
@@ -131,7 +131,7 @@ pub(super) fn apply_then(
 }
 
 /// Shared native run-admission fixture, with no conversation by default.
-pub(super) fn run_request() -> eg_types::native_control::SubmitWorkItemRequest {
+pub(super) fn run_request() -> medulla_types::native_control::SubmitWorkItemRequest {
     serde_json::from_value(serde_json::json!({
         "schema_version":"1", "run_id":"run", "work_item_id":null,
         "context": {"schema_version":"2", "request_id":"request", "subject_id":"owner",
@@ -151,9 +151,9 @@ pub(super) fn run_request() -> eg_types::native_control::SubmitWorkItemRequest {
 /// Submit fixture rows within the caller's existing admitted transaction.
 pub(super) fn submit_run_rows(
     admitted: &ShardWrite<'_>,
-    request: &eg_types::native_control::SubmitWorkItemRequest,
+    request: &medulla_types::native_control::SubmitWorkItemRequest,
     owner: &str,
-) -> Result<eg_types::native_control::SubmitWorkItemResult, String> {
+) -> Result<medulla_types::native_control::SubmitWorkItemResult, String> {
     let member = admitted.graph(GRAPH)?;
     let mut rows = crate::redb_store::store_rows::GraphRowTables::open(member)?;
     super::apply_submit_work_item_rows(

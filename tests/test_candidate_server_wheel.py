@@ -17,14 +17,14 @@ ROOT = Path(__file__).resolve().parents[1]
 def wheel(directory: Path, name="medulla-stem", version="2.27.10", scripts=1):
     path = directory / "medulla_stem-2.27.10-py3-none-manylinux_2_28_x86_64.whl"
     with zipfile.ZipFile(path, "w") as z:
-        z.writestr("epistemic_graph_server/__init__.py", b"locator fixture")
+        z.writestr("medulla_server/__init__.py", b"locator fixture")
         z.writestr(
             "medulla_stem-2.27.10.dist-info/METADATA",
             f"Name: {name}\nVersion: {version}\n",
         )
         if scripts:
             z.writestr(
-                "medulla_stem.data/scripts/epistemic-graph-server", b"test fixture"
+                "medulla_stem.data/scripts/medulla-server", b"test fixture"
             )
         if scripts > 1:
             z.writestr("medulla_stem.data/scripts/other", b"test fixture")
@@ -34,7 +34,7 @@ def wheel(directory: Path, name="medulla-stem", version="2.27.10", scripts=1):
 @pytest.mark.parametrize(
     "name,version,scripts",
     [
-        ("epistemic-graph-server", "2.27.10", 1),
+        ("medulla-server", "2.27.10", 1),
         ("medulla-stem", "2.27.9", 1),
         ("medulla-stem", "2.27.10", 0),
         ("medulla-stem", "2.27.10", 2),
@@ -142,7 +142,7 @@ def test_stream_hash_refuses_unadvertised_expansion():
 
 
 @pytest.mark.parametrize(
-    "member", ["../escape", "/absolute", "epistemic_graph_server/__init__.py"]
+    "member", ["../escape", "/absolute", "medulla_server/__init__.py"]
 )
 def test_unsafe_or_duplicate_members_refused(tmp_path, member):
     path = wheel(tmp_path)
@@ -165,9 +165,9 @@ def test_installed_evidence_rejects_shadowing_and_wrong_payload(
     bindir = prefix / "bin"
     purelib = prefix / "lib/site-packages"
     bindir.mkdir(parents=True)
-    (purelib / "epistemic_graph_server").mkdir(parents=True)
-    binary = bindir / "epistemic-graph-server"
-    module = purelib / "epistemic_graph_server/__init__.py"
+    (purelib / "medulla_server").mkdir(parents=True)
+    binary = bindir / "medulla-server"
+    module = purelib / "medulla_server/__init__.py"
     binary.write_bytes(b"native")
     module.write_bytes(b"locator")
     payload = {"binary": proof.file_hash(binary), "module": proof.file_hash(module)}

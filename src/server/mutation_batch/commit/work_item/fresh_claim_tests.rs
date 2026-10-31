@@ -1,5 +1,5 @@
 use super::*;
-use eg_types::inline_history::NativeClaimWorkItemResult as ClaimWorkItemResult;
+use medulla_types::inline_history::NativeClaimWorkItemResult as ClaimWorkItemResult;
 
 fn body(marker: Option<bool>) -> serde_json::Value {
     let mut value = serde_json::json!({
@@ -23,14 +23,14 @@ fn decode(result: ResultPayload) -> ClaimWorkItemResult {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.7
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.7
 #[test]
 fn replay_clears_profile_grant_without_changing_lease_identity() {
     for marker in [true, false] {
         let original: ClaimWorkItemResult = serde_json::from_value(body(Some(marker))).unwrap();
         for result in [
             ResultPayload::Json(serde_json::to_value(&original).unwrap()),
-            ResultPayload::of::<eg_types::result_contract::coordination::ClaimWorkItem>(
+            ResultPayload::of::<medulla_types::result_contract::coordination::ClaimWorkItem>(
                 original.clone(),
             )
             .unwrap(),
@@ -72,7 +72,7 @@ fn pre_opt_in_profile_receipt_cannot_leak_a_freshness_witness() {
 
 #[test]
 fn explicit_opt_in_is_part_of_claim_identity_without_changing_legacy_shape() {
-    let request: eg_types::epistemic_operations::ClaimWorkItemRequest =
+    let request: medulla_types::epistemic_operations::ClaimWorkItemRequest =
         serde_json::from_value(serde_json::json!({
             "schema_version":"1", "tenant_ref":"tenant", "work_item_id":"item",
             "queue_ref":null, "resource_class":null, "fairness_group":null,
@@ -84,7 +84,7 @@ fn explicit_opt_in_is_part_of_claim_identity_without_changing_legacy_shape() {
     #[serde(tag = "method", content = "params")]
     enum OldClaim {
         ClaimWorkItem {
-            request: eg_types::epistemic_operations::ClaimWorkItemRequest,
+            request: medulla_types::epistemic_operations::ClaimWorkItemRequest,
         },
     }
     let old = OldClaim::ClaimWorkItem {

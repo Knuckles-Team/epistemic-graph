@@ -14,8 +14,8 @@ use crate::epistemic_operations_ext::{
     WorkItemClaimCapabilityRequestSchemaVersion, WorkItemClaimCapabilityResult,
     WorkItemClaimCapabilityResultSchemaVersion, WorkItemClaimCapabilityVerifyRequest,
 };
-use eg_storage::{GraphShardOwner, PhysicalWriteCapability, ScopedOwnerTableMut};
-use eg_transaction::{AdmittedOwnerWrite, OwnerPayloadWrite};
+use medulla_storage::{GraphShardOwner, PhysicalWriteCapability, ScopedOwnerTableMut};
+use medulla_transaction::{AdmittedOwnerWrite, OwnerPayloadWrite};
 use rand::RngCore;
 use redb::TableDefinition;
 use serde::{Deserialize, Serialize};
@@ -979,7 +979,7 @@ fn request_digest(
     live: &LiveLease,
 ) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"epistemic-graph.work-item-claim-capability.v1\0");
+    digest.update(b"medulla.work-item-claim-capability.v1\0");
     for value in [
         graph.as_bytes(),
         authority.tenant.as_bytes(),
@@ -1112,7 +1112,7 @@ mod tests {
 
     fn temp_path(tag: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "eg-work-item-capability-{tag}-{}-{}.redb",
+            "medulla-work-item-capability-{tag}-{}-{}.redb",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1132,7 +1132,7 @@ mod tests {
     fn graph_version(shard: &Shard) -> u64 {
         let handle = shard.graph("graph-a").expect("bind graph-a");
         let read = shard.read(&handle).expect("read graph-a");
-        eg_transaction::version(&read).expect("graph-a authoritative version")
+        medulla_transaction::version(&read).expect("graph-a authoritative version")
     }
 
     fn try_commit_method(shard: &Shard, method: Method) -> Result<(), String> {

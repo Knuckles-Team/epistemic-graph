@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use eg_types::connector_pack::{SeedGraphImport, SeedPart, SeedPartKey};
-use eg_types::contract::{Digest256, ResourceId};
+use medulla_types::connector_pack::{SeedGraphImport, SeedPart, SeedPartKey};
+use medulla_types::contract::{Digest256, ResourceId};
 
 use super::seed::{prepare_seed_import, seed_turtle_digest, SeedImportOutcome, MAX_SEED_TRIPLES};
 
@@ -11,8 +11,8 @@ fn digest(byte: u8) -> Digest256 {
     Digest256::from_bytes([byte; 32])
 }
 
-fn shapes() -> eg_shacl::Graph {
-    eg_shacl::graph_from_turtle(&format!(
+fn shapes() -> medulla_shacl::Graph {
+    medulla_shacl::graph_from_turtle(&format!(
         "@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
          @prefix seed: <{SEED_NS}> .\n\
          seed:SeedSubjectShape a sh:NodeShape ;\n\
@@ -64,7 +64,7 @@ fn seed(catalog_name: &str, content_digest: Digest256) -> SeedGraphImport {
     }
 }
 
-/// EG-TYPED-PACKS-R104.2: a changed catalog part replaces only that part;
+/// MEDULLA-TYPED-PACKS-R104.2: a changed catalog part replaces only that part;
 /// identity and references remain byte-identical in the one prepared state.
 #[test]
 fn changed_part_reimports_alone() {

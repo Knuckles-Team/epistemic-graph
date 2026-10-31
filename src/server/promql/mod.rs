@@ -1,7 +1,7 @@
-//! CONCEPT:EG-KG.query.prometheus-http-query-api — the Prometheus-compatible HTTP query API, layered over the
-//! pure-Rust PromQL engine in `eg_tsdb::promql` and the durable `SeriesStore`.
+//! CONCEPT:MEDULLA-KG.query.prometheus-http-query-api — the Prometheus-compatible HTTP query API, layered over the
+//! pure-Rust PromQL engine in `medulla_tsdb::promql` and the durable `SeriesStore`.
 //!
-//! This is the FACADE half of EG-172: it adapts the observability tier's durable
+//! This is the FACADE half of MEDULLA-172: it adapts the observability tier's durable
 //! time-series store to the engine's dependency-free [`SeriesSource`] and serves the
 //! Prometheus HTTP API on the SAME hand-rolled obs listener that ingests logs:
 //!
@@ -25,11 +25,11 @@
 
 use std::sync::Arc;
 
-use eg_tsdb::promql::{
+use medulla_tsdb::promql::{
     parse, Evaluator, Expr, LabelMatcher, Labels, PromqlError, RangeSeries, SeriesSource, Value,
     METRIC_NAME,
 };
-use eg_tsdb::store::SeriesStore;
+use medulla_tsdb::store::SeriesStore;
 
 use crate::server::obs::ObsState;
 
@@ -38,7 +38,7 @@ const NS_PER_SEC: f64 = 1_000_000_000.0;
 
 // ───────────────────────────── store adapter ─────────────────────────────
 
-/// A [`SeriesSource`] over the durable [`SeriesStore`] (CONCEPT:EG-KG.query.prometheus-http-query-api).
+/// A [`SeriesSource`] over the durable [`SeriesStore`] (CONCEPT:MEDULLA-KG.query.prometheus-http-query-api).
 struct StoreSource {
     store: Arc<SeriesStore>,
 }
@@ -49,7 +49,7 @@ impl SeriesSource for StoreSource {
         matchers: &[LabelMatcher],
         start: i64,
         end: i64,
-    ) -> Vec<eg_tsdb::promql::LabeledSeries> {
+    ) -> Vec<medulla_tsdb::promql::LabeledSeries> {
         let ids = self.store.list_series().unwrap_or_default();
         let mut out = Vec::new();
         for id in ids {
@@ -62,7 +62,7 @@ impl SeriesSource for StoreSource {
                     .into_iter()
                     .map(|p| (p.ts, p.values.first().copied().unwrap_or(f64::NAN)))
                     .collect();
-                out.push(eg_tsdb::promql::LabeledSeries { labels, points });
+                out.push(medulla_tsdb::promql::LabeledSeries { labels, points });
             }
         }
         out
@@ -470,7 +470,7 @@ fn parse_step_ns(s: &str) -> Result<i64, String> {
     }
     // Duration form: reuse the engine parser via a synthetic range selector.
     match parse(&format!("x[{s}]")) {
-        Ok(eg_tsdb::promql::Expr::Matrix { range_ns, .. }) if range_ns > 0 => Ok(range_ns),
+        Ok(medulla_tsdb::promql::Expr::Matrix { range_ns, .. }) if range_ns > 0 => Ok(range_ns),
         _ => Err(format!("cannot parse step '{s}'")),
     }
 }
@@ -482,7 +482,7 @@ fn now_ns() -> i64 {
         .unwrap_or(0)
 }
 
-// ───────────────────────────── tests (CONCEPT:EG-KG.query.prometheus-http-query-api) ─────────────────────────────
+// ───────────────────────────── tests (CONCEPT:MEDULLA-KG.query.prometheus-http-query-api) ─────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -663,7 +663,7 @@ mod tests {
 
     #[test]
     fn eg172_instant_vector_envelope_shape() {
-        let samples = vec![eg_tsdb::promql::InstantSample {
+        let samples = vec![medulla_tsdb::promql::InstantSample {
             labels: {
                 let mut l = Labels::new();
                 l.insert("job".into(), "api".into());

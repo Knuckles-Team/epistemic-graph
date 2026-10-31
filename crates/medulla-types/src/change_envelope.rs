@@ -1,0 +1,1347 @@
+//! Engine-native, governed unit of external change.
+//!
+//! [`ChangeEnvelope`] embeds the universal [`MutationBatch`] rather than defining
+//! another graph-mutation language. Its additional rows are the source material
+//! that must share the batch commit point: blobs, features, located evidence,
+//! policy, lineage, content version, outbox, and a typed cursor.
+
+use std::cmp::Ordering;
+use std::collections::BTreeSet;
+
+use serde::{Deserialize, Serialize};
+
+use crate::mutation_batch::MutationBatch;
+
+mod draft;
+mod material;
+pub use draft::{ChangeEnvelopeDraft, ChangeMutationDraft};
+pub use material::MaterialClass;
+use material::TextRule;
+
+/// Whether `value` passes the repository-snapshot material rule (no host
+/// identity: absolute host paths, file URIs, e-mail addresses). Producers of
+/// repository-snapshot envelopes use it to redact a value before lowering
+/// instead of having the whole envelope refused.
+pub fn admits_repository_text(value: &str) -> bool {
+    material::validate_repository_text(value).is_ok()
+}
+
+pub const CHANGE_ENVELOPE_VERSION: u16 = 1;
+
+/// Server cap on the number of envelopes one `ApplyChangeEnvelopes` batch may carry.
+/// A larger batch is rejected with a typed error before any transaction opens. The
+/// per-envelope nested-MessagePack privacy/size limits still apply individually to
+/// every envelope. Lives in `medulla-types` so both the request boundary and the durable
+/// commit kernel share ONE bound.
+pub const MAX_ENVELOPES_PER_BATCH: usize = 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum CursorPosition {
+    Sequence(u64),
+    TimestampMillis(i64),
+    /// Provider-defined cursors are never ordered lexically.
+    Opaque {
+        /// Stable provider cursor type (for example `page_token_v2`).
+        cursor_type: String,
+        value: String,
+    },
+}
+
+impl CursorPosition {
+    pub fn advances(&self, previous: &Self) -> bool {
+        match (self, previous) {
+            (Self::Sequence(next), Self::Sequence(prior)) => next > prior,
+            (Self::TimestampMillis(next), Self::TimestampMillis(prior)) => next > prior,
+            (
+                Self::Opaque {
+                    cursor_type: next_type,
+                    value: next,
+                },
+                Self::Opaque {
+                    cursor_type: prior_type,
+                    value: prior,
+                },
+            ) => next_type == prior_type && !next.is_empty() && next != prior,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ChangeCursor {
+    pub source: String,
+    #[serde(default)]
+    pub partition: String,
+    pub position: CursorPosition,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_previous: Option<CursorPosition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ContentVersion {
+    pub object_id: String,
+    pub digest_algorithm: String,
+    pub digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_digest: Option<String>,
+    /// Typed source-side version. It is never compared lexically.
+    pub source_version: ContentVersionPosition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum ContentVersionPosition {
+    Sequence(u64),
+    TimestampMillis(i64),
+    Opaque { version_type: String, value: String },
+}
+
+impl ContentVersionPosition {
+    pub fn advances(&self, previous: &Self) -> bool {
+        match (self, previous) {
+            (Self::Sequence(next), Self::Sequence(prior)) => next > prior,
+            (Self::TimestampMillis(next), Self::TimestampMillis(prior)) => next > prior,
+            (
+                Self::Opaque {
+                    version_type: next_type,
+                    value: next,
+                },
+                Self::Opaque {
+                    version_type: prior_type,
+                    value: prior,
+                },
+            ) => next_type == prior_type && !next.is_empty() && next != prior,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum MaterialOperation {
+    Upsert,
+    Delete,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct BlobReference {
+    pub blob_id: String,
+    pub operation: MaterialOperation,
+    pub digest_algorithm: String,
+    pub digest: String,
+    pub media_type: String,
+    pub length: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct FeatureRecord {
+    pub feature_id: String,
+    pub operation: MaterialOperation,
+    pub object_id: String,
+    pub kind: String,
+    #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
+    #[serde(with = "serde_bytes")]
+    pub value_msgpack: Vec<u8>,
+    pub model_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct EvidenceRecord {
+    pub evidence_id: String,
+    pub operation: MaterialOperation,
+    pub object_id: String,
+    pub modality: String,
+    #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
+    #[serde(with = "serde_bytes")]
+    pub locus_msgpack: Vec<u8>,
+    pub content_digest: String,
+}
+
+/// Policy rows carry an opaque subject-set digest, never raw principals.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct PolicyRecord {
+    pub policy_id: String,
+    pub operation: MaterialOperation,
+    pub object_id: String,
+    pub tenant: String,
+    pub classification: String,
+    pub policy_version: String,
+    pub subject_set_digest: String,
+    #[serde(default)]
+    pub retention_policy: String,
+    #[serde(default)]
+    pub legal_hold: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct LineageRecord {
+    pub lineage_id: String,
+    pub operation: MaterialOperation,
+    pub object_id: String,
+    pub source_artifact_digest: String,
+    pub transform_name: String,
+    pub transform_version: String,
+    pub parent_content_digests: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct PrivacyAttestation {
+    pub policy_version: String,
+    pub sanitizer_version: String,
+    pub sanitized_payload_digest: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ChangeEnvelope {
+    pub schema_version: u16,
+    pub envelope_id: String,
+    pub mutation: MutationBatch,
+    pub content_version: ContentVersion,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<ChangeCursor>,
+    #[serde(default)]
+    pub blobs: Vec<BlobReference>,
+    #[serde(default)]
+    pub features: Vec<FeatureRecord>,
+    #[serde(default)]
+    pub evidence: Vec<EvidenceRecord>,
+    #[serde(default)]
+    pub policies: Vec<PolicyRecord>,
+    #[serde(default)]
+    pub lineage: Vec<LineageRecord>,
+    pub privacy: PrivacyAttestation,
+    /// How inline material values are screened for host identity (EH-280).
+    /// Absent on the wire means `Attested`, so every existing envelope keeps
+    /// its exact serialized form and digest.
+    #[serde(default, skip_serializing_if = "MaterialClass::is_attested")]
+    pub material_class: MaterialClass,
+    /// GOC-03 — the [`crate::commit_descriptor::CommitDescriptor::commit_seq`]
+    /// this envelope's mutation was published under, once the durable
+    /// commit-descriptor index is wired into the commit path (GOC-03-W03/W05).
+    /// Additive and optional so an envelope predating that wiring, or one whose
+    /// surface does not yet register a commit-descriptor participant, remains
+    /// valid; a populated value MUST be paired with `commit_descriptor_ref`
+    /// (see `validate`) and must match a real descriptor recorded by the commit
+    /// index — this module does not itself construct or verify that pairing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_seq: Option<u64>,
+    /// Opaque `CommitDescriptor::commit_id` this envelope's mutation was
+    /// published under. See `commit_seq`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit_descriptor_ref: Option<String>,
+}
+
+impl ChangeEnvelope {
+    /// Validate the envelope for admission. Every refusal carries a declared
+    /// error code (free-text refusals are classified as `INVALID_ARGUMENT`), so
+    /// the served path never reduces it to an unclassified `INTERNAL`
+    /// (spec: MEDULLA-DURABLE-KERNEL-R043.8).
+    pub fn validate(&self) -> Result<(), String> {
+        validation::validate_change_envelope(self)
+            .map_err(|refusal| crate::contract::classify_refusal("INVALID_ARGUMENT", "", &refusal))
+    }
+}
+
+mod validation {
+    use super::*;
+
+    // CXA-MEDULLA-03 refactor: `validate` was CCN 90 as one flat sequence of ~20
+    // independent must-all-pass checks. A `match`-dispatch's arms collapse to
+    // ~1 CCN regardless of arm count (mutually exclusive, no `?` needed at the
+    // call site -- confirmed on the sibling `apply_txn_op`/`try_handle`
+    // dispatchers in this same lane), but a linear AND-chain of fallible steps
+    // has no such shortcut: each step needs its own `?` (or equivalent early
+    // return) wherever it lives, so flattening 20 `?`s into one function keeps
+    // CCN ~20 however they are named. The fix here is a small TREE instead: a
+    // few phase functions of ~4-6 `?`-calls each, called from `validate`
+    // itself (5 phases, CCN 6), each phase covering an independent group of
+    // the original checks (identity/text/content/material/operations). Every
+    // leaf below is the ORIGINAL check's body verbatim, moved, not rewritten
+    // -- same conditions, same Err strings, same order.
+    pub(super) fn validate_change_envelope(envelope: &ChangeEnvelope) -> Result<(), String> {
+        validate_identity(envelope)?;
+        validate_text_and_context(envelope)?;
+        validate_content(envelope)?;
+        validate_material(envelope)?;
+        validate_operations(envelope)?;
+        Ok(())
+    }
+
+    fn validate_identity(envelope: &ChangeEnvelope) -> Result<(), String> {
+        validate_schema_version(envelope)?;
+        envelope.mutation.validate()?;
+        validate_envelope_id(envelope)?;
+        validate_principal(envelope)?;
+        Ok(())
+    }
+
+    fn validate_schema_version(envelope: &ChangeEnvelope) -> Result<(), String> {
+        if envelope.schema_version != CHANGE_ENVELOPE_VERSION {
+            return Err(format!(
+                "unsupported ChangeEnvelope version {} (expected {})",
+                envelope.schema_version, CHANGE_ENVELOPE_VERSION
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_envelope_id(envelope: &ChangeEnvelope) -> Result<(), String> {
+        if envelope.envelope_id.trim().is_empty() {
+            return Err("change envelope_id must not be empty".to_string());
+        }
+        Ok(())
+    }
+
+    // NOTE (CXA-MEDULLA-03 finding, documented in the lane report, not fixed here):
+    // this recheck is unreachable in practice. `self.mutation.validate()?` in
+    // `validate_identity` runs FIRST and already enforces a STRICTLY narrower
+    // "principal:sha256:" + 64-lowercase-hex acceptance set
+    // (`crate::mutation_batch::MutationBatch::validate`), so any principal
+    // that clears that gate always clears this one too; no input can produce
+    // either Err below. Kept verbatim (not deleted): not "genuinely dead" per
+    // the 5-evidence-check bar, and this lane's brief forbids fixing bugs
+    // found inside a behaviour-preserving refactor commit regardless.
+    fn validate_principal(envelope: &ChangeEnvelope) -> Result<(), String> {
+        let principal_digest = envelope
+            .mutation
+            .serving_principal()
+            .strip_prefix("principal:sha256:")
+            .ok_or_else(|| "durable mutation principal must be an opaque sha256 id".to_string())?;
+        validate_digest("sha256", principal_digest)?;
+        Ok(())
+    }
+
+    fn validate_text_and_context(envelope: &ChangeEnvelope) -> Result<(), String> {
+        validate_core_text_fields(envelope)?;
+        validate_outbox(envelope)?;
+        Ok(())
+    }
+
+    fn validate_core_text_fields(envelope: &ChangeEnvelope) -> Result<(), String> {
+        // MutationBatch v1 carries `identity: MutationScopeIdentity`, so the tenant and
+        // graph names are no longer free-form strings reachable from here. `ScopeTenantId`
+        // and `LogicalName` enforce the same persistence privacy policy this scan
+        // applies -- both the path- and address-shaped forms -- inside `new()`, and on
+        // deserialize via `impl_validated_deserialize!`. Scanning them again here would
+        // be a second, weaker authority for a rule the constructor owns, so only the
+        // fields that are still free-form text are checked.
+        for value in [
+            envelope.envelope_id.as_str(),
+            envelope.mutation.batch_id.as_str(),
+            envelope.mutation.idempotency_key(),
+        ] {
+            validate_safe_text(value)?;
+        }
+        Ok(())
+    }
+
+    // `validate_optional_context_fields` is DELETED, not moved: the three
+    // free-form `Option<String>` fields it scanned -- `purpose`,
+    // `policy_fingerprint`, `trace_id` -- no longer exist. `MutationEnvelope`
+    // replaced them with `purpose_kind` (a closed token), `purpose_resource`
+    // (a `ResourceId` that `AuthorityContext::validate` additionally forces to
+    // EQUAL the scope's own id), `policy_revision`/`policy_digest`, and a
+    // `trace_id` that is an `OpaqueId`. Every one of them is constrained by its
+    // own type and by the context digest, so a path- or address-shaped value is
+    // unrepresentable rather than merely scanned for -- the same reason the
+    // tenant and graph names left this scan when they became newtypes. See
+    // `a_context_purpose_cannot_be_free_form_text` for the structural proof.
+
+    fn validate_outbox(envelope: &ChangeEnvelope) -> Result<(), String> {
+        for intent in &envelope.mutation.outbox {
+            validate_safe_text(&intent.topic)?;
+            validate_safe_text(&intent.key)?;
+            for (key, value) in &intent.headers {
+                validate_safe_text(key)?;
+                validate_safe_text(value)?;
+            }
+            validate_msgpack_privacy(&intent.payload)?;
+        }
+        Ok(())
+    }
+
+    fn validate_content(envelope: &ChangeEnvelope) -> Result<(), String> {
+        validate_content_version(envelope)?;
+        validate_privacy(envelope)?;
+        validate_commit_descriptor(envelope)?;
+        validate_cursor(envelope)?;
+        validate_source_version(envelope)?;
+        Ok(())
+    }
+
+    fn validate_content_version(envelope: &ChangeEnvelope) -> Result<(), String> {
+        if envelope.content_version.object_id.trim().is_empty() {
+            return Err("change content object_id must not be empty".to_string());
+        }
+        validate_safe_text(&envelope.content_version.object_id)?;
+        validate_digest(
+            &envelope.content_version.digest_algorithm,
+            &envelope.content_version.digest,
+        )?;
+        if let Some(previous) = &envelope.content_version.previous_digest {
+            validate_digest(&envelope.content_version.digest_algorithm, previous)?;
+            if previous == &envelope.content_version.digest {
+                return Err("content version cannot replace itself".to_string());
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_privacy(envelope: &ChangeEnvelope) -> Result<(), String> {
+        if envelope.privacy.policy_version.trim().is_empty()
+            || envelope.privacy.sanitizer_version.trim().is_empty()
+        {
+            return Err("privacy policy and sanitizer versions are required".to_string());
+        }
+        validate_digest("sha256", &envelope.privacy.sanitized_payload_digest)?;
+        Ok(())
+    }
+
+    fn validate_commit_descriptor(envelope: &ChangeEnvelope) -> Result<(), String> {
+        match (envelope.commit_seq, &envelope.commit_descriptor_ref) {
+            (Some(_), None) | (None, Some(_)) => {
+                return Err(
+                    "commit_seq and commit_descriptor_ref must be set together or both absent"
+                        .to_string(),
+                );
+            }
+            (Some(0), Some(_)) => {
+                return Err("commit_seq must be non-zero when present".to_string());
+            }
+            (Some(_), Some(commit_descriptor_ref)) => {
+                validate_safe_text(commit_descriptor_ref)?;
+            }
+            (None, None) => {}
+        }
+        Ok(())
+    }
+
+    fn validate_cursor(envelope: &ChangeEnvelope) -> Result<(), String> {
+        if let Some(cursor) = &envelope.cursor {
+            if cursor.source.trim().is_empty() {
+                return Err("cursor source must not be empty".to_string());
+            }
+            validate_safe_text(&cursor.source)?;
+            validate_safe_text(&cursor.partition)?;
+            if let CursorPosition::Opaque { cursor_type, value } = &cursor.position {
+                validate_safe_text(cursor_type)?;
+                validate_safe_text(value)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_source_version(envelope: &ChangeEnvelope) -> Result<(), String> {
+        match &envelope.content_version.source_version {
+            ContentVersionPosition::Opaque {
+                version_type,
+                value,
+            } => {
+                validate_safe_text(version_type)?;
+                validate_safe_text(value)?;
+            }
+            ContentVersionPosition::Sequence(_) | ContentVersionPosition::TimestampMillis(_) => {}
+        }
+        Ok(())
+    }
+
+    // Governance proof is not optional: every materialized object's ACL row
+    // must be present in the same envelope and therefore the same commit.
+    fn validate_material(envelope: &ChangeEnvelope) -> Result<(), String> {
+        let governed = validate_policies(envelope)?;
+        let mut required_governance = BTreeSet::from([envelope.content_version.object_id.as_str()]);
+        validate_blobs(envelope)?;
+        validate_evidence(envelope, &mut required_governance)?;
+        validate_features(envelope, &mut required_governance)?;
+        validate_lineage(envelope, &mut required_governance)?;
+        validate_governance_proof(&governed, &required_governance)?;
+        Ok(())
+    }
+
+    fn validate_policies(envelope: &ChangeEnvelope) -> Result<BTreeSet<&str>, String> {
+        let mut governed = BTreeSet::new();
+        for policy in &envelope.policies {
+            validate_one_policy(envelope, policy)?;
+            governed.insert(policy.object_id.as_str());
+        }
+        Ok(governed)
+    }
+
+    fn validate_one_policy(envelope: &ChangeEnvelope, policy: &PolicyRecord) -> Result<(), String> {
+        if policy.tenant != envelope.mutation.identity.tenant().as_str() {
+            return Err("policy tenant does not match mutation tenant".to_string());
+        }
+        if !policy_required_fields_present(policy) {
+            return Err(
+                "policy object, classification, and policy version are required".to_string(),
+            );
+        }
+        validate_safe_text(&policy.object_id)?;
+        validate_safe_text(&policy.policy_id)?;
+        validate_safe_text(&policy.classification)?;
+        validate_safe_text(&policy.policy_version)?;
+        validate_safe_text(&policy.retention_policy)?;
+        validate_digest("sha256", &policy.subject_set_digest)?;
+        Ok(())
+    }
+
+    fn validate_blobs(envelope: &ChangeEnvelope) -> Result<(), String> {
+        for blob in &envelope.blobs {
+            if blob.blob_id.trim().is_empty() || blob.media_type.trim().is_empty() {
+                return Err("blob identity and media type are required".to_string());
+            }
+            validate_safe_text(&blob.blob_id)?;
+            validate_safe_text(&blob.media_type)?;
+            validate_digest(&blob.digest_algorithm, &blob.digest)?;
+        }
+        Ok(())
+    }
+
+    fn validate_evidence<'a>(
+        envelope: &'a ChangeEnvelope,
+        required_governance: &mut BTreeSet<&'a str>,
+    ) -> Result<(), String> {
+        for evidence in &envelope.evidence {
+            validate_safe_text(&evidence.evidence_id)?;
+            validate_safe_text(&evidence.object_id)?;
+            validate_safe_text(&evidence.modality)?;
+            required_governance.insert(evidence.object_id.as_str());
+            validate_digest("sha256", &evidence.content_digest)?;
+            validate_msgpack_privacy(&evidence.locus_msgpack)?;
+        }
+        Ok(())
+    }
+
+    fn validate_features<'a>(
+        envelope: &'a ChangeEnvelope,
+        required_governance: &mut BTreeSet<&'a str>,
+    ) -> Result<(), String> {
+        for feature in &envelope.features {
+            validate_safe_text(&feature.feature_id)?;
+            validate_safe_text(&feature.object_id)?;
+            validate_safe_text(&feature.kind)?;
+            validate_safe_text(&feature.model_version)?;
+            required_governance.insert(feature.object_id.as_str());
+            validate_msgpack_privacy(&feature.value_msgpack)?;
+        }
+        Ok(())
+    }
+
+    fn validate_lineage<'a>(
+        envelope: &'a ChangeEnvelope,
+        required_governance: &mut BTreeSet<&'a str>,
+    ) -> Result<(), String> {
+        for lineage in &envelope.lineage {
+            validate_safe_text(&lineage.lineage_id)?;
+            validate_safe_text(&lineage.object_id)?;
+            validate_safe_text(&lineage.transform_name)?;
+            validate_safe_text(&lineage.transform_version)?;
+            required_governance.insert(lineage.object_id.as_str());
+            validate_digest("sha256", &lineage.source_artifact_digest)?;
+            for digest in &lineage.parent_content_digests {
+                validate_digest("sha256", digest)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_operations(envelope: &ChangeEnvelope) -> Result<(), String> {
+        let rule = envelope.material_class.value_rule();
+        for operation in &envelope.mutation.operations {
+            validate_operation(&operation.method, rule)
+                .map_err(|error| at_operation(operation.ordinal, &error))?;
+        }
+        Ok(())
+    }
+
+    /// Name the refusing operation without hiding a declared error code: the
+    /// code must stay first so `Response::err` keeps it on the wire.
+    fn at_operation(ordinal: impl std::fmt::Display, error: &str) -> String {
+        match error.split_once(": ") {
+            Some((code, detail)) if crate::contract::declared_error_code(code) => {
+                format!("{code}: operation {ordinal}: {detail}")
+            }
+            _ => format!("operation {ordinal}: {error}"),
+        }
+    }
+
+    fn validate_operation(method: &crate::protocol::Method, rule: TextRule) -> Result<(), String> {
+        // Carrier methods must never unwrap engine-internal or native operations.
+        if let Some(refusal) = method.carrier_refusal_message() {
+            return Err(refusal);
+        }
+        use crate::protocol::Method;
+        match method {
+            Method::AddNode {
+                node_id,
+                properties_msgpack,
+            } => validate_op_add_node(node_id, properties_msgpack, rule),
+            Method::AddEdge {
+                source_id,
+                target_id,
+                properties_msgpack,
+            } => validate_op_add_edge(source_id, target_id, properties_msgpack, rule),
+            Method::RemoveNode { node_id } => validate_safe_text(node_id),
+            Method::CompareAndSetNodeFields {
+                node_id,
+                conditions_msgpack,
+                updates_msgpack,
+            } => validate_op_compare_and_set(node_id, conditions_msgpack, updates_msgpack, rule),
+            Method::RemoveEdge {
+                source_id,
+                target_id,
+            } => validate_op_remove_edge(source_id, target_id),
+            _ => Ok(()),
+        }
+    }
+}
+
+fn policy_required_fields_present(policy: &PolicyRecord) -> bool {
+    !policy.object_id.trim().is_empty()
+        && !policy.classification.trim().is_empty()
+        && !policy.policy_version.trim().is_empty()
+}
+
+fn validate_governance_proof(
+    governed: &BTreeSet<&str>,
+    required_governance: &BTreeSet<&str>,
+) -> Result<(), String> {
+    if let Some(missing) = required_governance.difference(governed).next() {
+        return Err(format!(
+            "ChangeEnvelope has no policy proof for material object '{missing}'"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_op_add_node(
+    node_id: &str,
+    properties_msgpack: &[u8],
+    rule: TextRule,
+) -> Result<(), String> {
+    validate_safe_text(node_id)?;
+    validate_msgpack_material(properties_msgpack, rule)?;
+    validate_harness_component_write(node_id, properties_msgpack)?;
+    Ok(())
+}
+
+/// MEDULLA-ORCH-VOCAB-R801.4 — the evidence refusals of a versioned
+/// harness-component write carried by this envelope: the version record
+/// decodes strictly (closed kind set, typed evidence and interval checks)
+/// and carries its bitemporal transaction stamp (the generated client stamps
+/// it — MEDULLA-DURABLE-KERNEL-R078/R081). Non-harness AddNode ops pass through.
+fn validate_harness_component_write(
+    node_id: &str,
+    properties_msgpack: &[u8],
+) -> Result<(), String> {
+    let props = crate::msgpack::decode_property_object(properties_msgpack).unwrap_or_default();
+    if !crate::orchestration::is_harness_component_write(&props) {
+        return Ok(());
+    }
+    let refuse = |refusal: crate::orchestration::HarnessComponentRefusal, detail: String| {
+        format!("{}: {}", refusal.code(), detail)
+    };
+    let record = crate::orchestration::decode_component_write(&props)
+        .map_err(|refusal| refuse(refusal, "harness component version record".to_string()))?;
+    if record.node_id() != node_id {
+        return Err(refuse(
+            crate::orchestration::HarnessComponentRefusal::ContentDigestMismatch,
+            format!(
+                "node id '{node_id}' does not match the record's content address '{}'",
+                record.node_id()
+            ),
+        ));
+    }
+    record
+        .validate()
+        .map_err(|refusal| refuse(refusal, format!("component '{}'", record.component_id)))?;
+    if crate::orchestration::component_tx_stamp(&props).is_none() {
+        return Err(refuse(
+            crate::orchestration::HarnessComponentRefusal::WithoutStamp,
+            format!(
+                "harness component version '{}' must carry its transaction-time stamp `tx_from`",
+                record.node_id()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_op_add_edge(
+    source_id: &str,
+    target_id: &str,
+    properties_msgpack: &[u8],
+    rule: TextRule,
+) -> Result<(), String> {
+    validate_safe_text(source_id)?;
+    validate_safe_text(target_id)?;
+    validate_msgpack_material(properties_msgpack, rule)?;
+    Ok(())
+}
+
+fn validate_op_compare_and_set(
+    node_id: &str,
+    conditions_msgpack: &[u8],
+    updates_msgpack: &[u8],
+    rule: TextRule,
+) -> Result<(), String> {
+    validate_safe_text(node_id)?;
+    validate_msgpack_material(conditions_msgpack, rule)?;
+    validate_msgpack_material(updates_msgpack, rule)?;
+    Ok(())
+}
+
+fn validate_op_remove_edge(source_id: &str, target_id: &str) -> Result<(), String> {
+    validate_safe_text(source_id)?;
+    validate_safe_text(target_id)?;
+    Ok(())
+}
+
+fn validate_digest(algorithm: &str, digest: &str) -> Result<(), String> {
+    if !algorithm.eq_ignore_ascii_case("sha256") {
+        return Err("only sha256 content digests are supported".to_string());
+    }
+    if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("content digest must be 64 hexadecimal characters".to_string());
+    }
+    Ok(())
+}
+
+fn validate_safe_text(value: &str) -> Result<(), String> {
+    let lower = value.to_ascii_lowercase();
+    if value.contains('@')
+        || value.contains('\\')
+        || lower.contains("/home/")
+        || lower.contains("/users/")
+        || lower.contains("/mnt/")
+        || lower.contains("file://")
+    {
+        return Err(
+            "INVALID_ARGUMENT: persistence privacy policy rejected an identifier or key \
+             containing '@', '\\', a host path or a file URI"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Screen every string VALUE with `rule` and every object KEY with the strict
+/// rule (keys are engine-chosen property names in every material class).
+fn validate_json_material(value: &serde_json::Value, rule: TextRule) -> Result<(), String> {
+    match value {
+        serde_json::Value::String(text) => rule(text),
+        serde_json::Value::Array(values) => {
+            for value in values {
+                validate_json_material(value, rule)?;
+            }
+            Ok(())
+        }
+        serde_json::Value::Object(values) => {
+            for (key, value) in values {
+                validate_safe_text(key)?;
+                validate_json_material(value, rule)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn validate_msgpack_material(bytes: &[u8], rule: TextRule) -> Result<(), String> {
+    crate::msgpack::validate_single_value(
+        bytes,
+        crate::msgpack::MsgpackLimits::new(8 * 1024 * 1024, 200_000, 64),
+    )
+    .map_err(|_| {
+        format!(
+            "inline material must be bounded valid MessagePack JSON ({} bytes)",
+            bytes.len()
+        )
+    })?;
+    let value: serde_json::Value = rmp_serde::from_slice(bytes)
+        .map_err(|_| "inline material must be valid MessagePack JSON".to_string())?;
+    validate_json_material(&value, rule)
+}
+
+/// Caller-attested material (outbox, evidence, features): the attested
+/// host-identity rule for values, the strict rule for keys.
+fn validate_msgpack_privacy(bytes: &[u8]) -> Result<(), String> {
+    validate_msgpack_material(bytes, material::validate_attested_text)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ChangeEnvelopeRecord {
+    pub envelope: ChangeEnvelope,
+    pub committed_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ChangeEnvelopeCommit {
+    pub envelope_id: String,
+    pub batch_id: String,
+    pub content_version: ContentVersion,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<ChangeCursor>,
+    pub outbox_count: u32,
+    pub replayed: bool,
+}
+
+pub fn compare_cursor_positions(left: &CursorPosition, right: &CursorPosition) -> Option<Ordering> {
+    match (left, right) {
+        (CursorPosition::Sequence(a), CursorPosition::Sequence(b)) => Some(a.cmp(b)),
+        (CursorPosition::TimestampMillis(a), CursorPosition::TimestampMillis(b)) => Some(a.cmp(b)),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::change_envelope::minimal_envelope;
+
+    #[test]
+    fn cursor_never_lexically_orders_opaque_values() {
+        let previous = CursorPosition::Opaque {
+            cursor_type: "page_token_v2".into(),
+            value: "cursor-9".into(),
+        };
+        let next = CursorPosition::Opaque {
+            cursor_type: "page_token_v2".into(),
+            value: "cursor-10".into(),
+        };
+        assert_eq!(compare_cursor_positions(&next, &previous), None);
+        assert!(next.advances(&previous));
+    }
+
+    #[test]
+    fn privacy_scan_rejects_machine_paths() {
+        let bytes =
+            rmp_serde::to_vec_named(&serde_json::json!({"path": "/home/person/file"})).unwrap();
+        assert!(validate_msgpack_privacy(&bytes).is_err());
+    }
+
+    #[test]
+    fn privacy_scan_rejects_declared_messagepack_allocation_bombs() {
+        assert!(validate_msgpack_privacy(&[0xdd, 0xff, 0xff, 0xff, 0xff]).is_err());
+    }
+
+    /// The operation envelope of the fixture batch, on its own graph scope.
+    /// Re-mint the fixture's envelope over its CURRENT body.
+    ///
+    /// These cases change the batch's operations or outbox to plant a privacy
+    /// violation, which is what a PRODUCER compiling that content would have
+    /// produced -- so the envelope has to describe it, exactly as
+    /// `finish_batch` would. Without this they would fail on the envelope
+    /// coverage check and never reach the privacy scanner they exist to test.
+    fn reseal(envelope: &mut ChangeEnvelope) {
+        envelope
+            .mutation
+            .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
+    }
+
+    /// `envelope` with its one operation replaced by `method`, resealed.
+    fn carrying(method: crate::protocol::Method) -> ChangeEnvelope {
+        let mut envelope = minimal_envelope();
+        envelope.mutation.operations[0].method = method;
+        reseal(&mut envelope);
+        envelope
+    }
+
+    #[test]
+    fn an_envelope_refuses_internal_and_native_kernel_inner_methods() {
+        use crate::protocol::method_carrier_fixtures::{control_lease_issue, policy_store};
+        let refused = carrying(policy_store()).validate().unwrap_err();
+        assert!(
+            refused.starts_with("CARRIER_INNER_METHOD_REFUSED: operation 0: PolicyEvolutionStore"),
+            "{refused}"
+        );
+        let refused = carrying(control_lease_issue()).validate().unwrap_err();
+        assert!(
+            refused.starts_with("CARRIER_INNER_METHOD_REFUSED: operation 0: IssueControlLease"),
+            "{refused}"
+        );
+        // A normal wire graph write still rides the carrier.
+        minimal_envelope().validate().unwrap();
+    }
+
+    #[test]
+    fn forged_serialized_profile_capability_cannot_cross_a_public_carrier() {
+        let method = serde_json::from_value(serde_json::json!({
+            "method":"SubmitWorkItem", "params": {"request": {
+                "schema_version":"1", "run_id":"run", "work_item_id":null,
+                "context":{"schema_version":"2", "request_id":"request", "subject_id":"owner",
+                    "tenant_id":"tenant", "agent_id":"worker", "scopes":["kg:admin"],
+                    "audience":"engine", "authentication_method":"local_process", "policy_version":"v1",
+                    "graph":"g", "placement_epoch":null, "trace_id":"trace", "issued_at_ms":1,
+                    "expires_at_ms":2},
+                "idempotency_key":"run-key", "command_digest":"a".repeat(64), "kind":"run",
+                "priority":0, "depends_on":[], "input_ref":"input", "policy_digest":"policy",
+                "catalog_digest":"catalog", "model_digest":"model", "max_attempts":1,
+                "deadline_unix":null, "metadata":{}, "provenance_refs":[], "max_tenant_in_flight":1,
+                "conversation":{"schema_version":"1", "context_id":"conversation", "expected_revision":0,
+                    "predecessor_run_id":null, "history_profile":{"version":1,"user_text_digest":"a".repeat(64)}}
+            }}
+        })).unwrap();
+        let mut envelope = carrying(method);
+        if let crate::mutation_batch::MutationEnvelope::Operation(operation) =
+            &mut envelope.mutation.envelope
+        {
+            operation
+                .verified_capabilities
+                .insert(crate::mutation_batch::MutationCapability::EnableInlineHistoryProfile);
+        }
+        let bytes = rmp_serde::to_vec_named(&envelope).unwrap();
+        let decoded: ChangeEnvelope = rmp_serde::from_slice(&bytes).unwrap();
+        let error = decoded.validate().unwrap_err();
+        assert!(
+            error.starts_with("CARRIER_INNER_METHOD_REFUSED: operation 0: SubmitWorkItem"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn commit_seq_defaults_absent_and_is_valid() {
+        let envelope = minimal_envelope();
+        envelope.validate().unwrap();
+        assert!(envelope.commit_seq.is_none());
+        assert!(envelope.commit_descriptor_ref.is_none());
+        // Additive field: an encoding predating GOC-03 (no key present at all)
+        // still decodes because of `#[serde(default)]`.
+        let mut json = serde_json::to_value(&envelope).unwrap();
+        let obj = json.as_object_mut().unwrap();
+        assert!(
+            !obj.contains_key("commit_seq"),
+            "an absent commit_seq must not be serialized (skip_serializing_if)"
+        );
+        obj.remove("commit_seq");
+        obj.remove("commit_descriptor_ref");
+        let decoded: ChangeEnvelope = serde_json::from_value(json).unwrap();
+        assert_eq!(decoded.commit_seq, None);
+    }
+
+    #[test]
+    fn commit_seq_and_descriptor_ref_must_be_set_together() {
+        let mut only_seq = minimal_envelope();
+        only_seq.commit_seq = Some(5);
+        only_seq.commit_descriptor_ref = None;
+        assert!(only_seq.validate().unwrap_err().contains("set together"));
+
+        let mut only_ref = minimal_envelope();
+        only_ref.commit_seq = None;
+        only_ref.commit_descriptor_ref = Some("commit-1".into());
+        assert!(only_ref.validate().unwrap_err().contains("set together"));
+
+        let mut zero_seq = minimal_envelope();
+        zero_seq.commit_seq = Some(0);
+        zero_seq.commit_descriptor_ref = Some("commit-1".into());
+        assert!(zero_seq.validate().unwrap_err().contains("non-zero"));
+
+        let mut both = minimal_envelope();
+        both.commit_seq = Some(5);
+        both.commit_descriptor_ref = Some("commit-1".into());
+        both.validate().unwrap();
+    }
+
+    // CXA-MEDULLA-03 characterization: `validate()` (CCN 90) pins every branch group
+    // below against the UNMODIFIED function ahead of decomposing it into named
+    // helpers. `minimal_envelope()` is a valid baseline, so each test mutates
+    // exactly one field/collection to trip exactly one Err branch, proving the
+    // assertion actually depends on that branch (each was confirmed to FAIL
+    // against a deliberately broken helper during the refactor step, not just
+    // shown green here).
+
+    #[test]
+    fn schema_version_mismatch_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.schema_version = CHANGE_ENVELOPE_VERSION + 1;
+        let err = envelope.validate().unwrap_err();
+        assert!(
+            err.contains("unsupported ChangeEnvelope version"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn empty_envelope_id_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.envelope_id = String::new();
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("envelope_id must not be empty"), "got: {err}");
+    }
+
+    // v0 built a `ChangeEnvelope` with a free-form `mutation.tenant: String`
+    // set to unsafe text and asserted `validate()` rejected it via
+    // `validate_safe_text`'s persistence-privacy scan. In v1 the tenant lives
+    // inside `MutationScopeIdentity`, whose `ScopeTenantId` is a validated newtype
+    // constructible only through `ScopeTenantId::new`, which returns `Result` and
+    // is called by both the constructor and `impl_validated_deserialize!` --
+    // an unsafe tenant can no longer reach a constructed `ChangeEnvelope` to
+    // be rejected "after the fact" by `validate()`. Per the migration
+    // contract, this proves the CONSTRUCTOR itself rejects unsafe text now,
+    // keeping the original test's intent (unsafe text in a core mutation
+    // identity field is rejected, not silently accepted).
+    //
+    // NOTE: `ScopeTenantId::new` enforces `validate_identifier` (non-empty, no
+    // control chars, no boundary whitespace, and no path semantics: `.`,
+    // `..`, `/`, `\`) -- a narrower rule set than `validate_safe_text`'s
+    // privacy scan (which also rejects `@` and embedded `/home/`, `/users/`,
+    // `/mnt/`, `file://` substrings). The original fixture value
+    // "person@example.invalid" contains no path separator, so it would
+    // actually be ACCEPTED by `ScopeTenantId::new` -- it is `validate_safe_text`,
+    // not the tenant newtype, that used to reject it, and that scan no
+    // longer runs over the tenant field (see `validate_core_text_fields`).
+    // That is a real behavioral narrowing worth flagging upstream, not
+    // something this lane's mechanical migration may silently paper over by
+    // asserting a false rejection. This test instead uses a machine-path
+    // value ("/home/person", the same reserved placeholder username as
+    // `feature_with_privacy_violating_value_is_rejected` below), which both
+    // the old privacy scan and the new `ScopeTenantId` path-semantics check
+    // reject, so the assertion is true under v1 as written.
+    #[test]
+    fn unsafe_text_in_core_mutation_field_is_rejected() {
+        let err = crate::mutation_batch::ScopeTenantId::new("/home/person")
+            .expect_err("tenant identity must reject unsafe machine-path text");
+        assert!(err.contains("path semantics"), "got: {err}");
+    }
+
+    // NOTE (CXA-MEDULLA-03 finding, not a test): `ChangeEnvelope::validate`'s own
+    // principal/digest re-check (the `strip_prefix("principal:sha256:")` +
+    // `validate_digest` pair right after `self.mutation.validate()?`) is
+    // unreachable in practice. `self.mutation.validate()?` runs FIRST and
+    // already enforces `principal:sha256:` + exactly 64 LOWERCASE hex chars
+    // (`crates/medulla-types/src/mutation_batch.rs:243` validate, principal check
+    // ~line 255) -- a strictly narrower acceptance set than this function's
+    // own `is_ascii_hexdigit()`-based recheck (which also accepts uppercase
+    // A-F). Any principal that clears the first gate therefore always clears
+    // the second; no input can trigger this function's own principal Err
+    // branches. Confirmed by attempting exactly that: both
+    // `principal:sha256:` missing and a too-short digest are caught by
+    // `mutation.validate()` first (error text "mutation principal authority
+    // must be an opaque digest"), never by this function's own
+    // "durable mutation principal must be an opaque sha256 id" /
+    // "content digest must be 64 hexadecimal characters" branches. See
+    // BUGS FOUND in the lane report. Verbatim-moved during the refactor
+    // below, not deleted (not "genuinely dead" per the 5-evidence-check bar,
+    // and behaviour-preservation forbids touching it in this lane anyway).
+
+    /// The privacy property the deleted `unsafe_optional_context_field_is_rejected`
+    /// case asserted, proved structurally instead of by scanning.
+    ///
+    /// That test set `context.purpose` to `/home/person/notes` and expected the
+    /// text scanner to refuse it. Under `MutationEnvelope` the field is gone:
+    /// the purpose is a closed `PurposeKind` token plus a `purpose_resource`
+    /// that `AuthorityContext::validate` forces to EQUAL the authority scope's
+    /// own id. A caller-chosen path can therefore never reach a durable row --
+    /// not because a scanner rejects it, but because there is nowhere to put it.
+    #[test]
+    fn a_context_purpose_cannot_be_free_form_text() {
+        let envelope = minimal_envelope();
+        let operation = envelope.mutation.envelope.operation().unwrap();
+        assert_eq!(operation.authority.purpose_kind.as_str(), "graph_write");
+        assert_eq!(
+            operation
+                .authority
+                .purpose_resource
+                .as_ref()
+                .map(|r| r.as_str()),
+            Some(operation.authority.authority_scope.scope_id.as_str())
+        );
+
+        // Planted known-bad input: a purpose resource that is NOT the scope id
+        // fails closed, whatever it spells.
+        let mut forged = operation.clone();
+        forged.authority.purpose_resource =
+            Some(crate::contract::ResourceId::new("/home/person/notes").unwrap());
+        let err = forged.validate().unwrap_err();
+        assert!(
+            err.contains("purpose resource differs from scope target"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn outbox_intent_unsafe_topic_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope
+            .mutation
+            .outbox
+            .push(crate::mutation_batch::MutationOutboxIntent {
+                topic: "topic@bad".into(),
+                key: "key-1".into(),
+                payload: rmp_serde::to_vec_named(&serde_json::json!({"a": 1})).unwrap(),
+                headers: Default::default(),
+            });
+        reseal(&mut envelope);
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    #[test]
+    fn outbox_intent_privacy_violating_payload_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope
+            .mutation
+            .outbox
+            .push(crate::mutation_batch::MutationOutboxIntent {
+                topic: "topic-1".into(),
+                key: "key-1".into(),
+                payload: rmp_serde::to_vec_named(&serde_json::json!({"path": "/home/person/x"}))
+                    .unwrap(),
+                headers: Default::default(),
+            });
+        reseal(&mut envelope);
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    #[test]
+    fn empty_content_object_id_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.content_version.object_id = String::new();
+        let err = envelope.validate().unwrap_err();
+        assert!(
+            err.contains("content object_id must not be empty"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn malformed_content_digest_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.content_version.digest = "not-hex".into();
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("64 hexadecimal"), "got: {err}");
+    }
+
+    #[test]
+    fn content_version_cannot_replace_itself() {
+        let mut envelope = minimal_envelope();
+        let digest = envelope.content_version.digest.clone();
+        envelope.content_version.previous_digest = Some(digest);
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("cannot replace itself"), "got: {err}");
+    }
+
+    #[test]
+    fn empty_privacy_versions_are_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.privacy.policy_version = String::new();
+        let err = envelope.validate().unwrap_err();
+        assert!(
+            err.contains("privacy policy and sanitizer versions are required"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn malformed_privacy_digest_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.privacy.sanitized_payload_digest = "short".into();
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("64 hexadecimal"), "got: {err}");
+    }
+
+    #[test]
+    fn cursor_with_empty_source_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.cursor = Some(ChangeCursor {
+            source: String::new(),
+            partition: "p0".into(),
+            position: CursorPosition::Sequence(1),
+            expected_previous: None,
+        });
+        let err = envelope.validate().unwrap_err();
+        assert!(
+            err.contains("cursor source must not be empty"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn cursor_opaque_unsafe_text_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.cursor = Some(ChangeCursor {
+            source: "src-1".into(),
+            partition: "p0".into(),
+            position: CursorPosition::Opaque {
+                cursor_type: "page_token".into(),
+                value: "cursor@bad".into(),
+            },
+            expected_previous: None,
+        });
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    #[test]
+    fn source_version_opaque_unsafe_text_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.content_version.source_version = ContentVersionPosition::Opaque {
+            version_type: "vtype@bad".into(),
+            value: "v1".into(),
+        };
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    #[test]
+    fn policy_tenant_mismatch_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.policies[0].tenant = "other-tenant".into();
+        let err = envelope.validate().unwrap_err();
+        assert!(
+            err.contains("policy tenant does not match mutation tenant"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn policy_missing_required_fields_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.policies[0].classification = String::new();
+        let err = envelope.validate().unwrap_err();
+        assert!(
+            err.contains("policy object, classification, and policy version are required"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn blob_missing_identity_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.blobs.push(BlobReference {
+            blob_id: String::new(),
+            operation: MaterialOperation::Upsert,
+            digest_algorithm: "sha256".into(),
+            digest: "a".repeat(64),
+            media_type: "application/octet-stream".into(),
+            length: 0,
+        });
+        let err = envelope.validate().unwrap_err();
+        assert!(
+            err.contains("blob identity and media type are required"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn evidence_without_matching_policy_is_rejected_for_missing_governance() {
+        let mut envelope = minimal_envelope();
+        envelope.evidence.push(EvidenceRecord {
+            evidence_id: "ev-1".into(),
+            operation: MaterialOperation::Upsert,
+            object_id: "ungoverned-object".into(),
+            modality: "text".into(),
+            locus_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"a": 1})).unwrap(),
+            content_digest: "d".repeat(64),
+        });
+        let err = envelope.validate().unwrap_err();
+        assert!(
+            err.contains("no policy proof for material object"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn feature_with_privacy_violating_value_is_rejected() {
+        let mut envelope = minimal_envelope();
+        // Governed by the fixture's existing policy (object-1) so the failure
+        // observed is the privacy scan, not the governance-proof check.
+        //
+        // The path uses "person" -- the same documented placeholder username
+        // already used a few tests up in `privacy_scan_rejects_machine_paths`
+        // (and reserved by scripts/check_tracked_privacy.py's
+        // `_RESERVED_HOME_USERS`) -- rather than an arbitrary one like the
+        // former "x": `validate_safe_text` rejects on the bare "/home/"
+        // substring regardless of which user follows it, so the placeholder
+        // still proves rejection, but an unreserved username tripped the
+        // tracked-privacy gate's own "machine-specific home path in runtime
+        // source" scan on this literal (guardrail-tracked-privacy, MAX=0).
+        envelope.features.push(FeatureRecord {
+            feature_id: "feat-1".into(),
+            operation: MaterialOperation::Upsert,
+            object_id: "object-1".into(),
+            kind: "embedding".into(),
+            value_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"path": "/home/person"}))
+                .unwrap(),
+            model_version: "v1".into(),
+        });
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    #[test]
+    fn lineage_with_malformed_parent_digest_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.lineage.push(LineageRecord {
+            lineage_id: "lin-1".into(),
+            operation: MaterialOperation::Upsert,
+            object_id: "object-1".into(),
+            source_artifact_digest: "a".repeat(64),
+            transform_name: "transform".into(),
+            transform_version: "v1".into(),
+            parent_content_digests: vec!["not-hex".into()],
+        });
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("64 hexadecimal"), "got: {err}");
+    }
+
+    #[test]
+    fn operation_addnode_unsafe_node_id_is_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.mutation.operations[0].method = crate::protocol::Method::AddNode {
+            node_id: "node@bad".into(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"value": 1})).unwrap(),
+        };
+        reseal(&mut envelope);
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    #[test]
+    fn operation_addnode_privacy_violating_properties_is_rejected() {
+        let mut envelope = minimal_envelope();
+        // "person" is the same reserved placeholder username used above in
+        // `feature_with_privacy_violating_value_is_rejected` -- see that
+        // test's comment for why an unreserved username (formerly "x")
+        // cannot be used here without tripping guardrail-tracked-privacy.
+        envelope.mutation.operations[0].method = crate::protocol::Method::AddNode {
+            node_id: "n1".into(),
+            properties_msgpack: rmp_serde::to_vec_named(
+                &serde_json::json!({"path": "/home/person"}),
+            )
+            .unwrap(),
+        };
+        reseal(&mut envelope);
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+
+    #[test]
+    fn operation_removeedge_unsafe_ids_are_rejected() {
+        let mut envelope = minimal_envelope();
+        envelope.mutation.operations[0].method = crate::protocol::Method::RemoveEdge {
+            source_id: "s@bad".into(),
+            target_id: "t1".into(),
+        };
+        reseal(&mut envelope);
+        let err = envelope.validate().unwrap_err();
+        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    }
+}

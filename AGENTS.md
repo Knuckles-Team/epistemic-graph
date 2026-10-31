@@ -42,7 +42,7 @@ The architecture index in `docs/architecture/` maps the major engine
 subsystems; `docs/capabilities.md` is the operation-level support matrix.
 
 - `src/`, `crates/`: Rust engine, server, and supporting crates.
-- `epistemic_graph/`: Python client and package integration.
+- `medulla/`: Python client and package integration.
 - `clients/`, `proto/`: client and wire-protocol definitions.
 - `docs/`, `architecture/`: user guides and technical references.
 - `scripts/`, `tests/`: development gates and regression coverage.
@@ -118,11 +118,11 @@ inputs.
 
 Bump first, tag last. A tag on a commit with the previous version rebuilds the old version. PyPI then refuses it.
 
-1. Bump first: run `bump2version --config-file .config/bumpversion.cfg --no-tag patch` (or `minor`, `major`, or `--new-version X.Y.Z`). The wheel version is dynamic from `crates/eg-pyengine/Cargo.toml` `[package].version`. The config also moves root `Cargo.toml`, `Cargo.lock`, `README.md`, `docker/Dockerfile`, `pyproject.toml` and the server package. Refresh the lock (`cargo update --workspace`) and any fixture that embeds the version. Then open the PR.
+1. Bump first: run `bump2version --config-file .config/bumpversion.cfg --no-tag patch` (or `minor`, `major`, or `--new-version X.Y.Z`). The wheel version is dynamic from `crates/medulla-pyengine/Cargo.toml` `[package].version`. The config also moves root `Cargo.toml`, `Cargo.lock`, `README.md`, `docker/Dockerfile`, `pyproject.toml` and the server package. Refresh the lock (`cargo update --workspace`) and any fixture that embeds the version. Then open the PR.
 2. Merge the bump PR to `main`.
-3. On the merged `main` commit, confirm `crates/eg-pyengine/Cargo.toml` and `current_version` in `.config/bumpversion.cfg` equal the intended `X.Y.Z`. PyPI must not have that version: `curl -s -o /dev/null -w '%{http_code}' https://pypi.org/pypi/medulla/X.Y.Z/json` prints `404`. Alternatively run `python3 -I <pipelines>/.github/actions/verify-release-version/verify_release_version.py --root . --ref refs/tags/vX.Y.Z` once it is on pipelines `main`.
+3. On the merged `main` commit, confirm `crates/medulla-pyengine/Cargo.toml` and `current_version` in `.config/bumpversion.cfg` equal the intended `X.Y.Z`. PyPI must not have that version: `curl -s -o /dev/null -w '%{http_code}' https://pypi.org/pypi/medulla/X.Y.Z/json` prints `404`. Alternatively run `python3 -I <pipelines>/.github/actions/verify-release-version/verify_release_version.py --root . --ref refs/tags/vX.Y.Z` once it is on pipelines `main`.
 4. Only then push the tag `vX.Y.Z` on that commit; `release.yml` triggers on `v*`.
-5. Confirm the `medulla` wheels and sdist and the `epistemic-graph-server` wheels are on PyPI at `X.Y.Z`.
+5. Confirm the `medulla` wheels and sdist and the `medulla-server` wheels are on PyPI at `X.Y.Z`.
 6. Tag on the wrong commit and nothing published: delete the tag and re-tag. Anything published: cut the next patch, because PyPI never accepts a file twice.
 
 ## Branching & isolation

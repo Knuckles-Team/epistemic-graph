@@ -16,7 +16,7 @@
     "asr-native",
     "viz"
   ],
-  "freeze": "epistemic-graph contract freeze",
+  "freeze": "medulla contract freeze",
   "frozen_at_utc": "2026-09-25T03:29:36+00:00",
   "method_count": 437,
   "result_classification": {
@@ -40,7 +40,7 @@
     },
     "land_gate": {
       "core": "PASS land-gate-core-20260924172833-73069c650 and re-gate land-gate-core-20260924220213-38ade682c",
-      "crates": "FAIL (environmental, EH-582): eg-plan million_row_scan_streams_with_flat_memory measures process-wide RSS; 5/5 isolated PASS; also red on main 2a0d6eae0",
+      "crates": "FAIL (environmental, EH-582): medulla-plan million_row_scan_streams_with_flat_memory measures process-wide RSS; 5/5 isolated PASS; also red on main 2a0d6eae0",
       "facade": "PASS land-gate-facade-20260924203115-73069c650",
       "quality": "PASS land-gate-quality-20260924212412-78e5f2103 (kiss fork 7f1c6785 pin)",
       "rust_groups_at": "73069c650 (the two later commits change CI/scripts/config only; no .rs)",

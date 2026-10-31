@@ -81,7 +81,7 @@ fn load_native_history(
     Ok(native_history)
 }
 
-impl EgStore {
+impl MedullaStore {
     /// Open the store for `group_id`, recovering the durable vote + applied state +
     /// last-purged pointer from the shared authoritative shard (keyed by group id). The
     /// graph DATA is recovered separately by the M2 `load_all` path before Raft

@@ -1,8 +1,8 @@
 //! EH-393 — which dependency set each unified plan shape gets (or why it gets none).
 
 use super::plan_dependency_set;
-use eg_core::dep_scope::Dim;
-use eg_plan::{Op, Plan, Pred};
+use medulla_core::dep_scope::Dim;
+use medulla_plan::{Op, Plan, Pred};
 
 fn deps(ops: Vec<Op>, generation: Option<u64>) -> Option<Vec<Dim>> {
     plan_dependency_set(&Plan::new(ops), generation).map(|set| set.dims().to_vec())
@@ -87,7 +87,7 @@ fn topology_ranks_depend_on_every_edge() {
 fn unmodelled_reads_fall_back_to_the_version_keyed_path() {
     let as_of = Op::AsOf {
         ts: 1.0,
-        axis: eg_types::wire::TimeAxis::Valid,
+        axis: medulla_types::wire::TimeAxis::Valid,
     };
     assert_eq!(deps(vec![scan("A"), as_of], None), None);
     let foreign = Op::Foreign { name: "crm".into() };

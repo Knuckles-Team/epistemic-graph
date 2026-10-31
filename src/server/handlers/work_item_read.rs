@@ -1,5 +1,5 @@
 //! EH-219 typed WorkItem reads (`GetWorkItem`, `ListWorkItems`), the
-//! graph-os EG-2 control-lease read (`GetControlLease`) and the EH-348 Gap
+//! graph-os MEDULLA-2 control-lease read (`GetControlLease`) and the EH-348 Gap
 //! reads (`GapGet`, `GapList`).
 //!
 //! Dispatch has already resolved the graph, its ACL and placement, and (under
@@ -18,7 +18,7 @@
 
 use std::sync::Arc;
 
-use eg_types::work_item_read::WorkItemListRequest;
+use medulla_types::work_item_read::WorkItemListRequest;
 
 use crate::protocol::{Response, ResultPayload};
 use crate::server::persistence::PersistenceBackend;
@@ -31,12 +31,12 @@ pub(crate) enum WorkItemRead {
         actor: String,
     },
     Checkpoint {
-        request: eg_types::run_checkpoint::GetRunCheckpointRequest,
+        request: medulla_types::run_checkpoint::GetRunCheckpointRequest,
         actor: String,
     },
     RunAdmission {
         completed_text_history: bool,
-        selection: Option<Box<eg_types::inline_history::RunSelectionRequest>>,
+        selection: Option<Box<medulla_types::inline_history::RunSelectionRequest>>,
         tenant: String,
         run_id: String,
         actor: String,
@@ -56,14 +56,14 @@ pub(crate) enum WorkItemRead {
         work_item_id: String,
     },
     List(WorkItemListRequest),
-    /// graph-os EG-3: a terminal WorkItem and its committed provenance.
+    /// graph-os MEDULLA-3: a terminal WorkItem and its committed provenance.
     Outcome {
         tenant: String,
         work_item_id: String,
     },
-    /// graph-os EG-5: one page of control leases.
-    ControlLeases(eg_types::control_lease::ListControlLeasesRequest),
-    /// graph-os EG-2: one native control lease.
+    /// graph-os MEDULLA-5: one page of control leases.
+    ControlLeases(medulla_types::control_lease::ListControlLeasesRequest),
+    /// graph-os MEDULLA-2: one native control lease.
     ControlLease {
         tenant: String,
         lease_id: String,
@@ -74,14 +74,14 @@ pub(crate) enum WorkItemRead {
         gap_id: String,
     },
     /// EH-348: one page of Gaps.
-    Gaps(eg_types::work_market::GapListRequest),
+    Gaps(medulla_types::work_market::GapListRequest),
 }
 
 impl WorkItemRead {
     fn tenant(&self) -> &str {
         match self {
             Self::Checkpoint {
-                request: eg_types::run_checkpoint::GetRunCheckpointRequest { tenant, .. },
+                request: medulla_types::run_checkpoint::GetRunCheckpointRequest { tenant, .. },
                 ..
             }
             | Self::Get { tenant, .. }
@@ -124,8 +124,8 @@ pub(crate) async fn answer(
 /// Keep checkpoint claim conflicts typed without widening other read contracts.
 fn preserves_native_refusal(error: &str, checkpoint: bool) -> bool {
     error.split_once(": ").is_some_and(|(code, _)| {
-        code == eg_types::contract::ServerErrorCode::RunAdmissionUnavailable.as_str()
-            || (checkpoint && code == eg_types::contract::EngineErrorCode::Conflict.as_str())
+        code == medulla_types::contract::ServerErrorCode::RunAdmissionUnavailable.as_str()
+            || (checkpoint && code == medulla_types::contract::EngineErrorCode::Conflict.as_str())
     })
 }
 
@@ -134,7 +134,7 @@ async fn serve_native(
     persistence: &Option<Arc<dyn PersistenceBackend>>,
     read: WorkItemRead,
 ) -> Result<ResultPayload, String> {
-    use eg_types::result_contract::coordination::{
+    use medulla_types::result_contract::coordination::{
         GapGet, GapList, GetControlLease, GetWorkItem, GetWorkItemOutcome, ListControlLeases,
         ListWorkItems,
     };
@@ -151,7 +151,7 @@ async fn serve_native(
             actor,
         } => {
             let actor = crate::server::mutation_batch::principal_fingerprint(&actor)?;
-            ResultPayload::of::<eg_types::result_contract::coordination::GetRunWorkItem>(
+            ResultPayload::of::<medulla_types::result_contract::coordination::GetRunWorkItem>(
                 backend
                     .read_run_work_item(
                         graph,
@@ -170,7 +170,7 @@ async fn serve_native(
             actor,
         } => {
             let actor = crate::server::mutation_batch::principal_fingerprint(&actor)?;
-            ResultPayload::of::<eg_types::result_contract::coordination::GetConversationHead>(
+            ResultPayload::of::<medulla_types::result_contract::coordination::GetConversationHead>(
                 backend
                     .read_conversation_head(graph, &tenant, &context_id, &actor)
                     .await?,
@@ -182,7 +182,7 @@ async fn serve_native(
             actor,
         } => {
             let actor = crate::server::mutation_batch::principal_fingerprint(&actor)?;
-            ResultPayload::of::<eg_types::result_contract::coordination::GetSessionUsage>(
+            ResultPayload::of::<medulla_types::result_contract::coordination::GetSessionUsage>(
                 backend
                     .read_session_usage(graph, &tenant, &context_id, &actor)
                     .await?,
@@ -190,7 +190,7 @@ async fn serve_native(
         }
         WorkItemRead::Checkpoint { request, actor } => {
             let actor = crate::server::mutation_batch::principal_fingerprint(&actor)?;
-            ResultPayload::of::<eg_types::result_contract::coordination::GetRunCheckpoint>(
+            ResultPayload::of::<medulla_types::result_contract::coordination::GetRunCheckpoint>(
                 backend.read_run_checkpoint(graph, request, &actor).await?,
             )
         }
@@ -200,7 +200,7 @@ async fn serve_native(
             actor,
         } => {
             let actor = crate::server::mutation_batch::principal_fingerprint(&actor)?;
-            ResultPayload::of::<eg_types::result_contract::coordination::GetCurrentPlan>(
+            ResultPayload::of::<medulla_types::result_contract::coordination::GetCurrentPlan>(
                 backend
                     .read_current_plan(graph, &tenant, &run_id, &actor)
                     .await?,

@@ -1,6 +1,6 @@
 """Compiled-engine R090.2 acceptance; Python only drives authenticated RPCs.
 
-Run against a prebuilt full binary with EPISTEMIC_GRAPH_TEST_BINARY. The test
+Run against a prebuilt full binary with MEDULLA_TEST_BINARY. The test
 never builds or substitutes an in-process Python scorer. Linux strace records
 all engine descendants; any inference subprocess, outgoing connection, or GPU
 open fails acceptance. R090.3 resource benchmarking remains separate.
@@ -32,7 +32,7 @@ from conftest import (
 )
 from pydantic import BaseModel
 
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
 SECRET = secrets.token_hex(32)
 
@@ -41,7 +41,7 @@ SECRET = secrets.token_hex(32)
 def engine(tmp_path, run, *, bootstrap):
     binary = find_server_binary()
     assert binary, (
-        "supply a prebuilt full EPISTEMIC_GRAPH_TEST_BINARY; no cold build is attempted"
+        "supply a prebuilt full MEDULLA_TEST_BINARY; no cold build is attempted"
     )
     tracer = shutil.which("strace")
     assert tracer, "Linux strace is required to verify the native process boundary"
@@ -57,7 +57,7 @@ def engine(tmp_path, run, *, bootstrap):
     env.update(
         PATH=str(empty_path),
         HOME=str(tmp_path),
-        EPISTEMIC_GRAPH_ENCRYPTION_KEY="resident-test-encryption-key",
+        MEDULLA_ENCRYPTION_KEY="resident-test-encryption-key",
         CUDA_VISIBLE_DEVICES="",
         HIP_VISIBLE_DEVICES="",
         ROCR_VISIBLE_DEVICES="",
@@ -88,7 +88,7 @@ def engine(tmp_path, run, *, bootstrap):
     try:
         wait_for_server(process, socket, name="resident engine", log_path=log)
         if bootstrap:
-            with SyncEpistemicGraphClient.connect(
+            with SyncMedullaClient.connect(
                 socket_path=socket,
                 auth_secret=SECRET,
                 verified_context=bootstrap_context(),
@@ -101,7 +101,7 @@ def engine(tmp_path, run, *, bootstrap):
         # DecisionFit/DecisionEval run synchronously in a debug engine under
         # strace -f; the client's 60 s default RPC budget is a wall-clock race on
         # a loaded host. Use the same explicit ceiling as engine start/stop.
-        with SyncEpistemicGraphClient.connect(
+        with SyncMedullaClient.connect(
             socket_path=socket,
             auth_secret=SECRET,
             verified_context=request_context(),
@@ -246,7 +246,7 @@ def assert_no_external_runtime(trace):
     lines = trace.splitlines()
     executions = [line for line in lines if "execve(" in line or "execveat(" in line]
     assert len(executions) == 1, f"only the compiled engine may execute: {executions}"
-    assert "epistemic-graph-server" in executions[0]
+    assert "medulla-server" in executions[0]
     assert not any("connect(" in line for line in lines), (
         "engine attempted an outgoing IPC/network connection"
     )
@@ -256,7 +256,7 @@ def assert_no_external_runtime(trace):
 
 
 @pytest.mark.exact_artifact
-@pytest.mark.spec("EG-DECISION-ENGINE-R090.2")
+@pytest.mark.spec("MEDULLA-DECISION-ENGINE-R090.2")
 def test_compiled_engine_scores_without_external_runtime(tmp_path):
     with engine(tmp_path, "first", bootstrap=True) as client:
         asked = fit_and_publish(client)
@@ -279,7 +279,7 @@ def test_wire_fixture_matches_generated_request_contracts():
         schema_body,
     )
 
-    from epistemic_graph.generated import models
+    from medulla.generated import models
 
     schema = {
         "component_id": "schema",
@@ -320,7 +320,7 @@ def test_wire_fixture_matches_generated_request_contracts():
     ],
 )
 def test_runtime_trace_rejects_external_dependency_attempts(violation):
-    trace = '1 execve("/tmp/epistemic-graph-server", [], []) = 0\n'
+    trace = '1 execve("/tmp/medulla-server", [], []) = 0\n'
     assert_no_external_runtime(trace)
     with pytest.raises(AssertionError):
         assert_no_external_runtime(trace + violation)

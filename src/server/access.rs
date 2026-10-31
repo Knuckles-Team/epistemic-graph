@@ -5,7 +5,7 @@ use crate::graph::{GraphCore, GraphView};
 #[cfg(feature = "security")]
 use crate::isolation::row_visibility;
 use crate::isolation::{AccessLevel, IsolationLayer};
-use eg_types::contract::{Digest256, Nonce};
+use medulla_types::contract::{Digest256, Nonce};
 use std::sync::Arc;
 
 #[cfg(all(test, feature = "security"))]
@@ -58,7 +58,7 @@ pub(crate) struct CarrierAuthority {
     /// The verified identity actor: the identity store decides from it, against
     /// its current state, whether its SQL relations are visible.
     #[cfg(feature = "security")]
-    identity_actor: eg_types::identity::IdentityActor,
+    identity_actor: medulla_types::identity::IdentityActor,
 }
 
 /// One owner-scoped process-global call (EH-373/EH-374): the server state, the request
@@ -259,7 +259,7 @@ impl CarrierAuthority {
 
     /// The verified identity actor, for the identity store's own check.
     #[cfg(feature = "security")]
-    pub(crate) fn identity_actor(&self) -> &eg_types::identity::IdentityActor {
+    pub(crate) fn identity_actor(&self) -> &medulla_types::identity::IdentityActor {
         &self.identity_actor
     }
 
@@ -619,7 +619,7 @@ impl GraphReadAuthority {
     /// than a fabricated or cross-row history. Every one of those records was a
     /// `HexLedger`-formatted (per-byte `write!`) copy of the node/edge's full
     /// property blob — on a live pod this measured as the DOMINANT cost of a cache
-    /// miss (`epistemic_graph_projection_cache_miss_build_seconds`: 2.4-15s per
+    /// miss (`medulla_projection_cache_miss_build_seconds`: 2.4-15s per
     /// miss on a 27,969-node graph). The `_no_ledger` variants skip the format +
     /// hex-encode + ledger-mutex-push entirely; there is no longer a ledger to
     /// clear, and the resulting `GraphCore` is byte-for-byte identical in every
@@ -648,7 +648,7 @@ impl GraphReadAuthority {
             // read surface that calls `rls.filter_view` a second time against
             // an already-projected core (SQL/UQL, `handlers/query.rs`) would
             // silently re-hide it, exactly reproducing BUG A3's symptom one
-            // layer downstream of the fix in `eg_core::isolation`. Mirror the
+            // layer downstream of the fix in `medulla_core::isolation`. Mirror the
             // SOURCE core's TBox membership onto the projection for every node
             // that survived filtering; a single ref is enough (the projection
             // is a throwaway, read-only snapshot — never mutated further, so
@@ -685,7 +685,7 @@ impl GraphReadAuthority {
                 if let Some(embedding) = source.get_embedding(node_id) {
                     // `target` starts empty and every embedding copied here comes
                     // from the SAME already-valid, uniform-dimension `source`, so
-                    // this cannot legitimately mismatch (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard,
+                    // this cannot legitimately mismatch (CONCEPT:MEDULLA-KG.compute.rank-dim-mismatch-guard,
                     // BUG-007). `build_projection` returns `Arc<GraphCore>` (not a
                     // Result), so a surprise here degrades gracefully — the node is
                     // logged and simply absent from this read's kNN candidates —
@@ -708,16 +708,16 @@ impl GraphReadAuthority {
 mod write_classification;
 pub(crate) use write_classification::requires_write;
 
-/// Whether a wire `Method::Sql` statement mutates state (CONCEPT:EG-KG.query.mirrors-pgwire). Reuses the
-/// SAME `eg_query::classify` the pgwire shim routes on, so a graph-node DML
+/// Whether a wire `Method::Sql` statement mutates state (CONCEPT:MEDULLA-KG.query.mirrors-pgwire). Reuses the
+/// SAME `medulla_query::classify` the pgwire shim routes on, so a graph-node DML
 /// (INSERT/UPDATE/DELETE on `nodes`), a user-table DDL/DML (CREATE/ALTER/DROP TABLE,
 /// INSERT/UPDATE/DELETE/COPY on a user table), classify as writes; a `SELECT`/`WITH`/
 /// transaction-control statement, or one that does not parse, is not a write.
 #[cfg(feature = "query")]
 pub(crate) fn sql_is_write(query: &str) -> bool {
-    use eg_query::StatementKind;
+    use medulla_query::StatementKind;
     !matches!(
-        eg_query::classify(query),
+        medulla_query::classify(query),
         Ok(StatementKind::Read)
             // SQL:2023 `GRAPH_TABLE` is a read over base relations. It is a
             // separate classification only because it needs an authoritative
@@ -733,14 +733,14 @@ pub(crate) fn sql_is_write(query: &str) -> bool {
 }
 
 /// Whether a GraphQL document is a MUTATION (a write) rather than a `query`/
-/// `subscription` (CONCEPT:EG-KG.query.mirrors-pgwire). Uses eg-graphql's own `parse_operation`, so the
+/// `subscription` (CONCEPT:MEDULLA-KG.query.mirrors-pgwire). Uses medulla-graphql's own `parse_operation`, so the
 /// classification matches the executor exactly; an unparseable document is treated as
 /// a non-write (the handler surfaces the parse error on a read snapshot).
 #[cfg(feature = "graphql")]
 pub(crate) fn graphql_is_mutation(query: &str) -> bool {
     matches!(
-        eg_graphql::parse_operation(query),
-        Ok(eg_graphql::Operation::Mutation(_))
+        medulla_graphql::parse_operation(query),
+        Ok(medulla_graphql::Operation::Mutation(_))
     )
 }
 
@@ -808,7 +808,7 @@ pub(crate) fn decide_graph_access(
     let basis = isolation.access_basis(query);
     if let crate::isolation::AccessBasis::Elevation(elevation_id) = &basis {
         tracing::info!(
-            target: "epistemic_graph::rbac::elevation::audit",
+            target: "medulla::rbac::elevation::audit",
             elevation_id = %elevation_id,
             actor = query.agent_id,
             graph = query.graph_name,
@@ -829,11 +829,11 @@ pub(crate) fn principal_may_access(
     graph_name: &str,
     graph_type: crate::protocol::GraphType,
     graph_owner: Option<&str>,
-    access: eg_types::acl::AccessCheck,
+    access: medulla_types::acl::AccessCheck,
 ) -> bool {
     let level = match access {
-        eg_types::acl::AccessCheck::Read => AccessLevel::Read,
-        eg_types::acl::AccessCheck::Write => AccessLevel::Write,
+        medulla_types::acl::AccessCheck::Read => AccessLevel::Read,
+        medulla_types::acl::AccessCheck::Write => AccessLevel::Write,
     };
     !agent_id.is_empty()
         && isolation.has_rules()
@@ -891,7 +891,7 @@ fn require_provisioned_policy(isolation: &IsolationLayer) -> Result<(), String> 
     Err("ACCESS_DENIED: a provisioned identity/RBAC policy is required".to_string())
 }
 
-/// L10 (EG-P0-6 security finding): every broker/stream mutating op that
+/// L10 (MEDULLA-P0-6 security finding): every broker/stream mutating op that
 /// `wal.rs::is_durable_mutation` already durable-logs must ALSO be classified a
 /// write by `requires_write`, so a Read-only caller can never invoke it. Each case
 /// below previously FAILED this assertion (classified `Read`, letting a Read-access
@@ -1063,15 +1063,15 @@ mod l10_broker_stream_write_tests {
     }
 }
 
-/// Admin-scope enforcement (CONCEPT:EG-KG.compute.feature, EG-P0-6): is `action` (an
-/// `eg_capabilities::MethodPolicy::authz_action` string) one of the system-wide
+/// Admin-scope enforcement (CONCEPT:MEDULLA-KG.compute.feature, MEDULLA-P0-6): is `action` (an
+/// `medulla_capabilities::MethodPolicy::authz_action` string) one of the system-wide
 /// administrative actions that requires the caller to hold admin capability, rather
 /// than the ordinary per-graph Read/Write ACL? Driven ENTIRELY off the ledger's
 /// `authz_action` string — never a parallel hand-maintained method-name list — so a
 /// future `Method` variant that declares one of these action strings in
-/// `eg_capabilities::policy` is gated automatically, with no dispatch.rs edit.
+/// `medulla_capabilities::policy` is gated automatically, with no dispatch.rs edit.
 ///
-/// Today this covers exactly the methods the EG-P0-1 divergence report flagged as
+/// Today this covers exactly the methods the MEDULLA-P0-1 divergence report flagged as
 /// the "Zero-Trust Consensus" + M3 cluster-admin + DR family: `RegisterIdentity` /
 /// `RbacAdmin` / `ApplyMultisigMutation` (`"security:admin"`), `Reshard` /
 /// `CatalogAssign` / `CatalogReassign` / `CatalogRemove` (`"admin:cluster"`),
@@ -1220,7 +1220,7 @@ mod secure_empty_policy_tests {
     }
 }
 
-/// EG-P0-3 (WAL durability closure): `requires_write` (this file) classifies a
+/// MEDULLA-P0-3 (WAL durability closure): `requires_write` (this file) classifies a
 /// method as a mutation for the isolation-ACL check; `crate::mutation_apply::is_durable_mutation`
 /// classifies it as needing a WAL record so it survives a crash. The two MUST agree
 /// for every method that can actually mutate durable data — a method acknowledged as
@@ -1228,7 +1228,7 @@ mod secure_empty_policy_tests {
 /// `tests/`) because `requires_write` is `pub(crate)`: an external integration-test
 /// crate cannot name it, so the invariant can only be asserted from inside the crate.
 ///
-/// Covers the 5 methods audited under EG-P0-3 (all previously FAILED this
+/// Covers the 5 methods audited under MEDULLA-P0-3 (all previously FAILED this
 /// assertion): `MineSequence`, `MineForecast`, the `MineText` non-tfidf variant, the
 /// `MineSubgraph` gspan variant, and `AddEmbedding`.
 #[cfg(test)]
@@ -1246,7 +1246,7 @@ mod durability_closure_tests {
     fn assert_write_implies_durable(m: &Method) {
         assert!(
             !requires_write(m) || is_durable_mutation(m),
-            "EG-P0-3: {m:?} is classified a write by `access::requires_write` but \
+            "MEDULLA-P0-3: {m:?} is classified a write by `access::requires_write` but \
              NOT durable by `mutation_apply::is_durable_mutation` — it would be acknowledged \
              then silently lost on crash"
         );
@@ -1757,7 +1757,7 @@ mod universal_row_read_tests {
     #[cfg(feature = "security")]
     #[test]
     fn principal_may_access_follows_registration_and_revocation() {
-        use eg_types::acl::{AccessCheck, Grant, GrantEffect, RbacAction, ResourceSelector, Role};
+        use medulla_types::acl::{AccessCheck, Grant, GrantEffect, RbacAction, ResourceSelector, Role};
         let reader = |roles: Vec<String>| AgentIdentity {
             agent_id: "alice".to_string(),
             role: AgentRole::Agent,
@@ -2101,7 +2101,7 @@ mod read_rls_coverage_tests {
     /// coverage; CI's per-feature test matrix covers the rest.
     #[test]
     fn every_read_method_routes_through_rls_or_is_a_documented_exception() {
-        let all_read: BTreeSet<&'static str> = eg_capabilities::method_policy_entries()
+        let all_read: BTreeSet<&'static str> = medulla_capabilities::method_policy_entries()
             .filter(|(_, p, _)| !p.mutates)
             .map(|(name, _, _)| name)
             .collect();
@@ -2302,7 +2302,7 @@ mod read_rls_coverage_tests {
             RLS_ROUTED.contains(&"ResolveConflict"),
             "ResolveConflict's handler builds a BeliefGraph off core.analysis_snapshot() \
              (src/server/handlers/query.rs's Method::ResolveConflict arm) and must \
-             rls.filter_view it before eg_epistemic::BeliefGraph::from_graph_view sees it -- \
+             rls.filter_view it before medulla_epistemic::BeliefGraph::from_graph_view sees it -- \
              RLS_ROUTED"
         );
         let non_row: HashMap<&'static str, &'static str> = NON_ROW_SCOPED.iter().copied().collect();
@@ -2318,7 +2318,7 @@ mod read_rls_coverage_tests {
             RLS_ROUTED.contains(&"ExplainEvidence"),
             "ExplainEvidence's handler builds a BeliefGraph off core.analysis_snapshot() \
              (src/server/handlers/query.rs's Method::ExplainEvidence arms) and must \
-             rls.filter_view it before eg_epistemic::BeliefGraph::from_graph_view sees it -- \
+             rls.filter_view it before medulla_epistemic::BeliefGraph::from_graph_view sees it -- \
              RLS_ROUTED"
         );
         let non_row: HashMap<&'static str, &'static str> = NON_ROW_SCOPED.iter().copied().collect();
@@ -2385,8 +2385,8 @@ mod read_rls_coverage_tests {
     fn graph_table_is_a_read_at_the_shared_write_classification_chokepoint() {
         let graph_table = "SELECT * FROM GRAPH_TABLE (shop MATCH (c:customer) COLUMNS (c.name))";
         assert!(matches!(
-            eg_query::classify(graph_table),
-            Ok(eg_query::StatementKind::GraphTableReadRequiresCatalogAdmission(_))
+            medulla_query::classify(graph_table),
+            Ok(medulla_query::StatementKind::GraphTableReadRequiresCatalogAdmission(_))
         ));
         assert!(!sql_is_write(graph_table));
         assert!(!requires_write(&crate::protocol::Method::Sql {

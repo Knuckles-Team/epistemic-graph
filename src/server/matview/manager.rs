@@ -1,4 +1,4 @@
-//! Plan-backed materialized-view MANAGER (CONCEPT:EG-KG.storage.plan-backed-matview).
+//! Plan-backed materialized-view MANAGER (CONCEPT:MEDULLA-KG.storage.plan-backed-matview).
 //!
 //! Holds the in-RAM registry of named, plan-backed materialized views + their freshness
 //! state. A subsystem-local process singleton ([`manager`]) so BOTH the CDC hub
@@ -8,10 +8,10 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use eg_plan::incremental::Circuit;
+use medulla_plan::incremental::Circuit;
 use parking_lot::Mutex;
 
-/// The durable DEFINITION of a plan-backed materialized view (CONCEPT:EG-KG.storage.plan-backed-matview):
+/// The durable DEFINITION of a plan-backed materialized view (CONCEPT:MEDULLA-KG.storage.plan-backed-matview):
 /// a named `wire::Plan` over ONE `graph`. Serialized (MessagePack) into the disjoint
 /// `plan_matviews` redb table. Carries NO result rows — the materialized RESULT rides the
 /// version-keyed, RLS-aware result cache on the graph's `GraphCore`, so a write that bumps
@@ -20,11 +20,11 @@ use parking_lot::Mutex;
 pub struct PlanMatView {
     pub name: String,
     pub graph: String,
-    pub plan: eg_types::wire::Plan,
+    pub plan: medulla_types::wire::Plan,
 }
 
 /// Which maintenance mode a tracked view runs in
-/// (CONCEPT:EG-KG.storage.incremental-matview).
+/// (CONCEPT:MEDULLA-KG.storage.incremental-matview).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     /// Its plan compiled to a DBSP circuit: `apply_delta` folds each CDC change into the
@@ -46,7 +46,7 @@ struct Tracked {
     /// cache entry somehow lingered. A freshly-materialized view clears it. Governs
     /// `Mode::Recompute` views only; an `Incremental` view is fresh by construction.
     stale: bool,
-    /// The maintenance mode (CONCEPT:EG-KG.storage.incremental-matview).
+    /// The maintenance mode (CONCEPT:MEDULLA-KG.storage.incremental-matview).
     mode: Mode,
     /// `Some` ⇒ `Mode::Incremental`: the compiled DBSP circuit `apply_delta` folds
     /// deltas into. Its maintained STATE (membership map / bucket accumulators) is the
@@ -54,7 +54,7 @@ struct Tracked {
     /// per-delta maintenance stays O(delta), not O(view). `None` ⇒ `Mode::Recompute`.
     circuit: Option<Circuit>,
     /// The typed reason this view fell back to `Mode::Recompute` (the first unsupported
-    /// op) — first-class + queryable (CONCEPT:EG-KG.storage.incremental-matview), never a
+    /// op) — first-class + queryable (CONCEPT:MEDULLA-KG.storage.incremental-matview), never a
     /// silent drop. `None` for an `Incremental` view or a boot-reloaded view.
     fallback_reason: Option<String>,
     /// CDC watermark — the next `seq` this view expects (mirrors
@@ -71,7 +71,7 @@ pub struct PlanMatViewManager {
 
 static MANAGER: OnceLock<PlanMatViewManager> = OnceLock::new();
 
-/// The process-global plan-backed matview manager (CONCEPT:EG-KG.storage.plan-backed-matview).
+/// The process-global plan-backed matview manager (CONCEPT:MEDULLA-KG.storage.plan-backed-matview).
 pub fn manager() -> &'static PlanMatViewManager {
     MANAGER.get_or_init(PlanMatViewManager::default)
 }
@@ -85,7 +85,7 @@ impl PlanMatViewManager {
 
     /// Insert (or replace) a view in `Mode::Recompute` because its plan carried an op the
     /// circuit compiler can't incrementalize, recording the TYPED `reason` so the fallback
-    /// is queryable (CONCEPT:EG-KG.storage.incremental-matview) — never a silent drop.
+    /// is queryable (CONCEPT:MEDULLA-KG.storage.incremental-matview) — never a silent drop.
     pub fn note_fallback(&self, def: PlanMatView, reason: String) {
         self.insert_recompute(def, Some(reason));
     }
@@ -106,7 +106,7 @@ impl PlanMatViewManager {
 
     /// Install (or replace) a view in `Mode::Incremental` with its compiled + seeded
     /// `circuit` and the CDC `through_seq` watermark captured at definition time
-    /// (CONCEPT:EG-KG.storage.incremental-matview). The circuit's maintained state is the
+    /// (CONCEPT:MEDULLA-KG.storage.incremental-matview). The circuit's maintained state is the
     /// authoritative result; `Get` projects it lazily.
     pub fn install_incremental(&self, def: PlanMatView, circuit: Circuit, through_seq: u64) {
         self.views.lock().insert(
@@ -164,12 +164,12 @@ impl PlanMatViewManager {
         self.views.lock().get(name).and_then(|t| t.circuit.clone())
     }
 
-    /// INCREMENTAL CDC maintenance (CONCEPT:EG-KG.storage.incremental-matview): fold one
+    /// INCREMENTAL CDC maintenance (CONCEPT:MEDULLA-KG.storage.incremental-matview): fold one
     /// change into every `Mode::Incremental` view over `graph`. For each such view, only a
     /// change at/after its watermark is applied (mirroring `cdc::maintain`); the circuit's
     /// output updates `current` and the watermark advances. Returns how many views it
     /// maintained. `Mode::Recompute` views are UNTOUCHED here (they ride `note_change`).
-    pub fn apply_delta(&self, graph: &str, event: &eg_types::wire::CdcEvent) -> usize {
+    pub fn apply_delta(&self, graph: &str, event: &medulla_types::wire::CdcEvent) -> usize {
         let mut views = self.views.lock();
         let mut n = 0;
         for t in views.values_mut() {
@@ -193,7 +193,7 @@ impl PlanMatViewManager {
                 t.through_seq = event.seq + 1;
                 n += 1;
                 tracing::trace!(
-                    target: "epistemic_graph::matview",
+                    target: "medulla::matview",
                     view = %t.def.name,
                     graph = %graph,
                     seq = event.seq,
@@ -237,7 +237,7 @@ impl PlanMatViewManager {
         v
     }
 
-    /// CDC INVALIDATION (CONCEPT:EG-KG.storage.matview-cdc-invalidation): mark EVERY view
+    /// CDC INVALIDATION (CONCEPT:MEDULLA-KG.storage.matview-cdc-invalidation): mark EVERY view
     /// over `graph` stale. Called from `CdcHub::emit` per committed change. A committed
     /// write already bumped the graph's OCC version (retiring the cached result under the
     /// (query_hash, version) key); this additionally flags the view so a subsequent `Get`
@@ -268,7 +268,7 @@ mod tests {
         PlanMatView {
             name: name.into(),
             graph: graph.into(),
-            plan: eg_types::wire::Plan::new(vec![]),
+            plan: medulla_types::wire::Plan::new(vec![]),
         }
     }
 
@@ -279,13 +279,13 @@ mod tests {
         id: &str,
         ty: &str,
         year: i64,
-    ) -> eg_types::wire::CdcEvent {
+    ) -> medulla_types::wire::CdcEvent {
         let after =
             rmp_serde::to_vec_named(&serde_json::json!({"type": ty, "year": year})).unwrap();
-        eg_types::wire::CdcEvent {
+        medulla_types::wire::CdcEvent {
             seq,
             graph: graph.into(),
-            kind: eg_types::wire::CdcKind::AddNode,
+            kind: medulla_types::wire::CdcKind::AddNode,
             node_id: id.into(),
             target_id: String::new(),
             label: ty.into(),
@@ -302,13 +302,13 @@ mod tests {
         id: &str,
         ty: &str,
         year: i64,
-    ) -> eg_types::wire::CdcEvent {
+    ) -> medulla_types::wire::CdcEvent {
         let before =
             rmp_serde::to_vec_named(&serde_json::json!({"type": ty, "year": year})).unwrap();
-        eg_types::wire::CdcEvent {
+        medulla_types::wire::CdcEvent {
             seq,
             graph: graph.into(),
-            kind: eg_types::wire::CdcKind::RemoveNode,
+            kind: medulla_types::wire::CdcKind::RemoveNode,
             node_id: id.into(),
             target_id: String::new(),
             label: ty.into(),
@@ -321,7 +321,7 @@ mod tests {
 
     #[test]
     fn apply_delta_maintains_incremental_view_end_to_end() {
-        use eg_types::wire::{Op, Plan, Pred};
+        use medulla_types::wire::{Op, Plan, Pred};
         // Scan{Doc} |> Filter year > 2000 — an Incremental-mode view.
         let plan = Plan::new(vec![
             Op::Scan {

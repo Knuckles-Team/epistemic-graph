@@ -6,17 +6,17 @@ use tokio::sync::RwLock;
 
 use crate::protocol::{Response, ResultPayload};
 use crate::server::state::ServerState;
-use eg_types::contract::Nonce;
+use medulla_types::contract::Nonce;
 
 #[cfg(feature = "redb")]
 pub(crate) fn bind_agent_library_context(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    mut context: eg_types::AgentLibraryMutationContext,
+    mut context: medulla_types::AgentLibraryMutationContext,
     purpose_id: &str,
     requires_nonce: bool,
-) -> Result<eg_types::AgentLibraryMutationContext, String> {
+) -> Result<medulla_types::AgentLibraryMutationContext, String> {
     if context.tenant_id != verified.tenant() {
         return Err(
             "ACCESS_DENIED: Agent Library tenant must match verified request tenant".to_string(),
@@ -64,19 +64,19 @@ fn bind_status_context(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    context: eg_types::AgentLibraryMutationContext,
+    context: medulla_types::AgentLibraryMutationContext,
     purpose_id: &str,
-) -> Result<eg_types::AgentLibraryMutationContext, Response> {
+) -> Result<medulla_types::AgentLibraryMutationContext, Response> {
     bind_agent_library_context(store, req_id, verified, context, purpose_id, false)
         .map_err(|error| Response::err(req_id, error))
 }
 
 #[cfg(feature = "redb")]
 pub(crate) fn bind_agent_library_draft(
-    draft: eg_types::AgentLibraryEntryDraft,
+    draft: medulla_types::AgentLibraryEntryDraft,
     verified: &crate::server::auth::VerifiedRequestContext,
-    _action_context: &eg_types::AgentLibraryMutationContext,
-) -> Result<eg_types::AgentLibraryEntryDraft, String> {
+    _action_context: &medulla_types::AgentLibraryMutationContext,
+) -> Result<medulla_types::AgentLibraryEntryDraft, String> {
     if draft.tenant_id != verified.tenant() {
         return Err(
             "ACCESS_DENIED: Agent Library definition tenant must match verified request tenant"
@@ -105,7 +105,7 @@ async fn ensure_agent_library(
 
 #[cfg(feature = "redb")]
 fn validate_component_op(
-    op: &eg_types::agent_component::AgentComponentOp,
+    op: &medulla_types::agent_component::AgentComponentOp,
     verified: &crate::server::auth::VerifiedRequestContext,
 ) -> Result<(), String> {
     op.validate()?;
@@ -119,7 +119,7 @@ fn validate_component_op(
 
 #[cfg(feature = "redb")]
 fn validate_template_op(
-    op: &eg_types::agent_template::AgentTemplateOp,
+    op: &medulla_types::agent_template::AgentTemplateOp,
     verified: &crate::server::auth::VerifiedRequestContext,
 ) -> Result<(), String> {
     op.validate()?;
@@ -145,9 +145,9 @@ pub(crate) async fn handle_agent_component(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    op: eg_types::agent_component::AgentComponentOp,
+    op: medulla_types::agent_component::AgentComponentOp,
 ) -> Response {
-    use eg_types::agent_component::AgentComponentOp;
+    use medulla_types::agent_component::AgentComponentOp;
 
     if let Err(error) = validate_component_op(&op, verified) {
         return Response::err(req_id, error);
@@ -185,7 +185,7 @@ fn component_publish(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    mut request: Box<eg_types::agent_component::AgentComponentPublishRequest>,
+    mut request: Box<medulla_types::agent_component::AgentComponentPublishRequest>,
 ) -> Response {
     let context = match bind_agent_library_context(
         store,
@@ -206,7 +206,7 @@ fn component_publish(
     match store.publish_component(*request) {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentComponentPublish>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentComponentPublish>(
                 &result.result,
             ),
         ),
@@ -219,7 +219,7 @@ fn component_retire(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    mut request: eg_types::agent_component::AgentComponentRetireRequest,
+    mut request: medulla_types::agent_component::AgentComponentRetireRequest,
 ) -> Response {
     let context = match bind_agent_library_context(
         store,
@@ -236,7 +236,7 @@ fn component_retire(
     match store.retire_component(request) {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentComponentRetire>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentComponentRetire>(
                 &result.result,
             ),
         ),
@@ -254,7 +254,7 @@ fn component_current(
     match store.current_component(&tenant_id, &component_id) {
         Ok(entry) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentComponentCurrent>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentComponentCurrent>(
                 &entry,
             ),
         ),
@@ -272,7 +272,7 @@ fn component_history(
     match store.component_revisions(&tenant_id, &component_id) {
         Ok(entries) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentComponentHistory>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentComponentHistory>(
                 &entries,
             ),
         ),
@@ -291,15 +291,15 @@ fn component_history(
 /// more complex, when the dispatch is the whole story.
 #[cfg(feature = "redb")]
 fn component_status_purpose(
-    kind: eg_types::agent_component::AgentComponentMutationKind,
+    kind: medulla_types::agent_component::AgentComponentMutationKind,
 ) -> &'static str {
     match kind {
-        eg_types::agent_component::AgentComponentMutationKind::Publish => "agent-component:publish",
-        eg_types::agent_component::AgentComponentMutationKind::Retire => "agent-component:retire",
-        eg_types::agent_component::AgentComponentMutationKind::Withdraw => {
+        medulla_types::agent_component::AgentComponentMutationKind::Publish => "agent-component:publish",
+        medulla_types::agent_component::AgentComponentMutationKind::Retire => "agent-component:retire",
+        medulla_types::agent_component::AgentComponentMutationKind::Withdraw => {
             "agent-component:withdraw"
         }
-        eg_types::agent_component::AgentComponentMutationKind::Republish => {
+        medulla_types::agent_component::AgentComponentMutationKind::Republish => {
             "agent-component:republish"
         }
     }
@@ -310,7 +310,7 @@ fn component_status(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    mut request: eg_types::agent_component::AgentComponentStatusRequest,
+    mut request: medulla_types::agent_component::AgentComponentStatusRequest,
 ) -> Response {
     let purpose = component_status_purpose(request.kind);
     request.context = match bind_status_context(store, req_id, verified, request.context, purpose) {
@@ -320,7 +320,7 @@ fn component_status(
     match store.component_status(request) {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentComponentStatus>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentComponentStatus>(
                 &result.map(|result| result.result),
             ),
         ),
@@ -332,12 +332,12 @@ fn component_status(
 fn component_search(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
-    request: eg_types::agent_component::AgentComponentSearchRequest,
+    request: medulla_types::agent_component::AgentComponentSearchRequest,
 ) -> Response {
     match store.search_components(&request) {
         Ok(page) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentComponentSearch>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentComponentSearch>(
                 &page,
             ),
         ),
@@ -358,9 +358,9 @@ pub(crate) async fn handle_agent_template(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    op: eg_types::agent_template::AgentTemplateOp,
+    op: medulla_types::agent_template::AgentTemplateOp,
 ) -> Response {
-    use eg_types::agent_template::AgentTemplateOp;
+    use medulla_types::agent_template::AgentTemplateOp;
 
     if let Err(error) = validate_template_op(&op, verified) {
         return Response::err(req_id, error);
@@ -390,7 +390,7 @@ fn template_publish(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    mut request: Box<eg_types::agent_template::AgentTemplatePublishRequest>,
+    mut request: Box<medulla_types::agent_template::AgentTemplatePublishRequest>,
 ) -> Response {
     let context = match bind_agent_library_context(
         store,
@@ -416,7 +416,7 @@ fn template_publish(
     match store.publish_template(*request) {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentTemplatePublish>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentTemplatePublish>(
                 &result.result,
             ),
         ),
@@ -429,7 +429,7 @@ fn template_retire(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    mut request: eg_types::agent_template::AgentTemplateRetireRequest,
+    mut request: medulla_types::agent_template::AgentTemplateRetireRequest,
 ) -> Response {
     let context = match bind_agent_library_context(
         store,
@@ -446,7 +446,7 @@ fn template_retire(
     match store.retire_template(request) {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentTemplateRetire>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentTemplateRetire>(
                 &result.result,
             ),
         ),
@@ -464,7 +464,7 @@ fn template_current(
     match store.current_template(&tenant_id, &template_id) {
         Ok(entry) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentTemplateCurrent>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentTemplateCurrent>(
                 &entry,
             ),
         ),
@@ -482,7 +482,7 @@ fn template_history(
     match store.template_revisions(&tenant_id, &template_id) {
         Ok(entries) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentTemplateHistory>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentTemplateHistory>(
                 &entries,
             ),
         ),
@@ -495,11 +495,11 @@ fn template_status(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    mut request: eg_types::agent_template::AgentTemplateStatusRequest,
+    mut request: medulla_types::agent_template::AgentTemplateStatusRequest,
 ) -> Response {
     let purpose = match request.kind {
-        eg_types::agent_template::AgentTemplateMutationKind::Publish => "agent-template:publish",
-        eg_types::agent_template::AgentTemplateMutationKind::Retire => "agent-template:retire",
+        medulla_types::agent_template::AgentTemplateMutationKind::Publish => "agent-template:publish",
+        medulla_types::agent_template::AgentTemplateMutationKind::Retire => "agent-template:retire",
     };
     request.context = match bind_status_context(store, req_id, verified, request.context, purpose) {
         Ok(context) => context,
@@ -508,7 +508,7 @@ fn template_status(
     match store.template_status(request) {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentTemplateStatus>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentTemplateStatus>(
                 &result.map(|result| result.result),
             ),
         ),
@@ -520,12 +520,12 @@ fn template_status(
 fn template_instantiate(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
-    request: eg_types::agent_template::AgentTemplateInstantiateRequest,
+    request: medulla_types::agent_template::AgentTemplateInstantiateRequest,
 ) -> Response {
     match store.instantiate_template(&request) {
         Ok(draft) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentTemplateInstantiate>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentTemplateInstantiate>(
                 &draft,
             ),
         ),
@@ -542,9 +542,9 @@ pub(crate) async fn handle_agent_graph(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    op: eg_types::agent_graph::AgentGraphOp,
+    op: medulla_types::agent_graph::AgentGraphOp,
 ) -> Response {
-    use eg_types::agent_graph::AgentGraphOp;
+    use medulla_types::agent_graph::AgentGraphOp;
 
     if let Err(error) = op.validate() {
         return Response::err(req_id, error);
@@ -573,7 +573,7 @@ fn graph_publish(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    mut request: Box<eg_types::agent_graph::AgentGraphPublishRequest>,
+    mut request: Box<medulla_types::agent_graph::AgentGraphPublishRequest>,
 ) -> Response {
     let context = match bind_agent_library_context(
         store,
@@ -601,7 +601,7 @@ fn graph_publish(
     match store.publish_graph(*request) {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentGraphPublish>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentGraphPublish>(
                 &result.result,
             ),
         ),
@@ -614,7 +614,7 @@ fn graph_retire(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    mut request: eg_types::agent_graph::AgentGraphRetireRequest,
+    mut request: medulla_types::agent_graph::AgentGraphRetireRequest,
 ) -> Response {
     let context = match bind_agent_library_context(
         store,
@@ -631,7 +631,7 @@ fn graph_retire(
     match store.retire_graph(request) {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentGraphRetire>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentGraphRetire>(
                 &result.result,
             ),
         ),
@@ -656,7 +656,7 @@ fn graph_current(
     match store.current_graph(&tenant_id, &graph_id) {
         Ok(entry) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentGraphCurrent>(&entry),
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentGraphCurrent>(&entry),
         ),
         Err(error) => Response::err(req_id, error),
     }
@@ -679,7 +679,7 @@ fn graph_history(
     match store.graph_revisions(&tenant_id, &graph_id) {
         Ok(entries) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentGraphHistory>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentGraphHistory>(
                 &entries,
             ),
         ),
@@ -692,11 +692,11 @@ fn graph_status(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    mut request: eg_types::agent_graph::AgentGraphStatusRequest,
+    mut request: medulla_types::agent_graph::AgentGraphStatusRequest,
 ) -> Response {
     let purpose = match request.kind {
-        eg_types::agent_graph::AgentGraphMutationKind::Publish => "agent-graph:publish",
-        eg_types::agent_graph::AgentGraphMutationKind::Retire => "agent-graph:retire",
+        medulla_types::agent_graph::AgentGraphMutationKind::Publish => "agent-graph:publish",
+        medulla_types::agent_graph::AgentGraphMutationKind::Retire => "agent-graph:retire",
     };
     request.context = match bind_status_context(store, req_id, verified, request.context, purpose) {
         Ok(context) => context,
@@ -705,7 +705,7 @@ fn graph_status(
     match store.graph_status(request) {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentGraphStatus>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentGraphStatus>(
                 &result.map(|result| result.result),
             ),
         ),
@@ -717,28 +717,28 @@ pub(crate) async fn handle_agent_library(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    op: eg_types::AgentLibraryOp,
+    op: medulla_types::AgentLibraryOp,
 ) -> Response {
     let store = match ensure_agent_library(state, req_id).await {
         Ok(store) => store,
         Err(response) => return response,
     };
     match op {
-        eg_types::AgentLibraryOp::Publish { request } => {
+        medulla_types::AgentLibraryOp::Publish { request } => {
             library_publish(&store, req_id, verified, request)
         }
-        eg_types::AgentLibraryOp::Retire { request } => {
+        medulla_types::AgentLibraryOp::Retire { request } => {
             library_retire(&store, req_id, verified, request)
         }
-        eg_types::AgentLibraryOp::Current {
+        medulla_types::AgentLibraryOp::Current {
             tenant_id,
             agent_id,
         } => library_current(&store, req_id, verified, tenant_id, agent_id),
-        eg_types::AgentLibraryOp::History {
+        medulla_types::AgentLibraryOp::History {
             tenant_id,
             agent_id,
         } => library_history(&store, req_id, verified, tenant_id, agent_id),
-        eg_types::AgentLibraryOp::Status { request } => {
+        medulla_types::AgentLibraryOp::Status { request } => {
             library_status(&store, req_id, verified, request)
         }
     }
@@ -749,7 +749,7 @@ fn library_publish(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    mut request: Box<eg_types::AgentLibraryPublishRequest>,
+    mut request: Box<medulla_types::AgentLibraryPublishRequest>,
 ) -> Response {
     let context = match bind_agent_library_context(
         store,
@@ -770,7 +770,7 @@ fn library_publish(
     match store.publish(*request) {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentLibraryPublish>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentLibraryPublish>(
                 &result,
             ),
         ),
@@ -783,7 +783,7 @@ fn library_retire(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    mut request: eg_types::AgentLibraryRetireRequest,
+    mut request: medulla_types::AgentLibraryRetireRequest,
 ) -> Response {
     let context = match bind_agent_library_context(
         store,
@@ -800,7 +800,7 @@ fn library_retire(
     match store.retire(request) {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentLibraryRetire>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentLibraryRetire>(
                 &result,
             ),
         ),
@@ -825,7 +825,7 @@ fn library_current(
     match store.current(&tenant_id, &agent_id) {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentLibraryCurrent>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentLibraryCurrent>(
                 &result,
             ),
         ),
@@ -850,7 +850,7 @@ fn library_history(
     match store.revisions(&tenant_id, &agent_id) {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentLibraryHistory>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentLibraryHistory>(
                 &result,
             ),
         ),
@@ -863,12 +863,12 @@ fn library_status(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
     req_id: u64,
     verified: &crate::server::auth::VerifiedRequestContext,
-    mut request: eg_types::AgentLibraryStatusRequest,
+    mut request: medulla_types::AgentLibraryStatusRequest,
 ) -> Response {
     let kind = request.kind;
     let purpose = match kind {
-        eg_types::AgentLibraryMutationKind::Publish => "agent-library:publish",
-        eg_types::AgentLibraryMutationKind::Retire => "agent-library:retire",
+        medulla_types::AgentLibraryMutationKind::Publish => "agent-library:publish",
+        medulla_types::AgentLibraryMutationKind::Retire => "agent-library:retire",
     };
     request.context = match bind_status_context(store, req_id, verified, request.context, purpose) {
         Ok(context) => context,
@@ -877,7 +877,7 @@ fn library_status(
     match store.status(request) {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentLibraryStatus>(
+            ResultPayload::of_ref::<medulla_types::result_contract::storage::AgentLibraryStatus>(
                 &result,
             ),
         ),

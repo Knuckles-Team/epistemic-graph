@@ -22,8 +22,8 @@ RECIPE = (
     "rust-toolchain.toml",
     ".github/actions/build-server-wheel/action.yml",
     ".github/workflows/ci.yml",
-    "packaging/epistemic-graph-server/pyproject.toml",
-    "packaging/epistemic-graph-server/epistemic_graph_server/__init__.py",
+    "packaging/medulla-server/pyproject.toml",
+    "packaging/medulla-server/medulla_server/__init__.py",
     "scripts/candidate_server_wheel_provenance.py",
 )
 
@@ -79,10 +79,10 @@ def audit(wheel: Path, version: str) -> dict[str, str]:
             ):
                 raise ValueError("unsafe or oversized wheel member")
         scripts = [n for n in names if ".data/scripts/" in n]
-        if len(scripts) != 1 or not scripts[0].endswith("/epistemic-graph-server"):
+        if len(scripts) != 1 or not scripts[0].endswith("/medulla-server"):
             raise ValueError(f"expected exactly one server script: {scripts}")
         metadata = [n for n in names if n.endswith(".dist-info/METADATA")]
-        module = "epistemic_graph_server/__init__.py"
+        module = "medulla_server/__init__.py"
         if len(metadata) != 1 or module not in names:
             raise ValueError("expected one METADATA and server locator module")
         if archive.getinfo(metadata[0]).file_size > MAX_METADATA:
@@ -104,15 +104,15 @@ def verify_installed(payload: dict[str, str]) -> dict:
     if sys.prefix == sys.base_prefix:
         raise ValueError("installed smoke requires an isolated virtual environment")
     prefix = Path(sys.prefix).resolve()
-    binary = Path(sysconfig.get_path("scripts")) / "epistemic-graph-server"
+    binary = Path(sysconfig.get_path("scripts")) / "medulla-server"
     module_path = (
-        Path(sysconfig.get_path("purelib")) / "epistemic_graph_server/__init__.py"
+        Path(sysconfig.get_path("purelib")) / "medulla_server/__init__.py"
     )
     if not binary.resolve().is_relative_to(
         prefix
     ) or not module_path.resolve().is_relative_to(prefix):
         raise ValueError("installed payload escapes virtual environment")
-    module = importlib.import_module("epistemic_graph_server")
+    module = importlib.import_module("medulla_server")
     if (
         module.__file__ is None
         or Path(module.__file__).resolve() != module_path.resolve()

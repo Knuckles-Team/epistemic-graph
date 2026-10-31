@@ -22,14 +22,14 @@ CONSUMED = [
 ]
 
 
-@pytest.mark.spec("EG-CONTRACT-R005")
+@pytest.mark.spec("MEDULLA-CONTRACT-R005")
 @pytest.mark.parametrize(("module", "union", "variant"), CONSUMED)
-@pytest.mark.spec("EG-CONTRACT-R005")
+@pytest.mark.spec("MEDULLA-CONTRACT-R005")
 def test_a_consumed_variant_is_exported_where_its_union_is(
     module: str, union: str, variant: str
 ) -> None:
-    surface = importlib.import_module(f"epistemic_graph.generated.{module}")
-    models = importlib.import_module("epistemic_graph.generated.models")
+    surface = importlib.import_module(f"medulla.generated.{module}")
+    models = importlib.import_module("medulla.generated.models")
     assert union in surface.__all__
     assert variant in surface.__all__
     assert variant in models.__all__
@@ -41,7 +41,7 @@ def _generated_method_alias():
     import inspect
     from typing import get_args
 
-    models = importlib.import_module("epistemic_graph.generated.models")
+    models = importlib.import_module("medulla.generated.models")
     tree = ast.parse(inspect.getsource(models))
     assignment = next(
         node
@@ -56,7 +56,7 @@ def _generated_method_alias():
     return assignment.value, [variant.__name__ for variant in variants]
 
 
-@pytest.mark.spec("EG-CONTRACT-R001")
+@pytest.mark.spec("MEDULLA-CONTRACT-R001")
 def test_generated_method_alias_has_bounded_ast_depth():
     import ast
     import math
@@ -71,7 +71,7 @@ def test_generated_method_alias_has_bounded_ast_depth():
     ast.NodeVisitor().visit(expression)
 
 
-@pytest.mark.spec("EG-CONTRACT-R001")
+@pytest.mark.spec("MEDULLA-CONTRACT-R001")
 def test_generated_method_grouping_preserves_schema_and_validators():
     import ast
     import functools

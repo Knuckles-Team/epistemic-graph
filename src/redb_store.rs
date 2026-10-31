@@ -1,4 +1,4 @@
-//! Pure redb durable-row machinery (CONCEPT:EG-KG.storage.kg-kg / KG-2.195 / KG-2.216).
+//! Pure redb durable-row machinery (CONCEPT:MEDULLA-KG.storage.kg-kg / KG-2.195 / KG-2.216).
 //!
 //! This is the SERVER-INDEPENDENT half of the redb durable tier: the on-disk
 //! table layout, the `Method → redb rows` apply, the group-commit, and the
@@ -55,7 +55,7 @@ where
 /// binding, but retain their own actor, attempt time, and stable identity.
 #[cfg(test)]
 pub(crate) struct ControlFixtureBatch {
-    pub(crate) identity: eg_types::MutationScopeIdentity,
+    pub(crate) identity: medulla_types::MutationScopeIdentity,
     pub(crate) batch_id: String,
     pub(crate) actor: String,
     pub(crate) request_id: u64,
@@ -91,7 +91,7 @@ pub(crate) fn control_fixture_batch(input: ControlFixtureBatch) -> MutationBatch
         created_at_ms: input.created_at_ms,
     };
     batch
-        .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
         .expect("a fixture batch reseals its envelope over its final body");
     batch
 }
@@ -214,14 +214,14 @@ pub(crate) use work_item::{
     WorkItemCommitScope,
 };
 
-// ── Cross-shard 2PC durable rows (CONCEPT:EG-KG.storage.lane-n-increment) — pure, server-INDEPENDENT ──
+// ── Cross-shard 2PC durable rows (CONCEPT:MEDULLA-KG.storage.lane-n-increment) — pure, server-INDEPENDENT ──
 // Shared store helpers (mirroring NODES/EDGES/purge_graph_rows): the `Cmd` arms in
 // `redb_backend`'s off-reactor writer thread call straight into these.
 
 #[cfg(all(test, feature = "security"))]
 mod security_tests {
     //! Encryption-at-rest + tamper-evident audit proofs over the durable store
-    //! (CONCEPT:EG-KG.sharding.row-level-security), exercised through the SAME `commit_ops`/read/`verify_audit`
+    //! (CONCEPT:MEDULLA-KG.sharding.row-level-security), exercised through the SAME `commit_ops`/read/`verify_audit`
     //! the server + embedded engine use.
     use super::*;
     use crate::crypto::ValueCipher;
@@ -351,7 +351,7 @@ mod security_tests {
     fn edge_ordinal_cache_assigns_u32_max_once_then_fails_closed() {
         let dir = tempdir();
         let writer = std::thread::Builder::new()
-            .name("eg-redb-writer-exhaustion-test".to_string())
+            .name("medulla-redb-writer-exhaustion-test".to_string())
             .spawn(move || {
                 let db = open_db(&dir);
                 let members = db.graph_members(&["g"]).unwrap();
@@ -383,7 +383,7 @@ mod security_tests {
         join_bounded(writer, "the edge-ordinal writer thread");
     }
 
-    /// CONCEPT:EG-KG.storage.redb-store #3 — the O(1) edge-ordinal counter assigns CORRECT, strictly
+    /// CONCEPT:MEDULLA-KG.storage.redb-store #3 — the O(1) edge-ordinal counter assigns CORRECT, strictly
     /// monotonic ordinals across many `AddEdge` to one node (per-op across SEPARATE commit
     /// batches on the dedicated writer thread — the hot path that used to range-scan every
     /// time), and a FRESH writer thread (the restart case) RE-SEEDS each (src,tgt) from one
@@ -393,10 +393,10 @@ mod security_tests {
     fn edge_ordinals_monotonic_o1_counter_and_reseed_after_restart() {
         let dir = tempdir();
 
-        // PHASE 1 — on a dedicated `eg-redb-writer*` thread so the EG-029 counter is active.
+        // PHASE 1 — on a dedicated `medulla-redb-writer*` thread so the MEDULLA-029 counter is active.
         let d1 = dir.clone();
         let writer = std::thread::Builder::new()
-            .name("eg-redb-writer-egtest".to_string())
+            .name("medulla-redb-writer-egtest".to_string())
             .spawn(move || {
                 let crypto = DurableCrypto::none();
                 let db = open_db(&d1);
@@ -450,7 +450,7 @@ mod security_tests {
         // 6,7,8 — monotonic, no reset, no collision.
         let d2 = dir.clone();
         let writer = std::thread::Builder::new()
-            .name("eg-redb-writer-egtest".to_string())
+            .name("medulla-redb-writer-egtest".to_string())
             .spawn(move || {
                 let crypto = DurableCrypto::none();
                 let db = open_db(&d2);
@@ -479,7 +479,7 @@ mod security_tests {
         join_bounded(writer, "the edge-ordinal writer thread");
     }
 
-    /// CONCEPT:EG-KG.storage.redb-store #4 — with encryption OFF, `seal` returns `Cow::Borrowed` and the
+    /// CONCEPT:MEDULLA-KG.storage.redb-store #4 — with encryption OFF, `seal` returns `Cow::Borrowed` and the
     /// stored value blob is BYTE-FOR-BYTE the caller's plaintext (zero clone, no format
     /// change). Proven by reading the stored bytes back and comparing to the input.
     #[test]
@@ -698,7 +698,7 @@ mod security_tests {
         );
     }
 
-    /// CONCEPT:EG-KG.storage.embedded-store — the O(1) tail-cache append produces an IDENTICAL, verifiable
+    /// CONCEPT:MEDULLA-KG.storage.embedded-store — the O(1) tail-cache append produces an IDENTICAL, verifiable
     /// chain to the old per-op scan across: (1) many ops in ONE commit batch
     /// (intra-batch chaining off RAM), (2) several commit batches reusing the cache
     /// (inter-batch), and (3) a fresh cache that must RE-SEED the tail from one scan
@@ -790,7 +790,7 @@ mod security_tests {
         assert_eq!(broken.first_broken_seq, Some(3));
     }
 
-    /// CONCEPT:EG-KG.storage.embedded-store — the cold-seed tail lookup is a BOUNDED reverse seek
+    /// CONCEPT:MEDULLA-KG.storage.embedded-store — the cold-seed tail lookup is a BOUNDED reverse seek
     /// (`(graph, 0)..=(graph, u64::MAX)` + `next_back`), not a forward walk to the end
     /// of the chain. Proven by comparing the wall-clock cost of re-seeding (fresh
     /// cache, i.e. after a simulated writer restart) a chain of 200,000 prior entries
@@ -896,7 +896,7 @@ mod security_tests {
 
     /// A throwaway temp dir under the scratch space.
     fn tempdir() -> std::path::PathBuf {
-        let base = crate::test_support::temp_dir("eg-sec", "test");
+        let base = crate::test_support::temp_dir("medulla-sec", "test");
         std::fs::create_dir_all(&base).unwrap();
         base
     }
@@ -937,15 +937,15 @@ mod mutation_batch_tests {
         MutationScopeIdentity, MutationSurface, ScopeTenantId, MUTATION_BATCH_VERSION,
     };
     use crate::test_rendezvous::{join_bounded, meet};
-    use eg_transaction::OutboxClaimBudget;
-    use eg_types::outcome_bundle::{
+    use medulla_transaction::OutboxClaimBudget;
+    use medulla_types::outcome_bundle::{
         CommitOutcomeBundle, OutcomeCompleteness, ReceiptNode, ReceiptNodeKind, RunEvent,
         TerminalOutcomeExtension, OUTCOME_BUNDLE_VERSION, RUN_EVENT_OUTBOX_TOPIC,
     };
     use sha2::{Digest, Sha256};
 
     fn temp_path(tag: &str) -> std::path::PathBuf {
-        super::temp_path("eg-mutation-batch", tag)
+        super::temp_path("medulla-mutation-batch", tag)
     }
 
     fn open(path: &std::path::Path) -> Shard {
@@ -1051,7 +1051,7 @@ mod mutation_batch_tests {
             created_at_ms: 100,
         };
         batch
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("a fixture batch reseals its envelope over its final body");
         batch
     }
@@ -1106,7 +1106,7 @@ mod mutation_batch_tests {
         );
         record
             .batch
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("native receipt fixture reseals its final body");
         record.status = MutationBatchStatus::Committed;
         record.committed_version = CommittedVersion::Native {
@@ -1431,7 +1431,7 @@ mod mutation_batch_tests {
             headers,
         });
         terminal
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         terminal
     }
@@ -1511,7 +1511,7 @@ mod mutation_batch_tests {
             domain: DurabilityDomain::GraphRows,
             method: delegated_work_item_method(work_item_id, 3),
         }];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         commit_at(shard, &seed, None).unwrap();
         commit_native_claim(
@@ -1564,7 +1564,7 @@ mod mutation_batch_tests {
             },
         }];
         claim
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("native claim fixture reseals its final body");
         claim
     }
@@ -1752,7 +1752,7 @@ mod mutation_batch_tests {
             let mut mutation = batch("batch-excessive-collection", "idem-excessive-collection");
             mutation.outbox = vec![mutation.outbox[0].clone(); 100_001];
             mutation
-                .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                 .expect("oversized collection fixture reseals its final body");
             assert!(commit_at(&db, &mutation, None).is_err());
             assert_eq!(read_mutation_graph_version(&db, "graph-a").unwrap(), 3);
@@ -1800,7 +1800,7 @@ mod mutation_batch_tests {
             // One physical row per EXPLICIT logical intent, and this batch
             // carries exactly one. The old expectation of three counted "two
             // canonical events" -- one auto-generated per operation -- and no
-            // such row exists: `eg_transaction::commit::write_outbox` iterates
+            // such row exists: `medulla_transaction::commit::write_outbox` iterates
             // `batch.outbox` and nothing else, and the sibling
             // `outbox_claim_ack_is_ordered_fenced_and_reconcilable` asserts the
             // same rule verbatim ("one explicit logical intent writes one
@@ -1818,7 +1818,7 @@ mod mutation_batch_tests {
                 "idem-post",
             );
             retry
-                .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                 .unwrap();
             assert_ne!(
                 retry
@@ -1993,7 +1993,7 @@ mod mutation_batch_tests {
             IncarnationId::new("incarnation:test:redb-store").unwrap(),
         );
         wrong_authority
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         let error = commit_at_graph(&db, "graph-a", &wrong_authority, None).unwrap_err();
         assert!(
@@ -2039,7 +2039,7 @@ mod mutation_batch_tests {
         // behavior under test rather than a carry-over from graph-a.
         logical_batch.version_expectation = VersionExpectation::Graph(0);
         logical_batch
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         let committed = commit_at_graph(&db, &physical_graph, &logical_batch, None).unwrap();
         assert!(!committed.replayed);
@@ -2051,7 +2051,7 @@ mod mutation_batch_tests {
             "idem-sanitized-route",
         );
         retry
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         assert!(
             commit_at_graph(&db, &physical_graph, &retry, None)
@@ -2083,7 +2083,7 @@ mod mutation_batch_tests {
             method: public_batch_method(operations),
         }];
         initial
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         {
             let db = open(&path);
@@ -2100,7 +2100,7 @@ mod mutation_batch_tests {
                 "idem-public",
             );
             retry
-                .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                 .unwrap();
             assert_ne!(
                 retry
@@ -2147,7 +2147,7 @@ mod mutation_batch_tests {
             ])),
         }];
         removal
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("public removal fixture reseals its final body");
         {
             let db = open(&path);
@@ -2609,7 +2609,7 @@ mod mutation_batch_tests {
                 }
             }])),
         }];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("public seed fixture reseals its final body");
         let mut upsert = batch("batch-upsert-merge", "idem-upsert-merge");
         upsert.version_expectation = VersionExpectation::Graph(4);
@@ -2631,7 +2631,7 @@ mod mutation_batch_tests {
             ])),
         }];
         upsert
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("public upsert fixture reseals its final body");
         {
             let db = open(&path);
@@ -2690,7 +2690,7 @@ mod mutation_batch_tests {
                 method,
             }];
             mutation
-                .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                 .expect("malformed public fixture reseals its final body");
             {
                 let db = open(&path);
@@ -2725,7 +2725,7 @@ mod mutation_batch_tests {
             domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-1", 3),
         }];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("terminal seed fixture reseals its final body");
         commit_at(&db, &seed, None).unwrap();
         let claimed = commit_native_claim(
@@ -2759,12 +2759,12 @@ mod mutation_batch_tests {
             "work-idem:terminal-stable-key",
         );
         let remint_attempt = |batch: &mut MutationBatch, nonce_byte: u8, created_at_ms: u64| {
-            let eg_types::mutation_batch::MutationEnvelope::Operation(operation) =
+            let medulla_types::mutation_batch::MutationEnvelope::Operation(operation) =
                 &mut batch.envelope
             else {
                 panic!("authenticated replay fixture must carry an operation envelope");
             };
-            operation.authority.nonce = eg_types::contract::Nonce::from_bytes([nonce_byte; 32]);
+            operation.authority.nonce = medulla_types::contract::Nonce::from_bytes([nonce_byte; 32]);
             operation.authority.context_digest = operation
                 .authority
                 .recompute_context_digest()
@@ -2787,7 +2787,7 @@ mod mutation_batch_tests {
         }];
         terminal.outbox[0].key = terminal.batch_id.clone();
         terminal
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("terminal fixture reseals its final body");
 
         let first = commit_at(&db, &terminal, None).unwrap();
@@ -2811,7 +2811,7 @@ mod mutation_batch_tests {
             "work-idem:terminal-stable-key",
         );
         retry
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("terminal retry fixture reseals its final body");
         assert_ne!(
             retry
@@ -2842,7 +2842,7 @@ mod mutation_batch_tests {
         *result_ref = Some("result:sha256:different".into());
         remint_attempt(&mut conflicting_payload, 0x43, 300);
         conflicting_payload
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         let error = commit_at(&db, &conflicting_payload, None).unwrap_err();
         assert!(error.contains("IDEMPOTENCY_CONFLICT"));
@@ -2861,7 +2861,7 @@ mod mutation_batch_tests {
             &key,
         );
         conflicting_authority
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("conflicting authority fixture reseals its final body");
         let error = commit_at(&db, &conflicting_authority, None).unwrap_err();
         assert!(error.contains("IDEMPOTENCY_CONFLICT"));
@@ -2881,7 +2881,7 @@ mod mutation_batch_tests {
     // co-commit provenance `AddNode` operations (RunTrace/ToolCall/
     // OutcomeEvaluation) in the SAME redb write transaction as the WorkItem's
     // terminal status -- proven here against a real redb-backed database, not
-    // just the pure-Rust admission logic in `eg-types::work_item_command_log`.
+    // just the pure-Rust admission logic in `medulla-types::work_item_command_log`.
     #[test]
     fn commit_work_item_result_co_commits_provenance_add_node_operations() {
         let path = temp_path("work-item-outcome-bundle-fusion");
@@ -2894,7 +2894,7 @@ mod mutation_batch_tests {
             domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-bundle-1", 3),
         }];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("bundle seed fixture reseals its final body");
         commit_at(&db, &seed, None).unwrap();
         let claimed = commit_native_claim(
@@ -2954,7 +2954,7 @@ mod mutation_batch_tests {
         ];
         terminal.outbox[0].key = terminal.batch_id.clone();
         terminal
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("bundle terminal fixture reseals its final body");
 
         commit_at(&db, &terminal, None).unwrap();
@@ -3001,7 +3001,7 @@ mod mutation_batch_tests {
             domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-disallowed-1", 3),
         }];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("disallowed seed fixture reseals its final body");
         commit_at(&db, &seed, None).unwrap();
         let claimed = commit_native_claim(
@@ -3059,7 +3059,7 @@ mod mutation_batch_tests {
         ];
         terminal.outbox[0].key = terminal.batch_id.clone();
         terminal
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("disallowed terminal fixture reseals its final body");
 
         let error = commit_at(&db, &terminal, None).unwrap_err();
@@ -3101,7 +3101,7 @@ mod mutation_batch_tests {
                 method: ready_work_item_method("work-double-2", 3),
             },
         ];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("double terminal seed fixture reseals its final body");
         commit_at(&db, &seed, None).unwrap();
         // Seed is ONE batch creating two ready WorkItems (3->4); each claim is
@@ -3182,7 +3182,7 @@ mod mutation_batch_tests {
         ];
         terminal.outbox[0].key = terminal.batch_id.clone();
         terminal
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("double terminal fixture reseals its final body");
 
         let error = commit_at(&db, &terminal, None).unwrap_err();
@@ -3222,7 +3222,7 @@ mod mutation_batch_tests {
                 method: ready_work_item_method("ready", 3),
             },
         ];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("quota seed fixture reseals its final body");
         commit_at(&db, &seed, None).unwrap();
         let claimed = commit_native_claim(
@@ -3262,7 +3262,7 @@ mod mutation_batch_tests {
             },
         }];
         claim
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("quota claim fixture reseals its final body");
         let committed = commit_at(&db, &claim, None).unwrap();
         let payload: crate::protocol::ResultPayload = decode_durable(
@@ -3312,7 +3312,7 @@ mod mutation_batch_tests {
                 method: ready_work_item_method("ready", 3),
             },
         ];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("exact quota seed fixture reseals its final body");
         commit_at(&db, &seed, None).unwrap();
         let claimed = commit_native_claim(
@@ -3354,7 +3354,7 @@ mod mutation_batch_tests {
             },
         }];
         claim
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("exact quota claim fixture reseals its final body");
         let committed = commit_at(&db, &claim, None).unwrap();
         let payload: crate::protocol::ResultPayload = decode_durable(
@@ -3394,7 +3394,7 @@ mod mutation_batch_tests {
             domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("exhausted", 3),
         }];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("expired seed fixture reseals its final body");
         commit_at(&db, &seed, None).unwrap();
         let first = commit_native_claim(
@@ -3492,7 +3492,7 @@ mod mutation_batch_tests {
                 method: ready_work_item_method("runnable", 3),
             },
         ];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("generic expiry seed fixture reseals its final body");
         commit_at(&db, &seed, None).unwrap();
         assert!(
@@ -3604,7 +3604,7 @@ mod mutation_batch_tests {
             },
         }];
         renew
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("missing renewal fixture reseals its final body");
         let committed = commit_at(&db, &renew, None).unwrap();
         let payload: crate::protocol::ResultPayload = decode_durable(
@@ -3652,7 +3652,7 @@ mod mutation_batch_tests {
             domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("leased", 3),
         }];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("fenced renewal seed fixture reseals its final body");
         commit_at(&db, &seed, None).unwrap();
         let claimed = commit_native_claim(
@@ -3687,7 +3687,7 @@ mod mutation_batch_tests {
             },
         }];
         renew
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("fenced renewal fixture reseals its final body");
         let committed = commit_at(&db, &renew, None).unwrap();
         let payload: crate::protocol::ResultPayload = decode_durable(
@@ -3729,7 +3729,7 @@ mod mutation_batch_tests {
                 domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("boundary", 3),
             }];
-            seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                 .expect("attempt boundary seed fixture reseals its final body");
             commit_at(&db, &seed, None).unwrap();
             assert!(
@@ -3826,7 +3826,7 @@ mod mutation_batch_tests {
             domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("cas-a", 3),
         }];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("CAS seed fixture reseals its final body");
         commit_at(&db, &seed, None).unwrap();
 
@@ -3877,7 +3877,7 @@ mod mutation_batch_tests {
                     },
                 },
             }];
-            op.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            op.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                 .expect("CAS request fixture reseals its final body");
             op
         };
@@ -3964,7 +3964,7 @@ mod mutation_batch_tests {
             domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("cas-race", 3),
         }];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("concurrent CAS seed fixture reseals its final body");
         commit_at(&db, &seed, None).unwrap();
 
@@ -4022,7 +4022,7 @@ mod mutation_batch_tests {
                     },
                 },
             }];
-            op.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            op.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                 .expect("concurrent CAS request fixture reseals its final body");
             op
         };
@@ -4144,7 +4144,7 @@ mod mutation_batch_tests {
                 },
             },
         }];
-        op.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        op.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("missing CAS fixture reseals its final body");
         let committed = commit_at(&db, &op, None).unwrap();
         let payload: crate::protocol::ResultPayload = decode_durable(
@@ -4193,7 +4193,7 @@ mod mutation_batch_tests {
                 domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("cas-restart", 3),
             }];
-            seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                 .expect("restart CAS seed fixture reseals its final body");
             commit_at(&db, &seed, None).unwrap();
 
@@ -4241,7 +4241,7 @@ mod mutation_batch_tests {
                 },
             }];
             apply
-                .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                 .expect("restart CAS fixture reseals its final body");
             commit_at(&db, &apply, None).unwrap();
             drop(db);
@@ -4289,7 +4289,7 @@ mod mutation_batch_tests {
                     .unwrap(),
                 },
             }];
-            seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                 .expect("work-item seed fixture reseals its final body");
             commit_at(shard, &seed, None).unwrap();
         };
@@ -4318,7 +4318,7 @@ mod mutation_batch_tests {
                 },
             }];
             claim
-                .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                 .expect("work-item claim fixture reseals its final body");
             claim
         };
@@ -4388,7 +4388,7 @@ mod mutation_batch_tests {
     /// ADR-5 / W2.2 acceptance: the dual-write divergence alarm fires on an induced
     /// divergence. Drives the redb integration point (`apply_work_item_mirror`) with an
     /// authoritative next state the chart would never compute, and asserts the
-    /// `epistemic_graph_statechart_divergence_total` counter increments while the agreeing
+    /// `medulla_statechart_divergence_total` counter increments while the agreeing
     /// case does not.
     #[cfg(all(feature = "statechart", feature = "metrics"))]
     #[test]
@@ -4396,7 +4396,7 @@ mod mutation_batch_tests {
         fn divergence_count() -> u64 {
             for line in crate::metrics::render().lines() {
                 if line.starts_with(
-                    "epistemic_graph_statechart_divergence_total{machine=\"work_item\"}",
+                    "medulla_statechart_divergence_total{machine=\"work_item\"}",
                 ) {
                     return line
                         .rsplit(' ')
@@ -4470,7 +4470,7 @@ mod mutation_batch_tests {
             },
         }];
         mutation
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("the crossmodal fixture reseals its envelope over its final body");
         let vectors = vec![("a".to_string(), vec![0.25, 0.75])];
         {
@@ -4513,7 +4513,7 @@ mod mutation_batch_tests {
             // `postcommit_crash_restarts_and_replays_idempotently`: the old
             // expectation counted an auto-generated "canonical event" row per
             // operation, and no such row exists --
-            // `eg_transaction::commit::write_outbox` iterates `batch.outbox`
+            // `medulla_transaction::commit::write_outbox` iterates `batch.outbox`
             // and nothing else. The subject here is that a post-commit crash
             // leaves the outbox recovered ALONGSIDE rows and the status vector,
             // which one row proves as well as two. Corrected 2026-09-11 by the
@@ -4541,7 +4541,7 @@ mod mutation_batch_tests {
                     "idem-crossmodal",
                 );
                 retry
-                    .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                    .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                     .expect("a crossmodal retry reseals its envelope over its final body");
                 retry
             };
@@ -4578,7 +4578,7 @@ mod mutation_batch_tests {
                     .to_string(),
             };
             conflict
-                .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                 .expect("the conflicting fixture reseals its envelope over its final body");
             let error = commit_crossmodal_at(&db, &conflict, &methods, &vectors, None).unwrap_err();
             assert!(error.contains("IDEMPOTENCY_CONFLICT"));
@@ -4615,7 +4615,7 @@ mod mutation_batch_tests {
         // (min 1) to every claim, contended or not -- 10 caps a call at 2 rows
         // and this test would observe an arbitrary 2-of-3 page. That cap is the
         // kernel's deliberate fairness contract, asserted directly by
-        // `eg_transaction::tests::outbox::
+        // `medulla_transaction::tests::outbox::
         // a_contended_budget_caps_a_tenant_run_after_another_tenant_claims`
         // ("Budget 16 -> a 4-row per-call cap"), so the budget is what moves
         // here; the ordering/fencing/reconciliation assertions this test owns
@@ -4728,7 +4728,7 @@ mod mutation_batch_tests {
             target_graph_version: 4,
         });
         mutation
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         #[cfg(feature = "security")]
         let mut audit = AuditTailCache::new();
@@ -4782,7 +4782,7 @@ mod mutation_batch_tests {
         retry.operations = mutation.operations.clone();
         retry.authoritative_state = mutation.authoritative_state.clone();
         retry
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         assert_ne!(
             retry
@@ -4903,7 +4903,7 @@ mod mutation_batch_tests {
             target_graph_version: 5,
         });
         mutation
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("row delta fixture reseals its final body");
         #[cfg(feature = "security")]
         let mut audit = AuditTailCache::new();
@@ -5010,7 +5010,7 @@ mod mutation_batch_tests {
         // rollback back under test. Added 2026-09-11 by the redb_store
         // absolute-green lane (F1).
         mutation
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("the row-delta fixture reseals its envelope over its final body");
         #[cfg(feature = "security")]
         let mut audit = AuditTailCache::new();
@@ -5049,7 +5049,7 @@ mod mutation_batch_tests {
         let mut conflicting = batch("batch-two", "same-key");
         conflicting.operations[0].method = node("different", 99);
         conflicting
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         let err = commit_at(&db, &conflicting, None).unwrap_err();
         assert!(err.contains("IDEMPOTENCY_CONFLICT"));
@@ -5070,7 +5070,7 @@ mod mutation_batch_tests {
         let mut conflicting = batch("same-batch", "fresh-key");
         conflicting.operations[0].method = node("different", 99);
         conflicting
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         let err = commit_at(&db, &conflicting, None).unwrap_err();
         assert!(err.contains("IDEMPOTENCY_CONFLICT"));
@@ -5097,7 +5097,7 @@ mod mutation_batch_tests {
             },
         }];
         create
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("lifecycle create fixture reseals its final body");
         commit_at(&db, &create, None).unwrap();
         let meta = read_all_graph_meta(&db).unwrap();
@@ -5121,7 +5121,7 @@ mod mutation_batch_tests {
             },
         }];
         delete
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("lifecycle delete fixture reseals its final body");
         commit_at(&db, &delete, None).unwrap();
         assert!(read_all_graph_meta(&db).unwrap().is_empty());
@@ -5172,7 +5172,7 @@ mod mutation_batch_tests {
             },
         }];
         create
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("authority purge create fixture reseals its final body");
         commit_at(&db, &create, None).unwrap();
 
@@ -5182,7 +5182,7 @@ mod mutation_batch_tests {
         let mut content = batch("content-batch-1", "content-key-1");
         content.version_expectation = VersionExpectation::Graph(4);
         content
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("authority purge content fixture reseals its final body");
         commit_at(&db, &content, None).unwrap();
 
@@ -5209,7 +5209,7 @@ mod mutation_batch_tests {
             },
         }];
         delete
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("authority purge delete fixture reseals its final body");
         commit_at(&db, &delete, None).unwrap();
 
@@ -5255,13 +5255,13 @@ mod mutation_batch_tests {
             },
         }];
         recreate
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("authority recreate fixture reseals its final body");
         commit_at(&db, &recreate, None).unwrap();
         let mut content_v2 = batch("content-batch-1-v2", "content-key-1");
         content_v2.version_expectation = VersionExpectation::Graph(7);
         content_v2
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("authority recreate content fixture reseals its final body");
         commit_at(&db, &content_v2, None).unwrap();
         assert!(
@@ -5297,7 +5297,7 @@ mod mutation_batch_tests {
             },
         }];
         create
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("whole purge create fixture reseals its final body");
         commit_at(&db, &create, None).unwrap();
 
@@ -5307,7 +5307,7 @@ mod mutation_batch_tests {
         let mut content = batch("content-batch-1", "content-key-1");
         content.version_expectation = VersionExpectation::Graph(4);
         content
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("whole purge content fixture reseals its final body");
         commit_at(&db, &content, None).unwrap();
 
@@ -5335,7 +5335,7 @@ mod mutation_batch_tests {
             "mutation_projection_cursor",
         ] {
             assert!(
-                !eg_storage::owner_table_names(eg_storage::OwnerLayout::GraphShard)
+                !medulla_storage::owner_table_names(medulla_storage::OwnerLayout::GraphShard)
                     .contains(&retired),
                 "retired private table remains declared: {retired}"
             );
@@ -5403,7 +5403,7 @@ mod mutation_batch_tests {
                 sanitizer_version: "sanitizer-v1".to_string(),
                 sanitized_payload_digest: "d".repeat(64),
             },
-            material_class: eg_types::change_envelope::MaterialClass::Attested,
+            material_class: medulla_types::change_envelope::MaterialClass::Attested,
             commit_seq: None,
             commit_descriptor_ref: None,
         }
@@ -5433,7 +5433,7 @@ mod mutation_batch_tests {
         }))
         .unwrap();
         mutation
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         let digest = if sequence == 1 { "a" } else { "b" }.repeat(64);
         attested_envelope(
@@ -5500,7 +5500,7 @@ mod mutation_batch_tests {
         });
         envelope
             .mutation
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         commit_envelope_at(&db, &envelope).unwrap();
         assert!(enrichment_budget::read(
@@ -5689,7 +5689,7 @@ mod mutation_batch_tests {
         mutation.outbox[0].payload =
             rmp_serde::to_vec_named(&serde_json::json!({ "event": "batch" })).unwrap();
         mutation
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         attested_envelope(
             format!("env-{index}"),
@@ -5737,7 +5737,7 @@ mod mutation_batch_tests {
         batch_id: &str,
         node_id: &str,
         event: &str,
-    ) -> Vec<eg_types::mutation_batch::MutationOutboxRecord> {
+    ) -> Vec<medulla_types::mutation_batch::MutationOutboxRecord> {
         let receipt = read_mutation_batch_for_graph(shard, "graph-a", batch_id)
             .unwrap()
             .expect("the committed envelope must leave one durable kernel receipt");
@@ -5971,19 +5971,19 @@ mod mutation_batch_tests {
             .expect("fixture operation envelope")
             .authority
             .nonce;
-        let eg_types::mutation_batch::MutationEnvelope::Operation(operation) =
+        let medulla_types::mutation_batch::MutationEnvelope::Operation(operation) =
             &mut duplicate_nonce.mutation.envelope
         else {
             panic!("fixture operation envelope");
         };
         operation.authority.nonce = nonce;
         operation.authority.idempotency_key =
-            Some(eg_types::contract::IdempotencyKey::new("different-page-key").unwrap());
+            Some(medulla_types::contract::IdempotencyKey::new("different-page-key").unwrap());
         operation.authority.context_digest =
             operation.authority.recompute_context_digest().unwrap();
         duplicate_nonce
             .mutation
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
 
         let error = commit_envelopes_at(&db, &[first, duplicate_nonce]).unwrap_err();
@@ -6092,7 +6092,7 @@ mod mutation_batch_tests {
         let _ = std::fs::remove_file(single_path);
     }
 
-    // CXA-EG-02 characterization: `DeferWorkItem` and `CancelWorkItem` had NO
+    // CXA-MEDULLA-02 characterization: `DeferWorkItem` and `CancelWorkItem` had NO
     // coverage anywhere in this module (or in `mutation_batch_tests` more broadly)
     // before this lane -- every other `apply_work_item_rows` arm (ClaimWorkItem,
     // RenewWorkItemLease, CasWorkItemMetadata, CommitWorkItemResult) is exercised
@@ -6114,7 +6114,7 @@ mod mutation_batch_tests {
             domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-defer", 3),
         }];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("defer seed fixture reseals its final body");
         commit_at(&db, &seed, None).unwrap();
         let claimed = commit_native_claim(
@@ -6156,7 +6156,7 @@ mod mutation_batch_tests {
             },
         }];
         defer
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("defer fixture reseals its final body");
         let committed = commit_at(&db, &defer, None).unwrap();
         let payload: crate::protocol::ResultPayload = decode_durable(
@@ -6201,7 +6201,7 @@ mod mutation_batch_tests {
             domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-cancel", 3),
         }];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("cancel seed fixture reseals its final body");
         commit_at(&db, &seed, None).unwrap();
 
@@ -6229,7 +6229,7 @@ mod mutation_batch_tests {
             },
         }];
         cancel
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("cancel fixture reseals its final body");
         let committed = commit_at(&db, &cancel, None).unwrap();
         let payload: crate::protocol::ResultPayload = decode_durable(
@@ -6274,7 +6274,7 @@ mod mutation_batch_tests {
         cancel_again.outbox[0].key = cancel_again.batch_id.clone();
         cancel_again.version_expectation = VersionExpectation::Graph(5);
         cancel_again
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("cancel replay fixture reseals its final body");
         let replay = commit_at(&db, &cancel_again, None).unwrap();
         let payload: crate::protocol::ResultPayload = decode_durable(
@@ -6295,7 +6295,7 @@ mod mutation_batch_tests {
         let _ = std::fs::remove_file(path);
     }
 
-    // spec: EG-DURABLE-KERNEL-R028.2
+    // spec: MEDULLA-DURABLE-KERNEL-R028.2
     #[test]
     fn terminal_extension_commits_rows_outbox_and_replays_after_reopen() {
         let path = temp_path("terminal-extension-success-reopen");
@@ -6307,7 +6307,7 @@ mod mutation_batch_tests {
             domain: DurabilityDomain::GraphRows,
             method: delegated_work_item_method("work-extension-success", 3),
         }];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         commit_at(&db, &seed, None).unwrap();
         let claimed = commit_native_claim(
@@ -6425,16 +6425,16 @@ mod mutation_batch_tests {
         .unwrap();
         assert!(durable_receipt.is_some());
         let mut replay = terminal.clone();
-        let eg_types::mutation_batch::MutationEnvelope::Operation(operation) = &mut replay.envelope
+        let medulla_types::mutation_batch::MutationEnvelope::Operation(operation) = &mut replay.envelope
         else {
             panic!("terminal replay fixture needs an operation envelope");
         };
-        operation.authority.nonce = eg_types::contract::Nonce::from_bytes([0x43; 32]);
+        operation.authority.nonce = medulla_types::contract::Nonce::from_bytes([0x43; 32]);
         operation.authority.context_digest =
             operation.authority.recompute_context_digest().unwrap();
         replay.created_at_ms = 200;
         replay
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         let replayed = commit_at(&reopened, &replay, None).unwrap();
         assert!(replayed.replayed);
@@ -6498,7 +6498,7 @@ mod mutation_batch_tests {
             .headers
             .insert("scope_sha256".into(), foreign_scope);
         terminal
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
 
         let error = commit_at(&db, &terminal, None).unwrap_err();
@@ -6535,7 +6535,7 @@ mod mutation_batch_tests {
             .headers
             .insert("scope_sha256".into(), caller_scope);
         terminal
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         let committed = commit_at(&db, &terminal, None).unwrap();
         assert!(!committed.replayed);
@@ -6659,7 +6659,7 @@ mod mutation_batch_tests {
             serde_json::to_string(&missing_refs).unwrap(),
         );
         terminal
-            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         commit_at(&db, &terminal, None).unwrap();
         assert_persisted_terminal_currency(
@@ -6715,7 +6715,7 @@ mod mutation_batch_tests {
                     domain: DurabilityDomain::GraphRows,
                     method: delegated_work_item_method("work-extension-fenced", 3),
                 }];
-                seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                     .unwrap();
                 commit_at(shard, &seed, None).unwrap();
                 commit_native_claim(
@@ -6759,7 +6759,7 @@ mod mutation_batch_tests {
                     domain: DurabilityDomain::GraphRows,
                     method: delegated_work_item_method("work-extension-noop", 3),
                 }];
-                seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                     .unwrap();
                 commit_at(shard, &seed, None).unwrap();
                 let mut cancel = batch(&format!("{tag}-cancel"), &format!("{tag}-cancel-key"));
@@ -6777,7 +6777,7 @@ mod mutation_batch_tests {
                     },
                 }];
                 cancel
-                    .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                    .reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                     .unwrap();
                 commit_at(shard, &cancel, None).unwrap();
                 NegativeTerminalCase {
@@ -6800,7 +6800,7 @@ mod mutation_batch_tests {
                     domain: DurabilityDomain::GraphRows,
                     method: delegated_work_item_method("work-extension-retry", 3),
                 }];
-                seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
                     .unwrap();
                 commit_at(shard, &seed, None).unwrap();
                 let claimed = commit_native_claim(
@@ -6915,7 +6915,7 @@ mod mutation_batch_tests {
                 },
             },
         ];
-        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        seed.reseal_envelope(medulla_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         commit_at(&db, &seed, None).unwrap();
         let claimed = commit_native_claim(

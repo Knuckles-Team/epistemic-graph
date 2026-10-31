@@ -1,5 +1,5 @@
 //! Boot-time replay of the durable store into a fresh registry
-//! (CONCEPT:EG-KG.backend.engine-modes).
+//! (CONCEPT:MEDULLA-KG.backend.engine-modes).
 //!
 //! The SAME reconstruction the server's redb `load_all` performs, expressed
 //! over the embedded transport's synchronous registry lock.

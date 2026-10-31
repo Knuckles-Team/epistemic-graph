@@ -118,15 +118,15 @@ def test_incomplete_diff_runs_code(data: bytes) -> None:
     ("paths", "selected"),
     [
         (["src/lib.rs"], set()),
-        (["crates/eg-query/src/lib.rs"], set()),
+        (["crates/medulla-query/src/lib.rs"], set()),
         (["clients/js/index.mjs"], {"clients"}),
-        (["crates/eg-types/src/lib.rs"], {"clients"}),
-        (["crates/eg-asr-whisper/src/lib.rs"], {"whisper"}),
-        (["crates/eg-audio/src/lib.rs"], {"whisper", "tts"}),
-        (["crates/eg-tts-piper/src/lib.rs"], {"tts"}),
+        (["crates/medulla-types/src/lib.rs"], {"clients"}),
+        (["crates/medulla-asr-whisper/src/lib.rs"], {"whisper"}),
+        (["crates/medulla-audio/src/lib.rs"], {"whisper", "tts"}),
+        (["crates/medulla-tts-piper/src/lib.rs"], {"tts"}),
         (["pyproject.toml"], {"packaging"}),
-        (["crates/eg-pyengine/src/lib.rs"], {"packaging"}),
-        (["crates/eg-core/ontology/core.ttl"], {"ontology"}),
+        (["crates/medulla-pyengine/src/lib.rs"], {"packaging"}),
+        (["crates/medulla-core/ontology/core.ttl"], {"ontology"}),
         (["src/server/graph_schema/compose.rs"], {"ontology"}),
         (
             ["Cargo.lock"],
@@ -252,7 +252,7 @@ def test_pr_runtime_gates_do_not_wait_for_self_hosted_runners() -> None:
 
 @pytest.mark.parametrize("job_name", ["gates-crates", "gates-storage"])
 def test_workspace_gates_use_hosted_runner_with_required_headers(job_name: str) -> None:
-    """EG-CONTRACT-R035: prerequisite installation must work on every event."""
+    """MEDULLA-CONTRACT-R035: prerequisite installation must work on every event."""
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     job = jobs[job_name]
     assert job["runs-on"] == "ubuntu-24.04"
@@ -282,8 +282,8 @@ def test_workspace_gates_use_hosted_runner_with_required_headers(job_name: str) 
     )
 
 
-# spec: EG-CONTRACT-R031
-# spec: EG-CONTRACT-R031.1
+# spec: MEDULLA-CONTRACT-R031
+# spec: MEDULLA-CONTRACT-R031.1
 def test_light_runtime_and_spec_checks_are_centralized() -> None:
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     assert jobs["light-gates"] == {
@@ -530,8 +530,8 @@ def test_static_inventory_hooks_scope_their_complete_input_universes() -> None:
 
     pinned = hooks["pinned-reference-resolution"]
     assert pinned["files"] == (
-        r"^(src/server/|crates/eg-storage/src/owner/registry\.rs$|"
-        r"crates/eg-types/src/(agent_component|agent_library|agent_graph|"
+        r"^(src/server/|crates/medulla-storage/src/owner/registry\.rs$|"
+        r"crates/medulla-types/src/(agent_component|agent_library|agent_graph|"
         r"agent_template|delegation)\.rs$|scripts/(check_pinned_reference_resolution|"
         r"rust_lexer|rust_module_tree)\.py$|\.config/pre-commit\.yaml$|"
         r"pyproject\.toml$|uv\.lock$|\.python-version$)"
@@ -541,9 +541,9 @@ def test_static_inventory_hooks_scope_their_complete_input_universes() -> None:
     for path in (
         "src/server/mod.rs",
         "src/server/graph/write.rs",
-        "crates/eg-storage/src/owner/registry.rs",
-        "crates/eg-types/src/agent_graph.rs",
-        "crates/eg-types/src/delegation.rs",
+        "crates/medulla-storage/src/owner/registry.rs",
+        "crates/medulla-types/src/agent_graph.rs",
+        "crates/medulla-types/src/delegation.rs",
         "scripts/check_pinned_reference_resolution.py",
         "scripts/rust_lexer.py",
         "scripts/rust_module_tree.py",
@@ -554,8 +554,8 @@ def test_static_inventory_hooks_scope_their_complete_input_universes() -> None:
     ):
         assert re.search(pinned["files"], path)
     for path in (
-        "crates/eg-types/src/random.rs",
-        "crates/eg-storage/src/lib.rs",
+        "crates/medulla-types/src/random.rs",
+        "crates/medulla-storage/src/lib.rs",
         "src/client/mod.rs",
         "README.md",
     ):
@@ -614,7 +614,7 @@ def test_frozen_commit_stage_entry_uses_complete_range(local_gate_repo, monkeypa
     assert not git("status", "--porcelain")
 
 
-# spec: EG-CONTRACT-R035
+# spec: MEDULLA-CONTRACT-R035
 def test_generated_contract_pytest_uses_test_interpreter_and_lock() -> None:
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     steps = jobs["gates"]["steps"]
@@ -720,7 +720,7 @@ def test_wheel_gate_inherits_locked_pytest_before_parity_dependencies() -> None:
 def test_wheel_acceptance_uses_only_the_external_virtualenv(tmp_path: Path) -> None:
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     job = jobs["gates-wheel"]
-    assert "EG_GATES_WHEEL_VENV" not in job.get("env", {})
+    assert "MEDULLA_GATES_WHEEL_VENV" not in job.get("env", {})
     initialize = native_acceptance_steps(job["steps"])[6]
     assert initialize["name"] == "Initialize external wheel virtualenv path"
     environment_file = tmp_path / "github-env"
@@ -735,22 +735,22 @@ def test_wheel_acceptance_uses_only_the_external_virtualenv(tmp_path: Path) -> N
         check=True,
     )
     assert environment_file.read_text() == (
-        f"EG_GATES_WHEEL_VENV={runner_temp}/.gates-wheel-venv\n"
+        f"MEDULLA_GATES_WHEEL_VENV={runner_temp}/.gates-wheel-venv\n"
     )
     steps = {step.get("name"): step.get("run", "") for step in job["steps"]}
     install = steps["Install the folded medulla wheel into a clean throwaway venv"]
-    assert 'python -m venv "$EG_GATES_WHEEL_VENV"' in install
-    assert install.count('"$EG_GATES_WHEEL_VENV/bin/pip"') == 2
+    assert 'python -m venv "$MEDULLA_GATES_WHEEL_VENV"' in install
+    assert install.count('"$MEDULLA_GATES_WHEEL_VENV/bin/pip"') == 2
     consumers = {
         "numpy-parity gate (compiled kernel vs numpy)",
         "numpy-free boundary contract (NE-249)",
-        "engine kernel smoke test (import epistemic_graph.engine)",
-        "installed-wheel no-source-tree-import check (EG-CONTRACT-R002.3)",
+        "engine kernel smoke test (import medulla.engine)",
+        "installed-wheel no-source-tree-import check (MEDULLA-CONTRACT-R002.3)",
     }
     actual = {
         name
         for name, command in steps.items()
-        if '"$EG_GATES_WHEEL_VENV/bin/python"' in command
+        if '"$MEDULLA_GATES_WHEEL_VENV/bin/python"' in command
     }
     assert actual == consumers
     for name, command in steps.items():
@@ -770,7 +770,7 @@ def test_job_environment_uses_only_allowed_expression_contexts(context: str) -> 
                 assert f"{context}[" not in value, name
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.13")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.13")
 def test_validated_wheel_export_follows_all_installed_checks() -> None:
     steps = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"][
         "gates-wheel"
@@ -789,8 +789,8 @@ def test_validated_wheel_export_follows_all_installed_checks() -> None:
         "(numeric + engine kernels + no executables + RECORD)",
         "numpy-parity gate (compiled kernel vs numpy)",
         "numpy-free boundary contract (NE-249)",
-        "engine kernel smoke test (import epistemic_graph.engine)",
-        "installed-wheel no-source-tree-import check (EG-CONTRACT-R002.3)",
+        "engine kernel smoke test (import medulla.engine)",
+        "installed-wheel no-source-tree-import check (MEDULLA-CONTRACT-R002.3)",
     ):
         index = names.index(prerequisite)
         assert index < package < upload
@@ -801,9 +801,9 @@ def test_validated_wheel_export_follows_all_installed_checks() -> None:
         assert "continue-on-error" not in step
     config = steps[upload]["with"]
     assert config["if-no-files-found"] == "error"
-    assert config["name"] == "validated-eg-wheel-${{ github.sha }}"
+    assert config["name"] == "validated-medulla-wheel-${{ github.sha }}"
     assert set(config["path"].splitlines()) == {
-        "${{ runner.temp }}/validated-eg-wheel/" + name
+        "${{ runner.temp }}/validated-medulla-wheel/" + name
         for name in (
             "medulla-*.whl",
             "source.sha",
@@ -814,7 +814,7 @@ def test_validated_wheel_export_follows_all_installed_checks() -> None:
     }
 
 
-@pytest.mark.spec("EG-CONTRACT-R053.13")
+@pytest.mark.spec("MEDULLA-CONTRACT-R053.13")
 @pytest.mark.parametrize(
     "fault",
     [
@@ -874,7 +874,7 @@ def test_validated_wheel_packaging_refuses_invalid_inputs(
     wheel.write_bytes(b"already-validated-wheel-fixture")
     runner = tmp_path / "runner"
     runner.mkdir()
-    bundle = runner / "validated-eg-wheel"
+    bundle = runner / "validated-medulla-wheel"
     capture = next(
         step["run"]
         for step in steps
@@ -926,7 +926,7 @@ def _corrupt_wheel_input(
         wheel.parent.rename(repo / "elsewhere")
         wheel.parent.symlink_to(repo / "elsewhere")
     elif fault == "missing_proof":
-        (runner / "installed-eg-wheel.sha256").unlink()
+        (runner / "installed-medulla-wheel.sha256").unlink()
 
 
 def _assert_wheel_bundle(
@@ -943,7 +943,7 @@ def _assert_wheel_bundle(
         assert hashlib.sha256((repo / name).read_bytes()).hexdigest() == digest
 
 
-# spec: EG-CONTRACT-R053.13
+# spec: MEDULLA-CONTRACT-R053.13
 def test_native_artifacts_use_pinned_libc_and_fresh_cache_namespaces() -> None:
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     assert "backward-python" not in jobs
@@ -953,11 +953,11 @@ def test_native_artifacts_use_pinned_libc_and_fresh_cache_namespaces() -> None:
             for step in job.get("steps", [])
             if "Swatinem/rust-cache@" in step.get("uses", "")
         ]
-        if any(key.startswith("eg-ci-gates") for key in caches):
+        if any(key.startswith("medulla-ci-gates") for key in caches):
             assert job["runs-on"] == "ubuntu-24.04", name
-            assert caches == ["eg-ci-gates-ubuntu-24.04-v1"], name
+            assert caches == ["medulla-ci-gates-ubuntu-24.04-v1"], name
         if "SCCACHE_GHA_ENABLED" in job.get("env", {}):
-            assert job["env"]["SCCACHE_GHA_VERSION"] == "eg-ci-ubuntu-24.04-v1"
+            assert job["env"]["SCCACHE_GHA_VERSION"] == "medulla-ci-ubuntu-24.04-v1"
     for name in (
         "python-server",
         "python-kernels",
@@ -967,7 +967,7 @@ def test_native_artifacts_use_pinned_libc_and_fresh_cache_namespaces() -> None:
         assert jobs[name]["runs-on"] == "ubuntu-24.04"
 
 
-# spec: EG-CONTRACT-R035
+# spec: MEDULLA-CONTRACT-R035
 def test_tts_piper_job_skips_apt_when_native_packages_are_present() -> None:
     """The real-inference job must not spend its 10-minute PR budget on apt.
 

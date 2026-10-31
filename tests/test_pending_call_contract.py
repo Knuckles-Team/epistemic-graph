@@ -7,15 +7,15 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from epistemic_graph import client as client_module
-from epistemic_graph.generated.models import (
+from medulla import client as client_module
+from medulla.generated.models import (
     IssueControlLeaseRequest,
     PendingCallConsumption,
     PendingCallRegistration,
     TransitionControlLeaseRequest,
 )
 
-pytestmark = [pytest.mark.no_engine, pytest.mark.spec("EG-DURABLE-KERNEL-R039.3")]
+pytestmark = [pytest.mark.no_engine, pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R039.3")]
 
 
 def registration() -> dict[str, Any]:
@@ -124,7 +124,7 @@ def test_client_forwards_optional_pending_preconditions(
     assert calls[1]["pending_call_consumption"] == fence
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R039.4", "EG-DURABLE-KERNEL-R039.4.1")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R039.4", "MEDULLA-DURABLE-KERNEL-R039.4.1")
 def test_generated_plan_preimage_round_trips_and_refuses_unknown_authority() -> None:
     plan = {
         "lease_id": "plan-a",

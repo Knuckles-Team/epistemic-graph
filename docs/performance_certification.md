@@ -1,6 +1,6 @@
 # Exact-binary performance certification
 
-The G-37 gate certifies one immutable `epistemic-graph-server` artifact against a
+The G-37 gate certifies one immutable `medulla-server` artifact against a
 fixed synthetic workload and predeclared regression thresholds. It is distinct
 from the exploratory benchmark scripts: a missing metric, unsupported required
 surface, digest mismatch, failed workload, or exceeded threshold makes the gate

@@ -28,27 +28,27 @@ from rust_module_tree import read_compiler_family
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_PATH = ROOT / "protocols" / "epistemic-operations" / "v1" / "manifest.json"
-RUST_SOURCE = ROOT / "crates" / "eg-types" / "src" / "epistemic_operations.rs"
+RUST_SOURCE = ROOT / "crates" / "medulla-types" / "src" / "epistemic_operations.rs"
 EXPECTED_RUST_SOURCES = frozenset(
     {
-        "crates/eg-types/src/epistemic_operations.rs",
-        "crates/eg-types/src/epistemic_operations/artifact_knowledge.rs",
-        "crates/eg-types/src/epistemic_operations/common.rs",
-        "crates/eg-types/src/epistemic_operations/context_mutation.rs",
-        "crates/eg-types/src/epistemic_operations/development_intent.rs",
-        "crates/eg-types/src/epistemic_operations/development_quota.rs",
-        "crates/eg-types/src/epistemic_operations/development_state.rs",
-        "crates/eg-types/src/epistemic_operations/development_transition.rs",
-        "crates/eg-types/src/epistemic_operations/placement_operations.rs",
-        "crates/eg-types/src/epistemic_operations/resource_core.rs",
-        "crates/eg-types/src/epistemic_operations/resource_host.rs",
-        "crates/eg-types/src/epistemic_operations/resource_status.rs",
+        "crates/medulla-types/src/epistemic_operations.rs",
+        "crates/medulla-types/src/epistemic_operations/artifact_knowledge.rs",
+        "crates/medulla-types/src/epistemic_operations/common.rs",
+        "crates/medulla-types/src/epistemic_operations/context_mutation.rs",
+        "crates/medulla-types/src/epistemic_operations/development_intent.rs",
+        "crates/medulla-types/src/epistemic_operations/development_quota.rs",
+        "crates/medulla-types/src/epistemic_operations/development_state.rs",
+        "crates/medulla-types/src/epistemic_operations/development_transition.rs",
+        "crates/medulla-types/src/epistemic_operations/placement_operations.rs",
+        "crates/medulla-types/src/epistemic_operations/resource_core.rs",
+        "crates/medulla-types/src/epistemic_operations/resource_host.rs",
+        "crates/medulla-types/src/epistemic_operations/resource_status.rs",
     }
 )
 RUST_GENERATED = (
-    ROOT / "crates" / "eg-types" / "src" / "epistemic_operations_manifest.rs"
+    ROOT / "crates" / "medulla-types" / "src" / "epistemic_operations_manifest.rs"
 )
-LIB_SOURCE = ROOT / "crates" / "eg-types" / "src" / "lib.rs"
+LIB_SOURCE = ROOT / "crates" / "medulla-types" / "src" / "lib.rs"
 GOLDEN_VECTOR_PATH = (
     ROOT / "protocols" / "epistemic-operations" / "v1" / "development-lane.golden.json"
 )
@@ -613,7 +613,7 @@ def _require_rust_bindings(manifest: dict[str, Any]) -> None:
 
 def _require_generated_rust(manifest: dict[str, Any]) -> None:
     """The committed Rust binding is exactly what this manifest renders, and
-    eg-types exposes it."""
+    medulla-types exposes it."""
     try:
         generated = RUST_GENERATED.read_text(encoding="utf-8")
         lib_source = LIB_SOURCE.read_text(encoding="utf-8")
@@ -623,7 +623,7 @@ def _require_generated_rust(manifest: dict[str, Any]) -> None:
         raise GateError("generated Rust digest binding drifted")
     for module in ("epistemic_operations", "epistemic_operations_manifest"):
         if f"pub mod {module};" not in lib_source:
-            raise GateError(f"eg-types does not expose {module}")
+            raise GateError(f"medulla-types does not expose {module}")
 
 
 def run() -> dict[str, Any]:

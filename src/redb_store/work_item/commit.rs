@@ -30,13 +30,13 @@ pub(crate) fn commit_work_item_result_precheck(
     fencing_token: u64,
     now_ms: u64,
 ) -> Option<
-    eg_types::result_contract::coordination::WorkItemTransition<
-        eg_types::result_contract::coordination::WorkItemCommitStatus,
+    medulla_types::result_contract::coordination::WorkItemTransition<
+        medulla_types::result_contract::coordination::WorkItemCommitStatus,
     >,
 > {
     if property_string(props, "tenant") != tenant {
         return Some(unchanged_transition(
-            eg_types::result_contract::coordination::WorkItemCommitStatus::Missing,
+            medulla_types::result_contract::coordination::WorkItemCommitStatus::Missing,
             None,
         ));
     }
@@ -45,13 +45,13 @@ pub(crate) fn commit_work_item_result_precheck(
         "succeeded" | "failed" | "cancelled" | "dead_letter"
     ) {
         return Some(unchanged_transition(
-            eg_types::result_contract::coordination::WorkItemCommitStatus::Noop,
+            medulla_types::result_contract::coordination::WorkItemCommitStatus::Noop,
             Some(work_item_id),
         ));
     }
     if !commit_work_item_lease_is_valid(props, worker_id, lease_epoch, fencing_token, now_ms) {
         return Some(unchanged_transition(
-            eg_types::result_contract::coordination::WorkItemCommitStatus::Fenced,
+            medulla_types::result_contract::coordination::WorkItemCommitStatus::Fenced,
             Some(work_item_id),
         ));
     }
@@ -182,8 +182,8 @@ pub(crate) struct CommitWorkItemResultInput<'args, 'table, 'crypto> {
     pub(crate) error_ref: &'args Option<String>,
     pub(crate) retryable: bool,
     pub(crate) now_ms: u64,
-    pub(crate) outcome_extension: Option<&'args eg_types::outcome_bundle::TerminalOutcomeExtension>,
-    pub(crate) run_completion: Option<&'args eg_types::run_completion::RunCompletionInput>,
+    pub(crate) outcome_extension: Option<&'args medulla_types::outcome_bundle::TerminalOutcomeExtension>,
+    pub(crate) run_completion: Option<&'args medulla_types::run_completion::RunCompletionInput>,
     pub(crate) batch_id: &'args str,
     pub(crate) inline_history:
         &'args mut ScopedOwnerTableMut<'table, (&'static str, &'static str), &'static [u8]>,
@@ -222,7 +222,7 @@ pub(crate) fn apply_commit_work_item_result_row(
         .transpose()?;
     let Some(bytes) = current else {
         return commit_transition_result(unchanged_transition(
-            eg_types::result_contract::coordination::WorkItemCommitStatus::Missing,
+            medulla_types::result_contract::coordination::WorkItemCommitStatus::Missing,
             None,
         ))
         .map(Some);
@@ -329,7 +329,7 @@ pub(crate) fn apply_commit_work_item_result_row(
     record_outcome_refs(&mut props, committed_status, input.outcome_extension)?;
     if let Some(completion) = input.run_completion {
         use sha2::{Digest, Sha256};
-        let payload = eg_types::run_completion::RunCompletionPayload {
+        let payload = medulla_types::run_completion::RunCompletionPayload {
             completion: completion.receipt_input(),
             completed_checkpoint: completion
                 .completed_checkpoint
@@ -344,11 +344,11 @@ pub(crate) fn apply_commit_work_item_result_row(
         };
         let bytes = rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?;
         props.insert(
-            eg_types::run_completion::RUN_COMPLETION_BATCH.into(),
+            medulla_types::run_completion::RUN_COMPLETION_BATCH.into(),
             input.batch_id.into(),
         );
         props.insert(
-            eg_types::run_completion::RUN_COMPLETION_DIGEST.into(),
+            medulla_types::run_completion::RUN_COMPLETION_DIGEST.into(),
             hex::encode(Sha256::digest(&bytes)).into(),
         );
     }
@@ -382,7 +382,7 @@ pub(crate) fn apply_commit_work_item_result_row(
         }
     }
     commit_transition_result(
-        eg_types::result_contract::coordination::WorkItemTransition {
+        medulla_types::result_contract::coordination::WorkItemTransition {
             status: declared_commit_status(committed_status)?,
             work_item_id: Some(input.work_item_id.to_string()),
             lease_epoch: Some(input.lease_epoch),
@@ -417,7 +417,7 @@ struct TerminalCommitClaim<'a> {
 
 fn validate_terminal_extension_binding(
     props: &serde_json::Map<String, serde_json::Value>,
-    extension: &eg_types::outcome_bundle::TerminalOutcomeExtension,
+    extension: &medulla_types::outcome_bundle::TerminalOutcomeExtension,
     claim: TerminalCommitClaim<'_>,
 ) -> Result<(), String> {
     let TerminalCommitClaim {
@@ -524,7 +524,7 @@ fn require_digest_binding(
 
 fn ensure_receipt_rows_absent(
     graph: &str,
-    receipt_nodes: &[eg_types::outcome_bundle::ReceiptNode],
+    receipt_nodes: &[medulla_types::outcome_bundle::ReceiptNode],
     nodes: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
 ) -> Result<(), String> {
     for receipt in receipt_nodes {
@@ -538,7 +538,7 @@ fn ensure_receipt_rows_absent(
     Ok(())
 }
 
-/// Bind a terminal commit's provenance to the WorkItem row (graph-os EG-3), so
+/// Bind a terminal commit's provenance to the WorkItem row (graph-os MEDULLA-3), so
 /// `GetWorkItemOutcome` resolves it from the row rather than from a node id a
 /// caller names, and verifies the OutcomeEvaluation receipt against the digest
 /// recorded here. Skipped on a scheduled retry: receipts are written only with
@@ -546,16 +546,16 @@ fn ensure_receipt_rows_absent(
 fn record_outcome_refs(
     props: &mut serde_json::Map<String, serde_json::Value>,
     committed_status: &str,
-    extension: Option<&eg_types::outcome_bundle::TerminalOutcomeExtension>,
+    extension: Option<&medulla_types::outcome_bundle::TerminalOutcomeExtension>,
 ) -> Result<(), String> {
-    use eg_types::work_item_read::{
+    use medulla_types::work_item_read::{
         WORK_ITEM_OUTCOME_DIGEST, WORK_ITEM_OUTCOME_REF, WORK_ITEM_TOOL_CALL_REFS,
         WORK_ITEM_TRACE_REF,
     };
     let Some(extension) = extension.filter(|_| committed_status != "retry_scheduled") else {
         return Ok(());
     };
-    use eg_types::work_item_read::{WORK_ITEM_EVENT_BATCH, WORK_ITEM_EVENT_DIGEST};
+    use medulla_types::work_item_read::{WORK_ITEM_EVENT_BATCH, WORK_ITEM_EVENT_DIGEST};
     use sha2::{Digest, Sha256};
     let bundle = &extension.outcome_bundle;
     let event_bytes = rmp_serde::to_vec_named(&extension.run_event)
@@ -588,7 +588,7 @@ fn record_outcome_refs(
 
 fn apply_receipt_rows(
     graph: &str,
-    receipt_nodes: &[eg_types::outcome_bundle::ReceiptNode],
+    receipt_nodes: &[medulla_types::outcome_bundle::ReceiptNode],
     nodes: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {

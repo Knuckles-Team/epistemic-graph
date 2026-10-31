@@ -49,7 +49,7 @@ fn read_head(shard: &Shard) -> Head {
     decode_durable(nodes.get((GRAPH, id.as_str())).unwrap().unwrap().value()).unwrap()
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.3
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.3
 #[test]
 fn admission_reserves_one_ordered_turn_and_refusals_do_not_advance_head() {
     let temp = open("conversation-admission-cas");
@@ -121,7 +121,7 @@ fn admission_reserves_one_ordered_turn_and_refusals_do_not_advance_head() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.3
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.3
 #[test]
 fn admission_refuses_failed_cancelled_and_unknown_predecessors() {
     let temp = open("conversation-admission-state");
@@ -142,10 +142,10 @@ fn admission_refuses_failed_cancelled_and_unknown_predecessors() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.3
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.3
 #[test]
 fn reservation_survives_restart_without_reading_clock_order() {
-    let path = crate::redb_store::temp_path("eg-conversation-head", "restart");
+    let path = crate::redb_store::temp_path("medulla-conversation-head", "restart");
     let shard = Shard::open(&path).unwrap();
     admit(&shard, &request("one", 0, None), "owner").unwrap();
     state(&shard, "one", "succeeded");
@@ -158,7 +158,7 @@ fn reservation_survives_restart_without_reading_clock_order() {
     std::fs::remove_file(path).unwrap();
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.3
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.3
 #[test]
 fn generic_writes_cannot_forge_replace_or_delete_conversation_heads() {
     let temp = open("conversation-admission-guard");
@@ -198,7 +198,7 @@ fn generic_writes_cannot_forge_replace_or_delete_conversation_heads() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.3
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.3
 #[test]
 fn typed_admission_validates_context_without_changing_legacy_serialization() {
     let mut next = request("one", 0, None);
@@ -218,7 +218,7 @@ fn typed_admission_validates_context_without_changing_legacy_serialization() {
     assert!(serde_json::from_value::<SubmitWorkItemRequest>(value).is_err());
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.3
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.3
 #[test]
 fn legacy_context_metadata_cannot_bypass_a_reserved_head() {
     let temp = open("conversation-admission-legacy");
@@ -234,7 +234,7 @@ fn legacy_context_metadata_cannot_bypass_a_reserved_head() {
     assert_eq!(read_head(&temp.shard).revision, 1);
 }
 
-// spec: EG-DURABLE-KERNEL-R028.4.3
+// spec: MEDULLA-DURABLE-KERNEL-R028.4.3
 #[test]
 fn native_metadata_cas_cannot_mutate_a_conversation_head() {
     let temp = open("conversation-admission-native-cas");

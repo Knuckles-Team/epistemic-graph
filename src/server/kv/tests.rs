@@ -3,7 +3,7 @@
 use super::*;
 
 fn tmp_dir(tag: &str) -> std::path::PathBuf {
-    crate::test_support::temp_dir("eg-kv", tag)
+    crate::test_support::temp_dir("medulla-kv", tag)
 }
 
 /// put → get → scan → delete → cas round-trip over the durable store.

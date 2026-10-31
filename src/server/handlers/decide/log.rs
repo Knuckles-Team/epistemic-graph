@@ -12,7 +12,7 @@ pub(crate) async fn handle_decision_log(
     state: &SharedState,
     req_id: u64,
     verified: &VerifiedRequestContext,
-    op: eg_types::decision::statistical::log::DecisionLogOp,
+    op: medulla_types::decision::statistical::log::DecisionLogOp,
 ) -> Response {
     #[cfg(feature = "decide")]
     {

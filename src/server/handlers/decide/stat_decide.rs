@@ -11,21 +11,21 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::Instrument;
 
-use eg_types::contract::BoundedVec;
-use eg_types::decision::digest::{digest_text, statistical_record_digest};
-use eg_types::decision::statistical::keyed::seed_commitment;
-use eg_types::decision::statistical::nl::{NlBinding, NlChoiceSource};
-use eg_types::decision::statistical::{
+use medulla_types::contract::BoundedVec;
+use medulla_types::decision::digest::{digest_text, statistical_record_digest};
+use medulla_types::decision::statistical::keyed::seed_commitment;
+use medulla_types::decision::statistical::nl::{NlBinding, NlChoiceSource};
+use medulla_types::decision::statistical::{
     CandidateSource, DecideRequest, DecisionBatch, ExplorationRecord, FeatureMatrixRef,
     QuestionKind, ShortlistProvenance, StatisticalDecisionRecord, StatisticalErrorCode,
     StatisticalInputs, StatisticalOutcome,
 };
-use eg_types::decision::{
+use medulla_types::decision::{
     EvidenceClass, PremiseClass, PremiseProvenance, PremiseRef, QuantScaleTag, ResolutionKind,
     TraceFidelity, STATISTICAL_DECISION_RECORD_SCHEMA_VERSION,
 };
 
-use eg_numeric::decision::ladder::LadderResult;
+use medulla_numeric::decision::ladder::LadderResult;
 
 use super::candidates::{read_candidates, ReadCandidates};
 use super::stat_belief::{live_slices, Slices};
@@ -55,7 +55,7 @@ pub(super) async fn handle_decide(
 ) -> Response {
     let span = telemetry::span("Decide", verified.tenant());
     let result = serve(state, verified, request).instrument(span).await;
-    match result.and_then(ResultPayload::of::<eg_types::result_contract::query::Decide>) {
+    match result.and_then(ResultPayload::of::<medulla_types::result_contract::query::Decide>) {
         Ok(payload) => Response::ok(req_id, payload),
         Err(error) => {
             telemetry::refused("Decide", &error);
@@ -127,7 +127,7 @@ async fn serve(
 fn decide_blocking(
     ctx: &ExecutionContext,
     request: &DecideRequest,
-    graph_view: Option<&eg_core::graph::GraphView>,
+    graph_view: Option<&medulla_core::graph::GraphView>,
     principal: String,
     started: Instant,
 ) -> Result<DecisionBatch, String> {
@@ -230,7 +230,7 @@ fn bounded<T, const N: usize>(values: Vec<T>) -> Result<BoundedVec<T, N>, String
 }
 
 fn feature_matrix(
-    views: &[eg_numeric::decision::candidate::CandidateView],
+    views: &[medulla_numeric::decision::candidate::CandidateView],
     pinned: &Pinned,
     executed: &Executed,
 ) -> Result<FeatureMatrixRef, String> {
@@ -247,10 +247,10 @@ fn feature_matrix(
 }
 
 fn exploration(sealing: &Sealing, executed: &Executed) -> Option<ExplorationRecord> {
-    if sealing.request.question.kind == eg_types::decision::QuestionKind::TaskPlan {
+    if sealing.request.question.kind == medulla_types::decision::QuestionKind::TaskPlan {
         return None; // Explicit DAG planning never makes an exploration draw.
     }
-    let eg_types::decision::ColdStart::Explore { budget } = &sealing.policy.policy.cold_start
+    let medulla_types::decision::ColdStart::Explore { budget } = &sealing.policy.policy.cold_start
     else {
         return None;
     };
@@ -418,7 +418,7 @@ fn seal(
     sealing: Sealing,
     executed: &Executed,
     nl: Option<NlBinding>,
-    task_plan: Option<eg_types::decision::task_plan::TaskPlan>,
+    task_plan: Option<medulla_types::decision::task_plan::TaskPlan>,
 ) -> Result<StatisticalDecisionRecord, String> {
     let inputs = StatisticalInputs {
         harness_evaluation: None,

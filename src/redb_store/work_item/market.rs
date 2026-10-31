@@ -7,10 +7,10 @@
 //! admits the Gap's WorkItem through [`apply_submit_work_item_rows`] in that
 //! transaction, so the pair commits together or not at all.
 //!
-//! What each write DOES to a Gap is decided by [`eg_types::work_market`]; this
+//! What each write DOES to a Gap is decided by [`medulla_types::work_market`]; this
 //! module only reads and writes rows.
 
-use eg_types::work_market::{gap_row_key, is_tenant_gap, GapView};
+use medulla_types::work_market::{gap_row_key, is_tenant_gap, GapView};
 
 use super::*;
 
@@ -118,7 +118,7 @@ fn store_gap(
     let key = gap_row_key(tenant, &gap.gap_id);
     let mut row = NodeRow::new();
     row.insert(
-        eg_types::work_item_read::WORK_ITEM_ROW_REVISION.into(),
+        medulla_types::work_item_read::WORK_ITEM_ROW_REVISION.into(),
         gap.revision.into(),
     );
     gap.to_row(tenant, &mut row)?;

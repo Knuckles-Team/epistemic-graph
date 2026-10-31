@@ -1,4 +1,4 @@
-"""EG-TYPED-PACKS-R712 served acceptance: schema-drift containment end to end.
+"""MEDULLA-TYPED-PACKS-R712 served acceptance: schema-drift containment end to end.
 
 Drives the existing GraphSchema wire methods (repair render /
 attach-approved / shadow validate) against the session engine:
@@ -24,9 +24,9 @@ import uuid
 import pytest
 from conftest import TEST_TENANT, request_context
 
-from epistemic_graph.client import EngineResponseError, EpistemicGraphClient
-from epistemic_graph.generated import coordination, reasoning
-from epistemic_graph.generated.graph_schema import (
+from medulla.client import EngineResponseError, MedullaClient
+from medulla.generated import coordination, reasoning
+from medulla.generated.graph_schema import (
     GraphSchemaSourcesView,
     SchemaSourceOriginViewApproved,
 )
@@ -76,7 +76,7 @@ DRIFTED: dict[str, Fields] = {
 
 
 async def issue_approval_lease(
-    client: EpistemicGraphClient, lease_id: str, candidate: str
+    client: MedullaClient, lease_id: str, candidate: str
 ) -> None:
     now_ms = int(time.time() * 1000)
     await coordination.send_issue_control_lease(
@@ -100,7 +100,7 @@ async def issue_approval_lease(
     )
 
 
-async def consume_approval_lease(client: EpistemicGraphClient, lease_id: str) -> None:
+async def consume_approval_lease(client: MedullaClient, lease_id: str) -> None:
     await coordination.send_transition_control_lease(
         client,
         {
@@ -116,7 +116,7 @@ async def consume_approval_lease(client: EpistemicGraphClient, lease_id: str) ->
 
 
 async def attach_approved(
-    client: EpistemicGraphClient, lease_id: str, fields: dict[str, dict[str, object]]
+    client: MedullaClient, lease_id: str, fields: dict[str, dict[str, object]]
 ) -> None:
     await reasoning.send_graph_schema(
         client,
@@ -134,7 +134,7 @@ async def attach_approved(
 
 
 async def validate_repair(
-    client: EpistemicGraphClient, fields: dict[str, dict[str, object]]
+    client: MedullaClient, fields: dict[str, dict[str, object]]
 ) -> bool:
     """Run the shadow-graph validation; returns the op's `changed` flag."""
     committed = await reasoning.send_graph_schema(
@@ -166,10 +166,10 @@ def only_source(listed: GraphSchemaSourcesView, expected_lease_id: str) -> bool:
     )
 
 
-@pytest.mark.spec("EG-TYPED-PACKS-R712")
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R712")
 @pytest.mark.asyncio
 async def test_breaking_drift_quarantines_and_activation_needs_approval() -> None:
-    client = await EpistemicGraphClient.connect(
+    client = await MedullaClient.connect(
         socket_path=os.environ["GRAPH_SERVICE_SOCKET"],
         verified_context=request_context(),
     )

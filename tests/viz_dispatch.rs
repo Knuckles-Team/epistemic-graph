@@ -14,7 +14,7 @@
 //!     tight budget — `exact == false`. The bounded-draw-op-count PROPERTY
 //!     itself (render-plan `ops.len()` independent of `node_count`) is proven
 //!     directly against the render plan in
-//!     `crates/eg-viz-export/src/render.rs`'s `graph_tests` module (this
+//!     `crates/medulla-viz-export/src/render.rs`'s `graph_tests` module (this
 //!     dispatch-level test proves REACHABILITY end to end through the wire
 //!     protocol, not a duplicate of that lower-level proof).
 //!
@@ -28,10 +28,10 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use eg_types::viz::{VizColumnValues, VizDatasetSource, VizFormat, VizOp, VizRenderRequest};
-use eg_viz_core::{EncodingSpec, Encodings, MarkKind, MarkSpec, ViewSpec};
-use epistemic_graph::protocol::{Method, Response, ResultPayload};
-use epistemic_graph::server::dispatch;
+use medulla_types::viz::{VizColumnValues, VizDatasetSource, VizFormat, VizOp, VizRenderRequest};
+use medulla_viz_core::{EncodingSpec, Encodings, MarkKind, MarkSpec, ViewSpec};
+use medulla::protocol::{Method, Response, ResultPayload};
+use medulla::server::dispatch;
 
 const SECRET: &str = "served-viz-dispatch-secret";
 const PNG_SIGNATURE: [u8; 4] = [137, 80, 78, 71];
@@ -45,7 +45,7 @@ fn state() -> test_support::SharedState {
 /// A local mirror of the handler's private `VizRenderResponse` shape (the SAME
 /// "second unpackb over a top-level bytes result" idiom `ResultPayload::raw`'s
 /// own doc describes for a real client) — `view_result` stays a generic
-/// `serde_json::Value` (no raw-bytes ambiguity there: `eg_viz_core::ViewResult`
+/// `serde_json::Value` (no raw-bytes ambiguity there: `medulla_viz_core::ViewResult`
 /// carries no `bin` fields), while `bytes` is decoded through the SAME
 /// `serde_bytes` codec the handler encoded it with, so a MessagePack `bin` value
 /// round-trips as real bytes rather than a generic array of numbers.
@@ -218,7 +218,7 @@ async fn synthetic_graph_small_resolves_at_direct_tier() {
 }
 
 /// The graph-specific bounded-draw-op-count PROPERTY itself is proven directly
-/// against the render plan in `eg-viz-export`'s own
+/// against the render plan in `medulla-viz-export`'s own
 /// `render::graph_tests::large_graph_resolves_at_density_tier_with_bounded_op_count`
 /// (asserting `plan.ops.len()` is independent of `node_count`, which the wire
 /// response below does not expose). This test proves the SAME scenario is
@@ -639,7 +639,7 @@ async fn render_provenance_is_queryable_after_a_render_and_absent_before() {
     }
 }
 
-/// EG-FEDERATED-QUERY-R087.6: the served render entry point must expose all
+/// MEDULLA-FEDERATED-QUERY-R087.6: the served render entry point must expose all
 /// three declared static formats and refuse an unknown dataset reference.
 #[tokio::test]
 async fn served_render_supports_png_svg_pdf_and_refuses_unknown_dataset() {

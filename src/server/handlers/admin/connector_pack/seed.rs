@@ -1,4 +1,4 @@
-//! Bounded connect-time seed graph preparation (EG-TYPED-PACKS-R104.2).
+//! Bounded connect-time seed graph preparation (MEDULLA-TYPED-PACKS-R104.2).
 //!
 //! This module owns the pure validation and per-part replacement plan.  The
 //! ConnectorPack import handler and projection worker remain the integration
@@ -7,9 +7,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use eg_rdf::oxrdf::{BlankNode, Graph, NamedOrBlankNode, Term, Triple};
-use eg_types::connector_pack::{SeedGraphImport, SeedPart, SeedPartKey};
-use eg_types::contract::Digest256;
+use medulla_rdf::oxrdf::{BlankNode, Graph, NamedOrBlankNode, Term, Triple};
+use medulla_types::connector_pack::{SeedGraphImport, SeedPart, SeedPartKey};
+use medulla_types::contract::Digest256;
 
 /// Maximum number of triples emitted by one seed part parser.
 pub(crate) const MAX_SEED_TRIPLES: usize = 50_000;
@@ -137,20 +137,20 @@ pub(crate) fn prepare_seed_import(
 /// This is exposed to the focused handler test and keeps the exact digest rule
 /// in one production function used by validation.
 pub(crate) fn seed_turtle_digest(turtle: &str) -> Result<Digest256, String> {
-    let triples = eg_rdf::mapping::parse_turtle_bounded(turtle, MAX_SEED_TRIPLES)
+    let triples = medulla_rdf::mapping::parse_turtle_bounded(turtle, MAX_SEED_TRIPLES)
         .map_err(|error| format!("SEED_TURTLE_INVALID: {error}"))?;
     let canonical = canonical_nquads(&triples)?;
     Ok(Digest256::sha256(canonical.as_bytes()))
 }
 
 fn validate_seed_part(part: &SeedPart, shapes: &Graph) -> Result<SeedPartState, String> {
-    let triples = eg_rdf::mapping::parse_turtle_bounded(&part.turtle, MAX_SEED_TRIPLES)
+    let triples = medulla_rdf::mapping::parse_turtle_bounded(&part.turtle, MAX_SEED_TRIPLES)
         .map_err(|error| format!("SEED_TURTLE_INVALID: {error}"))?;
     let mut data = Graph::new();
     for triple in &triples {
         data.insert(triple);
     }
-    let report = eg_shacl::validate(shapes, &data)
+    let report = medulla_shacl::validate(shapes, &data)
         .map_err(|error| format!("SEED_SHACL_VIOLATION: {error}"))?;
     if !report.conforms {
         let detail = report
@@ -192,7 +192,7 @@ fn canonical_nquads(triples: &[Triple]) -> Result<String, String> {
     let mut lines = BTreeSet::new();
     for triple in triples {
         let triple = remap_triple(triple, &labels);
-        lines.insert(eg_rdf::mapping::to_nquads(&[triple], None)?);
+        lines.insert(medulla_rdf::mapping::to_nquads(&[triple], None)?);
     }
     Ok(lines.into_iter().collect::<Vec<_>>().concat())
 }

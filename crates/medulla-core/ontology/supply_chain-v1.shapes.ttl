@@ -1,0 +1,86 @@
+# Supply-chain shapes (MEDULLA-SUPPLY-VOCAB-R001.4, R002.7).
+#
+# SHACL Core plus aggregate-free `sh:sparql` only (DECIDE §4.8): the
+# supply-chain module ships its shapes as a standalone companion document;
+# further supply-chain shapes land beside these, never replacing them. The
+# one aggregate-free SPARQL constraint expresses the `affectsComponent`
+# or `hasVulnerability`-inverse link in the OPTIONAL/FILTER(!BOUND) form.
+
+@prefix kg:   <http://knuckles.team/kg#> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+kg:SupplierShape a sh:NodeShape ;
+    sh:targetClass kg:Supplier ;
+    sh:property [
+        sh:path rdfs:label ; sh:minCount 1 ;
+        sh:message "A Supplier carries a label."
+    ] ;
+    sh:message "A supplier is named." .
+
+kg:SupplyChainItemShape a sh:NodeShape ;
+    sh:targetClass kg:SupplyChainItem ;
+    sh:property [
+        sh:path rdfs:label ; sh:minCount 1 ;
+        sh:message "A SupplyChainItem carries a label."
+    ] ;
+    sh:message "A supply-chain item is named." .
+
+kg:ComponentVersionShape a sh:NodeShape ;
+    sh:targetClass kg:ComponentVersion ;
+    sh:or (
+        [ sh:property [
+            sh:path kg:versionOf ; sh:minCount 1 ; sh:maxCount 1 ; sh:class kg:SoftwareComponent ;
+            sh:message "A ComponentVersion links to exactly one SoftwareComponent."
+        ] ]
+        [ sh:property [
+            sh:path kg:supplyChainVersionOf ; sh:minCount 1 ; sh:maxCount 1 ; sh:class kg:SoftwareComponent ;
+            sh:message "A ComponentVersion links to exactly one SoftwareComponent."
+        ] ]
+    ) ;
+    sh:property [
+        sh:path kg:versionString ; sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "A ComponentVersion carries exactly one versionString."
+    ] ;
+    sh:message "A component version names its component and its published version string." .
+
+kg:VulnerabilityShape a sh:NodeShape ;
+    sh:targetClass kg:Vulnerability ;
+    sh:property [
+        sh:path kg:cveId ; sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "A Vulnerability carries exactly one cveId."
+    ] ;
+    sh:property [
+        sh:path kg:severity ;
+        sh:in ( "low" "medium" "high" "critical" "unknown" ) ;
+        sh:message "severity is low, medium, high, critical or unknown."
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "A Vulnerability is linked to at least one affected component or reporting image." ;
+        sh:prefixes kg:SupplyChainShapesPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                OPTIONAL { $this kg:affectsComponent ?component . }
+                OPTIONAL { ?image kg:hasVulnerability $this . }
+                FILTER(!BOUND(?component) && !BOUND(?image))
+            }
+        """ ;
+    ] ;
+    sh:message "A vulnerability names its cveId, its severity, and what it touches." .
+
+kg:UsesComponentShape a sh:NodeShape ;
+    sh:targetSubjectsOf kg:usesComponent ;
+    sh:class infra:Service ;
+    sh:message "Only a service uses a component -- a usesComponent subject must be a service." .
+
+kg:UsesComponentObjectShape a sh:NodeShape ;
+    sh:targetObjectsOf kg:usesComponent ;
+    sh:class kg:ComponentVersion ;
+    sh:message "A usesComponent object is a ComponentVersion." .
+
+kg:SupplyChainShapesPrefixes a owl:Ontology ;
+    sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] .

@@ -1,4 +1,4 @@
-"""EG-CONTRACT-R039: the duplication gate's base is origin/main, not the pushed tip."""
+"""MEDULLA-CONTRACT-R039: the duplication gate's base is origin/main, not the pushed tip."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def _commit(cwd: Path, name: str) -> str:
     return _git(cwd, "rev-parse", "HEAD")
 
 
-@pytest.mark.spec("EG-CONTRACT-R039")
+@pytest.mark.spec("MEDULLA-CONTRACT-R039")
 def test_base_is_origin_main_not_pushed_tip_or_upstream(tmp_path: Path) -> None:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env.pop("CX_DUP_BASE_REF", None)

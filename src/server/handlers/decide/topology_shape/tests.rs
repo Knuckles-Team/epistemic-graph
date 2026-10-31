@@ -1,6 +1,6 @@
-use eg_types::agent_graph::{AgentGraphEdge, AgentGraphNode, AgentGraphShape};
-use eg_types::contract::BoundedVec;
-use eg_types::test_support::topology::{facts, slot};
+use medulla_types::agent_graph::{AgentGraphEdge, AgentGraphNode, AgentGraphShape};
+use medulla_types::contract::BoundedVec;
+use medulla_types::test_support::topology::{facts, slot};
 
 use super::*;
 
@@ -74,7 +74,7 @@ fn a_well_formed_fan_out_template_passes() {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R108
+// spec: MEDULLA-DECISION-ENGINE-R108
 #[test]
 fn every_planted_shape_defect_is_refused_by_name() {
     type Plant = (&'static str, fn(&mut AgentGraphDraft));

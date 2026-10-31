@@ -6,7 +6,7 @@ use crate::graph::GraphCore;
 use crate::mutation_batch::MutationSurface;
 use crate::protocol::{Method, ResultPayload};
 use crate::server::persistence::PersistenceBackend;
-use eg_types::contract::Nonce;
+use medulla_types::contract::Nonce;
 
 use super::super::compile::{authoritative_graph_version, compile_methods, CompileBatch};
 use super::internal::lock_graph;
@@ -31,7 +31,7 @@ fn derive_work_item_identity(
                 | Method::CasWorkItemMetadata { .. }
         ) {
             let mut digest = Sha256::new();
-            digest.update(b"epistemic-graph.authenticated-work-item.v1");
+            digest.update(b"medulla.authenticated-work-item.v1");
             for field in [graph.as_bytes(), tenant.as_bytes(), key.as_bytes()] {
                 digest.update((field.len() as u64).to_be_bytes());
                 digest.update(field);
@@ -83,7 +83,7 @@ fn work_item_tenant_value(method: &Method) -> Result<String, String> {
         | Method::ReleaseWorkItemResources { request }
         | Method::ReclaimWorkItemResources { request } => request.tenant_ref.clone(),
         Method::UpdateResourceHost { request } => request.tenant_ref.clone(),
-        // graph-os EG-2 control-lease writes ride the same kernel.
+        // graph-os MEDULLA-2 control-lease writes ride the same kernel.
         other => return publication_tenant(other),
     };
     Ok(tenant)
@@ -105,7 +105,7 @@ fn control_lease_tenant(method: &Method) -> Result<String, String> {
         Method::RetireSealedRecord { request } => Ok(request.tenant.clone()),
         Method::PolicyEvolutionStore { request } => Ok(request.tenant_id.clone()),
         // EH-348 work-market writes ride the same kernel.
-        other => eg_types::work_market::market_write_scope(other)
+        other => medulla_types::work_market::market_write_scope(other)
             .map(|(tenant, _)| tenant.to_string())
             .ok_or_else(|| "commit_work_item received a non-WorkItem operation".to_string()),
     }
@@ -320,7 +320,7 @@ async fn commit_work_item_plan(plan: WorkItemCommitPlan<'_>) -> Result<ResultPay
         };
         envelope
             .verified_capabilities
-            .insert(eg_types::mutation_batch::MutationCapability::EnableInlineHistoryProfile);
+            .insert(medulla_types::mutation_batch::MutationCapability::EnableInlineHistoryProfile);
     }
     let committed = persistence
         .commit_mutation_batch(&fname, &batch, None, created_at_ms)
@@ -392,10 +392,10 @@ fn mark_work_item_replayed(
         return mark_submit_replayed(result, submit_batch);
     }
     if checkpoint {
-        let mut body: eg_types::run_checkpoint::RunCheckpointPublished =
+        let mut body: medulla_types::run_checkpoint::RunCheckpointPublished =
             decode_submit_receipt(result)?;
         body.replayed = true;
-        return ResultPayload::of::<eg_types::result_contract::coordination::PublishRunCheckpoint>(
+        return ResultPayload::of::<medulla_types::result_contract::coordination::PublishRunCheckpoint>(
             body,
         );
     }
@@ -415,9 +415,9 @@ fn decode_submit_receipt<T: serde::de::DeserializeOwned>(
     result: ResultPayload,
 ) -> Result<T, String> {
     match result {
-        ResultPayload::Raw(bytes) => eg_types::msgpack::decode_bounded(
+        ResultPayload::Raw(bytes) => medulla_types::msgpack::decode_bounded(
             &bytes,
-            eg_types::msgpack::MsgpackLimits::new(4 * 1024 * 1024, 100_000, 64),
+            medulla_types::msgpack::MsgpackLimits::new(4 * 1024 * 1024, 100_000, 64),
         )
         .map_err(|_| "replayed SubmitWorkItem result is corrupt".to_string()),
         ResultPayload::Json(value) => serde_json::from_value(value)
@@ -434,10 +434,10 @@ fn project_claim_result(
     replayed: bool,
     completed_text_history: bool,
 ) -> Result<ResultPayload, String> {
-    let mut body: eg_types::inline_history::NativeClaimWorkItemResult = match result {
-        ResultPayload::Raw(bytes) => eg_types::msgpack::decode_bounded(
+    let mut body: medulla_types::inline_history::NativeClaimWorkItemResult = match result {
+        ResultPayload::Raw(bytes) => medulla_types::msgpack::decode_bounded(
             &bytes,
-            eg_types::msgpack::MsgpackLimits::new(4 * 1024 * 1024, 100_000, 64),
+            medulla_types::msgpack::MsgpackLimits::new(4 * 1024 * 1024, 100_000, 64),
         )
         .map_err(|_| "replayed ClaimWorkItem result is corrupt".to_string())?,
         ResultPayload::Json(value) => serde_json::from_value(value)
@@ -450,14 +450,14 @@ fn project_claim_result(
         if !completed_text_history {
             return Err(format!(
                 "{}: claim requires completed_text_history opt-in",
-                eg_types::contract::ServerErrorCode::RunAdmissionUnavailable
+                medulla_types::contract::ServerErrorCode::RunAdmissionUnavailable
             ));
         }
         if replayed {
             body.fresh_execution_grant = Some(false);
         }
     }
-    ResultPayload::of::<eg_types::result_contract::coordination::ClaimWorkItem>(body)
+    ResultPayload::of::<medulla_types::result_contract::coordination::ClaimWorkItem>(body)
 }
 
 fn mark_submit_replayed(result: ResultPayload, batch: bool) -> Result<ResultPayload, String> {
@@ -468,20 +468,20 @@ fn mark_submit_replayed(result: ResultPayload, batch: bool) -> Result<ResultPayl
 }
 
 fn replayed_submit_batch(result: ResultPayload) -> Result<ResultPayload, String> {
-    let mut body: eg_types::native_control::SubmitWorkItemsResult = decode_submit_receipt(result)?;
+    let mut body: medulla_types::native_control::SubmitWorkItemsResult = decode_submit_receipt(result)?;
     body.replayed = true;
     for child in &mut body.results {
         child.created = false;
         child.replayed = true;
     }
-    ResultPayload::of::<eg_types::result_contract::coordination::SubmitWorkItems>(body)
+    ResultPayload::of::<medulla_types::result_contract::coordination::SubmitWorkItems>(body)
 }
 
 fn replayed_submit(result: ResultPayload) -> Result<ResultPayload, String> {
-    let mut body: eg_types::native_control::SubmitWorkItemResult = decode_submit_receipt(result)?;
+    let mut body: medulla_types::native_control::SubmitWorkItemResult = decode_submit_receipt(result)?;
     body.created = false;
     body.replayed = true;
-    ResultPayload::of::<eg_types::result_contract::coordination::SubmitWorkItem>(body)
+    ResultPayload::of::<medulla_types::result_contract::coordination::SubmitWorkItem>(body)
 }
 
 /// Decode a durably committed WorkItem batch's terminal result and publish its
@@ -500,9 +500,9 @@ async fn publish_committed_work_item(
         .result_msgpack
         .as_deref()
         .ok_or_else(|| "committed WorkItem batch has no durable result".to_string())?;
-    let result: ResultPayload = eg_types::msgpack::decode_bounded(
+    let result: ResultPayload = medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
+        medulla_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
     )
     .map_err(|_| "committed WorkItem result is corrupt".to_string())?;
 
@@ -577,9 +577,9 @@ pub(crate) fn changed_work_item_ids(
         // The durable outer payload decodes to it and carries the typed WorkItem
         // result that must refresh the resident graph projection.
         ResultPayload::Raw(bytes) => {
-            let value: serde_json::Value = eg_types::msgpack::decode_bounded(
+            let value: serde_json::Value = medulla_types::msgpack::decode_bounded(
                 bytes,
-                eg_types::msgpack::MsgpackLimits::new(1024 * 1024, 10_000, 32),
+                medulla_types::msgpack::MsgpackLimits::new(1024 * 1024, 10_000, 32),
             )
             .map_err(|_| "committed WorkItem inner result is corrupt".to_string())?;
             from_json(&value, publishes_work_item_rows)

@@ -7,7 +7,7 @@
 The Medulla service layer is a long-running Tokio process that holds multiple named graphs in memory and serves requests over Unix Domain Socket (UDS) or TCP. It replaces the previous PyO3 in-process FFI approach as the primary compute backend.
 
 The Python `agent-utilities` API gateway's `GraphComputeEngine` (an async
-UDS/TCP client) calls the `epistemic-graph-server` (Tokio, long-running),
+UDS/TCP client) calls the `medulla-server` (Tokio, long-running),
 which holds the `GraphRegistry` (named graphs), `ChannelManager` (P2P, 1:1,
 many:many, bus), `IsolationLayer` (ACL enforcement), and
 Checkpoint/Persistence.
@@ -66,8 +66,8 @@ All connections require HMAC-SHA256 authentication:
 The service lifecycle is tied to the agent-utilities API gateway:
 - **Startup**: Gateway sends `Reconcile` to push authoritative state from the backend
 - **Shutdown**: Gateway sends `Checkpoint` to persist all graphs
-- The service process is the `epistemic-graph-server` Rust daemon (run via
-  `cargo run -p epistemic-graph`). With `GRAPH_SERVICE_ENDPOINTS` unset,
+- The service process is the `medulla-server` Rust daemon (run via
+  `cargo run -p medulla-engine`). With `GRAPH_SERVICE_ENDPOINTS` unset,
   `GraphComputeEngine` shares or provisions the packaged local daemon. Any
   configured coordinator topology requires an existing daemon and is
   connect-only.
@@ -75,8 +75,8 @@ The service lifecycle is tied to the agent-utilities API gateway:
 ## Migration from PyO3
 
 The PyO3 in-process FFI path has been **fully removed**. `GraphComputeEngine`
-talks to the `epistemic-graph-server` Tokio daemon **exclusively** over the
-out-of-process MessagePack/UDS (or TCP) client (`epistemic_graph.client`); there
+talks to the `medulla-server` Tokio daemon **exclusively** over the
+out-of-process MessagePack/UDS (or TCP) client (`medulla.client`); there
 is no in-process embedded fallback. Omit `GRAPH_SERVICE_ENDPOINTS` for the
 packaged local lifecycle; configure it to connect to an existing authority,
 which never starts a local stand-in.

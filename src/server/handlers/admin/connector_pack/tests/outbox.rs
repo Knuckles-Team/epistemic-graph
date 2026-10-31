@@ -4,12 +4,12 @@
 
 use std::sync::atomic::AtomicBool;
 
-use eg_types::agent_component::{
+use medulla_types::agent_component::{
     AgentComponentKind, AgentComponentOp, AgentComponentSearchPage, AgentComponentSearchRequest,
 };
-use eg_types::connector_pack::{PackAnnotations, PackEntryKind};
-use eg_types::contract::ResourceId;
-use eg_types::mutation_outbox::{
+use medulla_types::connector_pack::{PackAnnotations, PackEntryKind};
+use medulla_types::contract::ResourceId;
+use medulla_types::mutation_outbox::{
     MutationOutboxOp, MutationOutboxStatusView, NativeOutboxScope, NativeOutboxStore,
     OutboxRewindReceipt, OutboxTarget, RewindTarget,
 };
@@ -65,10 +65,10 @@ async fn searchable_ids(served: &Served) -> Vec<String> {
         .collect()
 }
 
-// spec: EG-TYPED-PACKS-R052
+// spec: MEDULLA-TYPED-PACKS-R052
 // The projection consumer is not a pack-specific stand-in: it is driven
 // through the general Agent Library MutationOutbox (status/rewind) that
-// EG-TYPED-PACKS-R054/R055 already land on main, so this capability was
+// MEDULLA-TYPED-PACKS-R054/R055 already land on main, so this capability was
 // shipped only once that general outbox authority existed.
 #[tokio::test]
 async fn the_worker_consumes_an_import_and_the_operator_can_rewind_it() {
@@ -124,7 +124,7 @@ async fn the_worker_consumes_an_import_and_the_operator_can_rewind_it() {
     );
 }
 
-// spec: EG-TYPED-PACKS-R009
+// spec: MEDULLA-TYPED-PACKS-R009
 #[tokio::test]
 async fn a_pack_without_schema_is_visible_at_once_and_one_with_schema_after_projection() {
     let served = Served::new();
@@ -178,7 +178,7 @@ async fn a_pack_without_schema_is_visible_at_once_and_one_with_schema_after_proj
     }
 }
 
-// spec: EG-TYPED-PACKS-R006, EG-TYPED-PACKS-R093.2
+// spec: MEDULLA-TYPED-PACKS-R006, MEDULLA-TYPED-PACKS-R093.2
 #[tokio::test]
 async fn an_admin_forced_reproject_redrives_a_stale_projection_without_losing_later_work() {
     let served = Served::new();
@@ -221,13 +221,13 @@ async fn an_admin_forced_reproject_redrives_a_stale_projection_without_losing_la
     // The administrator forces a Reproject directly, without ever running the
     // worker's sweep: a never-run projection is re-driven on demand.
     let key = "reproject:schema-pack-reproject";
-    let _: eg_types::connector_pack::PackImportReceipt = ok(
+    let _: medulla_types::connector_pack::PackImportReceipt = ok(
         "Reproject",
         served
             .pack(
                 key,
-                eg_types::connector_pack::ConnectorPackOp::Reproject {
-                    request: eg_types::connector_pack::ConnectorPackReprojectRequest {
+                medulla_types::connector_pack::ConnectorPackOp::Reproject {
+                    request: medulla_types::connector_pack::ConnectorPackReprojectRequest {
                         context: super::context(key),
                         connector: ResourceId::new(schema).unwrap(),
                     },
@@ -242,7 +242,7 @@ async fn an_admin_forced_reproject_redrives_a_stale_projection_without_losing_la
     // Read the durable backend, not a helper composition or the resident cache.
     let sources = projected_schema(&served, schema).await;
     let source = sources.dynamic.get(&format!("pack:{schema}")).unwrap();
-    let triples = eg_rdf::mapping::parse_turtle(source.ontology_ttl.as_deref().unwrap()).unwrap();
+    let triples = medulla_rdf::mapping::parse_turtle(source.ontology_ttl.as_deref().unwrap()).unwrap();
     assert_eq!(triples.len(), 2);
     let identities: std::collections::BTreeSet<_> = triples
         .iter()
@@ -265,13 +265,13 @@ async fn an_admin_forced_reproject_redrives_a_stale_projection_without_losing_la
     let connector = ResourceId::new(schema).unwrap();
     let before = store.connector_pack_status(TENANT, &connector).unwrap();
     let key = "reproject:schema-pack-reproject:fresh";
-    let _: eg_types::connector_pack::PackImportReceipt = ok(
+    let _: medulla_types::connector_pack::PackImportReceipt = ok(
         "Reproject",
         served
             .pack(
                 key,
-                eg_types::connector_pack::ConnectorPackOp::Reproject {
-                    request: eg_types::connector_pack::ConnectorPackReprojectRequest {
+                medulla_types::connector_pack::ConnectorPackOp::Reproject {
+                    request: medulla_types::connector_pack::ConnectorPackReprojectRequest {
                         context: super::context(key),
                         connector: connector.clone(),
                     },

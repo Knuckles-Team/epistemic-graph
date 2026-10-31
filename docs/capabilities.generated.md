@@ -1,9 +1,9 @@
-# Epistemic Graph -- Generated Capability Ledger
+# Medulla -- Generated Capability Ledger
 
 > **This file is GENERATED and is the AUTHORITATIVE machine-checked capability
-> truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities
+> truth (CONCEPT:MEDULLA-P0-1)** -- regenerate with `cargo run -p medulla-capabilities
 > --features contract --bin gen_contract`. It is derived directly from the eleven current domain `ROWS`
-> declarations under `crates/eg-capabilities/src/domains/`. Inventory gates keep
+> declarations under `crates/medulla-capabilities/src/domains/`. Inventory gates keep
 > them exact for every `Method` variant. `docs/capabilities.md` describes surface-level feature
 > parity; this generated table is authoritative for per-method policy.
 >
@@ -319,7 +319,7 @@
 | `DropNamedGraph` | true | GraphRedb | `rdf:write` | true | true | false | Atomic |  |
 | `SourceIngest` | true | GraphRedb | `source:ingest` | true | true | true | Saga | RF-ADR-009 native ingestion authority: tenant-bound typed Connector Manifest mapping resolution and idempotent raw-CAS admission precede one atomic ChangeEnvelope commit for mapped graph material, provenance, cursor and receipt; unknown mapping, tenant or authority fails closed; exact MCP catalog generation and digest binding makes the generated consumer contract replay-safe |
 | `SourceIngestStatus` | false | None | `source:ingest` | true | false | false | Snapshot | read-only authoritative source-partition checkpoint and receipt identity for restart/failover CAS recovery; callers must not substitute local checkpoint authority |
-| `EnrichDocument` | true | GraphRedb | `source:ingest` | true | true | true | Saga | EG-UNIFIED-DATA-PLANE-R651.7: chunks one RLS-visible held Document and embeds the chunks. Chunk nodes, chunkOf edges, vectors and one enrichment record commit as one ChangeEnvelope. An enriched digest replays; a new digest supersedes the earlier chunks |
+| `EnrichDocument` | true | GraphRedb | `source:ingest` | true | true | true | Saga | MEDULLA-UNIFIED-DATA-PLANE-R651.7: chunks one RLS-visible held Document and embeds the chunks. Chunk nodes, chunkOf edges, vectors and one enrichment record commit as one ChangeEnvelope. An enriched digest replays; a new digest supersedes the earlier chunks |
 | `TelemetryDerive` | true | GraphRedb | `telemetry:derive` | true | true | true | Atomic | EH-408/EH-409: reads the caller's tenant-scoped stored logs/metrics/spans over one window, binds them to the request graph's declared individuals (RLS-filtered reads), derives BehaviourObservation/HealthAnomaly/Incident/ConformanceViolation facts, and self-translates into ONE BatchUpdate (upsert, deterministic fact ids) against the request graph through dispatch_graph_op; a re-derivation is an idempotent upsert |
 | `ServedModality` | ~true | GraphRedb | `modality:write` | false | true | true | Atomic | runtime-conditional: authority/query/events/capabilities are verified read snapshots; ingest/delete/cold/restore commit an encrypted state-backed MutationBatch |
 | `ParseFile` | false | None | `compute:parse` | true | false | false | None |  |
@@ -393,7 +393,7 @@
 | `Uql` | false | None | `query:unified` | true | false | false | Snapshot | UQL statement: typed params, EXPLAIN/PROFILE, LET programs, RETURN channels; read-only |
 | `ExplainPlan` | false | None | `explain:read` | true | false | false | Snapshot |  |
 | `ExplainProvenance` | false | None | `explain:read` | true | false | false | Snapshot |  |
-| `ExplainProvenanceByIds` | false | None | `explain:read` | true | false | false | Snapshot | CONCEPT:EG-KB-CURRENCY — ID-seeded sibling of ExplainProvenance, same policy profile |
+| `ExplainProvenanceByIds` | false | None | `explain:read` | true | false | false | Snapshot | CONCEPT:MEDULLA-KB-CURRENCY — ID-seeded sibling of ExplainProvenance, same policy profile |
 | `ExplainPolicy` | false | None | `explain:read` | true | false | false | Snapshot |  |
 | `ExplainBelief` | false | None | `explain:read` | true | false | false | Snapshot |  |
 | `EpistemicStatus` | false | None | `explain:read` | true | false | false | Snapshot | L53 (EPI-P3-5) acceptance capstone; handler additionally gated `epistemic-tms` |
@@ -402,18 +402,18 @@
 | `MaterializationStatus` | false | None | `explain:read` | true | false | false | Snapshot | read-only status from the durable per-graph incremental reasoning authority |
 | `StaleMaterializations` | false | None | `explain:read` | true | false | false | Snapshot | bulk opaque stale references from the durable per-graph incremental reasoning authority |
 | `ResolveConflict` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-7 (gap-fill) standalone Dung argumentation (grounded/preferred/stable) conflict resolution over a BeliefGraph snapshot; handler additionally gated `epistemic-tms` |
-| `ExplainEvidence` | false | None | `explain:read` | true | false | false | Snapshot | CONCEPT:EG-X1 multimodal-citation resolver; handler additionally gated `evidence-graph` |
+| `ExplainEvidence` | false | None | `explain:read` | true | false | false | Snapshot | CONCEPT:MEDULLA-X1 multimodal-citation resolver; handler additionally gated `evidence-graph` |
 | `CausalEstimate` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-3/P3-6 do-calculus intervention OR observational conditioning (selected by `mode`) over a request-carried SCM; handler additionally gated `epistemic-causal` |
 | `CausalCounterfactual` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-6 Pearl point-counterfactual over a request-carried SCM + a fully-observed unit; handler additionally gated `epistemic-causal` |
 | `RankByProvenance` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-3 provenance-aware retrieval ranking; handler additionally gated `epistemic-causal` |
 | `NlQuery` | false | None | `query:nl` | false | false | false | Snapshot |  |
-| `NlQueryExplain` | false | None | `query:nl` | false | false | false | Snapshot | EG-FEDERATED-QUERY-R058.2.2.1: NlQuery plus the executed UQL text. It shares the planner, budget, authority and refusals of NlQuery |
-| `NlQueryPlan` | false | None | `query:nl` | false | false | false | None | EG-FEDERATED-QUERY-R058.2.2.2: typed plan-only UQL candidate and pins; no graph/source data read or authority claim |
+| `NlQueryExplain` | false | None | `query:nl` | false | false | false | Snapshot | MEDULLA-FEDERATED-QUERY-R058.2.2.1: NlQuery plus the executed UQL text. It shares the planner, budget, authority and refusals of NlQuery |
+| `NlQueryPlan` | false | None | `query:nl` | false | false | false | None | MEDULLA-FEDERATED-QUERY-R058.2.2.2: typed plan-only UQL candidate and pins; no graph/source data read or authority claim |
 | `TxnUnifiedQuery` | false | None | `txn:read` | true | false | false | Saga |  |
 | `TxnUql` | false | None | `txn:read` | true | false | false | Saga |  |
 | `EdgeIndex` | ~true | GraphRedb | `semantic:binding-write` | true | false | false | Atomic | EH-351/EH-352, runtime-conditional: status reads; create, refresh and drop write the verified tenant's SQL catalog (registration and generations) and the request graph's IndexManager. Drop is fenced: a build in flight never activates after it |
 | `EdgeSearch` | false | None | `semantic:binding-read` | true | false | false | Snapshot | EH-351: edge-native vector or BM25 search of the request graph; the caller's row-level security, the edge type and the property filters are applied inside the index walk, and edges come back as edges (endpoints and parallel-edge ordinal) |
-| `SelectWebPages` | false | None | `query:decide` | true | false | false | Snapshot | EG-DECISION-ENGINE-R802: deterministic web page selection over search candidates. It dedupes by canonical URL and digest against held Documents and enforces a budget. It commits nothing and runs no model |
+| `SelectWebPages` | false | None | `query:decide` | true | false | false | Snapshot | MEDULLA-DECISION-ENGINE-R802: deterministic web page selection over search candidates. It dedupes by canonical URL and digest against held Documents and enforces a budget. It commits nothing and runs no model |
 | `Decide` | false | None | `query:decide` | true | false | false | Snapshot | RF-ADR-010 DL-4. Evaluate-only: scores the tenant-visible library candidates under a pinned feature schema, head and policy and answers a batch of sealed statistical records; it commits none of them. Graph-sourced candidates are refused until graph-sourced records land |
 | `RunDatalogReasoning` | true | GraphRedb | `reasoning:write` | true | true | true | Atomic | state-backed MutationBatch commits inferred facts; operation-identity replay prevents duplicate materialization/audit/CDC |
 | `GetRdf` | false | None | `rdf:read` | true | false | false | Snapshot |  |
@@ -422,7 +422,7 @@
 | `OwlReason` | false | None | `owl:read` | true | false | false | Snapshot |  |
 | `OwlReasonDistributed` | false | None | `owl:read` | true | false | false | Snapshot |  |
 | `OwlExplain` | false | None | `owl:read` | true | false | false | Snapshot |  |
-| `RunRules` | false | None | `reasoning:read` | true | false | false | Snapshot | READ-ONLY (EG-P0-2/L11 handler audit): handle_run_rules reasons over an off-lock analysis_snapshot and returns inferred triples, no writeback -- unlike its sibling RunDatalogReasoning which materialises in-place. Corrected from a prior mutates=true semantic guess; now agrees with access.rs (never a write there) |
+| `RunRules` | false | None | `reasoning:read` | true | false | false | Snapshot | READ-ONLY (MEDULLA-P0-2/L11 handler audit): handle_run_rules reasons over an off-lock analysis_snapshot and returns inferred triples, no writeback -- unlike its sibling RunDatalogReasoning which materialises in-place. Corrected from a prior mutates=true semantic guess; now agrees with access.rs (never a write there) |
 | `ShaclValidate` | false | None | `validation:read` | true | false | false | Snapshot |  |
 | `OntologyInspect` | false | None | `validation:read` | true | false | false | Snapshot | the vocabulary, SHACL targets and canonical digest of inline documents or the composed GraphSchema sources, so orchestration callers need no RDF parser; reads schema, never graph rows |
 | `IcvConfigure` | true | GraphRedb | `security:admin` | true | true | true | Atomic | state-backed MutationBatch |
@@ -453,8 +453,8 @@
 | `AgentComponent` | true | ControlRedb | `agent:component-write` | true | false | false | Atomic | RF-ADR-008 layer 1. Runtime-conditional like AgentLibrary/AgentGraph: Current/History/Status/Search are authenticated tenant-bound read snapshots; Publish/Retire atomically commit native component revisions, action provenance, replay receipts and outbox through ControlRedb into the SAME agent_library.redb owner |
 | `AgentTemplate` | true | ControlRedb | `agent:template-write` | true | false | false | Atomic | RF-ADR-008 item C. Runtime-conditional like the three layers beside it: Current/History/Status/Instantiate are authenticated tenant-bound read snapshots (Instantiate binds parameters and returns a draft, committing nothing); Publish/Retire atomically commit native template revisions, action provenance, replay receipts and outbox through ControlRedb into the SAME agent_library.redb owner. Its own authz action because publishing a parameterized FAMILY of agents is a distinct privilege from publishing one |
 | `AgentAssemble` | false | None | `agent:assemble-read` | true | false | false | Snapshot | RF-ADR-010 A1. Reads ONE tenant-bound agent_library.redb snapshot and proves an agent graph against it; commits nothing. The record it answers with is durable only if the caller then sends DecisionCommit |
-| `CapabilityCoverage` | false | None | `agent:assemble-read` | true | false | false | Snapshot | EG-DECISION-ENGINE-R126.2.1. Reads ONE tenant-bound agent_library.redb snapshot and answers which visible components and A2A cards cover each capability of a task closure; ranks nothing, commits nothing |
-| `GuardrailEntailment` | false | None | `agent:assemble-read` | true | false | false | Snapshot | EG-DECISION-ENGINE-R127.2.2. Reads ONE tenant-bound agent_library.redb snapshot of published rule heads and returns advisory ontology entailment paths and source generations; commits nothing and does not authorize execution |
+| `CapabilityCoverage` | false | None | `agent:assemble-read` | true | false | false | Snapshot | MEDULLA-DECISION-ENGINE-R126.2.1. Reads ONE tenant-bound agent_library.redb snapshot and answers which visible components and A2A cards cover each capability of a task closure; ranks nothing, commits nothing |
+| `GuardrailEntailment` | false | None | `agent:assemble-read` | true | false | false | Snapshot | MEDULLA-DECISION-ENGINE-R127.2.2. Reads ONE tenant-bound agent_library.redb snapshot of published rule heads and returns advisory ontology entailment paths and source generations; commits nothing and does not authorize execution |
 | `DecisionCommit` | true | ControlRedb | `agent:decision-write` | true | false | false | Atomic | native MutationBatch in agent_library.redb: one DecisionRecord component revision, its receipt and outbox in one WTX after re-derivation and a catalog compare-and-set; local-only authority, refused in clustered mode |
 | `ConnectorPack` | ~true | ControlRedb | `agent:pack-control` | true | false | false | Atomic | RF-ADR-009 A2 plus RF-021 durable catalog reconciliation; runtime-conditional: status is an authenticated tenant-bound read snapshot exposing the exact MCP catalog generation/digest binding; import atomically commits resources/templates, component revisions, CAS body holders, provenance, receipt and outbox. Bind/unbind/retire/reproject/reconcile_bodies and a mass-withdrawal import need admin:connector-pack; local-only authority, refused in clustered mode |
 | `WriteBack` | ~true | ControlRedb | `connector:write-back` | true | true | false | Atomic | RF-ADR-009 D18, runtime-conditional: create/record operations append tenant-bound change-set and receipt rows through the existing Agent Library ControlRedb mutation kernel; get/receipts are authenticated snapshots. EG records authorization and source observations and never calls vendor APIs |
@@ -473,10 +473,10 @@
 | `BlobFetchBegin` | false | None | `blob:read` | true | false | false | Snapshot |  |
 | `BlobChunkGet` | false | None | `blob:read` | true | false | false | Snapshot |  |
 | `BlobFetchEnd` | false | None | `blob:read` | true | false | false | Snapshot |  |
-| `BlobRef` | true | BlobRedb | `blob:write` | true | false | false | Atomic | X6 (fix/eg-blob-cas-hardening-20260917): holder-scoped named reference (digest, owner scope), not a bare counter -- a retry or replay of the same reference is one holder row, never a second count (holders.rs's own module doc and handle_blob_ref_op's doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb. |
+| `BlobRef` | true | BlobRedb | `blob:write` | true | false | false | Atomic | X6 (fix/medulla-blob-cas-hardening-20260917): holder-scoped named reference (digest, owner scope), not a bare counter -- a retry or replay of the same reference is one holder row, never a second count (holders.rs's own module doc and handle_blob_ref_op's doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb. |
 | `BlobUnref` | true | BlobRedb | `blob:write` | true | false | false | Atomic | X6: releasing an already-released holder returns changed: false rather than erroring or underflowing (HolderOutcome's own doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb. |
 | `BlobGc` | true | BlobRedb | `blob:admin` | true | false | false | Atomic | durable via blob.redb |
-| `KvGet` | false | None | `kv:read` | true | false | false | Snapshot | EG-DURABLE-KERNEL-R102. The key is scoped by verified tenant, principal (unless shared), request graph and namespace. It answers the value and its commit version |
+| `KvGet` | false | None | `kv:read` | true | false | false | Snapshot | MEDULLA-DURABLE-KERNEL-R102. The key is scoped by verified tenant, principal (unless shared), request graph and namespace. It answers the value and its commit version |
 | `KvPut` | true | KvRedb | `kv:write` | false | true | false | Atomic | Native MutationBatch in kv.redb, committed before the acknowledgment. Each write stamps a new namespace commit version. The batch ledger is the durable audit |
 | `KvDelete` | true | KvRedb | `kv:write` | true | true | false | Atomic | Native MutationBatch in kv.redb. Re-deleting an absent key is a safe no-op that answers false |
 | `KvScan` | false | None | `kv:read` | true | false | false | Snapshot | Bounded prefix scan over one snapshot. A page holds at most 1000 rows (default 100) and 4 MiB. An exclusive-start cursor resumes it |
@@ -506,4 +506,4 @@
 | `TxnMaterializeBelief` | true | ControlRedb | `txn:write` | false | false | false | Saga | encrypted Raft-native cross-modal staging |
 | `Commit` | true | ControlRedb | `txn:control` | true | false | false | Saga | named parent receipt plus atomic graph/cross-modal child batches |
 | `Rollback` | true | ControlRedb | `txn:control` | false | false | false | Saga | encrypted Raft-native transaction staging removal |
-| `MutationOutbox` | ~true | ControlRedb | `admin:outbox` | true | false | false | Saga | X10, runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Targets a graph's outbox, or a native store of the verified tenant through a typed scope selector (tenant for Agent Library and jobs, binding for a semantic index, resource for the shared SQL catalog). Local-only authority, refused in clustered mode |
+| `MutationOutbox` | ~true | ControlRedb | `admin:outbox` | true | false | false | Saga | X10, runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded medulla-transaction transactions, so it is a saga rather than one atomic write. Targets a graph's outbox, or a native store of the verified tenant through a typed scope selector (tenant for Agent Library and jobs, binding for a semantic index, resource for the shared SQL catalog). Local-only authority, refused in clustered mode |

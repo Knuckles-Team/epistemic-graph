@@ -1,0 +1,506 @@
+//! The ShEx Core validation engine (CONCEPT:MEDULLA-KG.compute.concept-2).
+//!
+//! [`validate`] takes a parsed [`Schema`], an RDF data graph (`medulla_rdf::oxrdf::Graph`) and
+//! a [`ShapeMap`] (focus node → shape label) and produces a [`ShexReport`]. For each
+//! shape-map entry it asks: does the focus node **conform** to the shape expression?
+//!
+//! * A [`NodeConstraint`] tests the node itself (nodeKind / datatype / string+numeric
+//!   facets / value set).
+//! * A [`Shape`] gathers the node's outgoing arcs and matches them against the shape's
+//!   triple expression; a `closed` shape additionally rejects any leftover arc whose
+//!   predicate is neither mentioned nor listed in `extra`.
+//! * `EachOf` requires every branch; `OneOf` requires exactly one branch (alternation);
+//!   `ShapeAnd`/`ShapeOr`/`ShapeNot` compose shape expressions; a `Ref` recurses into
+//!   another labelled shape.
+//!
+//! The matcher uses the common-case greedy partition (each triple constraint consumes the
+//! arcs on its predicate whose object satisfies its value expression). Full backtracking
+//! partition across triple constraints that SHARE a predicate, and inverse (`^`) triple
+//! constraints, are documented MEDULLA-133 follow-ups.
+
+use medulla_rdf::oxrdf::{Graph, NamedNode, NamedOrBlankNodeRef, Term};
+use regex::RegexBuilder;
+
+use crate::report::{NodeResult, ShexReport};
+use crate::schema::{
+    NodeConstraint, NodeKind, NumericFacets, Schema, Shape, ShapeExpr, ShapeLabel, StringFacets,
+    TripleExpr, ValueSetValue, START,
+};
+
+/// One (focus node, shape label) association to validate.
+#[derive(Debug, Clone)]
+pub struct ShapeMapEntry {
+    pub node: Term,
+    pub shape: ShapeLabel,
+}
+
+/// A ShEx shape map — the query (which nodes to test against which shapes).
+#[derive(Debug, Clone, Default)]
+pub struct ShapeMap {
+    pub entries: Vec<ShapeMapEntry>,
+}
+
+impl ShapeMap {
+    pub fn new() -> Self {
+        ShapeMap::default()
+    }
+
+    /// Associate a focus node term with a shape label.
+    pub fn add(&mut self, node: Term, shape: impl Into<ShapeLabel>) -> &mut Self {
+        self.entries.push(ShapeMapEntry {
+            node,
+            shape: shape.into(),
+        });
+        self
+    }
+
+    /// Build a shape map from `(node_iri, shape_label)` string pairs — the ergonomic path
+    /// when every focus node is an IRI. Use [`START`] as the label for the start shape.
+    pub fn from_iri_pairs(pairs: &[(&str, &str)]) -> ShapeMap {
+        let mut m = ShapeMap::new();
+        for (node, shape) in pairs {
+            m.add(Term::NamedNode(NamedNode::new_unchecked(*node)), *shape);
+        }
+        m
+    }
+}
+
+/// Guard against pathological cyclic shape references.
+const MAX_DEPTH: usize = 40;
+
+/// Validate a shape map against a data graph using a parsed schema (CONCEPT:MEDULLA-KG.compute.concept-2).
+pub fn validate(schema: &Schema, data: &Graph, shape_map: &ShapeMap) -> ShexReport {
+    let v = Validator { schema, data };
+    let mut results = Vec::with_capacity(shape_map.entries.len());
+    for entry in &shape_map.entries {
+        let label = if entry.shape == START {
+            START
+        } else {
+            &entry.shape
+        };
+        let outcome = v.conforms_to_label(&entry.node, &entry.shape, 0);
+        results.push(NodeResult {
+            node: entry.node.to_string(),
+            shape: label.to_string(),
+            conforms: outcome.is_ok(),
+            reason: outcome.err(),
+        });
+    }
+    ShexReport::from_results(results)
+}
+
+/// Convenience: parse a ShExJ schema + a Turtle data graph and validate a shape map given
+/// as `(node_iri, shape_label)` string pairs.
+pub fn validate_shexj(
+    schema_json: &str,
+    data_ttl: &str,
+    pairs: &[(&str, &str)],
+) -> Result<ShexReport, String> {
+    let schema = Schema::from_shexj(schema_json)?;
+    let data = graph_from_turtle(data_ttl)?;
+    let map = ShapeMap::from_iri_pairs(pairs);
+    Ok(validate(&schema, &data, &map))
+}
+
+/// Build an `oxrdf::Graph` from a Turtle document via medulla-rdf's parser.
+pub fn graph_from_turtle(ttl: &str) -> Result<Graph, String> {
+    let triples = medulla_rdf::mapping::parse_turtle(ttl)?;
+    let mut g = Graph::new();
+    for t in triples {
+        g.insert(&t);
+    }
+    Ok(g)
+}
+
+struct Validator<'a> {
+    schema: &'a Schema,
+    data: &'a Graph,
+}
+
+/// A focus node's outgoing arc — a `(predicate, object)` pair.
+struct Arc {
+    predicate: String,
+    object: Term,
+}
+
+impl Validator<'_> {
+    /// Does `node` conform to the shape identified by `label`? `Ok(())` ⇒ conforms;
+    /// `Err(reason)` ⇒ a failure explanation.
+    fn conforms_to_label(&self, node: &Term, label: &str, depth: usize) -> Result<(), String> {
+        let expr = self
+            .schema
+            .resolve(label)
+            .ok_or_else(|| format!("unknown shape label `{label}`"))?;
+        self.satisfies(node, expr, depth)
+    }
+
+    /// Does `node` satisfy the shape expression `expr`?
+    fn satisfies(&self, node: &Term, expr: &ShapeExpr, depth: usize) -> Result<(), String> {
+        if depth > MAX_DEPTH {
+            return Ok(()); // cyclic-reference guard — assume conformance to break the loop
+        }
+        match expr {
+            ShapeExpr::NodeConstraint(nc) => self.check_node_constraint(node, nc),
+            ShapeExpr::Shape(shape) => self.match_shape(node, shape, depth),
+            ShapeExpr::And(list) => satisfies_all(self, node, list, depth),
+            ShapeExpr::Or(list) => satisfies_any(self, node, list, depth),
+            ShapeExpr::Not(inner) => satisfies_not(self, node, inner, depth),
+            ShapeExpr::Ref(label) => self.conforms_to_label(node, label, depth + 1),
+        }
+    }
+
+    // ── Node constraints ─────────────────────────────────────────────────
+    fn check_node_constraint(&self, node: &Term, nc: &NodeConstraint) -> Result<(), String> {
+        if let Some(kind) = nc.node_kind {
+            if !node_kind_ok(node, kind) {
+                return Err(format!("node {node} has the wrong nodeKind"));
+            }
+        }
+        if let Some(dt) = &nc.datatype {
+            let ok = matches!(node, Term::Literal(l) if l.datatype().as_str() == dt.as_str());
+            if !ok {
+                return Err(format!("node {node} is not of datatype <{dt}>"));
+            }
+        }
+        if let Some(values) = &nc.values {
+            if !values.iter().any(|v| value_set_matches(node, v)) {
+                return Err(format!("node {node} is not in the value set"));
+            }
+        }
+        self.check_string_facets(node, nc)?;
+        self.check_numeric_facets(node, nc)?;
+        Ok(())
+    }
+
+    fn check_string_facets(&self, node: &Term, nc: &NodeConstraint) -> Result<(), String> {
+        let f = &nc.string_facets;
+        if !has_string_facets(f) {
+            return Ok(());
+        }
+        let Some(s) = lexical(node) else {
+            return Err(format!(
+                "node {node} has no lexical form for a string facet"
+            ));
+        };
+        let len = s.chars().count();
+        check_string_lengths(node, len, f)?;
+        if let Some(pat) = &f.pattern {
+            if !pattern_ok(&s, pat, f.flags.as_deref()) {
+                return Err(format!("node {node} does not match pattern {pat}"));
+            }
+        }
+        Ok(())
+    }
+
+    fn check_numeric_facets(&self, node: &Term, nc: &NodeConstraint) -> Result<(), String> {
+        let f = &nc.numeric_facets;
+        if !has_numeric_facets(f) {
+            return Ok(());
+        }
+        let Some(x) = lexical(node).and_then(|s| s.trim().parse::<f64>().ok()) else {
+            return Err(format!("node {node} is not numeric for a numeric facet"));
+        };
+        check_numeric_bounds(node, x, f)
+    }
+
+    // ── Shapes ─────────────────────────────────────────────────────────────
+    fn match_shape(&self, node: &Term, shape: &Shape, depth: usize) -> Result<(), String> {
+        let arcs = self.outgoing_arcs(node);
+        let mut consumed = vec![false; arcs.len()];
+
+        if let Some(expr) = &shape.expression {
+            self.match_triple_expr(expr, &arcs, &mut consumed, depth)?;
+        }
+
+        if shape.closed {
+            for (i, arc) in arcs.iter().enumerate() {
+                if !consumed[i] && !shape.extra.iter().any(|p| p == &arc.predicate) {
+                    return Err(format!(
+                        "closed shape rejects extra arc <{}> on node {node}",
+                        arc.predicate
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The outgoing arcs of a focus node (empty for a literal — it has no subject arcs).
+    fn outgoing_arcs(&self, node: &Term) -> Vec<Arc> {
+        let subject: NamedOrBlankNodeRef<'_> = match node {
+            Term::NamedNode(n) => NamedOrBlankNodeRef::NamedNode(n.as_ref()),
+            Term::BlankNode(b) => NamedOrBlankNodeRef::BlankNode(b.as_ref()),
+            _ => return Vec::new(),
+        };
+        self.data
+            .triples_for_subject(subject)
+            .map(|t| Arc {
+                predicate: t.predicate.as_str().to_string(),
+                object: t.object.into_owned(),
+            })
+            .collect()
+    }
+
+    /// `OneOf` alternation: commit the first branch that matches on a TRIAL copy of the
+    /// consumed set, so a branch that fails part-way leaves no arcs marked behind it.
+    fn match_first_branch(
+        &self,
+        branches: &[TripleExpr],
+        arcs: &[Arc],
+        consumed: &mut [bool],
+        depth: usize,
+    ) -> Result<(), String> {
+        for branch in branches {
+            let mut trial = consumed.to_vec();
+            if self
+                .match_triple_expr(branch, arcs, &mut trial, depth)
+                .is_ok()
+            {
+                consumed.copy_from_slice(&trial);
+                return Ok(());
+            }
+        }
+        Err("no branch of a OneOf triple expression matched".into())
+    }
+
+    /// The indices of the not-yet-consumed arcs on `predicate` whose object satisfies
+    /// `value_expr` (every such arc when there is no value expression) — the greedy
+    /// candidate set a `TripleConstraint` then checks its cardinality bounds against.
+    fn conforming_arcs(
+        &self,
+        predicate: &str,
+        value_expr: Option<&ShapeExpr>,
+        arcs: &[Arc],
+        consumed: &[bool],
+        depth: usize,
+    ) -> Vec<usize> {
+        arcs.iter()
+            .enumerate()
+            .filter(|(i, arc)| !consumed[*i] && arc.predicate == predicate)
+            .filter(|(_, arc)| match value_expr {
+                None => true,
+                Some(ve) => self.satisfies(&arc.object, ve, depth + 1).is_ok(),
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Match a triple expression against the node's arcs, marking consumed arcs.
+    fn match_triple_expr(
+        &self,
+        expr: &TripleExpr,
+        arcs: &[Arc],
+        consumed: &mut [bool],
+        depth: usize,
+    ) -> Result<(), String> {
+        match expr {
+            TripleExpr::TripleConstraint {
+                predicate,
+                value_expr,
+                min,
+                max,
+                inverse: _,
+            } => {
+                let matched =
+                    self.conforming_arcs(predicate, value_expr.as_deref(), arcs, consumed, depth);
+                take_within_bounds(predicate, matched, *min, *max, consumed)
+            }
+            TripleExpr::EachOf(list) => {
+                for e in list {
+                    self.match_triple_expr(e, arcs, consumed, depth)?;
+                }
+                Ok(())
+            }
+            TripleExpr::OneOf(list) => self.match_first_branch(list, arcs, consumed, depth),
+        }
+    }
+}
+
+fn satisfies_all(
+    validator: &Validator<'_>,
+    node: &Term,
+    expressions: &[ShapeExpr],
+    depth: usize,
+) -> Result<(), String> {
+    for expression in expressions {
+        validator.satisfies(node, expression, depth)?;
+    }
+    Ok(())
+}
+
+fn satisfies_any(
+    validator: &Validator<'_>,
+    node: &Term,
+    expressions: &[ShapeExpr],
+    depth: usize,
+) -> Result<(), String> {
+    if expressions
+        .iter()
+        .any(|expression| validator.satisfies(node, expression, depth).is_ok())
+    {
+        Ok(())
+    } else {
+        Err("node satisfies none of the ShapeOr branches".into())
+    }
+}
+
+fn satisfies_not(
+    validator: &Validator<'_>,
+    node: &Term,
+    expression: &ShapeExpr,
+    depth: usize,
+) -> Result<(), String> {
+    match validator.satisfies(node, expression, depth) {
+        Ok(()) => Err("node satisfies a ShapeNot (negated) expression".into()),
+        Err(_) => Ok(()),
+    }
+}
+
+/// Check a `TripleConstraint`'s cardinality bounds against its greedy candidate set and,
+/// when they hold, mark those arcs consumed. `max == -1` is ShExC's unbounded `*`.
+fn take_within_bounds(
+    predicate: &str,
+    matched: Vec<usize>,
+    min: i64,
+    max: i64,
+    consumed: &mut [bool],
+) -> Result<(), String> {
+    let count = matched.len() as i64;
+    if count < min {
+        return Err(format!(
+            "predicate <{predicate}> has {count} conforming value(s), need at least {min}"
+        ));
+    }
+    if max != -1 && count > max {
+        return Err(format!(
+            "predicate <{predicate}> has {count} conforming value(s), at most {max} allowed"
+        ));
+    }
+    for i in matched {
+        consumed[i] = true;
+    }
+    Ok(())
+}
+
+fn has_string_facets(facets: &StringFacets) -> bool {
+    facets.length.is_some()
+        || facets.minlength.is_some()
+        || facets.maxlength.is_some()
+        || facets.pattern.is_some()
+}
+
+fn check_string_lengths(node: &Term, length: usize, facets: &StringFacets) -> Result<(), String> {
+    if let Some(expected) = facets.length {
+        if length != expected {
+            return Err(format!("node {node} length {length} != {expected}"));
+        }
+    }
+    if let Some(minimum) = facets.minlength {
+        if length < minimum {
+            return Err(format!("node {node} shorter than minlength {minimum}"));
+        }
+    }
+    if let Some(maximum) = facets.maxlength {
+        if length > maximum {
+            return Err(format!("node {node} longer than maxlength {maximum}"));
+        }
+    }
+    Ok(())
+}
+
+fn has_numeric_facets(facets: &NumericFacets) -> bool {
+    facets.mininclusive.is_some()
+        || facets.maxinclusive.is_some()
+        || facets.minexclusive.is_some()
+        || facets.maxexclusive.is_some()
+}
+
+fn check_numeric_bounds(node: &Term, value: f64, facets: &NumericFacets) -> Result<(), String> {
+    if let Some(bound) = facets.mininclusive {
+        if value < bound {
+            return Err(format!("node {node} < mininclusive {bound}"));
+        }
+    }
+    if let Some(bound) = facets.maxinclusive {
+        if value > bound {
+            return Err(format!("node {node} > maxinclusive {bound}"));
+        }
+    }
+    if let Some(bound) = facets.minexclusive {
+        if value <= bound {
+            return Err(format!("node {node} <= minexclusive {bound}"));
+        }
+    }
+    if let Some(bound) = facets.maxexclusive {
+        if value >= bound {
+            return Err(format!("node {node} >= maxexclusive {bound}"));
+        }
+    }
+    Ok(())
+}
+
+// ── Term-level helpers ─────────────────────────────────────────────────────
+
+fn node_kind_ok(node: &Term, kind: NodeKind) -> bool {
+    match kind {
+        NodeKind::Iri => matches!(node, Term::NamedNode(_)),
+        NodeKind::BNode => matches!(node, Term::BlankNode(_)),
+        NodeKind::Literal => matches!(node, Term::Literal(_)),
+        NodeKind::NonLiteral => matches!(node, Term::NamedNode(_) | Term::BlankNode(_)),
+    }
+}
+
+fn value_set_matches(node: &Term, v: &ValueSetValue) -> bool {
+    match v {
+        ValueSetValue::Iri(iri) => matches!(node, Term::NamedNode(n) if n.as_str() == iri),
+        ValueSetValue::Literal {
+            value,
+            datatype,
+            language,
+        } => literal_matches(node, value, datatype.as_deref(), language.as_deref()),
+    }
+}
+
+fn literal_matches(
+    node: &Term,
+    value: &str,
+    datatype: Option<&str>,
+    language: Option<&str>,
+) -> bool {
+    let Term::Literal(literal) = node else {
+        return false;
+    };
+    if literal.value() != value {
+        return false;
+    }
+    if datatype.is_some_and(|expected| literal.datatype().as_str() != expected) {
+        return false;
+    }
+    if language.is_some_and(|expected| literal.language() != Some(expected)) {
+        return false;
+    }
+    true
+}
+
+/// The lexical form of a term for string/numeric facets; `None` for a blank node.
+fn lexical(t: &Term) -> Option<String> {
+    match t {
+        Term::Literal(l) => Some(l.value().to_string()),
+        Term::NamedNode(n) => Some(n.as_str().to_string()),
+        _ => None,
+    }
+}
+
+fn pattern_ok(s: &str, pattern: &str, flags: Option<&str>) -> bool {
+    let mut b = RegexBuilder::new(pattern);
+    if let Some(f) = flags {
+        b.case_insensitive(f.contains('i'));
+        b.multi_line(f.contains('m'));
+        b.dot_matches_new_line(f.contains('s'));
+        b.ignore_whitespace(f.contains('x'));
+    }
+    match b.build() {
+        Ok(re) => re.is_match(s),
+        Err(_) => false,
+    }
+}

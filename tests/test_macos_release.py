@@ -90,7 +90,7 @@ def test_mac_probe_has_only_bounded_hosted_native_targets():
 
 
 def test_wheel_path_compiles_no_macos_server_binaries():
-    """The wheel path builds extension modules only (spec EG-CONTRACT-R053.8)."""
+    """The wheel path builds extension modules only (spec MEDULLA-CONTRACT-R053.8)."""
     action = yaml.safe_load(
         (ROOT / ".github/actions/folded-wheel/action.yml").read_text()
     )

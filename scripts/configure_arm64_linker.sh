@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Source inside each maturin Linux container, after its Rust toolchain setup.
 # Keep GCC's startup objects and glibc selection; replace only the ELF linker.
-eg_configure_arm64_linker() {
+medulla_configure_arm64_linker() {
     [ "${1:-}" = aarch64-unknown-linux-gnu ] || return 0
     [ "$(uname -m)" = aarch64 ] || { echo 'ARM64 linker requires a native ARM64 container' >&2; return 1; }
     [ "$(rustc --version | cut -d ' ' -f 2)" = 1.96.0 ] || { echo 'Expected release Rust 1.96.0' >&2; return 1; }
@@ -21,4 +21,4 @@ eg_configure_arm64_linker() {
     printf '%s\n' "$version" "$driver"
     export CARGO_ENCODED_RUSTFLAGS="${CARGO_ENCODED_RUSTFLAGS}"$'\x1f'"-Clink-arg=-B$linker_dir"$'\x1f''-Clink-arg=-fuse-ld=lld'
 }
-eg_configure_arm64_linker "${1:-}"
+medulla_configure_arm64_linker "${1:-}"
