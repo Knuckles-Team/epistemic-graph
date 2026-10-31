@@ -184,4 +184,4 @@ def write_reports(
         lines += category_section("pending-delete", by_cat["pending-delete"])
     lines += reroot_section(ctx, moves)
     lines += unplanned_section(ctx, unplanned)
-    (out / "SEAMS.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (out / "SEAMS.md").write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
