@@ -2287,3 +2287,46 @@ preserves both source implementations. All canonical outputs and codec pins
 retain exact main bytes as temporary placeholders. They do not qualify the
 combined media and identity schemas. Fresh hosted exports and final native
 checks remain required. R050.3 benchmarks and R036 served admission stay open.
+
+## Build contract
+
+This section applies to the participant memory rows R617.7 to R617.9, R651.9 to R651.12, R652.9, R155.7, R073.6, R073.7, R655, R656, R128.16, R036.107, R179.8 and R010.100.4. Each row must pass the pre-commit gates on the first commit.
+
+### Gate thresholds
+
+The values come from `.config/kiss.toml` and `.config/pre-commit.yaml`.
+
+| Gate | Value | Meaning for these rows |
+|---|---|---|
+| cccc | cyclomatic 10, cognitive 15 for each new function | Split any function that branches more than ten ways. |
+| KISS arguments | 8 | Pass one request struct instead of a long argument list. |
+| KISS boolean parameters | 1 | Use an enum for a second flag. `ObservationConfig` holds two booleans as struct fields, not parameters. |
+| KISS returns per function | 8 | Return early through a table lookup. |
+| KISS statements per function | 35 | Name helper functions such as `select_turns` and `cite_rows`. |
+| KISS local variables | 20 | Move state into a struct. |
+| KISS maximum indentation | 5 | Use early returns and iterator chains. |
+| KISS methods per class | 13 | Keep one impl block per concern. |
+| KISS lines per file | 900 | One file per concern, as named in each row. |
+| KISS functions per file | 40 | Split a handler file by op. |
+| KISS concrete types per file | 20 | `participant.rs` holds at most 20 types. |
+| KISS cycle size | 0 | New modules depend downward only. |
+| jscpd and dupehound | 0 new clone pairs among changed functions | Reuse the named helpers. |
+| Reachability (MEDULLA-CONTRACT-R055) | Every new module has a production caller | Register each module as the row states. |
+
+### Shapes
+
+- Dispatch on a kind is a table. `ParticipantOp`, `ParticipantReadOp` and `ProfileOp` each map to handler functions in one `match` that only selects a function.
+- A request is one struct. `EnqueueRequest`, `ParticipantQuestion` and `ReaderView` replace argument lists.
+- A function takes at most one boolean. A second flag becomes an enum such as `ObserverRef`.
+- Each new concern has its own file. The files are `participant.rs`, `memory_scope.rs`, `participant_memory.rs`, `memory_events.rs`, `assistant_profile.rs` in `crates/medulla-types/src`. The handler files are `participant_surface.rs`, `participant_derive.rs`, `participant_ask.rs`, `participant_card.rs` and `assistant_profile.rs` in `src/server/handlers/graph_ops`. The numeric files are `participant_derive.rs` and `participant_card.rs` in `crates/medulla-numeric/src/decision`.
+- Reuse these helpers and write no near-copy: the batch builder of `remember_thread`, `TaskEnqueue::with_lane`, `Claims` handler writers, `handle_nl_query_plan`, `claim_mutation_outbox`, `tool_subset_body`, the `Grant` evaluator of `medulla-core::rbac` and the tenant-filtered `GraphView` reader.
+- Register each module where the reachability gate sees it. Types modules go in `lib.rs`. Handler modules go in `src/server/handlers/graph_ops.rs`. Numeric modules go in `crates/medulla-numeric/src/decision.rs`.
+
+### Dependency order
+
+R010.100.4 and R179.8 come first, then R617.7, R617.8 and R617.9. R651.9 and R651.10 follow. R652.9 then precedes R651.11, R651.12 and R073.6. R655 and R656 come last.
+
+### Open design points
+
+- The existing code has no `MemoryRecord`, `Claims` handler or `HarnessConfig` family file yet. Those rows exist as spec rows. Each new row names the file its parent row creates.
+- `:Person` and `:Agent` are siblings under `bfo:0000004`. `:Participant` extends that shared parent, and the `:represents` property links it to the narrower class.
