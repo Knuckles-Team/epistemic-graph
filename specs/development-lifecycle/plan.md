@@ -214,7 +214,7 @@ Obsolete paths: no hand-run status file is truth, and no spec file is written ou
 - `ARBORA-OPS-R853` and `ARBORA-OPS-R896.1` to `R896.5` serve the lifecycle, artifact, mode, run and proposal operations. Contracts: `contracts/spec-artifact-graph.md`, `contracts/proposal-review.md`.
 - `PIPE-GATES-R004` and `PIPE-CONNSPEC-R009` publish gate verdicts and read the derived state.
 - `PIPE-RELEASE-R025` computes release plans that `MEDULLA-SDLC-R018` ingests.
-- The MERISTEM-SCM task-run row performs one task run. The overstory proposal-review row shows proposals.
+- `MERISTEM-SCM-R011.2` performs one task run. `OVERSTORY-DECIDE-R009` shows proposals.
 - `MEDULLA-DECISION-ENGINE-R134.111`, `R705`, `R654`, `R811`, `R817`, `R805` and `R179` own the decisions that this spec consumes.
 
 ## Risks, alternatives, and decisions

@@ -8,7 +8,7 @@ Repository: medulla. Rows: `MEDULLA-SDLC-R017.2`, `MEDULLA-SDLC-R017.3`, `MEDULL
 
 ## Consumer
 
-Repository: arbora, row `ARBORA-OPS-R896.5` (goal, proposal list and decision operations). Repository: overstory, the proposal-review row (ID in that repository spec). The spec-delivery page of pipelines reads the same list.
+Repository: arbora, row `ARBORA-OPS-R896.5` (goal, proposal list and decision operations). Repository: overstory, row `OVERSTORY-DECIDE-R009`. The spec-delivery page of pipelines reads the same list.
 
 ## Wire shape
 
