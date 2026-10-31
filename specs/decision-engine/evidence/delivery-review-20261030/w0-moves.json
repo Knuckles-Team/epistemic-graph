@@ -65,15 +65,6 @@
    "receives": "EG-DECISION-ENGINE-R079.4"
   },
   {
-   "id": null,
-   "repo": "wikidata-connector",
-   "spec": "CONN-WIKIDATA",
-   "title": "Align Region, Country, Taxon, Food and Nutrient entities",
-   "body": "The connector must query the open knowledge base and emit `wikidataId` and `skos:exactMatch` facts. It covers Region, Country, Taxon, Food and Nutrient entities. It publishes them through a connector pack whose `schema_mappings` target the world-model properties. It depends on scion-sdk only.",
-   "acceptance": "A connector test aligns one entity of each class and its pack passes medulla's world-model shape validation.",
-   "receives": "EG-DECISION-ENGINE-R099.1"
-  },
-  {
    "id": "ARBORA-OPS-R865",
    "repo": "arbora",
    "spec": "ARBORA-OPS",
@@ -234,6 +225,20 @@
    "body": "The agent-to-agent endpoint and task store must write the team, its members and each task status. They must use the medulla `:Team`, `:TeamMember` and `:TeamTask` nodes through the graph write path. The coordinator must call `Decide` with `QuestionKind::TeamCoordination` with the observed channel signal, and apply the returned option. Task status must survive a restart. Test: an arbora test with an unavailable and an available channel.",
    "acceptance": "An arbora test shows an unavailable channel starts the team path. It shows an available channel keeps the primary path. It shows the task status survives a restart.",
    "receives": "EG-DECISION-ENGINE-R170.2"
+  },
+  {
+   "id": "CONN-SEARXNG-MCP-SEARCH-R002",
+   "repo": "searxng-mcp",
+   "spec": "CONN-SEARXNG-MCP-SEARCH",
+   "title": "Knowledge-base entity candidates",
+   "receives": "EG-DECISION-ENGINE-R099"
+  },
+  {
+   "id": "CONN-WEBARCHIVER-WEB-SOURCE-R002",
+   "repo": "webarchiver",
+   "spec": "CONN-WEBARCHIVER-WEB-SOURCE",
+   "title": "Structured entity documents",
+   "receives": "EG-DECISION-ENGINE-R099.2"
   }
  ]
 }
