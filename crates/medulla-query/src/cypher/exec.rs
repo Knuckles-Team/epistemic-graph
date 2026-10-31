@@ -6535,6 +6535,7 @@ mod tests {
     ///   * `tb1` — labeled ONLY via `type` — the TRAP: broad-index-matchable but
     ///     narrow-UNMATCHABLE, so it must never appear in a Cypher `:Gamma` result.
     ///   * `lb1` — labeled ONLY via `label` — the same trap, the other broad-only field.
+    #[cfg(feature = "result-cache")]
     fn label_trap_fixture_versioned() -> (GraphCore, GraphView, u64) {
         let core = GraphCore::new();
         core.add_node(
