@@ -1,0 +1,242 @@
+{
+ "method": "VERIFIED leaf rows bound only to crate-level tests. \"orphan_modules\": the module that defines the tested items has no public item referenced by non-test code under src/. \"unit_only_kernels\": the bound test is a crate integration test; the kernel is reached in production, but no served test proves the row.",
+ "orphan_modules": [
+  {
+   "module": "crates/eg-types/src/test_support/decision.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R061.1"
+   ]
+  },
+  {
+   "module": "crates/eg-types/src/decision/ingestion_admission.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R079.1"
+   ]
+  },
+  {
+   "module": "crates/eg-types/src/decision/ingestion_ladder.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R080.1"
+   ]
+  },
+  {
+   "module": "crates/eg-types/src/graph_schema/shadow_branch.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R102.1"
+   ]
+  },
+  {
+   "module": "crates/eg-types/src/decision/topology/capacity_commit.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R113.1"
+   ]
+  },
+  {
+   "module": "crates/eg-types/src/decision/limit_guard.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R131.1",
+    "EG-DECISION-ENGINE-R131.2"
+   ]
+  },
+  {
+   "module": "crates/eg-types/src/decision/entry_trust.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R132.1",
+    "EG-DECISION-ENGINE-R132.2"
+   ]
+  },
+  {
+   "module": "crates/eg-types/src/decision/evolution_round.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R136.1",
+    "EG-DECISION-ENGINE-R136.2"
+   ]
+  },
+  {
+   "module": "crates/eg-types/src/decision/context_budget.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R137.1",
+    "EG-DECISION-ENGINE-R137.2"
+   ]
+  },
+  {
+   "module": "crates/eg-types/src/decision/red_team.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R138.1",
+    "EG-DECISION-ENGINE-R138.2"
+   ]
+  },
+  {
+   "module": "crates/eg-types/src/decision/answer_ranking.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R134.104",
+    "EG-DECISION-ENGINE-R134.105",
+    "EG-DECISION-ENGINE-R134.107"
+   ]
+  },
+  {
+   "module": "crates/eg-types/src/decision/recommend.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R175.1"
+   ]
+  },
+  {
+   "module": "crates/eg-types/src/decision/load_set.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R176.1"
+   ]
+  },
+  {
+   "module": "crates/eg-types/src/decision/usage_guidance.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R177.1"
+   ]
+  },
+  {
+   "module": "crates/eg-types/src/decision/promotion.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R805.1"
+   ]
+  }
+ ],
+ "unit_only_kernels": [
+  {
+   "test": "crates/eg-compute/tests/solve/determinism.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R004",
+    "EG-DECISION-ENGINE-R095"
+   ]
+  },
+  {
+   "test": "crates/eg-numeric/tests/stat_kernels/conformal.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R005"
+   ]
+  },
+  {
+   "test": "crates/eg-numeric/tests/stat_kernels/ope.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R006"
+   ]
+  },
+  {
+   "test": "crates/eg-numeric/tests/decision/scorer.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R009",
+    "EG-DECISION-ENGINE-R055",
+    "EG-DECISION-ENGINE-R082",
+    "EG-DECISION-ENGINE-R087",
+    "EG-DECISION-ENGINE-R091"
+   ]
+  },
+  {
+   "test": "crates/eg-compute/tests/solve/adversarial.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R011"
+   ]
+  },
+  {
+   "test": "crates/eg-numeric/tests/decision/admission.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R016",
+    "EG-DECISION-ENGINE-R022"
+   ]
+  },
+  {
+   "test": "crates/eg-numeric/tests/decision/features.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R021",
+    "EG-DECISION-ENGINE-R083.2"
+   ]
+  },
+  {
+   "test": "crates/eg-numeric/tests/decision/fit_eval.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R023",
+    "EG-DECISION-ENGINE-R024",
+    "EG-DECISION-ENGINE-R027"
+   ]
+  },
+  {
+   "test": "crates/eg-numeric/tests/decision/ladder.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R025",
+    "EG-DECISION-ENGINE-R089"
+   ]
+  },
+  {
+   "test": "crates/eg-numeric/src/decision/targets.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R026.1"
+   ]
+  },
+  {
+   "test": "crates/eg-capabilities/tests/invariants.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R047"
+   ]
+  },
+  {
+   "test": "crates/eg-compute/tests/solve/exhaustive.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R049"
+   ]
+  },
+  {
+   "test": "crates/eg-numeric/tests/decision/scorer_promotion.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R060",
+    "EG-DECISION-ENGINE-R086"
+   ]
+  },
+  {
+   "test": "crates/eg-compute/tests/solve/instrumentation.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R072.1"
+   ]
+  },
+  {
+   "test": "crates/eg-compute/src/algorithms.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R081",
+    "EG-DECISION-ENGINE-R096"
+   ]
+  },
+  {
+   "test": "crates/eg-numeric/tests/decision/calibration_coverage.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R084.1"
+   ]
+  },
+  {
+   "test": "crates/eg-numeric/benches/decision_resident_scorer.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R090.3"
+   ]
+  },
+  {
+   "test": "crates/eg-compute/src/finance/market/record_tests.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R103"
+   ]
+  },
+  {
+   "test": "crates/eg-numeric/tests/stat_kernels/clippy_policy.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R124"
+   ]
+  },
+  {
+   "test": "crates/eg-program/tests/optimize_front.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R800.1"
+   ]
+  },
+  {
+   "test": "crates/eg-rdf/tests/metadata_catalog_classes.rs",
+   "rows": [
+    "EG-DECISION-ENGINE-R814.1.1"
+   ]
+  }
+ ]
+}

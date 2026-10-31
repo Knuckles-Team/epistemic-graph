@@ -2,6 +2,38 @@
 
 Tests are keyed to the published commit and record command, result, fixture version and workflow URL in an acceptance record. The baseline suite starts a disposable local Medulla instance and creates its own tenant, pack and graph fixtures. External services are optional deployment qualification, not a PR prerequisite.
 
+## Integration proof standard
+
+This standard applies to every row bound after 2026-10-30. It implements AD-5 in `plan.md`. A test that exercises a type or function in isolation proves the algorithm, not the row.
+
+### Proof levels
+
+| Level | Harness | Verifies a row alone |
+|---|---|---|
+| L1 Unit | `#[cfg(test)]` module or crate test | No |
+| L2 Property and golden vector | `proptest`, committed byte vectors, exhaustive small models | No |
+| L3 Served (Rust) | `Harness` in `src/server/handlers/decide/stat_tests`, which runs the real handler and dispatch | Yes |
+| L4 Served (client) | `tests/decide/*_served.py` over a loopback engine with authentication | Yes |
+| L5 Cross-repository consumer | The owner repository's test against medulla's published types | For the consumer row only |
+| L6 Nightly qualification | Benchmarks, fuzzing, cross-target replay | For AD-9 and R007 rows only |
+
+### Required assertions for an L3 or L4 proof
+
+1. The request enters through the production dispatch with a tenant and principal context.
+2. The test asserts the outcome, the `ResolutionKind` and the `EvidenceClass`.
+3. The test asserts the premises that the row adds to the sealed record.
+4. Each refusal case asserts its stable code from the refusal taxonomy (AD-2).
+5. A row that adds a stage behaviour includes one negative case from another tenant (R013).
+6. A row that adds a durable write proves the write goes through its single write authority (R017), and that `Decide` wrote nothing.
+
+### Per-root slice
+
+A root's slice PR binds every child row. The `.1` and `.2` rows bind to their L1 or L2 tests and to the root's L3 test. The `.3`, `.4` and `.5` rows bind to L3 tests. The `.6` row binds to an L3 test, plus an L4 test when the root adds a client method.
+
+### Reachability
+
+The reachability gate (AD-6) fails when a public decision item has no non-test caller under `src/`. A row whose code fails the gate is not VERIFIED, whatever tests it binds.
+
 ## A. Contract and deterministic records
 
 | Case | Setup and assertion |
