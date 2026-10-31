@@ -283,6 +283,10 @@ def _link_error(root: Path, path: Path, target: str) -> str | None:
     target = target.strip().split(" ", 1)[0].strip("<>")
     if target.startswith("#"):
         return None
+    # status.json is computed at read time and never tracked, so a link to
+    # it resolves once the generator runs, not in a clean checkout.
+    if target.split("#", 1)[0].rsplit("/", 1)[-1] == "status.json":
+        return None
     parsed = urlsplit(target)
     if parsed.scheme:
         public = parsed.scheme in ("http", "https") and parsed.hostname
