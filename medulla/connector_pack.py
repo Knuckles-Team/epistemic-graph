@@ -188,9 +188,29 @@ def _annotations_digest(annotations: PackAnnotations) -> bytes:
                     if annotations.tool_mode is not None
                     else None
                 ),
+                *_harness_tool_fact_fields(annotations),
             ],
         )
     )
+
+
+def _harness_tool_fact_fields(annotations: PackAnnotations) -> list[bytes]:
+    """Harness tool facts, framed by name, only when present.
+
+    MEDULLA-TYPED-PACKS-R045.3. Mirrors ``annotations_digest`` in
+    ``crates/medulla-types/src/connector_pack/digest.rs``:
+    an entry that declares none keeps its published golden vector.
+    """
+    fields: list[bytes] = []
+    if annotations.side_effects is not None:
+        fields += [b"side_effects", annotations.side_effects.value.encode("utf-8")]
+    if annotations.declared_by is not None:
+        fields += [b"declared_by", annotations.declared_by.value.encode("utf-8")]
+    if annotations.schema_tokens is not None:
+        if not 0 <= annotations.schema_tokens <= 2**32 - 1:
+            raise ValueError("schema_tokens must be an unsigned 32-bit value")
+        fields += [b"schema_tokens", struct.pack(">I", annotations.schema_tokens)]
+    return fields
 
 
 def _references_digest(references: Sequence[PackRef] | None) -> bytes:

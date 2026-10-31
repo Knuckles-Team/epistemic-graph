@@ -747,7 +747,7 @@
         "crates/medulla-types/src/pre_merge_test_module.rs:232",
         "crates/medulla-types/src/pre_merge_test_module.rs:279",
         "crates/medulla-types/src/pre_merge_test_module.rs:295",
-        "scripts/tests/test_public_spec_inventory.py:102"
+        "scripts/tests/test_public_spec_inventory.py:104"
       ]
     },
     {

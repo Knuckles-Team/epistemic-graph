@@ -403,7 +403,7 @@
         "d116b7dbfd27"
       ],
       "verified_by": [
-        "tests/test_connector_pack_client.py:145"
+        "tests/test_connector_pack_client.py:148"
       ],
       "rollup_of": [
         "MEDULLA-TYPED-PACKS-R001.1",
@@ -610,8 +610,8 @@
         "d116b7dbfd27"
       ],
       "verified_by": [
-        "tests/test_connector_pack_client.py:265",
-        "tests/test_connector_pack_client.py:375"
+        "tests/test_connector_pack_client.py:268",
+        "tests/test_connector_pack_client.py:378"
       ]
     },
     {
@@ -1125,7 +1125,7 @@
         "src/server/handlers/admin/connector_pack/import/modality_tests.rs:33",
         "src/server/handlers/admin/connector_pack/import/modality_tests.rs:62",
         "src/server/handlers/admin/connector_pack/import/modality_tests.rs:88",
-        "tests/test_connector_pack_client.py:465"
+        "tests/test_connector_pack_client.py:468"
       ]
     },
     {
@@ -1180,10 +1180,14 @@
     {
       "id": "MEDULLA-TYPED-PACKS-R045.3",
       "title": "The annotation digest covers the new fields without moving old vectors",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cce1025cff8a"
+      ],
       "verified_by": [
-        "crates/medulla-types/src/connector_pack/digest.rs:449"
+        "crates/medulla-types/src/connector_pack/digest.rs:449",
+        "crates/medulla-types/src/connector_pack/digest.rs:506",
+        "tests/test_connector_pack_client.py:500"
       ]
     },
     {
@@ -1962,8 +1966,8 @@
         "f097533e52c8"
       ],
       "verified_by": [
-        "tests/test_connector_pack_client.py:374",
-        "tests/test_connector_pack_client.py:419"
+        "tests/test_connector_pack_client.py:377",
+        "tests/test_connector_pack_client.py:422"
       ]
     },
     {

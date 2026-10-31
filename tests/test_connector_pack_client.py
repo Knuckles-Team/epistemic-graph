@@ -135,6 +135,9 @@ _GOLDEN = {
     "annotations_digest/full": (
         "2184e78879af1f369b47adac45d9b847eb9c0f9f3f1f87fe53df73140eb0fe82"
     ),
+    "annotations_digest/harness_facts": (
+        "b62f12fa3e53f753fe273ccec4c89863fa966cc58ed3a834c7767c4320a6e672"
+    ),
 }
 
 
@@ -492,3 +495,39 @@ def test_modality_annotations_replay_golden_vector_and_affect_identity() -> None
     assert _annotations_digest(PackAnnotations(modalities_in=["eg:modality/text"])) != (
         _annotations_digest(PackAnnotations(modalities_out=["eg:modality/text"]))
     )
+
+
+@pytest.mark.spec("MEDULLA-TYPED-PACKS-R045.3")
+def test_harness_tool_facts_bind_the_annotation_digest_like_rust() -> None:
+    """side_effects, declared_by and schema_tokens are framed only when present.
+
+    Absent, the published vector is unchanged; present, Python must produce the
+    vector the Rust codec computes, or the engine refuses the pack import with
+    PACK_DIGEST_MISMATCH.
+    """
+    from medulla.connector_pack import _annotations_digest
+    from medulla.generated._shared import ToolFactDeclarer, ToolSideEffects
+
+    annotations = _annotations()
+    assert _annotations_digest(annotations).hex() == _expected_vector(
+        "annotations_digest/full"
+    )
+    declared = annotations.model_copy(
+        update={
+            "side_effects": ToolSideEffects.NETWORK,
+            "declared_by": ToolFactDeclarer.MCP_HINT,
+            "schema_tokens": 42,
+        }
+    )
+    assert _annotations_digest(declared).hex() == _expected_vector(
+        "annotations_digest/harness_facts"
+    )
+    for update in (
+        {"side_effects": ToolSideEffects.NONE},
+        {"declared_by": ToolFactDeclarer.CERTIFIED},
+        {"schema_tokens": 1},
+    ):
+        assert _annotations_digest(annotations.model_copy(update=update)) not in {
+            _annotations_digest(annotations),
+            _annotations_digest(declared),
+        }
