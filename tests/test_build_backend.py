@@ -500,14 +500,10 @@ def test_cached_editable_payload_preserves_source_and_permissions(
     assert os.stat(wheel).st_mode & 0o777 == 0o444
     with zipfile.ZipFile(wheel) as archive:
         assert (
-            archive.read("medulla.pth")
-            == f"{build_backend.ROOT.resolve()}\n".encode()
+            archive.read("medulla.pth") == f"{build_backend.ROOT.resolve()}\n".encode()
         )
         assert "direct_url.json" not in "\n".join(archive.namelist())
-        assert (
-            archive.getinfo("medulla/numeric.abi3.so").external_attr >> 16
-            & 0o111
-        )
+        assert archive.getinfo("medulla/numeric.abi3.so").external_attr >> 16 & 0o111
         assert not [n for n in archive.namelist() if ".data/scripts/" in n]
 
 

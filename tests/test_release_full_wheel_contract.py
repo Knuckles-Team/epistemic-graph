@@ -244,9 +244,7 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
         "PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b"
     )
     assert shared[0]["with"]["sccache"] == "false"
-    assert (
-        "CARGO_TARGET_DIR=$RUNNER_TEMP/medulla-release-target"
-    ) in wheel_pass
+    assert ("CARGO_TARGET_DIR=$RUNNER_TEMP/medulla-release-target") in wheel_pass
     for script in (
         "scripts/inject_numeric_kernel.py",
         "scripts/normalize_wheel_sbom.py",

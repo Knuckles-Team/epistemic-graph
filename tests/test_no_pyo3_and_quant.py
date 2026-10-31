@@ -35,9 +35,7 @@ def test_no_pyo3_gate_passes():
 def test_no_compiled_extension_ships():
     """No stale `_medulla*.so` may sit in the package dir."""
     pkg = REPO / "medulla"
-    leftovers = list(pkg.glob("_medulla*.so")) + list(
-        pkg.glob("_medulla*.pyi")
-    )
+    leftovers = list(pkg.glob("_medulla*.so")) + list(pkg.glob("_medulla*.pyi"))
     assert not leftovers, f"PyO3 binary vestiges present: {leftovers}"
 
 

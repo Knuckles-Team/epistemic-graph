@@ -165,9 +165,7 @@ class ConnectionPool:
         # of contending on one. An explicit cap is still honored.
         self.max_size = _auto_pool_size() if max_size is None else max_size
         self.min_size = min(min_size, self.max_size)
-        self._pool: asyncio.Queue[MedullaClient] = asyncio.Queue(
-            maxsize=self.max_size
-        )
+        self._pool: asyncio.Queue[MedullaClient] = asyncio.Queue(maxsize=self.max_size)
         self._active_connections = 0
         self._lock = asyncio.Lock()
 

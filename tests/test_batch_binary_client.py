@@ -18,8 +18,8 @@ import pytest
 from medulla import client as client_module
 from medulla.client import (
     EdgeClient,
-    MedullaClient,
     LifecycleClient,
+    MedullaClient,
     NodeClient,
     StatechartClient,
     TxnClient,

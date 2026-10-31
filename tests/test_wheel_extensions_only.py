@@ -92,7 +92,9 @@ def test_compile_cache_is_saved_from_main_and_restored_on_tags() -> None:
     cache = next(
         s for s in _yaml(ACTION)["runs"]["steps"] if "rust-cache" in s.get("uses", "")
     )
-    assert cache["with"]["shared-key"] == "medulla-wheel-${{ env.MEDULLA_WHEEL_TARGET }}"
+    assert (
+        cache["with"]["shared-key"] == "medulla-wheel-${{ env.MEDULLA_WHEEL_TARGET }}"
+    )
     assert cache["with"]["save-if"] == "${{ inputs.cache-save == 'true' }}"
     ci = _yaml(CI)["jobs"]["wheel-cache"]
     assert "github.event_name == 'push'" in ci["if"]

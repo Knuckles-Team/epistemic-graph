@@ -121,7 +121,8 @@ def test_workflow_preserves_failed_parity():
     upload = job["steps"][-1]
     assert parity["if"] == "${{ !cancelled() }}"
     assert (
-        parity["run"] == "cargo run -q --locked -p medulla-capabilities --features contract "
+        parity["run"]
+        == "cargo run -q --locked -p medulla-capabilities --features contract "
         "--bin gen_contract -- --check"
     )
     assert "steps.engine-contract-preflight.outcome == 'failure'" in export["if"]

@@ -14,9 +14,9 @@ from pathlib import Path
 import pytest
 from helix_compare import dataset as corpus
 from helix_compare import queries as query_set
-from helix_compare.medulla_engine import cypher_ids, uql_ids
 from helix_compare.helix_engine import rows
 from helix_compare.measure import Timing, parse_cpus, percentile
+from helix_compare.medulla_engine import cypher_ids, uql_ids
 from helix_compare.oracle import (
     Oracle,
     check_ranked,

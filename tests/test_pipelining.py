@@ -362,9 +362,7 @@ async def test_real_engine_single_connection_pipelines(start_medulla_server):
     # The real engine: N concurrent HEAVY ops (BetweennessCentrality, O(V*E)) on ONE
     # connection must run concurrently server-side — wall-clock ≪ the serial sum —
     # proving handle_connection no longer serializes one connection's requests.
-    socket_path = os.environ.get(
-        "GRAPH_SERVICE_SOCKET", "/tmp/test_medulla_local.sock"
-    )
+    socket_path = os.environ.get("GRAPH_SERVICE_SOCKET", "/tmp/test_medulla_local.sock")
     secret = os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "test-medulla-secret")
     client = await MedullaClient.connect(
         socket_path=socket_path,
