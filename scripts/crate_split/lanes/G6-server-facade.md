@@ -6,18 +6,12 @@ Spec: `MEDULLA-CONTRACT-R056.10`. Start after: G5 landed.
 Create the worktree from `main` after the previous group landed
 (`git worktree add <wt> -b lane/crate-split-server origin/main`). Never branch from another lane.
 
-## Files to move (212; exactly these, nothing else)
-- `src/cost/budget.rs`
-- `src/cost/resource_stats.rs`
+## Files to move (174; exactly these, nothing else)
 - `src/raft/command/tests.rs`
 - `src/raft/tests.rs`
 - `src/redb_store/work_item/run_owner/tests.rs`
-- `src/server/boot_maintenance.rs`
 - `src/server/cache_coherence.rs`
-- `src/server/cdc.rs`
-- `src/server/cdc/dispatch.rs`
 - `src/server/cdc_sink/mod.rs`
-- `src/server/cep.rs`
 - `src/server/dispatch.rs`
 - `src/server/dispatch/change_envelope.rs`
 - `src/server/dispatch/change_envelope/multi_graph.rs`
@@ -101,7 +95,6 @@ Create the worktree from `main` after the previous group landed
 - `src/server/dispatch/telemetry/materialize.rs`
 - `src/server/dispatch/telemetry/tests.rs`
 - `src/server/dispatch/test_support.rs`
-- `src/server/graph_schema/approved/tests.rs`
 - `src/server/graph_schema/compiled_tests.rs`
 - `src/server/graphql_sub.rs`
 - `src/server/handlers/admin/connector_pack/tests.rs`
@@ -141,40 +134,20 @@ Create the worktree from `main` after the previous group landed
 - `src/server/handlers/knowledge_stream/tests.rs`
 - `src/server/handlers/mod.rs`
 - `src/server/handlers/repository_index_tests.rs`
-- `src/server/handlers/source_batch/tests/served.rs`
-- `src/server/handlers/source_batch/tests/support.rs`
 - `src/server/handlers/timeseries/nested_payload_tests.rs`
 - `src/server/handlers/txn/consensus/authority_tests.rs`
 - `src/server/handlers/web_ingest_tests.rs`
-- `src/server/handlers/work_item/host_start_tests.rs`
-- `src/server/impact_watch.rs`
-- `src/server/impact_watch/grant.rs`
-- `src/server/impact_watch/plan.rs`
 - `src/server/impact_watch/tests.rs`
 - `src/server/issuer_trust.rs`
-- `src/server/kv.rs`
-- `src/server/kv/dispatch_handlers.rs`
-- `src/server/kv/dispatch_tests.rs`
-- `src/server/kv/tests.rs`
-- `src/server/kv/wire.rs`
 - `src/server/lake/catalog_ops.rs`
 - `src/server/lake/lineage.rs`
 - `src/server/lake/lineage_transport.rs`
 - `src/server/lake/mod.rs`
 - `src/server/lake/rest/catalog.rs`
 - `src/server/lake/rest/mod.rs`
-- `src/server/matview/incremental.rs`
 - `src/server/mod.rs`
-- `src/server/mutation/coalescer.rs`
-- `src/server/mutation/commit_encode.rs`
-- `src/server/mutation/commit_entry.rs`
-- `src/server/mutation/commit_paths.rs`
-- `src/server/mutation/commit_replay.rs`
-- `src/server/mutation/conditional.rs`
-- `src/server/mutation/context.rs`
-- `src/server/mutation/plan.rs`
 - `src/server/mutation_batch/lifecycle_tests.rs`
-- `src/server/namespace_migration.rs`
+- `src/server/mutation_batch/tests.rs`
 - `src/server/obda/mod.rs`
 - `src/server/obs/http/mod.rs`
 - `src/server/obs/http/search.rs`
@@ -190,12 +163,9 @@ Create the worktree from `main` after the previous group landed
 - `src/server/obs/state.rs`
 - `src/server/obs/writer.rs`
 - `src/server/obs/writer/tests.rs`
-- `src/server/oidc.rs`
 - `src/server/policy_export/mod.rs`
 - `src/server/promql/mod.rs`
 - `src/server/qos.rs`
-- `src/server/reasoning_cascade.rs`
-- `src/server/reasoning_projection/recovery.rs`
 - `src/server/registry_reaper.rs`
 - `src/server/replica.rs`
 - `src/server/sealed_retention.rs`
@@ -203,20 +173,12 @@ Create the worktree from `main` after the previous group landed
 - `src/server/semantic_activation.rs`
 - `src/server/semantic_index/dispatch_pipeline_tests.rs`
 - `src/server/semantic_index/sql_source_read_tests.rs`
-- `src/server/sql_catalog_acl.rs`
-- `src/server/sql_catalog_acl/ann_projection.rs`
-- `src/server/sql_catalog_acl/identity_view.rs`
-- `src/server/sql_catalog_acl/identity_view/tests.rs`
-- `src/server/sql_tables/ann_maintenance.rs`
 - `src/server/tests/foreign_tenancy.rs`
 - `src/server/tests/nl_explain.rs`
 - `src/server/tests/shex_served.rs`
 - `src/server/tests/udf_tenancy.rs`
 - `src/server/traces/mod.rs`
-- `src/server/transport.rs`
-- `src/server/transport/framing.rs`
 - `src/server/transport/tests.rs`
-- `src/server/transport/tls.rs`
 - `src/server/udf_catalog.rs`
 - `src/server_startup.rs`
 
@@ -224,7 +186,6 @@ Create the worktree from `main` after the previous group landed
 - `src/raft/command/tests.rs`
 - `src/raft/tests.rs`
 - `src/redb_store/work_item/run_owner/tests.rs`
-- `src/server/graph_schema/approved/tests.rs`
 - `src/server/graph_schema/compiled_tests.rs`
 - `src/server/handlers/admin/connector_pack/tests.rs`
 - `src/server/handlers/admin/connector_pack/tests/admin.rs`
@@ -262,15 +223,15 @@ Create the worktree from `main` after the previous group landed
 - `src/server/handlers/jobs/graph_tests.rs`
 - `src/server/handlers/knowledge_stream/tests.rs`
 - `src/server/handlers/repository_index_tests.rs`
-- `src/server/handlers/source_batch/tests/served.rs`
-- `src/server/handlers/source_batch/tests/support.rs`
 - `src/server/handlers/timeseries/nested_payload_tests.rs`
 - `src/server/handlers/txn/consensus/authority_tests.rs`
 - `src/server/handlers/web_ingest_tests.rs`
-- `src/server/handlers/work_item/host_start_tests.rs`
+- `src/server/impact_watch/tests.rs`
 - `src/server/mutation_batch/lifecycle_tests.rs`
+- `src/server/mutation_batch/tests.rs`
 - `src/server/semantic_index/dispatch_pipeline_tests.rs`
 - `src/server/semantic_index/sql_source_read_tests.rs`
+- `src/server/transport/tests.rs`
 
 ## Codemod (run in this order, from the worktree root)
 1. `python3 scripts/crate_split/rewrite_paths.py --crate medulla-server --moves > $SCRATCH/moves.sh`
@@ -311,7 +272,7 @@ The change lands on a passing build-train run of its changed crates. Link the tr
 pull request. Commit trailer: `Spec: MEDULLA-CONTRACT-R056.10`.
 
 ## STOP conditions
-- Any `BLOCKED` or `needs-seam` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
+- Any `BLOCKED` or `decide` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
 - Any file outside the list above, other than caller rewrites made by `rewrite_paths.py`, means STOP.
 - Cold pull-request CI timing out is not a blocker (MEDULLA-CONTRACT-R056.12).
 - Never run cargo locally, never `git stash`, never `git add -A` or `git add .`, never `--no-verify`, never force-push.

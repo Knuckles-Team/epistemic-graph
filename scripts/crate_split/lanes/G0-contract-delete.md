@@ -25,7 +25,7 @@ eg-lane-run enqueue --lane land-contract-delete --worktree <wt> --test '-p medul
 Link the train result in the pull request. Commit trailer: `Spec: MEDULLA-CONTRACT-R056.1`.
 
 ## STOP conditions
-- Any `BLOCKED` or `needs-seam` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
+- Any `BLOCKED` or `decide` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
 - Any file outside the list above, other than caller rewrites made by `rewrite_paths.py`, means STOP.
 - Cold pull-request CI timing out is not a blocker (MEDULLA-CONTRACT-R056.12).
 - Never run cargo locally, never `git stash`, never `git add -A` or `git add .`, never `--no-verify`, never force-push.

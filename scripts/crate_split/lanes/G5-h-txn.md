@@ -6,7 +6,7 @@ Spec: `MEDULLA-CONTRACT-R056.8`. Start after: G4 landed.
 Create the worktree from `main` after the previous group landed
 (`git worktree add <wt> -b lane/crate-split-h-txn origin/main`). Never branch from another lane.
 
-## Files to move (26; exactly these, nothing else)
+## Files to move (20; exactly these, nothing else)
 - `src/server/handlers/dist_compute.rs`
 - `src/server/handlers/sqlite_file.rs`
 - `src/server/handlers/sqlite_file/transfer_fs.rs`
@@ -26,12 +26,6 @@ Create the worktree from `main` after the previous group landed
 - `src/server/handlers/txn/reconcile.rs`
 - `src/server/handlers/txn/rollback.rs`
 - `src/server/handlers/txn/staging.rs`
-- `src/server/matview/mod.rs`
-- `src/server/txn.rs`
-- `src/server/txn/modality.rs`
-- `src/server/txn/recovery_plan.rs`
-- `src/server/txn/recovery_plan_tests.rs`
-- `src/server/txn/replay_intent.rs`
 - `src/server/txn_intent.rs`
 
 
@@ -50,16 +44,11 @@ Create the worktree from `main` after the previous group landed
 ## Seams this lane uses (from SEAMS.md)
 | category | item | refs | first location |
 |---|---|---|---|
-| extract-helper | `crate::server::dispatch::authoritative_now_ms` | 4 | src/server/handlers/sqlite_file.rs:197 |
+| extract-helper | `crate::server::dispatch::authoritative_now_ms` | 3 | src/server/handlers/sqlite_file.rs:197 |
+| extract-helper | `crate::server::dispatch::is_replicated_apply` | 1 | src/server/handlers/txn.rs:73 |
 | extract-type | `crate::server::handlers::admin::AdminSaga` | 11 | src/server/handlers/dist_compute.rs:284 |
+| extract-type | `crate::MeasurementBatch` | 3 | src/server/handlers/txn/commit_modal.rs:323 |
 | extract-type | `crate::server::handlers::admin::AdminSagaPayload` | 2 | src/server/handlers/txn/receipts.rs:393 |
-| needs-seam | `crate::MeasurementBatch` | 4 | src/server/handlers/txn/commit_modal.rs:323 |
-| needs-seam | `crate::server::dispatch::is_replicated_apply` | 2 | src/server/handlers/txn.rs:73 |
-| needs-seam | `crate::server::sql_catalog_acl::require_source_authority` | 2 | src/server/handlers/sqlite_file.rs:267 |
-| needs-seam | `crate::server::sql_catalog_acl::SqlSourceAuthorityWrite` | 1 | src/server/handlers/sqlite_file.rs:361 |
-| needs-seam | `crate::server::sql_catalog_acl::register_owner_after_create_in` | 1 | src/server/handlers/sqlite_file.rs:366 |
-| needs-seam | `crate::server::sql_catalog_acl::stable_source_operation_id` | 1 | src/server/handlers/sqlite_file.rs:369 |
-| needs-seam | `crate::server::sql_catalog_acl::with_source_authority_write` | 1 | src/server/handlers/sqlite_file.rs:268 |
 | seam:AdminApi | `crate::server::handlers::admin::resume_named_admin_saga` | 4 | src/server/handlers/txn/consensus/authority.rs:11 |
 | seam:AdminApi | `crate::server::handlers::admin::begin_named_admin_saga_with_private_payload_and_nonce` | 2 | src/server/handlers/txn/receipts.rs:388 |
 | seam:AdminApi | `crate::server::handlers::admin::finish_admin_saga` | 2 | src/server/handlers/txn/consensus/authority.rs:221 |
@@ -91,7 +80,7 @@ The change lands on a passing build-train run of its changed crates. Link the tr
 pull request. Commit trailer: `Spec: MEDULLA-CONTRACT-R056.8`.
 
 ## STOP conditions
-- Any `BLOCKED` or `needs-seam` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
+- Any `BLOCKED` or `decide` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
 - Any file outside the list above, other than caller rewrites made by `rewrite_paths.py`, means STOP.
 - Cold pull-request CI timing out is not a blocker (MEDULLA-CONTRACT-R056.12).
 - Never run cargo locally, never `git stash`, never `git add -A` or `git add .`, never `--no-verify`, never force-push.

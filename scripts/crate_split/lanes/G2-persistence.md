@@ -6,11 +6,17 @@ Spec: `MEDULLA-CONTRACT-R056.6`. Start after: G1 landed.
 Create the worktree from `main` after the previous group landed
 (`git worktree add <wt> -b lane/crate-split-persistence origin/main`). Never branch from another lane.
 
-## Files to move (105; exactly these, nothing else)
+## Files to move (111; exactly these, nothing else)
+- `src/cost/budget.rs`
 - `src/cost/mod.rs`
-- `src/raft/config.rs`
+- `src/cost/resource_stats.rs`
 - `src/server/cold_tier_impl.rs`
-- `src/server/graph_schema/compose.rs`
+- `src/server/kv.rs`
+- `src/server/kv/dispatch_handlers.rs`
+- `src/server/kv/dispatch_tests.rs`
+- `src/server/kv/tests.rs`
+- `src/server/kv/wire.rs`
+- `src/server/outbox_operator.rs`
 - `src/server/persistence/agent_component.rs`
 - `src/server/persistence/agent_component/pins.rs`
 - `src/server/persistence/agent_component/write.rs`
@@ -49,6 +55,7 @@ Create the worktree from `main` after the previous group landed
 - `src/server/persistence/connector_pack/pins.rs`
 - `src/server/persistence/connector_pack/projection.rs`
 - `src/server/persistence/connector_pack/visibility.rs`
+- `src/server/persistence/contract.rs`
 - `src/server/persistence/decision_jobs.rs`
 - `src/server/persistence/decision_record.rs`
 - `src/server/persistence/decision_record/sources.rs`
@@ -111,7 +118,6 @@ Create the worktree from `main` after the previous group landed
 - `src/server/persistence/tenant_catalog.rs`
 - `src/server/persistence/write_back.rs`
 - `src/server/persistence/writer_reply.rs`
-- `src/server/sql_tables.rs`
 
 
 ## Codemod (run in this order, from the worktree root)
@@ -129,11 +135,11 @@ Create the worktree from `main` after the previous group landed
 ## Seams this lane uses (from SEAMS.md)
 | category | item | refs | first location |
 |---|---|---|---|
-| extract-helper | `crate::server::dispatch::authoritative_now_ms` | 5 | src/server/persistence/agent_library/write.rs:243 |
-| needs-seam | `crate::server::txn::now_ms` | 5 | src/server/persistence/online_reshard.rs:1262 |
-| needs-seam | `crate::MeasurementBatch` | 4 | src/server/persistence/mod.rs:147 |
-| needs-seam | `crate::server::kv::KV_PHYSICAL_STORE` | 1 | src/server/persistence/durable_stores.rs:184 |
-| needs-seam | `crate::server::txn::GraphTxnState::decode_recovery_plan` | 1 | src/server/persistence/redb_backend.rs:672 |
+| extract-helper | `crate::server::dispatch::authoritative_now_ms` | 7 | src/server/kv.rs:292 |
+| extract-helper | `crate::server::graph_schema::compose::validate_and_compose` | 2 | src/server/persistence/redb_backend.rs:790 |
+| extract-helper | `crate::raft::config::raft_group_count` | 1 | src/server/persistence/redb_backend/shard_writer.rs:87 |
+| extract-type | `crate::MeasurementBatch` | 5 | src/server/persistence/contract.rs:753 |
+| extract-type | `crate::raft::EnrichmentTopUpTransition` | 3 | src/server/persistence/contract.rs:467 |
 
 Use the server-api trait or extracted item named in the table. Do not invent another seam.
 
@@ -157,7 +163,7 @@ The change lands on a passing build-train run of its changed crates. Link the tr
 pull request. Commit trailer: `Spec: MEDULLA-CONTRACT-R056.6`.
 
 ## STOP conditions
-- Any `BLOCKED` or `needs-seam` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
+- Any `BLOCKED` or `decide` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
 - Any file outside the list above, other than caller rewrites made by `rewrite_paths.py`, means STOP.
 - Cold pull-request CI timing out is not a blocker (MEDULLA-CONTRACT-R056.12).
 - Never run cargo locally, never `git stash`, never `git add -A` or `git add .`, never `--no-verify`, never force-push.

@@ -6,7 +6,7 @@ Spec: `MEDULLA-CONTRACT-R056.8`. Start after: G4 landed.
 Create the worktree from `main` after the previous group landed
 (`git worktree add <wt> -b lane/crate-split-h-query origin/main`). Never branch from another lane.
 
-## Files to move (77; exactly these, nothing else)
+## Files to move (78; exactly these, nothing else)
 - `src/server/federation/merge.rs`
 - `src/server/federation/mod.rs`
 - `src/server/federation/opensearch.rs`
@@ -70,6 +70,7 @@ Create the worktree from `main` after the previous group landed
 - `src/server/handlers/streaming.rs`
 - `src/server/nl.rs`
 - `src/server/reasoning_projection.rs`
+- `src/server/reasoning_projection/recovery.rs`
 - `src/server/reasoning_projection/tests/sweep_clock.rs`
 - `src/server/request_cancel.rs`
 - `src/server/secondary_indexes.rs`
@@ -102,33 +103,14 @@ Create the worktree from `main` after the previous group landed
 | category | item | refs | first location |
 |---|---|---|---|
 | extract-helper | `crate::server::dispatch::authoritative_now_ms` | 5 | src/server/handlers/query/foreign_watermarks.rs:58 |
+| extract-helper | `crate::server::dispatch::is_replicated_apply` | 1 | src/server/handlers/query/explain_handlers.rs:298 |
 | extract-helper | `crate::server::outbound_http_config` | 1 | src/server/federation/opensearch.rs:166 |
 | extract-type | `crate::server::blob::cas_resolver::CasEvidenceResolver` | 2 | src/server/handlers/query/explain_wire_b.rs:281 |
-| extract-type | `crate::server::sparql_http::ServiceClient` | 2 | src/server/sparql_service/mod.rs:133 |
-| extract-type | `crate::server::blob::ChunkStore` | 1 | src/server/handlers/query/explain_wire_b.rs:319 |
 | extract-type | `crate::server::graph_schema::terms::TermPageRequest` | 1 | src/server/handlers/rdf/dispatch.rs:337 |
 | extract-type | `crate::server::handlers::decide::served_adapter::ServedAdapter` | 1 | src/server/handlers/query/planning.rs:702 |
 | extract-type | `crate::server::handlers::web_ingest::embedder::EmbedderConfig` | 1 | src/server/handlers/query/planning.rs:21 |
 | extract-type | `crate::server::handlers::web_ingest::embedder::REMOTE` | 1 | src/server/handlers/query/planning.rs:22 |
-| extract-type | `crate::server::http1::HttpMessage` | 1 | src/server/federation/mod.rs:55 |
-| extract-type | `crate::server::http1::RequestLimits` | 1 | src/server/federation/mod.rs:55 |
-| needs-seam | `crate::server::sql_catalog_acl::AuthorizedReadStore::store` | 3 | src/server/handlers/query/sql_dispatch.rs:111 |
-| needs-seam | `crate::server::sql_catalog_acl::RequestGraph` | 3 | src/server/handlers/query/dispatch.rs:531 |
-| needs-seam | `crate::server::cdc::CdcHub` | 2 | src/server/handlers/streaming.rs:32 |
-| needs-seam | `crate::server::sql_catalog_acl::AuthorizedReadStore` | 2 | src/server/handlers/query/sql_dispatch.rs:11 |
-| needs-seam | `crate::server::sql_catalog_acl::open_authorized_table` | 2 | src/server/handlers/rdf/obda.rs:75 |
-| needs-seam | `crate::server::dispatch::dispatch_authenticated_local_query` | 1 | src/server/federation/mod.rs:355 |
-| needs-seam | `crate::server::dispatch::is_replicated_apply` | 1 | src/server/handlers/query/explain_handlers.rs:298 |
-| needs-seam | `crate::server::sql_catalog_acl::ACCESS_DENIED` | 1 | src/server/handlers/query/sql_catalog.rs:55 |
-| needs-seam | `crate::server::sql_catalog_acl::SemanticTextSnapshot` | 1 | src/server/semantic_index.rs:73 |
-| needs-seam | `crate::server::sql_catalog_acl::SqlPrivilege` | 1 | src/server/semantic_index.rs:73 |
-| needs-seam | `crate::server::sql_catalog_acl::SqlPrivilege::Select` | 1 | src/server/handlers/rdf/obda.rs:79 |
-| needs-seam | `crate::server::sql_catalog_acl::alterable_ann_index_table` | 1 | src/server/handlers/query/sql_dispatch.rs:397 |
-| needs-seam | `crate::server::sql_catalog_acl::authorized_read_store` | 1 | src/server/handlers/query/sql_dispatch.rs:39 |
-| needs-seam | `crate::server::sql_catalog_acl::authorized_read_store_for_query` | 1 | src/server/handlers/query/sql_read.rs:436 |
-| needs-seam | `crate::server::sql_catalog_acl::register_owner_after_create_in` | 1 | src/server/handlers/query/sql_catalog.rs:271 |
-| needs-seam | `crate::server::sql_catalog_acl::stable_source_operation_id` | 1 | src/server/handlers/query/sql_catalog.rs:269 |
-| needs-seam | `crate::server::sql_catalog_acl::with_source_authority_write` | 1 | src/server/handlers/query/sql_catalog.rs:232 |
+| seam:AdminApi | `crate::server::graph_schema::compose::validate_and_compose` | 3 | src/server/handlers/rdf/reasoning.rs:395 |
 | seam:AdminApi | `crate::server::graph_schema::handle_list` | 1 | src/server/handlers/rdf/dispatch.rs:325 |
 | seam:AdminApi | `crate::server::graph_schema::terms::handle_classes` | 1 | src/server/handlers/rdf/dispatch.rs:333 |
 | seam:DecideApi | `crate::server::handlers::decide::decision_source` | 1 | src/server/handlers/query/planning.rs:837 |
@@ -138,9 +120,10 @@ Create the worktree from `main` after the previous group landed
 | seam:DecideApi | `crate::server::handlers::decide::served_adapter::served_plan_adapter` | 1 | src/server/handlers/query/planning.rs:739 |
 | seam:TxnApi | `crate::server::handlers::txn` | 1 | src/server/handlers/query/graphql.rs:3 |
 | seam:WireApi | `crate::server::wire::committed_sql_replay_receipt` | 2 | src/server/handlers/query/sql_catalog.rs:256 |
-| seam:WireApi | `crate::server::http1` | 1 | src/server/federation/mod.rs:55 |
 | seam:WireApi | `crate::server::wire::authorize_table_txn` | 1 | src/server/handlers/query/sql_catalog.rs:258 |
 | seam:dispatch | `crate::server::handlers::TryHandleContext` | 2 | src/server/handlers/query/dispatch.rs:4 |
+| seam:dispatch | `crate::server::dispatch::dispatch_authenticated_local_query` | 1 | src/server/federation/mod.rs:355 |
+| seam:state-handle | `crate::server::blob::ChunkStore` | 1 | src/server/handlers/query/explain_wire_b.rs:319 |
 
 Use the server-api trait or extracted item named in the table. Do not invent another seam.
 
@@ -164,7 +147,7 @@ The change lands on a passing build-train run of its changed crates. Link the tr
 pull request. Commit trailer: `Spec: MEDULLA-CONTRACT-R056.8`.
 
 ## STOP conditions
-- Any `BLOCKED` or `needs-seam` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
+- Any `BLOCKED` or `decide` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
 - Any file outside the list above, other than caller rewrites made by `rewrite_paths.py`, means STOP.
 - Cold pull-request CI timing out is not a blocker (MEDULLA-CONTRACT-R056.12).
 - Never run cargo locally, never `git stash`, never `git add -A` or `git add .`, never `--no-verify`, never force-push.

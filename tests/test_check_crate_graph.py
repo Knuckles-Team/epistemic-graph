@@ -39,6 +39,11 @@ kind = "existing"
 level = 0
 paths = ["src/kernel"]
 
+[crates.medulla-server-api]
+kind = "api"
+level = 2
+paths = ["src/api"]
+
 [crates.medulla-h-decide]
 kind = "handler"
 level = 5
@@ -52,7 +57,11 @@ paths = ["src/b"]
 [crates.medulla-engine]
 kind = "facade"
 level = 7
-paths = ["src/lib.rs", "src/legacy.rs", "src/shared.rs"]
+paths = [
+    "src/lib.rs",
+    "src/legacy.rs",
+    "src/shared.rs",  # unplanned
+]
 """
 
 
@@ -74,7 +83,13 @@ def _tree(
     tmp_path: Path, deps: dict[str, list[str]] | None = None, enforce: bool = False
 ) -> Path:
     root = tmp_path / "repo"
-    for rel in ("src/lib.rs", "src/kernel/mod.rs", "src/a/mod.rs", "src/b/mod.rs"):
+    for rel in (
+        "src/lib.rs",
+        "src/kernel/mod.rs",
+        "src/api/mod.rs",
+        "src/a/mod.rs",
+        "src/b/mod.rs",
+    ):
         _src(root, rel)
     _src(root, "src/legacy.rs")
     _src(root, "src/shared.rs")
@@ -100,7 +115,8 @@ def _placement(root: Path, body: str) -> Path:
 
 FULL = (
     '[files]\n"src/lib.rs" = "medulla-engine"\n"src/kernel/mod.rs" = "medulla-kernel"\n'
-    '"src/a/mod.rs" = "medulla-h-decide"\n"src/b/mod.rs" = "medulla-h-query"\n'
+    '"src/api/mod.rs" = "medulla-server-api"\n"src/a/mod.rs" = "medulla-h-decide"\n'
+    '"src/b/mod.rs" = "medulla-h-query"\n'
     '"src/legacy.rs" = "medulla-engine"\n"src/shared.rs" = "medulla-engine"\n'
 )
 
@@ -217,7 +233,7 @@ def test_back_edge_inventory_reads_grouped_uses_and_skips_visibility(
 
 
 @pytest.mark.spec("MEDULLA-CONTRACT-R056")
-def test_resolver_moves_shared_file_down_and_labels_sibling_edges(
+def test_resolver_moves_unplanned_unit_down_and_labels_sibling_edges(
     tmp_path: Path,
 ) -> None:
     root = _tree(tmp_path)
@@ -225,13 +241,13 @@ def test_resolver_moves_shared_file_down_and_labels_sibling_edges(
     _src(root, "src/b/mod.rs", "use crate::shared::S;\nfn g() { crate::a::run(); }\n")
     manifest = root / "scripts" / "manifest.toml"
     ctx, labels, _unplanned = resolve(root, manifest)
-    assert ctx.placement["src/shared.rs"] == KERNEL
+    assert ctx.placement["src/shared.rs"] == "medulla-server-api"
     cats = {(x.file, x.item): x.category for x in labels}
     assert cats[("src/a/mod.rs", "crate::b::Widget")] == "extract-type"
     assert cats[("src/b/mod.rs", "crate::a::run")] == "seam:DecideApi"
     write_placement(root / "scripts" / "placement.toml", ctx, [], labels)
-    assert (
-        load_placement(root / "scripts" / "placement.toml")["src/shared.rs"] == KERNEL
+    assert load_placement(root / "scripts" / "placement.toml")["src/shared.rs"] == (
+        "medulla-server-api"
     )
 
 
@@ -264,3 +280,29 @@ def test_codemod_rewrites_callers_and_flags_stay_behind_refs(tmp_path: Path) -> 
     assert "use medulla_h_query::b::f as g;" in text
     assert "use crate::kernel;" in text
     assert '"crates/medulla-h-query/src/b/mod.rs"' in placement.read_text()
+
+
+@pytest.mark.spec("MEDULLA-CONTRACT-R056")
+def test_units_keep_descendants_and_tests_with_their_module() -> None:
+    from crate_split.units import build_units, tarjan
+
+    files = [
+        "src/lib.rs",
+        "src/server/mod.rs",
+        "src/server/cdc.rs",
+        "src/server/cdc/sink.rs",
+        "src/server/handlers/mod.rs",
+        "src/server/handlers/query.rs",
+        "src/server/handlers/query/dispatch.rs",
+        "src/server/handlers/query_tests.rs",
+        "src/raft/mod.rs",
+        "src/raft/command/mod.rs",
+    ]
+    unit_of, members = build_units(files)
+    assert unit_of["src/server/cdc/sink.rs"] == "server/cdc"
+    assert unit_of["src/server/handlers/query_tests.rs"] == "server/handlers/query"
+    assert unit_of["src/raft/command/mod.rs"] == "raft"
+    assert unit_of["src/server/mod.rs"] == "src/server/mod.rs"
+    assert len(members["server/handlers/query"]) == 3
+    comps = tarjan(["a", "b", "c"], {"a": {"b"}, "b": {"a"}, "c": {"a"}})
+    assert sorted(map(sorted, comps)) == [["a", "b"], ["c"]]

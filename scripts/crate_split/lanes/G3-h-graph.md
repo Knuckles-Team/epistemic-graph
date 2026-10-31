@@ -25,15 +25,15 @@ Create the worktree from `main` after the previous group landed
 - `src/server/handlers/graph_ops/subgraph.rs`
 - `src/server/handlers/graph_ops/terminal.rs`
 - `src/server/handlers/graph_ops/union.rs`
+- `src/server/handlers/graphlearn.rs`
 - `src/server/handlers/pipeline.rs`
 - `src/server/handlers/pipeline/features.rs`
 - `src/server/handlers/pipeline/pipeline_model.rs`
 - `src/server/handlers/placement.rs`
+- `src/server/handlers/topology.rs`
 - `src/server/handlers/write_back.rs`
 - `src/server/harness_admission.rs`
 - `src/server/harness_admission/tests.rs`
-- `src/server/mutation.rs`
-- `src/server/routed_write_coalescer.rs`
 
 
 ## Codemod (run in this order, from the worktree root)
@@ -64,11 +64,7 @@ Create the worktree from `main` after the previous group landed
 | extract-type | `crate::server::handlers::mining::RiskPropagationRequest` | 1 | src/server/handlers/graph_ops/gateway_mining_derived.rs:4 |
 | extract-type | `crate::server::handlers::mining::RootCauseRequest` | 1 | src/server/handlers/graph_ops/gateway_mining_derived.rs:4 |
 | extract-type | `crate::server::handlers::mining::TextRequest` | 1 | src/server/handlers/graph_ops/gateway_mining_derived.rs:4 |
-| needs-seam | `crate::server::cdc::CdcHub` | 1 | src/server/handlers/graph_ops/gateway.rs:87 |
-| needs-seam | `crate::server::mutation::GatewayAuthzCtx` | 1 | src/server/handlers/graph_ops.rs:14 |
-| needs-seam | `crate::server::mutation::MutationCtx` | 1 | src/server/handlers/graph_ops.rs:14 |
-| needs-seam | `crate::server::mutation::MutationPlan` | 1 | src/server/handlers/graph_ops.rs:14 |
-| needs-seam | `crate::server::mutation::is_coalescable_structural_write` | 1 | src/server/handlers/graph_ops/gateway_graph_routes.rs:129 |
+| seam:AdminApi | `crate::server::graph_schema::compose::validate_and_compose` | 1 | src/server/handlers/graph_ops/gateway_graph.rs:386 |
 | seam:AdminApi | `crate::server::graph_schema::handle_gateway` | 1 | src/server/handlers/graph_ops/gateway_graph_routes.rs:656 |
 | seam:DecideApi | `crate::server::handlers::decide::served_adapter::adapted_query` | 1 | src/server/handlers/graph_ops/semantic.rs:233 |
 | seam:DecideApi | `crate::server::handlers::decide::served_adapter::carrier_tenant` | 1 | src/server/handlers/graph_ops/semantic.rs:233 |
@@ -95,7 +91,7 @@ The change lands on a passing build-train run of its changed crates. Link the tr
 pull request. Commit trailer: `Spec: MEDULLA-CONTRACT-R056.7`.
 
 ## STOP conditions
-- Any `BLOCKED` or `needs-seam` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
+- Any `BLOCKED` or `decide` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
 - Any file outside the list above, other than caller rewrites made by `rewrite_paths.py`, means STOP.
 - Cold pull-request CI timing out is not a blocker (MEDULLA-CONTRACT-R056.12).
 - Never run cargo locally, never `git stash`, never `git add -A` or `git add .`, never `--no-verify`, never force-push.

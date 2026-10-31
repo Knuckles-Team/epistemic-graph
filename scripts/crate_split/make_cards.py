@@ -52,8 +52,13 @@ LANE_TABLE = [
     ("G5", "h-txn", "medulla-h-txn", 8, "G4 landed"),
     ("G6", "server-facade", "medulla-server", 10, "G5 landed"),
 ]
+EXTRACT_NOTE = (
+    "\nThis lane also owns every `extract-type`, `extract-helper` and `seam:state-handle` item "
+    "in `SEAMS.md`, whatever file references it: move the item into `medulla-server-api` and "
+    "rewrite its callers, so that later lanes find it below them.\n"
+)
 GENERIC_STOP = (
-    "- Any `BLOCKED` or `needs-seam` hit (from `rewrite_paths.py` or the seam table below) means "
+    "- Any `BLOCKED` or `decide` hit (from `rewrite_paths.py` or the seam table below) means "
     "STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item "
     "and the file:line, then exit. Do not improvise a seam.\n"
     "- Any file outside the list above, other than caller rewrites made by `rewrite_paths.py`, "
@@ -105,6 +110,7 @@ def crate_card(
     moves = [f for f in ctx["test_moves"] if crate == "medulla-server"]
     short = crate.replace("medulla-", "")
     table = seam_table(crate, set(files), ctx["seams"])
+    extra = EXTRACT_NOTE if crate == "medulla-server-api" else ""
     return f"""# Lane {group}-{name}: move the files placed in `{crate}`
 
 Spec: `MEDULLA-CONTRACT-R056.{row}`. Start after: {before}.
@@ -133,7 +139,7 @@ Create the worktree from `main` after the previous group landed
 {table}
 
 Use the server-api trait or extracted item named in the table. Do not invent another seam.
-
+{extra}
 ## Files it must not touch
 Every file outside the list above, except caller rewrites from step 3. Do not change
 `scripts/crate_split/*.toml` by hand; step 3 updates `placement.toml`. Do not copy helpers:

@@ -39,11 +39,7 @@ Create the worktree from `main` after the previous group landed
 6. `python3 scripts/crate_split/rewrite_paths.py --crate medulla-h-compute --check` must report nothing.
 
 ## Seams this lane uses (from SEAMS.md)
-| category | item | refs | first location |
-|---|---|---|---|
-| extract-type | `crate::server::http1::HttpMessage` | 1 | src/server/viz_interactive.rs:72 |
-| extract-type | `crate::server::http1::RequestLimits` | 1 | src/server/viz_interactive.rs:72 |
-| seam:WireApi | `crate::server::http1` | 1 | src/server/viz_interactive.rs:72 |
+No seam, extraction or blocker touches this crate's files.
 
 Use the server-api trait or extracted item named in the table. Do not invent another seam.
 
@@ -67,7 +63,7 @@ The change lands on a passing build-train run of its changed crates. Link the tr
 pull request. Commit trailer: `Spec: MEDULLA-CONTRACT-R056.7`.
 
 ## STOP conditions
-- Any `BLOCKED` or `needs-seam` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
+- Any `BLOCKED` or `decide` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
 - Any file outside the list above, other than caller rewrites made by `rewrite_paths.py`, means STOP.
 - Cold pull-request CI timing out is not a blocker (MEDULLA-CONTRACT-R056.12).
 - Never run cargo locally, never `git stash`, never `git add -A` or `git add .`, never `--no-verify`, never force-push.

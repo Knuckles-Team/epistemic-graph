@@ -6,12 +6,14 @@ Spec: `MEDULLA-CONTRACT-R056.4`. Start after: G1 landed.
 Create the worktree from `main` after the previous group landed
 (`git worktree add <wt> -b lane/crate-split-raft origin/main`). Never branch from another lane.
 
-## Files to move (64; exactly these, nothing else)
+## Files to move (63; exactly these, nothing else)
+- `src/raft/command/enrichment_top_up.rs`
 - `src/raft/command/mod.rs`
 - `src/raft/command/native/catalog.rs`
 - `src/raft/command/native/mod.rs`
 - `src/raft/command/native/sealed.rs`
 - `src/raft/command/native/tests.rs`
+- `src/raft/config.rs`
 - `src/raft/cross_node_elasticity/mod.rs`
 - `src/raft/cross_node_elasticity/plan.rs`
 - `src/raft/cross_shard_txn/commit.rs`
@@ -34,6 +36,7 @@ Create the worktree from `main` after the previous group landed
 - `src/raft/harness/trace_capture.rs`
 - `src/raft/harness_support.rs`
 - `src/raft/membership_shrink.rs`
+- `src/raft/mod.rs`
 - `src/raft/modality.rs`
 - `src/raft/modality/tests.rs`
 - `src/raft/multi.rs`
@@ -67,10 +70,6 @@ Create the worktree from `main` after the previous group landed
 - `src/raft/xread_harness.rs`
 - `src/raft/xshard_harness.rs`
 - `src/raft/xshard_modality_harness.rs`
-- `src/server/handlers/modality.rs`
-- `src/server/handlers/topology.rs`
-- `src/server/icv_guard.rs`
-- `src/server/matview/manager.rs`
 
 
 ## Codemod (run in this order, from the worktree root)
@@ -88,23 +87,18 @@ Create the worktree from `main` after the previous group landed
 ## Seams this lane uses (from SEAMS.md)
 | category | item | refs | first location |
 |---|---|---|---|
-| needs-seam | `crate::server::txn::consensus_placement_fence_guard` | 7 | src/raft/multi.rs:1361 |
-| needs-seam | `crate::server::txn::consensus_tenant_is_prepared` | 6 | src/raft/multi.rs:1362 |
-| needs-seam | `crate::server::txn::consensus_graph_is_prepared` | 3 | src/raft/store/apply.rs:38 |
-| needs-seam | `crate::server::ReplicatedParticipantRef` | 1 | src/raft/store/native.rs:156 |
-| needs-seam | `crate::server::apply_replicated_job_publication_commit` | 1 | src/raft/store/native.rs:110 |
-| needs-seam | `crate::server::apply_replicated_job_publication_finalize` | 1 | src/raft/store/native.rs:125 |
-| needs-seam | `crate::server::apply_replicated_native` | 1 | src/raft/store/native.rs:377 |
-| needs-seam | `crate::server::apply_replicated_transaction_decision` | 1 | src/raft/store/native.rs:83 |
-| needs-seam | `crate::server::apply_replicated_transaction_finalize` | 1 | src/raft/store/native.rs:97 |
-| needs-seam | `crate::server::apply_replicated_transaction_participant` | 1 | src/raft/store/native.rs:149 |
-| needs-seam | `crate::server::apply_replicated_transaction_prepare` | 1 | src/raft/store/native.rs:366 |
-| needs-seam | `crate::server::cdc::CdcHub::new` | 1 | src/raft/harness_support.rs:57 |
-| needs-seam | `crate::server::cdc::emit_served_modality` | 1 | src/raft/store/commit.rs:381 |
-| needs-seam | `crate::server::handlers::delegation::provenance_refs` | 1 | src/raft/harness/resource_acceptance_test.rs:2553 |
-| needs-seam | `crate::server::handlers::txn::try_handle` | 1 | src/raft/xshard_harness.rs:553 |
-| needs-seam | `crate::server::txn::consensus_control_conflicts` | 1 | src/raft/store/native.rs:348 |
-| needs-seam | `crate::server::txn::consensus_has_prepared_graphs` | 1 | src/raft/multi.rs:1507 |
+| extract-helper | `crate::server::apply_replicated_job_publication_commit` | 1 | src/raft/store/native.rs:110 |
+| extract-helper | `crate::server::apply_replicated_job_publication_finalize` | 1 | src/raft/store/native.rs:125 |
+| extract-helper | `crate::server::apply_replicated_native` | 1 | src/raft/store/native.rs:377 |
+| extract-helper | `crate::server::apply_replicated_node_info` | 1 | src/raft/store/native.rs:31 |
+| extract-helper | `crate::server::apply_replicated_transaction_decision` | 1 | src/raft/store/native.rs:83 |
+| extract-helper | `crate::server::apply_replicated_transaction_finalize` | 1 | src/raft/store/native.rs:97 |
+| extract-helper | `crate::server::apply_replicated_transaction_participant` | 1 | src/raft/store/native.rs:149 |
+| extract-helper | `crate::server::apply_replicated_transaction_prepare` | 1 | src/raft/store/native.rs:366 |
+| extract-helper | `crate::server::handlers::delegation::provenance_refs` | 1 | src/raft/harness/resource_acceptance_test.rs:2553 |
+| extract-helper | `crate::server::handlers::txn::try_handle` | 1 | src/raft/xshard_harness.rs:553 |
+| extract-type | `crate::server::ReplicatedParticipantRef` | 1 | src/raft/store/native.rs:156 |
+| extract-type | `crate::server::handlers::modality::MAX_INGEST_STREAM_ITEMS` | 1 | src/raft/modality.rs:7 |
 | seam:dispatch | `crate::server::dispatch` | 2 | src/raft/harness/resource_acceptance_test.rs:40 |
 
 Use the server-api trait or extracted item named in the table. Do not invent another seam.
@@ -129,7 +123,7 @@ The change lands on a passing build-train run of its changed crates. Link the tr
 pull request. Commit trailer: `Spec: MEDULLA-CONTRACT-R056.4`.
 
 ## STOP conditions
-- Any `BLOCKED` or `needs-seam` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
+- Any `BLOCKED` or `decide` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
 - Any file outside the list above, other than caller rewrites made by `rewrite_paths.py`, means STOP.
 - Cold pull-request CI timing out is not a blocker (MEDULLA-CONTRACT-R056.12).
 - Never run cargo locally, never `git stash`, never `git add -A` or `git add .`, never `--no-verify`, never force-push.

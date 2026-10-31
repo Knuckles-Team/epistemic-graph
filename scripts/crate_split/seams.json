@@ -1,19 +1,19 @@
 {
  "counts": {
-  "extract-helper": 100,
-  "extract-type": 115,
-  "needs-seam": 200,
+  "decide": 12,
+  "extract-helper": 142,
+  "extract-type": 102,
   "pending-delete": 2,
-  "seam:AdminApi": 16,
+  "seam:AdminApi": 22,
   "seam:DecideApi": 9,
   "seam:GraphApi": 5,
   "seam:IngestApi": 10,
   "seam:QueryApi": 12,
-  "seam:TxnApi": 19,
-  "seam:WireApi": 5,
-  "seam:dispatch": 7,
-  "seam:state-handle": 22,
-  "test-move": 83
+  "seam:TxnApi": 13,
+  "seam:WireApi": 3,
+  "seam:dispatch": 23,
+  "seam:state-handle": 34,
+  "test-move": 62
  },
  "refs": [
   {
@@ -44,16 +44,24 @@
    "file": "src/mutation_apply.rs",
    "line": 157,
    "item": "crate::server::handlers::mining::replay",
-   "category": "needs-seam",
-   "detail": "medulla-kernel -> medulla-h-query",
+   "category": "seam:dispatch",
+   "detail": "crate::server::handlers::mining::replay",
    "dst": "src/server/handlers/mining/replay.rs"
+  },
+  {
+   "file": "src/mutation_apply.rs",
+   "line": 163,
+   "item": "crate::server::handlers::graphlearn::replay",
+   "category": "seam:dispatch",
+   "detail": "crate::server::handlers::graphlearn::replay",
+   "dst": "src/server/handlers/graphlearn.rs"
   },
   {
    "file": "src/persist.rs",
    "line": 12,
    "item": "crate::server::ServerState",
-   "category": "needs-seam",
-   "detail": "medulla-kernel -> medulla-server-api",
+   "category": "seam:state-handle",
+   "detail": "crate::server::ServerState",
    "dst": "src/server/state.rs"
   },
   {
@@ -68,129 +76,17 @@
    "file": "src/raft/harness/resource_acceptance_test.rs",
    "line": 2553,
    "item": "crate::server::handlers::delegation::provenance_refs",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-jobs",
+   "category": "extract-helper",
+   "detail": "crate::server::handlers::delegation::provenance_refs",
    "dst": "src/server/handlers/delegation/validation.rs"
   },
   {
-   "file": "src/raft/harness_support.rs",
-   "line": 57,
-   "item": "crate::server::cdc::CdcHub::new",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-server",
-   "dst": "src/server/cdc.rs"
-  },
-  {
-   "file": "src/raft/multi.rs",
-   "line": 1361,
-   "item": "crate::server::txn::consensus_placement_fence_guard",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/multi.rs",
-   "line": 1362,
-   "item": "crate::server::txn::consensus_tenant_is_prepared",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/multi.rs",
-   "line": 1387,
-   "item": "crate::server::txn::consensus_placement_fence_guard",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/multi.rs",
-   "line": 1388,
-   "item": "crate::server::txn::consensus_tenant_is_prepared",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/multi.rs",
-   "line": 1410,
-   "item": "crate::server::txn::consensus_placement_fence_guard",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/multi.rs",
-   "line": 1411,
-   "item": "crate::server::txn::consensus_tenant_is_prepared",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/multi.rs",
-   "line": 1437,
-   "item": "crate::server::txn::consensus_placement_fence_guard",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/multi.rs",
-   "line": 1438,
-   "item": "crate::server::txn::consensus_tenant_is_prepared",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/multi.rs",
-   "line": 1459,
-   "item": "crate::server::txn::consensus_placement_fence_guard",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/multi.rs",
-   "line": 1460,
-   "item": "crate::server::txn::consensus_tenant_is_prepared",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/multi.rs",
-   "line": 1488,
-   "item": "crate::server::txn::consensus_placement_fence_guard",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/multi.rs",
-   "line": 1489,
-   "item": "crate::server::txn::consensus_tenant_is_prepared",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/multi.rs",
-   "line": 1506,
-   "item": "crate::server::txn::consensus_placement_fence_guard",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/multi.rs",
-   "line": 1507,
-   "item": "crate::server::txn::consensus_has_prepared_graphs",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
+   "file": "src/raft/modality.rs",
+   "line": 7,
+   "item": "crate::server::handlers::modality::MAX_INGEST_STREAM_ITEMS",
+   "category": "extract-type",
+   "detail": "crate::server::handlers::modality::MAX_INGEST_STREAM_ITEMS",
+   "dst": "src/server/handlers/modality.rs"
   },
   {
    "file": "src/raft/placement_harness.rs",
@@ -201,115 +97,83 @@
    "dst": "src/server/dispatch.rs"
   },
   {
-   "file": "src/raft/store/apply.rs",
-   "line": 38,
-   "item": "crate::server::txn::consensus_graph_is_prepared",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/store/commit.rs",
-   "line": 381,
-   "item": "crate::server::cdc::emit_served_modality",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-server",
-   "dst": "src/server/cdc.rs"
+   "file": "src/raft/store/native.rs",
+   "line": 31,
+   "item": "crate::server::apply_replicated_node_info",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_node_info",
+   "dst": "src/server/handlers/topology.rs"
   },
   {
    "file": "src/raft/store/native.rs",
    "line": 83,
    "item": "crate::server::apply_replicated_transaction_decision",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_transaction_decision",
    "dst": "src/server/dispatch/consensus/replicated.rs"
   },
   {
    "file": "src/raft/store/native.rs",
    "line": 97,
    "item": "crate::server::apply_replicated_transaction_finalize",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_transaction_finalize",
    "dst": "src/server/dispatch/consensus/replicated.rs"
   },
   {
    "file": "src/raft/store/native.rs",
    "line": 110,
    "item": "crate::server::apply_replicated_job_publication_commit",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_job_publication_commit",
    "dst": "src/server/dispatch/consensus/replicated.rs"
   },
   {
    "file": "src/raft/store/native.rs",
    "line": 125,
    "item": "crate::server::apply_replicated_job_publication_finalize",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_job_publication_finalize",
    "dst": "src/server/dispatch/consensus/replicated.rs"
   },
   {
    "file": "src/raft/store/native.rs",
    "line": 149,
    "item": "crate::server::apply_replicated_transaction_participant",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_transaction_participant",
    "dst": "src/server/dispatch/consensus/replicated.rs"
   },
   {
    "file": "src/raft/store/native.rs",
    "line": 156,
    "item": "crate::server::ReplicatedParticipantRef",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-server",
+   "category": "extract-type",
+   "detail": "crate::server::ReplicatedParticipantRef",
    "dst": "src/server/dispatch/consensus/replicated.rs"
-  },
-  {
-   "file": "src/raft/store/native.rs",
-   "line": 183,
-   "item": "crate::server::txn::consensus_graph_is_prepared",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/store/native.rs",
-   "line": 347,
-   "item": "crate::server::txn::consensus_graph_is_prepared",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/raft/store/native.rs",
-   "line": 348,
-   "item": "crate::server::txn::consensus_control_conflicts",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
   },
   {
    "file": "src/raft/store/native.rs",
    "line": 366,
    "item": "crate::server::apply_replicated_transaction_prepare",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_transaction_prepare",
    "dst": "src/server/dispatch/consensus/replicated.rs"
   },
   {
    "file": "src/raft/store/native.rs",
    "line": 377,
    "item": "crate::server::apply_replicated_native",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::apply_replicated_native",
    "dst": "src/server/dispatch/consensus/replicated.rs"
   },
   {
    "file": "src/raft/xshard_harness.rs",
    "line": 553,
    "item": "crate::server::handlers::txn::try_handle",
-   "category": "needs-seam",
-   "detail": "medulla-raft -> medulla-h-txn",
+   "category": "extract-helper",
+   "detail": "crate::server::handlers::txn::try_handle",
    "dst": "src/server/handlers/txn/dispatch.rs"
   },
   {
@@ -322,6 +186,14 @@
   },
   {
    "file": "src/redb_store.rs",
+   "line": 1915,
+   "item": "crate::mutation_apply::ENGINE_LEDGER_PRINCIPAL",
+   "category": "test-move",
+   "detail": "medulla-store -> medulla-server-api",
+   "dst": "src/mutation_apply.rs"
+  },
+  {
+   "file": "src/redb_store.rs",
    "line": 2745,
    "item": "crate::test_support::terminal_method",
    "category": "test-move",
@@ -329,59 +201,75 @@
    "dst": "src/test_support.rs"
   },
   {
+   "file": "src/redb_store.rs",
+   "line": 4416,
+   "item": "crate::work_item_statechart::EV_CLAIM",
+   "category": "test-move",
+   "detail": "medulla-store -> medulla-h-jobs",
+   "dst": "src/work_item_statechart.rs"
+  },
+  {
+   "file": "src/redb_store.rs",
+   "line": 4438,
+   "item": "crate::work_item_statechart::EV_CLAIM",
+   "category": "test-move",
+   "detail": "medulla-store -> medulla-h-jobs",
+   "dst": "src/work_item_statechart.rs"
+  },
+  {
    "file": "src/redb_store/crossmodal.rs",
    "line": 177,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-store -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
   },
   {
    "file": "src/redb_store/crossmodal.rs",
    "line": 212,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-store -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
   },
   {
    "file": "src/redb_store/crossmodal.rs",
    "line": 258,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-store -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
   },
   {
    "file": "src/redb_store/crossmodal.rs",
    "line": 340,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-store -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
   },
   {
    "file": "src/redb_store/crossmodal.rs",
    "line": 392,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-store -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
   },
   {
    "file": "src/redb_store/shard.rs",
    "line": 713,
    "item": "crate::server::persistence::online_reshard::export_graph_raw",
-   "category": "needs-seam",
-   "detail": "medulla-store -> medulla-persistence",
+   "category": "extract-helper",
+   "detail": "crate::server::persistence::online_reshard::export_graph_raw",
    "dst": "src/server/persistence/online_reshard.rs"
   },
   {
    "file": "src/redb_store/shard.rs",
    "line": 910,
    "item": "crate::server::persistence::shard_migrate::GraphShardPayloadTransfer::without_report",
-   "category": "needs-seam",
-   "detail": "medulla-store -> medulla-persistence",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::shard_migrate::GraphShardPayloadTransfer",
    "dst": "src/server/persistence/shard_migrate/payload.rs"
   },
   {
@@ -412,9 +300,121 @@
    "file": "src/redb_store/store_mutation.rs",
    "line": 104,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-store -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/redb_store/store_mutation.rs",
+   "line": 280,
+   "item": "crate::raft::EnrichmentTopUpTransition",
+   "category": "extract-type",
+   "detail": "crate::raft::EnrichmentTopUpTransition",
+   "dst": "src/raft/command/enrichment_top_up.rs"
+  },
+  {
+   "file": "src/redb_store/store_mutation.rs",
+   "line": 290,
+   "item": "crate::raft::EnrichmentTopUpTransition",
+   "category": "extract-type",
+   "detail": "crate::raft::EnrichmentTopUpTransition",
+   "dst": "src/raft/command/enrichment_top_up.rs"
+  },
+  {
+   "file": "src/redb_store/store_read.rs",
+   "line": 108,
+   "item": "crate::work_item_statechart::mirror_outcome",
+   "category": "decide",
+   "detail": "work_item_statechart",
+   "dst": "src/work_item_statechart.rs"
+  },
+  {
+   "file": "src/redb_store/store_read.rs",
+   "line": 110,
+   "item": "crate::work_item_statechart::emit_divergence",
+   "category": "decide",
+   "detail": "work_item_statechart",
+   "dst": "src/work_item_statechart.rs"
+  },
+  {
+   "file": "src/redb_store/store_read.rs",
+   "line": 134,
+   "item": "crate::work_item_statechart::WORK_ITEM_DEF_ID",
+   "category": "decide",
+   "detail": "work_item_statechart",
+   "dst": "src/work_item_statechart.rs"
+  },
+  {
+   "file": "src/redb_store/work_item/cancel.rs",
+   "line": 179,
+   "item": "crate::work_item_statechart::EV_CANCEL",
+   "category": "decide",
+   "detail": "work_item_statechart",
+   "dst": "src/work_item_statechart.rs"
+  },
+  {
+   "file": "src/redb_store/work_item/cancel.rs",
+   "line": 306,
+   "item": "crate::work_item_statechart::EV_DEFER",
+   "category": "decide",
+   "detail": "work_item_statechart",
+   "dst": "src/work_item_statechart.rs"
+  },
+  {
+   "file": "src/redb_store/work_item/claim.rs",
+   "line": 76,
+   "item": "crate::work_item_statechart::EV_LEASE_EXHAUSTED",
+   "category": "decide",
+   "detail": "work_item_statechart",
+   "dst": "src/work_item_statechart.rs"
+  },
+  {
+   "file": "src/redb_store/work_item/claim.rs",
+   "line": 101,
+   "item": "crate::work_item_statechart::EV_LEASE_RECLAIM",
+   "category": "decide",
+   "detail": "work_item_statechart",
+   "dst": "src/work_item_statechart.rs"
+  },
+  {
+   "file": "src/redb_store/work_item/claim.rs",
+   "line": 394,
+   "item": "crate::work_item_statechart::EV_CLAIM",
+   "category": "decide",
+   "detail": "work_item_statechart",
+   "dst": "src/work_item_statechart.rs"
+  },
+  {
+   "file": "src/redb_store/work_item/commit.rs",
+   "line": 306,
+   "item": "crate::work_item_statechart::EV_COMMIT_SUCCEEDED",
+   "category": "decide",
+   "detail": "work_item_statechart",
+   "dst": "src/work_item_statechart.rs"
+  },
+  {
+   "file": "src/redb_store/work_item/commit.rs",
+   "line": 307,
+   "item": "crate::work_item_statechart::EV_COMMIT_CANCELLED",
+   "category": "decide",
+   "detail": "work_item_statechart",
+   "dst": "src/work_item_statechart.rs"
+  },
+  {
+   "file": "src/redb_store/work_item/commit.rs",
+   "line": 308,
+   "item": "crate::work_item_statechart::EV_COMMIT_FAILED",
+   "category": "decide",
+   "detail": "work_item_statechart",
+   "dst": "src/work_item_statechart.rs"
+  },
+  {
+   "file": "src/redb_store/work_item/lease.rs",
+   "line": 83,
+   "item": "crate::work_item_statechart::EV_RENEW",
+   "category": "decide",
+   "detail": "work_item_statechart",
+   "dst": "src/work_item_statechart.rs"
   },
   {
    "file": "src/server/amqp_wire/mod.rs",
@@ -442,30 +442,6 @@
   },
   {
    "file": "src/server/auth.rs",
-   "line": 3527,
-   "item": "crate::server::oidc::VerifiedTokenClaims",
-   "category": "test-move",
-   "detail": "medulla-server-api -> medulla-server",
-   "dst": "src/server/oidc.rs"
-  },
-  {
-   "file": "src/server/auth.rs",
-   "line": 143,
-   "item": "crate::server::oidc::VerifiedTokenClaims",
-   "category": "needs-seam",
-   "detail": "medulla-server-api -> medulla-server",
-   "dst": "src/server/oidc.rs"
-  },
-  {
-   "file": "src/server/auth.rs",
-   "line": 175,
-   "item": "crate::server::oidc::JwtValidator",
-   "category": "needs-seam",
-   "detail": "medulla-server-api -> medulla-server",
-   "dst": "src/server/oidc.rs"
-  },
-  {
-   "file": "src/server/auth.rs",
    "line": 632,
    "item": "crate::server::dispatch::authoritative_now_ms",
    "category": "extract-helper",
@@ -481,76 +457,12 @@
    "dst": "src/server/dispatch.rs"
   },
   {
-   "file": "src/server/auth.rs",
-   "line": 843,
-   "item": "crate::server::oidc::JwtValidator",
-   "category": "needs-seam",
-   "detail": "medulla-server-api -> medulla-server",
-   "dst": "src/server/oidc.rs"
-  },
-  {
-   "file": "src/server/auth.rs",
-   "line": 854,
-   "item": "crate::server::oidc::JwtValidator",
-   "category": "needs-seam",
-   "detail": "medulla-server-api -> medulla-server",
-   "dst": "src/server/oidc.rs"
-  },
-  {
-   "file": "src/server/auth.rs",
-   "line": 859,
-   "item": "crate::server::oidc::JwtValidator",
-   "category": "needs-seam",
-   "detail": "medulla-server-api -> medulla-server",
-   "dst": "src/server/oidc.rs"
-  },
-  {
-   "file": "src/server/auth.rs",
-   "line": 860,
-   "item": "crate::server::oidc::JwtValidator",
-   "category": "needs-seam",
-   "detail": "medulla-server-api -> medulla-server",
-   "dst": "src/server/oidc.rs"
-  },
-  {
-   "file": "src/server/auth.rs",
-   "line": 862,
-   "item": "crate::server::oidc::JwtValidator::from_env_primary",
-   "category": "needs-seam",
-   "detail": "medulla-server-api -> medulla-server",
-   "dst": "src/server/oidc.rs"
-  },
-  {
-   "file": "src/server/auth.rs",
-   "line": 3112,
-   "item": "crate::server::oidc::JwtValidator",
-   "category": "test-move",
-   "detail": "medulla-server-api -> medulla-server",
-   "dst": "src/server/oidc.rs"
-  },
-  {
-   "file": "src/server/auth.rs",
-   "line": 3113,
-   "item": "crate::server::oidc::JwtValidator::from_parts",
-   "category": "test-move",
-   "detail": "medulla-server-api -> medulla-server",
-   "dst": "src/server/oidc.rs"
-  },
-  {
-   "file": "src/server/auth.rs",
-   "line": 3731,
-   "item": "crate::server::oidc::JwtValidator::from_parts",
-   "category": "test-move",
-   "detail": "medulla-server-api -> medulla-server",
-   "dst": "src/server/oidc.rs"
-  },
-  {
    "file": "src/server/authority_context.rs",
-   "line": 463,
-   "item": "crate::server::oidc::VerifiedTokenClaims",
-   "category": "needs-seam",
-   "detail": "medulla-server-api -> medulla-server",
-   "dst": "src/server/oidc.rs"
+   "line": 108,
+   "item": "crate::raft::RaftMutationContext",
+   "category": "extract-type",
+   "detail": "crate::raft::RaftMutationContext",
+   "dst": "src/raft/mod.rs"
   },
   {
    "file": "src/server/blob/mod.rs",
@@ -610,43 +522,11 @@
   },
   {
    "file": "src/server/bolt_wire/mod.rs",
-   "line": 43,
-   "item": "crate::server::mutation::MutationCtx",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/mutation/context.rs"
-  },
-  {
-   "file": "src/server/bolt_wire/mod.rs",
-   "line": 43,
-   "item": "crate::server::mutation::MutationPlan",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/mutation/plan.rs"
-  },
-  {
-   "file": "src/server/bolt_wire/mod.rs",
    "line": 63,
    "item": "crate::server::validate_direct_wire_security",
    "category": "extract-helper",
    "detail": "crate::server::validate_direct_wire_security",
    "dst": "src/server/mod.rs"
-  },
-  {
-   "file": "src/server/bolt_wire/mod.rs",
-   "line": 367,
-   "item": "crate::server::cdc::CdcHub",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/cdc.rs"
-  },
-  {
-   "file": "src/server/bolt_wire/mod.rs",
-   "line": 589,
-   "item": "crate::server::mutation::commit_conditional_mutation_async",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/mutation/conditional.rs"
   },
   {
    "file": "src/server/bolt_wire/mod.rs",
@@ -657,11 +537,27 @@
    "dst": "src/server/mod.rs"
   },
   {
+   "file": "src/server/boot_maintenance.rs",
+   "line": 52,
+   "item": "crate::server::reload_matviews",
+   "category": "seam:TxnApi",
+   "detail": "crate::server::reload_matviews",
+   "dst": "src/server/handlers/dist_compute.rs"
+  },
+  {
+   "file": "src/server/boot_maintenance.rs",
+   "line": 109,
+   "item": "crate::server::dispatch::blocking_task",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::blocking_task",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
    "file": "src/server/broker_wire.rs",
    "line": 11,
    "item": "crate::server::dispatch::dispatch_authenticated_broker_actor",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::dispatch_authenticated_broker_actor",
    "dst": "src/server/dispatch/request_boundary.rs"
   },
   {
@@ -748,33 +644,9 @@
    "file": "src/server/connector_pack_projection/boot_regression.rs",
    "line": 422,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
-  },
-  {
-   "file": "src/server/connector_pack_projection/boot_regression.rs",
-   "line": 461,
-   "item": "crate::server::ShutdownCoordinator::new",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
-   "dst": "src/server/transport.rs"
-  },
-  {
-   "file": "src/server/connector_pack_projection/boot_regression.rs",
-   "line": 465,
-   "item": "crate::server::serve_uds",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
-   "dst": "src/server/transport.rs"
-  },
-  {
-   "file": "src/server/connector_pack_projection/boot_regression.rs",
-   "line": 483,
-   "item": "crate::server::boot_maintenance::spawn_post_bind_maintenance",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
-   "dst": "src/server/boot_maintenance.rs"
   },
   {
    "file": "src/server/dispatch/router/service_control.rs",
@@ -794,34 +666,10 @@
   },
   {
    "file": "src/server/federation/mod.rs",
-   "line": 55,
-   "item": "crate::server::http1",
-   "category": "seam:WireApi",
-   "detail": "crate::server::http1",
-   "dst": "src/server/http1.rs"
-  },
-  {
-   "file": "src/server/federation/mod.rs",
-   "line": 55,
-   "item": "crate::server::http1::HttpMessage",
-   "category": "extract-type",
-   "detail": "crate::server::http1::HttpMessage",
-   "dst": "src/server/http1.rs"
-  },
-  {
-   "file": "src/server/federation/mod.rs",
-   "line": 55,
-   "item": "crate::server::http1::RequestLimits",
-   "category": "extract-type",
-   "detail": "crate::server::http1::RequestLimits",
-   "dst": "src/server/http1.rs"
-  },
-  {
-   "file": "src/server/federation/mod.rs",
    "line": 355,
    "item": "crate::server::dispatch::dispatch_authenticated_local_query",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
    "dst": "src/server/dispatch/request_boundary.rs"
   },
   {
@@ -831,22 +679,6 @@
    "category": "extract-helper",
    "detail": "crate::server::outbound_http_config",
    "dst": "src/server/mod.rs"
-  },
-  {
-   "file": "src/server/graph_schema.rs",
-   "line": 39,
-   "item": "crate::server::mutation::MutationCtx",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
-   "dst": "src/server/mutation/context.rs"
-  },
-  {
-   "file": "src/server/graph_schema.rs",
-   "line": 39,
-   "item": "crate::server::mutation::MutationPlan",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
-   "dst": "src/server/mutation/plan.rs"
   },
   {
    "file": "src/server/graph_schema.rs",
@@ -882,35 +714,11 @@
   },
   {
    "file": "src/server/graph_schema/approved.rs",
-   "line": 19,
-   "item": "crate::server::mutation::MutationCtx",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
-   "dst": "src/server/mutation/context.rs"
-  },
-  {
-   "file": "src/server/graph_schema/approved.rs",
-   "line": 19,
-   "item": "crate::server::mutation::MutationPlan",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
-   "dst": "src/server/mutation/plan.rs"
-  },
-  {
-   "file": "src/server/graph_schema/approved.rs",
    "line": 34,
    "item": "crate::server::handlers::graph_ops::commit_gateway",
    "category": "seam:GraphApi",
    "detail": "crate::server::handlers::graph_ops::commit_gateway",
    "dst": "src/server/handlers/graph_ops/gateway.rs"
-  },
-  {
-   "file": "src/server/graph_schema/approved.rs",
-   "line": 58,
-   "item": "crate::server::txn::now_ms",
-   "category": "seam:TxnApi",
-   "detail": "crate::server::txn::now_ms",
-   "dst": "src/server/txn.rs"
   },
   {
    "file": "src/server/graph_schema/approved.rs",
@@ -932,64 +740,64 @@
    "file": "src/server/handlers/admin.rs",
    "line": 514,
    "item": "crate::server::dispatch::dispatch",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
    "dst": "src/server/dispatch/request_boundary.rs"
   },
   {
    "file": "src/server/handlers/admin.rs",
    "line": 545,
    "item": "crate::server::dispatch::dispatch",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
    "dst": "src/server/dispatch/request_boundary.rs"
   },
   {
    "file": "src/server/handlers/admin.rs",
    "line": 588,
    "item": "crate::server::dispatch::dispatch",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
    "dst": "src/server/dispatch/request_boundary.rs"
   },
   {
    "file": "src/server/handlers/admin.rs",
    "line": 632,
    "item": "crate::server::dispatch::dispatch",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
    "dst": "src/server/dispatch/request_boundary.rs"
   },
   {
    "file": "src/server/handlers/admin.rs",
    "line": 787,
    "item": "crate::server::dispatch::dispatch",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
    "dst": "src/server/dispatch/request_boundary.rs"
   },
   {
    "file": "src/server/handlers/admin.rs",
    "line": 825,
    "item": "crate::server::dispatch::dispatch",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
    "dst": "src/server/dispatch/request_boundary.rs"
   },
   {
    "file": "src/server/handlers/admin.rs",
    "line": 854,
    "item": "crate::server::dispatch::dispatch",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
    "dst": "src/server/dispatch/request_boundary.rs"
   },
   {
    "file": "src/server/handlers/admin.rs",
    "line": 884,
    "item": "crate::server::dispatch::dispatch",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
    "dst": "src/server/dispatch/request_boundary.rs"
   },
   {
@@ -1076,8 +884,8 @@
    "file": "src/server/handlers/admin/connector_pack/catalog_authority.rs",
    "line": 321,
    "item": "crate::server::dispatch::verified_served_registration",
-   "category": "needs-seam",
-   "detail": "medulla-h-admin -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::verified_served_registration",
    "dst": "src/server/dispatch/consensus/registry.rs"
   },
   {
@@ -1100,7 +908,7 @@
    "file": "src/server/handlers/admin/connector_pack/import.rs",
    "line": 65,
    "item": "crate::server::blob::ChunkStore",
-   "category": "extract-type",
+   "category": "seam:state-handle",
    "detail": "crate::server::blob::ChunkStore",
    "dst": "src/server/blob/store.rs"
   },
@@ -1116,7 +924,7 @@
    "file": "src/server/handlers/admin/connector_pack/import/planning.rs",
    "line": 91,
    "item": "crate::server::blob::ChunkStore",
-   "category": "extract-type",
+   "category": "seam:state-handle",
    "detail": "crate::server::blob::ChunkStore",
    "dst": "src/server/blob/store.rs"
   },
@@ -1124,7 +932,7 @@
    "file": "src/server/handlers/admin/connector_pack/import/planning.rs",
    "line": 188,
    "item": "crate::server::blob::ChunkStore",
-   "category": "extract-type",
+   "category": "seam:state-handle",
    "detail": "crate::server::blob::ChunkStore",
    "dst": "src/server/blob/store.rs"
   },
@@ -1132,7 +940,7 @@
    "file": "src/server/handlers/admin/connector_pack/import/planning.rs",
    "line": 204,
    "item": "crate::server::blob::ChunkStore",
-   "category": "extract-type",
+   "category": "seam:state-handle",
    "detail": "crate::server::blob::ChunkStore",
    "dst": "src/server/blob/store.rs"
   },
@@ -1220,7 +1028,7 @@
    "file": "src/server/handlers/admin/connector_pack/reproject.rs",
    "line": 318,
    "item": "crate::server::blob::store::ChunkStore",
-   "category": "extract-type",
+   "category": "seam:state-handle",
    "detail": "crate::server::blob::store::ChunkStore",
    "dst": "src/server/blob/store.rs"
   },
@@ -1236,7 +1044,7 @@
    "file": "src/server/handlers/admin/connector_pack/reproject.rs",
    "line": 228,
    "item": "crate::server::blob::store::ChunkStore",
-   "category": "extract-type",
+   "category": "seam:state-handle",
    "detail": "crate::server::blob::store::ChunkStore",
    "dst": "src/server/blob/store.rs"
   },
@@ -1252,7 +1060,7 @@
    "file": "src/server/handlers/admin/connector_pack/reproject.rs",
    "line": 331,
    "item": "crate::server::blob::store::RedbChunkStore::open_temp",
-   "category": "extract-type",
+   "category": "seam:state-handle",
    "detail": "crate::server::blob::store::RedbChunkStore",
    "dst": "src/server/blob/store.rs"
   },
@@ -1260,7 +1068,7 @@
    "file": "src/server/handlers/admin/connector_pack/reproject.rs",
    "line": 360,
    "item": "crate::server::blob::store::RedbChunkStore::open_temp",
-   "category": "extract-type",
+   "category": "seam:state-handle",
    "detail": "crate::server::blob::store::RedbChunkStore",
    "dst": "src/server/blob/store.rs"
   },
@@ -1425,11 +1233,27 @@
    "dst": "src/server/handlers/blob.rs"
   },
   {
+   "file": "src/server/handlers/decide/topology_schema.rs",
+   "line": 76,
+   "item": "crate::server::graph_schema::compose::scope_blank_nodes",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::graph_schema::compose::scope_blank_nodes",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
+   "file": "src/server/handlers/decide/topology_schema.rs",
+   "line": 93,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
    "file": "src/server/handlers/delegation/admission.rs",
    "line": 234,
    "item": "crate::server::dispatch::is_replicated_apply",
-   "category": "needs-seam",
-   "detail": "medulla-h-jobs -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::is_replicated_apply",
    "dst": "src/server/dispatch/consensus/replicated.rs"
   },
   {
@@ -1465,38 +1289,6 @@
    "dst": "src/server/handlers/admin/saga.rs"
   },
   {
-   "file": "src/server/handlers/graph_ops.rs",
-   "line": 14,
-   "item": "crate::server::mutation::GatewayAuthzCtx",
-   "category": "needs-seam",
-   "detail": "medulla-h-graph -> medulla-server",
-   "dst": "src/server/mutation/plan.rs"
-  },
-  {
-   "file": "src/server/handlers/graph_ops.rs",
-   "line": 14,
-   "item": "crate::server::mutation::MutationCtx",
-   "category": "needs-seam",
-   "detail": "medulla-h-graph -> medulla-server",
-   "dst": "src/server/mutation/context.rs"
-  },
-  {
-   "file": "src/server/handlers/graph_ops.rs",
-   "line": 14,
-   "item": "crate::server::mutation::MutationPlan",
-   "category": "needs-seam",
-   "detail": "medulla-h-graph -> medulla-server",
-   "dst": "src/server/mutation/plan.rs"
-  },
-  {
-   "file": "src/server/handlers/graph_ops/gateway.rs",
-   "line": 87,
-   "item": "crate::server::cdc::CdcHub",
-   "category": "needs-seam",
-   "detail": "medulla-h-graph -> medulla-server",
-   "dst": "src/server/cdc.rs"
-  },
-  {
    "file": "src/server/handlers/graph_ops/gateway.rs",
    "line": 145,
    "item": "crate::server::dispatch::authoritative_now_ms",
@@ -1505,12 +1297,12 @@
    "dst": "src/server/dispatch/consensus.rs"
   },
   {
-   "file": "src/server/handlers/graph_ops/gateway_graph_routes.rs",
-   "line": 129,
-   "item": "crate::server::mutation::is_coalescable_structural_write",
-   "category": "needs-seam",
-   "detail": "medulla-h-graph -> medulla-server",
-   "dst": "src/server/mutation/coalescer.rs"
+   "file": "src/server/handlers/graph_ops/gateway_graph.rs",
+   "line": 386,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
   },
   {
    "file": "src/server/handlers/graph_ops/gateway_graph_routes.rs",
@@ -1660,16 +1452,16 @@
    "file": "src/server/handlers/jobs/worker_publish.rs",
    "line": 171,
    "item": "crate::server::dispatch::is_replicated_apply",
-   "category": "needs-seam",
-   "detail": "medulla-h-jobs -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::is_replicated_apply",
    "dst": "src/server/dispatch/consensus/replicated.rs"
   },
   {
    "file": "src/server/handlers/jobs_read_rls_architecture.rs",
    "line": 38,
    "item": "crate::server::handlers::*",
-   "category": "seam:dispatch",
-   "detail": "src/server/handlers/mod.rs",
+   "category": "extract-helper",
+   "detail": "crate::server::handlers::*",
    "dst": "src/server/handlers/mod.rs"
   },
   {
@@ -1818,14 +1610,6 @@
   },
   {
    "file": "src/server/handlers/query.rs",
-   "line": 1636,
-   "item": "crate::server::sql_catalog_acl::ACCESS_DENIED",
-   "category": "test-move",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/query.rs",
    "line": 1942,
    "item": "crate::server::decode_uql_ids",
    "category": "test-move",
@@ -1881,19 +1665,11 @@
    "dst": "src/server/handlers/mod.rs"
   },
   {
-   "file": "src/server/handlers/query/dispatch.rs",
-   "line": 531,
-   "item": "crate::server::sql_catalog_acl::RequestGraph",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl/ann_projection.rs"
-  },
-  {
    "file": "src/server/handlers/query/explain_handlers.rs",
    "line": 298,
    "item": "crate::server::dispatch::is_replicated_apply",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::is_replicated_apply",
    "dst": "src/server/dispatch/consensus/replicated.rs"
   },
   {
@@ -1908,7 +1684,7 @@
    "file": "src/server/handlers/query/explain_wire_b.rs",
    "line": 319,
    "item": "crate::server::blob::ChunkStore",
-   "category": "extract-type",
+   "category": "seam:state-handle",
    "detail": "crate::server::blob::ChunkStore",
    "dst": "src/server/blob/store.rs"
   },
@@ -2018,22 +1794,6 @@
   },
   {
    "file": "src/server/handlers/query/sql_catalog.rs",
-   "line": 55,
-   "item": "crate::server::sql_catalog_acl::ACCESS_DENIED",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/query/sql_catalog.rs",
-   "line": 232,
-   "item": "crate::server::sql_catalog_acl::with_source_authority_write",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/query/sql_catalog.rs",
    "line": 256,
    "item": "crate::server::wire::committed_sql_replay_receipt",
    "category": "seam:WireApi",
@@ -2057,108 +1817,12 @@
    "dst": "src/server/wire/mod.rs"
   },
   {
-   "file": "src/server/handlers/query/sql_catalog.rs",
-   "line": 269,
-   "item": "crate::server::sql_catalog_acl::stable_source_operation_id",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/query/sql_catalog.rs",
-   "line": 271,
-   "item": "crate::server::sql_catalog_acl::register_owner_after_create_in",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/query/sql_dispatch.rs",
-   "line": 11,
-   "item": "crate::server::sql_catalog_acl::AuthorizedReadStore",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/query/sql_dispatch.rs",
-   "line": 32,
-   "item": "crate::server::sql_catalog_acl::AuthorizedReadStore",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/query/sql_dispatch.rs",
-   "line": 39,
-   "item": "crate::server::sql_catalog_acl::authorized_read_store",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/query/sql_dispatch.rs",
-   "line": 111,
-   "item": "crate::server::sql_catalog_acl::AuthorizedReadStore::store",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/query/sql_dispatch.rs",
-   "line": 260,
-   "item": "crate::server::sql_catalog_acl::AuthorizedReadStore::store",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/query/sql_dispatch.rs",
-   "line": 397,
-   "item": "crate::server::sql_catalog_acl::alterable_ann_index_table",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl/ann_projection.rs"
-  },
-  {
-   "file": "src/server/handlers/query/sql_dispatch.rs",
-   "line": 589,
-   "item": "crate::server::sql_catalog_acl::AuthorizedReadStore::store",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/query/sql_read.rs",
-   "line": 119,
-   "item": "crate::server::sql_catalog_acl::RequestGraph",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl/ann_projection.rs"
-  },
-  {
-   "file": "src/server/handlers/query/sql_read.rs",
-   "line": 427,
-   "item": "crate::server::sql_catalog_acl::RequestGraph",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl/ann_projection.rs"
-  },
-  {
    "file": "src/server/handlers/query/sql_read.rs",
    "line": 430,
    "item": "crate::server::handlers::decide::read_only_relations",
    "category": "seam:DecideApi",
    "detail": "crate::server::handlers::decide::read_only_relations",
    "dst": "src/server/handlers/decide.rs"
-  },
-  {
-   "file": "src/server/handlers/query/sql_read.rs",
-   "line": 436,
-   "item": "crate::server::sql_catalog_acl::authorized_read_store_for_query",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl/ann_projection.rs"
   },
   {
    "file": "src/server/handlers/rdf/dispatch.rs",
@@ -2193,20 +1857,28 @@
    "dst": "src/server/graph_schema/terms.rs"
   },
   {
-   "file": "src/server/handlers/rdf/obda.rs",
-   "line": 75,
-   "item": "crate::server::sql_catalog_acl::open_authorized_table",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
+   "file": "src/server/handlers/rdf/reasoning.rs",
+   "line": 395,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
   },
   {
-   "file": "src/server/handlers/rdf/obda.rs",
-   "line": 79,
-   "item": "crate::server::sql_catalog_acl::SqlPrivilege::Select",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
+   "file": "src/server/handlers/rdf/reasoning.rs",
+   "line": 461,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
+   "file": "src/server/handlers/rdf/validation.rs",
+   "line": 97,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "seam:AdminApi",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
   },
   {
    "file": "src/server/handlers/semantic_index.rs",
@@ -2233,108 +1905,12 @@
    "dst": "src/server/dispatch/consensus.rs"
   },
   {
-   "file": "src/server/handlers/source_batch.rs",
-   "line": 108,
-   "item": "crate::server::sql_catalog_acl::with_source_authority_write",
-   "category": "needs-seam",
-   "detail": "medulla-h-ingest -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/source_batch/authorization.rs",
-   "line": 6,
-   "item": "crate::server::sql_catalog_acl::SqlPrivilege",
-   "category": "needs-seam",
-   "detail": "medulla-h-ingest -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/source_batch/authorization.rs",
-   "line": 6,
-   "item": "crate::server::sql_catalog_acl::SqlSourceAuthorityWrite",
-   "category": "needs-seam",
-   "detail": "medulla-h-ingest -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/source_batch/authorization.rs",
-   "line": 6,
-   "item": "crate::server::sql_catalog_acl::ACCESS_DENIED",
-   "category": "needs-seam",
-   "detail": "medulla-h-ingest -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/sqlite_file.rs",
-   "line": 1074,
-   "item": "crate::server::sql_catalog_acl::open_authorized_table",
-   "category": "test-move",
-   "detail": "medulla-h-txn -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/sqlite_file.rs",
-   "line": 1074,
-   "item": "crate::server::sql_catalog_acl::SqlPrivilege",
-   "category": "test-move",
-   "detail": "medulla-h-txn -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
    "file": "src/server/handlers/sqlite_file.rs",
    "line": 197,
    "item": "crate::server::dispatch::authoritative_now_ms",
    "category": "extract-helper",
    "detail": "crate::server::dispatch::authoritative_now_ms",
    "dst": "src/server/dispatch/consensus.rs"
-  },
-  {
-   "file": "src/server/handlers/sqlite_file.rs",
-   "line": 267,
-   "item": "crate::server::sql_catalog_acl::require_source_authority",
-   "category": "needs-seam",
-   "detail": "medulla-h-txn -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/sqlite_file.rs",
-   "line": 268,
-   "item": "crate::server::sql_catalog_acl::with_source_authority_write",
-   "category": "needs-seam",
-   "detail": "medulla-h-txn -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/sqlite_file.rs",
-   "line": 295,
-   "item": "crate::server::sql_catalog_acl::require_source_authority",
-   "category": "needs-seam",
-   "detail": "medulla-h-txn -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/sqlite_file.rs",
-   "line": 361,
-   "item": "crate::server::sql_catalog_acl::SqlSourceAuthorityWrite",
-   "category": "needs-seam",
-   "detail": "medulla-h-txn -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/sqlite_file.rs",
-   "line": 366,
-   "item": "crate::server::sql_catalog_acl::register_owner_after_create_in",
-   "category": "needs-seam",
-   "detail": "medulla-h-txn -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/handlers/sqlite_file.rs",
-   "line": 369,
-   "item": "crate::server::sql_catalog_acl::stable_source_operation_id",
-   "category": "needs-seam",
-   "detail": "medulla-h-txn -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
   },
   {
    "file": "src/server/handlers/statechart.rs",
@@ -2351,22 +1927,6 @@
    "category": "extract-helper",
    "detail": "crate::server::dispatch::authoritative_now_ms",
    "dst": "src/server/dispatch/consensus.rs"
-  },
-  {
-   "file": "src/server/handlers/streaming.rs",
-   "line": 32,
-   "item": "crate::server::cdc::CdcHub",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/cdc.rs"
-  },
-  {
-   "file": "src/server/handlers/streaming.rs",
-   "line": 149,
-   "item": "crate::server::cdc::CdcHub",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/cdc.rs"
   },
   {
    "file": "src/server/handlers/timeseries.rs",
@@ -2388,8 +1948,8 @@
    "file": "src/server/handlers/txn.rs",
    "line": 73,
    "item": "crate::server::dispatch::is_replicated_apply",
-   "category": "needs-seam",
-   "detail": "medulla-h-txn -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::is_replicated_apply",
    "dst": "src/server/dispatch/consensus/replicated.rs"
   },
   {
@@ -2404,24 +1964,24 @@
    "file": "src/server/handlers/txn/commit_modal.rs",
    "line": 323,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-h-txn -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
   },
   {
    "file": "src/server/handlers/txn/commit_modal.rs",
    "line": 429,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-h-txn -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
   },
   {
    "file": "src/server/handlers/txn/commit_modal.rs",
    "line": 519,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-h-txn -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
   },
   {
@@ -2633,12 +2193,52 @@
    "dst": "src/server/dispatch/consensus.rs"
   },
   {
-   "file": "src/server/kvcache_http/mod.rs",
-   "line": 782,
-   "item": "crate::server::oidc::JwtValidator::from_env",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/oidc.rs"
+   "file": "src/server/icv_guard.rs",
+   "line": 60,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "extract-helper",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
+   "file": "src/server/icv_guard.rs",
+   "line": 232,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "extract-helper",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
+   "file": "src/server/impact_watch.rs",
+   "line": 183,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/impact_watch.rs",
+   "line": 262,
+   "item": "crate::server::dispatch::dispatch_verified_request",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::dispatch_verified_request",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/kv.rs",
+   "line": 292,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/kv.rs",
+   "line": 639,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
   },
   {
    "file": "src/server/kvcache_http/mod.rs",
@@ -2647,14 +2247,6 @@
    "category": "extract-helper",
    "detail": "crate::server::require_loopback_listener",
    "dst": "src/server/mod.rs"
-  },
-  {
-   "file": "src/server/kvcache_http/shared_store.rs",
-   "line": 57,
-   "item": "crate::server::kv::KvStore",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/kv.rs"
   },
   {
    "file": "src/server/mqtt_wire/mod.rs",
@@ -2690,50 +2282,26 @@
   },
   {
    "file": "src/server/mutation.rs",
-   "line": 280,
-   "item": "crate::server::cdc::CdcHub::new",
-   "category": "test-move",
-   "detail": "medulla-h-graph -> medulla-server",
-   "dst": "src/server/cdc.rs"
+   "line": 107,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
   },
   {
    "file": "src/server/mutation.rs",
-   "line": 489,
-   "item": "crate::server::cdc::CdcHub::new",
+   "line": 183,
+   "item": "crate::server::persistence::redb_backend::RedbBackend",
    "category": "test-move",
-   "detail": "medulla-h-graph -> medulla-server",
-   "dst": "src/server/cdc.rs"
-  },
-  {
-   "file": "src/server/mutation.rs",
-   "line": 565,
-   "item": "crate::server::cdc::CdcHub::new",
-   "category": "test-move",
-   "detail": "medulla-h-graph -> medulla-server",
-   "dst": "src/server/cdc.rs"
-  },
-  {
-   "file": "src/server/mutation.rs",
-   "line": 761,
-   "item": "crate::server::cdc::CdcHub::new",
-   "category": "test-move",
-   "detail": "medulla-h-graph -> medulla-server",
-   "dst": "src/server/cdc.rs"
-  },
-  {
-   "file": "src/server/mutation.rs",
-   "line": 869,
-   "item": "crate::server::cdc::CdcHub::new",
-   "category": "test-move",
-   "detail": "medulla-h-graph -> medulla-server",
-   "dst": "src/server/cdc.rs"
+   "detail": "medulla-server-api -> medulla-persistence",
+   "dst": "src/server/persistence/redb_backend.rs"
   },
   {
    "file": "src/server/mutation.rs",
    "line": 1112,
    "item": "crate::server::handlers::mining::handle_associate",
    "category": "test-move",
-   "detail": "medulla-h-graph -> medulla-h-query",
+   "detail": "medulla-server-api -> medulla-h-query",
    "dst": "src/server/handlers/mining/association.rs"
   },
   {
@@ -2741,7 +2309,7 @@
    "line": 1115,
    "item": "crate::server::handlers::mining::AssociationRequest",
    "category": "test-move",
-   "detail": "medulla-h-graph -> medulla-h-query",
+   "detail": "medulla-server-api -> medulla-h-query",
    "dst": "src/server/handlers/mining/association.rs"
   },
   {
@@ -2749,7 +2317,7 @@
    "line": 1121,
    "item": "crate::server::handlers::mining::WritebackOptions",
    "category": "test-move",
-   "detail": "medulla-h-graph -> medulla-h-query",
+   "detail": "medulla-server-api -> medulla-h-query",
    "dst": "src/server/handlers/mining/writeback.rs"
   },
   {
@@ -2757,7 +2325,7 @@
    "line": 1185,
    "item": "crate::server::handlers::mining::handle_associate",
    "category": "test-move",
-   "detail": "medulla-h-graph -> medulla-h-query",
+   "detail": "medulla-server-api -> medulla-h-query",
    "dst": "src/server/handlers/mining/association.rs"
   },
   {
@@ -2765,7 +2333,7 @@
    "line": 1188,
    "item": "crate::server::handlers::mining::AssociationRequest",
    "category": "test-move",
-   "detail": "medulla-h-graph -> medulla-h-query",
+   "detail": "medulla-server-api -> medulla-h-query",
    "dst": "src/server/handlers/mining/association.rs"
   },
   {
@@ -2773,16 +2341,112 @@
    "line": 1194,
    "item": "crate::server::handlers::mining::WritebackOptions",
    "category": "test-move",
-   "detail": "medulla-h-graph -> medulla-h-query",
+   "detail": "medulla-server-api -> medulla-h-query",
    "dst": "src/server/handlers/mining/writeback.rs"
   },
   {
    "file": "src/server/mutation.rs",
-   "line": 2358,
-   "item": "crate::server::sparql_http::SPARQL_HTTP_UPDATE_EVENT",
+   "line": 2247,
+   "item": "crate::raft::NATIVE_CONSENSUS_METHODS",
    "category": "test-move",
-   "detail": "medulla-h-graph -> medulla-wire",
-   "dst": "src/server/sparql_http.rs"
+   "detail": "medulla-server-api -> medulla-raft",
+   "dst": "src/raft/command/native/catalog.rs"
+  },
+  {
+   "file": "src/server/mutation.rs",
+   "line": 2291,
+   "item": "crate::raft::NATIVE_CONSENSUS_METHODS",
+   "category": "test-move",
+   "detail": "medulla-server-api -> medulla-raft",
+   "dst": "src/raft/command/native/catalog.rs"
+  },
+  {
+   "file": "src/server/mutation/coalescer.rs",
+   "line": 399,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation/commit_encode.rs",
+   "line": 5,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation/commit_entry.rs",
+   "line": 372,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/mutation/commit_paths.rs",
+   "line": 5,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation/commit_replay.rs",
+   "line": 4,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation/commit_replay.rs",
+   "line": 126,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/mutation/commit_replay.rs",
+   "line": 321,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/mutation/conditional.rs",
+   "line": 9,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation/conditional.rs",
+   "line": 173,
+   "item": "crate::server::dispatch::authoritative_now_ms",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::authoritative_now_ms",
+   "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/mutation/context.rs",
+   "line": 8,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation/plan.rs",
+   "line": 717,
+   "item": "crate::server::dispatch::is_replicated_apply",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::is_replicated_apply",
+   "dst": "src/server/dispatch/consensus/replicated.rs"
   },
   {
    "file": "src/server/mutation_batch.rs",
@@ -2791,6 +2455,14 @@
    "category": "extract-helper",
    "detail": "crate::server::dispatch::authoritative_now_ms",
    "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit.rs",
+   "line": 60,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
   },
   {
    "file": "src/server/mutation_batch/commit.rs",
@@ -2818,6 +2490,14 @@
   },
   {
    "file": "src/server/mutation_batch/commit/internal.rs",
+   "line": 9,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit/internal.rs",
    "line": 223,
    "item": "crate::server::dispatch::authoritative_now_ms",
    "category": "extract-helper",
@@ -2833,20 +2513,12 @@
    "dst": "src/server/dispatch/consensus.rs"
   },
   {
-   "file": "src/server/mutation_batch/commit/internal.rs",
-   "line": 441,
-   "item": "crate::server::mutation::publish_committed_row_delta",
-   "category": "needs-seam",
-   "detail": "medulla-server-api -> medulla-server",
-   "dst": "src/server/mutation/commit_encode.rs"
-  },
-  {
    "file": "src/server/mutation_batch/commit/lifecycle.rs",
-   "line": 5,
-   "item": "crate::server::mutation::LifecycleAttempt",
-   "category": "needs-seam",
-   "detail": "medulla-server-api -> medulla-server",
-   "dst": "src/server/mutation/context.rs"
+   "line": 6,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
   },
   {
    "file": "src/server/mutation_batch/commit/lifecycle.rs",
@@ -2855,6 +2527,22 @@
    "category": "extract-helper",
    "detail": "crate::server::dispatch::authoritative_now_ms",
    "dst": "src/server/dispatch/consensus.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit/program.rs",
+   "line": 3,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/commit/work_item.rs",
+   "line": 8,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
   },
   {
    "file": "src/server/mutation_batch/commit/work_item.rs",
@@ -2866,10 +2554,18 @@
   },
   {
    "file": "src/server/mutation_batch/compile.rs",
+   "line": 14,
+   "item": "crate::server::persistence::PersistenceBackend",
+   "category": "extract-type",
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
+  },
+  {
+   "file": "src/server/mutation_batch/compile.rs",
    "line": 520,
    "item": "crate::server::dispatch::replicated_placement_authority",
-   "category": "needs-seam",
-   "detail": "medulla-server-api -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::replicated_placement_authority",
    "dst": "src/server/dispatch/consensus/replicated.rs"
   },
   {
@@ -2897,6 +2593,22 @@
    "dst": "src/server/mod.rs"
   },
   {
+   "file": "src/server/namespace_migration.rs",
+   "line": 326,
+   "item": "crate::server::dispatch::dispatch_verified_request",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::dispatch_verified_request",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/oidc.rs",
+   "line": 371,
+   "item": "crate::server::outbound_http_config",
+   "category": "extract-helper",
+   "detail": "crate::server::outbound_http_config",
+   "dst": "src/server/mod.rs"
+  },
+  {
    "file": "src/server/persistence/agent_library/write.rs",
    "line": 243,
    "item": "crate::server::dispatch::authoritative_now_ms",
@@ -2913,76 +2625,28 @@
    "dst": "src/server/dispatch/consensus.rs"
   },
   {
-   "file": "src/server/persistence/backup.rs",
-   "line": 1156,
-   "item": "crate::server::kv::KvStore::open",
-   "category": "test-move",
-   "detail": "medulla-persistence -> medulla-server",
-   "dst": "src/server/kv.rs"
-  },
-  {
-   "file": "src/server/persistence/backup.rs",
-   "line": 1228,
-   "item": "crate::server::kv::KvStore::open",
-   "category": "test-move",
-   "detail": "medulla-persistence -> medulla-server",
-   "dst": "src/server/kv.rs"
-  },
-  {
    "file": "src/server/persistence/contract.rs",
-   "line": 4,
-   "item": "crate::server::persistence::redb_backend",
-   "category": "needs-seam",
-   "detail": "medulla-server-api -> medulla-persistence",
-   "dst": "src/server/persistence/redb_backend.rs"
-  },
-  {
-   "file": "src/server/persistence/contract.rs",
-   "line": 5,
-   "item": "crate::server::persistence::CrossModalCommitArgs",
-   "category": "needs-seam",
-   "detail": "medulla-server-api -> medulla-persistence",
-   "dst": "src/server/persistence/mod.rs"
+   "line": 467,
+   "item": "crate::raft::EnrichmentTopUpTransition",
+   "category": "extract-type",
+   "detail": "crate::raft::EnrichmentTopUpTransition",
+   "dst": "src/raft/command/enrichment_top_up.rs"
   },
   {
    "file": "src/server/persistence/contract.rs",
    "line": 753,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-server-api -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
-  },
-  {
-   "file": "src/server/persistence/durable_stores.rs",
-   "line": 184,
-   "item": "crate::server::kv::KV_PHYSICAL_STORE",
-   "category": "needs-seam",
-   "detail": "medulla-persistence -> medulla-server",
-   "dst": "src/server/kv.rs"
   },
   {
    "file": "src/server/persistence/mod.rs",
    "line": 147,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-persistence -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
-  },
-  {
-   "file": "src/server/persistence/online_reshard.rs",
-   "line": 1262,
-   "item": "crate::server::txn::now_ms",
-   "category": "needs-seam",
-   "detail": "medulla-persistence -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/persistence/online_reshard.rs",
-   "line": 1289,
-   "item": "crate::server::txn::now_ms",
-   "category": "needs-seam",
-   "detail": "medulla-persistence -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
   },
   {
    "file": "src/server/persistence/redb_backend.rs",
@@ -2994,11 +2658,11 @@
   },
   {
    "file": "src/server/persistence/redb_backend.rs",
-   "line": 672,
-   "item": "crate::server::txn::GraphTxnState::decode_recovery_plan",
-   "category": "needs-seam",
-   "detail": "medulla-persistence -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
+   "line": 790,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "extract-helper",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
   },
   {
    "file": "src/server/persistence/redb_backend.rs",
@@ -3017,27 +2681,59 @@
    "dst": "src/lib.rs"
   },
   {
+   "file": "src/server/persistence/redb_backend/backend_load.rs",
+   "line": 215,
+   "item": "crate::server::graph_schema::compose::validate_and_compose",
+   "category": "extract-helper",
+   "detail": "crate::server::graph_schema::compose::validate_and_compose",
+   "dst": "src/server/graph_schema/compose.rs"
+  },
+  {
    "file": "src/server/persistence/redb_backend/commands.rs",
    "line": 23,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-persistence -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
   },
   {
    "file": "src/server/persistence/redb_backend/commands.rs",
    "line": 53,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-persistence -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend/commands.rs",
+   "line": 243,
+   "item": "crate::raft::EnrichmentTopUpTransition",
+   "category": "extract-type",
+   "detail": "crate::raft::EnrichmentTopUpTransition",
+   "dst": "src/raft/command/enrichment_top_up.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend/shard_writer.rs",
+   "line": 87,
+   "item": "crate::raft::config::raft_group_count",
+   "category": "extract-helper",
+   "detail": "crate::raft::config::raft_group_count",
+   "dst": "src/raft/config.rs"
+  },
+  {
+   "file": "src/server/persistence/redb_backend/trait_envelopes.rs",
+   "line": 72,
+   "item": "crate::raft::EnrichmentTopUpTransition",
+   "category": "extract-type",
+   "detail": "crate::raft::EnrichmentTopUpTransition",
+   "dst": "src/raft/command/enrichment_top_up.rs"
   },
   {
    "file": "src/server/persistence/redb_backend/trait_graph.rs",
    "line": 11,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-persistence -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
   },
   {
@@ -3065,44 +2761,12 @@
    "dst": "src/server/dispatch/consensus.rs"
   },
   {
-   "file": "src/server/persistence/redb_backend/writer_commands.rs",
-   "line": 214,
-   "item": "crate::server::txn::now_ms",
-   "category": "needs-seam",
-   "detail": "medulla-persistence -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/persistence/redb_backend/writer_thread.rs",
-   "line": 327,
-   "item": "crate::server::txn::now_ms",
-   "category": "needs-seam",
-   "detail": "medulla-persistence -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/persistence/redb_backend/writer_thread.rs",
-   "line": 394,
-   "item": "crate::server::txn::now_ms",
-   "category": "needs-seam",
-   "detail": "medulla-persistence -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
    "file": "src/server/pgwire/mod.rs",
    "line": 802,
    "item": "crate::server::handlers::query::bind_sql_text_embedder",
    "category": "seam:QueryApi",
    "detail": "crate::server::handlers::query::bind_sql_text_embedder",
    "dst": "src/server/handlers/query/planning.rs"
-  },
-  {
-   "file": "src/server/redis_wire/mod.rs",
-   "line": 60,
-   "item": "crate::server::kv::KvStore",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/kv.rs"
   },
   {
    "file": "src/server/redis_wire/mod.rs",
@@ -3132,16 +2796,16 @@
    "file": "src/server/repository_enrichment_worker.rs",
    "line": 171,
    "item": "crate::server::dispatch::drain_repository_enrichment_once",
-   "category": "needs-seam",
-   "detail": "medulla-h-ingest -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::drain_repository_enrichment_once",
    "dst": "src/server/dispatch/graph_pipeline/repository_index/consumer.rs"
   },
   {
    "file": "src/server/repository_enrichment_worker.rs",
    "line": 207,
    "item": "crate::server::dispatch::DrainOutcome::Acknowledged",
-   "category": "needs-seam",
-   "detail": "medulla-h-ingest -> medulla-server",
+   "category": "extract-type",
+   "detail": "crate::server::dispatch::DrainOutcome",
    "dst": "src/server/dispatch/graph_pipeline/repository_index/consumer.rs"
   },
   {
@@ -3172,16 +2836,16 @@
    "file": "src/server/repository_enrichment_worker/raft_park.rs",
    "line": 91,
    "item": "crate::server::dispatch::plan_held_underfunded_park",
-   "category": "needs-seam",
-   "detail": "medulla-h-ingest -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::plan_held_underfunded_park",
    "dst": "src/server/dispatch/graph_pipeline/repository_index/consumer.rs"
   },
   {
    "file": "src/server/repository_enrichment_worker/raft_top_up.rs",
    "line": 255,
    "item": "crate::server::dispatch::decode_pending_enrichment_intent",
-   "category": "needs-seam",
-   "detail": "medulla-h-ingest -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::decode_pending_enrichment_intent",
    "dst": "src/server/dispatch/graph_pipeline/repository_index/consumer.rs"
   },
   {
@@ -3196,31 +2860,23 @@
    "file": "src/server/repository_enrichment_worker/raft_top_up.rs",
    "line": 272,
    "item": "crate::server::dispatch::enrichment_intent_for_snapshot",
-   "category": "needs-seam",
-   "detail": "medulla-h-ingest -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::enrichment_intent_for_snapshot",
    "dst": "src/server/dispatch/graph_pipeline/repository_index/enrichment.rs"
   },
   {
    "file": "src/server/ros2_bridge.rs",
    "line": 229,
    "item": "crate::server::dispatch::dispatch",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
    "dst": "src/server/dispatch/request_boundary.rs"
-  },
-  {
-   "file": "src/server/ros2_bridge.rs",
-   "line": 264,
-   "item": "crate::server::cdc::CdcHub",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/cdc.rs"
   },
   {
    "file": "src/server/s3/mod.rs",
    "line": 61,
    "item": "crate::server::blob::store::ChunkStore",
-   "category": "extract-type",
+   "category": "seam:state-handle",
    "detail": "crate::server::blob::store::ChunkStore",
    "dst": "src/server/blob/store.rs"
   },
@@ -3228,17 +2884,9 @@
    "file": "src/server/s3/mod.rs",
    "line": 61,
    "item": "crate::server::blob::store::RedbChunkStore",
-   "category": "extract-type",
+   "category": "seam:state-handle",
    "detail": "crate::server::blob::store::RedbChunkStore",
    "dst": "src/server/blob/store.rs"
-  },
-  {
-   "file": "src/server/s3/mod.rs",
-   "line": 63,
-   "item": "crate::server::kv::KvStore",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/kv.rs"
   },
   {
    "file": "src/server/s3/mod.rs",
@@ -3247,38 +2895,6 @@
    "category": "extract-helper",
    "detail": "crate::server::require_loopback_listener",
    "dst": "src/server/mod.rs"
-  },
-  {
-   "file": "src/server/semantic_index.rs",
-   "line": 73,
-   "item": "crate::server::sql_catalog_acl::open_authorized_table",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/semantic_index.rs",
-   "line": 73,
-   "item": "crate::server::sql_catalog_acl::SemanticTextSnapshot",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/semantic_index.rs",
-   "line": 73,
-   "item": "crate::server::sql_catalog_acl::SqlPrivilege",
-   "category": "needs-seam",
-   "detail": "medulla-h-query -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/sparql_http.rs",
-   "line": 93,
-   "item": "crate::server::oidc::JwtValidator::from_env_sparql",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/oidc.rs"
   },
   {
    "file": "src/server/sparql_http.rs",
@@ -3292,73 +2908,41 @@
    "file": "src/server/sparql_http.rs",
    "line": 302,
    "item": "crate::server::dispatch::dispatch_authenticated_local_query",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
    "dst": "src/server/dispatch/request_boundary.rs"
   },
   {
    "file": "src/server/sparql_http/graph_store.rs",
    "line": 121,
    "item": "crate::server::dispatch::dispatch",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
    "dst": "src/server/dispatch/request_boundary.rs"
   },
   {
    "file": "src/server/sparql_http/graph_store.rs",
    "line": 154,
    "item": "crate::server::dispatch::dispatch",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
    "dst": "src/server/dispatch/request_boundary.rs"
   },
   {
    "file": "src/server/sparql_http/route.rs",
    "line": 114,
    "item": "crate::server::dispatch::dispatch",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch/request_boundary.rs",
    "dst": "src/server/dispatch/request_boundary.rs"
   },
   {
-   "file": "src/server/sparql_service/mod.rs",
-   "line": 133,
-   "item": "crate::server::sparql_http::ServiceClient",
-   "category": "extract-type",
-   "detail": "crate::server::sparql_http::ServiceClient",
-   "dst": "src/server/sparql_http.rs"
-  },
-  {
-   "file": "src/server/sparql_service/mod.rs",
-   "line": 210,
-   "item": "crate::server::sparql_http::SERVICE_ALLOW_ENV",
-   "category": "test-move",
-   "detail": "medulla-h-query -> medulla-wire",
-   "dst": "src/server/sparql_http.rs"
-  },
-  {
-   "file": "src/server/sparql_service/qualification.rs",
-   "line": 55,
-   "item": "crate::server::sparql_http::ServiceClient",
-   "category": "extract-type",
-   "detail": "crate::server::sparql_http::ServiceClient",
-   "dst": "src/server/sparql_http.rs"
-  },
-  {
    "file": "src/server/state.rs",
-   "line": 10,
-   "item": "crate::server::txn::GraphTxnState",
+   "line": 180,
+   "item": "crate::server::persistence::PersistenceBackend",
    "category": "seam:state-handle",
-   "detail": "crate::server::txn::GraphTxnState",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/state.rs",
-   "line": 10,
-   "item": "crate::server::txn::TxnIdGen",
-   "category": "seam:state-handle",
-   "detail": "crate::server::txn::TxnIdGen",
-   "dst": "src/server/txn.rs"
+   "detail": "crate::server::persistence::PersistenceBackend",
+   "dst": "src/server/persistence/contract.rs"
   },
   {
    "file": "src/server/state.rs",
@@ -3394,19 +2978,19 @@
   },
   {
    "file": "src/server/state.rs",
-   "line": 250,
-   "item": "crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry",
-   "category": "seam:state-handle",
-   "detail": "crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry",
-   "dst": "src/server/routed_write_coalescer.rs"
-  },
-  {
-   "file": "src/server/state.rs",
    "line": 279,
    "item": "crate::server::blob::BlobCursors",
    "category": "seam:state-handle",
    "detail": "crate::server::blob::BlobCursors",
    "dst": "src/server/blob/mod.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 290,
+   "item": "crate::raft::RaftHandle",
+   "category": "seam:state-handle",
+   "detail": "crate::raft::RaftHandle",
+   "dst": "src/raft/mod.rs"
   },
   {
    "file": "src/server/state.rs",
@@ -3423,14 +3007,6 @@
    "category": "seam:state-handle",
    "detail": "crate::server::obs::ObsState",
    "dst": "src/server/obs/mod.rs"
-  },
-  {
-   "file": "src/server/state.rs",
-   "line": 322,
-   "item": "crate::server::cdc::CdcHub",
-   "category": "seam:state-handle",
-   "detail": "crate::server::cdc::CdcHub",
-   "dst": "src/server/cdc.rs"
   },
   {
    "file": "src/server/state.rs",
@@ -3482,11 +3058,27 @@
   },
   {
    "file": "src/server/state.rs",
+   "line": 398,
+   "item": "crate::raft::RaftHandle",
+   "category": "seam:state-handle",
+   "detail": "crate::raft::RaftHandle",
+   "dst": "src/raft/mod.rs"
+  },
+  {
+   "file": "src/server/state.rs",
    "line": 399,
    "item": "crate::raft::multi::MultiRaft",
    "category": "seam:state-handle",
    "detail": "crate::raft::multi::MultiRaft",
    "dst": "src/raft/multi.rs"
+  },
+  {
+   "file": "src/server/state.rs",
+   "line": 409,
+   "item": "crate::raft::RaftHandle",
+   "category": "seam:state-handle",
+   "detail": "crate::raft::RaftHandle",
+   "dst": "src/raft/mod.rs"
   },
   {
    "file": "src/server/state.rs",
@@ -3545,11 +3137,27 @@
    "dst": "src/server/mod.rs"
   },
   {
+   "file": "src/server/transport.rs",
+   "line": 27,
+   "item": "crate::server::dispatch::dispatch_verified_request",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::dispatch_verified_request",
+   "dst": "src/server/dispatch/request_boundary.rs"
+  },
+  {
+   "file": "src/server/transport.rs",
+   "line": 29,
+   "item": "crate::server::dispatch",
+   "category": "seam:dispatch",
+   "detail": "src/server/dispatch.rs",
+   "dst": "src/server/dispatch.rs"
+  },
+  {
    "file": "src/server/txn.rs",
    "line": 173,
    "item": "crate::server::dispatch::is_replicated_apply",
-   "category": "needs-seam",
-   "detail": "medulla-h-txn -> medulla-server",
+   "category": "extract-helper",
+   "detail": "crate::server::dispatch::is_replicated_apply",
    "dst": "src/server/dispatch/consensus/replicated.rs"
   },
   {
@@ -3564,433 +3172,9 @@
    "file": "src/server/txn.rs",
    "line": 436,
    "item": "crate::MeasurementBatch",
-   "category": "needs-seam",
-   "detail": "medulla-h-txn -> medulla-engine",
+   "category": "extract-type",
+   "detail": "crate::MeasurementBatch",
    "dst": "src/lib.rs"
-  },
-  {
-   "file": "src/server/viz_interactive.rs",
-   "line": 72,
-   "item": "crate::server::http1",
-   "category": "seam:WireApi",
-   "detail": "crate::server::http1",
-   "dst": "src/server/http1.rs"
-  },
-  {
-   "file": "src/server/viz_interactive.rs",
-   "line": 72,
-   "item": "crate::server::http1::HttpMessage",
-   "category": "extract-type",
-   "detail": "crate::server::http1::HttpMessage",
-   "dst": "src/server/http1.rs"
-  },
-  {
-   "file": "src/server/viz_interactive.rs",
-   "line": 72,
-   "item": "crate::server::http1::RequestLimits",
-   "category": "extract-type",
-   "detail": "crate::server::http1::RequestLimits",
-   "dst": "src/server/http1.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 575,
-   "item": "crate::server::sql_catalog_acl",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 575,
-   "item": "crate::server::sql_catalog_acl::SqlPrivilege",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 623,
-   "item": "crate::server::sql_catalog_acl",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 663,
-   "item": "crate::server::sql_catalog_acl",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 663,
-   "item": "crate::server::sql_catalog_acl::SqlPrivilege",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 685,
-   "item": "crate::server::sql_catalog_acl",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 685,
-   "item": "crate::server::sql_catalog_acl::SqlPrivilege",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 704,
-   "item": "crate::server::sql_catalog_acl",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 704,
-   "item": "crate::server::sql_catalog_acl::SqlPrivilege",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 724,
-   "item": "crate::server::sql_catalog_acl",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 748,
-   "item": "crate::server::sql_catalog_acl",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 772,
-   "item": "crate::server::sql_catalog_acl",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 6022,
-   "item": "crate::server::sql_catalog_acl",
-   "category": "test-move",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 6022,
-   "item": "crate::server::sql_catalog_acl::SqlPrivilege",
-   "category": "test-move",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 208,
-   "item": "crate::server::txn::IsolationLevel",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 216,
-   "item": "crate::server::txn::IsolationLevel::Serializable",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 218,
-   "item": "crate::server::txn::IsolationLevel::Snapshot",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 237,
-   "item": "crate::server::txn::IsolationLevel",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 414,
-   "item": "crate::server::sql_catalog_acl::SqlSourceAuthorityWrite",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 441,
-   "item": "crate::server::sql_catalog_acl::SqlSourceAuthorityWrite",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 448,
-   "item": "crate::server::sql_catalog_acl::ProvisionalCreateAuthority",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 545,
-   "item": "crate::server::sql_catalog_acl::ACCESS_DENIED",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 551,
-   "item": "crate::server::sql_catalog_acl::ACCESS_DENIED",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 555,
-   "item": "crate::server::sql_catalog_acl::ACCESS_DENIED",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 567,
-   "item": "crate::server::sql_catalog_acl::SqlSourceAuthorityWrite",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 572,
-   "item": "crate::server::sql_catalog_acl::ProvisionalCreateAuthority",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 599,
-   "item": "crate::server::sql_catalog_acl::ProvisionalCreateAuthority",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 612,
-   "item": "crate::server::sql_catalog_acl::SqlSourceAuthorityWrite",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 619,
-   "item": "crate::server::sql_catalog_acl::ProvisionalCreateAuthority",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 655,
-   "item": "crate::server::sql_catalog_acl::SqlSourceAuthorityWrite",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 659,
-   "item": "crate::server::sql_catalog_acl::ProvisionalCreateAuthority",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 677,
-   "item": "crate::server::sql_catalog_acl::SqlSourceAuthorityWrite",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 682,
-   "item": "crate::server::sql_catalog_acl::ProvisionalCreateAuthority",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 697,
-   "item": "crate::server::sql_catalog_acl::SqlSourceAuthorityWrite",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 701,
-   "item": "crate::server::sql_catalog_acl::ProvisionalCreateAuthority",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 714,
-   "item": "crate::server::sql_catalog_acl::SqlSourceAuthorityWrite",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 721,
-   "item": "crate::server::sql_catalog_acl::ProvisionalCreateAuthority",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 738,
-   "item": "crate::server::sql_catalog_acl::SqlSourceAuthorityWrite",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 745,
-   "item": "crate::server::sql_catalog_acl::ProvisionalCreateAuthority",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 763,
-   "item": "crate::server::sql_catalog_acl::SqlSourceAuthorityWrite",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 769,
-   "item": "crate::server::sql_catalog_acl::ProvisionalCreateAuthority",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 872,
-   "item": "crate::server::sql_catalog_acl::with_source_authority_write",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 880,
-   "item": "crate::server::sql_catalog_acl::SqlSourceAuthorityWrite",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 901,
-   "item": "crate::server::txn::now_ms",
-   "category": "seam:TxnApi",
-   "detail": "crate::server::txn::now_ms",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 936,
-   "item": "crate::server::sql_catalog_acl::register_owner_after_create_in",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 1121,
-   "item": "crate::server::txn::StagedMeasurement",
-   "category": "extract-type",
-   "detail": "crate::server::txn::StagedMeasurement",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 1203,
-   "item": "crate::server::txn::IsolationLevel",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 1223,
-   "item": "crate::server::txn::IsolationLevel",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 1227,
-   "item": "crate::server::txn::IsolationLevel",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 1238,
-   "item": "crate::server::txn::PredicateRead",
-   "category": "extract-type",
-   "detail": "crate::server::txn::PredicateRead",
-   "dst": "src/server/txn.rs"
   },
   {
    "file": "src/server/wire/mod.rs",
@@ -4002,35 +3186,11 @@
   },
   {
    "file": "src/server/wire/mod.rs",
-   "line": 1340,
-   "item": "crate::server::txn::IsolationLevel::Snapshot",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 1572,
-   "item": "crate::server::sql_catalog_acl::require_source_authority",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
    "line": 1594,
    "item": "crate::server::txn_intent::ReplayStep::CopyRows",
    "category": "extract-type",
    "detail": "crate::server::txn_intent::ReplayStep",
    "dst": "src/server/txn_intent.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 1648,
-   "item": "crate::server::txn::IsolationLevel::Snapshot",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
   },
   {
    "file": "src/server/wire/mod.rs",
@@ -4042,59 +3202,11 @@
   },
   {
    "file": "src/server/wire/mod.rs",
-   "line": 1843,
-   "item": "crate::server::sql_catalog_acl::RequestGraph",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl/ann_projection.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 1848,
-   "item": "crate::server::sql_catalog_acl::authorized_read_store_for_query",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl/ann_projection.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 2246,
-   "item": "crate::server::sql_catalog_acl::ACCESS_DENIED",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 2270,
-   "item": "crate::server::sql_catalog_acl::authorized_graph_table_sql",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 2590,
-   "item": "crate::server::sql_catalog_acl::require_source_authority",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
    "line": 2601,
    "item": "crate::server::txn_intent::CommitIntent::new",
    "category": "extract-type",
    "detail": "crate::server::txn_intent::CommitIntent",
    "dst": "src/server/txn_intent.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 2607,
-   "item": "crate::server::txn::now_ms",
-   "category": "seam:TxnApi",
-   "detail": "crate::server::txn::now_ms",
-   "dst": "src/server/txn.rs"
   },
   {
    "file": "src/server/wire/mod.rs",
@@ -4111,14 +3223,6 @@
    "category": "extract-type",
    "detail": "crate::server::txn_intent::CommitIntent",
    "dst": "src/server/txn_intent.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 2649,
-   "item": "crate::server::txn::IsolationLevel",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
   },
   {
    "file": "src/server/wire/mod.rs",
@@ -4143,14 +3247,6 @@
    "category": "seam:TxnApi",
    "detail": "crate::server::txn_intent::delete_intent",
    "dst": "src/server/txn_intent.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 2729,
-   "item": "crate::server::txn::IsolationLevel::Snapshot",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
   },
   {
    "file": "src/server/wire/mod.rs",
@@ -4202,14 +3298,6 @@
   },
   {
    "file": "src/server/wire/mod.rs",
-   "line": 2843,
-   "item": "crate::server::sql_catalog_acl::require_source_authority",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
    "line": 2868,
    "item": "crate::server::txn_intent::list_intents",
    "category": "seam:TxnApi",
@@ -4218,107 +3306,11 @@
   },
   {
    "file": "src/server/wire/mod.rs",
-   "line": 2882,
-   "item": "crate::server::txn::IsolationLevel::Snapshot",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 2913,
-   "item": "crate::server::sql_catalog_acl::open_authorized_table",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 2917,
-   "item": "crate::server::sql_catalog_acl::SqlPrivilege::Insert",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 3110,
-   "item": "crate::server::sql_catalog_acl::alterable_ann_index_table",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl/ann_projection.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4026,
-   "item": "crate::server::txn::IsolationLevel::Snapshot",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4064,
-   "item": "crate::server::txn::IsolationLevel",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4087,
-   "item": "crate::server::txn::GraphTxnState::new",
-   "category": "extract-type",
-   "detail": "crate::server::txn::GraphTxnState",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4089,
-   "item": "crate::server::txn::NewTxnArgs",
-   "category": "extract-type",
-   "detail": "crate::server::txn::NewTxnArgs",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4096,
-   "item": "crate::server::txn::now_ms",
-   "category": "seam:TxnApi",
-   "detail": "crate::server::txn::now_ms",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4099,
-   "item": "crate::server::txn::IsolationLevel::Serializable",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4108,
-   "item": "crate::server::txn::now_ms",
-   "category": "seam:TxnApi",
-   "detail": "crate::server::txn::now_ms",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
    "line": 4133,
    "item": "crate::server::handlers::txn::commit_cross_modal_txn_with_nonce",
    "category": "seam:TxnApi",
    "detail": "crate::server::handlers::txn::commit_cross_modal_txn_with_nonce",
    "dst": "src/server/handlers/txn/commit_modal.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4188,
-   "item": "crate::server::sql_catalog_acl::require_source_authority",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
   },
   {
    "file": "src/server/wire/mod.rs",
@@ -4338,51 +3330,11 @@
   },
   {
    "file": "src/server/wire/mod.rs",
-   "line": 4207,
-   "item": "crate::server::txn::now_ms",
-   "category": "seam:TxnApi",
-   "detail": "crate::server::txn::now_ms",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
    "line": 4218,
    "item": "crate::server::txn_intent::write_intent",
    "category": "seam:TxnApi",
    "detail": "crate::server::txn_intent::write_intent",
    "dst": "src/server/txn_intent.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4224,
-   "item": "crate::server::txn::IsolationLevel::Snapshot",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4253,
-   "item": "crate::server::sql_catalog_acl::require_source_authority",
-   "category": "needs-seam",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4456,
-   "item": "crate::server::txn::IsolationLevel::Snapshot",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4486,
-   "item": "crate::server::txn::IsolationLevel::Snapshot",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
   },
   {
    "file": "src/server/wire/mod.rs",
@@ -4399,14 +3351,6 @@
    "category": "seam:TxnApi",
    "detail": "crate::server::handlers::txn::construct_view_to_methods",
    "dst": "src/server/handlers/txn/staging.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4560,
-   "item": "crate::server::txn::IsolationLevel::Snapshot",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
   },
   {
    "file": "src/server/wire/mod.rs",
@@ -4458,78 +3402,6 @@
   },
   {
    "file": "src/server/wire/mod.rs",
-   "line": 4696,
-   "item": "crate::server::txn::IsolationLevel",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4698,
-   "item": "crate::server::txn::GraphTxnState",
-   "category": "extract-type",
-   "detail": "crate::server::txn::GraphTxnState",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4701,
-   "item": "crate::server::txn::GraphTxnState::new",
-   "category": "extract-type",
-   "detail": "crate::server::txn::GraphTxnState",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4703,
-   "item": "crate::server::txn::NewTxnArgs",
-   "category": "extract-type",
-   "detail": "crate::server::txn::NewTxnArgs",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4710,
-   "item": "crate::server::txn::now_ms",
-   "category": "seam:TxnApi",
-   "detail": "crate::server::txn::now_ms",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4713,
-   "item": "crate::server::txn::IsolationLevel::Serializable",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4724,
-   "item": "crate::server::txn::StagedMeasurement",
-   "category": "extract-type",
-   "detail": "crate::server::txn::StagedMeasurement",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4725,
-   "item": "crate::server::txn::StagedMeasurement",
-   "category": "extract-type",
-   "detail": "crate::server::txn::StagedMeasurement",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4742,
-   "item": "crate::server::txn::GraphTxnState",
-   "category": "extract-type",
-   "detail": "crate::server::txn::GraphTxnState",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
    "line": 4755,
    "item": "crate::server::handlers::txn::commit_cross_modal_txn_with_nonce",
    "category": "seam:TxnApi",
@@ -4538,51 +3410,11 @@
   },
   {
    "file": "src/server/wire/mod.rs",
-   "line": 4826,
-   "item": "crate::server::txn::IsolationLevel::Snapshot",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4863,
-   "item": "crate::server::txn::IsolationLevel::Serializable",
-   "category": "extract-type",
-   "detail": "crate::server::txn::IsolationLevel",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 4875,
-   "item": "crate::server::txn::PredicateRead::Label",
-   "category": "extract-type",
-   "detail": "crate::server::txn::PredicateRead",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
    "line": 4929,
    "item": "crate::server::txn_intent::ReplayStep::Sql",
    "category": "extract-type",
    "detail": "crate::server::txn_intent::ReplayStep",
    "dst": "src/server/txn_intent.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 5049,
-   "item": "crate::server::txn::StagedMeasurement",
-   "category": "extract-type",
-   "detail": "crate::server::txn::StagedMeasurement",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 5101,
-   "item": "crate::server::txn::StagedMeasurement",
-   "category": "extract-type",
-   "detail": "crate::server::txn::StagedMeasurement",
-   "dst": "src/server/txn.rs"
   },
   {
    "file": "src/server/wire/mod.rs",
@@ -4602,27 +3434,11 @@
   },
   {
    "file": "src/server/wire/mod.rs",
-   "line": 5415,
-   "item": "crate::server::txn::IsolationLevel::Snapshot",
-   "category": "test-move",
-   "detail": "medulla-wire -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
    "line": 5552,
    "item": "crate::server::txn_intent::CommitIntent::new",
    "category": "test-move",
    "detail": "medulla-wire -> medulla-h-txn",
    "dst": "src/server/txn_intent.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 5558,
-   "item": "crate::server::txn::now_ms",
-   "category": "test-move",
-   "detail": "medulla-wire -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
   },
   {
    "file": "src/server/wire/mod.rs",
@@ -4666,14 +3482,6 @@
   },
   {
    "file": "src/server/wire/mod.rs",
-   "line": 5668,
-   "item": "crate::server::txn::now_ms",
-   "category": "test-move",
-   "detail": "medulla-wire -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
    "line": 5670,
    "item": "crate::server::txn_intent::write_intent",
    "category": "test-move",
@@ -4698,14 +3506,6 @@
   },
   {
    "file": "src/server/wire/mod.rs",
-   "line": 5827,
-   "item": "crate::server::txn::IsolationLevel::Snapshot",
-   "category": "test-move",
-   "detail": "medulla-wire -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
    "line": 6056,
    "item": "crate::server::test_state_with_services",
    "category": "test-move",
@@ -4719,14 +3519,6 @@
    "category": "test-move",
    "detail": "medulla-wire -> medulla-server",
    "dst": "src/server/dispatch.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 6159,
-   "item": "crate::server::sql_catalog_acl::with_source_authority_write",
-   "category": "test-move",
-   "detail": "medulla-wire -> medulla-server",
-   "dst": "src/server/sql_catalog_acl.rs"
   },
   {
    "file": "src/server/wire/mod.rs",
@@ -4770,22 +3562,6 @@
   },
   {
    "file": "src/server/wire/mod.rs",
-   "line": 6442,
-   "item": "crate::server::txn::now_ms",
-   "category": "test-move",
-   "detail": "medulla-wire -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 6482,
-   "item": "crate::server::txn::now_ms",
-   "category": "test-move",
-   "detail": "medulla-wire -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
    "line": 6542,
    "item": "crate::server::txn_intent::CommitIntent::new",
    "category": "test-move",
@@ -4799,22 +3575,6 @@
    "category": "test-move",
    "detail": "medulla-wire -> medulla-h-txn",
    "dst": "src/server/txn_intent.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 6550,
-   "item": "crate::server::txn::now_ms",
-   "category": "test-move",
-   "detail": "medulla-wire -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
-  },
-  {
-   "file": "src/server/wire/mod.rs",
-   "line": 6622,
-   "item": "crate::server::txn::now_ms",
-   "category": "test-move",
-   "detail": "medulla-wire -> medulla-h-txn",
-   "dst": "src/server/txn.rs"
   },
   {
    "file": "src/server/wire/wired_catalog_tests/edge_index.rs",
@@ -4855,6 +3615,14 @@
    "category": "seam:dispatch",
    "detail": "src/server/dispatch.rs",
    "dst": "src/server/dispatch.rs"
+  },
+  {
+   "file": "src/store_authority.rs",
+   "line": 79,
+   "item": "crate::mutation_apply::ENGINE_LEDGER_PRINCIPAL",
+   "category": "extract-type",
+   "detail": "crate::mutation_apply::ENGINE_LEDGER_PRINCIPAL",
+   "dst": "src/mutation_apply.rs"
   }
  ]
 }

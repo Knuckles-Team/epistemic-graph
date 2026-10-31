@@ -6,14 +6,17 @@ Spec: `MEDULLA-CONTRACT-R056.8`. Start after: G4 landed.
 Create the worktree from `main` after the previous group landed
 (`git worktree add <wt> -b lane/crate-split-h-admin origin/main`). Never branch from another lane.
 
-## Files to move (45; exactly these, nothing else)
+## Files to move (51; exactly these, nothing else)
+- `src/server/boot_maintenance.rs`
 - `src/server/connector_pack_projection.rs`
 - `src/server/connector_pack_projection/boot_regression.rs`
 - `src/server/connector_pack_projection/grant.rs`
 - `src/server/graph_schema.rs`
 - `src/server/graph_schema/approved.rs`
+- `src/server/graph_schema/approved/tests.rs`
 - `src/server/graph_schema/attach_pack.rs`
 - `src/server/graph_schema/compiled.rs`
+- `src/server/graph_schema/compose.rs`
 - `src/server/graph_schema/finance_tests.rs`
 - `src/server/graph_schema/swarm_topology_tests.rs`
 - `src/server/graph_schema/terms.rs`
@@ -51,7 +54,10 @@ Create the worktree from `main` after the previous group landed
 - `src/server/handlers/admin/saga.rs`
 - `src/server/handlers/admin/saga_tests.rs`
 - `src/server/handlers/raft_admin.rs`
-- `src/server/matview/lifecycle.rs`
+- `src/server/namespace_migration.rs`
+- `src/server/transport.rs`
+- `src/server/transport/framing.rs`
+- `src/server/transport/tls.rs`
 
 
 ## Codemod (run in this order, from the worktree root)
@@ -70,27 +76,19 @@ Create the worktree from `main` after the previous group landed
 | category | item | refs | first location |
 |---|---|---|---|
 | extract-helper | `crate::server::dispatch::authoritative_now_ms` | 7 | src/server/connector_pack_projection.rs:191 |
-| extract-helper | `crate::server::dispatch::blocking_task` | 6 | src/server/connector_pack_projection.rs:126 |
+| extract-helper | `crate::server::dispatch::blocking_task` | 7 | src/server/boot_maintenance.rs:109 |
+| extract-helper | `crate::server::dispatch::dispatch_verified_request` | 2 | src/server/namespace_migration.rs:326 |
 | extract-helper | `crate::server::dispatch::authoritative_now_secs` | 1 | src/server/handlers/admin/backup.rs:167 |
 | extract-helper | `crate::server::dispatch::ensure_graph_resident` | 1 | src/server/handlers/admin/connector_pack/catalog_authority.rs:278 |
 | extract-helper | `crate::server::dispatch::ensure_internal_global_graph` | 1 | src/server/graph_schema.rs:100 |
+| extract-helper | `crate::server::dispatch::verified_served_registration` | 1 | src/server/handlers/admin/connector_pack/catalog_authority.rs:321 |
 | extract-type | `crate::server::blob::BlobCursors` | 5 | src/server/handlers/admin/connector_pack.rs:295 |
-| extract-type | `crate::server::blob::ChunkStore` | 4 | src/server/handlers/admin/connector_pack/import.rs:65 |
 | extract-type | `crate::server::blob::engine_bodies::EngineBody` | 2 | src/server/handlers/admin/connector_pack/import.rs:14 |
-| extract-type | `crate::server::blob::store::ChunkStore` | 2 | src/server/handlers/admin/connector_pack/reproject.rs:318 |
 | extract-type | `crate::server::blob::store::HolderReconcile` | 2 | src/server/handlers/admin/connector_pack/reconcile.rs:160 |
-| extract-type | `crate::server::blob::store::RedbChunkStore` | 2 | src/server/handlers/admin/connector_pack/reproject.rs:331 |
+| extract-type | `crate::MeasurementBatch` | 1 | src/server/connector_pack_projection/boot_regression.rs:422 |
 | extract-type | `crate::server::blob::engine_bodies::StoredEngineBody` | 1 | src/server/handlers/admin/connector_pack/import/planning.rs:46 |
 | extract-type | `crate::server::blob::store::HolderId` | 1 | src/server/handlers/admin/connector_pack/reconcile.rs:160 |
 | extract-type | `crate::server::blob::store::HolderNamespace` | 1 | src/server/handlers/admin/connector_pack/reconcile.rs:160 |
-| needs-seam | `crate::server::dispatch::dispatch` | 8 | src/server/handlers/admin.rs:514 |
-| needs-seam | `crate::server::mutation::MutationCtx` | 2 | src/server/graph_schema.rs:39 |
-| needs-seam | `crate::server::mutation::MutationPlan` | 2 | src/server/graph_schema.rs:39 |
-| needs-seam | `crate::MeasurementBatch` | 1 | src/server/connector_pack_projection/boot_regression.rs:422 |
-| needs-seam | `crate::server::ShutdownCoordinator::new` | 1 | src/server/connector_pack_projection/boot_regression.rs:461 |
-| needs-seam | `crate::server::boot_maintenance::spawn_post_bind_maintenance` | 1 | src/server/connector_pack_projection/boot_regression.rs:483 |
-| needs-seam | `crate::server::dispatch::verified_served_registration` | 1 | src/server/handlers/admin/connector_pack/catalog_authority.rs:321 |
-| needs-seam | `crate::server::serve_uds` | 1 | src/server/connector_pack_projection/boot_regression.rs:465 |
 | seam:DecideApi | `crate::server::handlers::decide::topology_shape::refusal` | 1 | src/server/handlers/admin/agent.rs:597 |
 | seam:GraphApi | `crate::server::handlers::graph_ops::commit_gateway` | 5 | src/server/graph_schema.rs:164 |
 | seam:IngestApi | `crate::server::blob::engine_bodies::read_engine_body` | 4 | src/server/graph_schema/attach_pack.rs:54 |
@@ -98,7 +96,12 @@ Create the worktree from `main` after the previous group landed
 | seam:IngestApi | `crate::server::blob::engine_bodies::engine_body_holder_namespace` | 1 | src/server/handlers/admin/connector_pack/reconcile.rs:159 |
 | seam:IngestApi | `crate::server::handlers::blob::compile_blob_batch` | 1 | src/server/handlers/admin/connector_pack/reconcile.rs:126 |
 | seam:IngestApi | `crate::server::handlers::blob::cursors_for_test` | 1 | src/server/connector_pack_projection/boot_regression.rs:409 |
-| seam:TxnApi | `crate::server::txn::now_ms` | 1 | src/server/graph_schema/approved.rs:58 |
+| seam:TxnApi | `crate::server::reload_matviews` | 1 | src/server/boot_maintenance.rs:52 |
+| seam:dispatch | `crate::server::dispatch::dispatch` | 8 | src/server/handlers/admin.rs:514 |
+| seam:dispatch | `crate::server::dispatch` | 1 | src/server/transport.rs:29 |
+| seam:state-handle | `crate::server::blob::ChunkStore` | 4 | src/server/handlers/admin/connector_pack/import.rs:65 |
+| seam:state-handle | `crate::server::blob::store::ChunkStore` | 2 | src/server/handlers/admin/connector_pack/reproject.rs:318 |
+| seam:state-handle | `crate::server::blob::store::RedbChunkStore::open_temp` | 2 | src/server/handlers/admin/connector_pack/reproject.rs:331 |
 
 Use the server-api trait or extracted item named in the table. Do not invent another seam.
 
@@ -122,7 +125,7 @@ The change lands on a passing build-train run of its changed crates. Link the tr
 pull request. Commit trailer: `Spec: MEDULLA-CONTRACT-R056.8`.
 
 ## STOP conditions
-- Any `BLOCKED` or `needs-seam` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
+- Any `BLOCKED` or `decide` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
 - Any file outside the list above, other than caller rewrites made by `rewrite_paths.py`, means STOP.
 - Cold pull-request CI timing out is not a blocker (MEDULLA-CONTRACT-R056.12).
 - Never run cargo locally, never `git stash`, never `git add -A` or `git add .`, never `--no-verify`, never force-push.

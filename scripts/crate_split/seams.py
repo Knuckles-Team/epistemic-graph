@@ -7,6 +7,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from crate_split.units import HUB_FILES
+
 if TYPE_CHECKING:
     from crate_split.resolve import Classified, Context
 
@@ -51,35 +53,26 @@ def extract_section(name: str, entries: list[Classified]) -> list[str]:
     return [*lines, ""]
 
 
-def needs_section(ctx: Context, entries: list[Classified]) -> list[str]:
-    by_dst: dict[str, list[Classified]] = defaultdict(list)
+def decide_section(ctx: Context, entries: list[Classified]) -> list[str]:
+    """Units no placement could settle: one line each, at most 20."""
+    by_unit: dict[str, list[Classified]] = defaultdict(list)
     for e in entries:
-        by_dst[e.dst].append(e)
-    lines = [f"## needs-seam ({len(entries)} refs, {len(by_dst)} files)", ""]
+        by_unit[ctx.unit_of[e.dst]].append(e)
+    lines = [f"## decide ({len(by_unit)} units, {len(entries)} refs)", ""]
     lines.append(
-        "No placement satisfies the layering. Each file lists referencers and blockers."
+        "Unplaceable above the server-api floor. One line per unit; owner decides."
     )
     lines.append("")
-    for dst, occ in sorted(by_dst.items(), key=lambda kv: (-len(kv[1]), kv[0])):
-        crates = Counter(ctx.placement[e.file] for e in occ)
-        who = ", ".join(f"{c} x{n}" for c, n in crates.most_common())
+    ranked = sorted(by_unit.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    for unit, occ in ranked[:20]:
+        users = Counter(ctx.fcrate(e.file) for e in occ)
+        who = ", ".join(f"{c} x{n}" for c, n in users.most_common(3))
         lines.append(
-            f"- `{dst}` (in {ctx.placement[dst]}) referenced by {who}: {where(occ, 3)}"
+            f"- `{unit}` (in {ctx.crate[unit]}) used by {who}: {where(occ, 2)}"
         )
-        lines += [f"    - blocked by `{b}`" for b in blockers(ctx, dst, occ)]
+    if len(ranked) > 20:
+        lines.append(f"- ... {len(ranked) - 20} more units in seams.json")
     return [*lines, ""]
-
-
-def blockers(ctx: Context, dst: str, occ: list[Classified]) -> list[str]:
-    from crate_split.resolve import meet
-
-    want = meet(ctx, {ctx.placement[e.file] for e in occ})
-    seen: Counter[str] = Counter()
-    for ref in ctx.refs:
-        bad = ref.src == dst and not ctx.ok(want, ctx.placement[ref.dst])
-        if bad and not ref.in_test:
-            seen[f"{ref.dst} ({ctx.placement[ref.dst]}) via {ref.item}"] += 1
-    return [f"{k} x{n}" for k, n in seen.most_common(4)]
 
 
 def test_section(
@@ -100,19 +93,29 @@ def test_section(
 
 
 def unplanned_section(ctx: Context, unplanned: set[str]) -> list[str]:
-    by_final: dict[str, list[str]] = defaultdict(list)
-    for rel in sorted(unplanned):
-        by_final[ctx.placement[rel]].append(rel)
-    moved = sum(1 for r in unplanned if ctx.placement[r] != ctx.original[r])
-    lines = [
-        f"## unplanned placement ({len(unplanned)} files, {moved} moved)",
-        "",
-    ]
-    for crate, fs in sorted(by_final.items()):
-        lines.append(f"- {crate}: {len(fs)} files")
-        dirs = Counter(f.rsplit("/", 1)[0] if "/" in f else f for f in fs)
-        lines += [f"    - `{d}` ({n})" for d, n in dirs.most_common()]
-    return [*lines, ""]
+    """Unplanned units whose crate differs from their parent module's crate."""
+    files = set(ctx.files)
+    rows = []
+    for unit, members in sorted(ctx.members.items()):
+        if not any(m in unplanned for m in members) or unit in HUB_FILES:
+            continue
+        root_file = next(
+            (f for f in members if f.endswith((f"{unit.split('/')[-1]}.rs", "mod.rs"))),
+            members[0],
+        )
+        base = parent_module(root_file)
+        parent = next((p for p in (f"{base}.rs", f"{base}/mod.rs") if p in files), None)
+        if (
+            parent
+            and parent not in HUB_FILES
+            and ctx.placement[parent] != ctx.placement[root_file]
+        ):
+            rows.append(
+                f"- `{unit}`: {ctx.placement[root_file]} "
+                f"(parent `{parent}` in {ctx.placement[parent]})"
+            )
+    head = f"## unplanned units placed away from their parent module ({len(rows)})"
+    return [head, "", *rows, ""]
 
 
 def parent_module(rel: str) -> str | None:
@@ -124,8 +127,8 @@ def parent_module(rel: str) -> str | None:
     return parent or None
 
 
-def reroot_section(ctx: Context) -> list[str]:
-    """Moved files whose declaring parent module sits in another crate."""
+def reroot_section(ctx: Context, moves: list[str]) -> list[str]:
+    """Files whose declaring parent module sits in another crate (must be none)."""
     files = set(ctx.files)
     rows = []
     for rel in ctx.files:
@@ -134,19 +137,11 @@ def reroot_section(ctx: Context) -> list[str]:
             (p for p in (f"{base}.rs", f"{base}/mod.rs") if p in files and p != rel),
             None,
         )
-        if parent and ctx.placement[parent] != ctx.placement[rel]:
-            rows.append((rel, parent))
-    lines = [f"## re-rooted modules ({len(rows)} files)", ""]
-    lines.append(
-        "Declared in a parent module that lives in another crate. The file becomes "
-        "a top-level module of its crate; review its `super::` paths."
-    )
-    lines.append("")
-    return [
-        *lines,
-        *[f"- `{r}` (parent `{p}` in {ctx.placement[p]})" for r, p in rows],
-        "",
-    ]
+        if parent is None or parent in HUB_FILES or rel in moves:
+            continue
+        if ctx.placement[parent] != ctx.placement[rel]:
+            rows.append(f"- `{rel}` (parent `{parent}` in {ctx.placement[parent]})")
+    return [f"## re-rooted modules ({len(rows)})", "", *rows, ""]
 
 
 def write_reports(
@@ -181,12 +176,12 @@ def write_reports(
     for name in ("extract-type", "extract-helper"):
         if name in by_cat:
             lines += extract_section(name, by_cat[name])
-    if "needs-seam" in by_cat:
-        lines += needs_section(ctx, by_cat["needs-seam"])
+    if "decide" in by_cat:
+        lines += decide_section(ctx, by_cat["decide"])
     if "test-move" in by_cat:
         lines += test_section(ctx, by_cat["test-move"], moves)
     if "pending-delete" in by_cat:
         lines += category_section("pending-delete", by_cat["pending-delete"])
-    lines += reroot_section(ctx)
+    lines += reroot_section(ctx, moves)
     lines += unplanned_section(ctx, unplanned)
     (out / "SEAMS.md").write_text("\n".join(lines), encoding="utf-8")

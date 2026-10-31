@@ -6,12 +6,10 @@ Spec: `MEDULLA-CONTRACT-R056.3`. Start after: none; lands in the same group as t
 Create the worktree from `main` after the previous group landed
 (`git worktree add <wt> -b lane/crate-split-kernel origin/main`). Never branch from another lane.
 
-## Files to move (6; exactly these, nothing else)
+## Files to move (4; exactly these, nothing else)
 - `src/channels.rs`
 - `src/channels/queries.rs`
-- `src/mutation_apply.rs`
 - `src/persist.rs`
-- `src/server/handlers/graphlearn.rs`
 - `src/store_authority.rs`
 
 
@@ -31,8 +29,8 @@ Create the worktree from `main` after the previous group landed
 | category | item | refs | first location |
 |---|---|---|---|
 | extract-helper | `crate::server::authoritative_now_secs` | 3 | src/channels.rs:37 |
-| needs-seam | `crate::server::ServerState` | 1 | src/persist.rs:12 |
-| needs-seam | `crate::server::handlers::mining::replay` | 1 | src/mutation_apply.rs:157 |
+| extract-type | `crate::mutation_apply::ENGINE_LEDGER_PRINCIPAL` | 1 | src/store_authority.rs:79 |
+| seam:state-handle | `crate::server::ServerState` | 1 | src/persist.rs:12 |
 
 Use the server-api trait or extracted item named in the table. Do not invent another seam.
 
@@ -56,7 +54,7 @@ The change lands on a passing build-train run of its changed crates. Link the tr
 pull request. Commit trailer: `Spec: MEDULLA-CONTRACT-R056.3`.
 
 ## STOP conditions
-- Any `BLOCKED` or `needs-seam` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
+- Any `BLOCKED` or `decide` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
 - Any file outside the list above, other than caller rewrites made by `rewrite_paths.py`, means STOP.
 - Cold pull-request CI timing out is not a blocker (MEDULLA-CONTRACT-R056.12).
 - Never run cargo locally, never `git stash`, never `git add -A` or `git add .`, never `--no-verify`, never force-push.

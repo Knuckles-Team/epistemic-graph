@@ -9,135 +9,138 @@
    "lines": 7814
   },
   "medulla-h-admin": {
-   "files": 45,
-   "lines": 14895
+   "files": 51,
+   "lines": 18093
   },
   "medulla-h-compute": {
    "files": 17,
    "lines": 5417
   },
   "medulla-h-decide": {
-   "files": 48,
-   "lines": 9945
+   "files": 47,
+   "lines": 9895
   },
   "medulla-h-graph": {
    "files": 27,
-   "lines": 12579
+   "lines": 10706
   },
   "medulla-h-ingest": {
-   "files": 40,
-   "lines": 13272
+   "files": 43,
+   "lines": 14839
   },
   "medulla-h-jobs": {
-   "files": 33,
-   "lines": 10108
+   "files": 35,
+   "lines": 10944
   },
   "medulla-h-query": {
-   "files": 77,
-   "lines": 38567
+   "files": 78,
+   "lines": 38646
   },
   "medulla-h-txn": {
-   "files": 26,
-   "lines": 11576
+   "files": 20,
+   "lines": 10446
   },
   "medulla-kernel": {
-   "files": 6,
-   "lines": 2025
+   "files": 4,
+   "lines": 1126
   },
   "medulla-persistence": {
-   "files": 105,
-   "lines": 44962
+   "files": 111,
+   "lines": 46166
   },
   "medulla-raft": {
-   "files": 64,
-   "lines": 34432
+   "files": 63,
+   "lines": 33989
   },
   "medulla-server": {
-   "files": 212,
-   "lines": 97653
+   "files": 174,
+   "lines": 80186
   },
   "medulla-server-api": {
-   "files": 32,
-   "lines": 20527
+   "files": 70,
+   "lines": 38906
   },
   "medulla-store": {
-   "files": 129,
-   "lines": 56141
+   "files": 127,
+   "lines": 54984
   },
   "medulla-wire": {
-   "files": 37,
-   "lines": 33936
+   "files": 31,
+   "lines": 31692
   }
  },
  "by_category": {
-  "needs-seam": 200,
-  "extract-type": 115,
-  "extract-helper": 100,
-  "test-move": 83,
-  "seam:state-handle": 22,
-  "seam:TxnApi": 19,
-  "seam:AdminApi": 16,
+  "extract-helper": 142,
+  "extract-type": 102,
+  "test-move": 62,
+  "seam:state-handle": 34,
+  "seam:dispatch": 23,
+  "seam:AdminApi": 22,
+  "seam:TxnApi": 13,
   "seam:QueryApi": 12,
+  "decide": 12,
   "seam:IngestApi": 10,
   "seam:DecideApi": 9,
-  "seam:dispatch": 7,
   "seam:GraphApi": 5,
-  "seam:WireApi": 5,
+  "seam:WireApi": 3,
   "pending-delete": 2
  },
  "pairs": {
-  "medulla-wire->medulla-server": 95,
-  "medulla-wire->medulla-h-txn": 89,
-  "medulla-h-query->medulla-server": 41,
-  "medulla-h-admin->medulla-server": 32,
+  "medulla-wire->medulla-h-txn": 39,
+  "medulla-h-admin->medulla-server": 29,
   "medulla-h-admin->medulla-h-ingest": 28,
-  "medulla-server-api->medulla-server": 27,
+  "medulla-wire->medulla-server": 27,
+  "medulla-server-api->medulla-persistence": 26,
+  "medulla-server-api->medulla-server": 26,
   "medulla-h-txn->medulla-h-admin": 25,
-  "medulla-h-ingest->medulla-server": 24,
   "medulla-h-jobs->medulla-server": 22,
-  "medulla-h-graph->medulla-h-query": 19,
-  "medulla-raft->medulla-h-txn": 19,
-  "medulla-h-txn->medulla-server": 14,
+  "medulla-h-ingest->medulla-server": 20,
+  "medulla-h-query->medulla-server": 18,
+  "medulla-store->medulla-h-jobs": 14,
+  "medulla-h-graph->medulla-h-query": 13,
   "medulla-wire->medulla-h-query": 13,
-  "medulla-h-graph->medulla-server": 12,
-  "medulla-raft->medulla-server": 12,
-  "medulla-server-api->medulla-persistence": 12,
-  "medulla-h-query->medulla-wire": 9,
+  "medulla-raft->medulla-server": 10,
+  "medulla-server-api->medulla-h-query": 9,
+  "medulla-server-api->medulla-raft": 9,
   "medulla-h-decide->medulla-server": 8,
   "medulla-h-query->medulla-h-ingest": 8,
-  "medulla-persistence->medulla-server": 8,
-  "medulla-persistence->medulla-h-txn": 7,
+  "medulla-persistence->medulla-engine": 7,
+  "medulla-persistence->medulla-server": 7,
   "medulla-h-decide->medulla-h-ingest": 6,
+  "medulla-h-query->medulla-h-admin": 6,
   "medulla-h-query->medulla-h-decide": 6,
-  "medulla-persistence->medulla-engine": 6,
   "medulla-store->medulla-engine": 6,
   "medulla-h-admin->medulla-h-graph": 5,
   "medulla-store->medulla-persistence": 5,
-  "medulla-h-txn->medulla-engine": 4,
-  "medulla-h-compute->medulla-wire": 3,
-  "medulla-h-query->medulla-h-admin": 3,
+  "medulla-h-txn->medulla-server": 4,
+  "medulla-persistence->medulla-raft": 4,
+  "medulla-h-decide->medulla-h-admin": 3,
+  "medulla-h-query->medulla-wire": 3,
+  "medulla-h-txn->medulla-engine": 3,
   "medulla-kernel->medulla-server": 3,
-  "medulla-server-api->medulla-raft": 3,
+  "medulla-store->medulla-server-api": 3,
+  "medulla-h-graph->medulla-h-admin": 2,
   "medulla-h-graph->medulla-h-decide": 2,
+  "medulla-h-graph->medulla-server": 2,
+  "medulla-kernel->medulla-server-api": 2,
+  "medulla-persistence->medulla-h-admin": 2,
   "medulla-server->delete": 2,
-  "medulla-server-api->medulla-h-query": 2,
-  "medulla-server-api->medulla-h-txn": 2,
-  "medulla-store->medulla-server-api": 2,
+  "medulla-server-api->medulla-h-admin": 2,
+  "medulla-store->medulla-raft": 2,
   "medulla-wire->medulla-h-ingest": 2,
   "medulla-h-admin->medulla-engine": 1,
   "medulla-h-admin->medulla-h-decide": 1,
   "medulla-h-admin->medulla-h-txn": 1,
-  "medulla-h-decide->medulla-h-admin": 1,
   "medulla-h-decide->medulla-h-query": 1,
-  "medulla-h-graph->medulla-h-admin": 1,
-  "medulla-h-graph->medulla-wire": 1,
   "medulla-h-jobs->delete": 1,
   "medulla-h-jobs->medulla-h-query": 1,
   "medulla-h-query->medulla-h-txn": 1,
   "medulla-h-txn->medulla-h-query": 1,
-  "medulla-kernel->medulla-h-query": 1,
-  "medulla-kernel->medulla-server-api": 1,
+  "medulla-persistence->medulla-h-txn": 1,
+  "medulla-raft->medulla-h-graph": 1,
+  "medulla-raft->medulla-h-ingest": 1,
   "medulla-raft->medulla-h-jobs": 1,
+  "medulla-raft->medulla-h-txn": 1,
   "medulla-server-api->medulla-engine": 1,
   "medulla-server-api->medulla-h-compute": 1,
   "medulla-server-api->medulla-h-graph": 1,

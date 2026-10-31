@@ -6,8 +6,7 @@ Spec: `MEDULLA-CONTRACT-R056.2`. Start after: G0 landed.
 Create the worktree from `main` after the previous group landed
 (`git worktree add <wt> -b lane/crate-split-store origin/main`). Never branch from another lane.
 
-## Files to move (129; exactly these, nothing else)
-- `src/raft/command/enrichment_top_up.rs`
+## Files to move (127; exactly these, nothing else)
 - `src/redb_layout.rs`
 - `src/redb_store.rs`
 - `src/redb_store/audit.rs`
@@ -135,7 +134,6 @@ Create the worktree from `main` after the previous group landed
 - `src/redb_store/work_item_capability/authority.rs`
 - `src/redb_store/work_item_capability/lease.rs`
 - `src/sidecar_store.rs`
-- `src/work_item_statechart.rs`
 
 
 ## Codemod (run in this order, from the worktree root)
@@ -153,9 +151,22 @@ Create the worktree from `main` after the previous group landed
 ## Seams this lane uses (from SEAMS.md)
 | category | item | refs | first location |
 |---|---|---|---|
-| needs-seam | `crate::MeasurementBatch` | 6 | src/redb_store/crossmodal.rs:177 |
-| needs-seam | `crate::server::persistence::online_reshard::export_graph_raw` | 1 | src/redb_store/shard.rs:713 |
-| needs-seam | `crate::server::persistence::shard_migrate::GraphShardPayloadTransfer::without_report` | 1 | src/redb_store/shard.rs:910 |
+| decide | `crate::work_item_statechart::EV_CANCEL` | 1 | src/redb_store/work_item/cancel.rs:179 |
+| decide | `crate::work_item_statechart::EV_CLAIM` | 1 | src/redb_store/work_item/claim.rs:394 |
+| decide | `crate::work_item_statechart::EV_COMMIT_CANCELLED` | 1 | src/redb_store/work_item/commit.rs:307 |
+| decide | `crate::work_item_statechart::EV_COMMIT_FAILED` | 1 | src/redb_store/work_item/commit.rs:308 |
+| decide | `crate::work_item_statechart::EV_COMMIT_SUCCEEDED` | 1 | src/redb_store/work_item/commit.rs:306 |
+| decide | `crate::work_item_statechart::EV_DEFER` | 1 | src/redb_store/work_item/cancel.rs:306 |
+| decide | `crate::work_item_statechart::EV_LEASE_EXHAUSTED` | 1 | src/redb_store/work_item/claim.rs:76 |
+| decide | `crate::work_item_statechart::EV_LEASE_RECLAIM` | 1 | src/redb_store/work_item/claim.rs:101 |
+| decide | `crate::work_item_statechart::EV_RENEW` | 1 | src/redb_store/work_item/lease.rs:83 |
+| decide | `crate::work_item_statechart::WORK_ITEM_DEF_ID` | 1 | src/redb_store/store_read.rs:134 |
+| decide | `crate::work_item_statechart::emit_divergence` | 1 | src/redb_store/store_read.rs:110 |
+| decide | `crate::work_item_statechart::mirror_outcome` | 1 | src/redb_store/store_read.rs:108 |
+| extract-helper | `crate::server::persistence::online_reshard::export_graph_raw` | 1 | src/redb_store/shard.rs:713 |
+| extract-type | `crate::MeasurementBatch` | 6 | src/redb_store/crossmodal.rs:177 |
+| extract-type | `crate::raft::EnrichmentTopUpTransition` | 2 | src/redb_store/store_mutation.rs:280 |
+| extract-type | `crate::server::persistence::shard_migrate::GraphShardPayloadTransfer` | 1 | src/redb_store/shard.rs:910 |
 
 Use the server-api trait or extracted item named in the table. Do not invent another seam.
 
@@ -179,7 +190,7 @@ The change lands on a passing build-train run of its changed crates. Link the tr
 pull request. Commit trailer: `Spec: MEDULLA-CONTRACT-R056.2`.
 
 ## STOP conditions
-- Any `BLOCKED` or `needs-seam` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
+- Any `BLOCKED` or `decide` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
 - Any file outside the list above, other than caller rewrites made by `rewrite_paths.py`, means STOP.
 - Cold pull-request CI timing out is not a blocker (MEDULLA-CONTRACT-R056.12).
 - Never run cargo locally, never `git stash`, never `git add -A` or `git add .`, never `--no-verify`, never force-push.

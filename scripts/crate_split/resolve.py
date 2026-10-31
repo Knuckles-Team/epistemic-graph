@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Resolve the file-to-crate placement for the crate split (MEDULLA-CONTRACT-R056).
 
-Start from the manifest assignment and move each referenced file down to the highest
-crate below-or-equal every crate that references it, while its own outgoing references
-stay at or below the new crate. Repeat to a fixpoint and never move a file up.
-References
-that no placement can satisfy are classified as seams (traits in server-api), extracted
-types or helpers, test moves, or `needs-seam`. Writes `placement.toml`, `seams.json` and
-`SEAMS.md` next to this script.
+The module is the unit: a module and its descendants move together and are never
+re-rooted. Planned units stay in their planned crate. Unplanned units move down to the
+highest crate below-or-equal every crate that references them, provided their own
+references stay at or below it. Clusters of unplanned units that block each other
+(strongly connected components) move jointly. A reference that still points upward is a
+seam, an extracted type or helper, or a `decide` item; there is no `needs-seam` state.
+Writes `placement.toml`, `seams.json` and `SEAMS.md` next to this script.
 """
 
 from __future__ import annotations
@@ -30,19 +30,19 @@ from crate_split.ownership import (
     list_src_files,
     load_manifest,
 )
+from crate_split.units import HUB_FILES, build_units, is_test_file, tarjan
 
 API = "medulla-server-api"
 SERVER = "medulla-server"
-DISPATCH_HUBS = (
-    "src/server/mod.rs",
-    "src/server/dispatch.rs",
-    "src/server/handlers/mod.rs",
-    "src/server/dispatch/consensus.rs",
-)
-DISPATCH_HUB_DIRS = (
-    "src/server/dispatch/router/",
-    "src/server/dispatch/request_boundary/",
-)
+FLOOR = 2
+STATE_FILE = "src/server/state.rs"
+HERE = Path(__file__).resolve().parent
+FORCED = {
+    "server/sql_catalog_acl": API,
+    "mutation_apply": API,
+    "server/oidc": API,
+    "server/cdc": API,
+}
 DISPATCH_NAMES = {
     "dispatch",
     "dispatch_authenticated_local_query",
@@ -62,8 +62,16 @@ TRAITS = {
     "medulla-h-compute": "ComputeApi",
     "medulla-wire": "WireApi",
 }
-STATE_FILE = "src/server/state.rs"
-HERE = Path(__file__).resolve().parent
+STATE_SUFFIX = (
+    "Hub",
+    "Registry",
+    "Surface",
+    "Cascade",
+    "Coalescer",
+    "Authority",
+    "Store",
+    "State",
+)
 
 
 @dataclass
@@ -72,11 +80,22 @@ class Context:
     files: list[str]
     original: dict[str, str]
     refs: list[Ref]
-    placement: dict[str, str] = field(default_factory=dict)
+    unit_of: dict[str, str]
+    members: dict[str, list[str]]
+    crate: dict[str, str] = field(default_factory=dict)
+    movable: set[str] = field(default_factory=set)
+    decide: set[str] = field(default_factory=set)
     moves: set[str] = field(default_factory=set)
+    placement: dict[str, str] = field(default_factory=dict)
 
     def ok(self, src_crate: str, dst_crate: str) -> bool:
         return self.manifest.may_depend(src_crate, dst_crate)
+
+    def level(self, crate: str) -> int:
+        return self.manifest.level(crate)
+
+    def fcrate(self, rel: str) -> str:
+        return SERVER if rel in self.moves else self.crate[self.unit_of[rel]]
 
 
 @dataclass(frozen=True)
@@ -89,33 +108,6 @@ class Classified:
     dst: str
 
 
-def is_pinned(rel: str) -> bool:
-    """The facade roots stay in the engine crate."""
-    return rel in ("src/lib.rs", "src/main.rs") or rel.startswith("src/bin/")
-
-
-def is_test_file(rel: str) -> bool:
-    name = rel.rsplit("/", 1)[-1]
-    return (
-        name.endswith(("_tests.rs", "tests.rs", "_fixtures.rs"))
-        or name == "test_support.rs"
-        or "/tests/" in rel
-    )
-
-
-def subject_of(rel: str, files: set[str]) -> str | None:
-    """The source file a test file belongs to, when it can be inferred."""
-    parent, _, name = rel.rpartition("/")
-    candidates = []
-    if name.endswith("_tests.rs"):
-        stem = name[: -len("_tests.rs")]
-        candidates = [f"{parent}/{stem}.rs", f"{parent}/{stem}/mod.rs"]
-    else:
-        base = parent.split("/tests")[0] if "/tests" in rel else parent
-        candidates = [base + ".rs", base + "/mod.rs"]
-    return next((c for c in candidates if c in files and c != rel), None)
-
-
 def split_item(item: str) -> tuple[str, bool]:
     """(path up to the first capitalised segment, whether it names a type)."""
     segs = item.split("::")
@@ -125,93 +117,135 @@ def split_item(item: str) -> tuple[str, bool]:
     return item, False
 
 
-def is_hub(dst: str) -> bool:
-    return dst in DISPATCH_HUBS or dst.startswith(DISPATCH_HUB_DIRS)
+def is_dispatch_target(unit: str) -> bool:
+    return unit == "server/dispatch" or unit in HUB_FILES
 
 
-def classify_hub(ref: Ref) -> tuple[str, str]:
+def label_shape(ctx: Context, ref: Ref, sc: str, dc: str) -> tuple[str, str]:
+    """Category and detail for a violating reference, from the item's shape."""
+    unit = ctx.unit_of[ref.dst]
     path, is_type = split_item(ref.item)
     last = ref.item.split("::")[-1]
-    if last in DISPATCH_NAMES or ref.dst == "src/server/handlers/mod.rs":
-        return "seam:dispatch", ref.dst
-    if is_type:
-        return "extract-type", path
-    return "extract-helper", ref.item
-
-
-def classify_pre(ctx: Context, ref: Ref) -> tuple[str, str] | None:
-    """Rule-based label for a reference that must not move a file, else None."""
-    cs, cd = ctx.original[ref.src], ctx.original[ref.dst]
-    if cs == cd:
-        return None
-    if cd == DELETE:
+    if ctx.original[ref.dst] == DELETE:
         return "pending-delete", ref.dst
-    if ref.src == STATE_FILE and ctx.manifest.level(cd) > ctx.manifest.level(API):
+    if ref.src == STATE_FILE:
         return "seam:state-handle", ref.item
-    if is_hub(ref.dst) and ctx.manifest.level(cs) < ctx.manifest.level(SERVER):
-        return classify_hub(ref)
-    if cs in TRAITS and cd in TRAITS:
-        path, is_type = split_item(ref.item)
-        return ("extract-type", path) if is_type else ("seam:" + TRAITS[cd], ref.item)
-    return None
+    if ctx.unit_of[ref.src] == "mutation_apply":
+        return "seam:dispatch", ref.item
+    if unit in ctx.decide:
+        return "decide", unit
+    if is_dispatch_target(unit) and (
+        last in DISPATCH_NAMES
+        or unit in HUB_FILES
+        and not is_type
+        and last == "handlers"
+    ):
+        return "seam:dispatch", ref.dst
+    if sc in TRAITS and dc in TRAITS and not is_type:
+        return "seam:" + TRAITS[dc], ref.item
+    if is_type:
+        name = path.split("::")[-1]
+        return (
+            ("seam:state-handle", path)
+            if name.endswith(STATE_SUFFIX)
+            else ("extract-type", path)
+        )
+    return "extract-helper", ref.item
 
 
 def meet(ctx: Context, crates: set[str]) -> str:
     """Highest crate below-or-equal every crate in the set."""
     cands = [c for c in ctx.manifest.crates if all(ctx.ok(s, c) for s in crates)]
-    top = max(ctx.manifest.level(c) for c in cands)
-    return sorted(c for c in cands if ctx.manifest.level(c) == top)[0]
+    top = max(ctx.level(c) for c in cands)
+    return sorted(c for c in cands if ctx.level(c) == top)[0]
 
 
 class Placer:
-    """Fixpoint file placement over the generic (unlabelled, non-test) references."""
+    """Unit placement over the generic (unlabelled, non-test) references."""
 
     def __init__(self, ctx: Context, generic: list[Ref]):
         self.ctx = ctx
-        self.by_dst: dict[str, list[Ref]] = defaultdict(list)
-        self.by_src: dict[str, list[Ref]] = defaultdict(list)
+        self.into: dict[str, list[Ref]] = defaultdict(list)
+        self.out: dict[str, list[Ref]] = defaultdict(list)
         for ref in generic:
-            self.by_dst[ref.dst].append(ref)
-            self.by_src[ref.src].append(ref)
+            self.into[ctx.unit_of[ref.dst]].append(ref)
+            self.out[ctx.unit_of[ref.src]].append(ref)
 
-    def violations(self, dst: str) -> list[Ref]:
-        p = self.ctx.placement
-        return [r for r in self.by_dst[dst] if not self.ctx.ok(p[r.src], p[dst])]
+    def users(self, unit: str) -> set[str]:
+        return {self.ctx.crate[self.ctx.unit_of[r.src]] for r in self.into[unit]}
 
-    def target(self, dst: str) -> str | None:
-        """New crate for `dst`, or None when it must stay."""
-        p, ctx = self.ctx.placement, self.ctx
-        if is_pinned(dst):
-            return None
-        want = meet(ctx, {p[r.src] for r in self.by_dst[dst]})
-        if ctx.manifest.level(want) > ctx.manifest.level(p[dst]) or want == p[dst]:
-            return None
-        if all(ctx.ok(want, p[r.dst]) for r in self.by_src[dst]):
-            return want
-        return None
+    def violated(self, unit: str) -> bool:
+        c = self.ctx
+        return any(
+            not c.ok(self.ctx.crate[c.unit_of[r.src]], c.crate[unit])
+            for r in self.into[unit]
+        )
+
+    def simple(self) -> bool:
+        """One pass of single-unit moves; True when something moved."""
+        changed = False
+        for unit in sorted(self.ctx.movable):
+            if not self.violated(unit):
+                continue
+            want = meet(self.ctx, self.users(unit))
+            if self.can_move(unit, want):
+                self.ctx.crate[unit] = want
+                changed = True
+        return changed
+
+    def can_move(self, unit: str, want: str) -> bool:
+        c = self.ctx
+        if (
+            c.level(want) < FLOOR
+            or c.level(want) > c.level(c.crate[unit])
+            or want == c.crate[unit]
+        ):
+            return False
+        return all(c.ok(want, c.crate[c.unit_of[r.dst]]) for r in self.out[unit])
+
+    def cluster_moves(self) -> bool:
+        """Move each blocking cluster of unplanned units jointly."""
+        c = self.ctx
+        nodes = sorted(c.movable)
+        succ = {
+            u: {c.unit_of[r.dst] for r in self.out[u] if c.unit_of[r.dst] in c.movable}
+            for u in nodes
+        }
+        changed = False
+        for comp in tarjan(nodes, succ):
+            if not any(self.violated(u) for u in comp):
+                continue
+            outside = {
+                c.crate[c.unit_of[r.src]]
+                for u in comp
+                for r in self.into[u]
+                if c.unit_of[r.src] not in comp
+            }
+            if not outside:
+                continue
+            want = meet(c, outside)
+            for unit in comp:
+                if (
+                    FLOOR <= c.level(want) <= c.level(c.crate[unit])
+                    and want != c.crate[unit]
+                ):
+                    c.crate[unit] = want
+                    changed = True
+        return changed
 
     def run(self) -> None:
-        changed = True
-        while changed:
-            changed = False
-            for dst in sorted(self.by_dst):
-                if not self.violations(dst):
-                    continue
-                want = self.target(dst)
-                if want:
-                    self.ctx.placement[dst] = want
-                    changed = True
+        for _ in range(8):
+            while self.simple():
+                pass
+            if not self.cluster_moves():
+                break
 
-    def blockers(self, dst: str) -> list[Ref]:
-        p, ctx = self.ctx.placement, self.ctx
-        want = meet(ctx, {p[r.src] for r in self.by_dst[dst]})
-        return [r for r in self.by_src[dst] if not ctx.ok(want, p[r.dst])]
+    def stuck(self) -> set[str]:
+        return {u for u in self.ctx.movable if self.violated(u)}
 
 
-def unplanned_files(
-    manifest_text: str, manifest: Manifest, files: list[str]
-) -> set[str]:
-    marked = set(re.findall(r'^\s*"([^"]+)",\s*# unplanned', manifest_text, re.M))
+def unplanned_files(text: str, manifest: Manifest, files: list[str]) -> set[str]:
+    marked = set(re.findall(r'^\s*"([^"]+)",\s*# unplanned', text, re.M))
     result = set()
     for rel in files:
         hits = [(len(e), e) for e, _c in manifest.entries() if entry_matches(e, rel)]
@@ -220,71 +254,35 @@ def unplanned_files(
     return result
 
 
-def final_labels(
-    ctx: Context, pre: dict[int, tuple[str, str]], refs: list[Ref]
-) -> list[Classified]:
-    """Label each reference that still violates the layering after placement."""
+def is_generic(ctx: Context, ref: Ref) -> bool:
+    """References that constrain placement: non-test, unlabelled, between units."""
+    if ref.in_test or is_test_file(ref.src) or is_test_file(ref.dst):
+        return False
+    if ctx.unit_of[ref.src] == ctx.unit_of[ref.dst] or ref.src == STATE_FILE:
+        return False
+    cs, cd = ctx.original[ref.src], ctx.original[ref.dst]
+    return DELETE not in (cs, cd) and not (cs in TRAITS and cd in TRAITS and cs != cd)
+
+
+def final_labels(ctx: Context) -> list[Classified]:
+    """Label every reference that still violates the layering."""
     out = []
-    p = ctx.placement
-    for i, ref in enumerate(refs):
-        if ctx.ok(p[ref.src], p[ref.dst]):
+    for ref in ctx.refs:
+        sc, dc = ctx.fcrate(ref.src), ctx.fcrate(ref.dst)
+        if ctx.ok(sc, dc):
             continue
         if ref.in_test or is_test_file(ref.src) or is_test_file(ref.dst):
-            cat, detail = "test-move", f"{p[ref.src]} -> {p[ref.dst]}"
-        elif i in pre:
-            cat, detail = pre[i]
+            cat, detail = "test-move", f"{sc} -> {dc}"
         else:
-            cat, detail = "needs-seam", f"{p[ref.src]} -> {p[ref.dst]}"
+            cat, detail = label_shape(ctx, ref, sc, dc)
         out.append(Classified(ref.src, ref.line, ref.item, cat, detail, ref.dst))
     return out
 
 
-def follow_tests(ctx: Context) -> None:
-    fileset = set(ctx.files)
-    for rel in ctx.files:
-        if is_test_file(rel):
-            subject = subject_of(rel, fileset)
-            if subject:
-                ctx.placement[rel] = ctx.placement[subject]
-
-
-def resolve(
-    root: Path, manifest_path: Path
-) -> tuple[Context, list[Classified], set[str]]:
-    manifest = load_manifest(manifest_path)
-    files = list_src_files(root)
-    owners = build_owner_map(manifest, files)
-    ctx = Context(
-        manifest,
-        files,
-        {f: c or SERVER for f, c in owners.items()},
-        collect_refs(root, files),
-    )
-    ctx.placement = dict(ctx.original)
-    pre = {}
-    generic = []
-    for i, ref in enumerate(ctx.refs):
-        label = classify_pre(ctx, ref)
-        testish = ref.in_test or is_test_file(ref.src) or is_test_file(ref.dst)
-        if label:
-            pre[i] = label
-        elif not testish and ref.src != ref.dst:
-            generic.append(ref)
-    follow_tests(ctx)
-    placer = Placer(ctx, generic)
-    placer.run()
-    follow_tests(ctx)
-    labels = settle_test_moves(ctx, pre)
-    text = manifest_path.read_text(encoding="utf-8")
-    return ctx, labels, unplanned_files(text, manifest, files)
-
-
-def settle_test_moves(
-    ctx: Context, pre: dict[int, tuple[str, str]]
-) -> list[Classified]:
+def settle_test_moves(ctx: Context) -> list[Classified]:
     """Move test files that reach above their crate into the server crate's tests."""
     while True:
-        labels = final_labels(ctx, pre, ctx.refs)
+        labels = final_labels(ctx)
         fresh = {
             x.file for x in labels if x.category == "test-move" and is_test_file(x.file)
         }
@@ -292,8 +290,41 @@ def settle_test_moves(
         if not fresh:
             return labels
         ctx.moves |= fresh
-        for rel in fresh:
-            ctx.placement[rel] = SERVER
+
+
+def build_context(root: Path, manifest_path: Path) -> tuple[Context, set[str]]:
+    manifest = load_manifest(manifest_path)
+    files = list_src_files(root)
+    owners = build_owner_map(manifest, files)
+    original = {f: c or SERVER for f, c in owners.items()}
+    unit_of, members = build_units(files)
+    ctx = Context(
+        manifest, files, original, collect_refs(root, files), unit_of, members
+    )
+    unplanned = unplanned_files(
+        manifest_path.read_text(encoding="utf-8"), manifest, files
+    )
+    for unit, fs in members.items():
+        ctx.crate[unit] = FORCED.get(unit) or original[fs[0]]
+        srcs = [f for f in fs if not is_test_file(f)]
+        free = (
+            unit not in FORCED and unit not in HUB_FILES and unit != "server/dispatch"
+        )
+        if free and srcs and all(f in unplanned for f in srcs):
+            ctx.movable.add(unit)
+    return ctx, unplanned
+
+
+def resolve(
+    root: Path, manifest_path: Path
+) -> tuple[Context, list[Classified], set[str]]:
+    ctx, unplanned = build_context(root, manifest_path)
+    placer = Placer(ctx, [r for r in ctx.refs if is_generic(ctx, r)])
+    placer.run()
+    ctx.decide = placer.stuck()
+    labels = settle_test_moves(ctx)
+    ctx.placement = {f: ctx.fcrate(f) for f in ctx.files}
+    return ctx, labels, unplanned
 
 
 def write_placement(
@@ -302,7 +333,6 @@ def write_placement(
     placement = dict(ctx.placement)
     for rel in moves:
         placement[rel] = SERVER
-    needs = sorted({x.file for x in labels if x.category == "needs-seam"})
     lines = [
         "# Generated by scripts/crate_split/resolve.py. File-to-crate authority.",
         "",
@@ -316,10 +346,12 @@ def write_placement(
         "# land under crates/medulla-server/tests/",
         f"files = [{quoted}]",
     ]
+    decide = ", ".join(f'"{u}"' for u in sorted(ctx.decide))
     lines += [
         "",
-        "[needs_seam]",
-        "files = [" + ", ".join(f'"{f}"' for f in needs) + "]",
+        "[decide]",
+        "# units no placement could settle; see SEAMS.md",
+        f"units = [{decide}]",
         "",
     ]
     path.write_text("\n".join(lines), encoding="utf-8")
@@ -332,11 +364,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out-dir", type=Path, default=HERE)
     args = ap.parse_args(sys.argv[1:] if argv is None else argv)
     ctx, labels, unplanned = resolve(args.root, args.manifest)
-    moves = sorted(ctx.moves)
-    write_placement(args.out_dir / "placement.toml", ctx, moves, labels)
+    write_placement(args.out_dir / "placement.toml", ctx, sorted(ctx.moves), labels)
     from crate_split.seams import write_reports
 
-    write_reports(args.out_dir, ctx, labels, unplanned, moves)
+    write_reports(args.out_dir, ctx, labels, unplanned, sorted(ctx.moves))
     print(f"{len(labels)} labelled references; placement written")
     return 0
 

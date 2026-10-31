@@ -6,7 +6,7 @@ Spec: `MEDULLA-CONTRACT-R056.7`. Start after: G2 landed.
 Create the worktree from `main` after the previous group landed
 (`git worktree add <wt> -b lane/crate-split-h-ingest origin/main`). Never branch from another lane.
 
-## Files to move (40; exactly these, nothing else)
+## Files to move (43; exactly these, nothing else)
 - `src/server/blob/cas_resolver.rs`
 - `src/server/blob/cdc.rs`
 - `src/server/blob/engine_bodies.rs`
@@ -32,6 +32,7 @@ Create the worktree from `main` after the previous group landed
 - `src/server/blob/stream.rs`
 - `src/server/handlers/asr.rs`
 - `src/server/handlers/blob.rs`
+- `src/server/handlers/modality.rs`
 - `src/server/handlers/modality/dispatch.rs`
 - `src/server/handlers/modality/ingest.rs`
 - `src/server/handlers/modality/migration.rs`
@@ -40,6 +41,8 @@ Create the worktree from `main` after the previous group landed
 - `src/server/handlers/source_batch.rs`
 - `src/server/handlers/source_batch/authorization.rs`
 - `src/server/handlers/source_batch/tests.rs`
+- `src/server/handlers/source_batch/tests/served.rs`
+- `src/server/handlers/source_batch/tests/support.rs`
 - `src/server/handlers/source_ingestion.rs`
 - `src/server/handlers/web_ingest.rs`
 - `src/server/handlers/web_ingest/embedder.rs`
@@ -65,18 +68,14 @@ Create the worktree from `main` after the previous group landed
 | category | item | refs | first location |
 |---|---|---|---|
 | extract-helper | `crate::server::dispatch::authoritative_now_ms` | 12 | src/server/blob/mod.rs:69 |
+| extract-helper | `crate::server::dispatch::decode_pending_enrichment_intent` | 1 | src/server/repository_enrichment_worker/raft_top_up.rs:255 |
+| extract-helper | `crate::server::dispatch::drain_repository_enrichment_once` | 1 | src/server/repository_enrichment_worker.rs:171 |
+| extract-helper | `crate::server::dispatch::enrichment_intent_for_snapshot` | 1 | src/server/repository_enrichment_worker/raft_top_up.rs:272 |
+| extract-helper | `crate::server::dispatch::plan_held_underfunded_park` | 1 | src/server/repository_enrichment_worker/raft_park.rs:91 |
 | extract-helper | `crate::server::dispatch::submit_repository_enrichment_page` | 1 | src/server/repository_enrichment_worker.rs:314 |
 | extract-helper | `crate::server::outbound_http_config` | 1 | src/server/handlers/web_ingest/embedder.rs:114 |
 | extract-helper | `crate::server::unique_temp_dir` | 1 | src/server/blob/store.rs:492 |
-| needs-seam | `crate::server::dispatch::DrainOutcome::Acknowledged` | 1 | src/server/repository_enrichment_worker.rs:207 |
-| needs-seam | `crate::server::dispatch::decode_pending_enrichment_intent` | 1 | src/server/repository_enrichment_worker/raft_top_up.rs:255 |
-| needs-seam | `crate::server::dispatch::drain_repository_enrichment_once` | 1 | src/server/repository_enrichment_worker.rs:171 |
-| needs-seam | `crate::server::dispatch::enrichment_intent_for_snapshot` | 1 | src/server/repository_enrichment_worker/raft_top_up.rs:272 |
-| needs-seam | `crate::server::dispatch::plan_held_underfunded_park` | 1 | src/server/repository_enrichment_worker/raft_park.rs:91 |
-| needs-seam | `crate::server::sql_catalog_acl::ACCESS_DENIED` | 1 | src/server/handlers/source_batch/authorization.rs:6 |
-| needs-seam | `crate::server::sql_catalog_acl::SqlPrivilege` | 1 | src/server/handlers/source_batch/authorization.rs:6 |
-| needs-seam | `crate::server::sql_catalog_acl::SqlSourceAuthorityWrite` | 1 | src/server/handlers/source_batch/authorization.rs:6 |
-| needs-seam | `crate::server::sql_catalog_acl::with_source_authority_write` | 1 | src/server/handlers/source_batch.rs:108 |
+| extract-type | `crate::server::dispatch::DrainOutcome` | 1 | src/server/repository_enrichment_worker.rs:207 |
 
 Use the server-api trait or extracted item named in the table. Do not invent another seam.
 
@@ -100,7 +99,7 @@ The change lands on a passing build-train run of its changed crates. Link the tr
 pull request. Commit trailer: `Spec: MEDULLA-CONTRACT-R056.7`.
 
 ## STOP conditions
-- Any `BLOCKED` or `needs-seam` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
+- Any `BLOCKED` or `decide` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
 - Any file outside the list above, other than caller rewrites made by `rewrite_paths.py`, means STOP.
 - Cold pull-request CI timing out is not a blocker (MEDULLA-CONTRACT-R056.12).
 - Never run cargo locally, never `git stash`, never `git add -A` or `git add .`, never `--no-verify`, never force-push.

@@ -6,7 +6,7 @@ Spec: `MEDULLA-CONTRACT-R056.8`. Start after: G4 landed.
 Create the worktree from `main` after the previous group landed
 (`git worktree add <wt> -b lane/crate-split-h-decide origin/main`). Never branch from another lane.
 
-## Files to move (48; exactly these, nothing else)
+## Files to move (47; exactly these, nothing else)
 - `src/server/handlers/decide.rs`
 - `src/server/handlers/decide/assemble.rs`
 - `src/server/handlers/decide/candidates.rs`
@@ -54,7 +54,6 @@ Create the worktree from `main` after the previous group landed
 - `src/server/handlers/decide/topology_shape.rs`
 - `src/server/handlers/decide/topology_shape/tests.rs`
 - `src/server/handlers/solve.rs`
-- `src/server/sql_catalog_acl/relations.rs`
 
 
 ## Codemod (run in this order, from the worktree root)
@@ -78,6 +77,8 @@ Create the worktree from `main` after the previous group landed
 | extract-type | `crate::server::blob::engine_bodies::EngineBody` | 1 | src/server/handlers/decide/stat_retention.rs:97 |
 | extract-type | `crate::server::blob::store::HolderChange` | 1 | src/server/handlers/decide/stat_retention.rs:129 |
 | extract-type | `crate::server::blob::store::HolderId` | 1 | src/server/handlers/decide/stat_retention.rs:129 |
+| seam:AdminApi | `crate::server::graph_schema::compose::scope_blank_nodes` | 1 | src/server/handlers/decide/topology_schema.rs:76 |
+| seam:AdminApi | `crate::server::graph_schema::compose::validate_and_compose` | 1 | src/server/handlers/decide/topology_schema.rs:93 |
 | seam:AdminApi | `crate::server::handlers::admin::bind_agent_library_context` | 1 | src/server/handlers/decide/commit.rs:83 |
 | seam:IngestApi | `crate::server::blob::engine_bodies::read_engine_body` | 1 | src/server/handlers/decide/stat_retention.rs:118 |
 | seam:IngestApi | `crate::server::handlers::blob::compile_blob_batch` | 1 | src/server/handlers/decide/stat_retention.rs:137 |
@@ -105,7 +106,7 @@ The change lands on a passing build-train run of its changed crates. Link the tr
 pull request. Commit trailer: `Spec: MEDULLA-CONTRACT-R056.8`.
 
 ## STOP conditions
-- Any `BLOCKED` or `needs-seam` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
+- Any `BLOCKED` or `decide` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
 - Any file outside the list above, other than caller rewrites made by `rewrite_paths.py`, means STOP.
 - Cold pull-request CI timing out is not a blocker (MEDULLA-CONTRACT-R056.12).
 - Never run cargo locally, never `git stash`, never `git add -A` or `git add .`, never `--no-verify`, never force-push.

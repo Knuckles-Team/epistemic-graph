@@ -70,7 +70,6 @@ paths = [
     "src/server/access",
     "src/server/authority_context",
     "src/server/mutation_batch",
-    "src/server/persistence/contract.rs",  # plan correction: this is the PersistenceBackend trait, not contract machinery
     "src/server/anonymous",  # unplanned
     "src/server/request_scope",  # unplanned
     "src/server/identity_view",  # unplanned

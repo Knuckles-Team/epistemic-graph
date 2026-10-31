@@ -6,7 +6,7 @@ Spec: `MEDULLA-CONTRACT-R056.7`. Start after: G2 landed.
 Create the worktree from `main` after the previous group landed
 (`git worktree add <wt> -b lane/crate-split-h-jobs origin/main`). Never branch from another lane.
 
-## Files to move (33; exactly these, nothing else)
+## Files to move (35; exactly these, nothing else)
 - `src/agent_lifecycle_statechart.rs`
 - `src/loop_statechart.rs`
 - `src/server/handlers/delegation.rs`
@@ -38,8 +38,10 @@ Create the worktree from `main` after the previous group landed
 - `src/server/handlers/native_write_authority/tests.rs`
 - `src/server/handlers/statechart.rs`
 - `src/server/handlers/work_item.rs`
+- `src/server/handlers/work_item/host_start_tests.rs`
 - `src/server/handlers/work_item/lease_kind_policy.rs`
 - `src/server/handlers/work_item_read.rs`
+- `src/work_item_statechart.rs`
 
 
 ## Codemod (run in this order, from the worktree root)
@@ -59,11 +61,11 @@ Create the worktree from `main` after the previous group landed
 |---|---|---|---|
 | extract-helper | `crate::server::dispatch::authoritative_now_ms` | 10 | src/server/handlers/development_lane.rs:75 |
 | extract-helper | `crate::server::dispatch::blocking_task` | 8 | src/server/handlers/mutation_outbox.rs:303 |
+| extract-helper | `crate::server::dispatch::is_replicated_apply` | 2 | src/server/handlers/delegation/admission.rs:234 |
 | extract-helper | `crate::server::dispatch::propose_native_mutation` | 1 | src/server/handlers/delegation/admission.rs:235 |
-| needs-seam | `crate::server::dispatch::is_replicated_apply` | 2 | src/server/handlers/delegation/admission.rs:234 |
+| extract-helper | `crate::server::handlers::*` | 1 | src/server/handlers/jobs_read_rls_architecture.rs:38 |
 | pending-delete | `crate::server::contract_wave::not_yet_served` | 1 | src/server/handlers/work_item/lease_kind_policy.rs:128 |
 | seam:QueryApi | `crate::server::semantic_index::existing_semantic_service` | 1 | src/server/handlers/mutation_outbox.rs:234 |
-| seam:dispatch | `crate::server::handlers::*` | 1 | src/server/handlers/jobs_read_rls_architecture.rs:38 |
 
 Use the server-api trait or extracted item named in the table. Do not invent another seam.
 
@@ -87,7 +89,7 @@ The change lands on a passing build-train run of its changed crates. Link the tr
 pull request. Commit trailer: `Spec: MEDULLA-CONTRACT-R056.7`.
 
 ## STOP conditions
-- Any `BLOCKED` or `needs-seam` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
+- Any `BLOCKED` or `decide` hit (from `rewrite_paths.py` or the seam table below) means STOP. Write `BLOCKED.md` in the lane directory (outside the repository) naming the item and the file:line, then exit. Do not improvise a seam.
 - Any file outside the list above, other than caller rewrites made by `rewrite_paths.py`, means STOP.
 - Cold pull-request CI timing out is not a blocker (MEDULLA-CONTRACT-R056.12).
 - Never run cargo locally, never `git stash`, never `git add -A` or `git add .`, never `--no-verify`, never force-push.
