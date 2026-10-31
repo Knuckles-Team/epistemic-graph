@@ -147,7 +147,7 @@ impl KvCall<'_> {
             stamp: expected.saturating_add(1),
         };
         let outcome = apply(&write)?;
-        if let Some(line) = crate::audit::audit_line(method) {
+        if let Some(line) = medulla_kernel::audit::audit_line(method) {
             tracing::info!(
                 target: "eg::audit::kv",
                 line = %line,

@@ -207,8 +207,8 @@ mod tests {
     async fn live_lease_is_not_reaped() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-reaper-live-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -241,8 +241,8 @@ mod tests {
     async fn expired_lease_is_reaped_and_emits_cdc() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-reaper-expired-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -330,8 +330,8 @@ mod tests {
     async fn renewal_racing_the_sweep_is_not_reaped() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-reaper-race-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -362,8 +362,8 @@ mod tests {
     async fn malformed_lease_field_is_never_reaped() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-reaper-malformed-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -413,8 +413,8 @@ mod tests {
     async fn multiple_independent_servers_one_kill_reaps_only_that_one() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-reaper-multi-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -492,8 +492,8 @@ mod tests {
     async fn register_server_repairs_a_hand_broken_entry() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("medulla-reaper-repair-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();

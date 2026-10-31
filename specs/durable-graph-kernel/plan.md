@@ -1098,3 +1098,13 @@ Generated contract files, codec bytes and pins retain the exact prior checkpoint
 outputs as stale placeholders. Only genuine composed-source export may replace
 them. Full hosted qualification remains required before merge.
 This bridge does not implement public history paging or served model continuation.
+
+## North star
+
+One engine, medulla, holds all facts. There is no second database and no sync. External stores are virtual-graph sources reached through connectors.
+
+## Delivery phase
+
+Row `MEDULLA-DURABLE-KERNEL-R861.3` serves P1. A restart must not leave a graph that the catalog lists but the engine cannot read or write.
+
+Residency: after a restart only the commons graph is resident. Other graphs are catalog-only until a routed operation opens them. Internal lifecycle code paths must use the same lazy-open path. Validation showed the defect on pack projection and on the first tenant-graph read at boot.

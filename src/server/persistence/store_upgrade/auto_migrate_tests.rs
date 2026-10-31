@@ -30,8 +30,8 @@ const SHARD_FROM_A_NEWER_BUILD: LayoutPredecessor = LayoutPredecessor {
     file_name: "graph-0.redb",
 };
 
-fn lock(dir: &Path) -> crate::persist_lock::PersistDirLock {
-    crate::persist_lock::acquire(&dir.to_string_lossy()).unwrap()
+fn lock(dir: &Path) -> medulla_kernel::persist_lock::PersistDirLock {
+    medulla_kernel::persist_lock::acquire(&dir.to_string_lossy()).unwrap()
 }
 
 /// A previous-patch data directory: one graph shard and one Agent Library,
@@ -255,7 +255,7 @@ fn every_step_is_counted_on_the_metrics_registry() {
     let held = lock(dir.path());
     migrate_on_open(dir.path(), &held).unwrap();
 
-    let rendered = crate::metrics::render();
+    let rendered = medulla_kernel::metrics::render();
     for needle in [
         "medulla_store_migration_steps_total{outcome=\"written\",step=\"journal\"}",
         "medulla_store_migration_steps_total{outcome=\"upgraded\",step=\"store\"}",

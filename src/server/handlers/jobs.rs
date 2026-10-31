@@ -57,7 +57,7 @@ use medulla_modality::{OpaqueRef, PolicyEnvelope};
 #[cfg(feature = "program-optimization")]
 use medulla_program::ProgramRevisionIdentity;
 
-use crate::lock_recovery::{LockRecovery, WriteRecovery};
+use medulla_kernel::lock_recovery::{LockRecovery, WriteRecovery};
 use crate::mutation_batch::MutationBatch;
 use crate::protocol::Response;
 use crate::server::access::CarrierAuthority;

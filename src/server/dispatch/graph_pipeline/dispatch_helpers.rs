@@ -687,7 +687,7 @@ mod tests {
     // spec: MEDULLA-DURABLE-KERNEL-R031.1
     #[tokio::test(flavor = "multi_thread")]
     async fn an_audit_append_accounts_the_serving_version_for_stamped_writes() {
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = tempfile::tempdir().expect("tempdir");
 
         // One ordinary audited write creates the graph: the authoritative

@@ -123,7 +123,7 @@ use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt;
 
-use crate::lock_recovery::LockRecovery;
+use medulla_kernel::lock_recovery::LockRecovery;
 
 /// Upper bound on retained events. Oldest evicted first — bounds memory for a long
 /// or looping cluster test regardless of how much openraft chatter it produces.
@@ -611,7 +611,7 @@ mod tests {
         let quiet_start = start.clone();
         let quiet_trigger = trigger.clone();
         let quiet = std::thread::spawn(move || {
-            crate::test_rendezvous::meet(&quiet_start, "quiet cluster start");
+            medulla_kernel::test_rendezvous::meet(&quiet_start, "quiet cluster start");
             for i in 0..5 {
                 tracing::debug!(target: "openraft::replication", "quiet-cluster event {i}");
             }
@@ -624,15 +624,15 @@ mod tests {
         let noisy_start = start.clone();
         let noisy_noise = noise_marker.clone();
         let noisy = std::thread::spawn(move || {
-            crate::test_rendezvous::meet(&noisy_start, "noisy cluster start");
+            medulla_kernel::test_rendezvous::meet(&noisy_start, "noisy cluster start");
             for i in 0..(CAPACITY * 2) {
                 tracing::debug!(target: "openraft::replication", "{noisy_noise} chatter {i}");
             }
             render_dump()
         });
 
-        let quiet_dump = crate::test_rendezvous::join_bounded(quiet, "quiet cluster thread");
-        let noisy_dump = crate::test_rendezvous::join_bounded(noisy, "noisy cluster thread");
+        let quiet_dump = medulla_kernel::test_rendezvous::join_bounded(quiet, "quiet cluster thread");
+        let noisy_dump = medulla_kernel::test_rendezvous::join_bounded(noisy, "noisy cluster thread");
 
         assert!(
             quiet_dump.contains(&trigger),

@@ -14,7 +14,7 @@
 //! ## The listener
 //!
 //! A HAND-ROLLED HTTP/1.1 listener over `tokio::net::TcpListener` — the SAME
-//! dependency-free idiom as [`crate::metrics::serve`] and
+//! dependency-free idiom as [`medulla_kernel::metrics::serve`] and
 //! [`crate::server::sparql_http`] (NO axum/hyper/warp, so the Pi contract holds).
 //! Bound via `MEDULLA_OBS_ADDR`. It accepts log records over three
 //! interchange shapes so EXISTING agents/collectors point at it unchanged:
@@ -200,10 +200,10 @@ mod tests {
         SNAPSHOT_WRITE_ERROR,
     };
     use super::*;
-    use crate::lock_recovery::LockRecovery;
+    use medulla_kernel::lock_recovery::LockRecovery;
     use crate::server::blob::store::RedbChunkStore;
     use crate::server::http1::HttpMessage;
-    use crate::test_rendezvous::{join_bounded, recv_within};
+    use medulla_kernel::test_rendezvous::{join_bounded, recv_within};
     use std::path::Path;
     use std::sync::atomic::Ordering;
     use tokio::io::AsyncReadExt as _;
@@ -296,7 +296,7 @@ mod tests {
                     .send(())
                     .map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
                 release_rx
-                    .recv_timeout(crate::test_rendezvous::RENDEZVOUS_TIMEOUT)
+                    .recv_timeout(medulla_kernel::test_rendezvous::RENDEZVOUS_TIMEOUT)
                     .map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
                 let result = write_snapshot_atomically_blocking(written_path, || {
                     Ok(b"committed-after-cancellation".to_vec())

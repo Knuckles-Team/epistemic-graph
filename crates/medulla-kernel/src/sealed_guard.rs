@@ -31,7 +31,7 @@ use crate::protocol::Method;
 type NodeMap = serde_json::Map<String, serde_json::Value>;
 
 /// Read access to the current stored node rows a write is judged against.
-pub(crate) trait StoredNodeRows {
+pub trait StoredNodeRows {
     /// The stored property blob of `node_id` (plaintext), if the row exists.
     fn stored(&self, node_id: &str) -> Result<Option<Vec<u8>>, String>;
 }
@@ -65,7 +65,7 @@ impl NodeWrite<'_> {
 
 /// Refuse a generic node write that would change, remove or forge a sealed record
 /// row, judged against `rows`.
-pub(crate) fn refuse_generic_sealed_write(
+pub fn refuse_generic_sealed_write(
     method: &Method,
     rows: &dyn StoredNodeRows,
 ) -> Result<(), String> {

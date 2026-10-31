@@ -393,7 +393,7 @@ async fn uds_setup_propagates_bind_errors_without_entering_accept_loop() {
 #[cfg(all(unix, feature = "server-tls"))]
 #[test]
 fn tls_prepare_keeps_a_current_thread_runtime_responsive() {
-    use crate::test_rendezvous::{join_bounded, meet};
+    use medulla_kernel::test_rendezvous::{join_bounded, meet};
 
     let root = unique_socket_path(&std::env::temp_dir(), "tls-offload");
     std::fs::create_dir(&root).expect("create TLS test directory");

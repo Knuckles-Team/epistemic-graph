@@ -31,7 +31,7 @@ pub(super) async fn rebuild_after_skipped(
     if outcome.dead_lettered.is_empty() {
         return true;
     }
-    crate::metrics::outbox_dead_lettered(
+    medulla_kernel::metrics::outbox_dead_lettered(
         CONSUMER,
         TOPIC,
         "exhausted",
@@ -65,7 +65,7 @@ pub(super) async fn reject_invalid(
         );
         return;
     }
-    crate::metrics::outbox_dead_lettered(CONSUMER, TOPIC, "invalid_event", 1);
+    medulla_kernel::metrics::outbox_dead_lettered(CONSUMER, TOPIC, "invalid_event", 1);
     rebuild(context.persist_dir.clone(), graph_fname, core).await;
 }
 

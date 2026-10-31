@@ -12,6 +12,24 @@ Tool-neutral rules for any AI agent or human working in this repository. This bl
 - **Org rules:** [organization AGENTS.md](https://github.com/Knuckles-Team/.github/blob/main/AGENTS.md).
 <!-- agent-contract:end -->
 
+## Spec-driven development
+
+Every feature starts with a spec, in this order. Read `.specify/memory/constitution.md` first. It inherits the [organization constitution](https://github.com/Knuckles-Team/pipelines/blob/main/.specify/memory/constitution.md). Route the feature with the [ecosystem boundaries](https://github.com/Knuckles-Team/pipelines/blob/main/reference/ecosystem-boundaries.md) and file each part in its owner's `specs/`. Load the `medulla-development` skill, which runs the flow. Rules: [spec standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/spec-standard.md); templates: pipelines `specs/_template/`.
+
+| Step | Skill | Writes | Checked by |
+|---|---|---|---|
+| Constitution | `spec-generator` | `.specify/memory/constitution.md` | spec-standard constitution check |
+| Specify | `spec-intake-wizard`, `spec-generator` | `specs/<id>/spec.md`, `requirements.md` | spec-standard |
+| Clarify | `spec-generator` | resolves each `[NEEDS CLARIFICATION: ...]` marker | spec-standard clarification check |
+| Plan | `spec-generator` | `plan.md` (upstream sections, Build contract, Production caller chain, Cross-repo seams) | spec-standard plan check |
+| Tasks | `task-planner` | `tasks.md`: `- [ ] T001 [P] [US1] <ROW-ID> ...` | spec-standard task-line check |
+| Analyze | `spec-verifier` | `checklists/requirements.md`, gap fixes | spec-standard analysis and checklist |
+| Implement | `feature-development-pipeline` | code and bound tests (`mark.spec("ID")` or `// spec: ID`) | `pipelines-hook spec-trailers` |
+| Land | repository development skill | commit with `Spec: <IDs>` directly above `Co-Authored-By` | `spec-status` computes SPECIFIED, LANDED, VERIFIED, RETIRED |
+| Release | repository development skill | pipelines `releases/*.yml` bundles (the PIPE-RELEASE release-bundle rows) | `release-standard` |
+
+Never write code for a row that is not SPECIFIED in this repository's `specs/`. If no row owns the behavior, extend the owning spec first. Never write `status.json` or a `Status:` line; the state is computed.
+
 Medulla is a standalone Rust database and compute engine for connected
 knowledge, evidence, and multimodal data. Applications can use it directly; it
 can also serve as the storage and reasoning engine beneath agent-utilities.

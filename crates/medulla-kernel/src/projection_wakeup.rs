@@ -8,7 +8,7 @@ use crate::mutation_batch::MutationOperation;
 use sha2::{Digest, Sha256};
 
 /// Encode the ordinary digest-only projection notice.
-pub(crate) fn projection_summary_for_operations(
+pub fn projection_summary_for_operations(
     operations: &[MutationOperation],
 ) -> Result<Vec<u8>, String> {
     let encoded_operations = rmp_serde::to_vec_named(operations).map_err(|e| e.to_string())?;
@@ -22,7 +22,7 @@ pub(crate) fn projection_summary_for_operations(
 
 /// Encode the exact feature-aware payload used in both outbox production and
 /// native retry comparison. The typed wake-up stays behind its own feature.
-pub(crate) fn projection_payload_for_operations(
+pub fn projection_payload_for_operations(
     operations: &[MutationOperation],
 ) -> Result<Vec<u8>, String> {
     #[cfg(feature = "epistemic-tms")]

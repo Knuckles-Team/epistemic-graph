@@ -63,7 +63,7 @@ fn ensure_env() {
         std::env::set_var("MEDULLA_TENANT", "tenant-occ-sweep");
         std::env::set_var("MEDULLA_POLICY_VERSION", "policy-occ-sweep");
         std::env::set_var(
-            medulla::crypto::ENCRYPTION_KEY_ENV,
+            medulla_kernel::crypto::ENCRYPTION_KEY_ENV,
             "occ-begin-version-recovery-key",
         );
     });

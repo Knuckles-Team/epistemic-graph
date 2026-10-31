@@ -33,7 +33,7 @@ impl SealedNativeMethod {
             return Err("native Raft command exceeds resource limits".to_string());
         }
         let key = native_method_key(server_secret);
-        let ciphertext = crate::crypto::ValueCipher::from_key_material(&key).seal(&plaintext);
+        let ciphertext = medulla_kernel::crypto::ValueCipher::from_key_material(&key).seal(&plaintext);
         let command = Self {
             ciphertext,
             plaintext_sha256: hex::encode(Sha256::digest(&plaintext)),
@@ -52,7 +52,7 @@ impl SealedNativeMethod {
             return Err("native Raft command requires cluster key material".to_string());
         }
         let key = native_method_key(server_secret);
-        let plaintext = crate::crypto::ValueCipher::from_key_material(&key)
+        let plaintext = medulla_kernel::crypto::ValueCipher::from_key_material(&key)
             .unseal(&self.ciphertext)
             .map_err(|_| "native Raft command authentication failed".to_string())?;
         if plaintext.is_empty() || plaintext.len() > MAX_REPLICATED_COMMAND_PAYLOAD_BYTES {
@@ -166,7 +166,7 @@ impl SealedNativeMethod {
     pub(in crate::raft) fn validate_shape(&self) -> Result<(), String> {
         if !native_envelope_shape_is_valid(
             self.ciphertext.len(),
-            crate::crypto::is_sealed(&self.ciphertext),
+            medulla_kernel::crypto::is_sealed(&self.ciphertext),
             &self.plaintext_sha256,
         ) {
             return Err("native Raft command envelope is invalid".to_string());

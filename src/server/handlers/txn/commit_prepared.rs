@@ -403,7 +403,7 @@ pub(super) async fn commit_prepared_durable(args: CommitPreparedDurableArgs<'_>)
     #[cfg(feature = "metrics")]
     {
         let topo = core.topo.read();
-        crate::metrics::set_graph_size(
+        medulla_kernel::metrics::set_graph_size(
             &graph_name,
             topo.graph.node_count() as i64,
             topo.graph.edge_count() as i64,

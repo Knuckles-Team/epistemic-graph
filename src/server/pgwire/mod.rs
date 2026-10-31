@@ -2075,7 +2075,7 @@ mod tls_policy_tests {
             assert_ne!(std::thread::current().id(), reactor_thread);
             calls_in_worker.fetch_add(1, Ordering::SeqCst);
             entered_barrier.send(()).expect("signal worker entry");
-            crate::test_rendezvous::recv_within(
+            medulla_kernel::test_rendezvous::recv_within(
                 &release,
                 "the async side releasing the TLS-material worker",
             );

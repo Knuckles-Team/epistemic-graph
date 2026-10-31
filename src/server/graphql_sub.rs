@@ -189,7 +189,7 @@ async fn handle_conn(
         match verify_request_with_security_dir(&secret, &request, security_dir.as_deref()) {
             Ok(context) => context,
             Err(_) => {
-                crate::metrics::auth_failure();
+                medulla_kernel::metrics::auth_failure();
                 return write_simple(&mut stream, "401 Unauthorized", "authentication required")
                     .await;
             }
@@ -201,7 +201,7 @@ async fn handle_conn(
     // kg:write, and kg:admin follow the same VerifiedRequestContext rules as native reads.
     let method_policy = medulla_capabilities::policy(&request.method);
     if !verified.allows_method(method_policy.authz_action, false) {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return write_simple(&mut stream, "403 Forbidden", "access denied").await;
     }
 

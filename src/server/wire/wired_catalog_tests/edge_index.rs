@@ -28,7 +28,7 @@ async fn registered_store(state: &Arc<RwLock<ServerState>>, agent: &str) -> (Str
 
 #[tokio::test]
 async fn drop_index_never_discloses_an_index_across_authorization() {
-    let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
     let state = test_state(&[CREATOR, "idx-owner", "idx-stranger"]);
     let graph = "eh352-drop-index-graph";
     let owner = session_for(state.clone(), graph, "idx-owner", TENANT);
@@ -68,7 +68,7 @@ async fn drop_index_never_discloses_an_index_across_authorization() {
 
 #[tokio::test]
 async fn edge_index_statuses_reach_the_pgwire_read() {
-    let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
     let state = test_state(&[CREATOR, "edge-reader"]);
     let graph = "eh352-edge-status-pgwire";
     create_test_graph(&state, graph, 1).await;
@@ -83,7 +83,7 @@ async fn edge_index_statuses_reach_the_pgwire_read() {
 
 #[tokio::test]
 async fn edge_index_statuses_reach_the_served_sql_read() {
-    let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
     let state = test_state(&[CREATOR]);
     let graph = "eh352-edge-status-sql";
     create_test_graph(&state, graph, 1).await;

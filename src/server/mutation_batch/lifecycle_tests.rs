@@ -160,8 +160,8 @@ async fn assert_stable_lifecycle_replay(
 async fn create_lifecycle_replay_keeps_one_stable_receipt() {
     // Reads the ambient encryption env at its durable open, so the env must hold
     // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-    // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = crate::test_support::temp_dir("medulla-lifecycle-replay", "create");
     assert_stable_lifecycle_replay(
         &dir,
@@ -187,8 +187,8 @@ async fn create_lifecycle_replay_keeps_one_stable_receipt() {
 async fn delete_lifecycle_replay_keeps_one_stable_receipt() {
     // Reads the ambient encryption env at its durable open, so the env must hold
     // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-    // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = crate::test_support::temp_dir("medulla-lifecycle-replay", "delete");
     let graph = "lifecycle-delete";
     {
@@ -244,7 +244,7 @@ async fn delete_lifecycle_replay_keeps_one_stable_receipt() {
 #[cfg(feature = "redb")]
 #[tokio::test(flavor = "multi_thread")]
 async fn delete_purges_receipts_of_a_prior_incarnation() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = crate::test_support::temp_dir("medulla-lifecycle-replay", "purge-incarnation");
     let graph = "lifecycle-reincarnated";
     let principal = Some("principal:lifecycle-test");
@@ -411,7 +411,7 @@ async fn delete_purges_receipts_of_a_prior_incarnation() {
 // spec: MEDULLA-DURABLE-KERNEL-R019
 #[tokio::test(flavor = "multi_thread")]
 async fn lifecycle_receipt_is_not_replayed_across_tenants() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = crate::test_support::temp_dir("medulla-lifecycle-replay", "cross-tenant");
     let persistence = open_backend(&dir);
     let graph = "lifecycle-shared-name";
@@ -480,7 +480,7 @@ async fn lifecycle_receipt_is_not_replayed_across_tenants() {
 // spec: MEDULLA-DURABLE-KERNEL-R861.1
 #[tokio::test(flavor = "multi_thread")]
 async fn lifecycle_replay_compares_identity_not_recompiled_bytes() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = crate::test_support::temp_dir("medulla-lifecycle-replay", "identity");
     let persistence = open_backend(&dir);
     let graph = "lifecycle-identity-graph";

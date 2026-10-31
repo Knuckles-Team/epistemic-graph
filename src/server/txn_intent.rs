@@ -398,7 +398,7 @@ pub(crate) fn list_intents(authority: &CarrierAuthority, persist_dir: &Path) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_rendezvous::join_bounded;
+    use medulla_kernel::test_rendezvous::join_bounded;
 
     fn authority() -> CarrierAuthority {
         CarrierAuthority::from_verified(
@@ -461,7 +461,7 @@ mod tests {
             staged_tx
                 .send((tmp_path.to_path_buf(), path.to_path_buf()))
                 .expect("report paused publication");
-            crate::test_rendezvous::recv_within(
+            medulla_kernel::test_rendezvous::recv_within(
                 &resume_rx.lock().expect("pause lock"),
                 "the test resuming the paused intent publication",
             );

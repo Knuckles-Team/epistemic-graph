@@ -135,7 +135,7 @@ fn run_snapshot_before_read_lock_hook() {
     SNAPSHOT_BEFORE_READ_LOCK.with(|hook| {
         if let Some((reached, proceed)) = hook.borrow_mut().take() {
             reached.send(()).expect("snapshot test receiver is alive");
-            crate::test_rendezvous::recv_within(
+            medulla_kernel::test_rendezvous::recv_within(
                 &proceed,
                 "the snapshot test releasing its read-lock hook",
             );
@@ -2181,7 +2181,7 @@ mod tests {
     use super::*;
     use crate::server::auth::VerifiedRequestContext;
     use crate::server::sql_tables::test_persist_dir;
-    use crate::test_rendezvous::{join_bounded, recv_within};
+    use medulla_kernel::test_rendezvous::{join_bounded, recv_within};
 
     const SEMANTIC_CURSOR_SECRET: &[u8; 32] = b"semantic-cursor-test-secret-0001";
     const OTHER_SEMANTIC_CURSOR_SECRET: &[u8; 32] = &[7; 32];

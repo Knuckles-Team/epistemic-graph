@@ -71,7 +71,7 @@ fn shex_report(response: &Response) -> medulla_types::rdf_report::ShexValidation
 // spec: MEDULLA-FEDERATED-QUERY-R084.2
 #[tokio::test]
 async fn inline_and_live_data_selection() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let state = test_state();
 
     // Seed a genuine RDF literal through the RDF write surface. A plain AddNode

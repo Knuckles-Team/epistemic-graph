@@ -78,7 +78,7 @@ fn decode(response: Response) -> (Vec<u8>, GuardrailEntailmentResult) {
 // spec: MEDULLA-DECISION-ENGINE-R127.2.2
 #[tokio::test]
 async fn guardrail_dispatch_proves_subclass_visibility_and_restart_stability() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = tempfile::tempdir().unwrap();
     let server = state(dir.path());
     let store = server.write().await.ensure_agent_library().unwrap();
@@ -139,7 +139,7 @@ async fn guardrail_dispatch_proves_subclass_visibility_and_restart_stability() {
 // spec: MEDULLA-DECISION-ENGINE-R127.2.2
 #[tokio::test]
 async fn guardrail_dispatch_refuses_foreign_tenants_and_malformed_tasks() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = tempfile::tempdir().unwrap();
     let server = state(dir.path());
     let foreign = ask(&server, "foreign-tenant", "eg:task/research").await;

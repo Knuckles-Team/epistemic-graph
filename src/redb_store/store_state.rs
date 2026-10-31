@@ -243,8 +243,8 @@ pub(crate) fn resolve_mutation_authoritative_state(
                                 .to_string()
                         })?,
                     )),
-                    crate::graph_delta::ROW_DELTA_ALGORITHM
-                    | crate::graph_delta::LEGACY_ROW_DELTA_ALGORITHM => {
+                    medulla_kernel::graph_delta::ROW_DELTA_ALGORITHM
+                    | medulla_kernel::graph_delta::LEGACY_ROW_DELTA_ALGORITHM => {
                         AuthoritativeGraphState::RowDelta(decode_authoritative_row_delta(
                             bytes,
                             &descriptor.algorithm,
@@ -270,8 +270,8 @@ pub(crate) fn resolve_mutation_authoritative_state(
 fn decode_authoritative_row_delta(
     bytes: &[u8],
     algorithm: &str,
-) -> Result<crate::graph_delta::GraphRowDelta, String> {
-    let delta = decode_durable::<crate::graph_delta::GraphRowDelta>(bytes).map_err(|_| {
+) -> Result<medulla_kernel::graph_delta::GraphRowDelta, String> {
+    let delta = decode_durable::<medulla_kernel::graph_delta::GraphRowDelta>(bytes).map_err(|_| {
         "authoritative graph row delta is invalid or exceeds resource limits".to_string()
     })?;
     delta.validate()?;
@@ -742,7 +742,7 @@ fn append_snapshot_audit(
 pub(crate) fn apply_row_delta_state(
     write: &ShardWrite<'_>,
     graph_fname: &str,
-    delta: &crate::graph_delta::GraphRowDelta,
+    delta: &medulla_kernel::graph_delta::GraphRowDelta,
     batch: &MutationBatch,
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,

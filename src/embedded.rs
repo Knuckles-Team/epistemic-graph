@@ -385,7 +385,7 @@ impl EmbeddedEngine {
         };
         // 0) Sealed records (EH-558) are create-only for generic writes in both the
         // durable and the in-memory embedded modes.
-        crate::sealed_guard::refuse_generic_sealed_write(&method, core.as_ref())?;
+        medulla_kernel::sealed_guard::refuse_generic_sealed_write(&method, core.as_ref())?;
         // 1) Durable typed admission/commit. The shard's graph member resolves
         // its authoritative Graph(version) while the kernel write is held.
         #[cfg(feature = "redb")]
@@ -769,7 +769,7 @@ mod tests;
 #[cfg(all(test, feature = "redb"))]
 mod lifecycle_failure_tests {
     use super::*;
-    use crate::test_rendezvous::{join_bounded, recv_within};
+    use medulla_kernel::test_rendezvous::{join_bounded, recv_within};
     use std::path::PathBuf;
     use std::sync::mpsc::{self, TryRecvError};
     use std::thread;
@@ -786,8 +786,8 @@ mod lifecycle_failure_tests {
     /// open, so any body that writes rows and then REOPENS the same directory
     /// needs that env to hold still across both opens. Taken by every durable
     /// test in this module, not only the ones observed to fail.
-    fn durable_env_guard() -> crate::crypto::TestEnvReadGuard {
-        crate::crypto::acquire_test_env_read_lock_blocking()
+    fn durable_env_guard() -> medulla_kernel::crypto::TestEnvReadGuard {
+        medulla_kernel::crypto::acquire_test_env_read_lock_blocking()
     }
 
     fn has_graph(engine: &EmbeddedEngine, name: &str) -> bool {

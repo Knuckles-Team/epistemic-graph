@@ -61,7 +61,7 @@ const AUDIO_DELETE: (medulla_types::ServedModalityKind, SanitizedModalityMutatio
 
 /// Runtime state sealed under the fixture replica-state key.
 fn sealed_state(state: &[u8]) -> Vec<u8> {
-    crate::crypto::ValueCipher::from_key_material(b"replica-state-key").seal(state)
+    medulla_kernel::crypto::ValueCipher::from_key_material(b"replica-state-key").seal(state)
 }
 
 /// A sanitized command for `kind` under the fixture secret and authority, the
@@ -301,6 +301,6 @@ fn mutation_batch_audit_and_outbox_retain_only_the_safe_receipt() {
     assert!(!encoded.windows(source.len()).any(|window| window == source));
     assert!(!encoded.windows(sealed.len()).any(|window| window == sealed));
     assert_eq!(batch.outbox.len(), 1);
-    assert!(crate::audit::audit_line(&batch.operations[0].method)
+    assert!(medulla_kernel::audit::audit_line(&batch.operations[0].method)
         .is_some_and(|line| line.starts_with("AUTHORITATIVE_STATE_MUTATION|sha256:")));
 }

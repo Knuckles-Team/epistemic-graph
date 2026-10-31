@@ -76,7 +76,7 @@ async fn open_foreign_read(call: OwnerScopedCall<'_>, request: ForeignReadOpenRe
         Err(refusal) => return refusal,
     };
     if !owner.can_read() {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Response::err(req_id, "ACCESS_DENIED: ForeignReadOpen requires kg:read");
     }
     if request.schema_version != FOREIGN_READ_SCHEMA_VERSION {
@@ -166,7 +166,7 @@ async fn chunk_foreign_read(
         Err(refusal) => return refusal,
     };
     if !owner.can_read() {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Response::err(req_id, "ACCESS_DENIED: ForeignReadChunk requires kg:read");
     }
     let result = {
@@ -200,7 +200,7 @@ async fn complete_foreign_read(
         Err(refusal) => return refusal,
     };
     if !owner.can_read() {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Response::err(
             req_id,
             "ACCESS_DENIED: ForeignReadComplete requires kg:read",
@@ -237,7 +237,7 @@ async fn abort_foreign_read(
         Err(refusal) => return refusal,
     };
     if !owner.can_read() {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Response::err(req_id, "ACCESS_DENIED: ForeignReadAbort requires kg:read");
     }
     let result = {
@@ -275,7 +275,7 @@ async fn query_columns(
         Err(refusal) => return refusal,
     };
     if !owner.can_read() {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Response::err(
             req_id,
             "ACCESS_DENIED: QueryForeignColumns requires kg:read",

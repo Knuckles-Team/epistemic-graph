@@ -1361,14 +1361,14 @@ impl WireSession {
             persist_dir.as_deref(),
         )
         .map_err(|message| {
-            crate::metrics::auth_failure();
+            medulla_kernel::metrics::auth_failure();
             WireError {
                 code: "28000".to_string(),
                 message,
             }
         })?;
         let verified_authority = CarrierAuthority::from_verified(&context).map_err(|message| {
-            crate::metrics::access_denied();
+            medulla_kernel::metrics::access_denied();
             WireError {
                 code: "28000".to_string(),
                 message,
@@ -1377,7 +1377,7 @@ impl WireSession {
 
         let policy = medulla_capabilities::policy(&request.method);
         if !context.allows_method(policy.authz_action, policy.mutates) {
-            crate::metrics::access_denied();
+            medulla_kernel::metrics::access_denied();
             return Err(WireError {
                 code: "42501".to_string(),
                 message: format!(
@@ -1433,7 +1433,7 @@ impl WireSession {
         verified_actor: &str,
     ) -> WireResult<()> {
         if verified_actor.trim().is_empty() {
-            crate::metrics::access_denied();
+            medulla_kernel::metrics::access_denied();
             return Err(WireError {
                 code: "28000".to_string(),
                 message: "verified wire identity is required".to_string(),
@@ -1798,7 +1798,7 @@ impl WireSession {
         if crate::server::access::decide_graph_access(&s.isolation, &query) {
             Ok(())
         } else {
-            crate::metrics::access_denied();
+            medulla_kernel::metrics::access_denied();
             Err(WireError {
                 // 42501 — insufficient_privilege (what a real pg ACL denial reports).
                 code: "42501".to_owned(),
@@ -4912,7 +4912,7 @@ impl WireSession {
         };
         // CONCEPT:MEDULLA-OS.observability.slow-query-descriptor — slow-query timing for the wire SQL path (psql/BI/ORM).
         // `None` (zero cost) unless MEDULLA_SLOW_QUERY_MS is set.
-        let slow = crate::slow_query::describe_sql(sql);
+        let slow = medulla_kernel::slow_query::describe_sql(sql);
         let slow_start = slow.as_ref().map(|_| std::time::Instant::now());
 
         let result = self
@@ -5276,9 +5276,9 @@ mod ne_004_ne_005_tests {
             // `redb_backend::tests::online_reshard_moves_graph_live_no_loss` with
             // "decryption failed (wrong key or tampered ciphertext)" under
             // parallelism while it passed standalone. Every test below now takes
-            // `crate::crypto::provisioned_test_env_read_lock()`, which provisions the
+            // `medulla_kernel::crypto::provisioned_test_env_read_lock()`, which provisions the
             // ONE shared key under the WRITE guard and then holds the READ guard for
-            // the test's whole body. See `crate::crypto::TEST_AT_REST_KEY`'s doc.
+            // the test's whole body. See `medulla_kernel::crypto::TEST_AT_REST_KEY`'s doc.
         });
     }
 
@@ -5428,8 +5428,8 @@ mod ne_004_ne_005_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne004-atomic";
         create_test_graph(&state, graph, 1).await;
@@ -5469,8 +5469,8 @@ mod ne_004_ne_005_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne004-compensate";
         create_test_graph(&state, graph, 2).await;
@@ -5517,8 +5517,8 @@ mod ne_004_ne_005_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne004-crash-recovery";
         create_test_graph(&state, graph, 3).await;
@@ -5634,8 +5634,8 @@ mod ne_004_ne_005_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne004-recovery-graph-error";
         let table = format!("ne004_recovery_table_{}", uuid::Uuid::new_v4().simple());
@@ -5718,8 +5718,8 @@ mod ne_004_ne_005_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne004-rollback";
         create_test_graph(&state, graph, 4).await;
@@ -5757,8 +5757,8 @@ mod ne_004_ne_005_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne004-aborted";
         create_test_graph(&state, graph, 5).await;
@@ -5788,8 +5788,8 @@ mod ne_004_ne_005_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne005-reject";
         create_test_graph(&state, graph, 6).await;
@@ -5810,8 +5810,8 @@ mod ne_004_ne_005_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne005-weaker";
         create_test_graph(&state, graph, 7).await;
@@ -5847,8 +5847,8 @@ mod ne_004_ne_005_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne005-serializable";
         create_test_graph(&state, graph, 8).await;
@@ -5948,8 +5948,8 @@ mod ne_004_ne_005_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne071-begin-version";
         create_test_graph(&state, graph, 20).await;
@@ -6038,9 +6038,9 @@ mod wired_catalog_tests {
             // `redb_backend::tests::online_reshard_moves_graph_live_no_loss` with
             // "decryption failed (wrong key or tampered ciphertext)" under
             // parallelism while it passed standalone. Every test below now takes
-            // `crate::crypto::provisioned_test_env_read_lock()`, which provisions the
+            // `medulla_kernel::crypto::provisioned_test_env_read_lock()`, which provisions the
             // ONE shared key under the WRITE guard and then holds the READ guard for
-            // the test's whole body. See `crate::crypto::TEST_AT_REST_KEY`'s doc.
+            // the test's whole body. See `medulla_kernel::crypto::TEST_AT_REST_KEY`'s doc.
         });
     }
 
@@ -6193,8 +6193,8 @@ mod wired_catalog_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-provisional-negatives";
         let state = test_state(&[CREATOR, "alice-provisional", "bob-provisional"]);
         let graph = "wired-catalog-provisional-negatives-graph";
@@ -6290,8 +6290,8 @@ mod wired_catalog_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-ordinary-owner-repair";
         let state = test_state(&[CREATOR, "ordinary-owner"]);
         let graph = "wired-catalog-ordinary-owner-repair-graph";
@@ -6415,8 +6415,8 @@ mod wired_catalog_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-owner-replay";
         let state = test_state(&[CREATOR, "owner-replay", "foreign-replay"]);
         let graph = "wired-catalog-owner-replay-graph";
@@ -6591,8 +6591,8 @@ mod wired_catalog_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-actor-header";
         let state = test_state(&[CREATOR, "actor-header-owner", "actor-header-foreign"]);
         let graph = "wired-catalog-actor-header-graph";
@@ -6708,8 +6708,8 @@ mod wired_catalog_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-owner";
         let state = test_state(&[CREATOR, "owner-1"]);
         let graph = "wired-catalog-owner-graph";
@@ -6735,8 +6735,8 @@ mod wired_catalog_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-grant";
         let state = test_state(&[CREATOR, "owner-2", "grantee-2"]);
         let graph = "wired-catalog-grant-graph";
@@ -6794,8 +6794,8 @@ mod wired_catalog_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-deny";
         let state = test_state(&[CREATOR, "owner-3", "stranger-3"]);
         let graph = "wired-catalog-deny-graph";
@@ -6861,8 +6861,8 @@ mod wired_catalog_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let tenant_a = "wired-catalog-tenant-a";
         let tenant_b = "wired-catalog-tenant-b";
         let state = test_state(&[CREATOR, "actor-a", "actor-b"]);
@@ -6918,8 +6918,8 @@ mod wired_catalog_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-rls";
         let state = test_state(&[CREATOR, "rls-owner", "rls-grantee"]);
         let graph = "wired-catalog-rls-graph";
@@ -7024,8 +7024,8 @@ mod wired_catalog_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-copy";
         let state = test_state(&[CREATOR, "copy-owner", "copy-stranger"]);
         let graph = "wired-catalog-copy-graph";
@@ -7069,8 +7069,8 @@ mod wired_catalog_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-ddl";
         let state = test_state(&[CREATOR, "ddl-owner", "ddl-stranger"]);
         let graph = "wired-catalog-ddl-graph";
@@ -7128,8 +7128,8 @@ mod wired_catalog_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-pgq-txn";
         let graph = "wired-catalog-pgq-txn-graph";
         let state = test_state(&[CREATOR, "pgq-admin"]);
@@ -7196,8 +7196,8 @@ mod wired_catalog_tests {
         // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
         // longer does, and must not) and then holds the ambient encryption env still
         // for this whole body, which opens a durable store. See
-        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
+        // `medulla_kernel::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-pgq-grant";
         let graph = "wired-catalog-pgq-grant-graph";
         let state = test_state(&[CREATOR, "pgq-owner", "pgq-reader"]);

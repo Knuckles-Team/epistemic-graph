@@ -169,7 +169,7 @@ fn require_host_start_issuer(
 
 fn refusal_response(req_id: u64, outcome: Result<(), String>) -> Option<Response> {
     outcome.err().map(|denied| {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         Response::err(req_id, denied)
     })
 }

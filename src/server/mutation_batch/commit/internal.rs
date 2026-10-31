@@ -276,7 +276,7 @@ fn stage_internal_graph(
     strict_promotion: bool,
 ) -> Result<
     (
-        crate::graph_delta::GraphRowDelta,
+        medulla_kernel::graph_delta::GraphRowDelta,
         MutationStateDescriptor,
         Vec<Method>,
         Vec<u8>,
@@ -297,13 +297,13 @@ fn stage_internal_graph(
     }
     let staged_snapshot = staged.snapshot();
     let row_delta =
-        crate::graph_delta::GraphRowDelta::between(&base_snapshot_for_delta, &staged_snapshot)?;
+        medulla_kernel::graph_delta::GraphRowDelta::between(&base_snapshot_for_delta, &staged_snapshot)?;
     let state_msgpack = row_delta.to_msgpack()?;
     let target_graph_version = source_version
         .checked_add(1)
         .ok_or_else(|| "authoritative graph version overflow".to_string())?;
     let descriptor = MutationStateDescriptor {
-        algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
+        algorithm: medulla_kernel::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
         digest: hex::encode(Sha256::digest(&state_msgpack)),
         source_graph_version: source_version,
         target_graph_version,
@@ -324,7 +324,7 @@ struct PreparedInternalGraphCommit<'a> {
     attempt_nonce: Option<Nonce>,
     graph_fname: String,
     source_version: u64,
-    row_delta: crate::graph_delta::GraphRowDelta,
+    row_delta: medulla_kernel::graph_delta::GraphRowDelta,
     state_msgpack: Vec<u8>,
     descriptor: MutationStateDescriptor,
 }
@@ -494,7 +494,7 @@ pub(super) fn install_validated_internal_replay_snapshot(
     version: u64,
     descriptor: &MutationStateDescriptor,
 ) -> Result<(), String> {
-    if descriptor.algorithm != crate::graph_delta::ROW_DELTA_ALGORITHM
+    if descriptor.algorithm != medulla_kernel::graph_delta::ROW_DELTA_ALGORITHM
         || version < descriptor.target_graph_version
     {
         return Err(
@@ -520,7 +520,7 @@ fn install_replay_at_source(
     version: u64,
     descriptor: &MutationStateDescriptor,
 ) -> Result<(), String> {
-    let delta = crate::graph_delta::GraphRowDelta::between(&core.snapshot(), &snapshot)?;
+    let delta = medulla_kernel::graph_delta::GraphRowDelta::between(&core.snapshot(), &snapshot)?;
     let bytes = delta.to_msgpack()?;
     if hex::encode(Sha256::digest(bytes)) != descriptor.digest {
         return Err("committed internal graph image does not match its state digest".to_string());

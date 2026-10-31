@@ -101,7 +101,7 @@ pub(crate) fn native_retry_operations(
 
 // Keep the historical redb_store entry point for callers while the encoder
 // lives above the redb/server feature boundary.
-pub(crate) use crate::projection_wakeup::projection_payload_for_operations;
+pub(crate) use medulla_kernel::projection_wakeup::projection_payload_for_operations;
 
 /// Compare the derived projection wake-up for a retry.  Native resource
 /// operations contain one authority-owned `now_ms`, so the raw outbox digest

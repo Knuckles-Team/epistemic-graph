@@ -18,7 +18,7 @@ that graph waits behind the ingestion stream.
 
 ## The design
 
-For each graph, a lazily-created **`GraphWriter`** (`src/write_coalescer.rs`) owns a
+For each graph, a lazily-created **`GraphWriter`** (`crates/medulla-kernel/src/write_coalescer.rs`) owns a
 bounded `tokio::mpsc` channel and a single drain worker. Producers enqueue a
 `WriteOp` (carrying a `oneshot` reply) instead of taking the lock themselves; the
 worker greedily drains up to `max_batch` queued ops, opens **ONE** `core.txn()`,
@@ -148,13 +148,13 @@ reduction (the contention property), not a fixed wall-clock multiple.
 
 ## Files
 
-- `src/write_coalescer.rs` — `WriteOp`, `WriteOutcome`, `GraphWriter`,
+- `crates/medulla-kernel/src/write_coalescer.rs` — `WriteOp`, `WriteOutcome`, `GraphWriter`,
   `WriteCoalescerRegistry`, `BatchStats`, `CoalescerConfig`.
 - `src/server/routed_write_coalescer.rs` — the durable routed-write queue,
   ticket admission, cancellation/crash boundaries, and per-graph ordered drain.
 - `src/server/state.rs` — `ServerState.write_coalescer` field.
 - `src/server/dispatch.rs` — `try_coalesce_write` fast path in `dispatch_graph_op`.
-- `src/metrics.rs` — `write_batch_committed` + the two counters.
+- `crates/medulla-kernel/src/metrics.rs` — `write_batch_committed` + the two counters.
 
 ---
 

@@ -5,7 +5,7 @@
 //!
 //! ## Why this exists (and why it replaces the old design)
 //!
-//! The original coalescer (`crate::write_coalescer`) batched only the RAM
+//! The original coalescer (`medulla_kernel::write_coalescer`) batched only the RAM
 //! (topology) publish of a structural write. That was safe as long as the
 //! CALLER held `mutation_batch::lock_graph` across BOTH its own durable commit
 //! AND the coalesced RAM publish — which is exactly what
@@ -65,7 +65,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::Instrument;
 
 use crate::protocol::Response;
-use crate::write_coalescer::{
+use medulla_kernel::write_coalescer::{
     receive_batch, record_flush, BatchStats, CoalescerConfig, CoalescerRegistryState,
     CoalescerState,
 };

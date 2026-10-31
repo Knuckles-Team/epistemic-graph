@@ -80,10 +80,10 @@ authority, durability, audit, CDC, and transaction properties.
     </span>
   </li>
   <li class="site-flow__step">
-    <span class="site-flow__title">Run with agent-utilities</span>
+    <span class="site-flow__title">Run with Meristem</span>
 
     <span class="site-flow__body">
-      Agents, workflows, skills, evaluation, and control-plane decisions run above the database.
+      The Meristem harness applies decisions it receives. It holds no store.
     </span>
   </li>
   <li class="site-flow__step">
@@ -94,10 +94,10 @@ authority, durability, audit, CDC, and transaction properties.
     </span>
   </li>
   <li class="site-flow__step">
-    <span class="site-flow__title">Synchronize through connectors</span>
+    <span class="site-flow__title">Read through connectors</span>
 
     <span class="site-flow__body">
-      SDK-based connectors exchange governed records with external source systems.
+      Scion SDK connectors expose external stores as virtual graphs. Medulla keeps no synced second database.
     </span>
   </li>
 </ol>

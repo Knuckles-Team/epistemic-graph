@@ -53,7 +53,7 @@ pub(super) async fn try_handle_prepare(
         let state_guard = state.read().await;
         if let Some(entry) = state_guard.open_txns.get(txn_id) {
             if entry.value().lock().agent != txn_owner {
-                crate::metrics::access_denied();
+                medulla_kernel::metrics::access_denied();
                 return Err(Response::err(
                     req_id,
                     "ACCESS_DENIED: transaction is not owned by caller",

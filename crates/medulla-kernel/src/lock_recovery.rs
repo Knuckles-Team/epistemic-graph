@@ -46,7 +46,7 @@ fn note_recovered(what: &str) {
 }
 
 /// Take a lock whose previous holder may have panicked.
-pub(crate) trait LockRecovery<'a, T> {
+pub trait LockRecovery<'a, T> {
     /// The guard, recovering from poisoning and recording that it happened.
     ///
     /// For state that can be rebuilt or that self-corrects. Continuing to serve
@@ -103,8 +103,10 @@ impl<'a, T> LockRecovery<'a, RwLockReadGuard<'a, T>> for RwLock<T> {
 
 /// Write access is a separate trait rather than a second method, because a
 /// single type cannot implement the same trait for both guard types.
-pub(crate) trait WriteRecovery<'a, T> {
+pub trait WriteRecovery<'a, T> {
+    /// Take the write lock, recovering it if a previous holder panicked.
     fn write_recovering(&'a self, what: &str) -> RwLockWriteGuard<'a, T>;
+    /// Take the write lock, panicking if a previous writer panicked.
     fn write_or_panic(&'a self, what: &str) -> RwLockWriteGuard<'a, T>;
 }
 

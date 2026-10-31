@@ -197,7 +197,7 @@ pub(crate) async fn timed_read(
 ) -> tokio::sync::RwLockReadGuard<'_, ServerState> {
     let started = DispatchLockInstant::now();
     let guard = state.read().await;
-    crate::metrics::observe_dispatch_lock_wait("read", started.elapsed().as_secs_f64());
+    medulla_kernel::metrics::observe_dispatch_lock_wait("read", started.elapsed().as_secs_f64());
     guard
 }
 
@@ -361,7 +361,7 @@ pub(crate) async fn timed_write(
 ) -> tokio::sync::RwLockWriteGuard<'_, ServerState> {
     let started = DispatchLockInstant::now();
     let guard = state.write().await;
-    crate::metrics::observe_dispatch_lock_wait("write", started.elapsed().as_secs_f64());
+    medulla_kernel::metrics::observe_dispatch_lock_wait("write", started.elapsed().as_secs_f64());
     guard
 }
 

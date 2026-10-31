@@ -84,26 +84,26 @@ pub(super) fn token_hash(token: &str) -> String {
 const SEALED_AT_REST: &str = "k1:";
 const SEALED_SERVICE: &str = "s1:";
 
-type KeySource = (crate::crypto::ValueCipher, &'static str);
+type KeySource = (medulla_kernel::crypto::ValueCipher, &'static str);
 
 /// The configured data key, else a key derived from the service secret
 /// (MFA is optional for everyone, so it must not depend on at-rest
 /// encryption being configured).
-fn key_source(at_rest: Option<crate::crypto::ValueCipher>, service_secret: &str) -> KeySource {
+fn key_source(at_rest: Option<medulla_kernel::crypto::ValueCipher>, service_secret: &str) -> KeySource {
     if let Some(cipher) = at_rest {
         return (cipher, SEALED_AT_REST);
     }
     let mut material = b"eg/identity/mfa-seal/v1\0".to_vec();
     material.extend_from_slice(service_secret.as_bytes());
     (
-        crate::crypto::ValueCipher::from_key_material(&material),
+        medulla_kernel::crypto::ValueCipher::from_key_material(&material),
         SEALED_SERVICE,
     )
 }
 
 fn configured_key_source(service_secret: &str) -> Result<KeySource, String> {
     Ok(key_source(
-        crate::crypto::ValueCipher::from_env_checked()?,
+        medulla_kernel::crypto::ValueCipher::from_env_checked()?,
         service_secret,
     ))
 }

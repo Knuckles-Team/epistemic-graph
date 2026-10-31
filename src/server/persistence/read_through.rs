@@ -28,7 +28,7 @@ mod production_wiring_tests {
     // spec: MEDULLA-DURABLE-KERNEL-R086.4
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn production_factory_reads_durable_rows_for_existing_and_future_graphs() {
-        let _env_guard = crate::crypto::acquire_test_env_read_lock().await;
+        let _env_guard = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let directory = tempfile::tempdir().expect("temporary durable store");
         let backend = Arc::new(
             RedbBackend::open_with_shards(directory.path().to_string_lossy().into_owned(), 64, 1)

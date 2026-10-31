@@ -79,7 +79,7 @@ impl RedbBackend {
     /// resolved from its own env var (falling back to the shared key only when the
     /// dedicated one is absent), so it can be turned on independently.
     #[cfg(feature = "security")]
-    pub(crate) fn transaction_recovery_cipher(&self) -> Option<crate::crypto::ValueCipher> {
+    pub(crate) fn transaction_recovery_cipher(&self) -> Option<medulla_kernel::crypto::ValueCipher> {
         self.shard0().txn_recovery_cipher.clone()
     }
 

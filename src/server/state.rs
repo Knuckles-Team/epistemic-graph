@@ -233,7 +233,7 @@ pub struct ServerState {
     /// firehose) collapse into one topology-lock acquisition per batch instead of
     /// serializing one-op-at-a-time. A new graph/connector gets a writer
     /// automatically with a bounded hardware-sized queue.
-    pub write_coalescer: Arc<crate::write_coalescer::WriteCoalescerRegistry>,
+    pub write_coalescer: Arc<medulla_kernel::write_coalescer::WriteCoalescerRegistry>,
     /// Per-graph ROUTED-mutation coalescer (CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer, L18
     /// rewrite). Used by `mutation::commit_coalescable_mutation` for the five
     /// coalescable `GATEWAY_ROUTED` structural writes
@@ -636,14 +636,14 @@ mod construction_tests {
             .map(|_| {
                 let (slot, barrier, path) = (slot.clone(), barrier.clone(), path.clone());
                 std::thread::spawn(move || {
-                    crate::test_rendezvous::meet(&barrier, "agent library open");
+                    medulla_kernel::test_rendezvous::meet(&barrier, "agent library open");
                     super::open_shared_agent_library(&slot, &path).unwrap()
                 })
             })
             .collect();
         let handles: Vec<_> = threads
             .into_iter()
-            .map(|thread| crate::test_rendezvous::join_bounded(thread, "agent library open"))
+            .map(|thread| medulla_kernel::test_rendezvous::join_bounded(thread, "agent library open"))
             .collect();
         assert!(handles
             .iter()

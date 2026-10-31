@@ -403,7 +403,7 @@ impl ForeignSourceCatalog {
             return Ok(None);
         }
         let Some(caller) = caller else {
-            crate::metrics::access_denied();
+            medulla_kernel::metrics::access_denied();
             return Err(
                 "ACCESS_DENIED: a named foreign source requires a verified tenant carrier"
                     .to_string(),
@@ -411,7 +411,7 @@ impl ForeignSourceCatalog {
         };
         let registry = self.registry_for(caller, isolation);
         if self.plan_names_another_owners_source(ops, caller, isolation) {
-            crate::metrics::access_denied();
+            medulla_kernel::metrics::access_denied();
             return Err(
                 "ACCESS_DENIED: foreign source is outside the caller's owner scope".to_string(),
             );

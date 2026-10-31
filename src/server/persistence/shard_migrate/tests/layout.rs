@@ -11,9 +11,9 @@ async fn roundtrip_k1_to_k4_preserves_all_graphs() {
     // reopens the K=4 layout — every open must resolve the same
     // `MEDULLA_ENCRYPTION_KEY` cipher, or the reopen panics with
     // "decryption failed (wrong key or tampered ciphertext)". See
-    // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
+    // `medulla_kernel::crypto::acquire_test_env_lock`'s doc for the full mechanism.
     #[cfg(feature = "security")]
-    let _env_lock = crate::crypto::acquire_test_env_lock().await;
+    let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
     let (root, src, dst) = fresh_migration_dirs("rt", "k1", "k4");
     let src_s = src.to_string_lossy().to_string();
 
@@ -41,9 +41,9 @@ fn retired_k1_layout_migrates_to_canonical_k1() {
     // the process-global encryption env vars, and `cargo test` runs the whole
     // crate concurrently. Without this lock an unrelated test's transient
     // set_var/remove_var lands between two of those resolutions and flips the
-    // cipher -- see `crate::crypto::acquire_test_env_lock`'s doc. Its five
+    // cipher -- see `medulla_kernel::crypto::acquire_test_env_lock`'s doc. Its five
     // sibling in-place migration tests already hold it; these did not.
-    let _env_lock = crate::crypto::acquire_test_env_lock_blocking();
+    let _env_lock = medulla_kernel::crypto::acquire_test_env_lock_blocking();
     let dir = temp_root("retired-k1");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -67,9 +67,9 @@ fn migration_discovery_rejects_mixed_and_sparse_layouts() {
     // the process-global encryption env vars, and `cargo test` runs the whole
     // crate concurrently. Without this lock an unrelated test's transient
     // set_var/remove_var lands between two of those resolutions and flips the
-    // cipher -- see `crate::crypto::acquire_test_env_lock`'s doc. Its five
+    // cipher -- see `medulla_kernel::crypto::acquire_test_env_lock`'s doc. Its five
     // sibling in-place migration tests already hold it; these did not.
-    let _env_lock = crate::crypto::acquire_test_env_lock_blocking();
+    let _env_lock = medulla_kernel::crypto::acquire_test_env_lock_blocking();
     let root = temp_root("invalid-layout");
     let mixed = root.join("mixed");
     let sparse = root.join("sparse");
@@ -98,9 +98,9 @@ fn refuses_existing_destination() {
     // the process-global encryption env vars, and `cargo test` runs the whole
     // crate concurrently. Without this lock an unrelated test's transient
     // set_var/remove_var lands between two of those resolutions and flips the
-    // cipher -- see `crate::crypto::acquire_test_env_lock`'s doc. Its five
+    // cipher -- see `medulla_kernel::crypto::acquire_test_env_lock`'s doc. Its five
     // sibling in-place migration tests already hold it; these did not.
-    let _env_lock = crate::crypto::acquire_test_env_lock_blocking();
+    let _env_lock = medulla_kernel::crypto::acquire_test_env_lock_blocking();
     let dir = temp_root("clobber");
     let _ = std::fs::remove_dir_all(&dir);
     let src = dir.join("src");
@@ -122,7 +122,7 @@ fn refuses_existing_destination() {
 #[tokio::test(flavor = "multi_thread")]
 async fn multi_source_migration_preserves_graphs() {
     #[cfg(feature = "security")]
-    let _env_lock = crate::crypto::acquire_test_env_lock().await;
+    let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
     let (root, src, dst) = fresh_migration_dirs("multisrc", "k2", "k3");
     let src_s = src.to_string_lossy().to_string();
 

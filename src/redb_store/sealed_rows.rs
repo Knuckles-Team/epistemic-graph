@@ -1,5 +1,5 @@
 //! The durable generic row applier's view of the sealed-record guard (EH-558): the
-//! same [`crate::sealed_guard`] rules, judged against the stored rows inside the write
+//! same [`medulla_kernel::sealed_guard`] rules, judged against the stored rows inside the write
 //! transaction the generic write would commit in.
 
 use super::store_prelude::*;
@@ -14,7 +14,7 @@ struct DurableRows<'a, 't> {
     crypto: DurableCrypto<'a>,
 }
 
-impl crate::sealed_guard::StoredNodeRows for DurableRows<'_, '_> {
+impl medulla_kernel::sealed_guard::StoredNodeRows for DurableRows<'_, '_> {
     fn stored(&self, node_id: &str) -> Result<Option<Vec<u8>>, String> {
         let Some(value) = self
             .nodes
@@ -40,5 +40,5 @@ pub(crate) fn refuse_generic_sealed_row_write(
         nodes,
         crypto,
     };
-    crate::sealed_guard::refuse_generic_sealed_write(method, &rows)
+    medulla_kernel::sealed_guard::refuse_generic_sealed_write(method, &rows)
 }

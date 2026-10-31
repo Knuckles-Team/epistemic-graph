@@ -108,7 +108,7 @@ pub(crate) struct CrossModalBatchRows<'a> {
 /// provide a complete snapshot or persist only the affected rows.
 pub(crate) enum AuthoritativeGraphState {
     Snapshot(Box<crate::graph::GraphSnapshot>),
-    RowDelta(crate::graph_delta::GraphRowDelta),
+    RowDelta(medulla_kernel::graph_delta::GraphRowDelta),
 }
 
 /// Borrowed carrier for [`commit_mutation_batch_crossmodal`]'s graph-identifying

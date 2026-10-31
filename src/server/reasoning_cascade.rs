@@ -366,7 +366,7 @@ pub fn spawn(state: Arc<RwLock<ServerState>>, cascade: Arc<ReasoningCascade>) {
             if refreshed > 0 {
                 tracing::debug!(refreshed, "reasoning cascade: sweep refreshed graph(s)");
             }
-            crate::metrics::loop_tick("reasoning_cascade", started.elapsed().as_secs_f64());
+            medulla_kernel::metrics::loop_tick("reasoning_cascade", started.elapsed().as_secs_f64());
         }
     });
 }

@@ -90,7 +90,7 @@ pub(super) fn ensure_job_workers(
 
 pub(super) fn refresh_job_metrics(store: &JobStore) {
     if let Ok((ready, active, publishing)) = store.metric_counts(unix_ms()) {
-        crate::metrics::set_analytics_job_counts(ready, active, publishing);
+        medulla_kernel::metrics::set_analytics_job_counts(ready, active, publishing);
     }
 }
 

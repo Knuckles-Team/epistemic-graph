@@ -48,7 +48,7 @@ fn contract() -> RecordContract {
 
 struct Served {
     _dir: tempfile::TempDir,
-    _env: crate::crypto::TestEnvReadGuard,
+    _env: medulla_kernel::crypto::TestEnvReadGuard,
     state: Arc<RwLock<ServerState>>,
 }
 
@@ -59,7 +59,7 @@ fn next_id() -> u64 {
 
 impl Served {
     async fn new() -> Self {
-        let env = crate::crypto::acquire_test_env_read_lock().await;
+        let env = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let dir = tempfile::tempdir().unwrap();
         let mut state = ServerState::new_for_test(SECRET, ServerState::test_isolation(ADMIN));
         state.persist_dir = Some(dir.path().to_string_lossy().into_owned());

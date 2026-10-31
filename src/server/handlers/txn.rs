@@ -236,7 +236,7 @@ mod materialize_belief_tests {
         );
         let (methods, _confidence) =
             materialize_belief_to_methods(&core, "claim3").expect("node exists");
-        let line = crate::audit::audit_line(&methods[0]);
+        let line = medulla_kernel::audit::audit_line(&methods[0]);
         assert_eq!(line.as_deref(), Some("CAS_NODE|claim3"));
     }
 
@@ -414,9 +414,9 @@ mod keyed_recovery_window_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn prepared_lifecycle_retry_refuses_ambiguous_volatile_effect() {
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let _recovery_key = EnvVarGuard::set(
-            crate::crypto::TXN_RECOVERY_KEY_ENV,
+            medulla_kernel::crypto::TXN_RECOVERY_KEY_ENV,
             "txn-handler-recovery-window-test-key",
         );
         let graph = "prepared-lifecycle-graph";
@@ -517,9 +517,9 @@ mod keyed_recovery_window_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn keyed_prepared_parent_recovers_before_child_exists() {
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let _recovery_key = EnvVarGuard::set(
-            crate::crypto::TXN_RECOVERY_KEY_ENV,
+            medulla_kernel::crypto::TXN_RECOVERY_KEY_ENV,
             "txn-handler-recovery-window-test-key",
         );
         let graph = "prepared-before-child-graph";
@@ -621,9 +621,9 @@ mod keyed_recovery_window_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn keyed_child_before_parent_finish_reconciles_one_child() {
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let _recovery_key = EnvVarGuard::set(
-            crate::crypto::TXN_RECOVERY_KEY_ENV,
+            medulla_kernel::crypto::TXN_RECOVERY_KEY_ENV,
             "txn-handler-recovery-window-test-key",
         );
         let graph = "child-before-parent-finish-graph";

@@ -375,7 +375,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // inherit the host's affinity count or a two-thread floor that exceeds its
     // measured budget. The resolver already reserves CPU headroom and keeps a
     // one-thread progress floor.
-    let cores = medulla::autosize::detect_capacity().reserved_cpus();
+    let cores = medulla_kernel::autosize::detect_capacity().reserved_cpus();
     let worker_threads = cores.max(1);
     let max_blocking = cores.max(1);
     let driver = server::spawn_engine_driver(move || {
@@ -440,7 +440,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // subscriber (INFO, no target) UNLESS built with `otel` AND
     // MEDULLA_OTLP_ENDPOINT is set, in which case an OTLP batch span
     // exporter is layered on top. Off/unset ⇒ byte-for-byte the prior behavior.
-    medulla::otel::init_tracing()?;
+    medulla_kernel::otel::init_tracing()?;
 
     let (socket_path, socket_parent) = resolve_socket_path(args.socket_path.take());
     let socket_mode = server_startup::socket_mode_or_exit(&args.socket_mode);
@@ -634,7 +634,7 @@ async fn spawn_metrics_listener(
                 metrics_addr
             );
             tokio::spawn(async move {
-                medulla::metrics::serve(listener).await;
+                medulla_kernel::metrics::serve(listener).await;
             });
         }
         #[cfg(not(feature = "metrics"))]
@@ -928,7 +928,7 @@ where
             wait_for_periodic_tick(&mut ticker).await;
             let loop_started = std::time::Instant::now();
             sweep().await;
-            medulla::metrics::loop_tick(metric_name, loop_started.elapsed().as_secs_f64());
+            medulla_kernel::metrics::loop_tick(metric_name, loop_started.elapsed().as_secs_f64());
         }
     });
 }
@@ -1754,7 +1754,7 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
                         n
                     );
                 }
-                medulla::metrics::loop_tick(
+                medulla_kernel::metrics::loop_tick(
                     "ann_warm_sweep",
                     __loop_tick_started.elapsed().as_secs_f64(),
                 );
@@ -1798,7 +1798,7 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
                     stats.nodes_pruned,
                     stats.edges_pruned
                 );
-                medulla::metrics::loop_tick(
+                medulla_kernel::metrics::loop_tick(
                     "decay_sweep",
                     __loop_tick_started.elapsed().as_secs_f64(),
                 );
@@ -1809,7 +1809,7 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
 
 async fn spawn_memory_and_lifecycle_sweeps(
     state: &Arc<tokio::sync::RwLock<ServerState>>,
-    host_capacity: medulla::autosize::Capacity,
+    host_capacity: medulla_kernel::autosize::Capacity,
     txn_ttl_secs: u64,
 ) {
     spawn_memory_sweeps(state, host_capacity).await;
@@ -1818,7 +1818,7 @@ async fn spawn_memory_and_lifecycle_sweeps(
 
 async fn spawn_memory_sweeps(
     state: &Arc<tokio::sync::RwLock<ServerState>>,
-    host_capacity: medulla::autosize::Capacity,
+    host_capacity: medulla_kernel::autosize::Capacity,
 ) {
     // ── Per-graph memory cap (CONCEPT:MEDULLA-KG.storage.nonblocking-checkpoint) — degrade, don't OOM ─────────
     // The engine keeps a bounded resident projection over the durable backend, so a graph that

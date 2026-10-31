@@ -4482,6 +4482,7 @@ dependencies = [
  "medulla-graphql",
  "medulla-image",
  "medulla-jobs",
+ "medulla-kernel",
  "medulla-kvcache",
  "medulla-lake",
  "medulla-modality",
@@ -4635,6 +4636,36 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+]
+
+[[package]]
+name = "medulla-kernel"
+version = "0.1.0"
+dependencies = [
+ "chacha20poly1305",
+ "dashmap",
+ "hex",
+ "lazy_static",
+ "medulla-capabilities",
+ "medulla-compute",
+ "medulla-core",
+ "medulla-epistemic",
+ "medulla-resource",
+ "medulla-types",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "parking_lot",
+ "prometheus",
+ "rand 0.8.8",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
 ]
 
 [[package]]

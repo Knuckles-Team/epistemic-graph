@@ -151,8 +151,8 @@ fn bool_response(response: Result<super::RaftResponse, String>) -> bool {
 async fn placement_state_machine_binds_plan_identity_and_replay_nonce() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("medulla-placement", "cas-replay-integrity");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
@@ -245,8 +245,8 @@ async fn has_node(
 async fn assign_then_route_returns_new_group_and_epoch() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("medulla-placement", "assign");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
@@ -303,8 +303,8 @@ async fn assign_then_route_returns_new_group_and_epoch() {
 async fn stale_epoch_request_gets_redirected() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("medulla-placement", "stale");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
@@ -351,9 +351,9 @@ async fn catalog_persists_and_reloads_with_epoch() {
     // Held for the whole test: opens the backend TWICE (initial + a restart reopen
     // of the SAME dir) -- same "ambient key must stay constant across both opens"
     // requirement as `reshard_harness::reshard_data_durable_across_restart`. See
-    // `crate::crypto::acquire_test_env_lock`'s doc.
+    // `medulla_kernel::crypto::acquire_test_env_lock`'s doc.
     #[cfg(feature = "security")]
-    let _env_lock = crate::crypto::acquire_test_env_lock().await;
+    let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
     let (dir, backend) = fixture::fresh_backend("medulla-placement", "persist");
     let epoch = {
         let (multi, _state) = bring_up(&dir, backend.clone()).await;
@@ -399,8 +399,8 @@ async fn catalog_persists_and_reloads_with_epoch() {
 async fn online_move_preserves_data_and_lands_new_epoch() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let (dir, backend) = fixture::fresh_backend("medulla-placement", "move");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
@@ -466,8 +466,8 @@ async fn online_move_preserves_data_and_lands_new_epoch() {
 async fn pre_cutover_move_abort_restores_source_and_journals_terminal_state() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("medulla-placement", "move-abort");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
@@ -517,8 +517,8 @@ async fn pre_cutover_move_abort_restores_source_and_journals_terminal_state() {
 async fn orphaned_moving_partition_fails_recovery_closed() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("medulla-placement", "move-orphan");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
@@ -550,8 +550,8 @@ async fn orphaned_moving_partition_fails_recovery_closed() {
 async fn abort_intent_behind_committed_cutover_reconciles_forward() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("medulla-placement", "move-abort-fence-race");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
@@ -608,8 +608,8 @@ async fn abort_intent_behind_committed_cutover_reconciles_forward() {
 async fn split_lets_one_tenant_span_two_groups() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("medulla-placement", "split");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
@@ -683,8 +683,8 @@ async fn split_lets_one_tenant_span_two_groups() {
 async fn wire_placement_route_resolves_through_dispatch() {
     // Opens a durable store, so the ambient encryption env must hold still for
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
-    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    // opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     use crate::protocol::ResultPayload;
     use crate::server::dispatch;
 

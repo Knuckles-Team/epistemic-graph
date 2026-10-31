@@ -195,7 +195,7 @@ async fn reclaim_graph(
         cost_state()
             .evicted_total
             .fetch_add(evicted, std::sync::atomic::Ordering::Relaxed);
-        crate::metrics::budget_evicted(evicted);
+        medulla_kernel::metrics::budget_evicted(evicted);
     }
 
     // Step 2: if still resident and the tenant is still over budget, hibernate
@@ -255,7 +255,7 @@ async fn hibernate_graph(
         return false;
     }
     note_hibernated(&handle.name, &handle.incarnation_id, true);
-    crate::metrics::budget_hibernated();
+    medulla_kernel::metrics::budget_hibernated();
     true
 }
 

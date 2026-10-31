@@ -180,7 +180,7 @@ Original design sketch (superseded by the current snapshot-plus-delta implementa
 - **Algorithm:** (1) `catalog.assign(g, dst, node)` is NOT flipped yet; (2) snapshot-copy the
   graph's rows from source shard to dest shard under a read txn (MVCC — writes continue to the
   source); (3) drain/quiesce in-flight writes for `g` (reuse the write-coalescer's per-graph
-  writer, `CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer`, `src/write_coalescer.rs` — `drop_writer`/quiesce one key);
+  writer, `CONCEPT:MEDULLA-KG.sharding.per-graph-write-coalescer`, `crates/medulla-kernel/src/write_coalescer.rs` — `drop_writer`/quiesce one key);
   (4) copy the delta; (5) atomically flip `catalog.reassign(g, dst)` and resume; (6) GC the old
   rows from the source shard.
 - **`I/O`:** redb read/write txns on two shards in the same `RedbBackend`; the catalog write.

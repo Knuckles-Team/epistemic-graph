@@ -149,13 +149,13 @@ fn authoritative_snapshot_and_row_delta_paths_refuse_orphaning_lane_work_item() 
     // Neither `orphaned` nor `linked` above ever committed, so the durable graph version
     // is still 0 (unchanged from `commit_ops` never being called on this fixture's graph).
     let after = crate::graph::GraphCore::new().snapshot();
-    let delta = crate::graph_delta::GraphRowDelta::between(&linked, &after)
+    let delta = medulla_kernel::graph_delta::GraphRowDelta::between(&linked, &after)
         .expect("build orphaning row delta");
     let delta_state = delta.to_msgpack().expect("encode orphaning row delta");
     let delta_batch = make_batch(
         "state-path-delta",
         "state-path-delta",
-        crate::graph_delta::ROW_DELTA_ALGORITHM,
+        medulla_kernel::graph_delta::ROW_DELTA_ALGORITHM,
         &delta_state,
         0,
     );

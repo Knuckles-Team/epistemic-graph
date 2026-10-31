@@ -543,7 +543,7 @@ fn finish_batch(
     // `medulla_types::mutation_batch::identity_normalized_operations`.
     let identity_operations = medulla_types::mutation_batch::identity_normalized_operations(&operations);
     let summary =
-        crate::projection_wakeup::projection_payload_for_operations(&identity_operations)?;
+        medulla_kernel::projection_wakeup::projection_payload_for_operations(&identity_operations)?;
     // The typed wake-up is computed HERE, before the envelope is minted, rather
     // than installed over the finished batch afterwards: the envelope's
     // canonical payload digest covers the outbox, so a payload rewritten after

@@ -413,7 +413,7 @@ fn authorize_cypher(
     };
     let action = medulla_capabilities::policy(&method).authz_action;
     if !verified.allows_method(action, is_write) {
-        crate::metrics::access_denied();
+        medulla_kernel::metrics::access_denied();
         return Err(BoltFailure::client(
             "Neo.ClientError.Security.Forbidden",
             "Cypher scope is not authorized",
@@ -1068,8 +1068,8 @@ mod tests {
     async fn signed_session_verifies_current_context_and_rejects_tampering() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let state = seeded_state();
         let request = signed_session_request("__commons__");
         let valid = auth_map(&request);
@@ -1092,8 +1092,8 @@ mod tests {
     async fn signed_session_rejects_cross_tenant_claims() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         use crate::acl::RequestContextClaims;
         use crate::server::auth::{compute_verified_envelope_token, VerifiedEnvelopeParams};
 
@@ -1267,8 +1267,8 @@ mod tests {
     async fn bolt_hello_run_pull_roundtrip_against_cypher_engine() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let mut c = spawn_conn(seeded_state());
         c.handshake().await;
 
@@ -1301,8 +1301,8 @@ mod tests {
     async fn forged_hello_principal_is_rejected_before_query_execution() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let mut c = spawn_conn(seeded_state());
         c.handshake().await;
         c.send(&forged_hello()).await;
@@ -1315,8 +1315,8 @@ mod tests {
     async fn unsigned_run_database_cannot_replace_signed_graph() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let mut c = spawn_conn(seeded_state());
         c.handshake().await;
         c.send(&hello()).await;
@@ -1333,8 +1333,8 @@ mod tests {
     async fn bolt_explicit_transaction_begin_run_commit() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let mut c = spawn_conn(seeded_state());
         c.handshake().await;
         c.send(&hello()).await;
@@ -1371,8 +1371,8 @@ mod tests {
     async fn bolt_rollback_discards_staged_write_without_touching_live_graph() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let state = seeded_state();
         let core = state
             .read()
@@ -1430,10 +1430,10 @@ mod tests {
         // sealed framing" (or, with a different key, "decryption failed"). Without
         // this lock, a concurrent `crypto::tests::EnvGuard`-protected test elsewhere in
         // the crate can transiently flip that process-global var between the two
-        // opens. See `crate::crypto::acquire_test_env_lock`'s doc for the full
+        // opens. See `medulla_kernel::crypto::acquire_test_env_lock`'s doc for the full
         // mechanism (this was the actual root cause of this test's parallel flake).
         #[cfg(feature = "security")]
-        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _env_lock = medulla_kernel::crypto::acquire_test_env_lock().await;
         let dir = temp_dir("restart");
         let (state, persistence) = durable_state(&dir).await;
         let core = state
@@ -1507,8 +1507,8 @@ mod tests {
     async fn bolt_failure_then_ignored_until_reset() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
-        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
-        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // another opener. See `medulla_kernel::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
         let mut c = spawn_conn(seeded_state());
         c.handshake().await;
         c.send(&hello()).await;

@@ -369,3 +369,11 @@ question rows of this bulk lane stay blocked. Eighteen wait on the 23
 MISSING connectors' out-of-scope vocabulary. Fifteen wait on unlanded
 producer terms such as `FileShare`, `documentType`, `PrivacyAssessment`,
 `Worktree` and `desiredReplicas`.
+
+## North star
+
+One engine, medulla, holds all facts. There is no second database and no sync. External stores are virtual-graph sources reached through connectors. Every connector that connects through arbora onboards itself. Its ontology extends the core ontology. Its prompts become system-prompt candidates. Its skills, tools and resources appear as virtual graph entries in the engine. The exit gate is competency questions. The ontology answers how to execute a task and produces cross-source reports from connector virtual graphs.
+
+## Delivery phase
+
+Row `MEDULLA-CQ-CONN-R090` serves P5. It is the engine side of the federated read in `ARBORA-ACCEPTANCE-R006.7`.

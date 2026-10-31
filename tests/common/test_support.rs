@@ -116,7 +116,7 @@ where
 pub fn provision_encryption_key_once(encryption_key: &str) {
     static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
     ENCRYPTION_KEY.call_once(|| {
-        std::env::set_var(medulla::crypto::ENCRYPTION_KEY_ENV, encryption_key);
+        std::env::set_var(medulla_kernel::crypto::ENCRYPTION_KEY_ENV, encryption_key);
     });
 }
 

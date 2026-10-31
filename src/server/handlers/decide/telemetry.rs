@@ -44,10 +44,10 @@ fn outcome_label(outcome: &StatisticalOutcome) -> (&'static str, String) {
 pub(super) fn decided(record: &StatisticalDecisionRecord, candidates: usize, started: Instant) {
     let (outcome, reasons) = outcome_label(&record.outcome);
     let evidence = format!("{:?}", record.evidence_class);
-    crate::metrics::decision_answered(outcome, &evidence, &reasons);
-    crate::metrics::decision_latency("Decide", started.elapsed().as_secs_f64());
+    medulla_kernel::metrics::decision_answered(outcome, &evidence, &reasons);
+    medulla_kernel::metrics::decision_latency("Decide", started.elapsed().as_secs_f64());
     if record.inputs.exploration.is_some() {
-        crate::metrics::decision_explored(matches!(
+        medulla_kernel::metrics::decision_explored(matches!(
             record.outcome,
             StatisticalOutcome::Explored { .. }
         ));
@@ -69,7 +69,7 @@ pub(super) fn decided(record: &StatisticalDecisionRecord, candidates: usize, sta
 
 /// One finished replay evaluation (EH-528).
 pub(super) fn replayed(run: &EvaluationRun, started: Instant) {
-    crate::metrics::decision_latency("DecisionEval", started.elapsed().as_secs_f64());
+    medulla_kernel::metrics::decision_latency("DecisionEval", started.elapsed().as_secs_f64());
     tracing::info!(
         target: "medulla.decide",
         run_digest = %run.run_digest,
@@ -85,8 +85,8 @@ pub(super) fn replayed(run: &EvaluationRun, started: Instant) {
 
 /// One finished evaluation.
 pub(super) fn evaluated(receipt: &DecisionEvalReceipt, started: Instant) {
-    crate::metrics::decision_evaluated(receipt.passed);
-    crate::metrics::decision_latency("DecisionEval", started.elapsed().as_secs_f64());
+    medulla_kernel::metrics::decision_evaluated(receipt.passed);
+    medulla_kernel::metrics::decision_latency("DecisionEval", started.elapsed().as_secs_f64());
     let min_ess = receipt
         .estimates
         .iter()
@@ -124,12 +124,12 @@ pub(super) fn threshold_assessed(assessment: Option<&DecisionThresholdAssessment
     } else {
         "ok"
     };
-    crate::metrics::decision_threshold_assessed("support", support);
-    crate::metrics::decision_threshold_assessed(
+    medulla_kernel::metrics::decision_threshold_assessed("support", support);
+    medulla_kernel::metrics::decision_threshold_assessed(
         "coverage",
         result(assessment.coverage_below_policy),
     );
-    crate::metrics::decision_threshold_assessed(
+    medulla_kernel::metrics::decision_threshold_assessed(
         "act_risk",
         result(assessment.act_risk_above_policy),
     );
@@ -137,7 +137,7 @@ pub(super) fn threshold_assessed(assessment: Option<&DecisionThresholdAssessment
 
 /// One finished fit.
 pub(super) fn fitted(n_training: u64, calibrated: bool, started: Instant) {
-    crate::metrics::decision_latency("DecisionFit", started.elapsed().as_secs_f64());
+    medulla_kernel::metrics::decision_latency("DecisionFit", started.elapsed().as_secs_f64());
     tracing::info!(
         target: "medulla.decide",
         n_training,
@@ -150,7 +150,7 @@ pub(super) fn fitted(n_training: u64, calibrated: bool, started: Instant) {
 /// One refused call.
 pub(super) fn refused(method: &'static str, error: &str) {
     let code = refusal_code(error);
-    crate::metrics::decision_refused(method, code);
+    medulla_kernel::metrics::decision_refused(method, code);
     tracing::info!(target: "medulla.decide", method, code, "decision call refused");
 }
 
@@ -168,7 +168,7 @@ fn refusal_code(error: &str) -> &str {
 
 /// One served decision-log call.
 pub(super) fn logged(ok: bool, started: Instant) {
-    crate::metrics::decision_latency("DecisionLog", started.elapsed().as_secs_f64());
+    medulla_kernel::metrics::decision_latency("DecisionLog", started.elapsed().as_secs_f64());
     tracing::info!(
         target: "medulla.decide",
         ok,

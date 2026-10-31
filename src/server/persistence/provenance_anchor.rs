@@ -1,7 +1,7 @@
 //! Provenance anchoring (CONCEPT:MEDULLA-KG.sharding.row-level-security): periodic Merkle-root anchor over each
 //! resident graph's `:ToolCall`/`:RunTrace` provenance-node window into the SAME
 //! tamper-evident audit chain the `security` feature already maintains
-//! (`crate::audit`, `crate::redb_store::{provenance_anchor_commit, prove_inclusion}`).
+//! (`medulla_kernel::audit`, `crate::redb_store::{provenance_anchor_commit, prove_inclusion}`).
 //!
 //! ## Why "resident graphs" + the in-RAM label index
 //!
@@ -140,8 +140,8 @@ pub async fn sweep(state: &Arc<RwLock<ServerState>>) -> u64 {
         if members.is_empty() {
             continue;
         }
-        let leaf_hashes: Vec<crate::audit::Hash> = members.iter().map(|(_, h)| *h).collect();
-        let root = crate::audit::mth_from_hashes(&leaf_hashes);
+        let leaf_hashes: Vec<medulla_kernel::audit::Hash> = members.iter().map(|(_, h)| *h).collect();
+        let root = medulla_kernel::audit::mth_from_hashes(&leaf_hashes);
         match redb.provenance_anchor_commit_blocking(&fname, root, members.clone()) {
             Ok(Some(seq)) => {
                 // The admitted maintenance group advances this graph exactly

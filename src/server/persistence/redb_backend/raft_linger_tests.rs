@@ -12,7 +12,7 @@ use super::*;
 // spec: MEDULLA-DURABLE-KERNEL-R016
 #[tokio::test(flavor = "multi_thread")]
 async fn micro_linger_coalesces_shallow_raft_appends() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let dir = std::env::temp_dir().join(format!("medulla-redb-raft-linger-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let dir_s = dir.to_string_lossy().to_string();
@@ -45,7 +45,7 @@ async fn micro_linger_coalesces_shallow_raft_appends() {
     };
     let first = enqueue(1, 1);
     tokio::task::spawn_blocking(move || {
-        crate::test_rendezvous::recv_within(
+        medulla_kernel::test_rendezvous::recv_within(
             &entered_rx,
             "the raft append entering the injected linger gate",
         );

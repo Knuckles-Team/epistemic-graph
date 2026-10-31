@@ -106,6 +106,7 @@ mod control_lines;
 mod kv_store;
 mod sql_catalog;
 
+/// The audit-log line for a governed method, or `None` when the method is not audited.
 pub fn audit_line(method: &Method) -> Option<String> {
     // Every non-durable method (`DurabilityDomain::None`) never reaches this
     // function via the redb write path in the first place; still falls through
@@ -216,7 +217,7 @@ where
 // ALREADY-HASHED leaves ([`merkle_leaf_hash`] applies RFC 6962's own leaf-hash
 // step once, up front) so a Merkle audit path for one leaf never requires
 // re-reading any OTHER leaf's raw content — only its recorded sibling hashes —
-// which is what lets [`crate::redb_store::prove_inclusion`] verify one node
+// which is what lets `medulla_engine::redb_store::prove_inclusion` verify one node
 // independent of what happened to its neighbors afterward.
 
 /// Domain-separation tag for a LEAF hash (RFC 6962 `MTH({d(0)})`).
@@ -241,7 +242,9 @@ pub use crate::protocol::MerkleSide;
 /// sits on relative to the path being verified.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProofStep {
+    /// The hash of the sibling node at this level of the Merkle path.
     pub sibling: Hash,
+    /// Which side of the parent the sibling sits on.
     pub side: MerkleSide,
 }
 
@@ -293,7 +296,7 @@ fn largest_power_of_two_below(n: usize) -> usize {
 
 /// RFC 6962 §2.1 Merkle Tree Hash over an ORDERED list of ALREADY-COMPUTED leaf
 /// hashes (a provenance anchor persists leaf hashes, not raw node content — see
-/// `crate::redb_store::PROVENANCE_ANCHOR_MEMBERS`'s doc). `n == 0` is RFC 6962's
+/// `medulla_engine::redb_store::PROVENANCE_ANCHOR_MEMBERS`'s doc). `n == 0` is RFC 6962's
 /// defined empty-tree case (the anchoring job never actually calls this on an
 /// empty window, but the function stays total). `n == 1` returns the lone leaf
 /// hash unchanged — it already carries the RFC's `0x00` leaf tag from
@@ -345,7 +348,7 @@ pub fn audit_path_from_hashes(leaves: &[Hash], m: usize) -> Vec<ProofStep> {
 }
 
 /// Recompute a Merkle root by folding `leaf_hash` up through `path`. The caller
-/// (`crate::redb_store::prove_inclusion`) passes the TARGET node's CURRENT
+/// (`medulla_engine::redb_store::prove_inclusion`) passes the TARGET node's CURRENT
 /// content re-hashed via [`merkle_leaf_hash`] and the ANCHOR-TIME sibling `path`;
 /// comparing the result to the chain-protected anchored root is the inclusion
 /// proof's verification step. Always returns a value (never fails) so a caller

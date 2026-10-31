@@ -93,7 +93,7 @@ fn channel_departure_receipt_keeps_json_string_variant() {
 
 #[test]
 fn channel_group_join_leave_rejoin_replays_each_tagged_result() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock_blocking();
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock_blocking();
     let directory = tempfile::Builder::new()
         .prefix("medulla-admin-channel-rejoin-contract-")
         .tempdir()
@@ -378,7 +378,7 @@ fn legacy_public_batch(
 
 #[test]
 fn recovery_rejects_unknown_prepared_and_committed_events_but_replays_known_private() {
-    let _env_read_lock = crate::crypto::provisioned_test_env_read_lock_blocking();
+    let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock_blocking();
     let directory = tempfile::Builder::new()
         .prefix("medulla-admin-saga-recovery-contract-")
         .tempdir()
@@ -468,7 +468,7 @@ fn recovery_rejects_unknown_prepared_and_committed_events_but_replays_known_priv
 
 #[test]
 fn sparql_recovery_rejects_untyped_results_while_prepared_and_replays_exact_outcomes() {
-    let _env_read_lock = crate::crypto::provisioned_test_env_read_lock_blocking();
+    let _env_read_lock = medulla_kernel::crypto::provisioned_test_env_read_lock_blocking();
     let directory = tempfile::Builder::new()
         .prefix("medulla-admin-sparql-recovery-contract-")
         .tempdir()
@@ -592,7 +592,7 @@ fn sparql_recovery_rejects_untyped_results_while_prepared_and_replays_exact_outc
 
 #[test]
 fn method_bearing_retry_recovers_legacy_public_sagas_but_direct_resume_refuses() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock_blocking();
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock_blocking();
     let directory = tempfile::Builder::new()
         .prefix("medulla-admin-public-legacy-contract-")
         .tempdir()
@@ -709,7 +709,7 @@ fn method_bearing_retry_recovers_legacy_public_sagas_but_direct_resume_refuses()
 
 #[test]
 fn durable_reshard_saga_rejects_wrong_result_then_replays_typed_result() {
-    let _env_read_lock = crate::crypto::acquire_test_env_read_lock_blocking();
+    let _env_read_lock = medulla_kernel::crypto::acquire_test_env_read_lock_blocking();
     let directory = tempfile::Builder::new()
         .prefix("medulla-admin-saga-contract-")
         .tempdir()

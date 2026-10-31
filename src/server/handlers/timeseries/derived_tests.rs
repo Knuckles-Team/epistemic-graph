@@ -159,7 +159,7 @@ fn latest(points: &[Point]) -> Vec<(i64, u64)> {
 // spec: MEDULLA-REPO-INGEST-R004
 #[tokio::test(flavor = "multi_thread")]
 async fn a_materialised_series_equals_derive_and_follows_appends() {
-    let _env = crate::crypto::acquire_test_env_read_lock().await;
+    let _env = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let fx = Fixture::new().await;
     let history = walk(0, 300);
     fx.append("px", &history).await;
@@ -179,7 +179,7 @@ async fn a_materialised_series_equals_derive_and_follows_appends() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_source_correction_appends_revisions_never_edits() {
-    let _env = crate::crypto::acquire_test_env_read_lock().await;
+    let _env = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let fx = Fixture::new().await;
     let mut source = walk(0, 400);
     fx.append("px", &source).await;
@@ -206,7 +206,7 @@ async fn a_source_correction_appends_revisions_never_edits() {
 // spec: MEDULLA-REPO-INGEST-R004
 #[tokio::test(flavor = "multi_thread")]
 async fn bad_definitions_are_refused_and_other_tenants_see_nothing() {
-    let _env = crate::crypto::acquire_test_env_read_lock().await;
+    let _env = medulla_kernel::crypto::acquire_test_env_read_lock().await;
     let fx = Fixture::new().await;
     fx.append("px", &walk(0, 50)).await;
     fx.define(TENANT, "px_z", "px", EXPR).await;

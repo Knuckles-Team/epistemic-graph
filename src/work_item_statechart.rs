@@ -292,7 +292,7 @@ pub fn emit_divergence(
     authoritative_next: Option<&str>,
     mirror_next: &str,
 ) {
-    crate::metrics::statechart_divergence("work_item");
+    medulla_kernel::metrics::statechart_divergence("work_item");
     tracing::warn!(
         target: "medulla::statechart_divergence",
         work_item_id,

@@ -34,7 +34,7 @@ pub(super) fn run(
     stats: Arc<RedbCommitStats>,
     // Auto-sized early-flush op threshold (CONCEPT:AU-KG.backend.b-auto-sizeb), per shard.
     flush_threshold: usize,
-    #[cfg(feature = "security")] cipher: Option<crate::crypto::ValueCipher>,
+    #[cfg(feature = "security")] cipher: Option<medulla_kernel::crypto::ValueCipher>,
 ) {
     // Borrow the shared handle for the rest of the loop; the owned Arc above stays
     // alive until `run` returns, so this reference is valid for the whole thread.
