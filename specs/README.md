@@ -107,9 +107,9 @@ The 2026-10-30 review graded every open row in every spec. Each spec's `evidence
 Read this repository's `AGENTS.md` and any contribution guide. Propose `spec.md` first, resolve
 architecture and test details in `plan.md` and `test-spec.md`, then implement `tasks.md` in a
 dedicated branch or worktree. Link the PR to spec IDs and update evidence and status only when the
-corresponding gates actually pass. Use the [universal-skills spec-generator](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/spec-generator),
-[spec-verifier](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/spec-verifier),
-and [task-planner](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/task-planner)
+corresponding gates actually pass. Use the [universal-skills speckit-specify](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/skills/speckit-specify),
+[speckit-analyze](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/skills/speckit-analyze),
+and [speckit-tasks](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/skills/speckit-tasks)
 and this repository's `medulla-development`
 bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development-workflows/sdd-full-lifecycle) workflow.
 

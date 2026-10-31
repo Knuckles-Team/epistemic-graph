@@ -79,10 +79,10 @@ Start in [`specs/`](specs/README.md) with a stable ID and the repository-owned `
 `test-spec.md`, and `tasks.md`. Use the [universal-skills SDD
 workflow](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development-workflows/sdd-full-lifecycle)
 and its
-[spec-generator](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/spec-generator),
-[spec-verifier](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/spec-verifier),
+[speckit-specify](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/skills/speckit-specify),
+[speckit-analyze](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/skills/speckit-analyze),
 and
-[task-planner](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/task-planner)
+[speckit-tasks](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/skills/speckit-tasks)
 skills. The file sequence aligns with [GitHub Spec Kit
 v1.0.12](https://github.com/github/spec-kit/releases/tag/v1.0.12); `test-spec.md` makes this repository's test and
 quality contract explicit. Link the PR to its spec IDs and include exact test, wiring, CCCC, jscpd,
