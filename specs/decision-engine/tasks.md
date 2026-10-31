@@ -1,5 +1,249 @@
 # Delivery tasks and evidence record
 
+## Delivery waves
+
+`plan.md` "Delivery architecture" defines the waves, the stages and the architecture decisions AD-1 to AD-12. Each task below names its exit proof. [`evidence/delivery-review-20261030/review.jsonl`](evidence/delivery-review-20261030/review.jsonl) holds the per-row gap, the proposed fix, the entry point, the proof kind and the model tier.
+
+### W0 Spec coherence (spec-only PRs)
+
+One PR per subsystem. A PR edits only the rows of its subsystem, so PRs touch different lines of `requirements.md`.
+
+- [ ] W0.1 Apply each THIN row's `fix` from `review.jsonl`. Each row must name its stage and its call site (file and function). It must also name its refusal codes, its values and its served proving test.
+- [ ] W0.2 Record the owner answer for each DECISION row in the row text (table below).
+- [ ] W0.3 Merge each DUP row into the row it restates. Retire the duplicate with a `retired_reason` that names the surviving row.
+- [ ] W0.4 Move each OWNER part to the owning repository's spec as a new row. Link the new row by ID from the medulla row.
+- [ ] W0.5 Write text for the BLANK rows R140.104, R140.105, R141.102, R141.103, R142.101 and R142.102, or retire them.
+- [ ] W0.6 Rename every version-suffixed type in row text (AD-3).
+- [ ] W0.7 Correct stale paths and line numbers. Use `tests/decide/` for served Python tests, and the `decide_blocking` dispatch chain for per-kind wiring.
+- [ ] W0.8 Mark each `.1` model row "verified by the root's served slice" (AD-5, AD-7).
+- [ ] W0.9 Re-run the rubric on every open row. Exit when every open row is READY, EXISTS or RETIRED.
+
+#### Cross-cutting owner decisions
+
+| ID | Question | Recommended answer |
+|---|---|---|
+| D-1 | Where do subsystem S9 roots belong? R140, R142, R157, R160–R163 and R166–R171 describe harness, package and workflow behaviour. | Move the run-loop and consumer behaviour to Meristem or arbora rows. Keep only the stored record and the decision question in medulla. |
+| D-2 | No other medulla spec owns agent memory. How are R141, R145, R150, R154, R155, R617 and R651 kept coherent? | Keep them in this spec under subsystem S6. Define one memory record and one consolidation path, reusing the served `Consolidate`, `Reinforce` and `DecayMemories` routes. Retire R145 into R141.100. |
+| D-3 | How does a benchmark clause in a `.6` row gate delivery? | Move it to the nightly suite (AD-9). The `.6` row keeps its served functional proof. |
+| D-4 | Are the AD-9 budgets right: `Decide` p50 20 ms, p99 150 ms, 10 % regression limit? | Adopt them as starting budgets. W6 measures them on the reference host and records the measured values. |
+
+#### Row decisions (recommended option first)
+
+| Row | Question | Options |
+|---|---|---|
+| `R020.1` | What counts as a context match (dimensions, threshold) is explicitly unspecified; CandidatePoolV1 has a version suffix. | Options: (1) exact equality on task/context feature digest (recommended, deterministic); (2) cosine >= declared threshold; (3) owner-supplied policy. Then name `CandidatePool` in crates/eg-numeric/src/decision/exploration.rs. Call site: src/server/handlers/decide/stat_decide.rs::handle_decide candidate selection; require served Harness test. |
+| `R031.100` | Relevance scoring method, dimensions and threshold are undefined; scheduling and retrieval are other repos. | Options: (1) deterministic score = max(BM25 vs platform goals, embedding cosine vs graph nodes) >= 0.6 (recommended); (2) LLM scored; (3) caller-supplied scores. Also pick file crates/eg-numeric/src/decision/admission.rs. Call site: ingest admission gate calling crates/eg-numeric/src/decision/admission.rs; require served ingest test. |
+| `R039.2` | How cost enters the ladder is undefined (lexicographic vs weight); ObservedCost is a Meristem fact whose feature name is unknown. | Options: (1) among legal options with scores within epsilon, prefer lowest cost feature (recommended); (2) weighted sum; (3) hard cost cap. Name feature `observed_cost` and file crates/eg-numeric/src/decision/ladder.rs. |
+| `R059.1` | Robust/transferability aggregate formula and independence rule undefined; BackboneSkillEvaluationV1 suffix; skill merge key is AU's. | Options: min over backbones with all rows required (recommended); mean minus std; quantile. Name `BackboneSkillEvaluation` in crates/eg-numeric/src/decision/track_record.rs. |
+| `R100.1` | Outcome-to-label mapping policy and signal producer are unspecified (row says so); FeedbackEventV1 suffix. | Options: map outcome ok=positive, error/correction=hard negative, key (event_id, source_revision) (recommended); or owner-supplied policy. Then file crates/eg-numeric/src/decision/adapter.rs. |
+| `R130.3` | The row attaches `rank` at `conclude.rs`. That path has no calibrated scores, so the call must be `rank_calibrated`. Which `Decide` path supplies `RankedCandidate`? Where does `calibrated_score` come from? | Recommended: call `rank_calibrated` from the statistical `QuestionKind::Rank` arm in stat_decide.rs, taking `calibrated_score` from the pinned head's calibration. Alternative: conclude.rs with caller-supplied scores. Restate row to name `rank_calibrated` and the chosen path. |
+| `R131.5` | Decide is evaluate-only (R133.3 states read-only) yet this row stores an observation node and edge during Decide. Which path writes? | Recommended: Decide returns `LimitBreach` descriptors in the sealed record; a separate commit via `handle_decision_commit` persists the observation + edge to `signal_iri`. Alternative: write in Decide (breaks read-only guarantee). |
+| `R134.9` | Row asks to resolve AU-HARNESS-R022.3 vs AU-CONTEXT-R001 (who ranks skills). Also `TaskPlanSkillNodeV1` suffix, no file/test, depends on R140.102 policy. | Recommended: Medulla ranks and emits the tree; Meristem consumes. Then rename `TaskPlanSkillNode`, place in task_plan/skill_tree.rs, name test, refuse unpinned policy. Name the call site (file+function) and require a served proof through it. |
+| `R134.12` | How are width/depth chosen? Row refuses to prescribe a scoring formula, leaving no algorithm; relies on R018 paired comparison verdict. | Recommended: record-and-verify only: Medulla validates a caller-chosen ladder rung and paired-arm completeness; does not select. Rename `TrajectoryDecision`; name file and test. Alternative: define a width/depth ladder with thresholds. Name the call site (file+function) and require a served proof through it. |
+| `R135.8` | Who compiles NL workflows? Medulla has no NL compiler; types carry V1 suffixes (`WorkflowCompileRequestV1`, `CompiledWorkflowV1`, `semantic_reuse_key_v1`); compiler interface 'unspecified'. | Recommended: Medulla compiles only graph-stored typed workflows deterministically; NL compile is produced by harness as typed graph then stored. Rename types; key tuple as defined; error `MISSING_WORKFLOW_STEP`. Name the call site (file+function) and require a served proof through it. |
+| `R137.16` | How does task complexity change selection? 'Selection policy' undefined; `ContextBudgetSignalsV1` suffix. | Recommended: a pinned complexity policy maps score bands to a fraction of remaining tokens. The fraction is the caller ceiling: low 0.25, medium 0.5, high 1.0. Remaining = ceiling - committed - reserved. Alternative: scale value floor. Name the call site (file+function) and require a served proof through it. |
+| `R143.2` | Who detects relevance_update/constraint_change/timeout and from what input? Timeout duration? 'Define trigger conditions' is deferred to the implementer. | Options: (1) the caller submits the trigger kind in the `Decide` request, and Medulla only versions and hashes it (recommended). (2) Medulla derives triggers from graph state; timeout default 300 s. Pick (1) and state it. |
+| `R144.1` | What are 'raw file read' and 'corpus scan' inside Medulla (graph facts? lake files? connector-side)? Field types of IndexlessRetrieval undefined; 'context verification' undefined. | Options: (1) typed op enum {RawRead,CorpusScan,VerifySpan} over Medulla-stored source documents only (recommended); (2) pass-through to connectors (owner scion-sdk). Add budget field types u64. |
+| `R148.2` | What decision inputs choose a mode and what are the modes? Selection rule absent; 'Meristem loader validates' is AU-owned. | Options: (1) Medulla serves a registered mode table and picks by request-supplied mode_id, returning pinned config (recommended); (2) rule-based selection. Loader validation goes to AU-. |
+| `R150.2` | Contradiction: stale >7 days (here) vs >14 days (.4); relevance scoring algorithm undefined; auto-capture is a harness behavior. | Options: stale=7d archived=14d (recommended, two tiers); relevance = cosine of stored embeddings (existing vector path). Capture trigger comes from caller record_outcome. |
+| `R151.3` | Which 'embedding producer' and 'Medulla solver'? Mixes post-sync consolidation trigger into a penalty row; embedding production may be SDK-owned. | Options: (1) Medulla accepts importance weights on the fit request and applies the penalty in `eg-compute/solve` (recommended). (2) The producer lives in scion-sdk. Drop consolidation clause. |
+| `R154.1` | 'Parameter-free' memory with no admission criteria or eviction policy is not implementable; which memory layer is meant? | Options: (1) reword as requirement that existing memory store needs no per-corpus tuning knobs, prove by benchmark (recommended); (2) specify admission/eviction. Name the target store. Also name the call site (file+fn) and require a served proof through it. |
+| `R154.2` | No linearity tolerance, sizes, or metric; benchmarks are not a 5-minute slice. | State: ingest N, 2N and 4N facts. Per-query p95 latency grows at most 2.2x per doubling. Alternative: move it to the nightly suite. Also name the call site (file+fn) and require a served proof through it. |
+| `R154.3` | 'Filtered-scan and lifecycle operators' and 'retention semantics' are not defined anywhere here. | Name the concrete operators and traits (file/type), or retire the row. Also name the call site (file+fn) and require a served proof through it. |
+| `R154.5` | Duplicates .2 (scaling benchmark); 1..10x range with no pass criteria. | Merge .2 and .5; pass criterion as in .2 fix. Also name the call site (file+fn) and require a served proof through it. |
+| `R158.2` | Error-frequency-to-adjustment rule and policy thresholds undefined; 'jointly adjust model and width' unspecified. | Options: (1) ladder policy: error_rate>=hi -> step model down one tier and width-1 (recommended); (2) solver-based. State host ceiling is max allowed. |
+| `R165.2` | How is necessity measured? Needs with/without-tool runs, which are harness work. | Options: (1) aggregate recorded outcomes with vs without tool (recommended, engine-side); (2) harness supplies score; (3) model-self-report. |
+| `R167.2` | What defines 'compatible' vs 'breaking' consumer contract? No algorithm, no file. | Options: (1) additive-only schema diff over consumer contract (recommended); (2) digest equality only; (3) semver. Name fn and file. |
+| `R168.1` | Which agent state fields and lifecycle states? Agent runtime state is Meristem; 'generated strict client types' not in medulla. | Options: (1) medulla stores the agent lifecycle record only: id, state enum, digest (recommended). (2) Move to Meristem. (3) Reuse the `agent_component` lifecycle types. |
+| `R171.2` | What comparison runs and what is the 'architecture view'? Not defined or located. | Options: (1) reuse existing served architecture view query (recommended); (2) new comparison op. |
+| `R651.3` | New MemoryRemember/Recall/Consolidate/Export names collide with existing served Consolidate, Reinforce, DecayMemories (R651.7/.8). Rename or reuse? | Recommended: keep existing wire names, add only Remember/Recall/Export; Consolidate stays the existing route. Alternative: rename old routes (hard cutover). |
+| `R654.1` | FailurePattern collides with R701.1; SkillRevision/PromotionVerdict/MergePolicy duplicate R805/R812 (ProgramRevisionIdentity, ChampionPointer, PromotionPolicy). Reuse or new? | Recommended: SkillRevision is a ProgramRevision; reuse R805/R812 types; keep only Rollout, TransferScore, SpecProposal here; rename FailurePattern use to R701's. |
+| `R804.1` | grader_kind set {independent,human,model_judge,trace_metric} conflicts with R813.1 GraderKind{annotation,model_judge,api}. Also duplicates R810.1 binding. | Recommended: one enum, defined once (R813.1 owner), values annotation,human,model_judge,trace_metric,api; R804.1 drops its own. |
+| `R813.1` | GraderKind{annotation,model_judge,api} conflicts with R804.1 grader_kind set; TrainingExample lacks the field now. | Recommended: single enum here with annotation,human,model_judge,api,trace_metric; R804.1 dropped. |
+### W1 Architecture spine (serial PRs, Opus low effort)
+
+- [ ] W1.1 Add rows R001.101 (AD-1), R010.100 (AD-2), R072.100 (AD-8), R178 (AD-9) and EG-CONTRACT-R055 (AD-6) with file, call site and served test.
+- [ ] W1.2 Implement the `DecisionFamily` registry. Migrate all 27 existing `QuestionKind` values. Proof: the existing `stat_tests` suite passes unchanged through the registry.
+- [ ] W1.3 Implement the refusal taxonomy, the code-uniqueness test and the `AnswerGrounding` rename. Proof: existing refusal tests assert the same stable codes.
+- [ ] W1.4 Add the served-test kit to the Rust `Harness`. It provides per-family request builders, publish fixtures and record-premise assertions. Add one served Python smoke template under `tests/decide/`.
+- [ ] W1.5 Add the reachability script (AD-6) in report mode. Commit its first report as evidence.
+- [ ] W1.6 Emit the per-stage spans and metrics (AD-8). Proof: a served test reads the span names and attributes.
+
+### W2 Reachability remediation
+
+- [ ] W2.1 Wire each orphan module in `verified-isolation.json` through its open wiring rows, as one vertical slice per root.
+- [ ] W2.2 Add a served test for each unit-only kernel row in `verified-isolation.json`, and rebind the row to it.
+- [ ] W2.3 Bind the 18 EXISTS rows to served tests.
+- [ ] W2.4 Make the reachability gate a required check.
+
+### W3–W6
+
+- [ ] W3 Deliver subsystem S1 as vertical slices.
+- [ ] W4 Deliver subsystems S2–S6, S8 and S9 as vertical slices, one root per PR. Order: S2 (R036 first), S4, S5, S3, S6, S8, S9.
+- [ ] W5 Deliver subsystem S7 under AD-10.
+- [ ] W6 Add the nightly benchmark suite, the `DecideText` fuzz target and the cross-target replay qualification.
+
+### Per-root map
+
+Counts are open leaf rows per verdict at `origin/main` 9a6ab7d80.
+
+### S1 ladder core and contract — implementation wave W3
+
+| Root | Title | Open | Verified | READY | THIN | DECISION | OWNER | DUP | EXISTS | BLANK |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `R001` | Typed decision ladder with explicit resolution kinds | 2 | 1 | 0 | 1 | 0 | 1 | 0 | 0 | 0 |
+| `R014` | Composition solved as bounded constraint optimization | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| `R019` | Decision commit re-derives and verifies before writing | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 |
+| `R020` | Bounded, keyed exploration excluded from sensitive questions | 1 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 |
+| `R050` | Typed optional model and tool facts | 1 | 2 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| `R054` | Statistical contract: Decide, DecisionFit, DecisionEval | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| `R066` | Retention split between library and graph-sourced records | 1 | 3 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| `R088` | Belief-as-of-t exposed as a Decide primitive over prefixes | 2 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 |
+| `R116` | Consumers reach Medulla only through the versioned client contract | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| `R117` | DERIVE series functions share one incremental kernel | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| `R121` | Typed Claim and Evidence structures back evidence class | 2 | 1 | 0 | 1 | 0 | 1 | 0 | 0 | 0 |
+| `R129` | Promoted rules cannot contradict a stored invariant | 6 | 1 | 1 | 2 | 0 | 1 | 0 | 2 | 0 |
+| `R130` | Calibrated candidate ranking with item-level tie-break | 6 | 0 | 0 | 2 | 1 | 0 | 0 | 3 | 0 |
+| `R131` | Limit guard pipeline refuses an order with a typed reason | 4 | 2 | 0 | 3 | 1 | 0 | 0 | 0 | 0 |
+| `R132` | Retrieved entries carry a trust tier and a poisoned-entry check gates premises | 4 | 2 | 0 | 4 | 0 | 0 | 0 | 0 | 0 |
+
+### S2 assembly, topology and capability designation — implementation wave W4a
+
+| Root | Title | Open | Verified | READY | THIN | DECISION | OWNER | DUP | EXISTS | BLANK |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `R036` | graph.assemble() as the authority for agent composition | 6 | 1 | 0 | 6 | 0 | 0 | 0 | 0 | 0 |
+| `R046` | Swarm topology decisions via the decision ladder | 2 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 |
+| `R106` | AgentGraph templates carry topology facts for standard shapes | 2 | 0 | 0 | 1 | 0 | 1 | 0 | 0 | 0 |
+| `R111` | Decide exposes the topology decision as a single typed question | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| `R113` | Medulla commits capacity acquisition atomically with synthesis evidence | 5 | 3 | 0 | 5 | 0 | 0 | 0 | 0 | 0 |
+| `R172` | Capability designation index moved from Meristem | 18 | 0 | 12 | 6 | 0 | 0 | 0 | 0 | 0 |
+| `R650` | Capability descriptors and request-scoped designation | 5 | 1 | 0 | 5 | 0 | 0 | 0 | 0 | 0 |
+| `R614` | Capability cards, distilled proposals, topic classes and relation projection are engine enrichment | 5 | 1 | 0 | 5 | 0 | 0 | 0 | 0 | 0 |
+| `R814` | Connector prompts are system-prompt candidates that agent assembly selects | 6 | 2 | 0 | 6 | 0 | 0 | 0 | 0 | 0 |
+
+### S3 routing question families — implementation wave W4b
+
+| Root | Title | Open | Verified | READY | THIN | DECISION | OWNER | DUP | EXISTS | BLANK |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `R029` | Decision-based retrieval-plan selection | 3 | 0 | 0 | 1 | 0 | 2 | 0 | 0 | 0 |
+| `R031` | Expected-value scheduling for enrichment work | 1 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 |
+| `R032` | Entity-resolution candidates with conformal guarantees | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| `R033` | Decision-based schema mapping for SQL sources | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| `R035` | Decision-based routing for execution configuration | 2 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 |
+| `R039` | Cost-aware routing using accounting data | 1 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 0 |
+| `R042` | Connector tool-choice advisory via Decide | 2 | 0 | 0 | 1 | 0 | 1 | 0 | 0 | 0 |
+| `R043` | Write-back proposals routed through Decide | 1 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 |
+| `R044` | A2A task routing through the decision ladder | 1 | 2 | 0 | 0 | 0 | 1 | 0 | 0 | 0 |
+| `R079` | Per-unit embedding admission classifier for ingestion | 4 | 1 | 0 | 4 | 0 | 0 | 0 | 0 | 0 |
+| `R080` | Ingestion cost ladder with provenance rungs | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| `R099` | Wikidata alignment connector supplies entity-resolution keys | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 |
+| `R102` | Schema repair proposals pass a decided mapping and shadow-branch check | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| `R615` | Write-back proposals queue for approval, then reach vendors only through the governed contract | 5 | 1 | 0 | 4 | 0 | 1 | 0 | 0 | 0 |
+
+### S4 harness configuration and run facts — implementation wave W4a
+
+| Root | Title | Open | Verified | READY | THIN | DECISION | OWNER | DUP | EXISTS | BLANK |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `R128` | HarnessConfig decision answers how to configure an agent run | 11 | 6 | 4 | 6 | 0 | 0 | 0 | 1 | 0 |
+| `R133` | The engine stores each agent run as a trace fact and decides its runtime quotas | 7 | 0 | 1 | 6 | 0 | 0 | 0 | 0 | 0 |
+| `R137` | The engine decides the context budget and the limits of recursive parallel work | 17 | 2 | 1 | 10 | 1 | 3 | 2 | 0 | 0 |
+| `R148` | Typed command-config/mode schema and loading/replay contract | 6 | 0 | 0 | 3 | 1 | 2 | 0 | 0 | 0 |
+| `R158` | Per-run error frequency and joint model-width adjustment | 6 | 0 | 0 | 3 | 1 | 2 | 0 | 0 | 0 |
+| `R165` | Per-model empirical tool necessity measurement and decision comparison tracing | 6 | 0 | 1 | 2 | 1 | 2 | 0 | 0 | 0 |
+| `R173` | Cross-round edit concentration cap | 3 | 3 | 1 | 2 | 0 | 0 | 0 | 0 | 0 |
+| `R801` | Usage ledger and versioned price catalog | 6 | 2 | 0 | 6 | 0 | 0 | 0 | 0 | 0 |
+
+### S5 planning, tools and compiled programs — implementation wave W4c
+
+| Root | Title | Open | Verified | READY | THIN | DECISION | OWNER | DUP | EXISTS | BLANK |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `R134` | The engine selects tools, decomposes tasks and plans over the skill library | 37 | 9 | 0 | 23 | 2 | 3 | 3 | 6 | 0 |
+| `R135` | A successful run compiles into a stored program keyed by task signature | 15 | 0 | 0 | 10 | 1 | 3 | 1 | 0 | 0 |
+| `R139` | Comparative-analysis plan producer | 7 | 0 | 0 | 5 | 0 | 2 | 0 | 0 | 0 |
+| `R156` | Skill document procedural compilation without separate workflow files | 6 | 0 | 0 | 6 | 0 | 0 | 0 | 0 | 0 |
+| `R159` | Tool-routing path success history and preference | 6 | 0 | 0 | 5 | 0 | 1 | 0 | 0 | 0 |
+| `R171` | Planning admission requires an architecture and wiring gap comparison | 6 | 0 | 0 | 3 | 1 | 2 | 0 | 0 | 0 |
+| `R176` | Job-scoped load set from the overlay of all connector packs | 5 | 1 | 3 | 2 | 0 | 0 | 0 | 0 | 0 |
+| `R177` | Connector usage guidance is a graph query | 5 | 1 | 4 | 1 | 0 | 0 | 0 | 0 | 0 |
+| `R750` | Bounded multi-step reasoning search with explicit budgets | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 |
+| `R751` | Horizon curriculum, step reward decomposition and hierarchical task decomposition | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 |
+| `R752` | Population drift, diversity-aware fan-out width and safe-autonomy ramp | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 |
+| `R753` | Verification, adversarial and synthesis steps over parallel trajectories | 4 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 |
+
+### S6 memory and retrieval context — implementation wave W4d
+
+| Root | Title | Open | Verified | READY | THIN | DECISION | OWNER | DUP | EXISTS | BLANK |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `R100` | Retrieval decisions join cited evidence with independent outcomes | 9 | 0 | 2 | 6 | 1 | 0 | 0 | 0 | 0 |
+| `R141` | Memory-change evaluation and rewrite admission | 4 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 2 |
+| `R144` | Indexless retrieval operations and cost budgeting | 7 | 0 | 0 | 6 | 1 | 0 | 0 | 0 | 0 |
+| `R145` | Fidelity-gated memory rewrite decision | 6 | 0 | 0 | 0 | 0 | 0 | 6 | 0 | 0 |
+| `R146` | Temporal context queries and confusion detection | 6 | 0 | 0 | 6 | 0 | 0 | 0 | 0 | 0 |
+| `R147` | Index-time distillation of language-model relevance judgments | 6 | 0 | 0 | 4 | 0 | 2 | 0 | 0 | 0 |
+| `R149` | Search-state record combining transcript, evidence, constraints and claims | 6 | 0 | 0 | 5 | 0 | 1 | 0 | 0 | 0 |
+| `R150` | Session-note capture and reuse with stale/conflict behavior | 6 | 0 | 0 | 4 | 1 | 1 | 0 | 0 | 0 |
+| `R151` | Importance-weighted penalty resisting feature loss and post-sync consolidation | 6 | 0 | 2 | 3 | 1 | 0 | 0 | 0 | 0 |
+| `R152` | KG fact rendering into natural-language text | 6 | 0 | 0 | 6 | 0 | 0 | 0 | 0 | 0 |
+| `R153` | Offline line-numbered table of contents and span-read contracts | 6 | 0 | 0 | 4 | 0 | 2 | 0 | 0 | 0 |
+| `R154` | Parameter-free memory/retention scaling and corpus growth semantics | 6 | 0 | 0 | 2 | 4 | 0 | 0 | 0 | 0 |
+| `R155` | Memory layers, episode construction and cross-session retrieval | 6 | 0 | 0 | 5 | 0 | 1 | 0 | 0 | 0 |
+| `R164` | Long-horizon branches retrieve and apply prior outcome evidence for breadth adaptation | 6 | 0 | 0 | 5 | 0 | 0 | 0 | 1 | 0 |
+| `R174` | Engine-run embedding generation swap cycle | 25 | 0 | 1 | 24 | 0 | 0 | 0 | 0 | 0 |
+| `R175` | Implicit-reasoning recommendation over temporal semantic ids | 5 | 1 | 0 | 5 | 0 | 0 | 0 | 0 | 0 |
+| `R617` | Conversation logs, project rules and memory pruning are engine-held memory | 5 | 1 | 0 | 5 | 0 | 0 | 0 | 0 | 0 |
+| `R651` | Agent-native memory lifecycle and consolidation | 8 | 0 | 0 | 7 | 1 | 0 | 0 | 0 | 0 |
+
+### S7 learning and fitted-head governance — implementation wave W5
+
+| Root | Title | Open | Verified | READY | THIN | DECISION | OWNER | DUP | EXISTS | BLANK |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `R059` | Outcome aggregate with independent-evaluation join | 1 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 |
+| `R093` | Resident scorer is trained from the served synthetic-episode generator | 3 | 1 | 0 | 3 | 0 | 0 | 0 | 0 | 0 |
+| `R118` | Reputation view backs source reliability across all readers | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| `R136` | The engine gives the round verdict and allocates models per evolution stage | 8 | 2 | 0 | 5 | 0 | 3 | 0 | 0 | 0 |
+| `R654` | Skill evolution, promotion gate and spec proposals | 6 | 0 | 0 | 3 | 1 | 1 | 1 | 0 | 0 |
+| `R800` | Reflective optimization and benchmark scoring for recursive-run policies | 5 | 1 | 0 | 5 | 0 | 0 | 0 | 0 | 0 |
+| `R804` | Evaluation sets and the program optimizer loop | 6 | 0 | 0 | 1 | 1 | 0 | 4 | 0 | 0 |
+| `R805` | Harness promotion and rollback | 5 | 1 | 0 | 4 | 0 | 1 | 0 | 0 | 0 |
+| `R810` | Program and prompt optimization job | 6 | 0 | 0 | 4 | 0 | 0 | 0 | 2 | 0 |
+| `R811` | Policy evolution capture, training and held-out evaluation receipts | 6 | 0 | 0 | 4 | 0 | 0 | 0 | 2 | 0 |
+| `R812` | Champion and challenger promotion with rollback | 6 | 0 | 0 | 1 | 0 | 0 | 5 | 0 | 0 |
+| `R813` | Trace-store scores become evaluation examples | 6 | 0 | 0 | 4 | 1 | 1 | 0 | 0 | 0 |
+
+### S8 epistemic loop: beliefs, failures, corrections, gaps — implementation wave W4e
+
+| Root | Title | Open | Verified | READY | THIN | DECISION | OWNER | DUP | EXISTS | BLANK |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `R138` | The engine holds red-team records and returns a verdict for each probe | 6 | 2 | 0 | 4 | 0 | 2 | 0 | 0 | 0 |
+| `R143` | Instruction-set disclosure policy and typed event | 6 | 0 | 0 | 4 | 1 | 1 | 0 | 0 | 0 |
+| `R652` | Claim lifecycle, evidence channels and perspective arbitration | 6 | 0 | 0 | 6 | 0 | 0 | 0 | 0 | 0 |
+| `R653` | Loop engine state, gap market and improvement ledger | 6 | 0 | 0 | 6 | 0 | 0 | 0 | 0 | 0 |
+| `R700` | Belief revision recomputes confidence and explains every change | 7 | 0 | 0 | 7 | 0 | 0 | 0 | 0 | 0 |
+| `R701` | Recurring failures cluster into patterns and file capability gaps | 6 | 0 | 0 | 6 | 0 | 0 | 0 | 0 | 0 |
+| `R702` | Human corrections become rules, outcomes and evaluation cases | 6 | 0 | 0 | 6 | 0 | 0 | 0 | 0 | 0 |
+| `R703` | Skill gaps, neologisms and merge candidates are detected as proposals | 6 | 0 | 0 | 6 | 0 | 0 | 0 | 0 | 0 |
+| `R704` | Fleet events and tickets route through remediation playbooks, evaluate-only | 6 | 0 | 0 | 6 | 0 | 0 | 0 | 0 | 0 |
+| `R705` | Research orchestration is budgeted by value of information | 6 | 0 | 0 | 6 | 0 | 0 | 0 | 0 | 0 |
+| `R706` | Entity-resolution proposals use tenant-scoped embeddings and drift-monitored acceptance | 6 | 0 | 0 | 6 | 0 | 0 | 0 | 0 | 0 |
+| `R707` | Comparative-analysis ingest, matching, gap ledger and plan synthesis | 6 | 0 | 0 | 6 | 0 | 0 | 0 | 0 | 0 |
+
+### S9 lifecycle, packages and workflows (ownership review) — implementation wave W4f
+
+| Root | Title | Open | Verified | READY | THIN | DECISION | OWNER | DUP | EXISTS | BLANK |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `R140` | Trajectory refinement and ranking family | 6 | 0 | 1 | 3 | 0 | 0 | 0 | 0 | 2 |
+| `R142` | Atomic-before-workflow local-model certification | 3 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 2 |
+| `R157` | Delegation quality gate and observation window | 6 | 0 | 0 | 4 | 0 | 2 | 0 | 0 | 0 |
+| `R160` | Package identity validation and publication refusal | 6 | 0 | 0 | 4 | 0 | 2 | 0 | 0 | 0 |
+| `R161` | Failed-run trace to fix and test binding with revision receipts | 6 | 0 | 1 | 2 | 0 | 3 | 0 | 0 | 0 |
+| `R162` | Workspace field shielding and declared-input projection at step boundaries | 6 | 0 | 0 | 0 | 0 | 6 | 0 | 0 | 0 |
+| `R163` | Graph-ingested papers and codebases in study intake with revision provenance | 6 | 0 | 0 | 3 | 0 | 3 | 0 | 0 | 0 |
+| `R166` | Workflow registration and lazy engine initialization | 5 | 1 | 0 | 1 | 0 | 4 | 0 | 0 | 0 |
+| `R167` | Skill upgrade compatibility and declared migration | 6 | 0 | 0 | 2 | 1 | 2 | 0 | 1 | 0 |
+| `R168` | Typed agent lifecycle model across construction, transition, persistence and serialization | 6 | 0 | 0 | 3 | 1 | 2 | 0 | 0 | 0 |
+| `R169` | Every-output checker feedback loop with durable continuation and explicit stop | 6 | 0 | 0 | 3 | 0 | 3 | 0 | 0 | 0 |
+| `R170` | Team coordination fallback and graph-discoverable team records | 6 | 0 | 0 | 2 | 0 | 4 | 0 | 0 | 0 |
+
 ## Task list
 
 - [ ] D01 Audit current decision and pack public DTOs, method descriptors, generated clients and versioned digests; record exact main commit and gaps. Test A1–A2.

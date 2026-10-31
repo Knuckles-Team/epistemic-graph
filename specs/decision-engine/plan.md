@@ -1,13 +1,120 @@
 # Implementation plan
 
-## Sequence
+## Delivery architecture
 
-1. **Freeze shared contracts.** Audit current `eg-types` decision, connector-pack and generated Python/wire surfaces. Keep one component schema bump and one method inventory update. Add missing typed errors and versioned vectors without changing old record bytes. Gate: A1–A2.
-2. **Close exact-solve and commit gaps.** Reuse `eg-compute/solve`, `decision/derivation`, server decide handlers and Agent Library transaction. Make certificate verification independent, unknown-fact policy explicit, no-good-cut bounded, and commit a re-derived CAS operation. Gate: A3–A5 and B.
-3. **Qualify pack fact admission.** Consume validated component revisions only. Preserve claim provenance, reject decision-owned pack kinds, exclude withdrawn entries and refuse stale projection facts. Gate: E.
-4. **Complete statistical boundary.** Reuse `eg-numeric/decision`, decision jobs, and record v2; make visible-only features, exact propensity logging, independent-outcome admission, calibration, replay and receipt-bound promotion testable. Gate: C–D.
-5. **Add question adapters.** Implement typed retrieval, routing, enrichment, entity-resolution, schema mapping, topology and informational recommendation questions through the same ladder. No adapter owns a second policy or decision store. Gate: D and question-specific negative tests.
-6. **Publish evidence.** Run quality and hosted checks on the exact branch head, then land on main. Rerun or cite hosted main checks. Update each requirement's delivery and acceptance states. A branch green status is not a main acceptance verdict.
+This section governs the delivery of every open row in this spec. The 2026-10-30 implementability review is recorded in [`evidence/delivery-review-20261030/`](evidence/delivery-review-20261030/). `review.jsonl` holds one graded line per open leaf row. `verified-isolation.json` lists VERIFIED rows whose proof does not reach a production path.
+
+### Review result
+
+Five reviewers graded the 603 open leaf rows against one rubric. A row is READY when one agent can implement and prove it in one five-minute slice. The agent uses only the row text and the repository. The row names the type, the file and the rule with concrete values. It also names the refusal cases, the production call site and the proving test.
+
+| Verdict | Rows | Meaning |
+|---|---|---|
+| READY | 36 | Implementable as written |
+| THIN | 413 | Intent is clear; a file, call site, threshold, refusal code or test is missing |
+| DECISION | 29 | Semantics are open; an owner decision is required before code |
+| OWNER | 78 | All or part of the row belongs to another repository |
+| DUP | 23 | The row restates or conflicts with another row |
+| EXISTS | 18 | Code is on `main`; only a bound served test is missing |
+| BLANK | 6 | The row ID has no text in `requirements.md` |
+
+128 open rows name no production entry point. 154 open rows name no proving test.
+
+The 187 VERIFIED leaf rows have this proof mix:
+
+| Proof | Rows |
+|---|---|
+| Served test through the real `Decide` handler or a served Python client | 41 |
+| Facade unit test | 22 |
+| Crate unit test only | 124 |
+
+22 VERIFIED rows prove modules that no production code calls. Examples are `limit_guard`, `entry_trust`, `evolution_round`, `context_budget`, `red_team`, `answer_ranking`, `recommend`, `load_set`, `usage_guidance` and `promotion`. 33 more VERIFIED rows prove kernels only through crate tests.
+
+The spec is not cheap to implement as written. Wave-1 lanes on 2026-10-29 and 2026-10-30 confirm this: their time went to open design questions, wrong file references and build waits. The rows that landed in isolation produced the orphan modules above.
+
+### Recurring defects
+
+1. **No call site.** The row defines a type or algorithm and names no stage, handler or served operation that calls it.
+2. **No proving test, or a test file that does not exist.** Examples: `tests/decision/` (the directory is `tests/decide/`), `tests/test_decision_ingestion_acceptance.py`, `memory_tests.rs`, `federated_tests.rs`.
+3. **Stale references.** Line numbers in `stat_decide.rs` and `conclude.rs` are wrong. `rapid_r088.rs` and `crates/eg-compute/src/topology` do not exist. Per-kind dispatch is the `specialized … .or_else(…)` chain in `decide_blocking`.
+4. **Open values.** Thresholds, defaults, windows, formulas and refusal codes are missing or deferred to the implementer.
+5. **Version-suffixed names.** About 60 types carry `V1`, for example `SessionNoteV1`, `CapabilityRecordV1`, `ContextBudgetSignalsV1`.
+6. **Mixed ownership.** Rows carry Meristem run-loop, arbora serving, scion-sdk transport or connector behaviour. The medulla share is not separated.
+7. **Duplicates and contradictions.** R145 restates R141.100. R804.2–.6 restate R810. R812 restates R805, with conflicting codes. R804.1 and R813.1 define two `GraderKind` sets. R150.2 says 7 days and R150.4 says 14 days. R134.751 says 20,000 tools and R134.110.6 says 10,000. R043.600 restates R615. Digests in R106.2 and R135.9 have 40 hex characters, not 64.
+8. **Writes during `Decide`.** R131.5 stores an observation inside `Decide`, which conflicts with the evaluate-only rule.
+9. **Fragmented vocabulary.** The engine has 47 separate abstain or refusal enums. `EvidenceClass` names two different concepts: proof/observation/claim in `decision/record.rs`, and parametric/retrieved in `retrieval_arbitration.rs`.
+10. **Horizontal delivery.** The six-child shape (`.1` model, `.2` behaviour, `.3` wiring, `.4` refusal, `.5` evidence, `.6` hot path) lets a lane land `.1` and `.2` with unit tests only. The type then has no caller.
+
+### Target architecture
+
+The decision engine is one pipeline. Every served decision operation enters it through the dispatch boundary. Every requirement plugs into one named stage, one question family, or one cross-cutting concern. A requirement that plugs into none of these is not deliverable.
+
+```text
+arbora (admission, auth, principal) ──► medulla dispatch
+  Decide / AgentAssemble / DecideText / DecisionCommit / DecisionFit / DecisionEval / DecisionLog
+    0 Admit ─► 1 Visibility ─► 2 Candidates ─► 3 Policy + hard constraints
+      ─► 4 Entailment ─► 5 Exact solve ─► 6 Statistical rank ─► 7 Conclude / abstain
+      ─► 8 Sealed record  ═══ (DecisionCommit) ═══► 9 Commit ─► 10 Learn ─► 11 Replay
+```
+
+| Stage | Owning code | Contract |
+|---|---|---|
+| 0 Admit | `src/server/handlers/decide/served_adapter.rs` | Typed request parse. Size caps: 64 KiB, 64 candidates, 32 capabilities. Principal and tenant come from the verified context only. |
+| 1 Visibility | `src/server/handlers/decide/candidates.rs` | Tenant and row visibility apply before any feature or count (R013). |
+| 2 Candidates | `src/server/handlers/decide/candidates.rs` | Only published, tenant-visible component revisions enter. Pack facts enter as claims. |
+| 3 Policy and constraints | `guardrail.rs`, `decision/limit_guard.rs`, the invariant gate | Pins, denials, guardrails and limits remove options. Each removal is an eliminated-constraint premise. |
+| 4 Entailment | `crates/eg-types/src/decision/derivation*` | Ontology derivation records back entailed answers. |
+| 5 Exact solve | `crates/eg-compute/src/{solve,assemble}` | Bounded 0-1 model, certificate and node budget. |
+| 6 Statistical rank | `crates/eg-numeric/src/decision`, `stat_decide.rs` | Fitted heads rank legal options or abstain. They never widen the legal set. |
+| 7 Conclude | `crates/eg-compute/src/assemble/conclude.rs`, `stat_decide.rs` | One `ResolutionKind`, one `EvidenceClass`, typed `AbstainReason`. |
+| 8 Record | `crates/eg-types/src/decision/record*`, `stat_log.rs` | The sealed record pins inputs, premises, digests and result. |
+| 9 Commit | `src/server/handlers/decide/commit*` | Re-derive, verify, catalog compare-and-set, idempotent retry. |
+| 10 Learn | `stat_learning.rs`, `stat_jobs.rs` | Outcomes, off-policy estimates, fit, evaluate, guarded publish. |
+| 11 Replay | `stat_replay.rs`, `stat_walk_forward.rs` | Byte-identical replay and walk-forward evaluation. |
+
+### Architecture decisions
+
+Each decision states a rule that every row and every lane follows. Wave W1 adds the new rows named here.
+
+**AD-1 Question-family registry (new row R001.101).** One `DecisionFamily` trait carries the per-stage hooks: candidate validation, constraints, premises, abstain mapping and outcome kind. An exhaustive `match` maps each `QuestionKind` to its family, so the compiler rejects a kind without a family. The registry replaces the per-kind `if` chains in `stat_decide.rs` and `candidates.rs`. Each new question root is one family implementation, one registration line and one served test.
+
+**AD-2 One refusal taxonomy (new row R010.100).** `AbstainReason` covers decision outcomes. `DecisionError` covers request refusals. Each variant has one stable string code, and a test proves every code is unique. A family-specific refusal converts into the taxonomy through `From`; no family defines a parallel wire enum. The retrieval `EvidenceClass` is renamed `AnswerGrounding`.
+
+**AD-3 Names and schema evolution.** No component name carries a version suffix. A record carries a `schema_version` field. A decoder accepts every published version and refuses an unknown version.
+
+**AD-4 `Decide` is evaluate-only.** `Decide`, `AgentAssemble` and `DecideText` write nothing. Durable writes go through `DecisionCommit`, `DecisionLog` or a decision job, each the single write authority for its state kind (R017).
+
+**AD-5 Integration-first definition of done.** A behaviour row is VERIFIED only when its bound test enters through the production dispatch. Two harnesses qualify: the Rust `Harness` in `src/server/handlers/decide/stat_tests`, and served Python tests in `tests/decide/*_served.py`. The test runs with a tenant and principal context. It asserts the outcome, the resolution kind and the premises in the sealed record. A type or model row is VERIFIED by the served test of the slice that first calls it. Unit, property and golden-vector tests remain mandatory for algorithms, but they do not verify a row alone. `test-spec.md` records the full standard.
+
+**AD-6 Reachability gate (new row EG-CONTRACT-R055).** A repository gate lists each public item in `eg-types::decision`, `eg-numeric::decision` and `eg-compute::{assemble,solve}`. It fails when no non-test code under `src/` reaches that item. The gate has no baseline. It becomes a required check when wave W2 closes the current orphans.
+
+**AD-7 Vertical slices.** One root is one slice. Its model, behaviour, wiring, refusal, evidence and hot-path rows land in one PR. A lane never lands a model row without its caller.
+
+**AD-8 Observability (new row R072.100).** Each stage emits one span `medulla.decide.<stage>` with the family, tenant, outcome and duration. Metrics cover latency per family and stage, and abstentions per stable code. They also cover solver nodes against budget and calibration drift per head. The sealed record is the audit artifact; logs carry its digest, not its content.
+
+**AD-9 Service-level budgets (new root R178).** The proposed budgets apply on the reference host at 64 candidates and 32 capabilities. `Decide` p50 is 20 ms and p99 is 150 ms. `AgentAssemble` must finish within its declared node budget. A nightly benchmark suite measures each budget against a stored baseline. It fails on a regression above 10 %. Benchmark work leaves the per-PR gate; `.6` benchmark clauses move into this suite.
+
+**AD-10 Fitted-head governance.** Fitted heads follow one lifecycle: draft, evaluated, published, champion, retired. An evaluation receipt binds the head digest. A challenger runs in shadow mode before promotion. Rollback is one compare-and-set on the champion pointer. Drift above the head's bound makes the head abstain. R040, R060, R086, R805 and R810–R813 share these types; R804 and R812 fold into them.
+
+**AD-11 Security.** Visibility filtering precedes features. Authorization comes only from the arbora principal. Exploration is refused for security, policy, write-back and irreversible questions. `DecideText` gets a fuzz target. The solver and verifier get property tests. Records hold no secret values.
+
+**AD-12 Ownership.** A medulla row keeps the fact, decision and record side only. Consumer behaviour moves to the owner's spec (AU-, ARBORA-, SDK-, CONN-). The medulla row links the owner row by ID. The owner repository proves the consumer side against medulla's published request and response types.
+
+### Delivery waves
+
+`tasks.md` lists the tasks of each wave and the per-root map.
+
+| Wave | Scope | Model | Exit gate |
+|---|---|---|---|
+| W0 Spec coherence | Apply the review to THIN, DECISION, DUP, OWNER and BLANK rows. Rename suffixed types. Fix stale references. Spec-only PRs, no builds. | Sonnet; Opus for DECISION rows | The rubric re-run grades every open row READY, EXISTS or RETIRED |
+| W1 Architecture spine | AD-1, AD-2, AD-3, AD-6 script, AD-8 spans, served-test kit. Serial PRs on the facade. | Opus low effort | Every existing `QuestionKind` dispatches through the registry; served-test kit merged |
+| W2 Reachability remediation | Wire the 22 orphan modules through their open wiring rows. Re-prove the 33 unit-only kernel rows with served tests. Bind the 18 EXISTS rows with served tests. | Sonnet | The reachability gate passes with no orphan and becomes required |
+| W3 Ladder core | Subsystem S1 rows, including R001.2 (constraint and entailment paths), R130.3 and R131–R132 wiring. | Opus low effort | Every resolution kind is reachable through `Decide` |
+| W4 Question families | Subsystems S2–S6, S8 and S9 as vertical slices, one root per PR. A build train takes up to 8 lanes. Order: S2 (R036 first), S4, S5, S3, S6, S8, S9. | Sonnet; Opus for `.2` behaviour rows marked `opus` in the review | Each root VERIFIED with a served proof |
+| W5 Learning and governance | Subsystem S7 under AD-10. | Opus low effort | One head lifecycle; promotion and rollback served |
+| W6 Qualification | AD-9 nightly suite, fuzz targets, cross-target replay (R007) and release qualification. | Sonnet | Budgets measured on the reference host |
+
+W0 and W1 can run in parallel: W0 changes spec text, and W1 changes code. W2 starts after W1. W3 and W4 start after W2. Every lane follows this repository's `AGENTS.md` and the `epistemic-graph-development` skill.
 
 ## Task-plan facts
 
