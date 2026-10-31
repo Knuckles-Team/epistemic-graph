@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 # Pure/static test -- never needs the shared native engine (see
-# conftest.py's session-scoped `start_epistemic_graph_server` fixture,
+# conftest.py's session-scoped `start_medulla_server` fixture,
 # which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _sanitizer():
     path = ROOT / "scripts" / "security_sanitizer.py"
-    spec = importlib.util.spec_from_file_location("eg_security_sanitizer", path)
+    spec = importlib.util.spec_from_file_location("medulla_security_sanitizer", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

@@ -1,4 +1,4 @@
-"""Static contract for the server image (EG-CONTRACT-R053.11)."""
+"""Static contract for the server image (MEDULLA-CONTRACT-R053.11)."""
 
 from __future__ import annotations
 

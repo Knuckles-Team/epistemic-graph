@@ -12,14 +12,14 @@ call** — the compatibility surface `agent-packages/agents/audio-transcriber`'s
 pluggable `TranscriptionProvider` seam reaches to offer a native alternative
 to its default Faster-Whisper (Python) backend. It is explicitly **not**:
 
-- the isolated `epistemic-graph-voice-worker` **process** the full GOC-33 lane
+- the isolated `medulla-voice-worker` **process** the full GOC-33 lane
   doc describes (`plans/graph-os-completion-program/lanes/GOC-33-native-asr-meetily-runtime.md`,
   work items W03/W06) — that is a separate, larger undertaking (model-pool
   lifecycle, lease/fence/cancellation-generation state, CAS-backed
   `ArtifactBundle`/outbox publication, AU orchestration adapter);
   the isolated worker
 - bound to a governed GOC-32 audio stream/`CarrierRef` — a real, policy-
-  authorized `asr.result.v1` commit (via `eg_audio::asr::finalize_result`)
+  authorized `asr.result.v1` commit (via `medulla_audio::asr::finalize_result`)
   needs both, and neither exists at this simple RPC boundary yet;
 - a Parakeet/ONNX provider (see [binding choice](#binding-choice) below).
 
@@ -46,7 +46,7 @@ not implement Parakeet:
   contract below.
 
 Full binding-choice justification, licensing/provenance record, and the
-CPU-portability build contract live in `crates/eg-asr-whisper/src/lib.rs`'s
+CPU-portability build contract live in `crates/medulla-asr-whisper/src/lib.rs`'s
 module doc (the crate that actually links `whisper-rs`) — this page
 summarizes; that module doc is authoritative.
 
@@ -55,11 +55,11 @@ summarizes; that module doc is authoritative.
 ```mermaid
 flowchart TB
     subgraph py["Python callers"]
-        AT["audio-transcriber\nTranscriptionProvider seam\n(epistemic_graph/asr_provider.py)"]
-        AU["agent-utilities /\nother epistemic_graph.client callers"]
+        AT["audio-transcriber\nTranscriptionProvider seam\n(medulla/asr_provider.py)"]
+        AU["agent-utilities /\nother medulla.client callers"]
     end
 
-    subgraph wire["epistemic_graph.client (MessagePack / UDS — no second transport)"]
+    subgraph wire["medulla.client (MessagePack / UDS — no second transport)"]
         C["client.asr.transcribe_file(...)"]
     end
 
@@ -68,13 +68,13 @@ flowchart TB
         H["handlers/asr.rs\nspawn_blocking, maps AsrOp -> JSON"]
     end
 
-    subgraph provider["eg-asr-whisper crate (the ONLY whisper.cpp dependency)"]
+    subgraph provider["medulla-asr-whisper crate (the ONLY whisper.cpp dependency)"]
         MV["model.rs\nverify_model: sha256 fail-closed,\nnever downloads"]
         WV["wav.rs\ndecode_wav_16k_mono: fail-closed\non format/rate/truncation"]
         WP["WhisperAsrProvider\ntranscribe_streaming: bounded windows,\non_partial callback, abort_callback\ncancellation"]
     end
 
-    subgraph contract["eg-audio::asr (frozen contract, GOC-33-W02)"]
+    subgraph contract["medulla-audio::asr (frozen contract, GOC-33-W02)"]
         VAL["AsrSegment::validate / SegmentTiming::validate /\nQuality::validate — every produced segment\nis checked before acceptance"]
     end
 
@@ -123,11 +123,11 @@ The real-model tests need a model and a speech sample. `scripts/fetch_whisper_te
 downloads `ggml-tiny.en.bin` and whisper.cpp's `jfk.wav` from pinned revisions, checks their
 sha256, and prints the two variables the tests read:
 `export $(scripts/fetch_whisper_test_fixture.sh)` then
-`cargo test -p eg-asr-whisper -- --nocapture`. If the variables are unset, the tests
+`cargo test -p medulla-asr-whisper -- --nocapture`. If the variables are unset, the tests
 fail with that instruction; they never skip.
 
 This was **not** solved by reasoning about flags alone. The first real-fixture
-run (`crates/eg-asr-whisper/tests/real_transcription.rs`, GOC-33) SIGILLed
+run (`crates/medulla-asr-whisper/tests/real_transcription.rs`, GOC-33) SIGILLed
 inside `ggml_graph_plan` on a `shlx` (BMI2) instruction *even with every AVX*
 flag already off* — `GGML_BMI2`'s CMake default is ON independent of
 `GGML_NATIVE`, an upstream detail not documented anywhere obvious. `gdb`'s
@@ -159,14 +159,14 @@ emulated CPU that will have masked the gap.
 ## Reachability
 
 - Facade feature `asr-whisper` (off by default, not part of `full`) links the
-  `eg-asr-whisper` crate and enables `Method::Asr`.
+  `medulla-asr-whisper` crate and enables `Method::Asr`.
 - `src/server/handlers/asr.rs` self-routes ahead of the per-graph dispatch
   chain (like `Method::Quantum`/`Method::Viz`) — a transcription reads no
   persisted graph state and commits no durable record here.
-- `epistemic_graph.client.AsrClient` (`client.asr.transcribe_file(...)`) is
-  the Python entry point, wired into both `EpistemicGraphClient` and
-  `SyncEpistemicGraphClient`.
-- `epistemic_graph/asr_provider.py`'s `build_provider()` registers under the
+- `medulla.client.AsrClient` (`client.asr.transcribe_file(...)`) is
+  the Python entry point, wired into both `MedullaClient` and
+  `SyncMedullaClient`.
+- `medulla/asr_provider.py`'s `build_provider()` registers under the
   `audio_transcriber.asr_providers` entry-point group so `audio-transcriber`
   discovers this provider by entry point (guarded try/except on that side —
   an unreachable engine or missing native dependency never prevents that
@@ -180,7 +180,7 @@ emulated CPU that will have masked the gap.
   digest mismatch.
 - **Fail closed, never empty-success**: an unsupported sample rate/channel
   layout/bit depth, a truncated `data` chunk, or zero accepted segments (e.g.
-  silence) are each a distinct typed `eg_audio::asr::AsrError`, never an
+  silence) are each a distinct typed `medulla_audio::asr::AsrError`, never an
   empty transcript presented as a completed one.
 - **Cancellation is real, not cosmetic**: `WhisperAsrProvider::
   transcribe_streaming` checks a shared `CancelFlag` between windows AND wires
@@ -193,7 +193,7 @@ emulated CPU that will have masked the gap.
   dressed as a probability**: `avg_logprob` is the mean of `ln(token
   probability)` over a segment's tokens (OpenAI Whisper's own definition,
   not Meetily's discredited text-length heuristic — see
-  `crates/eg-audio/src/asr.rs`'s module doc for why that distinction is
+  `crates/medulla-audio/src/asr.rs`'s module doc for why that distinction is
   load-bearing here), and `no_speech_prob` comes directly from whisper.cpp's
   `no_speech_probability()`.
 - **Word-level timing is provider-derived or absent, never fabricated**: word
@@ -211,5 +211,5 @@ emulated CPU that will have masked the gap.
   today — it wraps the engine's streaming-capable provider in one batch call;
   a real streaming RPC surface is GOC-35's `VoiceSession` lane to build.
 - GPU execution providers (`cuda`/`vulkan`/`metal`/`coreml`/`hipblas` Cargo
-  features on `eg-asr-whisper`) are wired but not hardware-qualified in this
+  features on `medulla-asr-whisper`) are wired but not hardware-qualified in this
   change.

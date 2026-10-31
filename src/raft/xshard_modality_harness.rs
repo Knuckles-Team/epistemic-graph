@@ -1,7 +1,7 @@
 //! In-process cross-shard 2PC **modality-spanning** coordinator-kill harness
-//! (CONCEPT:EG-KG.txn.crossshard-2pc-modality-harness) — the `--features cluster`
-//! proof for EG-396 (the row previously tracked open as
-//! `EG-KG.txn.crossshard-2pc-open-reason`).
+//! (CONCEPT:MEDULLA-KG.txn.crossshard-2pc-modality-harness) — the `--features cluster`
+//! proof for MEDULLA-396 (the row previously tracked open as
+//! `MEDULLA-KG.txn.crossshard-2pc-open-reason`).
 //!
 //! ## What this proves
 //!
@@ -14,7 +14,7 @@
 //!   * **Group A / `modalA`** — the **property-graph** modality (`Method::AddNode`).
 //!   * **Group B / `modalB`** — the **RDF / semantic-triple** modality
 //!     (`Method::AddTriples { turtle }`), which the Raft state-machine apply path
-//!     (`mutation_apply::apply` → `eg_rdf::mapping::load_triples`) projects into the group's graph.
+//!     (`mutation_apply::apply` → `medulla_rdf::mapping::load_triples`) projects into the group's graph.
 //!
 //! Both modalities are replicated through their owning group's `client_write` and are
 //! durably captured in the 2PC PREPARE record (the serialized slice), so recovery
@@ -38,7 +38,7 @@
 //! `decide_only` entry points on [`CrossShardCoordinator`] (available under
 //! `test`/`harness`/`compute-dist`) plus a full node+backend drop and reopen — the
 //! deterministic fault injection at the 2PC prepare/commit boundary that the ignored
-//! EG-396 spec called for, now running fully in-process under `--features cluster`.
+//! MEDULLA-396 spec called for, now running fully in-process under `--features cluster`.
 //!
 //! ## What real multi-HOST hardware still can't cover here (documented remainder)
 //!
@@ -235,7 +235,7 @@ pub struct ProofReport {
 }
 
 impl ProofReport {
-    /// Every scenario proved atomic (all-or-nothing) — the EG-396 contract.
+    /// Every scenario proved atomic (all-or-nothing) — the MEDULLA-396 contract.
     pub fn all_atomic(&self) -> bool {
         self.happy_committed_both
             && self.participant_kill_aborted_clean
@@ -245,7 +245,7 @@ impl ProofReport {
 }
 
 /// Run the full four-scenario cross-shard 2PC modality-spanning coordinator-kill proof
-/// (CONCEPT:EG-KG.txn.crossshard-2pc-modality-harness). Returns `Ok(ProofReport)` with
+/// (CONCEPT:MEDULLA-KG.txn.crossshard-2pc-modality-harness). Returns `Ok(ProofReport)` with
 /// every flag `true` when atomicity held in ALL scenarios; `Err(_)` on any atomicity
 /// violation (a half-committed modality) or infrastructure failure. Callable from an
 /// external `--features cluster` integration test (it does not require the `test` cfg,
@@ -272,7 +272,7 @@ pub async fn prove_crossshard_modality_2pc_single_decision() -> Result<ProofRepo
 
 /// Scenario 1 — happy commit lands BOTH modalities atomically on BOTH groups.
 async fn scenario_happy() -> Result<bool, String> {
-    let dir = fixture::fresh_dir("eg-xshard-modal", "happy");
+    let dir = fixture::fresh_dir("medulla-xshard-modal", "happy");
     let backend = fixture::open_backend(&dir)?;
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
@@ -304,7 +304,7 @@ async fn scenario_happy() -> Result<bool, String> {
 /// Scenario 2 — a participant killed (group closed) before PREPARE cannot vote → the
 /// txn ABORTS and the LIVE participant applied NOTHING (no partial commit).
 async fn scenario_participant_kill() -> Result<bool, String> {
-    let dir = fixture::fresh_dir("eg-xshard-modal", "killprep");
+    let dir = fixture::fresh_dir("medulla-xshard-modal", "killprep");
     let backend = fixture::open_backend(&dir)?;
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
@@ -337,7 +337,7 @@ async fn scenario_participant_kill() -> Result<bool, String> {
 /// Scenario 3 — coordinator killed AFTER a COMMIT decision (before phase-2 apply):
 /// drop the node+backend, reopen, recover → COMMIT re-applies BOTH modalities.
 async fn scenario_coord_kill_post_decision() -> Result<bool, String> {
-    let dir = fixture::fresh_dir("eg-xshard-modal", "recovercommit");
+    let dir = fixture::fresh_dir("medulla-xshard-modal", "recovercommit");
     let backend = fixture::open_backend(&dir)?;
     let txn_id = "t-modal-recover-commit";
     {
@@ -383,7 +383,7 @@ async fn scenario_coord_kill_post_decision() -> Result<bool, String> {
 /// Scenario 4 — coordinator killed BEFORE any decision (presumed-abort): durable
 /// prepares, no decision; recovery resolves to ABORT → NEITHER modality lands.
 async fn scenario_coord_kill_pre_decision() -> Result<bool, String> {
-    let dir = fixture::fresh_dir("eg-xshard-modal", "recoverabort");
+    let dir = fixture::fresh_dir("medulla-xshard-modal", "recoverabort");
     let backend = fixture::open_backend(&dir)?;
     let txn_id = "t-modal-recover-abort";
     {
@@ -444,7 +444,7 @@ async fn scenario_coord_kill_pre_decision() -> Result<bool, String> {
 /// window can be deterministically reproduced without needing to win an actual
 /// timing race.
 async fn scenario_stale_fenced_participant_rejected() -> Result<bool, String> {
-    let dir = fixture::fresh_dir("eg-xshard-modal", "stalefence");
+    let dir = fixture::fresh_dir("medulla-xshard-modal", "stalefence");
     let backend = fixture::open_backend(&dir)?;
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     await_default_placement_leader(&multi).await?;
@@ -618,7 +618,7 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
-    /// The umbrella proof — runs all four scenarios (CONCEPT:EG-KG.txn.crossshard-2pc-modality-harness).
+    /// The umbrella proof — runs all four scenarios (CONCEPT:MEDULLA-KG.txn.crossshard-2pc-modality-harness).
     #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
     async fn crossshard_modality_2pc_single_decision_eg396() {
         // Held for the whole test: two of the four scenarios below

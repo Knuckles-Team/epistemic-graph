@@ -1,5 +1,5 @@
 //! Engine-authoritative placement-route RPC, plus the placement-catalog ADMIN
-//! mutation trio (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc, DIST-P2-5).
+//! mutation trio (CONCEPT:MEDULLA-KG.sharding.placement-catalog-admin-rpc, DIST-P2-5).
 //!
 //! `PlacementRoute` is a read: every successful response contains a complete
 //! `(group, epoch, fencing_token)` route. An absent durable catalog row is not
@@ -25,10 +25,10 @@ use tokio::sync::RwLock;
 use crate::epistemic_operations::PlacementRouteSchemaVersion;
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::state::ServerState;
-use eg_types::result_contract::cluster::PlacementRouteWire;
+use medulla_types::result_contract::cluster::PlacementRouteWire;
 
 // GOC-15/BUG-030: `PlacementRoute`'s `authz_action` was narrowed from
-// `admin:cluster-read` to `cluster:placement-read` (`eg_capabilities::policy`)
+// `admin:cluster-read` to `cluster:placement-read` (`medulla_capabilities::policy`)
 // so an ordinary `kg:read`/`kg:write` caller can resolve routing for its own
 // requests without needing engine-side admin capability -- see that
 // constant's doc comment for the full rationale (GOC-61 proved live that only
@@ -45,7 +45,7 @@ use eg_types::result_contract::cluster::PlacementRouteWire;
 // (`placement_catalog.split_tenant_key`), a DIFFERENT namespace from this
 // wire envelope's own `RequestContextClaims.tenant` (the fixed
 // per-deployment/cluster security boundary compared against
-// `EPISTEMIC_GRAPH_TENANT` in `auth.rs`) -- the two are not the same
+// `MEDULLA_TENANT` in `auth.rs`) -- the two are not the same
 // identifier space and must never be compared as if they were. The route
 // answer is cluster placement METADATA (group/epoch/endpoints), never row
 // data, exactly like `ClusterMembers`'s full topology answer; the actual
@@ -80,17 +80,17 @@ fn route_response(
         leader_ref: None,
         endpoints,
     };
-    // EG-PLACEMENT-R611.1: a route with an invalid identifier is never served.
+    // MEDULLA-PLACEMENT-R611.1: a route with an invalid identifier is never served.
     if let Err(error) = route.validate() {
         return Response::err(req_id, format!("placement route is invalid: {error}"));
     }
     Response::ok(
         req_id,
-        ResultPayload::of::<eg_types::result_contract::cluster::PlacementRoute>(route),
+        ResultPayload::of::<medulla_types::result_contract::cluster::PlacementRoute>(route),
     )
 }
 
-/// Resolve `group`'s client-reachable endpoints, leader first (CONCEPT:EG-KG.sharding.cluster-topology,
+/// Resolve `group`'s client-reachable endpoints, leader first (CONCEPT:MEDULLA-KG.sharding.cluster-topology,
 /// ADR-1). Best effort: an unknown group, an unattached `MultiRaft`, or no
 /// durable redb backend all resolve to an empty list rather than an error —
 /// `PlacementRoute` must still answer the route itself even when topology
@@ -210,7 +210,7 @@ async fn handle_route(
 }
 
 /// Resolve the live `MultiRaft` placement authority + durable backend a placement
-/// ADMIN mutation needs (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc). Both `PlacementAssign`
+/// ADMIN mutation needs (CONCEPT:MEDULLA-KG.sharding.placement-catalog-admin-rpc). Both `PlacementAssign`
 /// and the `TenantManager`-backed `PlacementMove`/`PlacementAbortMove` require a
 /// running `MultiRaft` AND a durable backend to verify the moved data against — a
 /// configured-but-not-running Raft node, or a build with no persist dir, fails closed
@@ -252,8 +252,8 @@ async fn handle_assign(
     match multi.placement_assign(&tenant, group).await {
         Ok(epoch) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::cluster::PlacementAssign>(
-                eg_types::result_contract::cluster::PlacementEpoch { epoch },
+            ResultPayload::of::<medulla_types::result_contract::cluster::PlacementAssign>(
+                medulla_types::result_contract::cluster::PlacementEpoch { epoch },
             ),
         ),
         Err(error) => Response::err(req_id, error),
@@ -285,8 +285,8 @@ async fn handle_placement_admin_op(
 #[cfg(feature = "raft")]
 fn placement_move_result(
     report: &crate::raft::reshard::PlacementMoveReport,
-) -> eg_types::result_contract::cluster::PlacementMoveResult {
-    eg_types::result_contract::cluster::PlacementMoveResult {
+) -> medulla_types::result_contract::cluster::PlacementMoveResult {
+    medulla_types::result_contract::cluster::PlacementMoveResult {
         tenant: report.tenant.clone(),
         range: report.range,
         target: report.target,
@@ -295,7 +295,7 @@ fn placement_move_result(
             .graphs
             .iter()
             .map(
-                |graph| eg_types::result_contract::cluster::GroupReshardResult {
+                |graph| medulla_types::result_contract::cluster::GroupReshardResult {
                     graph: graph.graph.clone(),
                     from_group: graph.from_group,
                     to_group: graph.to_group,
@@ -329,7 +329,7 @@ async fn handle_move(
     {
         Ok(report) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::cluster::PlacementMove>(
+            ResultPayload::of::<medulla_types::result_contract::cluster::PlacementMove>(
                 placement_move_result(&report),
             ),
         ),
@@ -351,7 +351,7 @@ async fn handle_abort_move(
     match tenants.abort_move(&move_id).await {
         Ok(()) => Response::ok(
             req_id,
-            ResultPayload::scalar::<eg_types::result_contract::cluster::PlacementAbortMove>(true),
+            ResultPayload::scalar::<medulla_types::result_contract::cluster::PlacementAbortMove>(true),
         ),
         Err(error) => Response::err(req_id, error),
     }

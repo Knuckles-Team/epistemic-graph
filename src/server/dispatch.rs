@@ -88,7 +88,7 @@ pub(crate) fn authorized_graph_read(
 }
 
 /// Encode a typed method result while preserving both operation and codec errors.
-pub(crate) fn typed_response<M: eg_types::result_contract::MethodResult>(
+pub(crate) fn typed_response<M: medulla_types::result_contract::MethodResult>(
     req_id: u64,
     result: Result<M::Body, String>,
 ) -> Response {
@@ -178,7 +178,7 @@ mod graph_create_type_validation_tests {
 //
 // Every dispatched method acquires this one `Arc<RwLock<ServerState>>` before it can do
 // anything. It is the single global serialization point in the engine, and it was
-// completely uninstrumented: `epistemic_graph_write_lock_wait_seconds` covers only the
+// completely uninstrumented: `medulla_write_lock_wait_seconds` covers only the
 // PER-GRAPH topology lock inside the write coalescer, so nothing measured the wait here.
 //
 // These two helpers are the ONLY sanctioned way to take that lock inside this module, so
@@ -420,11 +420,11 @@ fn redact_resource_status_result(
             result.host_snapshot = None;
         }
     }
-    ResultPayload::of::<eg_types::result_contract::coordination::ResourceReservationStatus>(result)
+    ResultPayload::of::<medulla_types::result_contract::coordination::ResourceReservationStatus>(result)
 }
 
-// ── Fleet server registry (CONCEPT:EG-KG.sharding.server-registry, W2.5) ──────────
-// `RegisterServer.name` is bounded by `eg_types::result_contract::cluster::
+// ── Fleet server registry (CONCEPT:MEDULLA-KG.sharding.server-registry, W2.5) ──────────
+// `RegisterServer.name` is bounded by `medulla_types::result_contract::cluster::
 // is_valid_server_name`, the one definition the registry, its cursors and the
 // fleet catalog's discovery records share.
 // `url` is an opaque endpoint reference (never a raw credentialed URL -- callers
@@ -470,7 +470,7 @@ pub(crate) use graph_pipeline::{drain_repository_enrichment_once, DrainOutcome};
 pub(crate) async fn submit_repository_enrichment_page(
     state: &Arc<RwLock<ServerState>>,
     verified: VerifiedRequestContext,
-    request: eg_types::native_control::SubmitWorkItemsRequest,
+    request: medulla_types::native_control::SubmitWorkItemsRequest,
 ) -> Result<(), String> {
     let debit = request
         .enrichment_budget
@@ -529,7 +529,7 @@ pub(crate) async fn ensure_internal_global_graph(
     if state.read().await.registry.exists(graph_name) {
         return Ok(());
     }
-    let create_identity = eg_types::contract::Digest256::framed(
+    let create_identity = medulla_types::contract::Digest256::framed(
         b"eg/internal-graph-lifecycle/v1",
         &[idempotency_key.as_bytes(), graph_name.as_bytes()],
     )?;

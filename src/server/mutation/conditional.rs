@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use eg_capabilities::DurabilityDomain;
+use medulla_capabilities::DurabilityDomain;
 
 use crate::graph::GraphCore;
 use crate::isolation::AccessLevel;
@@ -16,10 +16,10 @@ use super::{
     MutationPlan, StagedMutation, StagedReceipt,
 };
 
-/// The gateway entry point for a RUNTIME-CONDITIONAL method (CONCEPT:EG-P0-2, L11
-/// rollout continued) -- one whose `eg_capabilities::policy()` `mutates: true` is
+/// The gateway entry point for a RUNTIME-CONDITIONAL method (CONCEPT:MEDULLA-P0-2, L11
+/// rollout continued) -- one whose `medulla_capabilities::policy()` `mutates: true` is
 /// a conservative UPPER BOUND (see the `RUNTIME_CONDITIONAL` divergence table in
-/// `eg-capabilities/tests/consistency.rs`) because the REAL answer depends on a
+/// `medulla-capabilities/tests/consistency.rs`) because the REAL answer depends on a
 /// per-invocation field (a `writeback: bool`, or a parsed query) that a static
 /// per-variant table cannot see. `mutates_now` is that resolved, per-call truth,
 /// decided by the CALLER (the gateway match arm) from the request's own field --
@@ -70,7 +70,7 @@ where
     }
 }
 
-/// The ASYNC-apply twin of [`commit_conditional_mutation`] (CONCEPT:EG-P0-2, L11):
+/// The ASYNC-apply twin of [`commit_conditional_mutation`] (CONCEPT:MEDULLA-P0-2, L11):
 /// for a routed method whose EXECUTION is itself `async` and needs more than a bare
 /// `&GraphCore` — the query surface (`Sql`/`CypherQuery`/`GraphQl`, run on the
 /// blocking pool via `handlers::query::try_handle`, needing `state`/`caller`/`rls`)
@@ -287,7 +287,7 @@ where
         Ok(payload) => payload,
         Err(error) => return Err(Response::err(ctx.req_id, error)),
     };
-    // X5-enforce, native writes (W4.13, CONCEPT:EG-KG.ontology.rdf-update-guard): this
+    // X5-enforce, native writes (W4.13, CONCEPT:MEDULLA-KG.ontology.rdf-update-guard): this
     // is the path `CypherQuery` writes actually take (see the doc comment above) —
     // the RDF surface routed here (AddTriples/RemoveTriples/DropNamedGraph) already
     // enforces via `check_before_write` inside its own handler before the staged
@@ -362,8 +362,8 @@ pub fn is_query_gateway_method(m: &Method) -> bool {
 pub fn is_query_native_coordinator(m: &Method) -> bool {
     #[cfg(feature = "query")]
     if let Method::Sql { query, .. } = m {
-        use eg_query::StatementKind;
-        return match eg_query::classify(query) {
+        use medulla_query::StatementKind;
+        return match medulla_query::classify(query) {
             Ok(
                 StatementKind::InsertNodes(_)
                 | StatementKind::InsertNodesSelect(_)
@@ -382,8 +382,8 @@ pub fn is_query_native_coordinator(m: &Method) -> bool {
     #[cfg(feature = "graphql")]
     if let Method::GraphQl { query, .. } = m {
         return !matches!(
-            eg_graphql::classify_crossmodal(query),
-            eg_graphql::CrossModalRoute::NotCrossModal
+            medulla_graphql::classify_crossmodal(query),
+            medulla_graphql::CrossModalRoute::NotCrossModal
         );
     }
     let _ = m;

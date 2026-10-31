@@ -124,7 +124,7 @@ async fn serve_inner(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ObsOperation {
     /// A query/search/label-listing op: PromQL (`/api/v1/query*`,
-    /// `/api/v1/labels`, `/api/v1/label/*`), the EG-162 `_search` surface
+    /// `/api/v1/labels`, `/api/v1/label/*`), the MEDULLA-162 `_search` surface
     /// (SQL or structured, any of `/api/_search`, `/_search`,
     /// `*/_search`), or trace search/assembly/dependency-graph reads
     /// (`/api/traces`, `/api/traces/*`, `/api/dependencies`,
@@ -221,7 +221,7 @@ pub(super) async fn handle(
     };
     let tenant = writer.as_ref().map(|writer| writer.tenant.as_str());
 
-    // CONCEPT:EG-KG.query.prometheus-http-query-api — the Prometheus HTTP query API (GET or POST), routed BEFORE the
+    // CONCEPT:MEDULLA-KG.query.prometheus-http-query-api — the Prometheus HTTP query API (GET or POST), routed BEFORE the
     // POST-only ingest guard (instant queries are typically GET). Gated on `promql`,
     // which implies `obs`; absent that feature these paths fall through to 404.
     #[cfg(feature = "promql")]
@@ -229,7 +229,7 @@ pub(super) async fn handle(
         return resp;
     }
 
-    // CONCEPT:EG-OS.observability.trace-assembly — distributed-trace surface (GET or POST), routed BEFORE the
+    // CONCEPT:MEDULLA-OS.observability.trace-assembly — distributed-trace surface (GET or POST), routed BEFORE the
     // POST-only ingest guard (trace SEARCH / assembly / dependency-graph are GET).
     // Gated on `traces`, which implies `obs`; absent that feature these paths fall
     // through to 404. Covers OTLP-JSON ingest (`POST /v1/traces`), trace search
@@ -240,10 +240,10 @@ pub(super) async fn handle(
         return resp;
     }
 
-    // CONCEPT:EG-OS.observability.prometheus-ingest — the Prometheus `remote_write` receiver (`POST /api/v1/write`):
+    // CONCEPT:MEDULLA-OS.observability.prometheus-ingest — the Prometheus `remote_write` receiver (`POST /api/v1/write`):
     // decode the snappy-compressed protobuf WriteRequest from the RAW body bytes (the
     // lossy-UTF-8 `body` String would corrupt the binary) and land its samples in the
-    // durable eg-tsdb SeriesStore. Gated on `otel-export`; absent the feature this path
+    // durable medulla-tsdb SeriesStore. Gated on `otel-export`; absent the feature this path
     // falls through to the unknown-ingest 404.
     #[cfg(feature = "otel-export")]
     if let Some(resp) = try_otel_write_route(state, &req.method, path, &req.body, tenant).await {
@@ -253,7 +253,7 @@ pub(super) async fn handle(
     handle_ingest(state, &req, (path, query), &body, tenant).await
 }
 
-/// The POST-only ingest path: `_search` (EG-162), then route-by-shape log ingest.
+/// The POST-only ingest path: `_search` (MEDULLA-162), then route-by-shape log ingest.
 /// Extracted from [`handle`]'s tail — everything after the GET-friendly gated routes.
 async fn handle_ingest(
     state: &Arc<ObsState>,
@@ -270,7 +270,7 @@ async fn handle_ingest(
         );
     }
 
-    // EG-162 search surface: O2/Elasticsearch `_search`-shaped query API. Routed
+    // MEDULLA-162 search surface: O2/Elasticsearch `_search`-shaped query API. Routed
     // BEFORE ingest (no ingest path ends with `_search`).
     if path == "/api/_search" || path == "/_search" || path.ends_with("/_search") {
         return handle_search(state, path, query, body).await;

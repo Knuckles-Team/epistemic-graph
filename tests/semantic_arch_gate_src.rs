@@ -1,6 +1,6 @@
 //! RF-RULING-007 layer (c), the root binary's half of the call-graph gate.
 //!
-//! `crates/eg-core/src/compute/semantic_arch_gate.rs` owns the same scan over
+//! `crates/medulla-core/src/compute/semantic_arch_gate.rs` owns the same scan over
 //! the two CRATE regions the semantic slice cleared. It cannot own this one:
 //! its regions are workspace-relative paths under `crates/`, and the root
 //! binary's semantic surface lives in `src/`. This is that sibling, with the
@@ -139,10 +139,10 @@ fn no_root_semantic_region_reacquires_a_store_or_a_file() {
 
 /// The resident serving image is mutated by exactly ONE call —
 /// `SemanticStore::adopt_generation`, which takes `&self` and sets
-/// `STATE_READY` inside eg-core. An activation path that took
+/// `STATE_READY` inside medulla-core. An activation path that took
 /// `core.semantic_store.write()` directly would install an index without the
 /// dimension, member-set and embedding-space validation `adopt_generation`
-/// performs, and nothing outside eg-core would notice.
+/// performs, and nothing outside medulla-core would notice.
 ///
 /// This is scoped to the activation regions on purpose: the embedding arena's
 /// seven in-memory serving mutations (`graph_delta.rs`, `write_coalescer.rs`,

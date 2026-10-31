@@ -39,12 +39,12 @@ async fn try_handle_inner(
     #[cfg(not(feature = "security"))]
     let _ = caller;
     // `state` is consumed only by the `query`-gated in-txn cross-modal RYOW arms
-    // (CONCEPT:EG-KG.query.txn-cross-modal-ryow — TxnUnifiedQuery{,Text}); keep it referenced in a
+    // (CONCEPT:MEDULLA-KG.query.txn-cross-modal-ryow — TxnUnifiedQuery{,Text}); keep it referenced in a
     // cypher/graphql-only build (no `query`) so no dead-param warning fires.
     #[cfg(not(feature = "query"))]
     let _ = (state, read_authority);
     // `graph_name` is consumed only by the `graphql`-gated cross-modal durable commit
-    // (CONCEPT:EG-KG.query.facade-reconcile-hook); keep it referenced in a query/cypher-only build so no dead-param
+    // (CONCEPT:MEDULLA-KG.query.facade-reconcile-hook); keep it referenced in a query/cypher-only build so no dead-param
     // warning fires.
     #[cfg(not(feature = "graphql"))]
     let _ = graph_name;
@@ -455,7 +455,7 @@ struct LeaseQueryCtx<'a> {
     caller: &'a str,
     core: &'a Arc<GraphCore>,
     policy_lease: &'a Arc<crate::isolation::PolicyDecisionLease>,
-    store: &'a dyn eg_core::rbac_persist::RbacPolicyStore,
+    store: &'a dyn medulla_core::rbac_persist::RbacPolicyStore,
 }
 
 /// Fresh, per-call row-visibility snapshot using the lease as the sole
@@ -474,7 +474,7 @@ struct LeaseQueryCtx<'a> {
 fn lease_filtered_snapshot(
     core: &Arc<GraphCore>,
     lease: &Arc<crate::isolation::PolicyDecisionLease>,
-    store: &dyn eg_core::rbac_persist::RbacPolicyStore,
+    store: &dyn medulla_core::rbac_persist::RbacPolicyStore,
 ) -> Result<(Arc<crate::graph::GraphView>, u64), String> {
     // `version` is read before the snapshot, the same "safe LOWER BOUND"
     // idiom `rls_snapshot`'s `not(result-cache)` branch documents above — a
@@ -566,7 +566,7 @@ async fn handle_cross_modal_with_lease(
         Ok(Ok(rows)) => result_response::<query_results::UnifiedQuery>(req_id, &rows),
         Ok(Err(msg)) => Response::err(
             req_id,
-            eg_types::contract::classify_refusal("INVALID_ARGUMENT", "UnifiedQuery error: ", &msg),
+            medulla_types::contract::classify_refusal("INVALID_ARGUMENT", "UnifiedQuery error: ", &msg),
         ),
         Err(resp) => resp,
     };

@@ -2,15 +2,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use epistemic_graph::acl::{AgentIdentity, AgentRole, RequestContextClaims};
-use epistemic_graph::isolation::IsolationLayer;
-use epistemic_graph::protocol::{build_context_operation_signature_bytes, Method, Request};
-use epistemic_graph::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
+use medulla::acl::{AgentIdentity, AgentRole, RequestContextClaims};
+use medulla::isolation::IsolationLayer;
+use medulla::protocol::{build_context_operation_signature_bytes, Method, Request};
+use medulla::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 
 pub const TEST_AGENT: &str = "integration-test-agent";
-const TEST_AUDIENCE: &str = "epistemic-graph-integration-tests";
+const TEST_AUDIENCE: &str = "medulla-integration-tests";
 const TEST_TENANT: &str = "integration-test-tenant";
 const TEST_POLICY_VERSION: &str = "integration-test-policy-v1";
 const TEST_AGENT_SIGNER_KEY: &str = "integration-test-agent-signing-key";
@@ -50,7 +50,7 @@ fn security_state_dir() -> &'static str {
                 .as_nanos();
             std::env::temp_dir()
                 .join(format!(
-                    "epistemic-graph-integration-auth-{}-{epoch_nanos}",
+                    "medulla-integration-auth-{}-{epoch_nanos}",
                     std::process::id()
                 ))
                 .to_string_lossy()
@@ -77,11 +77,11 @@ fn configure_authority_once() {
     // unit tests' thread-local shield. These tests exercise the HMAC envelope
     // path deliberately; OIDC-enforcement coverage lives in the library's own
     // auth tests.
-    std::env::set_var("EPISTEMIC_GRAPH_REQUIRE_OIDC", "false");
-    std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", TEST_AUDIENCE);
-    std::env::set_var("EPISTEMIC_GRAPH_TENANT", TEST_TENANT);
-    std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", TEST_POLICY_VERSION);
-    std::env::set_var("EPISTEMIC_GRAPH_SECURITY_STATE_DIR", security_state_dir());
+    std::env::set_var("MEDULLA_REQUIRE_OIDC", "false");
+    std::env::set_var("MEDULLA_AUDIENCE", TEST_AUDIENCE);
+    std::env::set_var("MEDULLA_TENANT", TEST_TENANT);
+    std::env::set_var("MEDULLA_POLICY_VERSION", TEST_POLICY_VERSION);
+    std::env::set_var("MEDULLA_SECURITY_STATE_DIR", security_state_dir());
     // Scoped signer registry (NE-065). The legacy flat `{"signer":"key"}` shape
     // still parses, but grants NO roles and NO System -- deliberately fail-closed,
     // because a flat entry predates the allowance concept and silence must not mean
@@ -111,7 +111,7 @@ fn configure_authority_once() {
     // may grant only `ROOT_ADMIN_ROLE` (to `root`); `root` may grant only
     // `COMMONS_USER_ROLE` (to the ordinary peers it registers).
     std::env::set_var(
-        "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON",
+        "MEDULLA_SIGNER_KEYS_JSON",
         format!(
             r#"{{"{TEST_AGENT}":{{"key":"{TEST_AGENT_SIGNER_KEY}","allowed_roles":["{ROOT_ADMIN_ROLE}"]}},"root":{{"key":"{ROOT_SIGNER_KEY}","allowed_roles":["{COMMONS_USER_ROLE}"]}}}}"#
         ),
@@ -263,18 +263,18 @@ pub struct SignedRegisterIdentity<'a> {
 #[allow(dead_code)]
 pub fn tempdir_persistence() -> (
     Option<String>,
-    Option<std::sync::Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>>,
+    Option<std::sync::Arc<dyn medulla::server::persistence::PersistenceBackend>>,
 ) {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("eg-test-persist-{}-{seq}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("medulla-test-persist-{}-{seq}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create test persist dir");
     let dir_s = dir.to_string_lossy().into_owned();
-    let backend: std::sync::Arc<dyn epistemic_graph::server::persistence::PersistenceBackend> =
+    let backend: std::sync::Arc<dyn medulla::server::persistence::PersistenceBackend> =
         std::sync::Arc::new(
-            epistemic_graph::server::persistence::redb_backend::RedbBackend::open(
+            medulla::server::persistence::redb_backend::RedbBackend::open(
                 dir_s.clone(),
                 4096,
             )
@@ -290,7 +290,7 @@ pub fn tempdir_persistence() -> (
 #[allow(dead_code)]
 pub fn tempdir_persistence() -> (
     Option<String>,
-    Option<std::sync::Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>>,
+    Option<std::sync::Arc<dyn medulla::server::persistence::PersistenceBackend>>,
 ) {
     (None, None)
 }
@@ -321,7 +321,7 @@ pub fn signed_register_identity_request(args: SignedRegisterIdentity<'_>) -> Req
         roles: roles.clone(),
     };
     let operation_bytes = build_context_operation_signature_bytes(
-        "eg-register-identity-v2",
+        "medulla-register-identity-v2",
         &context,
         &idempotency_key,
         graph,

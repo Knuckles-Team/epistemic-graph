@@ -50,7 +50,7 @@ A `recv_timeout` inside `while let Ok(..)` will make the worker exit the first
 time its owner paused, losing the state it owns.
 
 **Sites.**
-- `crates/eg-query/src/sql/spill.rs`: the spill worker's command loop (the
+- `crates/medulla-query/src/sql/spill.rs`: the spill worker's command loop (the
   worker owns the spill file writer).
 
 ## enclosing-deadline
@@ -84,30 +84,30 @@ turns recovery into a decision.
 - `src/lock_recovery.rs`: the `Mutex` and `RwLock` read `lock_recovering`
   and `write_recovering`, the reporting helpers the lint directs callers to
   (three allows).
-- `crates/eg-wasm/src/lib.rs`: the UDF-registry mutex. The registry can be
+- `crates/medulla-wasm/src/lib.rs`: the UDF-registry mutex. The registry can be
   rebuilt, and the report goes to stderr.
-- `crates/eg-plan/src/exec.rs`: the derived-tensor CAS mutex. The CAS is
+- `crates/medulla-plan/src/exec.rs`: the derived-tensor CAS mutex. The CAS is
   content-addressed and re-derivable.
-- `crates/eg-plan/src/learned_cost.rs`: `recover_corrections`, the learned
+- `crates/medulla-plan/src/learned_cost.rs`: `recover_corrections`, the learned
   cost-correction curves. They are advisory and can be re-learned, since an
   untrained curve is the identity.
 
-`eg-wasm` and `eg-plan` sit below the root crate in the dependency DAG, so they
+`medulla-wasm` and `medulla-plan` sit below the root crate in the dependency DAG, so they
 cannot call `lock_recovery`. They report locally instead.
 
 ## Not an invariant: sites that were fixed instead
 
 A wait that has a natural deadline in its own contract is bounded, not excused:
 
-- `eg-tts-piper`'s `ChunkStream` bounds both `next` and `Drop` by the request's
+- `medulla-tts-piper`'s `ChunkStream` bounds both `next` and `Drop` by the request's
   `request_deadline_ms`. It detects producer exit through a drop-guard signal
   instead of a join. It also disconnects its receiver before waiting, so a
   producer blocked on a full channel is released rather than deadlocked.
 - The raft harness root allocator hands the root over as a value that removes
   itself unless it is claimed. The allocating thread no longer blocks waiting
   for the caller to confirm receipt.
-- Concurrency tests in crates below the root use `eg-core`'s `test_threads`, and
-  `eg-query`/`eg-transaction` use local bounded channels. Workers report
+- Concurrency tests in crates below the root use `medulla-core`'s `test_threads`, and
+  `medulla-query`/`medulla-transaction` use local bounded channels. Workers report
   outcomes over a bounded channel collected with `recv_timeout`, so nothing
   joins.
 - Test-serialization locks that guard `()` are handled by crate. The root crate

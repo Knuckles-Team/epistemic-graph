@@ -11,9 +11,9 @@ fn shard_specs(persist_dir: &str, k: usize) -> Vec<ShardSpec> {
                 .to_string_lossy()
                 .to_string();
             let thread_name = if k <= 1 {
-                "eg-redb-writer".to_string()
+                "medulla-redb-writer".to_string()
             } else {
-                format!("eg-redb-writer-{i}")
+                format!("medulla-redb-writer-{i}")
             };
             (i, db_path, thread_name)
         })
@@ -135,7 +135,7 @@ fn spawn_shards(
 
 impl RedbBackend {
     /// Open (or create) the sharded durable tier under `persist_dir` and spawn one
-    /// off-reactor group-commit writer thread per shard (CONCEPT:EG-KG.backend.sharded-k-way-durable). The shard
+    /// off-reactor group-commit writer thread per shard (CONCEPT:MEDULLA-KG.backend.sharded-k-way-durable). The shard
     /// count K is auto-sized (`resolve_shard_count`) and reconciled against any
     /// existing current on-disk layout. The exclusive per-file redb lock for every
     /// shard is acquired here at open.
@@ -144,16 +144,16 @@ impl RedbBackend {
         Ok(backend.maybe_attach_catalog_from_env(&persist_dir))
     }
 
-    /// Catalog auto-attach gate (CONCEPT:EG-KG.sharding.r5-feature, R5). At startup attach the durable tenant
-    /// catalog to the LIVE routing seam when `EPISTEMIC_GRAPH_TENANT_CATALOG=1` is set OR a
+    /// Catalog auto-attach gate (CONCEPT:MEDULLA-KG.sharding.r5-feature, R5). At startup attach the durable tenant
+    /// catalog to the LIVE routing seam when `MEDULLA_TENANT_CATALOG=1` is set OR a
     /// durable `catalog.redb` already exists (a populated catalog from a prior run must be
     /// honored). When NEITHER holds — the default — NO catalog is attached and routing is
-    /// byte-for-byte EG-026 FNV-1a. An attached-but-EMPTY catalog also routes identically
+    /// byte-for-byte MEDULLA-026 FNV-1a. An attached-but-EMPTY catalog also routes identically
     /// (`resolve_shard` == `shard_index`), so turning the flag on is a no-op until an
     /// online reshard assigns a placement. Only [`Self::open`] (the live boot path) calls
     /// this; the explicit-K test constructor [`Self::open_with_shards`] never auto-attaches.
     fn maybe_attach_catalog_from_env(self, persist_dir: &str) -> Self {
-        let flag = std::env::var("EPISTEMIC_GRAPH_TENANT_CATALOG")
+        let flag = std::env::var("MEDULLA_TENANT_CATALOG")
             .ok()
             .map(|v| {
                 let v = v.trim().to_ascii_lowercase();
@@ -164,19 +164,19 @@ impl RedbBackend {
             .join("catalog.redb")
             .exists();
         if !flag && !catalog_exists {
-            return self; // DEFAULT: pure EG-026, no catalog, no behavior change.
+            return self; // DEFAULT: pure MEDULLA-026, no catalog, no behavior change.
         }
         match crate::server::persistence::tenant_catalog::TenantCatalog::open(persist_dir) {
             Ok(cat) => {
                 if cat.is_empty() {
                     tracing::info!(
-                        "tenant catalog attached (CONCEPT:EG-KG.sharding.r5-feature) — empty ⇒ pure EG-026 routing \
+                        "tenant catalog attached (CONCEPT:MEDULLA-KG.sharding.r5-feature) — empty ⇒ pure MEDULLA-026 routing \
                          until an online reshard assigns a placement"
                     );
                 } else {
                     tracing::info!(
-                        "tenant catalog attached (CONCEPT:EG-KG.sharding.r5-feature) — {} explicit placement(s) \
-                         override EG-026 hash routing",
+                        "tenant catalog attached (CONCEPT:MEDULLA-KG.sharding.r5-feature) — {} explicit placement(s) \
+                         override MEDULLA-026 hash routing",
                         cat.len()
                     );
                 }
@@ -184,14 +184,14 @@ impl RedbBackend {
             }
             Err(e) => {
                 tracing::warn!(
-                    "tenant catalog open failed ({e}); continuing with pure EG-026 routing"
+                    "tenant catalog open failed ({e}); continuing with pure MEDULLA-026 routing"
                 );
                 self
             }
         }
     }
 
-    /// Open with an EXPLICIT requested shard count (CONCEPT:EG-KG.backend.sharded-k-way-durable). Used by `open`
+    /// Open with an EXPLICIT requested shard count (CONCEPT:MEDULLA-KG.backend.sharded-k-way-durable). Used by `open`
     /// (auto-sized K) and by the sharding tests (deterministic K). The requested K is
     /// still reconciled against the on-disk layout so an existing dir's K wins.
     pub fn open_with_shards(
@@ -251,7 +251,7 @@ impl RedbBackend {
         }
         let shard_open_start = std::time::Instant::now();
         // The three sidecar stores open on their own thread WHILE the shards
-        // open (EG-DURABLE-KERNEL-R006.1): their fsyncs overlap the shards'
+        // open (MEDULLA-DURABLE-KERNEL-R006.1): their fsyncs overlap the shards'
         // instead of trailing them serially.
         let admin_path = std::path::Path::new(&persist_dir).join("admin-mutations.redb");
         let mut cleanup = SidecarOpenCleanup::new(&[

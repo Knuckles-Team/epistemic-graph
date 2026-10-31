@@ -4,7 +4,7 @@
 
 use crate::server::access::CarrierAuthority;
 use crate::server::sql_catalog_acl::{SqlPrivilege, SqlSourceAuthorityWrite, ACCESS_DENIED};
-use eg_types::storage_wire::{SqlSourceBatchRequest, SqlSourceCell};
+use medulla_types::storage_wire::{SqlSourceBatchRequest, SqlSourceCell};
 
 /// Authorize exact typed source cells under the existing INSERT grant and RLS
 /// snapshot. Unlike literal SQL INSERT, this closed ingestion contract requires

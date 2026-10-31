@@ -15,7 +15,7 @@ from scripts.inject_numeric_kernel import inject
 
 # Pure zip-file surgery, exactly like sibling test_check_wheel_completeness.py
 # -- never needs the shared native engine (see conftest.py's session-scoped
-# `start_epistemic_graph_server` fixture, which this marker exempts this
+# `start_medulla_server` fixture, which this marker exempts this
 # module from triggering). BUG-PE-018: this was the module that hung a
 # combined run by omitting the marker.
 pytestmark = pytest.mark.no_engine
@@ -37,13 +37,13 @@ def _server_wheel(path: Path) -> None:
     metadata = b"Metadata-Version: 2.1\nName: medulla-stem\n"
     record_name = "medulla_stem-0.dist-info/RECORD"
     record = (
-        f"medulla_stem-0.data/scripts/epistemic-graph-server,{_hash(script)},{len(script)}\n"
+        f"medulla_stem-0.data/scripts/medulla-server,{_hash(script)},{len(script)}\n"
         f"medulla_stem-0.dist-info/METADATA,{_hash(metadata)},{len(metadata)}\n"
         f"{record_name},,\n"
     ).encode()
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr(
-            _zip_info("medulla_stem-0.data/scripts/epistemic-graph-server", 0o755),
+            _zip_info("medulla_stem-0.data/scripts/medulla-server", 0o755),
             script,
         )
         archive.writestr(_zip_info("medulla_stem-0.dist-info/METADATA"), metadata)
@@ -68,11 +68,11 @@ def test_injects_platform_extension_and_preserves_server_mode(
 
     inject(server, numeric)
 
-    target = f"epistemic_graph/{extension}"
+    target = f"medulla/{extension}"
     with zipfile.ZipFile(server) as archive:
         assert archive.read(target) == payload
         server_info = archive.getinfo(
-            "medulla_stem-0.data/scripts/epistemic-graph-server"
+            "medulla_stem-0.data/scripts/medulla-server"
         )
         assert (server_info.external_attr >> 16) & 0o777 == 0o755
         record = archive.read("medulla_stem-0.dist-info/RECORD").decode()
@@ -95,7 +95,7 @@ def test_replaces_stale_kernel_and_rebuilds_record_exactly(tmp_path: Path) -> No
     server = tmp_path / "server.whl"
     numeric = tmp_path / "numeric.whl"
     _server_wheel(server)
-    target = "epistemic_graph/numeric.abi3.so"
+    target = "medulla/numeric.abi3.so"
     stale = b"stale-kernel"
 
     with zipfile.ZipFile(server, "a") as archive:

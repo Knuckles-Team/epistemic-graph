@@ -1,5 +1,5 @@
 {
-  "generator": "eg-capabilities/gen_contract",
+  "generator": "medulla-capabilities/gen_contract",
   "registry_version": 1,
   "scopes": [
     {

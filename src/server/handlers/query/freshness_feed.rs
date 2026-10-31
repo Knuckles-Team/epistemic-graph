@@ -1,10 +1,10 @@
-//! `FreshnessFeed` (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation, EH-400): one poll returns
+//! `FreshnessFeed` (CONCEPT:MEDULLA-KG.coordination.dependency-scoped-cache-invalidation, EH-400): one poll returns
 //! the request graph's per-class invalidation events after the caller's cursor, the declared
 //! `eg:volatilityClass` policy when it changed, and the watermark freshness of the foreign
 //! sources the caller can see. An out-of-process cache (AU, EH-401) invalidates by class from the
 //! events and derives its TTLs from the policy.
 
-use eg_types::freshness::{FreshnessFeed, InvalidationEvent, InvalidationScope};
+use medulla_types::freshness::{FreshnessFeed, InvalidationEvent, InvalidationScope};
 
 use super::*;
 
@@ -23,7 +23,7 @@ pub(crate) async fn handle_freshness_feed(
     let core = Arc::clone(ctx.core);
     let visible = row_filter(ctx);
     let built = compute_off_lock(ctx.req_id, move || build_feed(&core, request, visible)).await;
-    match built.map(ResultPayload::of::<eg_types::result_contract::messaging::FreshnessFeed>) {
+    match built.map(ResultPayload::of::<medulla_types::result_contract::messaging::FreshnessFeed>) {
         Ok(Ok(payload)) => Response::ok(ctx.req_id, payload),
         Ok(Err(error)) => Response::err(ctx.req_id, error),
         Err(response) => response,
@@ -54,11 +54,11 @@ pub(crate) fn build_feed(
         .dep_clock()
         .invalidation_log()
         .read_after(request.after_version, request.limit as usize);
-    let policy_version = eg_core::freshness::policy_version(core);
+    let policy_version = medulla_core::freshness::policy_version(core);
     let (policy, policy_diagnostics) = match request.policy_after {
         Some(known) if known == policy_version => (None, Vec::new()),
         _ => {
-            let resolved = eg_core::freshness::volatility_policy(core);
+            let resolved = medulla_core::freshness::volatility_policy(core);
             (Some(resolved.classes), resolved.diagnostics)
         }
     };
@@ -71,16 +71,16 @@ pub(crate) fn build_feed(
         policy_version,
         policy,
         policy_diagnostics,
-        foreign: eg_core::freshness::foreign_freshness(core, now_ms, visible),
+        foreign: medulla_core::freshness::foreign_freshness(core, now_ms, visible),
     }
 }
 
-fn wire_event(record: eg_core::dep_scope::InvalidationRecord) -> InvalidationEvent {
+fn wire_event(record: medulla_core::dep_scope::InvalidationRecord) -> InvalidationEvent {
     InvalidationEvent {
         version: record.version,
         scope: match record.scope {
-            eg_core::dep_scope::InvalidationScope::Classes => InvalidationScope::Classes,
-            eg_core::dep_scope::InvalidationScope::All => InvalidationScope::All,
+            medulla_core::dep_scope::InvalidationScope::Classes => InvalidationScope::Classes,
+            medulla_core::dep_scope::InvalidationScope::All => InvalidationScope::All,
         },
         classes: record.classes,
         edge_types: record.edge_types,
@@ -90,8 +90,8 @@ fn wire_event(record: eg_core::dep_scope::InvalidationRecord) -> InvalidationEve
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_core::index::{ChangeSet, NodeChange};
-    use eg_types::freshness::{VolatilityClass, VOLATILITY_CLASS_KEY};
+    use medulla_core::index::{ChangeSet, NodeChange};
+    use medulla_types::freshness::{VolatilityClass, VOLATILITY_CLASS_KEY};
 
     fn commit_node(core: &GraphCore, id: &str, props: serde_json::Value) {
         let blob = rmp_serde::to_vec_named(&props).unwrap();
@@ -112,7 +112,7 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R018
+    // spec: MEDULLA-FEDERATED-QUERY-R018
     #[test]
     fn the_feed_names_each_commits_classes_and_resends_the_policy_only_when_it_moves() {
         let core = GraphCore::new();

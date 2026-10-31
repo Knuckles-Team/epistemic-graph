@@ -1,25 +1,25 @@
-# RBAC action unification — Phase 1 design + blast-radius map (NE-047 / EG-ACCESS)
+# RBAC action unification — Phase 1 design + blast-radius map (NE-047 / MEDULLA-ACCESS)
 
 Status: **Phase 1 complete. Verdict: NOT safe to implement full unification in this
 change. No behaviour changed by this document.**
 
 ## 1. Current shape of both vocabularies
 
-### 1.1 `eg-core` graph RBAC (3-valued)
+### 1.1 `medulla-core` graph RBAC (3-valued)
 
-- `RbacAction` — `crates/eg-types/src/acl.rs:99-104`:
+- `RbacAction` — `crates/medulla-types/src/acl.rs:99-104`:
   ```rust
   pub enum RbacAction { Read, Write, Admin }
   ```
   Plain `#[derive(..., Serialize, Deserialize)]`, no `#[serde(rename..)]`. Consumed
   by `Grant { role, resource: ResourceSelector, action: RbacAction, effect:
   GrantEffect }` (`acl.rs:217-223`), evaluated by `RbacPolicy::evaluate` in
-  `crates/eg-core/src/rbac.rs:93-122`: default-deny, most-specific-`ResourceSelector`-wins,
+  `crates/medulla-core/src/rbac.rs:93-122`: default-deny, most-specific-`ResourceSelector`-wins,
   deny-overrides-allow at a tie. `ResourceSelector` (`acl.rs:119-129`) is
   `All | Pattern(glob) | Label(String) | Graph(String)` — i.e. it addresses **graph
   resources only**; it has no notion of a SQL table, a row, or an owner.
 - A second, narrower, **2-valued** enum sits in front of it purely for graph
-  read/write requests: `AccessLevel { Read, Write }` (`crates/eg-core/src/isolation.rs:14-17`).
+  read/write requests: `AccessLevel { Read, Write }` (`crates/medulla-core/src/isolation.rs:14-17`).
   `IsolationLayer::check_access` (`isolation.rs:873-905`) maps
   `AccessLevel::Read → RbacAction::Read`, `AccessLevel::Write → RbacAction::Write`
   1:1, then calls `self.rbac.evaluate(&identity.roles, &ctx, action)`.
@@ -30,15 +30,15 @@ change. No behaviour changed by this document.**
 ### 1.2 NE-003 SQL catalog ACL (5-valued, independent)
 
 `src/server/sql_catalog_acl.rs` — **not a workspace crate**; it lives in the root
-`epistemic-graph` package (`Cargo.toml:88`), a different Cargo package from
-`eg-core` (`crates/eg-core`, workspace member).
+`medulla` package (`Cargo.toml:88`), a different Cargo package from
+`medulla-core` (`crates/medulla-core`, workspace member).
 
 ```rust
 pub(crate) enum SqlPrivilege { Select, Insert, Update, Delete, Alter }  // sql_catalog_acl.rs:113-120
 ```
 
 The module's own doc comment (`sql_catalog_acl.rs:106-111`) states the reason
-explicitly: *"Deliberately NOT `eg_types::acl::RbacAction` (Read/Write/Admin) —
+explicitly: *"Deliberately NOT `medulla_types::acl::RbacAction` (Read/Write/Admin) —
 that three-way split will collapse INSERT/UPDATE/Remove into one bucket, making
 them impossible to grant or revoke independently, which the spec explicitly
 requires."*
@@ -64,7 +64,7 @@ resource model are structurally different**:
   invariant or test today; replicating it is new work, not reuse.
 - **Row-level security**: `__eg_sql_rls__` declares one RLS discriminator column
   per table, folded into query predicates in Rust (never spliced SQL). No
-  analogue in `eg-core::rbac`.
+  analogue in `medulla-core::rbac`.
 
 ## 2. Blast radius (file:line, production vs. test)
 
@@ -82,11 +82,11 @@ src/server/dispatch.rs               (test-only)
 src/server/stomp_wire/mod.rs         (test-only)
 src/server/persistence/cold_offload.rs (test-only)
 src/server/handlers/query.rs         (test-only)
-crates/eg-core/src/rbac_persist.rs   (test-only)
-crates/eg-core/src/isolation.rs      (2 production call sites + tests)
-crates/eg-capabilities/src/lib.rs    (comment cross-reference only)
-crates/eg-core/src/rbac.rs           (type owner + its own tests)
-crates/eg-types/src/acl.rs           (type definition + its own tests)
+crates/medulla-core/src/rbac_persist.rs   (test-only)
+crates/medulla-core/src/isolation.rs      (2 production call sites + tests)
+crates/medulla-capabilities/src/lib.rs    (comment cross-reference only)
+crates/medulla-core/src/rbac.rs           (type owner + its own tests)
+crates/medulla-types/src/acl.rs           (type definition + its own tests)
 ```
 
 **Checked against each file's `#[cfg(test)] mod tests { ... }` boundary**
@@ -94,12 +94,12 @@ crates/eg-types/src/acl.rs           (type definition + its own tests)
 tests start `:1153`, `rbac_persist.rs` tests start `:450`): every `RbacAction`
 reference in `src/server/{mysql_wire,graphql_sub,mqtt_wire,mod,bolt_wire,
 dispatch,stomp_wire,persistence/cold_offload,handlers/query}.rs` and in
-`crates/eg-core/src/rbac_persist.rs` sits **inside** those test modules — they
+`crates/medulla-core/src/rbac_persist.rs` sits **inside** those test modules — they
 are wire-protocol test fixtures that provision `Grant`s to exercise
 `IsolationLayer` end to end, not independent production logic.
 
 **Production call sites of `RbacAction` — exactly two, both in
-`crates/eg-core/src/isolation.rs`, both above its `mod tests` boundary at
+`crates/medulla-core/src/isolation.rs`, both above its `mod tests` boundary at
 `:1153`:**
 
 | Site | What it does |
@@ -116,7 +116,7 @@ never see `RbacAction` directly, only `AccessLevel`/`bool`):
   `src/server/access.rs`, gating `require_admin_capability`).
 
 **Conclusion: widening `RbacAction`'s variant set is, mechanically, a
-single-file change** (`crates/eg-types/src/acl.rs`'s enum definition) with
+single-file change** (`crates/medulla-types/src/acl.rs`'s enum definition) with
 exactly one production consumer to extend (`isolation.rs`'s `check_access` /
 a new access-level mapping) — *if* the goal were only "add variants nobody
 uses yet." It is not compile-blast-radius that makes this hard (see §5); it is
@@ -124,7 +124,7 @@ the SQL-ACL rewiring described in §1.2 and §4.
 
 ### 2.2 `RbacPolicy::evaluate` (or equivalent)
 
-- Definition + only production caller path: `crates/eg-core/src/rbac.rs:93-122`
+- Definition + only production caller path: `crates/medulla-core/src/rbac.rs:93-122`
   (`evaluate`), `:128-138` (`is_allowed`, thin wrapper).
 - Production callers: **isolation.rs:904, isolation.rs:1118** (the same two
   sites as above — `evaluate` has no other production caller anywhere in the
@@ -143,7 +143,7 @@ the SQL-ACL rewiring described in §1.2 and §4.
   references, the module itself — `authorize`, `authorize_ddl`,
   `authorize_insert`, `authorize_update`, `authorize_delete`, `grant`, `revoke`,
   `owner_of`, `grant_exists`, RLS get/set).
-- External consumers (all outside `eg-core`, inside the root `epistemic-graph`
+- External consumers (all outside `medulla-core`, inside the root `medulla`
   package):
   - `src/server/wire/mod.rs` — ~26 references: DDL gating (`:447-500`),
     `authorize_insert`/`authorize_update`/`authorize_delete` on the DML path
@@ -154,9 +154,9 @@ the SQL-ACL rewiring described in §1.2 and §4.
     materialized-over-SQL read path).
 
 **This entire consumer surface (`sql_catalog_acl.rs`, `wire/mod.rs`,
-`handlers/rdf.rs`) lives in the root `epistemic-graph` Cargo package, not in
-`eg-core`.** The task's sanctioned validation command is scoped to
-`cargo check -p eg-core` only — it does not compile any file in this list. Any
+`handlers/rdf.rs`) lives in the root `medulla` Cargo package, not in
+`medulla-core`.** The task's sanctioned validation command is scoped to
+`cargo check -p medulla-core` only — it does not compile any file in this list. Any
 change to this surface can not be checked within the validation this task
 authorizes (see §5).
 
@@ -166,12 +166,12 @@ Two independent codecs both use vanilla `#[derive(Serialize, Deserialize)]`
 with no custom variant naming, so both use serde's default **externally-tagged,
 variant-name-string** representation for a unit-only enum:
 
-1. **Durable store** — `crates/eg-core/src/rbac_persist.rs`. One redb table
+1. **Durable store** — `crates/medulla-core/src/rbac_persist.rs`. One redb table
    `rbac` in `{persist_dir}/rbac.redb`, three keys (`policy`, `identities`,
    `bootstrap`); `policy` is `serde_json::to_vec(&RbacPolicy)`
    (`rbac_persist.rs:12-19`). A `Grant.action: RbacAction` therefore lands in
    that JSON blob as the literal string `"Read"`, `"Write"`, or `"Admin"`.
-2. **Wire protocol** — `crates/eg-types/src/protocol.rs:1-5`: *"Length-prefixed
+2. **Wire protocol** — `crates/medulla-types/src/protocol.rs:1-5`: *"Length-prefixed
    MessagePack framing"*, confirmed by `rmp_serde::to_vec`/`to_vec_named` /
    `from_slice` call sites throughout `src/server/mod.rs`. `Method::RbacAdmin {
    op: RbacAdminOp }` (`protocol.rs:2299-2305`) carries `Grant`/`RbacAction`
@@ -236,7 +236,7 @@ grantable finer actions rather than *splitting* `Write`'s existing meaning.
   are: (a) `sql_catalog_acl.rs`'s ownership concept has no home in `RbacPolicy`
   — a naive mapping (e.g. synthesizing a per-table role) will either lose
   the first-writer-wins race semantics or require inventing a new concept in
-  `eg-core` under time pressure; (b) principal-direct grants (`grant(table,
+  `medulla-core` under time pressure; (b) principal-direct grants (`grant(table,
   agent_id, privilege)`) would have to become role-mediated, which either
   requires minting one throwaway role per `(table, agent_id)` pair (blows up
   the role namespace and `expand_roles` cost) or a new `Grant` shape
@@ -271,7 +271,7 @@ Reasons, in order of weight:
 1. **Resource-model mismatch, not just vocabulary.** `RbacPolicy`/
    `ResourceSelector` model graph resources (graph name / label / pattern) and
    role-mediated grants. The SQL ACL model needs per-table ownership and
-   principal-direct grants, neither of which exists in `eg-core` today.
+   principal-direct grants, neither of which exists in `medulla-core` today.
    Building them is new architecture, not a mechanical enum widen — it needs
    its own design and its own review, not a rider on this ticket.
 2. **A live, security-critical data migration will be required** for the
@@ -283,18 +283,18 @@ Reasons, in order of weight:
    authority than before ... stop and report instead").
 3. **The sanctioned validation surface does not reach the code that will
    must change.** `sql_catalog_acl.rs`, `wire/mod.rs`, and
-   `handlers/rdf.rs` all live in the root `epistemic-graph` package, not in
-   `eg-core` — the bounded validation command this task authorizes
-   (`cargo check -p eg-core`) cannot compile-check them, and the task
+   `handlers/rdf.rs` all live in the root `medulla` package, not in
+   `medulla-core` — the bounded validation command this task authorizes
+   (`cargo check -p medulla-core`) cannot compile-check them, and the task
    explicitly forbids `--all-targets`/the full suite. I cannot check
    correctness of a change I am not able to compile or test, and per the
    task's own instruction set, that alone is reason enough not to make the
    change now.
-4. **The `eg-core` baseline in this worktree does not currently compile**
-   (unrelated to this ticket — `crates/eg-core/src/registry.rs:1375`,
+4. **The `medulla-core` baseline in this worktree does not currently compile**
+   (unrelated to this ticket — `crates/medulla-core/src/registry.rs:1375`,
    `no method named 'value' found for tuple '(&String, &GraphEntry)'`,
    introduced by a merge already on this branch, `git log -1 -- registry.rs`
-   → `a2febc9 Merge branch 'ne/eg-cold-incarnation-fence'`). This is a
+   → `a2febc9 Merge branch 'ne/medulla-cold-incarnation-fence'`). This is a
    pre-existing, out-of-scope break — confirmed via `git diff --stat` showing
    zero changes from this session — but it means even the narrow, safe part
    of this proposal (widening the `RbacAction` enum, §3/§4) cannot currently
@@ -302,15 +302,15 @@ Reasons, in order of weight:
    until that unrelated breakage is fixed by whichever lane owns it.
 
 **What will make this safely doable, as a separately-scoped follow-up:**
-(a) fix the `eg-core` baseline break so `-p eg-core` actually compiles; (b) as
+(a) fix the `medulla-core` baseline break so `-p medulla-core` actually compiles; (b) as
 its own reviewed step, widen `RbacAction` per §4 (safe by construction, §3) —
 purely additive, zero consumers changed, checked with the fixture in §5(1);
 (c) as a separate, larger design (its own ledger item), add a table-shaped
-`ResourceSelector` variant and an ownership primitive to `eg-core`, write the
+`ResourceSelector` variant and an ownership primitive to `medulla-core`, write the
 `__eg_sql_owners__`/`__eg_sql_grants__` → `Grant` migration with a
 real-data fixture, then rewire `sql_catalog_acl.rs`'s consumers in
 `wire/mod.rs`/`handlers/rdf.rs` atomically — validated with the root
-package's own full check/test surface, not `-p eg-core`.
+package's own full check/test surface, not `-p medulla-core`.
 
 No code was changed by this document. `git diff --stat` in the worktree is
 empty.

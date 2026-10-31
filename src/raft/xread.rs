@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use super::multi::{GroupRouter, MultiRaft};
 use super::placement::{PlacementCatalog, PlacementRoute};
-use super::{EgRaft, GroupId};
+use super::{MedullaRaft, GroupId};
 use crate::server::persistence::PersistenceBackend;
 
 mod assemble;
@@ -333,7 +333,7 @@ impl ReadPageService {
 
     pub(crate) async fn read_page(
         &self,
-        raft: EgRaft,
+        raft: MedullaRaft,
         group: GroupId,
         request: ReadPageRequest,
     ) -> Result<ReadPageReply, ReadPageError> {
@@ -410,7 +410,7 @@ impl ReadPageService {
     }
 }
 
-pub(crate) async fn linearizable_barrier(raft: &EgRaft) -> Result<u64, ReadPageError> {
+pub(crate) async fn linearizable_barrier(raft: &MedullaRaft) -> Result<u64, ReadPageError> {
     raft.ensure_linearizable(ReadPolicy::ReadIndex)
         .await
         .map(|log_id| log_id.map_or(0, |id| id.index))

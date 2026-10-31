@@ -1,7 +1,7 @@
 //! The refusals the shared protocol builds, pinned per layer to the exact text
 //! each layer's own copy produced before the protocol was written once.
 
-use eg_types::contract::Digest256;
+use medulla_types::contract::Digest256;
 
 use super::super::agent_component::ComponentLayer;
 use super::super::agent_fixtures::{mutation_context, open_agent_store};

@@ -3,7 +3,7 @@
 U-96 root cause: `agent_utilities.knowledge_graph.ontology.lifecycle.
 _ensure_ontology_graph` called `tenants.create(graph_name, "Ontology")` --
 `"Ontology"` is a semantic content label, not a member of the engine's closed
-`GraphType` wire enum (`crates/eg-types/src/protocol.rs`: `Agent | Team |
+`GraphType` wire enum (`crates/medulla-types/src/protocol.rs`: `Agent | Team |
 Global | Commons`). The unsupported value failed to deserialize server-side.
 
 U-98 root cause (why that showed up as a multi-minute TIMEOUT rather than an
@@ -34,10 +34,10 @@ import time
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import EpistemicGraphClient
+from medulla.client import MedullaClient
 
 
-@pytest.mark.concept("CONCEPT:EG-KG.security.signed-request-envelope")
+@pytest.mark.concept("CONCEPT:MEDULLA-KG.security.signed-request-envelope")
 def test_supported_graph_type_creates_and_is_queryable(clean_graph):
     graph_name = "kf-pilot:lifecycle-contract-global"
     clean_graph.tenants.create(graph_name, "Global")
@@ -51,7 +51,7 @@ def test_supported_graph_type_creates_and_is_queryable(clean_graph):
         clean_graph.tenants.delete(graph_name)
 
 
-@pytest.mark.concept("CONCEPT:EG-KG.security.signed-request-envelope")
+@pytest.mark.concept("CONCEPT:MEDULLA-KG.security.signed-request-envelope")
 def test_unsupported_graph_type_client_raises_before_any_send(clean_graph):
     calls_before = None
     if hasattr(clean_graph, "tenants"):
@@ -69,7 +69,7 @@ def test_unsupported_graph_type_client_raises_before_any_send(clean_graph):
     assert calls_after == calls_before, "no graph should have been created or attempted"
 
 
-@pytest.mark.concept("CONCEPT:EG-KG.security.signed-request-envelope")
+@pytest.mark.concept("CONCEPT:MEDULLA-KG.security.signed-request-envelope")
 def test_bypassing_the_client_guard_still_fails_fast_and_correlated():
     """The server-side half of U-96/U-98: even a caller that skips the
     client-side allowlist (an old client, a direct wire caller, a future
@@ -87,7 +87,7 @@ def test_bypassing_the_client_guard_still_fails_fast_and_correlated():
         # (GOC-70: size timeouts generously enough for a slow runner without
         # masking a hang). 20s is far above the fixed path's expected
         # milliseconds and far below the 242s+ the live pre-fix incident took.
-        client = await EpistemicGraphClient.connect(
+        client = await MedullaClient.connect(
             socket_path=socket_path,
             verified_context=request_context(),
             timeout=20,

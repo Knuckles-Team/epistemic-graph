@@ -1,0 +1,41 @@
+[package]
+name = "medulla-viz-kernels"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Native visualization LOD/decimation kernels (D-VZ-1 lane V2): M4 (four-point-per-pixel-column: first/min/max/last) and LTTB (Largest Triangle Three Buckets) shape-preserving decimation over raw f64 slices, with a runtime-detected AVX2 fast path (never a compile-time target-feature assumption) and a scalar fallback that is byte-identical in its shape-preservation invariants. Reimplements the ARCHITECTURE of open-source-libraries/xy's LOD ladder in-tree; no dependency on the xy PyPI package."
+license = "MIT"
+
+[lib]
+name = "medulla_viz_kernels"
+
+# V2 sits directly right of V0 in the DAG (`medulla-viz-core -> medulla-viz-kernels`), same
+# posture as `medulla-viz-columnstore`: a pure numeric kernel crate operating on raw
+# `&[f64]` slices (bridged from a `ColumnStore::materialize_f64` output or any other
+# caller-owned buffer), so it does NOT depend on medulla-viz-columnstore itself -- the
+# kernels are useful to any caller holding two same-length f64 slices, not only a
+# ColumnStore-backed one (mirrors how `medulla-viz-export::reduce`'s existing
+# `decimate_minmax`/`density_grid` already take plain `&[f64]`, not a store).
+[dependencies]
+medulla-viz-core = { path = "../medulla-viz-core" }
+
+[dev-dependencies]
+proptest = "1"
+criterion = { version = "0.8", default-features = false }
+
+[features]
+default = []
+# No-op marker mirroring the sibling viz crates' own `viz` feature -- the facade's
+# `viz-kernels` feature is the actual on/off switch for whether this crate links
+# into a given medulla-engine build.
+viz = []
+
+[[bench]]
+name = "kernels_bench"
+path = "benches/kernels_bench.rs"
+harness = false
+
+# Test-only opt-in cfg (not a feature, so `--all-features` never turns it on). See the
+# crate's device/CPU-feature parity tests for when to pass `--cfg medulla_avx2_tests`.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(medulla_avx2_tests)"] }

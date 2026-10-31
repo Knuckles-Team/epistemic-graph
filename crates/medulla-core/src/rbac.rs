@@ -1,0 +1,359 @@
+//! RBAC-at-scale policy evaluator (CONCEPT:MEDULLA-KG.compute.feature, feature `security`).
+//!
+//! Layered ON TOP of the per-agent Row-Level Security / ACL (CONCEPT:MEDULLA-KG.sharding.row-level-security): an
+//! agent carries a set of role NAMES; roles form a hierarchy (a role inherits every
+//! grant of its transitively-reachable parents); and [`Grant`]s bind a role to a
+//! (resource, action, effect) triple. Given an agent's roles + a requested
+//! `(resource, action)`, [`RbacPolicy::evaluate`] returns the winning effect using:
+//!
+//! 1. **default deny** — no matching grant ⇒ `None` (the caller treats it as deny);
+//! 2. **most-specific-resource wins** — a `Graph` grant beats a `Label`, beats a
+//!    `Pattern`, beats `All` (see [`ResourceSelector::specificity`]);
+//! 3. **deny overrides allow** — at the winning specificity, any `Deny` wins.
+//!
+//! Pure-Rust, dep-free, unit-testable. The [`RbacPolicy`] is serde-serializable as the
+//! mandatory authorization layer used by `IsolationLayer`. An empty policy is a valid
+//! fail-closed bootstrap image: it grants no action to any non-System identity.
+
+use std::collections::{HashMap, HashSet};
+
+use crate::acl::{Grant, GrantEffect, RbacAction, ResourceContext, Role};
+use medulla_types::governed_change::GovernedLedger;
+use medulla_types::identity::IdentityStore;
+use medulla_types::rbac_elevation::ElevationLedger;
+use serde::{Deserialize, Serialize};
+
+/// The durable RBAC policy: named roles (with parents) + a flat list of grants.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RbacPolicy {
+    /// Role name → definition (carries its parents for hierarchy expansion).
+    roles: HashMap<String, Role>,
+    /// All grants; evaluation filters by role membership + resource match.
+    grants: Vec<Grant>,
+    /// Just-in-time elevations (EH-404). Part of the policy image so every
+    /// elevation transition is written, digested and rolled back with the
+    /// rest of the authorization state. Omitted from the image while empty.
+    #[serde(default, skip_serializing_if = "ElevationLedger::is_empty")]
+    elevations: ElevationLedger,
+    /// The engine-owned identity store. Part of the SAME image, so a store
+    /// change and its RBAC projection are one durable write, with the change
+    /// recorded in the store's own audit trail. Omitted while empty, so an
+    /// engine that never uses it keeps its bytes. Not part of the policy
+    /// digest: its authority reaches RBAC only through the projected roles,
+    /// grants and identities, which are.
+    #[serde(default, skip_serializing_if = "IdentityStore::is_empty")]
+    identity: IdentityStore,
+    /// EH-560 governed changes: two-person approvals EG proves, in the same
+    /// image as the rest of the authorization state. Omitted while empty.
+    #[serde(default, skip_serializing_if = "GovernedLedger::is_empty")]
+    governed: GovernedLedger,
+}
+
+impl RbacPolicy {
+    pub fn new() -> Self {
+        RbacPolicy::default()
+    }
+
+    /// Add or replace a role definition.
+    pub fn add_role(&mut self, role: Role) {
+        self.roles.insert(role.name.clone(), role);
+    }
+
+    /// Remove a role definition (its grants, if any, remain until removed).
+    pub fn remove_role(&mut self, name: &str) {
+        self.roles.remove(name);
+    }
+
+    /// Add a grant (duplicates are collapsed).
+    pub fn add_grant(&mut self, grant: Grant) {
+        if !self.grants.contains(&grant) {
+            self.grants.push(grant);
+        }
+    }
+
+    /// Remove an exact grant. Returns true when one was removed.
+    pub fn remove_grant(&mut self, grant: &Grant) -> bool {
+        let before = self.grants.len();
+        self.grants.retain(|g| g != grant);
+        self.grants.len() != before
+    }
+
+    pub fn roles(&self) -> impl Iterator<Item = &Role> {
+        self.roles.values()
+    }
+
+    pub fn grants(&self) -> &[Grant] {
+        &self.grants
+    }
+
+    /// The elevation ledger the access chokepoint consults.
+    pub fn elevations(&self) -> &ElevationLedger {
+        &self.elevations
+    }
+
+    pub(crate) fn elevations_mut(&mut self) -> &mut ElevationLedger {
+        &mut self.elevations
+    }
+
+    /// The governed-change ledger.
+    pub fn governed(&self) -> &GovernedLedger {
+        &self.governed
+    }
+
+    pub(crate) fn governed_mut(&mut self) -> &mut GovernedLedger {
+        &mut self.governed
+    }
+
+    /// The identity store.
+    pub fn identity_store(&self) -> &IdentityStore {
+        &self.identity
+    }
+
+    pub(crate) fn identity_store_mut(&mut self) -> &mut IdentityStore {
+        &mut self.identity
+    }
+
+    /// Replace every role and grant in the store-owned `idm:` namespace with
+    /// `roles` and `grants`, leaving every other role and grant untouched.
+    pub(crate) fn replace_projected(&mut self, roles: Vec<Role>, grants: Vec<Grant>) {
+        let owned = |name: &str| name.starts_with(medulla_types::identity::RBAC_ROLE_PREFIX);
+        self.roles.retain(|name, _| !owned(name));
+        self.grants.retain(|grant| !owned(&grant.role));
+        for role in roles {
+            self.roles.insert(role.name.clone(), role);
+        }
+        for grant in grants {
+            self.add_grant(grant);
+        }
+    }
+
+    /// Expand a set of role names to include every transitively-reachable parent
+    /// (cycle-safe). A parent named in `Role::parents` that has no definition is
+    /// still included as a bare name — grants may reference it directly.
+    pub fn expand_roles<S: AsRef<str>>(&self, names: &[S]) -> HashSet<String> {
+        let mut out = HashSet::new();
+        let mut stack: Vec<String> = names.iter().map(|s| s.as_ref().to_string()).collect();
+        while let Some(name) = stack.pop() {
+            if !out.insert(name.clone()) {
+                continue; // already visited — breaks cycles.
+            }
+            if let Some(role) = self.roles.get(&name) {
+                for parent in &role.parents {
+                    if !out.contains(parent) {
+                        stack.push(parent.clone());
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Evaluate the policy for an agent's `role_names` against `(resource, action)`.
+    /// Returns the winning [`GrantEffect`], or `None` when NO grant applies (the
+    /// caller treats `None` as deny — rule 1, default-deny).
+    pub fn evaluate<S: AsRef<str>>(
+        &self,
+        role_names: &[S],
+        resource: &ResourceContext,
+        action: RbacAction,
+    ) -> Option<GrantEffect> {
+        let expanded = self.expand_roles(role_names);
+        // Track the best (most-specific) match; ties broken by deny-over-allow.
+        let mut best: Option<(u8, GrantEffect)> = None;
+        for g in &self.grants {
+            if g.action != action || !expanded.contains(&g.role) || !g.resource.matches(resource) {
+                continue;
+            }
+            let spec = g.resource.specificity();
+            match best {
+                None => best = Some((spec, g.effect)),
+                Some((bspec, beffect)) => {
+                    if spec > bspec {
+                        best = Some((spec, g.effect)); // more specific wins (rule 2).
+                    } else if spec == bspec
+                        && g.effect == GrantEffect::Deny
+                        && beffect == GrantEffect::Allow
+                    {
+                        best = Some((spec, GrantEffect::Deny)); // deny overrides (rule 3).
+                    }
+                }
+            }
+        }
+        best.map(|(_, effect)| effect)
+    }
+
+    /// Convenience default-deny predicate: true only when [`evaluate`] returns
+    /// `Some(Allow)`.
+    ///
+    /// [`evaluate`]: RbacPolicy::evaluate
+    pub fn is_allowed<S: AsRef<str>>(
+        &self,
+        role_names: &[S],
+        resource: &ResourceContext,
+        action: RbacAction,
+    ) -> bool {
+        matches!(
+            self.evaluate(role_names, resource, action),
+            Some(GrantEffect::Allow)
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::acl::ResourceSelector;
+
+    fn grant(role: &str, sel: ResourceSelector, action: RbacAction, effect: GrantEffect) -> Grant {
+        Grant {
+            role: role.into(),
+            resource: sel,
+            action,
+            effect,
+        }
+    }
+
+    #[test]
+    fn child_inherits_parent_grants() {
+        let mut p = RbacPolicy::new();
+        // reader ⊂ editor ⊂ admin (child lists parent).
+        p.add_role(Role::new("reader"));
+        p.add_role(Role::with_parents("editor", vec!["reader".into()]));
+        p.add_role(Role::with_parents("admin", vec!["editor".into()]));
+        p.add_grant(grant(
+            "reader",
+            ResourceSelector::All,
+            RbacAction::Read,
+            GrantEffect::Allow,
+        ));
+        // An "admin" agent inherits reader's Read grant transitively.
+        assert!(p.is_allowed(&["admin"], &ResourceContext::graph("g"), RbacAction::Read));
+        // Expansion includes both parents.
+        let exp = p.expand_roles(&["admin"]);
+        assert!(exp.contains("admin") && exp.contains("editor") && exp.contains("reader"));
+    }
+
+    #[test]
+    fn role_hierarchy_cycle_is_safe() {
+        let mut p = RbacPolicy::new();
+        p.add_role(Role::with_parents("a", vec!["b".into()]));
+        p.add_role(Role::with_parents("b", vec!["a".into()]));
+        let exp = p.expand_roles(&["a"]);
+        assert!(exp.contains("a") && exp.contains("b"));
+    }
+
+    #[test]
+    fn deny_overrides_allow_at_same_specificity() {
+        let mut p = RbacPolicy::new();
+        p.add_grant(grant(
+            "r",
+            ResourceSelector::Graph("g".into()),
+            RbacAction::Write,
+            GrantEffect::Allow,
+        ));
+        p.add_grant(grant(
+            "r",
+            ResourceSelector::Graph("g".into()),
+            RbacAction::Write,
+            GrantEffect::Deny,
+        ));
+        assert_eq!(
+            p.evaluate(&["r"], &ResourceContext::graph("g"), RbacAction::Write),
+            Some(GrantEffect::Deny)
+        );
+    }
+
+    #[test]
+    fn most_specific_resource_wins() {
+        let mut p = RbacPolicy::new();
+        // Broad Deny on All, specific Allow on the named graph ⇒ specific Allow wins.
+        p.add_grant(grant(
+            "r",
+            ResourceSelector::All,
+            RbacAction::Read,
+            GrantEffect::Deny,
+        ));
+        p.add_grant(grant(
+            "r",
+            ResourceSelector::Graph("g".into()),
+            RbacAction::Read,
+            GrantEffect::Allow,
+        ));
+        assert_eq!(
+            p.evaluate(&["r"], &ResourceContext::graph("g"), RbacAction::Read),
+            Some(GrantEffect::Allow)
+        );
+        // For a DIFFERENT graph only the broad Deny applies.
+        assert_eq!(
+            p.evaluate(&["r"], &ResourceContext::graph("other"), RbacAction::Read),
+            Some(GrantEffect::Deny)
+        );
+    }
+
+    #[test]
+    fn default_deny_for_unlisted_action() {
+        let mut p = RbacPolicy::new();
+        p.add_grant(grant(
+            "r",
+            ResourceSelector::All,
+            RbacAction::Read,
+            GrantEffect::Allow,
+        ));
+        // A Write is not granted anywhere ⇒ no match ⇒ default deny.
+        assert_eq!(
+            p.evaluate(&["r"], &ResourceContext::graph("g"), RbacAction::Write),
+            None
+        );
+        assert!(!p.is_allowed(&["r"], &ResourceContext::graph("g"), RbacAction::Write));
+    }
+
+    #[test]
+    fn no_grant_for_unheld_role_is_deny() {
+        let mut p = RbacPolicy::new();
+        p.add_grant(grant(
+            "admin",
+            ResourceSelector::All,
+            RbacAction::Write,
+            GrantEffect::Allow,
+        ));
+        // Agent only holds "reader" ⇒ the admin grant does not apply.
+        assert_eq!(
+            p.evaluate(&["reader"], &ResourceContext::graph("g"), RbacAction::Write),
+            None
+        );
+    }
+
+    #[test]
+    fn empty_policy_denies_every_action() {
+        let p = RbacPolicy::new();
+        assert!(p.grants().is_empty());
+        assert_eq!(
+            p.evaluate(&["anyone"], &ResourceContext::graph("g"), RbacAction::Read),
+            None
+        );
+        assert!(!p.is_allowed(&["anyone"], &ResourceContext::graph("g"), RbacAction::Read));
+    }
+
+    #[test]
+    fn policy_roundtrips_through_serde() {
+        let mut p = RbacPolicy::new();
+        p.add_role(Role::with_parents("editor", vec!["reader".into()]));
+        p.add_grant(grant(
+            "editor",
+            ResourceSelector::Label("Doc".into()),
+            RbacAction::Write,
+            GrantEffect::Allow,
+        ));
+        let s = serde_json::to_string(&p).unwrap();
+        let back: RbacPolicy = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.grants().len(), 1);
+        assert!(back.is_allowed(
+            &["editor"],
+            &ResourceContext {
+                graph: "g".into(),
+                label: Some("Doc".into())
+            },
+            RbacAction::Write
+        ));
+    }
+}

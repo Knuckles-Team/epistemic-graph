@@ -1,7 +1,7 @@
 //! Paired pending-envelope storage. No approval or execution authority.
 use super::*;
-use eg_types::control_lease::{PendingCallFence, PENDING_CALL_KIND};
-use eg_types::epistemic_operations_ext::CasWorkItemMetadataLeaseFence;
+use medulla_types::control_lease::{PendingCallFence, PENDING_CALL_KIND};
+use medulla_types::epistemic_operations_ext::CasWorkItemMetadataLeaseFence;
 
 const PENDING_REF: &str = "pending_call_lease_ref";
 const REGISTERED_WORK: &str = "pending_call_work_item";

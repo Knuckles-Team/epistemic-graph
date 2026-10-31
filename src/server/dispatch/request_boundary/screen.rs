@@ -125,9 +125,9 @@ fn validate_screen_elements(elements: &[crate::screen::UiElementInput]) -> Resul
 pub(crate) fn decode_screen_observation(
     obs_msgpack: &[u8],
 ) -> Result<crate::screen::ScreenObservationInput, String> {
-    let wire: ScreenObservationWire = eg_types::msgpack::decode_bounded(
+    let wire: ScreenObservationWire = medulla_types::msgpack::decode_bounded(
         obs_msgpack,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             MAX_SCREEN_OBSERVATION_BYTES,
             MAX_SCREEN_OBSERVATION_ITEMS,
             64,

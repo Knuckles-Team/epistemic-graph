@@ -32,15 +32,15 @@ mod test_support;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use eg_stream::telemetry::{
+use medulla_stream::telemetry::{
     AnomalyRule, IncidentRule, MetricRole, ResolutionPolicy, RollupPolicy, TelemetryPolicy,
 };
-use eg_stream::{CepPattern, EventMatcher, Window};
-use eg_tsdb::point::Point;
-use eg_tsdb::traces::Span;
-use eg_types::telemetry_derive::TelemetryDeriveReceipt;
-use epistemic_graph::protocol::{Method, Response, ResultPayload};
-use epistemic_graph::server::obs::{LogRecord, ObsState};
+use medulla_stream::{CepPattern, EventMatcher, Window};
+use medulla_tsdb::point::Point;
+use medulla_tsdb::traces::Span;
+use medulla_types::telemetry_derive::TelemetryDeriveReceipt;
+use medulla::protocol::{Method, Response, ResultPayload};
+use medulla::server::obs::{LogRecord, ObsState};
 use serde_json::json;
 
 const SECRET: &str = "served-telemetry-facts-secret";
@@ -92,7 +92,7 @@ async fn declare_services(state: &test_support::SharedState) {
 }
 
 /// Ten ten-second windows of ten 20 ms spans from `service`; windows 4..=6
-/// are 80% errors. Every span carries `tenant` under `eg_tenant`.
+/// are 80% errors. Every span carries `tenant` under `medulla_tenant`.
 fn spans(service: &str, tenant: &str, failing_everywhere: bool) -> Vec<Span> {
     let mut out = Vec::new();
     for window in 0..10u64 {
@@ -113,7 +113,7 @@ fn spans(service: &str, tenant: &str, failing_everywhere: bool) -> Vec<Span> {
                     "OK"
                 }
                 .into(),
-                attributes: BTreeMap::from([("eg_tenant".to_string(), tenant.to_string())]),
+                attributes: BTreeMap::from([("medulla_tenant".to_string(), tenant.to_string())]),
                 events: Vec::new(),
             });
         }
@@ -136,7 +136,7 @@ fn seed_telemetry(obs: &ObsState) {
     }])
     .unwrap();
     // A counter no individual declares a key for: read, rolled, unresolved.
-    let series = format!("{REQUESTS_METRIC}{{eg_tenant=\"{TENANT}\",job=\"node\"}}");
+    let series = format!("{REQUESTS_METRIC}{{medulla_tenant=\"{TENANT}\",job=\"node\"}}");
     let points: Vec<Point> = (0..3u64)
         .map(|i| {
             Point::single(
@@ -213,7 +213,7 @@ async fn node(state: &test_support::SharedState, id: &str) -> serde_json::Value 
     let bytes = core
         .get_node_properties(id)
         .unwrap_or_else(|| panic!("fact {id} was not written"));
-    eg_types::msgpack::decode_property_value(&bytes).unwrap()
+    medulla_types::msgpack::decode_property_value(&bytes).unwrap()
 }
 
 async fn edge_count(state: &test_support::SharedState, relationship: &str) -> usize {
@@ -222,14 +222,14 @@ async fn edge_count(state: &test_support::SharedState, relationship: &str) -> us
     core.get_edges()
         .into_iter()
         .filter(|(_, _, properties)| {
-            eg_types::msgpack::decode_property_value(properties)
+            medulla_types::msgpack::decode_property_value(properties)
                 .map(|value| value["relationship"] == relationship)
                 .unwrap_or(false)
         })
         .count()
 }
 
-// spec: EG-DECISION-ENGINE-R125
+// spec: MEDULLA-DECISION-ENGINE-R125
 #[tokio::test]
 async fn served_derivation_writes_bound_facts_with_provenance() {
     let (state, _obs) = served_state().await;

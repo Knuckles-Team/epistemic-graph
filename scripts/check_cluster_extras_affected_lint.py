@@ -28,7 +28,7 @@ path list, so it self-updates as the crate/feature graph evolves:
   3. Map every file the push actually changed (the `PRE_COMMIT_FROM_REF`..
      `PRE_COMMIT_TO_REF` range pre-commit hands a pre-push hook) to its
      owning crate (`crates/<name>/**` -> `<name>`; `src/**`/`build.rs` ->
-     the root `epistemic-graph` facade, since `src/raft/`, the ROS2 bridge,
+     the root `medulla` facade, since `src/raft/`, the ROS2 bridge,
      etc. all live there).
   4. Run the heavy lint if ANY touched crate intersects the reachable set,
      or if `Cargo.toml`/`Cargo.lock` itself changed (the dependency graph
@@ -208,7 +208,7 @@ def _owning_crate(path: str) -> str | None:
     if parts[0] == "crates" and len(parts) > 1:
         return parts[1]
     if parts[0] in ("src", "build.rs"):
-        return "epistemic-graph"
+        return "medulla"
     return None
 
 

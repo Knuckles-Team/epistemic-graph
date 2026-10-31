@@ -21,7 +21,7 @@ def test_inventory_rejects_duplicate_owner_and_nonstandard_directory(
     tmp_path: Path,
 ) -> None:
     _add_spec(tmp_path, "native-kernel", ["EH-383"])
-    _add_spec(tmp_path, "EG-T4-GREEN", ["EH-383"])
+    _add_spec(tmp_path, "MEDULLA-T4-GREEN", ["EH-383"])
     (tmp_path / "specs/README.md").write_text(
         "[native-kernel](native-kernel/spec.md)\n", encoding="utf-8"
     )
@@ -99,7 +99,7 @@ def test_private_reference_protection_is_preserved(
     )
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R011.2")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R011.2")
 def test_manifest_reproduction_has_no_private_or_local_reference() -> None:
     root = Path(__file__).resolve().parents[2]
     path = Path("specs/durable-graph-kernel/test-spec.md")

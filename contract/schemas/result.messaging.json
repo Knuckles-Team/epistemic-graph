@@ -2,7 +2,7 @@
   "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
   "$defs": {
     "CdcEvent": {
-      "description": "One ordered change in a graph's CDC feed (CONCEPT:EG-KG.query.streaming-cdc-subscriptions). `seq` is the per-graph\nmonotonic cursor: a consumer tails with `CdcRead { from_seq }` and re-reads from a\nlater `seq` to skip what it has already seen. `before`/`after` carry the affected\nnode/edge property blob (MessagePack) pre- and post-mutation; `None` means absent\n(an add has no `before`, a remove no `after`).",
+      "description": "One ordered change in a graph's CDC feed (CONCEPT:MEDULLA-KG.query.streaming-cdc-subscriptions). `seq` is the per-graph\nmonotonic cursor: a consumer tails with `CdcRead { from_seq }` and re-reads from a\nlater `seq` to skip what it has already seen. `before`/`after` carry the affected\nnode/edge property blob (MessagePack) pre- and post-mutation; `None` means absent\n(an add has no `before`, a remove no `after`).",
       "properties": {
         "after": {
           "default": [],
@@ -80,7 +80,7 @@
       "type": "string"
     },
     "CdcReadResult": {
-      "description": "Materialized result of a `Method::CdcRead` call (B-8, 2026-08-13). Same\ndefect class as `GetLedger` (BUG A1): `CdcHub` (`src/server/cdc.rs`) backs\n`CdcRead`/`Watch`/`FiredTriggers` with a bounded, per-graph, PURELY\nIN-MEMORY ring (default 65,536 entries, `EPISTEMIC_GRAPH_CDC_RING` to\noverride) — deliberately EPHEMERAL, not durable (see that module's own\ndoc for the reasoning and why durability is a separate, out-of-scope,\nstorage-format decision). A caller that persists a `from_seq` cursor and\nresumes tailing can fall off the back of that ring in two distinct ways\nthat both used to look exactly like \"nothing happened\":\n\n  1. **within-epoch trim** — the ring exceeded its cap and dropped the\n     oldest entries past `from_seq` (same process, same epoch).\n  2. **epoch reset** — the process restarted (or the graph's feed was\n     rewound by `ClearGraph`/`FromMsgpack`/`Reconcile`), so the feed's\n     seq numbering restarted from 0 in a FRESH epoch. This is the more\n     dangerous case: `from_seq` can be numerically \"in range\" of the new\n     epoch's `[watermark, head_seq]` window WITHOUT naming the same\n     events at all — a purely numeric `from_seq <= head_seq` check\n     cannot tell the two epochs apart. `epoch` exists for exactly this:\n     it is a fresh id minted once when the hub is constructed\n     (`CdcHub::new()`), stable for the process's life. A caller that\n     persists `(epoch, from_seq)` alongside its cursor and observes a\n     DIFFERENT `epoch` on a later read has PROOF the feed restarted\n     under it, even when the server's own numeric check above could not\n     catch it.\n\n`gap: true` covers case 1 (server-detectable) explicitly — `events` is\nalways empty in that case, and `watermark`/`head_seq` are the current\nvalues so the caller can re-seed (`watermark` to replay everything still\nretained, `head_seq` to resume from \"now\" and accept the gap). `gap:\nfalse` means `events` is a complete, contiguous read from `from_seq`\nWITHIN the returned `epoch` — the caller is still responsible for\ncomparing `epoch` across resumed reads to catch case 2.",
+      "description": "Materialized result of a `Method::CdcRead` call (B-8, 2026-08-13). Same\ndefect class as `GetLedger` (BUG A1): `CdcHub` (`src/server/cdc.rs`) backs\n`CdcRead`/`Watch`/`FiredTriggers` with a bounded, per-graph, PURELY\nIN-MEMORY ring (default 65,536 entries, `MEDULLA_CDC_RING` to\noverride) — deliberately EPHEMERAL, not durable (see that module's own\ndoc for the reasoning and why durability is a separate, out-of-scope,\nstorage-format decision). A caller that persists a `from_seq` cursor and\nresumes tailing can fall off the back of that ring in two distinct ways\nthat both used to look exactly like \"nothing happened\":\n\n  1. **within-epoch trim** — the ring exceeded its cap and dropped the\n     oldest entries past `from_seq` (same process, same epoch).\n  2. **epoch reset** — the process restarted (or the graph's feed was\n     rewound by `ClearGraph`/`FromMsgpack`/`Reconcile`), so the feed's\n     seq numbering restarted from 0 in a FRESH epoch. This is the more\n     dangerous case: `from_seq` can be numerically \"in range\" of the new\n     epoch's `[watermark, head_seq]` window WITHOUT naming the same\n     events at all — a purely numeric `from_seq <= head_seq` check\n     cannot tell the two epochs apart. `epoch` exists for exactly this:\n     it is a fresh id minted once when the hub is constructed\n     (`CdcHub::new()`), stable for the process's life. A caller that\n     persists `(epoch, from_seq)` alongside its cursor and observes a\n     DIFFERENT `epoch` on a later read has PROOF the feed restarted\n     under it, even when the server's own numeric check above could not\n     catch it.\n\n`gap: true` covers case 1 (server-detectable) explicitly — `events` is\nalways empty in that case, and `watermark`/`head_seq` are the current\nvalues so the caller can re-seed (`watermark` to replay everything still\nretained, `head_seq` to resume from \"now\" and accept the gap). `gap:\nfalse` means `events` is a complete, contiguous read from `from_seq`\nWITHIN the returned `epoch` — the caller is still responsible for\ncomparing `epoch` across resumed reads to catch case 2.",
       "properties": {
         "epoch": {
           "description": "This hub instance's process-lifetime epoch id. See the struct doc.",
@@ -347,7 +347,7 @@
       "type": "object"
     },
     "ConfirmToken": {
-      "description": "A publisher-confirm token (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos): a\nbroker-wide monotonic `delivery_tag` identifying the publish, plus whether the broker\ndurably accepted it (`confirmed`) or nacked it (unknown exchange). Mirrors AMQP\npublisher confirms / Kafka acks.",
+      "description": "A publisher-confirm token (CONCEPT:MEDULLA-KG.compute.publisher-confirms-consumer-qos): a\nbroker-wide monotonic `delivery_tag` identifying the publish, plus whether the broker\ndurably accepted it (`confirmed`) or nacked it (unknown exchange). Mirrors AMQP\npublisher confirms / Kafka acks.",
       "properties": {
         "confirmed": {
           "type": "boolean"
@@ -389,7 +389,7 @@
       "type": "object"
     },
     "FiredAction": {
-      "description": "A recorded trigger firing (CONCEPT:EG-KG.query.wire-codec). Returned by `FiredTriggers` so a\nreaction consumer pulls the action payload + the change that fired it.",
+      "description": "A recorded trigger firing (CONCEPT:MEDULLA-KG.query.wire-codec). Returned by `FiredTriggers` so a\nreaction consumer pulls the action payload + the change that fired it.",
       "properties": {
         "action": {
           "default": [],
@@ -580,7 +580,7 @@
       "type": "object"
     },
     "IdempotentPublish": {
-      "description": "Outcome of an idempotent publish (CONCEPT:EG-KG.ingest.broker-reject-publish).\n`confirmed` mirrors the EG-284 publisher-confirm (the exchange existed / the broker\naccepted it); `duplicate` is `true` when a `(producer_id, seq)` stamp was recognised\nas already-seen and the message was DROPPED (effectively-once — a duplicate still\nconfirms so the retrying publisher stops); `delivered` is the number of queues the\nmessage was routed to (`0` for a duplicate or an unroutable/nacked publish).",
+      "description": "Outcome of an idempotent publish (CONCEPT:MEDULLA-KG.ingest.broker-reject-publish).\n`confirmed` mirrors the MEDULLA-284 publisher-confirm (the exchange existed / the broker\naccepted it); `duplicate` is `true` when a `(producer_id, seq)` stamp was recognised\nas already-seen and the message was DROPPED (effectively-once — a duplicate still\nconfirms so the retrying publisher stops); `delivered` is the number of queues the\nmessage was routed to (`0` for a duplicate or an unroutable/nacked publish).",
       "properties": {
         "confirmed": {
           "type": "boolean"
@@ -649,7 +649,7 @@
       ]
     },
     "TriggerInfo": {
-      "description": "One trigger registration (CONCEPT:EG-KG.query.wire-codec). When a CDC change in `graph` matches\n`label` + `op`, the trigger fires its `action` (an opaque MessagePack payload the\nconsumer interprets — e.g. a notification topic / a webhook spec). Fired actions\nare recorded in a per-graph fired log a client polls with `FiredTriggers`.",
+      "description": "One trigger registration (CONCEPT:MEDULLA-KG.query.wire-codec). When a CDC change in `graph` matches\n`label` + `op`, the trigger fires its `action` (an opaque MessagePack payload the\nconsumer interprets — e.g. a notification topic / a webhook spec). Fired actions\nare recorded in a per-graph fired log a client polls with `FiredTriggers`.",
       "properties": {
         "fire_count": {
           "description": "How many times this trigger has fired.",
@@ -706,7 +706,7 @@
       ]
     },
     "WatchBatch": {
-      "description": "A batch returned by a `Watch` long-poll (CONCEPT:EG-KG.query.wire-codec): the matching changes\nsince the client's cursor plus the next cursor to resume from.\n\nB-8 (2026-08-13): `Watch` tails the SAME bounded, explicitly-ephemeral\n`CdcHub` ring `CdcRead` does (`src/server/cdc.rs`'s module doc) via the\nidentical `from_seq` cursor, so it can fall off the back of that ring in\nthe identical two ways `CdcReadResult` documents (within-epoch trim, or\nan epoch reset from a process restart / `ClearGraph`/`FromMsgpack`/\n`Reconcile`) — an empty `events` used to be indistinguishable from \"caught\nup\". `gap: true` makes that explicit (`events` is then always empty);\n`watermark`/`head_seq`/`epoch` carry the same meaning as on\n`CdcReadResult` so a caller resuming `Watch` can detect the gap exactly\nthe same way.",
+      "description": "A batch returned by a `Watch` long-poll (CONCEPT:MEDULLA-KG.query.wire-codec): the matching changes\nsince the client's cursor plus the next cursor to resume from.\n\nB-8 (2026-08-13): `Watch` tails the SAME bounded, explicitly-ephemeral\n`CdcHub` ring `CdcRead` does (`src/server/cdc.rs`'s module doc) via the\nidentical `from_seq` cursor, so it can fall off the back of that ring in\nthe identical two ways `CdcReadResult` documents (within-epoch trim, or\nan epoch reset from a process restart / `ClearGraph`/`FromMsgpack`/\n`Reconcile`) — an empty `events` used to be indistinguishable from \"caught\nup\". `gap: true` makes that explicit (`events` is then always empty);\n`watermark`/`head_seq`/`epoch` carry the same meaning as on\n`CdcReadResult` so a caller resuming `Watch` can detect the gap exactly\nthe same way.",
       "properties": {
         "epoch": {
           "default": 0,

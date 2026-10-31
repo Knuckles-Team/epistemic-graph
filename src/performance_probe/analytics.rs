@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use super::{allocation_bytes, timed, Observation, ProbeError};
-use eg_plan::knowledge_batch::{KnowledgeBatch, KnowledgeBatchRow};
-use eg_tsdb::traces::{Span, SpanStore, TraceQuery};
+use medulla_plan::knowledge_batch::{KnowledgeBatch, KnowledgeBatchRow};
+use medulla_tsdb::traces::{Span, SpanStore, TraceQuery};
 
 pub(super) fn probe_traces(scale: usize) -> Result<Observation, ProbeError> {
     let store = SpanStore::new();

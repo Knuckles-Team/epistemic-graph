@@ -29,7 +29,7 @@ use crate::server::auth::{
     compute_verified_envelope_token, VerifiedEnvelopeParams, VerifiedRequestContext,
 };
 use crate::test_support::decode_raw_response as ok;
-use eg_types::semantic_index::{
+use medulla_types::semantic_index::{
     SemanticBinding, SemanticBindingState, SemanticIndexCommand, SemanticIndexFilter,
     SemanticIndexOp, SemanticIndexOutcome, SemanticIndexRequest, SemanticIndexResponse,
     SemanticIndexResult, SemanticPolicyIdentity, SemanticQueueClass, SemanticStage,
@@ -41,7 +41,7 @@ use eg_types::semantic_index::{
 /// nothing outside this process and is never a live credential.
 const SECRET: &str = "semantic-index-dispatch-fixture-secret"; // sanitizer:ignore
 /// `auth::request_context_policy` is a FIXED triple under `cfg(test)`:
-/// audience `epistemic-graph-test`, tenant `tenant-shared`, policy version
+/// audience `medulla-test`, tenant `tenant-shared`, policy version
 /// `policy-test`. A signed envelope that names anything else is refused at
 /// the request boundary before the method is ever looked at, so these are
 /// not arbitrary fixture names.
@@ -61,7 +61,7 @@ fn claims(principal: &str) -> RequestContextClaims {
     RequestContextClaims {
         principal: principal.to_string(),
         tenant: TENANT.to_string(),
-        audience: "epistemic-graph-test".to_string(),
+        audience: "medulla-test".to_string(),
         agent_id: principal.to_string(),
         scopes: vec!["*".to_string()],
         // Empty: this is a NON-delegated context (the principal IS the
@@ -386,7 +386,7 @@ async fn dispatch_drives_a_source_through_s1_and_publishes_s2() {
     // until S1 completes. This is the lease-level half -- presenting an S2
     // transition against the S1 lease that is actually held.
     let premature = SemanticStageTransition {
-        intent: eg_types::semantic_index::SemanticStageIntent::create(premature_s2)
+        intent: medulla_types::semantic_index::SemanticStageIntent::create(premature_s2)
             .expect("the S2 intent is well formed"),
         receipt: SemanticStageReceipt {
             intent_digest: s1_receipt_digest,
@@ -408,7 +408,7 @@ async fn dispatch_drives_a_source_through_s1_and_publishes_s2() {
                     binding_id: binding_id.clone(),
                     lease: Box::new(entry.lease.clone()),
                     transition: Box::new(premature),
-                    artifact: Box::new(eg_types::semantic_index::SemanticStageArtifact::None),
+                    artifact: Box::new(medulla_types::semantic_index::SemanticStageArtifact::None),
                     successor: None,
                 },
             ),
@@ -570,7 +570,7 @@ async fn dispatch_refuses_an_unbounded_stage_claim_by_name() {
                     binding_id: "binding:documents-body".to_string(),
                     consumer: WORKER.to_string(),
                     queue_class: SemanticQueueClass::Fast,
-                    limit: eg_types::semantic_index::MAX_SEMANTIC_STAGE_CLAIM_LIMIT + 1,
+                    limit: medulla_types::semantic_index::MAX_SEMANTIC_STAGE_CLAIM_LIMIT + 1,
                     lease_ms: 60_000,
                 },
             ),
@@ -584,7 +584,7 @@ async fn dispatch_refuses_an_unbounded_stage_claim_by_name() {
     let _ = commit_sql_change;
 }
 
-/// EG-IDENTITY-R005: a worker presents ONE verified identity across every
+/// MEDULLA-IDENTITY-R005: a worker presents ONE verified identity across every
 /// queue class it processes, rather than switching principals per class.
 ///
 /// Every op below carries a client-claimed `consumer` field naming a
@@ -597,7 +597,7 @@ async fn dispatch_refuses_an_unbounded_stage_claim_by_name() {
 /// signature verified, so both classes' leases -- Fast's S1 and Medium's
 /// published S2 successor -- are attributed to the same verified worker,
 /// and the claimed field is never read for authorization.
-// spec: EG-IDENTITY-R005
+// spec: MEDULLA-IDENTITY-R005
 #[tokio::test]
 async fn dispatch_attributes_every_queue_class_to_the_one_verified_principal() {
     let worker = worker_authority();
@@ -696,7 +696,7 @@ async fn dispatch_attributes_every_queue_class_to_the_one_verified_principal() {
     assert_eq!(fast.entries.len(), 1, "the admitted S1 is claimable");
     let fast_entry = fast.entries.into_iter().next().unwrap();
     let fast_parts =
-        eg_core::compute::semantic_ann_codes::stage_consumer_parts(&fast_entry.lease.consumer)
+        medulla_core::compute::semantic_ann_codes::stage_consumer_parts(&fast_entry.lease.consumer)
             .expect("a leased row's consumer is `<worker>#<class>`");
     assert_eq!(
         fast_parts.0, WORKER,
@@ -763,7 +763,7 @@ async fn dispatch_attributes_every_queue_class_to_the_one_verified_principal() {
     );
     let medium_entry = medium.entries.into_iter().next().unwrap();
     let medium_parts =
-        eg_core::compute::semantic_ann_codes::stage_consumer_parts(&medium_entry.lease.consumer)
+        medulla_core::compute::semantic_ann_codes::stage_consumer_parts(&medium_entry.lease.consumer)
             .expect("a leased row's consumer is `<worker>#<class>`");
     assert_eq!(
         medium_parts.0, WORKER,

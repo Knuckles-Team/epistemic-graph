@@ -4,7 +4,7 @@
 // Rust declaration order, serde defaults materialized, maps sorted, float and byte
 // widths per field. Restating that in JavaScript mis-signed most of the contract's
 // method-body vectors, so the client runs the engine's own decoder and encoder:
-// crates/eg-method-codec compiled to WebAssembly by
+// crates/medulla-method-codec compiled to WebAssembly by
 // scripts/build_method_codec_wasm.py (CI rebuilds it and byte-compares this copy).
 // The module has no imports; Node's built-in WebAssembly runs it.
 
@@ -13,7 +13,7 @@ import { encode } from "@msgpack/msgpack";
 
 const METHOD_BODY_CODEC = "eg/method-body/v1";
 const BODY_STATUS = 0;
-const MODULE_URL = new URL("./eg_method_codec.wasm", import.meta.url);
+const MODULE_URL = new URL("./medulla_method_codec.wasm", import.meta.url);
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 
 let compiled = null;
@@ -29,7 +29,7 @@ function codecExports() {
   if (instance !== null) return instance;
   compiled ??= new WebAssembly.Module(readFileSync(MODULE_URL));
   const created = new WebAssembly.Instance(compiled, {}).exports;
-  const identity = utf8.decode(bytesAt(created, created.eg_codec_ptr(), created.eg_codec_len()));
+  const identity = utf8.decode(bytesAt(created, created.medulla_codec_ptr(), created.medulla_codec_len()));
   if (identity !== METHOD_BODY_CODEC) {
     throw new Error(`the embedded method-body codec is not ${METHOD_BODY_CODEC}`);
   }
@@ -39,10 +39,10 @@ function codecExports() {
 
 function runCodec(frame) {
   const exports = codecExports();
-  const ptr = exports.eg_input_reserve(frame.length);
+  const ptr = exports.medulla_input_reserve(frame.length);
   new Uint8Array(exports.memory.buffer, ptr, frame.length).set(frame);
-  const status = exports.eg_canonical_body();
-  return { status, output: bytesAt(exports, exports.eg_output_ptr(), exports.eg_output_len()) };
+  const status = exports.medulla_canonical_body();
+  return { status, output: bytesAt(exports, exports.medulla_output_ptr(), exports.medulla_output_len()) };
 }
 
 /**

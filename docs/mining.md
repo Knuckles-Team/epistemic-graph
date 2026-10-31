@@ -1,6 +1,6 @@
 # Data Mining — the `graph_mine` / `/api/mining` surface
 
-> CONCEPT:EG-KG.mining.frequent-itemset-mining
+> CONCEPT:MEDULLA-KG.mining.frequent-itemset-mining
 >
 > A unified, cross-modal **data-mining** surface on the engine. Every algorithm
 > runs **compute-near-data** — one round-trip over data already resident in the
@@ -27,7 +27,7 @@ The surface exposes seventeen actions today:
 - **`entity_resolve`, `causal_impact`, `process`, `root_cause`,
   `risk_propagation`, `ontology_gap`, `retrieval_quality`, `community`** — eight
   more families rounding out the surface (`Method::MineEntityResolve` through
-  `Method::MineCommunity` in `crates/eg-types/src/protocol.rs`), each following the
+  `Method::MineCommunity` in `crates/medulla-types/src/protocol.rs`), each following the
   SAME shape: explicit-or-graph-derived input, optional `writeback` of a typed
   node, optional `as_claim` epistemic writeback gated `all(mining, epistemic)`.
 
@@ -44,10 +44,10 @@ algorithm", not "add a surface".
 
 | Layer | Where |
 |-------|-------|
-| Engine impl | `crates/eg-compute/src/mining/{association,cluster,anomaly}.rs` — pure-Rust, dependency-light, deterministic |
-| Protocol | `Method::Mine{Associate,Cluster,Anomaly}` in the `// ── Mining ──` section of `crates/eg-types/src/protocol.rs` (feature `mining`) |
+| Engine impl | `crates/medulla-compute/src/mining/{association,cluster,anomaly}.rs` — pure-Rust, dependency-light, deterministic |
+| Protocol | `Method::Mine{Associate,Cluster,Anomaly}` in the `// ── Mining ──` section of `crates/medulla-types/src/protocol.rs` (feature `mining`) |
 | Handler | `src/server/handlers/mining.rs` — graph-derived rows + write-back over the live `GraphCore` |
-| Client | `client.mining.{associate,cluster,anomaly}(...)` (`epistemic_graph/client.py`) |
+| Client | `client.mining.{associate,cluster,anomaly}(...)` (`medulla/client.py`) |
 | arbora MCP | `graph_mine action="associate\|cluster\|anomaly"` (agent-utilities `engine_surface_tools.py`) — plus the granular `engine_mining` verb |
 | REST twin | `POST /api/mining/{associate,cluster,anomaly}` (agent-utilities `kg_server.py`, same `_execute_tool` core — surface parity is a build gate) |
 
@@ -73,9 +73,9 @@ itemsets (asserted by a parity test), so rule generation is shared. The metrics:
 graph-derived `source` — never both (explicit wins).
 
 ```python
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
-c = SyncEpistemicGraphClient.connect(socket_path="/run/epistemic-graph/shard-0.sock")
+c = SyncMedullaClient.connect(socket_path="/run/medulla/shard-0.sock")
 
 # (1) explicit market-basket transactions
 res = c.mining.associate(
@@ -159,9 +159,9 @@ IMPLEMENTS a `Capability`; each paper's neighborhood is one transaction over
 implement Z"):
 
 ```python
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
-c = SyncEpistemicGraphClient.connect(socket_path="/run/epistemic-graph/shard-0.sock")
+c = SyncMedullaClient.connect(socket_path="/run/medulla/shard-0.sock")
 c.graph.clear()
 
 concepts = {"cA": "concept:cA", "cB": "concept:cB", "cC": "concept:cC"}
@@ -212,7 +212,7 @@ mined `:AssociationRule` nodes feed the evolution queue directly.
 
 `source={"node_label": ...}` (above) is already a fused, compute-near-data
 retrieval — but it can only express "every node with this label". The `plan`
-parameter (CONCEPT:EG-KG.mining.fused-plan-source) generalizes that to an
+parameter (CONCEPT:MEDULLA-KG.mining.fused-plan-source) generalizes that to an
 **arbitrary upstream cross-modal retrieval plan** — the SAME `Op` algebra
 `unified_query` runs (`Scan`/`Filter`/`Traverse`/`Rank`/`RankText`/`Reason`/…):
 the plan runs FIRST, over the resident graph/vector/SQL/RDF modalities, and
@@ -270,10 +270,10 @@ pure-Rust engines selected by `algorithm`:
 
 | `algorithm` | What | Key params |
 |-------------|------|------------|
-| `dbscan` (default) | Density clustering (CONCEPT:EG-KG.mining.dbscan-density); labels un-dense points **noise** (`cluster_id = -1`) | `eps`, `min_pts` |
-| `hierarchical` | Agglomerative single/complete/average linkage cut to `k` (CONCEPT:EG-KG.mining.hierarchical-linkage) | `k`, `linkage` |
-| `gmm` | Diagonal-covariance Gaussian mixture via EM; soft **responsibilities** + argmax label (CONCEPT:EG-KG.mining.gmm-em) | `k`, `max_iter`, `seed` |
-| `kmedoids` | Partitioning Around Medoids — centers are real data points (CONCEPT:EG-KG.mining.kmedoids-pam) | `k`, `max_iter` |
+| `dbscan` (default) | Density clustering (CONCEPT:MEDULLA-KG.mining.dbscan-density); labels un-dense points **noise** (`cluster_id = -1`) | `eps`, `min_pts` |
+| `hierarchical` | Agglomerative single/complete/average linkage cut to `k` (CONCEPT:MEDULLA-KG.mining.hierarchical-linkage) | `k`, `linkage` |
+| `gmm` | Diagonal-covariance Gaussian mixture via EM; soft **responsibilities** + argmax label (CONCEPT:MEDULLA-KG.mining.gmm-em) | `k`, `max_iter`, `seed` |
+| `kmedoids` | Partitioning Around Medoids — centers are real data points (CONCEPT:MEDULLA-KG.mining.kmedoids-pam) | `k`, `max_iter` |
 
 Rows come from **either** an explicit `features` matrix **or** a graph-derived
 `source` (node embeddings). Output rows are `{cluster_id, members, centroid,
@@ -281,9 +281,9 @@ score}` (score = mean member→centroid distance; GMM also returns
 `responsibilities`).
 
 ```python
-from epistemic_graph.client import SyncEpistemicGraphClient
+from medulla.client import SyncMedullaClient
 
-c = SyncEpistemicGraphClient.connect(socket_path="/run/epistemic-graph/shard-0.sock")
+c = SyncMedullaClient.connect(socket_path="/run/medulla/shard-0.sock")
 
 # Explicit feature matrix — DBSCAN two blobs + a noise point.
 res = c.mining.cluster(
@@ -300,7 +300,7 @@ res = c.mining.cluster(
 The `source` spec `{node_label, limit}` gathers the **stored embedding** of every
 node with that label as the feature rows — so "retrieve the vectors of these nodes,
 then cluster them, then write the clusters back" is **one** compute-near-data plan
-(CONCEPT:EG-KG.mining.node-embedding-source), no marshalling, no second round-trip:
+(CONCEPT:MEDULLA-KG.mining.node-embedding-source), no marshalling, no second round-trip:
 
 ```python
 # Cluster the embeddings of every :Doc, then materialize :Cluster nodes.
@@ -319,7 +319,7 @@ With `writeback=true` each non-noise cluster becomes a typed `:Cluster` node
 (`algo`, `cluster_id`, `size`, `members`, `centroid`, `score`; deterministic id =
 digest of algo + sorted member ids, so replay is idempotent) linked
 (`CLUSTER_MEMBER`) to its resident member nodes — the discovery flywheel
-(CONCEPT:EG-KG.mining.cluster-writeback). No vector-only stack expresses
+(CONCEPT:MEDULLA-KG.mining.cluster-writeback). No vector-only stack expresses
 "ANN-neighborhood → cluster → write typed nodes back" as one plan.
 
 ---
@@ -332,10 +332,10 @@ Five interchangeable detectors, each returning a per-row `anomaly_score` (**high
 
 | `algorithm` | What | Key params | Default threshold |
 |-------------|------|------------|-------------------|
-| `zscore` (default) | Robust modified z-score / MAD (CONCEPT:EG-KG.mining.zscore-mad) | — | 3.5 |
-| `isoforest` | Isolation Forest — path-length score (CONCEPT:EG-KG.mining.isolation-forest) | `n_trees`, `sample_size`, `seed` | 0.6 |
-| `lof` | Local Outlier Factor — k-neighbor density ratio (CONCEPT:EG-KG.mining.lof-local-density) | `k` | 1.5 |
-| `ocsvm` | One-Class ν-SVM boundary via SMO (CONCEPT:EG-KG.mining.oneclass-svm) | `nu`, `kernel`, `gamma` | 0.0 |
+| `zscore` (default) | Robust modified z-score / MAD (CONCEPT:MEDULLA-KG.mining.zscore-mad) | — | 3.5 |
+| `isoforest` | Isolation Forest — path-length score (CONCEPT:MEDULLA-KG.mining.isolation-forest) | `n_trees`, `sample_size`, `seed` | 0.6 |
+| `lof` | Local Outlier Factor — k-neighbor density ratio (CONCEPT:MEDULLA-KG.mining.lof-local-density) | `k` | 1.5 |
+| `ocsvm` | One-Class ν-SVM boundary via SMO (CONCEPT:MEDULLA-KG.mining.oneclass-svm) | `nu`, `kernel`, `gamma` | 0.0 |
 | `matrix_profile_discord` | The matrix-profile discord score of a **1-D `values` series** — the subsequence farthest from its nearest neighbour (EH-529, ANALYTICS-HARVEST AH-09) | `sample_size` (the subsequence length `m`), `seed` | `mean + 2·std` of this run's own scores |
 
 `matrix_profile_discord` only makes sense over `values` (a single scalar series in
@@ -343,7 +343,7 @@ timestamp order) — it reuses `sample_size`/`seed` rather than adding two
 algorithm-specific fields, exactly as `isoforest`/`lof`/`ocsvm` already reuse the
 shared parameter fields for their own algorithm-specific meaning. See UQL `DISCORD`
 (`docs/analytics_in_uql.md`) for the query-time, per-query-budgeted sibling of this
-same kernel (`eg_numeric::series::matrix_profile`) inside a plan.
+same kernel (`medulla_numeric::series::matrix_profile`) inside a plan.
 
 Rows come from **explicit `features`**, a **1-D `values` series** (each scalar → one
 row), **or** a graph-derived `source` (node embeddings). Output rows are `{id,
@@ -383,7 +383,7 @@ anoms = c.nodes.list_by_label("Anomaly", 0)
 
 With `writeback=true` each flagged row becomes a typed `:Anomaly` node (`algo`,
 `score`, `source`; deterministic id) linked (`ANOMALY_OF`) to its resident source
-node (CONCEPT:EG-KG.mining.anomaly-writeback) — so the RCA result feeds OWL
+node (CONCEPT:MEDULLA-KG.mining.anomaly-writeback) — so the RCA result feeds OWL
 reasoning + the next mining pass. This directly serves the evolution use case:
 anomaly-detect this repository's own **concept-implementation coverage** to surface divergent /
 under-implemented areas for the wiring sweep.
@@ -688,7 +688,7 @@ POST /api/mining/forecast { "values": [5, 8, 11, 14], "algorithm": "holtwinters"
 # Text mining — `action="text"`
 
 Mines a text corpus: TF-IDF term weighting or `k`-topic modeling. Pure-Rust
-tokenization (lowercase, alnum-run split) and algorithms — no Tantivy/eg-text
+tokenization (lowercase, alnum-run split) and algorithms — no Tantivy/medulla-text
 dependency (the corpus is either handed in pre-tokenized, or tokenized from a node
 text property, compute-near-data):
 
@@ -1112,7 +1112,7 @@ POST /api/mining/retrieval_quality { "traces": [...], "k": 5 }
 # Community detection as a mining family — `action="community"`
 
 Wraps the EXISTING GDS Louvain / label-propagation kernels
-(`eg_compute::graph_algos`, already exposed on the Cypher `CALL gds.*` surface) —
+(`medulla_compute::graph_algos`, already exposed on the Cypher `CALL gds.*` surface) —
 adds NO new algorithm, only the epistemic writeback. Runs over the resident graph,
 optionally restricted to one node `label` (like `subgraph`). `algorithm` selects
 the kernel; `resolution` (Louvain modularity) and `weighted` (label-propagation
@@ -1143,14 +1143,14 @@ POST /api/mining/community { "algorithm": "label_propagation", "writeback": true
 
 ---
 
-# ML Pipeline — `MiningPipeline*` (CONCEPT:EG-KG.mining.ml-pipeline)
+# ML Pipeline — `MiningPipeline*` (CONCEPT:MEDULLA-KG.mining.ml-pipeline)
 
 A composable **train → eval → serve → predict** lifecycle over a **versioned
 `:Model` artifact** that GENERALIZES the KAN one-off. A `PipelineSpec` is
 `feature steps → split → a pluggable model family`:
 
 - **`classify`** — node classification (`gaussiannb`/`multinomialnb`/`knn`/`logistic`/
-  `svc`), over `eg_compute::mining::classify`.
+  `svc`), over `medulla_compute::mining::classify`.
 - **`estimator`** — regression (`ridge`/`lasso`/`elasticnet`/`decisiontree`/
   `randomforest`/`gradientboosting`/`adaboost`/`svr`), over `datascience::estimators`.
 - **`graphlearn`** — the KAN link-predictor, over `graphlearn::link_predict` (the

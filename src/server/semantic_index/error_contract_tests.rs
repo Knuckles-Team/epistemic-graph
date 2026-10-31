@@ -20,7 +20,7 @@ fn request_validation_separates_authority_from_bad_input_without_echoing_it() {
         let refusal = request_validation_refusal(&error);
         assert!(refusal.starts_with(code));
         assert!(!refusal.contains("private"));
-        assert!(eg_capabilities::error_routing::method_allows_error(
+        assert!(medulla_capabilities::error_routing::method_allows_error(
             "SemanticIndex",
             code
         ));

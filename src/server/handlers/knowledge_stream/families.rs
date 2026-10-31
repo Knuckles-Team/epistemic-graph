@@ -64,7 +64,7 @@ async fn execute_graph(
         entries
             .iter()
             .map(|(id, properties)| {
-                let value = eg_types::msgpack::decode_property_value(properties.as_slice())
+                let value = medulla_types::msgpack::decode_property_value(properties.as_slice())
                     .unwrap_or(serde_json::Value::Null);
                 (id.clone(), value)
             })
@@ -73,7 +73,7 @@ async fn execute_graph(
     let rows = entries
         .iter()
         .map(|(id, properties)| {
-            let value = eg_types::msgpack::decode_property_value(properties.as_slice())
+            let value = medulla_types::msgpack::decode_property_value(properties.as_slice())
                 .unwrap_or(serde_json::Value::Null);
             native_row(
                 authority,

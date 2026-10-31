@@ -131,8 +131,8 @@ macro_rules! persistence_native {
     async fn read_capacity_status(
         &self,
         graph_fname: &str,
-        request: &eg_types::native_control::CapacityStatusRequest,
-    ) -> Result<eg_types::native_control::CapacityStatusResult, String> {
+        request: &medulla_types::native_control::CapacityStatusRequest,
+    ) -> Result<medulla_types::native_control::CapacityStatusResult, String> {
         let graph = graph_fname.to_owned();
         let request = request.clone();
         self.read_snapshot(graph_fname, move |shard, crypto| {
@@ -147,8 +147,8 @@ macro_rules! persistence_native {
         &self,
         graph_fname: &str,
         cells: &[String],
-        priority: eg_types::capacity_lease::LeasePriority,
-    ) -> Result<Vec<eg_types::decision::CapacityHeadroom>, String> {
+        priority: medulla_types::capacity_lease::LeasePriority,
+    ) -> Result<Vec<medulla_types::decision::CapacityHeadroom>, String> {
         let graph = graph_fname.to_owned();
         let cells = cells.to_vec();
         self.read_snapshot(graph_fname, move |shard, crypto| {
@@ -161,7 +161,7 @@ macro_rules! persistence_native {
         &self,
         graph_fname: &str,
         source_envelope: &str,
-    ) -> Result<Option<eg_types::native_control::EnrichmentBudgetCheckpoint>, String> {
+    ) -> Result<Option<medulla_types::native_control::EnrichmentBudgetCheckpoint>, String> {
         super::trait_native::read_enrichment_shard!(self, graph_fname, |shard, crypto| {
             crate::redb_store::enrichment_budget::read(&shard, graph_fname, source_envelope, crypto)
         })
@@ -185,7 +185,7 @@ macro_rules! persistence_native {
     async fn read_enrichment_budget_park(
         &self,
         graph_fname: &str,
-    ) -> Result<Option<eg_types::native_control::EnrichmentBudgetPark>, String> {
+    ) -> Result<Option<medulla_types::native_control::EnrichmentBudgetPark>, String> {
         super::trait_native::read_enrichment_shard!(self, graph_fname, |shard, crypto| {
             crate::redb_store::enrichment_budget::read_park(&shard, graph_fname, crypto)
         })
@@ -211,7 +211,7 @@ macro_rules! persistence_native {
     async fn park_enrichment_budget(
         &self,
         graph_fname: &str,
-        park: eg_types::native_control::EnrichmentBudgetPark,
+        park: medulla_types::native_control::EnrichmentBudgetPark,
     ) -> Result<(), String> {
         let (done, rx) = oneshot::channel();
         let cmd = Cmd::ParkEnrichmentBudget {
@@ -263,7 +263,7 @@ macro_rules! persistence_native {
         .await
     }
 
-    /// **Cross-modal ACID (CONCEPT:EG-KG.txn.reader-never-sees-node).** Land graph + vectors + blob-refs for ONE
+    /// **Cross-modal ACID (CONCEPT:MEDULLA-KG.txn.reader-never-sees-node).** Land graph + vectors + blob-refs for ONE
     /// graph in ONE redb `WriteTransaction`, awaiting its durable fsync. On any error
     /// the transaction is dropped without commit, so NONE of the modalities land — a
     /// true rollback (no partial cross-modal commit). Routed through the owner thread

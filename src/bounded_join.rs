@@ -39,7 +39,7 @@ fn spawn_named_helper<T: Send + 'static>(
     body: HelperBody<T>,
 ) -> std::io::Result<JoinHandle<std::thread::Result<T>>> {
     std::thread::Builder::new()
-        .name("eg-bounded-join".to_string())
+        .name("medulla-bounded-join".to_string())
         .spawn(body)
 }
 

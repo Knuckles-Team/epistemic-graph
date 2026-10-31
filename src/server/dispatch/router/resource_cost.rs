@@ -1,6 +1,6 @@
 use super::*;
 
-/// Cost / efficiency telemetry (CONCEPT:EG-KG.compute.lane-v, Lane V): the unpaged
+/// Cost / efficiency telemetry (CONCEPT:MEDULLA-KG.compute.lane-v, Lane V): the unpaged
 /// snapshot and its paged form. These two are ONE surface; the pre-domain cut
 /// had them in two different groups.
 ///
@@ -26,7 +26,7 @@ pub(super) async fn dispatch_resource_cost_methods(
             ..
         } = ctx;
         ControlFlow::Break(match method {
-            // ── Cost / efficiency (CONCEPT:EG-KG.compute.lane-v, Lane V) ──────────────
+            // ── Cost / efficiency (CONCEPT:MEDULLA-KG.compute.lane-v, Lane V) ──────────────
             #[cfg(feature = "cost")]
             Method::ResourceStatsPage {
                 cursor,

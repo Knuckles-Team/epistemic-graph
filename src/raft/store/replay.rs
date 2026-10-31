@@ -12,9 +12,9 @@ pub(super) struct ReplayRecordCheck<'a> {
     pub(super) expected_result: Option<&'a [u8]>,
 }
 
-impl EgStore {
+impl MedullaStore {
     /// The mutation-authority equality check `try_apply_change_envelope` guards
-    /// its commit on (CX WB1-EG-01 CCN reduction) — a long `||` chain contributes
+    /// its commit on (CX WB1-MEDULLA-01 CCN reduction) — a long `||` chain contributes
     /// one branch per term regardless of which function it lives in, so lifting
     /// it into its own boolean-returning helper is the cheapest way to keep the
     /// caller's own CCN low. Pure extract-method, byte-identical behaviour.
@@ -24,7 +24,7 @@ impl EgStore {
         expected_tenant_scope: &str,
     ) -> bool {
         req.mutation.batch_id != envelope.mutation.batch_id
-            || eg_types::mutation_batch::batch_request_number(&envelope.mutation)
+            || medulla_types::mutation_batch::batch_request_number(&envelope.mutation)
                 != Some(req.mutation.request_id)
             || req.mutation.tenant_scope != expected_tenant_scope
             || Some(req.mutation.principal_fingerprint.as_str())
@@ -116,7 +116,7 @@ impl EgStore {
         descriptor.target_graph_version = source_version
             .checked_add(1)
             .ok_or_else(|| "authoritative graph version overflow".to_string())?;
-        let audited = eg_capabilities::policy(durable_method).audited;
+        let audited = medulla_capabilities::policy(durable_method).audited;
         let probe = crate::server::mutation_batch::compile_methods(
             crate::server::mutation_batch::CompileBatch {
                 batch_id,
@@ -215,7 +215,7 @@ impl EgStore {
     }
 
     /// Whether the durable record's single operation matches the expected
-    /// authoritative-state digest (CX WB1-EG-01 CCN reduction). Pure
+    /// authoritative-state digest (CX WB1-MEDULLA-01 CCN reduction). Pure
     /// extract-method, byte-identical behaviour.
     pub(super) fn idempotent_replay_operation_matches(
         record: &crate::mutation_batch::MutationBatchRecord,
@@ -231,7 +231,7 @@ impl EgStore {
     }
 
     /// Install the graph's current committed authoritative snapshot onto
-    /// `core` (CX WB1-EG-01 CCN reduction). Shared by
+    /// `core` (CX WB1-MEDULLA-01 CCN reduction). Shared by
     /// `try_apply_idempotent_replay` (a phase-2-recovery replay) and
     /// `finalize_ordinary_commit` (a redundant commit that turned out to
     /// already be durably committed) — both did this identical
@@ -251,7 +251,7 @@ impl EgStore {
     }
 
     /// The idempotent-replay record's mismatch-against-authority check
-    /// (CX WB1-EG-01 CCN reduction) — same rationale as
+    /// (CX WB1-MEDULLA-01 CCN reduction) — same rationale as
     /// `change_envelope_mismatches_authority`: a long `||` chain contributes one
     /// branch per term regardless of which function it lives in.
     ///
@@ -411,7 +411,7 @@ mod tests {
                 request.graph_name, request.graph_fname,
                 "fixture must exercise a sanitized graph key"
             );
-            let matching = EgStore::idempotent_replay_record_mismatches(ReplayRecordCheck {
+            let matching = MedullaStore::idempotent_replay_record_mismatches(ReplayRecordCheck {
                 record: &record,
                 req: &request,
                 batch_id: request.mutation.batch_id.as_str(),
@@ -426,7 +426,7 @@ mod tests {
 
             let mut logical_key_request = request.clone();
             logical_key_request.graph_fname = logical_graph.clone();
-            let mismatch = EgStore::idempotent_replay_record_mismatches(ReplayRecordCheck {
+            let mismatch = MedullaStore::idempotent_replay_record_mismatches(ReplayRecordCheck {
                 record: &record,
                 req: &logical_key_request,
                 batch_id: logical_key_request.mutation.batch_id.as_str(),

@@ -13,7 +13,7 @@
 //! 1. **"cache and eviction registry agree after a whole-graph transition"** --
 //!    `GraphRegistry` IS both the bounded resident-`GraphCore` cache (`self.
 //!    graphs`) and the eviction/materialization bookkeeping (`self.catalog`,
-//!    `self.materialization`) for the SAME graph name (`crates/eg-core/src/
+//!    `self.materialization`) for the SAME graph name (`crates/medulla-core/src/
 //!    registry.rs`). `evict_resident` demotes a graph to catalog-only WITHOUT
 //!    touching the catalog entry (only cancelling in-flight page tasks and
 //!    resetting the materialization manifest to catalog-only) -- so a graph
@@ -27,7 +27,7 @@
 //!    "Any previously-persisted RBAC policy + registered agent identities are
 //!    LOADED at boot"). `IsolationLayer::provision_tenant_graph_access` (the
 //!    CreateGraph-time auto-provisioning that makes a tenant graph's owner
-//!    role/grant durable, `crates/eg-core/src/isolation.rs`) is exercised here
+//!    role/grant durable, `crates/medulla-core/src/isolation.rs`) is exercised here
 //!    directly (the same call `Method::CreateGraph`'s dispatch handler makes),
 //!    then the WHOLE `IsolationLayer` is dropped and reopened on the identical
 //!    persist dir -- a genuine process-restart proof, not merely re-reading an
@@ -38,10 +38,10 @@
 
 #![cfg(feature = "security")]
 
-use epistemic_graph::acl::{AgentIdentity, AgentRole};
-use epistemic_graph::isolation::{AccessLevel, IsolationLayer};
-use epistemic_graph::protocol::GraphType;
-use epistemic_graph::registry::GraphRegistry;
+use medulla::acl::{AgentIdentity, AgentRole};
+use medulla::isolation::{AccessLevel, IsolationLayer};
+use medulla::protocol::GraphType;
+use medulla::registry::GraphRegistry;
 
 /// NE-045, condition 1: cache (resident map) and eviction registry (catalog)
 /// agree after evict -> delete -> recreate under the SAME graph name.
@@ -152,9 +152,9 @@ async fn tenant_graph_owner_visibility_survives_an_isolation_layer_restart() {
     {
         let mut isolation = IsolationLayer::with_persist_dir(
             &dir_s,
-            epistemic_graph::store_authority::process_authority().as_ref(),
-            epistemic_graph::store_authority::process_authority().principal(),
-            &epistemic_graph::store_authority::process_authority().proof(),
+            medulla::store_authority::process_authority().as_ref(),
+            medulla::store_authority::process_authority().principal(),
+            &medulla::store_authority::process_authority().proof(),
         )
         .expect("open rbac store");
         isolation.register_agent(AgentIdentity {
@@ -202,9 +202,9 @@ async fn tenant_graph_owner_visibility_survives_an_isolation_layer_restart() {
         loop {
             match IsolationLayer::with_persist_dir(
                 &dir_s,
-                epistemic_graph::store_authority::process_authority().as_ref(),
-                epistemic_graph::store_authority::process_authority().principal(),
-                &epistemic_graph::store_authority::process_authority().proof(),
+                medulla::store_authority::process_authority().as_ref(),
+                medulla::store_authority::process_authority().principal(),
+                &medulla::store_authority::process_authority().proof(),
             ) {
                 Ok(layer) => break layer,
                 Err(error) if attempt < 100 => {

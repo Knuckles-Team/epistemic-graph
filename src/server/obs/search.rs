@@ -1,6 +1,6 @@
-//! Observability log SEARCH + query API (CONCEPT:EG-KG.query.concept-4) — the third slice of
+//! Observability log SEARCH + query API (CONCEPT:MEDULLA-KG.query.concept-4) — the third slice of
 //! Phase T ("surpass OpenObserve"), layered over the log-ingestion front door
-//! (CONCEPT:AU-KG.ingest.self-ingest) and the Parquet-on-blob-CAS segments (CONCEPT:EG-KG.retrieval.observability-search).
+//! (CONCEPT:AU-KG.ingest.self-ingest) and the Parquet-on-blob-CAS segments (CONCEPT:MEDULLA-KG.retrieval.observability-search).
 //!
 //! ## The search thesis
 //!
@@ -17,7 +17,7 @@
 //! segment whose `[min_ts, max_ts]` does NOT overlap the query window (the
 //! "reduce the search space 99%" idea — a bounded search touches only the handful of
 //! segments that could hold a matching row). Full-text terms consult the per-stream
-//! `eg-text` BM25 index (the authority on "does any doc match these terms"); the
+//! `medulla-text` BM25 index (the authority on "does any doc match these terms"); the
 //! matching records are then selected out of the tier union.
 //!
 //! ## SQL over logs
@@ -25,7 +25,7 @@
 //! [`ObsState::search_sql`] registers the scanned segments + hot buffers as a single
 //! DataFusion `logs` table (Arrow batches via [`super::segment::records_to_batch`])
 //! and runs arbitrary read-only SQL over it through the SAME DataFusion stack the
-//! graph SQL surface uses ([`eg_query::exec_sql_over_tables`]) — so
+//! graph SQL surface uses ([`medulla_query::exec_sql_over_tables`]) — so
 //! `SELECT severity, count(*) FROM logs GROUP BY severity` aggregates over the
 //! columnar log segments.
 
@@ -98,7 +98,7 @@ impl ObsState {
     /// Execute a log search: UNION the hot buffer + the manifest-pruned cold Parquet
     /// segments for the stream, filter by the time window, then apply the full-text
     /// (BM25-gated) + structured filters, sort by timestamp ascending, and cap at
-    /// `size` (CONCEPT:EG-KG.query.concept-4).
+    /// `size` (CONCEPT:MEDULLA-KG.query.concept-4).
     pub fn search_logs(&self, q: &LogQuery) -> Result<Vec<LogRecord>, String> {
         let mut candidates: Vec<LogRecord> = Vec::new();
 
@@ -173,11 +173,11 @@ impl ObsState {
 
     /// Run read-only `sql` over ALL log records — the cold Parquet segments (scanned
     /// out of the blob CAS) plus the hot buffers — registered as one DataFusion `logs`
-    /// table (CONCEPT:EG-KG.query.concept-4). Columns are the fixed segment schema (`ts`, `stream`,
+    /// table (CONCEPT:MEDULLA-KG.query.concept-4). Columns are the fixed segment schema (`ts`, `stream`,
     /// `severity`, `body`, `attrs`), so `SELECT severity, count(*) FROM logs GROUP BY
     /// severity` aggregates over the columnar segments; `json_get('<attrs>', 'key')`
     /// reaches a schema-on-read attribute. Synchronous — safe under `spawn_blocking`.
-    pub fn search_sql(&self, sql: &str) -> Result<eg_query::TypedQueryResult, String> {
+    pub fn search_sql(&self, sql: &str) -> Result<medulla_query::TypedQueryResult, String> {
         let mut batches = Vec::new();
 
         // (cold) every Parquet segment → Arrow batch (read bytes from the CAS, decode).
@@ -199,7 +199,7 @@ impl ObsState {
         }
 
         let schema = segment::log_arrow_schema();
-        eg_query::exec_sql_over_tables(vec![("logs".to_string(), schema, batches)], sql)
+        medulla_query::exec_sql_over_tables(vec![("logs".to_string(), schema, batches)], sql)
     }
 }
 
@@ -359,7 +359,7 @@ mod tests {
     /// EH-387: log search hands caller SQL to the graph-free path, which refuses
     /// anything but one read statement — including DataFusion's server-side file read.
     /// A plain SELECT over the same ingested logs still answers.
-    // spec: EG-FEDERATED-QUERY-R015
+    // spec: MEDULLA-FEDERATED-QUERY-R015
     #[test]
     fn search_sql_refuses_everything_but_a_single_read() {
         let obs = ObsState::in_memory(1000).unwrap();

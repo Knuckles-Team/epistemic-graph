@@ -1,7 +1,7 @@
 //! D3 remainder — incremental ≡ rebuild equivalence + concurrency coherence for the
 //! server-layer secondary indexes (text / temporal / derived-OWL) wired into the
 //! per-graph IndexManager seam
-//! (CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl).
+//! (CONCEPT:MEDULLA-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl).
 //!
 //! Each index is proven two ways:
 //!   * EQUIVALENCE — after a batch of writes touching its field, a query returns the
@@ -14,14 +14,14 @@
 
 use std::sync::Arc;
 
-use epistemic_graph::graph::GraphCore;
-use epistemic_graph::index::{ChangeSet, NodeChange, SecondaryIndex};
-use epistemic_graph::server::secondary_indexes::{
+use medulla::graph::GraphCore;
+use medulla::index::{ChangeSet, NodeChange, SecondaryIndex};
+use medulla::server::secondary_indexes::{
     DerivedOwlIndex, GraphTemporalIndex, GraphTextIndex,
 };
-use epistemic_graph::write_coalescer::{CoalescerConfig, GraphWriter, WriteOp};
+use medulla::write_coalescer::{CoalescerConfig, GraphWriter, WriteOp};
 
-use eg_tsdb::store::SeriesStore;
+use medulla_tsdb::store::SeriesStore;
 
 fn props(v: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&v).unwrap()
@@ -32,9 +32,9 @@ fn tmp_series() -> (tempfile::TempDir, Arc<SeriesStore>) {
     let series = Arc::new(
         SeriesStore::open(
             &dir.path().join("series.redb"),
-            epistemic_graph::store_authority::process_verifier(),
-            epistemic_graph::store_authority::process_authority().principal(),
-            &epistemic_graph::store_authority::process_authority().proof(),
+            medulla::store_authority::process_verifier(),
+            medulla::store_authority::process_authority().principal(),
+            &medulla::store_authority::process_authority().proof(),
         )
         .expect("open temp series store"),
     );
@@ -48,7 +48,7 @@ fn tmp_series() -> (tempfile::TempDir, Arc<SeriesStore>) {
 #[test]
 fn text_incremental_equals_rebuild() {
     let core = GraphCore::new();
-    let ix = GraphTextIndex::new(eg_text::TextIndex::in_memory().unwrap());
+    let ix = GraphTextIndex::new(medulla_text::TextIndex::in_memory().unwrap());
     core.register_index(Box::new(ix));
     core.indexes().rebuild_server_indexes(&core);
     assert!(
@@ -110,20 +110,20 @@ fn text_incremental_equals_rebuild() {
     core.maintain_indexes(&cs2);
 
     // Baseline: a fresh index rebuilt from the live nodes of `core`.
-    let base_core_ix = GraphTextIndex::new(eg_text::TextIndex::in_memory().unwrap());
+    let base_core_ix = GraphTextIndex::new(medulla_text::TextIndex::in_memory().unwrap());
     base_core_ix.full_rebuild(&core).unwrap();
 
     // The INCREMENTAL index: a fresh index fed ONLY the two committed-batch deltas
     // (the exact ChangeSets the coalescer would thread), never a rebuild. It must match
     // the baseline that was rebuilt from the final live node set.
-    let incr = GraphTextIndex::new(eg_text::TextIndex::in_memory().unwrap());
+    let incr = GraphTextIndex::new(medulla_text::TextIndex::in_memory().unwrap());
     incr.apply_delta(&core, &cs).unwrap();
     incr.apply_delta(&core, &cs2).unwrap();
 
     // Compare the ranked id lists: BM25 scores differ between a tombstoned-incremental
     // index and a fresh rebuild (deleted docs affect collection stats until merge), but
     // the result SET + ranking — what the hybrid planner consumes — are identical.
-    let ids = |v: Vec<eg_text::TextHit>| v.into_iter().map(|h| h.id).collect::<Vec<_>>();
+    let ids = |v: Vec<medulla_text::TextHit>| v.into_iter().map(|h| h.id).collect::<Vec<_>>();
     for q in [
         "lazy dog",
         "graph databases",
@@ -234,10 +234,10 @@ fn temporal_rebuild_over_a_current_store_commits_nothing() {
 
 // ── derived-OWL: the differential materializer ≡ full rebuild ─────────────────────
 
-/// The `DerivedOwlIndex` defers to the eg-rdf reasoner's OWN differential
+/// The `DerivedOwlIndex` defers to the medulla-rdf reasoner's OWN differential
 /// materialization (its `apply_delta` is a documented no-op). The incremental ≡ full
 /// rebuild equivalence of THAT materializer is proven directly against the reasoner in
-/// eg-rdf's own suite (`owl::tests::incremental_add_axiom_only_adds`:
+/// medulla-rdf's own suite (`owl::tests::incremental_add_axiom_only_adds`:
 /// `Reasoner::add_axioms(delta)` == a from-scratch `Reasoner` over the union). Here we
 /// verify the wired SEAM: the index participates in the committed batch (discoverable,
 /// counted in the tally) WITHOUT doing redundant materialization, needs no content,
@@ -281,7 +281,7 @@ fn derived_owl_index_is_a_participating_noop() {
 async fn text_hybrid_read_never_torn_under_concurrent_write() {
     let core = Arc::new(GraphCore::new());
     let ix = Arc::new(GraphTextIndex::new(
-        eg_text::TextIndex::in_memory().unwrap(),
+        medulla_text::TextIndex::in_memory().unwrap(),
     ));
 
     // Seed 200 nodes with text and index them.
@@ -298,23 +298,23 @@ async fn text_hybrid_read_never_torn_under_concurrent_write() {
     // Register the SAME index onto core so the coalescer's maintain_indexes drives it.
     // (register consumes a Box; wrap the shared Arc in a thin forwarding adapter.)
     struct Fwd(Arc<GraphTextIndex>);
-    impl epistemic_graph::index::SecondaryIndex for Fwd {
-        fn kind(&self) -> epistemic_graph::index::IndexKind {
+    impl medulla::index::SecondaryIndex for Fwd {
+        fn kind(&self) -> medulla::index::IndexKind {
             self.0.kind()
         }
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
-        fn descriptor(&self) -> epistemic_graph::index::IndexDescriptor {
+        fn descriptor(&self) -> medulla::index::IndexDescriptor {
             self.0.descriptor()
         }
-        fn covers(&self, p: &epistemic_graph::index::Predicate) -> bool {
+        fn covers(&self, p: &medulla::index::Predicate) -> bool {
             self.0.covers(p)
         }
         fn lookup(
             &self,
             c: &GraphCore,
-            p: &epistemic_graph::index::Predicate,
+            p: &medulla::index::Predicate,
         ) -> Option<Vec<String>> {
             self.0.lookup(c, p)
         }
@@ -325,7 +325,7 @@ async fn text_hybrid_read_never_torn_under_concurrent_write() {
             &self,
             c: &GraphCore,
             ch: &ChangeSet,
-        ) -> Result<(), epistemic_graph::index::IndexError> {
+        ) -> Result<(), medulla::index::IndexError> {
             self.0.apply_delta(c, ch)
         }
     }

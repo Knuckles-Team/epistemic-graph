@@ -5,7 +5,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "epistemic-graph-server epistemic-graph-rf019-observe")]
+#[command(name = "medulla-server medulla-rf019-observe")]
 struct Args {
     #[arg(long)]
     persist_dir: PathBuf,
@@ -21,7 +21,7 @@ struct Args {
 
 pub(crate) fn run(argv: Vec<std::ffi::OsString>) {
     let args = Args::parse_from(argv);
-    let result = epistemic_graph::server::observe_rf019_tenant_owner(
+    let result = medulla::server::observe_rf019_tenant_owner(
         &args.persist_dir,
         &args.tenant,
         &args.bindings,

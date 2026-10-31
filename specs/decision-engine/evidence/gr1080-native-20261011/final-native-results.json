@@ -1,7 +1,7 @@
 {
   "source_commit": "70dc26d43c1e71674f1524ce90b0d0810d787b0f",
   "base_commit": "e5190222b38d628b7d0f268ce4c46b184a170ee1",
-  "binary": "target-isolated/debug/deps/epistemic_graph-1dea97f4f4aaa5cc",
+  "binary": "target-isolated/debug/deps/medulla_engine-1dea97f4f4aaa5cc",
   "binary_sha256": "5157ba75632664cd4e7a9553a61ac7f96b183b6e869b85add30b251f7eab257f",
   "test_command": [
     "<binary>",
@@ -141,7 +141,7 @@
       "test",
       "--locked",
       "-p",
-      "epistemic-graph",
+      "medulla",
       "--lib",
       "--no-default-features",
       "--features",
@@ -159,7 +159,7 @@
   },
   "cache_provenance": {
     "original_checkout_commit": "7c572aab45554e7d524e223773058efbdba21bed",
-    "original_cache": "eg-storage-lock/target-isolated",
+    "original_cache": "medulla-storage-lock/target-isolated",
     "copy_method": "cp -a --reflink=auto; independent inodes, no hardlinks",
     "intermediate_acceptance_commits": [
       "29d7b11c7f66184300b55c2bf57db41e9e6c552e",
@@ -174,7 +174,7 @@
       "test",
       "--locked",
       "-p",
-      "eg-capabilities",
+      "medulla-capabilities",
       "--features",
       "contract",
       "-j",
@@ -207,7 +207,7 @@
       "--profile",
       "test",
       "-p",
-      "eg-capabilities",
+      "medulla-capabilities",
       "--features",
       "contract",
       "--bin",

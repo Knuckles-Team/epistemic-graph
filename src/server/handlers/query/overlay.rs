@@ -2,7 +2,7 @@ use super::*;
 
 /// Resolve an OPEN txn, build a snapshot OVERLAID with its staged write-set +
 /// embeddings, and run a unified cross-modal plan over it with read-your-own-writes
-/// (CONCEPT:EG-KG.query.txn-cross-modal-ryow). The overlay is built under the (brief) state read + per-txn
+/// (CONCEPT:MEDULLA-KG.query.txn-cross-modal-ryow). The overlay is built under the (brief) state read + per-txn
 /// lock, then the CPU-heavy plan runs OFF-lock on the blocking pool — the same
 /// off-lock idiom as `run_unified`. Not result-cached (staged writes don't bump
 /// `version()`). RLS filters the committed base snapshot to the caller's visible
@@ -83,7 +83,7 @@ pub(crate) async fn run_unified_overlaid_resolve_txn(
     // `guard` + `s` drop here — no lock held across the compute the caller runs next.
 }
 
-/// CONCEPT:EG-KG.query.txn-tsdb-read-your — the in-txn tsdb read-your-own-writes overlay of
+/// CONCEPT:MEDULLA-KG.query.txn-tsdb-read-your — the in-txn tsdb read-your-own-writes overlay of
 /// [`run_unified_overlaid`]: seed a `StagedSeries` from the txn's OWN staged,
 /// uncommitted `GraphTxnState.measurements` so an in-txn `Op::TsScan` sees its own
 /// points (merged BEFORE the committed store), while an off-txn read (no overlay)
@@ -94,15 +94,15 @@ pub(crate) async fn run_unified_overlaid_resolve_txn(
 pub(crate) async fn run_unified_overlaid_staged_series(
     state: &Arc<RwLock<ServerState>>,
     txn_id: &str,
-) -> eg_plan::StagedSeries {
+) -> medulla_plan::StagedSeries {
     let s = state.read().await;
-    let mut staged = eg_plan::StagedSeries::new();
+    let mut staged = medulla_plan::StagedSeries::new();
     let Some(entry) = s.open_txns.get(txn_id) else {
         return staged;
     };
     let guard = entry.value().lock();
     for m in &guard.measurements {
-        let series = eg_tsdb::store::SeriesKey::decode(&m.series)
+        let series = medulla_tsdb::store::SeriesKey::decode(&m.series)
             .map(|key| key.series)
             .unwrap_or_else(|| m.series.clone());
         staged.push_points(&series, m.points.iter().cloned());
@@ -115,7 +115,7 @@ pub(crate) async fn run_unified_overlaid<M>(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     txn_id: &str,
-    plan: eg_plan::Plan,
+    plan: medulla_plan::Plan,
     read_authority: Option<&GraphReadAuthority>,
     caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
@@ -159,8 +159,8 @@ pub(crate) struct OverlaidTxn<'a> {
 #[cfg(feature = "query")]
 pub(crate) async fn run_unified_overlaid_with<T>(
     txn: OverlaidTxn<'_>,
-    plan: eg_plan::Plan,
-    finish: impl FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String> + Send + 'static,
+    plan: medulla_plan::Plan,
+    finish: impl FnOnce(&medulla_plan::Plan, &medulla_plan::PlanCtx) -> Result<T, String> + Send + 'static,
 ) -> Result<Result<T, String>, Response>
 where
     T: Send + 'static,
@@ -177,7 +177,7 @@ where
     // Resolve the txn's target core + snapshot its staged write-set/embeddings while
     // holding only the cheap state read + per-txn lock; everything moved into the
     // off-lock closure is OWNED, so no lock is held across the compute.
-    // `core` itself (an `Arc`) is threaded OUT of this block too — CONCEPT:EG-KG.query.served-vector-index-binding
+    // `core` itself (an `Arc`) is threaded OUT of this block too — CONCEPT:MEDULLA-KG.query.served-vector-index-binding
     // / served-text-index-binding: the committed `SemanticStore`/text index are pushed
     // down via a guard taken INSIDE the off-lock closure below (not cloned here), so
     // `committed_semantic` is no longer materialized eagerly — see the closure.
@@ -194,18 +194,18 @@ where
     #[cfg(feature = "tsdb")]
     let tsdb_scope = served_tsdb_scope(&plan, &_tsdb_graph, read_authority)
         .map_err(|denied| Response::err(req_id, denied))?;
-    // RECONCILE (CONCEPT:EG-KG.query.native-time-series): the committed tsdb `SeriesStore` for `Op::TsScan`
+    // RECONCILE (CONCEPT:MEDULLA-KG.query.native-time-series): the committed tsdb `SeriesStore` for `Op::TsScan`
     // fusion inside the txn, so an in-txn UQL reads COMMITTED series.
     #[cfg(feature = "tsdb")]
     let (tsdb, tsdb_tenant, tsdb_graph_scope) = bound_tsdb_leg(state, tsdb_scope).await;
-    // CONCEPT:EG-KG.query.closure-backed-source — the CALLER'S owner-scoped foreign
+    // CONCEPT:MEDULLA-KG.query.closure-backed-source — the CALLER'S owner-scoped foreign
     // registry (EH-373): an in-txn `FOREIGN "<name>"` / `Named` `ForeignScan` leg
     // resolves only sources the caller (tenant+principal) registered.
     #[cfg(feature = "federation")]
     let foreign = served_foreign_leg(state, &plan, read_authority, None, &[])
         .await
         .map_err(|denied| Response::err(req_id, denied))?;
-    // CONCEPT:EG-KG.query.txn-tsdb-read-your — the in-txn tsdb read-your-own-writes overlay: seed a `StagedSeries`
+    // CONCEPT:MEDULLA-KG.query.txn-tsdb-read-your — the in-txn tsdb read-your-own-writes overlay: seed a `StagedSeries`
     // from the txn's OWN staged, uncommitted `GraphTxnState.measurements` so an in-txn
     // `Op::TsScan` sees its own points (merged BEFORE the committed store), while an
     // off-txn read (no overlay) still sees committed only. `SeriesStore` is redb-file-
@@ -214,7 +214,7 @@ where
     let staged_series = run_unified_overlaid_staged_series(state, txn_id).await;
     // Overlay the txn's staged graph writes onto the RLS-filtered committed snapshot.
     overlay_write_set(&mut view, &write_set);
-    // CONCEPT:EG-KG.query.overlay-leg-rls-filter — RLS on the STAGED-OVERLAY leg too. The committed base was
+    // CONCEPT:MEDULLA-KG.query.overlay-leg-rls-filter — RLS on the STAGED-OVERLAY leg too. The committed base was
     // `filter_view`d above, but the staged write-set is overlaid AFTER that filter, so a
     // staged node the caller may not see (an owned+private `_owner`/`_visibility` blob)
     // would otherwise leak through an in-txn fused read. Re-filter the overlaid view so
@@ -246,7 +246,7 @@ where
 }
 
 /// Replay a txn's staged durable-mutation `write_set` onto a cloned `GraphView` as an
-/// overlay (CONCEPT:EG-KG.query.txn-cross-modal-ryow — in-txn cross-modal RYOW). Mirrors `handlers::txn::
+/// overlay (CONCEPT:MEDULLA-KG.query.txn-cross-modal-ryow — in-txn cross-modal RYOW). Mirrors `handlers::txn::
 /// apply_staged`, but against a view's overlay ops (no ledger/durability): so the
 /// Filter (node props) and Traverse (BFS over staged edges) legs of an in-txn unified
 /// query observe the txn's own uncommitted graph writes. Only the durable-mutation set
@@ -282,8 +282,8 @@ pub(crate) fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &
             } => {
                 // A decode failure is a no-op overlay (mirrors `apply_staged`).
                 if let (Ok(conditions), Ok(updates)) = (
-                    eg_types::msgpack::decode_property_object(conditions_msgpack),
-                    eg_types::msgpack::decode_property_object(updates_msgpack),
+                    medulla_types::msgpack::decode_property_object(conditions_msgpack),
+                    medulla_types::msgpack::decode_property_object(updates_msgpack),
                 ) {
                     view.overlay_compare_and_set_fields(node_id, &conditions, &updates);
                 }
@@ -299,13 +299,13 @@ pub(crate) fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &
 /// The caller chooses the row projection through `finish`.
 #[cfg(feature = "query")]
 pub(crate) fn run_unified_with_staged_finish<T>(
-    plan: eg_plan::Plan,
+    plan: medulla_plan::Plan,
     view: &crate::graph::GraphView,
     core: &Arc<GraphCore>,
     staged: &[(String, Vec<f32>)],
-    #[cfg(feature = "federation")] foreign: Option<&eg_plan::federation::ForeignSourceRegistry>,
+    #[cfg(feature = "federation")] foreign: Option<&medulla_plan::federation::ForeignSourceRegistry>,
     #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
-    finish: impl FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String>,
+    finish: impl FnOnce(&medulla_plan::Plan, &medulla_plan::PlanCtx) -> Result<T, String>,
 ) -> Result<T, String> {
     let indexes = CoreIndexes::open(core);
     let served = indexes.served(
@@ -325,7 +325,7 @@ pub(crate) fn run_unified_with_staged_finish<T>(
         );
     }
     let committed = core.semantic_store.read().clone();
-    let semantic = eg_core::compute::semantic::semantic_overlay(committed, staged);
+    let semantic = medulla_core::compute::semantic::semantic_overlay(committed, staged);
     run_unified_with(
         plan,
         view,

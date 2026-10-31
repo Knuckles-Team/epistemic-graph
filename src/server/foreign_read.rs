@@ -14,9 +14,9 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dashmap::DashMap;
-use eg_types::connector_pack::ConnectorPackSourceApprovalResult;
-use eg_types::contract::Digest256;
-use eg_types::foreign_read::{
+use medulla_types::connector_pack::ConnectorPackSourceApprovalResult;
+use medulla_types::contract::Digest256;
+use medulla_types::foreign_read::{
     ForeignReadAbortRequest, ForeignReadAbortResult, ForeignReadChunkRequest,
     ForeignReadChunkResult, ForeignReadCompleteRequest, ForeignReadCompleteResult,
     ForeignReadExecutionRef, ForeignReadLimits, ForeignReadRow, ForeignReadSourceIdentity,
@@ -189,7 +189,7 @@ impl ForeignReadSessions {
     pub(crate) fn page_source(
         &self,
         execution_id: u64,
-    ) -> Result<eg_plan::federation::SharedForeignSource, String> {
+    ) -> Result<medulla_plan::federation::SharedForeignSource, String> {
         let record = self
             .sessions
             .get(&execution_id)
@@ -410,7 +410,7 @@ impl ForeignReadSessions {
         &self,
         caller: &CarrierAuthority,
         executions: &[ForeignReadExecutionRef],
-        plan: &eg_plan::Plan,
+        plan: &medulla_plan::Plan,
         plan_digest: Digest256,
         binding: ForeignBindingContext<'_>,
     ) -> Result<OwnedForeignRegistry, String> {
@@ -439,9 +439,9 @@ impl ForeignReadSessions {
             .ops
             .iter()
             .filter_map(|op| match op {
-                eg_plan::Op::Foreign { name } => Some(name.as_str()),
-                eg_plan::Op::ForeignScan { source, .. } => match source.as_ref() {
-                    eg_types::wire::ForeignSourceSpec::Named { name } => Some(name.as_str()),
+                medulla_plan::Op::Foreign { name } => Some(name.as_str()),
+                medulla_plan::Op::ForeignScan { source, .. } => match source.as_ref() {
+                    medulla_types::wire::ForeignSourceSpec::Named { name } => Some(name.as_str()),
                     _ => None,
                 },
                 _ => None,
@@ -461,7 +461,7 @@ impl ForeignReadSessions {
             if !plan_names.contains(record.source_name.as_str()) {
                 return Err("FOREIGN_READ_UNUSED: execution source is absent from plan".into());
             }
-            let driver: eg_plan::federation::SharedForeignSource = Arc::new(PageBackedSource {
+            let driver: medulla_plan::federation::SharedForeignSource = Arc::new(PageBackedSource {
                 record: Arc::downgrade(handle),
             });
             sources.push((record.approval.clone(), record.source_name.clone(), driver));
@@ -537,7 +537,7 @@ impl ForeignReadSessions {
         if Instant::now() >= record.expires_at {
             return Err(format!(
                 "{}: execution deadline elapsed",
-                eg_types::contract::EngineErrorCode::EngineDeadlineExceeded.as_str()
+                medulla_types::contract::EngineErrorCode::EngineDeadlineExceeded.as_str()
             ));
         }
         Ok(())
@@ -611,8 +611,8 @@ struct PageBackedSource {
     record: Weak<Mutex<SessionRecord>>,
 }
 
-impl eg_plan::federation::ForeignSource for PageBackedSource {
-    fn fetch(&self) -> Result<eg_plan::RowSet, String> {
+impl medulla_plan::federation::ForeignSource for PageBackedSource {
+    fn fetch(&self) -> Result<medulla_plan::RowSet, String> {
         let record = self
             .record
             .upgrade()
@@ -621,18 +621,18 @@ impl eg_plan::federation::ForeignSource for PageBackedSource {
         if Instant::now() >= record.expires_at {
             return Err(format!(
                 "{}: execution deadline elapsed",
-                eg_types::contract::EngineErrorCode::EngineDeadlineExceeded.as_str()
+                medulla_types::contract::EngineErrorCode::EngineDeadlineExceeded.as_str()
             ));
         }
         if record.state != SessionState::Complete {
             return Err("FOREIGN_READ_NOT_COMPLETE: source pages are not complete".into());
         }
-        Ok(eg_plan::RowSet::from_rows(
+        Ok(medulla_plan::RowSet::from_rows(
             record.rows.iter().map(|row| (row.id.clone(), row.score)),
         ))
     }
 
-    fn fetch_columns(&self) -> Result<eg_plan::federation_opt::ForeignRows, String> {
+    fn fetch_columns(&self) -> Result<medulla_plan::federation_opt::ForeignRows, String> {
         let record = self
             .record
             .upgrade()
@@ -641,7 +641,7 @@ impl eg_plan::federation::ForeignSource for PageBackedSource {
         if Instant::now() >= record.expires_at {
             return Err(format!(
                 "{}: execution deadline elapsed",
-                eg_types::contract::EngineErrorCode::EngineDeadlineExceeded.as_str()
+                medulla_types::contract::EngineErrorCode::EngineDeadlineExceeded.as_str()
             ));
         }
         if record.state != SessionState::Complete {
@@ -693,20 +693,20 @@ impl eg_plan::federation::ForeignSource for PageBackedSource {
                         ));
                     }
                 }
-                Ok(eg_plan::federation_opt::ForeignRow {
+                Ok(medulla_plan::federation_opt::ForeignRow {
                     id: row.id.clone(),
                     score: row.score,
                     columns,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
-        Ok(eg_plan::federation_opt::ForeignRows::from_rows(rows))
+        Ok(medulla_plan::federation_opt::ForeignRows::from_rows(rows))
     }
 
     fn fetch_projected(
         &self,
-        plan: &eg_plan::federation_opt::ColumnPlan,
-    ) -> Result<eg_plan::federation_opt::ForeignRows, String> {
+        plan: &medulla_plan::federation_opt::ColumnPlan,
+    ) -> Result<medulla_plan::federation_opt::ForeignRows, String> {
         // Reuse the same mapped-cell currency and local residual semantics as
         // SQL/HTTP foreign sources. The host has already supplied cells that
         // the approved connector mapping permits; this step only filters and
@@ -766,11 +766,11 @@ mod tests {
     use super::*;
     use crate::acl::RequestContextClaims;
     use crate::server::auth::VerifiedRequestContext;
-    use eg_types::connector_pack::{
+    use medulla_types::connector_pack::{
         PackHeadRef, PackSourceApproval, PackSourceKind, PackSourceRegistration,
         CONNECTOR_PACK_SCHEMA_VERSION,
     };
-    use eg_types::contract::ResourceId;
+    use medulla_types::contract::ResourceId;
 
     fn limits() -> ForeignReadLimits {
         ForeignReadLimits {
@@ -785,7 +785,7 @@ mod tests {
     #[cfg(feature = "query")]
     #[test]
     fn canonical_plan_digest_is_the_query_binding_pin() {
-        let plan = eg_plan::Plan::new(vec![eg_plan::Op::Scan {
+        let plan = medulla_plan::Plan::new(vec![medulla_plan::Op::Scan {
             label: "Issue".into(),
         }]);
         let expected =
@@ -859,7 +859,7 @@ mod tests {
                 principal: "principal:owner".into(),
                 tenant: "tenant-shared".into(),
                 agent_id: agent_id.into(),
-                audience: "epistemic-graph".into(),
+                audience: "medulla".into(),
                 policy_version: "policy-test".into(),
                 scopes: vec!["kg:read".into()],
                 delegation: delegation.iter().map(|value| (*value).into()).collect(),
@@ -1126,7 +1126,7 @@ mod tests {
 
     #[test]
     fn mapped_cells_use_existing_foreign_rows_residual_and_projection() {
-        use eg_plan::federation_opt::{ColumnPlan, ColumnPredicate, Comparison, PushdownSupport};
+        use medulla_plan::federation_opt::{ColumnPlan, ColumnPredicate, Comparison, PushdownSupport};
 
         let sessions = ForeignReadSessions::default();
         let owner = CarrierAuthority::verified_for_test("owner");

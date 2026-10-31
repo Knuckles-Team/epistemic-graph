@@ -8,7 +8,7 @@
 //!   and (optionally) the committed pointer; and
 //! * [`RaftStateMachine`] (+ [`RaftSnapshotBuilder`]) — apply + snapshot.
 //!
-//! Both are implemented on `Arc<EgStore>`, so [`super::multi::create_group`] passes the
+//! Both are implemented on `Arc<MedullaStore>`, so [`super::multi::create_group`] passes the
 //! SAME `Arc` as both the log store and the state machine (no adaptor needed). Two
 //! engine-specific properties carry over from the 0.9 implementation:
 //!
@@ -19,7 +19,7 @@
 //!    not decomposed: its graph rows and auxiliary authority commit through one native
 //!    redb transaction before an atomic in-memory snapshot publication.
 //!
-//! 2. **Durable redb Raft log (CONCEPT:EG-KG.storage.one-fsync-covers-raft).** The log entries, the vote, and
+//! 2. **Durable redb Raft log (CONCEPT:MEDULLA-KG.storage.one-fsync-covers-raft).** The log entries, the vote, and
 //!    the applied-state pointers all live in the SAME authoritative shard as the
 //!    M2 graph data — keyed by `(group_id, index)` / `(group_id, key)` so ONE redb
 //!    file serves the M2 store AND every Raft group's log. Because the log shares the
@@ -99,24 +99,24 @@ fn decode_raft_value<T: serde::de::DeserializeOwned>(
     max_bytes: usize,
     max_items: usize,
 ) -> Result<T, String> {
-    eg_types::msgpack::decode_bounded(
+    medulla_types::msgpack::decode_bounded(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             max_bytes,
             max_items,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| "raft value is invalid or exceeds resource limits".to_string())
 }
 
 fn validate_raft_value(bytes: &[u8], max_bytes: usize, max_items: usize) -> Result<(), String> {
-    eg_types::msgpack::validate_single_value(
+    medulla_types::msgpack::validate_single_value(
         bytes,
-        eg_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MsgpackLimits::new(
             max_bytes,
             max_items,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            medulla_types::msgpack::DEFAULT_MAX_DEPTH,
         ),
     )
     .map_err(|_| "raft value is invalid or exceeds resource limits".to_string())
@@ -315,7 +315,7 @@ mod current_snapshot_schema_tests {
                 // Keep the synthetic fresh and replay receipts byte-identical;
                 // production compilation mints this nonce once per attempt,
                 // while this fixture builds both views of one stored receipt.
-                attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([7; 32])),
+                attempt_nonce: Some(medulla_types::contract::Nonce::from_bytes([7; 32])),
                 principal: Some("receipt-test-principal"),
                 tenant: "receipt-tenant",
                 graph: "receipt-graph",
@@ -364,7 +364,7 @@ mod current_snapshot_schema_tests {
         assert_eq!(fresh_record, replay_record);
 
         for commit in [fresh, replay] {
-            let response = EgStore::native_commit_outcome_to_response(Ok(commit));
+            let response = MedullaStore::native_commit_outcome_to_response(Ok(commit));
             response.validate().unwrap();
             assert!(response.native_result.is_none());
             assert!(response.native_commit.is_some());
@@ -378,7 +378,7 @@ mod current_snapshot_schema_tests {
             }));
         }
 
-        let error = EgStore::native_commit_outcome_to_response(Err("apply failed".to_string()));
+        let error = MedullaStore::native_commit_outcome_to_response(Err("apply failed".to_string()));
         assert!(error.native_commit.is_none());
         assert!(error.native_result.is_none());
         assert_eq!(error.native_error.as_deref(), Some("apply failed"));
@@ -391,22 +391,22 @@ mod current_snapshot_schema_tests {
             properties_msgpack: Vec::new(),
         };
         let ok = encoded_result(ResultPayload::Bool(true));
-        assert!(EgStore::decode_replayed_graph_result(Some(&ok), &method, false).is_ok());
+        assert!(MedullaStore::decode_replayed_graph_result(Some(&ok), &method, false).is_ok());
 
         let false_result = encoded_result(ResultPayload::Bool(false));
-        let error = EgStore::decode_replayed_graph_result(Some(&false_result), &method, false)
+        let error = MedullaStore::decode_replayed_graph_result(Some(&false_result), &method, false)
             .expect_err("ordinary graph replay cannot claim a false terminal result");
         assert!(error.contains("Bool(true)"), "{error}");
 
         let count = encoded_result(ResultPayload::Count(1));
-        let error = EgStore::decode_replayed_graph_result(Some(&count), &method, false)
+        let error = MedullaStore::decode_replayed_graph_result(Some(&count), &method, false)
             .expect_err("ordinary graph replay cannot reinterpret a count");
         assert!(error.contains("Bool(true)"), "{error}");
 
-        let error = EgStore::decode_replayed_graph_result(Some(&[0xc1]), &method, false)
+        let error = MedullaStore::decode_replayed_graph_result(Some(&[0xc1]), &method, false)
             .expect_err("ordinary graph replay must reject corrupt MessagePack");
         assert!(error.contains("corrupt"), "{error}");
-        let error = EgStore::decode_replayed_graph_result(None, &method, false)
+        let error = MedullaStore::decode_replayed_graph_result(None, &method, false)
             .expect_err("ordinary graph replay must reject a missing receipt result");
         assert!(error.contains("missing"), "{error}");
     }
@@ -416,19 +416,19 @@ mod current_snapshot_schema_tests {
         let method = cas_method();
         let false_result = encoded_result(ResultPayload::Bool(false));
         assert!(matches!(
-            EgStore::decode_replayed_graph_result(Some(&false_result), &method, false),
+            MedullaStore::decode_replayed_graph_result(Some(&false_result), &method, false),
             Ok(Some(ResultPayload::Bool(false)))
         ));
 
         let count = encoded_result(ResultPayload::Count(1));
-        let error = EgStore::decode_replayed_graph_result(Some(&count), &method, false)
+        let error = MedullaStore::decode_replayed_graph_result(Some(&count), &method, false)
             .expect_err("CAS receipt must not turn a non-boolean payload into contention");
         assert!(error.contains("must be Bool"), "{error}");
 
-        let error = EgStore::decode_replayed_graph_result(Some(&[0xc1]), &method, false)
+        let error = MedullaStore::decode_replayed_graph_result(Some(&[0xc1]), &method, false)
             .expect_err("CAS receipt must reject corrupt MessagePack");
         assert!(error.contains("corrupt"), "{error}");
-        let error = EgStore::decode_replayed_graph_result(None, &method, false)
+        let error = MedullaStore::decode_replayed_graph_result(None, &method, false)
             .expect_err("CAS receipt must reject a missing apply result");
         assert!(error.contains("missing"), "{error}");
     }
@@ -447,7 +447,7 @@ struct StateMachine {
 /// The combined Raft storage for ONE group: a durable redb-backed log + the
 /// engine-backed state machine. The log, vote and applied-state are persisted in the
 /// shared M2 authoritative shard ([`RedbBackend`]), keyed by this store's [`GroupId`].
-pub struct EgStore {
+pub struct MedullaStore {
     /// This group's id — the composite-key prefix for its log + meta rows.
     group_id: GroupId,
     /// The shared M2 persistence backend — owns the authoritative shard and its group-commit

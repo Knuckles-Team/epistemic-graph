@@ -94,7 +94,7 @@ mod dispatch_reachability_tests {
     use crate::protocol::{Method, Request};
     use crate::server::auth::dispatch_test_on_heap;
     use crate::server::state::ServerState;
-    use eg_types::test_support::contract_wave::contract_wave_samples;
+    use medulla_types::test_support::contract_wave::contract_wave_samples;
 
     pub(super) const SECRET: &str = "contract-wave-dispatch-secret";
     pub(super) const CALLER: &str = "wave-admin";
@@ -109,7 +109,7 @@ mod dispatch_reachability_tests {
     /// shared by the whole test binary), and correctly refuses a second
     /// presentation of the same nonce as a replay. `contract_wave_samples()`
     /// mixes mutating and non-mutating surfaces (mutating ones skip the
-    /// ledger entirely, `eg_capabilities::policy(..).mutates`), so a fixed
+    /// ledger entirely, `medulla_capabilities::policy(..).mutates`), so a fixed
     /// literal nonce reused across every iteration of this loop is not "the
     /// same request retried" -- it is several DISTINCT non-mutating requests
     /// presenting one nonce, which the ledger is right to reject on the
@@ -221,7 +221,7 @@ mod pending_method_tests {
     use super::{METHOD_NOT_YET_SERVED, PENDING_METHODS};
     use crate::server::auth::dispatch_test_on_heap;
     use crate::server::state::ServerState;
-    use eg_types::test_support::contract_wave::contract_wave_samples;
+    use medulla_types::test_support::contract_wave::contract_wave_samples;
 
     /// A wave method is pending exactly when dispatch still refuses one of its
     /// samples under the METHOD's own name (an op-level stub such as

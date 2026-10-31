@@ -1,0 +1,30 @@
+# Supply-chain runtime-chain ABox fixture (MEDULLA-SUPPLY-VOCAB-R002.5).
+#
+# One service deployed as one workload, from one image, containing one
+# component version published by one supplier. Under the
+# `kg:usesComponent` property chain (deployedAs, usesImage,
+# containsComponent) the native reasoner must derive the direct
+# service-to-version edge. Later engine lanes (authority rows, virtual
+# mappings, impact queries) consume this fixture as their ABox seed.
+
+@prefix : <http://knuckles.team/kg#> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix ex: <http://knuckles.team/test/supply-chain#> .
+
+ex:checkoutService a infra:Service ;
+    :deployedAs ex:checkoutWorkload .
+
+ex:checkoutWorkload a infra:Workload ;
+    :usesImage ex:checkoutImage .
+
+ex:checkoutImage a infra:ContainerImage ;
+    :containsComponent ex:openssl111k .
+
+ex:openssl111k a :ComponentVersion ;
+    :versionOf ex:openssl ;
+    :versionString "1.1.1k" .
+
+ex:openssl a :SoftwareComponent ;
+    :publishedBy ex:opensslSupplier .
+
+ex:opensslSupplier a :Supplier .

@@ -1,8 +1,8 @@
-//! CONCEPT:EG-KG.security.node-bound-envelope — ADR-3 / W1.9 node-bound
+//! CONCEPT:MEDULLA-KG.security.node-bound-envelope — ADR-3 / W1.9 node-bound
 //! envelopes (`reports/wave1/ADR-scale-trio.md`), exercised over the REAL
 //! served `dispatch` surface (not just the `auth` module's own unit tests).
 //!
-//! No `raft` feature and no `EPISTEMIC_GRAPH_NODE_ID` override are configured
+//! No `raft` feature and no `MEDULLA_NODE_ID` override are configured
 //! here, so this process's `node_identity()` resolves to the documented
 //! single-node default: the literal `"single"`.
 // This file's whole subject (ADR-3 / W1.9 node-bound envelopes) IS a security
@@ -21,7 +21,7 @@ mod common;
 #[path = "common/test_support.rs"]
 mod test_support;
 
-use epistemic_graph::protocol::{GraphType, Method};
+use medulla::protocol::{GraphType, Method};
 
 const SECRET: &str = "node-binding-envelope-secret";
 
@@ -41,7 +41,7 @@ async fn ready_state() -> test_support::SharedState {
 }
 
 /// An old client that predates node binding never sends the `node` claim at
-/// all. Under the shipped default posture (`EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING`
+/// all. Under the shipped default posture (`MEDULLA_REQUIRE_NODE_BINDING`
 /// unset ⇒ `warn`), the request must still succeed end-to-end.
 #[tokio::test]
 async fn old_client_without_node_claim_still_dispatches_under_default_warn_posture() {

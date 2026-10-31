@@ -1,14 +1,14 @@
-//! Query-federation handlers (CONCEPT:EG-KG.query.query-federation, Lane P).
+//! Query-federation handlers (CONCEPT:MEDULLA-KG.query.query-federation, Lane P).
 //!
-//! `RegisterForeignSource` records a named EXTERNAL source (a remote epistemic-graph
-//! engine or an HTTP/JSON API — [`eg_types::wire::ForeignSourceSpec`]) in the
+//! `RegisterForeignSource` records a named EXTERNAL source (a remote medulla
+//! engine or an HTTP/JSON API — [`medulla_types::wire::ForeignSourceSpec`]) in the
 //! owner-scoped [`crate::server::foreign_catalog::ForeignSourceCatalog`] on
 //! `ServerState`, under the caller's VERIFIED owner — tenant+principal (EH-373). The actual
 //! cross-engine / HTTP fetch is driven by the unified-query handlers: an inline-spec
 //! `Op::ForeignScan` resolves itself, and a `Named` `Op::ForeignScan` / an `Op::Foreign`
 //! (the UQL `FOREIGN "<name>"` marker) resolves through the registry
 //! `ForeignSourceCatalog::registry_for` builds from the caller's own entries only
-//! (CONCEPT:EG-KG.query.closure-backed-source). One principal can therefore neither use
+//! (CONCEPT:MEDULLA-KG.query.closure-backed-source). One principal can therefore neither use
 //! nor overwrite another principal's registration, even under the same name (one engine
 //! is bound to one tenant; the tenant stays inside the owner key). Rows a foreign
 //! source returns are not RLS-filtered. A lightweight, non-blocking insert — no
@@ -16,7 +16,7 @@
 
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::OwnerScopedCall;
-use eg_types::foreign_read::{
+use medulla_types::foreign_read::{
     ForeignReadAbortRequest, ForeignReadChunkRequest, ForeignReadCompleteRequest,
     ForeignReadOpenRequest, FOREIGN_READ_SCHEMA_VERSION,
 };
@@ -33,7 +33,7 @@ pub(crate) async fn try_handle(
                 Ok(owner) => owner,
                 Err(refusal) => return Ok(refusal),
             };
-            if let Err(error) = eg_plan::federation::validate_column_mapping(&source) {
+            if let Err(error) = medulla_plan::federation::validate_column_mapping(&source) {
                 return Ok(Response::err(req_id, error));
             }
             // EH-378: provision the source's share role (assigned to nobody) under the
@@ -51,7 +51,7 @@ pub(crate) async fn try_handle(
             }
             Ok(Response::ok(
                 req_id,
-                ResultPayload::scalar::<eg_types::result_contract::cluster::RegisterForeignSource>(
+                ResultPayload::scalar::<medulla_types::result_contract::cluster::RegisterForeignSource>(
                     name,
                 ),
             ))
@@ -143,7 +143,7 @@ async fn open_foreign_read(call: OwnerScopedCall<'_>, request: ForeignReadOpenRe
         state.foreign_reads.remove(execution.execution_id);
         return Response::err(req_id, error);
     }
-    let result = eg_types::foreign_read::ForeignReadOpenResult {
+    let result = medulla_types::foreign_read::ForeignReadOpenResult {
         schema_version: FOREIGN_READ_SCHEMA_VERSION,
         execution,
         expires_at_ms,
@@ -152,7 +152,7 @@ async fn open_foreign_read(call: OwnerScopedCall<'_>, request: ForeignReadOpenRe
     };
     Response::ok(
         req_id,
-        ResultPayload::of::<eg_types::result_contract::query::ForeignReadOpen>(result),
+        ResultPayload::of::<medulla_types::result_contract::query::ForeignReadOpen>(result),
     )
 }
 
@@ -184,7 +184,7 @@ async fn chunk_foreign_read(
     match result {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::query::ForeignReadChunk>(result),
+            ResultPayload::of::<medulla_types::result_contract::query::ForeignReadChunk>(result),
         ),
         Err(error) => Response::err(req_id, error),
     }
@@ -221,7 +221,7 @@ async fn complete_foreign_read(
     match result {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::query::ForeignReadComplete>(result),
+            ResultPayload::of::<medulla_types::result_contract::query::ForeignReadComplete>(result),
         ),
         Err(error) => Response::err(req_id, error),
     }
@@ -255,7 +255,7 @@ async fn abort_foreign_read(
     match result {
         Ok(result) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::query::ForeignReadAbort>(result),
+            ResultPayload::of::<medulla_types::result_contract::query::ForeignReadAbort>(result),
         ),
         Err(error) => Response::err(req_id, error),
     }
@@ -267,7 +267,7 @@ async fn query_columns(
     call: OwnerScopedCall<'_>,
     name: String,
     columns: Vec<String>,
-    predicates: Vec<eg_types::wire::ForeignColumnPredicate>,
+    predicates: Vec<medulla_types::wire::ForeignColumnPredicate>,
 ) -> Response {
     let req_id = call.req_id;
     let owner = match call.owner("QueryForeignColumns") {
@@ -292,8 +292,8 @@ async fn query_columns(
         state.foreign_sources.registry_for(&owner, &state.isolation)
     };
     let result = tokio::task::spawn_blocking(move || {
-        use eg_plan::federation_opt::{ColumnPredicate, Comparison, FederationSession};
-        use eg_types::wire::ForeignColumnComparison as WireComparison;
+        use medulla_plan::federation_opt::{ColumnPredicate, Comparison, FederationSession};
+        use medulla_types::wire::ForeignColumnComparison as WireComparison;
 
         let predicates = predicates
             .into_iter()
@@ -317,7 +317,7 @@ async fn query_columns(
             .map(|rows| {
                 rows.rows()
                     .iter()
-                    .map(|row| eg_types::wire::ForeignColumnRow {
+                    .map(|row| medulla_types::wire::ForeignColumnRow {
                         id: row.id.clone(),
                         score: row.score,
                         columns: row.columns.clone(),
@@ -329,7 +329,7 @@ async fn query_columns(
     match result {
         Ok(Ok(rows)) => Response::ok(
             req_id,
-            ResultPayload::of::<eg_types::result_contract::query::QueryForeignColumns>(rows),
+            ResultPayload::of::<medulla_types::result_contract::query::QueryForeignColumns>(rows),
         ),
         Ok(Err(error)) => Response::err(req_id, column_query_error(&error)),
         Err(_) => Response::err(req_id, "INTERNAL: foreign column worker failed"),
@@ -339,13 +339,13 @@ async fn query_columns(
 /// Map connector and planner prose to the codes declared for this read method.
 /// Do not promote a source-supplied prefix into an arbitrary wire code.
 fn column_query_error(error: &str) -> String {
-    if error.starts_with(eg_plan::federation_opt::BUDGET_EXCEEDED) {
+    if error.starts_with(medulla_plan::federation_opt::BUDGET_EXCEEDED) {
         if error.contains(":wall_ms:") {
             return "ENGINE_DEADLINE_EXCEEDED: foreign column read exceeded time budget".into();
         }
         return "ENGINE_RESOURCE_EXHAUSTED: foreign column read exceeded resource budget".into();
     }
-    if error.starts_with(eg_plan::federation_opt::RESULT_INCOMPLETE) {
+    if error.starts_with(medulla_plan::federation_opt::RESULT_INCOMPLETE) {
         return "ENGINE_RESOURCE_EXHAUSTED: foreign column result incomplete".into();
     }
     if error.contains("HTTP column projection exceeds limit") {
@@ -361,7 +361,7 @@ fn column_query_error(error: &str) -> String {
     ]
     .iter()
     .any(|message| error.contains(message))
-        || error.starts_with(eg_plan::federation_opt::REQUIRES_KEYS)
+        || error.starts_with(medulla_plan::federation_opt::REQUIRES_KEYS)
     {
         return "INVALID_ARGUMENT: foreign column request is invalid".into();
     }

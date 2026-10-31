@@ -125,10 +125,10 @@ fn peer_projection(class: &str, peers: u8, with_verifier: bool, stop: &str) -> S
     plain_projection(class, &slots, stop)
 }
 
-// spec: EG-DECISION-ENGINE-R105, EG-DECISION-ENGINE-R106
+// spec: MEDULLA-DECISION-ENGINE-R105, MEDULLA-DECISION-ENGINE-R106
 #[test]
 fn every_standard_shape_has_a_conforming_template() {
-    // EG-DECISION-ENGINE-R106: the standard agent arrangement shapes --
+    // MEDULLA-DECISION-ENGINE-R106: the standard agent arrangement shapes --
     // single-agent, pipeline, fan-out/join, supervisor-to-workers,
     // critique-loop and council -- each validate against the swarm-topology
     // SHACL shapes with a minimal, otherwise-unremarkable template.

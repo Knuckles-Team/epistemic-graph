@@ -1,9 +1,9 @@
 //! Durable cache for one graph's computed hierarchical-Leiden cluster tree
-//! (CONCEPT:EG-KG.compute.leiden-hierarchy, VIZ-1).
+//! (CONCEPT:MEDULLA-KG.compute.leiden-hierarchy, VIZ-1).
 //!
 //! ## Why this exists
 //!
-//! `Method::ClusterHierarchyRefresh` computes `eg_compute::algorithms::
+//! `Method::ClusterHierarchyRefresh` computes `medulla_compute::algorithms::
 //! cluster_hierarchy` (server-side clustering for million-node graph
 //! visualization) and needs to hand that result to `ClusterHierarchyClusters`/
 //! `ClusterHierarchyExpand` WITHOUT recomputing it per request — that's the whole
@@ -29,7 +29,7 @@ use std::sync::RwLock;
 
 use redb::{ReadableTable, TableDefinition};
 
-/// The one owner table of `OwnerLayout::ClusterHierarchy`. `eg-storage`
+/// The one owner table of `OwnerLayout::ClusterHierarchy`. `medulla-storage`
 /// declares it; this module only names it (RF-RULING-004).
 ///
 /// `graph_name -> msgpack(ClusterHierarchyResult)`. One row per graph that has
@@ -55,13 +55,13 @@ const MAX_ENTRIES: usize = 8_192;
 /// growth per row.
 const MAX_BLOB_BYTES: usize = 512 * 1024 * 1024;
 
-/// Durable per-graph cluster-hierarchy cache (CONCEPT:EG-KG.compute.leiden-hierarchy, VIZ-1).
+/// Durable per-graph cluster-hierarchy cache (CONCEPT:MEDULLA-KG.compute.leiden-hierarchy, VIZ-1).
 /// Cheap in-RAM `get`/`put`; the optional `durable` sidecar store mirrors every
 /// write through so it survives a restart. `PersistenceBackend::{save,load}_cluster_hierarchy`
 /// (`RedbBackend`'s impl) are this store's only callers.
 pub struct ClusterHierarchyStore {
     entries: RwLock<HashMap<String, Vec<u8>>>,
-    durable: Option<crate::sidecar_store::SidecarStore<eg_storage::ClusterHierarchyOwner>>,
+    durable: Option<crate::sidecar_store::SidecarStore<medulla_storage::ClusterHierarchyOwner>>,
 }
 
 impl ClusterHierarchyStore {
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn open_persists_across_reopen() {
         let dir = std::env::temp_dir().join(format!(
-            "eg-cluster-hierarchy-store-test-{}-{}",
+            "medulla-cluster-hierarchy-store-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

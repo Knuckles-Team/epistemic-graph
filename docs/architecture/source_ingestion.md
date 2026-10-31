@@ -88,11 +88,11 @@ projection but must not replace it with a local durable checkpoint or silently
 fall back when it is unavailable.
 
 Generated Python consumers construct the transparent direct-field
-`epistemic_graph.generated.source_ingestion.SourceIngestionRequest` and call
-`epistemic_graph.generated.ingestion.send_source_ingest`. Restart recovery uses
-`epistemic_graph.generated.ingestion.SourceIngestStatusRequest` with the typed
+`medulla.generated.source_ingestion.SourceIngestionRequest` and call
+`medulla.generated.ingestion.send_source_ingest`. Restart recovery uses
+`medulla.generated.ingestion.SourceIngestStatusRequest` with the typed
 `send_source_ingest_status` sender; its result is
-`epistemic_graph.generated.source_ingestion.SourceIngestStatus`. The request's
+`medulla.generated.source_ingestion.SourceIngestStatus`. The request's
 `canonical_digest()` returns EG's framed 64-hex batch digest. SDKs must use these
 generated models and helpers rather than maintaining parallel DTOs, digest
 algorithms, or checkpoint stores.

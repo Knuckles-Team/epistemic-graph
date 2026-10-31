@@ -61,7 +61,7 @@ fn caller_has_authority(
             &proposal.graph,
             graph_type,
             graph_owner,
-            eg_types::acl::AccessCheck::Write,
+            medulla_types::acl::AccessCheck::Write,
         )
         && verified.tenant() == proposal.tenant_id
         && verified.principal_persistence_id() == proposal.caller_subject
@@ -81,7 +81,7 @@ pub(super) fn bind_top_up_identity(
     graph_owner: Option<&str>,
     retained: &crate::redb_store::enrichment_budget::RepositoryEnrichmentPolicyRevision,
     proposal: &crate::parser::enrichment_reactivation::BudgetRevisionProposal,
-    replacement: &eg_types::native_control::EnrichmentBudgetCheckpoint,
+    replacement: &medulla_types::native_control::EnrichmentBudgetCheckpoint,
 ) -> Result<crate::redb_store::enrichment_budget::RepositoryEnrichmentPolicyRevision, String> {
     use crate::parser::enrichment_reactivation::TOP_UP_ACTION;
     if !caller_has_authority(verified, isolation, graph_type, graph_owner, proposal)
@@ -152,7 +152,7 @@ mod tests {
             verified_action: TOP_UP_ACTION.into(),
             idempotency_key: verified.idempotency_key().into(),
         };
-        let checkpoint = eg_types::native_control::EnrichmentBudgetCheckpoint {
+        let checkpoint = medulla_types::native_control::EnrichmentBudgetCheckpoint {
             schema_version: 1,
             tenant_id: "tenant-a".into(),
             snapshot_digest: "d".repeat(64),

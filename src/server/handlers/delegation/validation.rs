@@ -11,8 +11,8 @@ pub(crate) fn retained_graph(
     tenant_id: &str,
     graph_id: &str,
     entry_revision: u64,
-) -> Result<eg_types::agent_graph::AgentGraphEntry, String> {
-    use eg_types::agent_library::AgentLibraryLifecycle;
+) -> Result<medulla_types::agent_graph::AgentGraphEntry, String> {
+    use medulla_types::agent_library::AgentLibraryLifecycle;
     let revisions = store
         .graph_revisions(tenant_id, graph_id)
         .map_err(|error| error.to_string())?;
@@ -107,9 +107,9 @@ pub(crate) async fn placement_authority(
 #[cfg(feature = "redb")]
 pub(crate) fn decode_submit_result(payload: ResultPayload) -> Result<SubmitWorkItemResult, String> {
     match payload {
-        ResultPayload::Raw(bytes) => eg_types::msgpack::decode_bounded(
+        ResultPayload::Raw(bytes) => medulla_types::msgpack::decode_bounded(
             &bytes,
-            eg_types::msgpack::MsgpackLimits::new(4 * 1024 * 1024, 100_000, 64),
+            medulla_types::msgpack::MsgpackLimits::new(4 * 1024 * 1024, 100_000, 64),
         )
         .map_err(|_| "native admission result is invalid or exceeds resource limits".to_string()),
         ResultPayload::Json(value) => serde_json::from_value(value)
@@ -241,11 +241,11 @@ pub(crate) fn validate_retained_target(
     validate_retained_metadata(request, verified_context, retained)?;
     match (&request.target, retained) {
         (
-            eg_types::delegation::DelegationTarget::Agent { entry },
+            medulla_types::delegation::DelegationTarget::Agent { entry },
             RetainedTarget::Agent(retained_agent),
         ) => validate_agent_target(entry, request, retained_agent),
         (
-            eg_types::delegation::DelegationTarget::Graph { graph },
+            medulla_types::delegation::DelegationTarget::Graph { graph },
             RetainedTarget::Graph(retained_graph),
         ) => validate_graph_target(graph, request, retained_graph),
         _ => Err("kg-delegate resolved a different target kind than the request named".to_string()),
@@ -293,9 +293,9 @@ fn validate_agent_target(
 
 #[cfg(feature = "redb")]
 fn validate_graph_target(
-    graph: &eg_types::delegation::AgentGraphEntryRef,
+    graph: &medulla_types::delegation::AgentGraphEntryRef,
     request: &KgDelegateRequest,
-    retained_graph: &eg_types::agent_graph::AgentGraphEntry,
+    retained_graph: &medulla_types::agent_graph::AgentGraphEntry,
 ) -> Result<(), String> {
     retained_graph.validate()?;
     // The composed ceiling must be the one this graph was ADMITTED
@@ -322,7 +322,7 @@ fn validate_graph_target(
     // graph auditable -- is inside `definition_digest` and outside
     // `shape_digest`. (A composing parent still pins the SHAPE; see
     // `AgentGraphEntryRef`'s type doc for why the two differ.)
-    if *graph != eg_types::delegation::AgentGraphEntryRef::from_entry(retained_graph) {
+    if *graph != medulla_types::delegation::AgentGraphEntryRef::from_entry(retained_graph) {
         return Err(
             "kg-delegate agent graph is not the retained revision/definition digest".to_string(),
         );
@@ -369,7 +369,7 @@ pub(crate) fn validate_execution_bindings(
                 .to_string(),
         );
     }
-    if request.catalog_digest != eg_capabilities::CONTRACT_CATALOG_DIGEST {
+    if request.catalog_digest != medulla_capabilities::CONTRACT_CATALOG_DIGEST {
         return Err(
             "kg-delegate catalog digest does not match the generated contract catalog".to_string(),
         );
@@ -509,7 +509,7 @@ pub(crate) fn result_from_submit(
 ) -> Result<KgDelegateResult, String> {
     let decision = validate_submit_result(bound, &result)?;
     Ok(KgDelegateResult {
-        schema_version: eg_types::delegation::KgDelegateSchemaVersion::V2,
+        schema_version: medulla_types::delegation::KgDelegateSchemaVersion::V2,
         decision,
         delegation_id: bound.request.delegation_id.clone(),
         run_id: bound.request.run_id.clone(),
@@ -595,7 +595,7 @@ pub(crate) fn validate_request_context(
     verified_context: &VerifiedRequestContext,
     graph_name: &str,
 ) -> Result<(), String> {
-    if context.schema_version != eg_types::epistemic_operations::RequestContextSchemaVersion::V2 {
+    if context.schema_version != medulla_types::epistemic_operations::RequestContextSchemaVersion::V2 {
         return Err("kg-delegate context schema_version is unsupported".to_string());
     }
     if context.graph != graph_name {

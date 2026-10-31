@@ -1,0 +1,99 @@
+"""End-to-end smoke test for the compiled in-process engine binding
+(unified-binary program, workstream W-A).
+
+Mirrors ``crates/medulla-numeric/tests/test_kernel_parity.py``'s discovery convention
+exactly: it imports the compiled ``medulla.engine`` extension DIRECTLY
+(no socket, no server subprocess) and drives the same create-graph / add-node /
+get-node-properties sequence the design doc (``docs/architecture/
+unified-inprocess-engine.md``) walks through, asserting the round trip is
+byte-identical to what the out-of-process wire protocol stores (the same
+MessagePack encoding, just handed to the engine directly instead of framed over
+a Unix domain socket).
+
+Run against the freshly-built wheel::
+
+    PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 \\
+      maturin build --release -m crates/medulla-pyengine/Cargo.toml --features python
+    pip install target/wheels/medulla_pyengine-*.whl
+    pytest crates/medulla-pyengine/tests/test_engine_smoke.py --noconftest -q
+
+Each test explicitly chooses a disposable in-memory engine. Filesystem stores are
+refused until the binding implements durable storage.
+
+The module is discovered as ``medulla.engine`` (folded build) or
+``engine`` (standalone wheel) — if neither imports, the test is SKIPPED (a
+no-wheel checkout stays green); a CI job that builds+installs the wheel first
+always runs the real binding.
+"""
+
+from __future__ import annotations
+
+import importlib
+from typing import Any
+
+import msgpack
+import pytest
+
+from medulla.client import EngineResponseError
+
+_e: Any = None
+for _name in ("medulla.engine", "engine"):
+    try:
+        _m = importlib.import_module(_name)
+    except ImportError:
+        continue
+    if getattr(_m, "__engine__", None) == "medulla-pyengine":
+        _e = _m
+        break
+
+pytestmark = pytest.mark.skipif(
+    _e is None,
+    reason="medulla-pyengine binding wheel not installed (build with maturin --features "
+    "python)",
+)
+
+
+def test_create_graph_add_node_get_properties_round_trip() -> None:
+    engine = _e.Engine(persist_dir=":memory:")
+    engine.create_graph("kg")
+
+    properties = {"label": "Person", "name": "Ada"}
+    engine.add_node("kg", "ada", msgpack.packb(properties))
+
+    assert engine.has_node("kg", "ada") is True
+    assert engine.node_count("kg") == 1
+
+    raw = engine.get_node_properties("kg", "ada")
+    assert raw is not None
+    assert msgpack.unpackb(raw, raw=False) == properties
+
+
+def test_get_node_properties_missing_node_is_none() -> None:
+    engine = _e.Engine(persist_dir=":memory:")
+    engine.create_graph("kg")
+    assert engine.get_node_properties("kg", "nope") is None
+
+
+def test_unknown_graph_raises_invalid_argument() -> None:
+    engine = _e.Engine(persist_dir=":memory:")
+    with pytest.raises(EngineResponseError) as exc_info:
+        engine.add_node("no-such-graph", "n1", msgpack.packb({}))
+    assert exc_info.value.code == "INVALID_ARGUMENT"
+
+
+def test_duplicate_graph_name_raises() -> None:
+    engine = _e.Engine(persist_dir=":memory:")
+    engine.create_graph("kg")
+    with pytest.raises(EngineResponseError) as exc_info:
+        engine.create_graph("kg")
+    assert exc_info.value.code == "INVALID_ARGUMENT"
+
+
+def test_two_engines_are_isolated() -> None:
+    """Each ``Engine()`` owns its own registry — no shared global state."""
+    a, b = _e.Engine(persist_dir=":memory:"), _e.Engine(persist_dir=":memory:")
+    a.create_graph("kg")
+    a.add_node("kg", "n1", msgpack.packb({"v": 1}))
+    with pytest.raises(EngineResponseError) as exc_info:
+        b.add_node("kg", "n1", msgpack.packb({"v": 1}))
+    assert exc_info.value.code == "INVALID_ARGUMENT"

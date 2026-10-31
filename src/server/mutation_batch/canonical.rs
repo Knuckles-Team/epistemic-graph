@@ -54,7 +54,7 @@ fn owner_domain(method: &Method) -> Option<DurabilityDomain> {
         Method::MultiGraphBatchUpdate { .. } => DurabilityDomain::MultiGraph,
         Method::Commit { .. } => DurabilityDomain::CrossModal,
         // Wire-unconditional, same reason as the `datascience`/`finance`/etc.
-        // notes below: `eg-capabilities` forces `eg-types/blob` on unconditionally
+        // notes below: `medulla-capabilities` forces `medulla-types/blob` on unconditionally
         // for its policy ledger, regardless of whether this root crate's own
         // `blob` feature is enabled -- a `blob`-off `server` build still carries
         // these variants and must still claim them here (EH-319).
@@ -64,8 +64,8 @@ fn owner_domain(method: &Method) -> Option<DurabilityDomain> {
         | Method::BlobRef { .. }
         | Method::BlobUnref { .. }
         | Method::BlobGc => DurabilityDomain::BlobStore,
-        // Wire-unconditional, same reason as `blob` just above: `eg-capabilities`
-        // forces `eg-types/kv` on unconditionally too (EH-319).
+        // Wire-unconditional, same reason as `blob` just above: `medulla-capabilities`
+        // forces `medulla-types/kv` on unconditionally too (EH-319).
         Method::KvPut { .. } | Method::KvDelete { .. } | Method::KvCas { .. } => {
             DurabilityDomain::KvStore
         }
@@ -101,7 +101,7 @@ fn service_owner_domain(method: &Method) -> Option<DurabilityDomain> {
         (_, Method::Sql { .. }) => DurabilityDomain::SqlCatalog,
         // EH-319 CORRECTION: this arm's previous comment claimed `query` is
         // "nothing forcing that feature on unconditionally", but
-        // `eg-capabilities`'s `[dependencies.eg-types] features` list DOES
+        // `medulla-capabilities`'s `[dependencies.medulla-types] features` list DOES
         // include `"query"` (the same list that forces `rdf` on for
         // `AddTriples`/etc. below) -- that was the mistaken assumption, not a
         // real difference from `Sql`. `SqlSourceBatch` is wire-unconditional in
@@ -110,13 +110,13 @@ fn service_owner_domain(method: &Method) -> Option<DurabilityDomain> {
         (_, Method::SqlSourceBatch { .. }) => DurabilityDomain::SqlCatalog,
         // Wire-unconditional, same reason as the `datascience`/`finance`/etc.
         // notes above: `full` does not list plain `rdf` (only `rdf-xml`/
-        // `sparql-*`/etc.), but `eg-capabilities` forces `eg-types/rdf` on
+        // `sparql-*`/etc.), but `medulla-capabilities` forces `medulla-types/rdf` on
         // regardless.
         (_, Method::AddTriples { .. } | Method::RemoveTriples { .. } | Method::DropNamedGraph) => {
             DurabilityDomain::RdfDataset
         }
         // Wire-unconditional, same reason as `SqlSourceBatch` above:
-        // `eg-capabilities` forces `eg-types/broker` on unconditionally, so
+        // `medulla-capabilities` forces `medulla-types/broker` on unconditionally, so
         // every Broker-family variant exists in any `server` build regardless
         // of this root crate's own `broker` feature (EH-319; previously a
         // `--no-default-features --features server` build failed to compile
@@ -143,35 +143,35 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         // not a silent default.
         #[cfg(feature = "asr-whisper")]
         Method::Asr { .. } => default_mutation_domain(surface),
-        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
-        // forces `eg-types/blob` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `datascience` above: `medulla-capabilities`
+        // forces `medulla-types/blob` on unconditionally (EH-319).
         Method::BlobFetchEnd { .. }
         | Method::BlobChunkGet { .. }
         | Method::BlobFetchBegin { .. } => default_mutation_domain(surface),
-        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
-        // forces `eg-types/broker` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `datascience` above: `medulla-capabilities`
+        // forces `medulla-types/broker` on unconditionally (EH-319).
         Method::StreamCommittedOffset { .. } | Method::StreamRead { .. } => {
             default_mutation_domain(surface)
         }
         // `GetMatView`/`CreateMatView`/`DistributedCompute`/`RefreshMatView` are
-        // wire-unconditional too, for a reason `cargo tree -e features -p eg-types`
+        // wire-unconditional too, for a reason `cargo tree -e features -p medulla-types`
         // makes visible but a Cargo.toml grep does not: this crate's own
-        // `eg-capabilities` dependency (linked unconditionally by the `server`
+        // `medulla-capabilities` dependency (linked unconditionally by the `server`
         // feature, which this whole module already requires -- see `src/lib.rs`'s
-        // `#[cfg(feature = "server")] pub mod server;`) forces `eg-types/compute-dist`
-        // on in its base `[dependencies.eg-types] features` list, deliberately
-        // unconditionally: `crates/eg-capabilities/Cargo.toml`'s policy ledger must
+        // `#[cfg(feature = "server")] pub mod server;`) forces `medulla-types/compute-dist`
+        // on in its base `[dependencies.medulla-types] features` list, deliberately
+        // unconditionally: `crates/medulla-capabilities/Cargo.toml`'s policy ledger must
         // see every `Method` variant regardless of serving tier, exactly like the
         // `Ts*` note above. That forcing is NOT gated by this root crate's own
         // `compute-dist` feature (which additionally pulls `raft`/openraft for the
         // real cross-shard Pregel engine -- `compute-dist = ["raft",
-        // "eg-types/compute-dist"]`), so these variants exist in ANY `server` build,
+        // "medulla-types/compute-dist"]`), so these variants exist in ANY `server` build,
         // `full` included, even though `full` does not list `compute-dist` and the
         // main/default build must link no openraft (see the root Cargo.toml's
         // `cluster`-layer comment). A `#[cfg(feature = "compute-dist")]` gate here
         // was therefore always false under `--no-default-features --features full`
         // while the variants were still present -- the non-exhaustive-match defect
-        // this comment replaces. Gating eg-capabilities' forcing behind its own
+        // this comment replaces. Gating medulla-capabilities' forcing behind its own
         // mirrored `compute-dist` companion feature (the same fix already applied to
         // `jobs`/`statechart`/`quantum-agent-api`/`viz`/`asr-native` there) would let
         // this arm go back to being feature-gated, but that is a contract-regenerating
@@ -181,19 +181,19 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::CreateMatView { .. }
         | Method::DistributedCompute { .. }
         | Method::RefreshMatView { .. } => default_mutation_domain(surface),
-        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
-        // forces `eg-types/cost` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `datascience` above: `medulla-capabilities`
+        // forces `medulla-types/cost` on unconditionally (EH-319).
         Method::ResourceStatsPage { .. } => default_mutation_domain(surface),
-        // Wire-unconditional: `eg-capabilities` forces `eg-types/datascience` on
-        // unconditionally for its policy ledger (its `[dependencies.eg-types]`
+        // Wire-unconditional: `medulla-capabilities` forces `medulla-types/datascience` on
+        // unconditionally for its policy ledger (its `[dependencies.medulla-types]`
         // features list), which this root crate's own `datascience` feature does
         // not gate -- `full` does not list `datascience` at all. Same bug class as
         // the `compute-dist`/`Quantum` notes elsewhere in this file.
         Method::DsFitEstimator { .. } | Method::DsPredictEstimator { .. } => {
             default_mutation_domain(surface)
         }
-        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
-        // forces `eg-types/epistemic` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `datascience` above: `medulla-capabilities`
+        // forces `medulla-types/epistemic` on unconditionally (EH-319).
         Method::TxnMaterializeBelief { .. }
         | Method::StaleMaterializations
         | Method::MaterializationStatus { .. }
@@ -206,8 +206,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::RankByProvenance { .. }
         | Method::WhatChanged { .. }
         | Method::ResolveConflict { .. } => default_mutation_domain(surface),
-        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
-        // forces `eg-types/federation` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `datascience` above: `medulla-capabilities`
+        // forces `medulla-types/federation` on unconditionally (EH-319).
         Method::RegisterForeignSource { .. } => default_mutation_domain(surface),
         // EH-572 is a read-only, owner-scoped source query with no durable
         // effect; it belongs to the same surface-keyed default as other reads.
@@ -217,35 +217,35 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ForeignReadComplete { .. }
         | Method::ForeignReadAbort { .. } => default_mutation_domain(surface),
         // Wire-unconditional, same reason as `datascience` above: `full` does not
-        // list `finance`, but `eg-capabilities` forces `eg-types/finance` on
+        // list `finance`, but `medulla-capabilities` forces `medulla-types/finance` on
         // regardless.
         Method::FinanceMatchOrders { .. }
         | Method::FinanceForensicReport { .. }
         | Method::FinanceMarket { .. }
         | Method::FinanceSignalModels { .. } => default_mutation_domain(surface),
         // Wire-unconditional, same reason as `datascience` above: `full` does not
-        // list `graphlearn`, but `eg-capabilities` forces `eg-types/graphlearn` on
+        // list `graphlearn`, but `medulla-capabilities` forces `medulla-types/graphlearn` on
         // regardless.
         Method::GraphLearnPredict { .. } | Method::GraphLearnFit { .. } => {
             default_mutation_domain(surface)
         }
-        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
-        // forces `eg-types/graphql` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `datascience` above: `medulla-capabilities`
+        // forces `medulla-types/graphql` on unconditionally (EH-319).
         Method::GraphQl { .. } => default_mutation_domain(surface),
         #[cfg(feature = "knowledge-batch")]
         Method::KnowledgeStream { .. } => default_mutation_domain(surface),
-        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
-        // forces `eg-types/kv` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `datascience` above: `medulla-capabilities`
+        // forces `medulla-types/kv` on unconditionally (EH-319).
         Method::KvScan { .. } | Method::KvGet { .. } => default_mutation_domain(surface),
         // Wire-unconditional, same reason as `GetMatView`/etc. above and
-        // `datascience` below: `eg-capabilities` forces `eg-types/matview` on
+        // `datascience` below: `medulla-capabilities` forces `medulla-types/matview` on
         // unconditionally too (EH-319).
         Method::PlanMatViewRefresh { .. }
         | Method::PlanMatViewGet { .. }
         | Method::PlanMatViewDefine { .. }
         | Method::PlanMatViewDrop { .. } => default_mutation_domain(surface),
         // Wire-unconditional, same reason as `datascience` above: `full` does not
-        // list `mining`, but `eg-capabilities` forces `eg-types/mining` on
+        // list `mining`, but `medulla-capabilities` forces `medulla-types/mining` on
         // regardless.
         Method::MineProcess { .. }
         | Method::MineForecast { .. }
@@ -266,7 +266,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::MineRootCause { .. }
         | Method::MineText { .. } => default_mutation_domain(surface),
         // Wire-unconditional, same reason as `datascience` above: `full` does not
-        // list `ml-pipeline`, but `eg-capabilities` forces `eg-types/ml-pipeline`
+        // list `ml-pipeline`, but `medulla-capabilities` forces `medulla-types/ml-pipeline`
         // on regardless.
         Method::MiningPipelineTrain { .. }
         | Method::MiningPipelineServe { .. }
@@ -275,32 +275,32 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::MiningPipelineCompare { .. } => default_mutation_domain(surface),
         #[cfg(feature = "modality-serving")]
         Method::ServedModality { .. } => default_mutation_domain(surface),
-        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
-        // forces `eg-types/obda` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `datascience` above: `medulla-capabilities`
+        // forces `medulla-types/obda` on unconditionally (EH-319).
         Method::SparqlVirtual { .. } => default_mutation_domain(surface),
-        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
-        // forces `eg-types/owl` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `datascience` above: `medulla-capabilities`
+        // forces `medulla-types/owl` on unconditionally (EH-319).
         Method::OwlReasonDistributed { .. }
         | Method::OwlExplain { .. }
         | Method::OwlReason { .. }
         | Method::TxnAxiom { .. } => default_mutation_domain(surface),
         // Same bug class as the `Asr` note above (see git history): this root
-        // crate's bare `quantum` feature only pulls `dep:eg-quantum-core` (the IR +
-        // planner, `quantum = ["dep:eg-quantum-core"]`) and never forwards
-        // `eg-types/quantum`. Only `quantum-agent-api` does
-        // (`["quantum-sim", "server", "eg-types/quantum", "eg-capabilities/quantum"]`,
+        // crate's bare `quantum` feature only pulls `dep:medulla-quantum-core` (the IR +
+        // planner, `quantum = ["dep:medulla-quantum-core"]`) and never forwards
+        // `medulla-types/quantum`. Only `quantum-agent-api` does
+        // (`["quantum-sim", "server", "medulla-types/quantum", "medulla-capabilities/quantum"]`,
         // root Cargo.toml) -- it is the ONE feature that makes `Method::Quantum`
         // reachable at all. Gating on bare `quantum` was always wrong: it let this
         // arm compile under `--features quantum,server` even though `Method::Quantum`
-        // does not exist there (eg-capabilities deliberately excludes `quantum` from
-        // its unconditional eg-types forcing, exactly like `jobs`/`statechart`, so
+        // does not exist there (medulla-capabilities deliberately excludes `quantum` from
+        // its unconditional medulla-types forcing, exactly like `jobs`/`statechart`, so
         // nothing else turns the variant on) -- a real non-exhaustive-match defect
         // that `--all-features`/`full` both mask because they also enable
         // `quantum-agent-api`.
         #[cfg(feature = "quantum-agent-api")]
         Method::Quantum { .. } => default_mutation_domain(surface),
         // Wire-unconditional, same reason as `Sql`/`SqlSourceBatch` above:
-        // `eg-capabilities` forces `eg-types/query` on unconditionally (EH-319).
+        // `medulla-capabilities` forces `medulla-types/query` on unconditionally (EH-319).
         Method::Uql { .. }
         | Method::TxnUql { .. }
         | Method::TxnPlanWriteback { .. }
@@ -311,29 +311,29 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ExplainPlan { .. }
         | Method::ExplainPolicy { .. } => default_mutation_domain(surface),
         // Wire-unconditional, same reason as `datascience` above: `full` does not
-        // list plain `rdf` (only `rdf-xml`/`sparql-*`/etc.), but `eg-capabilities`
-        // forces `eg-types/rdf` on regardless.
+        // list plain `rdf` (only `rdf-xml`/`sparql-*`/etc.), but `medulla-capabilities`
+        // forces `medulla-types/rdf` on regardless.
         Method::RunRules { .. } | Method::GetRdf => default_mutation_domain(surface),
-        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
-        // forces `eg-types/security` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `datascience` above: `medulla-capabilities`
+        // forces `medulla-types/security` on unconditionally (EH-319).
         Method::AuditProveInclusion { .. }
         | Method::AuditVerify
         | Method::AuditReadEvent { .. }
         | Method::AuditAppend { .. } => {
             default_mutation_domain(surface)
         }
-        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
-        // forces `eg-types/sparql` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `datascience` above: `medulla-capabilities`
+        // forces `medulla-types/sparql` on unconditionally (EH-319).
         Method::Sparql { .. } | Method::TxnConstruct { .. } => default_mutation_domain(surface),
-        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
-        // forces `eg-types/sqlite-file` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `datascience` above: `medulla-capabilities`
+        // forces `medulla-types/sqlite-file` on unconditionally (EH-319).
         Method::ImportSqliteFile { .. } | Method::ExportSqliteFile { .. } => {
             default_mutation_domain(surface)
         }
         #[cfg(feature = "statechart")]
         Method::Statechart { .. } => default_mutation_domain(surface),
-        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
-        // forces `eg-types/streaming` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `datascience` above: `medulla-capabilities`
+        // forces `medulla-types/streaming` on unconditionally (EH-319).
         Method::RegisterContinuousQuery { .. }
         | Method::CepUnsubscribe { .. }
         | Method::ReadContinuousQuery { .. }
@@ -348,8 +348,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::CdcRead { .. } => default_mutation_domain(surface),
         #[cfg(feature = "viz")]
         Method::Viz { .. } => default_mutation_domain(surface),
-        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
-        // forces `eg-types/wasm-udf` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `datascience` above: `medulla-capabilities`
+        // forces `medulla-types/wasm-udf` on unconditionally (EH-319).
         Method::RunUdf { .. } | Method::RegisterUdf { .. } => default_mutation_domain(surface),
         Method::ApplyMultisigMutation { .. }
         | Method::AddEmbedding { .. }
@@ -625,7 +625,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         //    own doc comment -- a graph-row/snapshot write through the graph
         //    commit kernel, i.e. exactly what this default already means; see
         //    `IcvConfigure` a few arms below.
-        //  * `MutationOutbox`'s `rewind` writes through bounded `eg-transaction`
+        //  * `MutationOutbox`'s `rewind` writes through bounded `medulla-transaction`
         //    transactions (a saga), not a graph or native `MutationBatch` WTX, and
         //    this classifier has no dedicated outbox domain to route it to. The
         //    package that lands `rewind`'s real dispatch arm must revisit this.
@@ -641,7 +641,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ConnectorPack { .. }
         | Method::SourceIngest { .. }
         | Method::SourceIngestStatus { .. }
-        // EG-UNIFIED-DATA-PLANE-R651.7: lowers to one ChangeEnvelope, which
+        // MEDULLA-UNIFIED-DATA-PLANE-R651.7: lowers to one ChangeEnvelope, which
         // carries its own domains; selection commits nothing.
         | Method::EnrichDocument { .. }
         | Method::SelectWebPages { .. }
@@ -655,7 +655,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::GraphSchema { .. }
         | Method::GraphSchemaList
         | Method::GraphSchemaClasses { .. }
-        // EH-219 / graph-os EG-2/3 typed reads: MVCC snapshot reads that commit
+        // EH-219 / graph-os MEDULLA-2/3 typed reads: MVCC snapshot reads that commit
         // nothing, so like every other read they carry the surface-keyed default.
         | Method::GetCurrentPlan { .. }
         | Method::GetRunCheckpoint { .. }
@@ -722,7 +722,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::KgDelegate { .. }
         | Method::SubmitWorkItem { .. }
         | Method::SubmitWorkItems { .. }
-        | eg_types::capacity_lease_writes!()
+        | medulla_types::capacity_lease_writes!()
         | work_item_kernel_writes!()
         | Method::CommitWorkItemResult { .. }
         | work_item_resource_writes!()
@@ -731,7 +731,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::RemoveTriples { .. }
         | Method::DropNamedGraph => owner_domain(method)
             .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
-        // Wire-unconditional (`eg-capabilities` forces `eg-types/blob` on
+        // Wire-unconditional (`medulla-capabilities` forces `medulla-types/blob` on
         // unconditionally), same reason as `Sql`/`AddTriples` above -- claimed
         // by `owner_domain`'s own now-unconditional arm (EH-319).
         Method::BlobBegin { .. }
@@ -741,7 +741,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::BlobUnref { .. }
         | Method::BlobGc => owner_domain(method)
             .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
-        // Wire-unconditional (`eg-capabilities` forces `eg-types/kv` on
+        // Wire-unconditional (`medulla-capabilities` forces `medulla-types/kv` on
         // unconditionally), same reason as `blob` above (EH-319).
         Method::KvPut { .. } | Method::KvDelete { .. } | Method::KvCas { .. } => owner_domain(
             method,
@@ -750,13 +750,13 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => owner_domain(method)
             .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
-        // Wire-unconditional (`eg-capabilities` forces `eg-types/query` on
+        // Wire-unconditional (`medulla-capabilities` forces `medulla-types/query` on
         // unconditionally); claimed by `service_owner_domain`'s now-unconditional
         // `SqlSourceBatch` arm (EH-319 -- see that arm's comment for why the
         // previous "nothing forces `query` on" premise was wrong).
         Method::SqlSourceBatch { .. } => owner_domain(method)
             .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
-        // Wire-unconditional (`eg-capabilities` forces `eg-types/broker` on
+        // Wire-unconditional (`medulla-capabilities` forces `medulla-types/broker` on
         // unconditionally); claimed by `service_owner_domain`'s now-unconditional
         // `MethodWriteFamily::Broker` arm (EH-319: this was the exact
         // non-exhaustive-match compile failure under
@@ -805,7 +805,7 @@ pub(super) fn lower_canonical_operation(method: Method) -> Method {
     match method {
         // Wire-unconditional, same reason as the `datascience`/`finance`/etc.
         // notes above: `full` does not list plain `rdf` (only `rdf-xml`/
-        // `sparql-*`/etc.), but `eg-capabilities` forces `eg-types/rdf` on
+        // `sparql-*`/etc.), but `medulla-capabilities` forces `medulla-types/rdf` on
         // regardless.
         Method::DropNamedGraph => Method::ClearGraph,
         other => other,
@@ -825,12 +825,12 @@ pub(super) fn surface_for(method: &Method) -> Option<MutationSurface> {
                 ..
             },
         ) => Some(MutationSurface::Query),
-        // Wire-unconditional, same reason as `rdf` below: `eg-capabilities`
-        // forces `eg-types/graphql` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `rdf` below: `medulla-capabilities`
+        // forces `medulla-types/graphql` on unconditionally (EH-319).
         (_, Method::GraphQl { .. }) => Some(MutationSurface::Query),
         // Wire-unconditional, same reason as the `datascience`/`finance`/etc.
         // notes above: `full` does not list plain `rdf` (only `rdf-xml`/
-        // `sparql-*`/etc.), but `eg-capabilities` forces `eg-types/rdf` on
+        // `sparql-*`/etc.), but `medulla-capabilities` forces `medulla-types/rdf` on
         // regardless.
         (_, Method::AddTriples { .. } | Method::RemoveTriples { .. } | Method::DropNamedGraph) => {
             Some(MutationSurface::Rdf)
@@ -851,8 +851,8 @@ pub(super) fn surface_for(method: &Method) -> Option<MutationSurface> {
         (_, Method::QueryWorkItemReservation { .. } | Method::ResourceReservationStatus { .. }) => {
             Some(MutationSurface::Query)
         }
-        // Wire-unconditional, same reason as `graphql` above: `eg-capabilities`
-        // forces `eg-types/broker` on unconditionally (EH-319).
+        // Wire-unconditional, same reason as `graphql` above: `medulla-capabilities`
+        // forces `medulla-types/broker` on unconditionally (EH-319).
         (Some(MethodWriteFamily::Broker), _) => Some(MutationSurface::Broker),
         _ => None,
     }
@@ -872,7 +872,7 @@ pub(crate) fn is_work_item_method(method: &Method) -> bool {
 pub(crate) fn is_capacity_method(method: &Method) -> bool {
     matches!(
         method,
-        eg_types::capacity_lease_writes!()
+        medulla_types::capacity_lease_writes!()
             | Method::ReconcileCapacity { .. }
             | Method::CapacityStatus { .. }
     )

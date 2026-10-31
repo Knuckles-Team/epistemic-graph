@@ -1,14 +1,14 @@
 # ADR: Attached sources are the default; EG stays the one converged engine
 
-**Status:** Accepted · **Requirement:** `EG-UNIFIED-DATA-PLANE-R001` (the
-separate pgrx go/no-go decision is `EG-UNIFIED-DATA-PLANE-R025`)
+**Status:** Accepted · **Requirement:** `MEDULLA-UNIFIED-DATA-PLANE-R001` (the
+separate pgrx go/no-go decision is `MEDULLA-UNIFIED-DATA-PLANE-R025`)
 
 ## Context
 
 [`specs/unified-data-plane/spec.md`](../../specs/unified-data-plane/spec.md) and
 [`plan.md`](../../specs/unified-data-plane/plan.md) already state four load-bearing
 architecture decisions in prose, scattered across "Outcome and boundaries," the
-query contract and the native-path dependency section. `EG-UNIFIED-DATA-PLANE-R001`
+query contract and the native-path dependency section. `MEDULLA-UNIFIED-DATA-PLANE-R001`
 asks that these be recorded as reviewed architecture decision records, not that they
 be decided afresh. This ADR is that record: each decision below quotes the merged
 spec/plan text it formalizes, so review can confirm the record against its source
@@ -55,10 +55,10 @@ attaching a source.
 > "This spec does not authorize a production cutover... P6 Gramps cutover requires
 > the operator's go-ahead after P0–P5 evidence." — spec.md, "Outcome and boundaries"
 
-**Consequence:** the Gramps pilot (`EG-UNIFIED-DATA-PLANE-R026`, phases P0–P5) is the
+**Consequence:** the Gramps pilot (`MEDULLA-UNIFIED-DATA-PLANE-R026`, phases P0–P5) is the
 one evidence-gated path by which an application earns native hosting; no other
 attached application is admitted natively without the same evidence and an explicit
-operator go-ahead (`EG-UNIFIED-DATA-PLANE-R033`).
+operator go-ahead (`MEDULLA-UNIFIED-DATA-PLANE-R033`).
 
 ## Decision 4 — The router's consistency contract
 
@@ -72,7 +72,7 @@ read-your-writes request never silently returns a stale result.
 > failure or policy-authorized live retry, never a silent stale result." — plan.md,
 > "Contracts and data flow" §4
 
-**Consequence:** `EG-UNIFIED-DATA-PLANE-R011`'s router and its `EXPLAIN` output are
+**Consequence:** `MEDULLA-UNIFIED-DATA-PLANE-R011`'s router and its `EXPLAIN` output are
 built to this contract: every explained plan states its chosen route and source/copy
 position, and a timed-out freshness wait fails typed or falls back only under an
 explicit policy — never silently.
@@ -91,7 +91,7 @@ native storage authority growing in parallel with the attached-source data plane
 > "Native transaction and storage dependency"
 
 **Consequence:** this spec's attached-source and native-hosting work never depends on
-pgrx; pgrx's own go/no-go is decided separately, by `EG-UNIFIED-DATA-PLANE-R025`'s
+pgrx; pgrx's own go/no-go is decided separately, by `MEDULLA-UNIFIED-DATA-PLANE-R025`'s
 spike ADR.
 
 ## Consequences (summary)

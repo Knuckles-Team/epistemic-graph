@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-pytestmark = [pytest.mark.no_engine, pytest.mark.spec("EG-DURABLE-KERNEL-R014.2")]
+pytestmark = [pytest.mark.no_engine, pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R014.2")]
 
 
 @pytest.fixture
@@ -218,7 +218,7 @@ def test_signal_with_fast_command_exit_is_not_success(
     assert_stopped(record)
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R014.3.1")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R014.3.1")
 def test_repeats_both_cluster_tests(harness: tuple[dict[str, str], Path]) -> None:
     env, record = harness
     env.update(RAFT_LOAD_REPEATS="2", RAFT_LOAD_OUTPUT=str(record.parent / "runs"))
@@ -239,7 +239,7 @@ def test_repeats_both_cluster_tests(harness: tuple[dict[str, str], Path]) -> Non
     assert_stopped(record)
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R014.3.1")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R014.3.1")
 def test_repetition_preserves_failure_and_trace(
     harness: tuple[dict[str, str], Path],
 ) -> None:
@@ -261,7 +261,7 @@ def test_repetition_preserves_failure_and_trace(
     assert_stopped(record)
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R014.3.1")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R014.3.1")
 def test_empty_selection_refused(harness: tuple[dict[str, str], Path]) -> None:
     env, record = harness
     env.update(
@@ -273,7 +273,7 @@ def test_empty_selection_refused(harness: tuple[dict[str, str], Path]) -> None:
     assert_stopped(record)
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R014.3.1")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R014.3.1")
 @pytest.mark.parametrize("value", ["0", "1", "101", "-1", "", "1.5"])
 def test_invalid_repeat_count_refused(
     harness: tuple[dict[str, str], Path], value: str
@@ -286,7 +286,7 @@ def test_invalid_repeat_count_refused(
     assert not record.exists()
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R014.3.1")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R014.3.1")
 @pytest.mark.parametrize(
     "options, expected",
     [
@@ -314,7 +314,7 @@ def test_repeated_interruption_retains_result(
     assert not stat.exists() or stat.read_text().split()[2] == "Z"
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R014.3.1")
+@pytest.mark.spec("MEDULLA-DURABLE-KERNEL-R014.3.1")
 def test_direct_repeat_requires_count(harness: tuple[dict[str, str], Path]) -> None:
     env, _ = harness
     result = subprocess.run(

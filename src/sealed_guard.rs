@@ -1,6 +1,6 @@
 //! Generic writers may not change, remove or forge a sealed record row (EH-558).
 //!
-//! A sealed record class ([`eg_types::sealed_record`]) is stored as an ordinary
+//! A sealed record class ([`medulla_types::sealed_record`]) is stored as an ordinary
 //! graph node, so every generic node writer can reach its row. This guard judges one
 //! generic write `Method` against the CURRENT stored rows, read through
 //! [`StoredNodeRows`], and is called at every place a generic write is admitted:
@@ -23,7 +23,7 @@
 
 use std::borrow::Cow;
 
-use eg_types::sealed_record::{sealed_class, SealedClass};
+use medulla_types::sealed_record::{sealed_class, SealedClass};
 
 use crate::graph::GraphCore;
 use crate::protocol::Method;
@@ -145,20 +145,20 @@ struct RowClass {
 
 /// The sealed class of a property blob, decoding only its `type`.
 fn row_class(blob: &[u8]) -> Option<&'static SealedClass> {
-    let row = eg_types::msgpack::decode_bounded::<RowClass>(blob, row_limits()).ok()?;
+    let row = medulla_types::msgpack::decode_bounded::<RowClass>(blob, row_limits()).ok()?;
     row.class?.as_str().and_then(sealed_class)
 }
 
-fn row_limits() -> eg_types::msgpack::MsgpackLimits {
-    eg_types::msgpack::MsgpackLimits::new(
-        eg_types::msgpack::MAX_PROPERTY_BYTES,
-        eg_types::msgpack::MAX_PROPERTY_ITEMS,
-        eg_types::msgpack::DEFAULT_MAX_DEPTH,
+fn row_limits() -> medulla_types::msgpack::MsgpackLimits {
+    medulla_types::msgpack::MsgpackLimits::new(
+        medulla_types::msgpack::MAX_PROPERTY_BYTES,
+        medulla_types::msgpack::MAX_PROPERTY_ITEMS,
+        medulla_types::msgpack::DEFAULT_MAX_DEPTH,
     )
 }
 
 fn decode_row(blob: &[u8]) -> Option<NodeMap> {
-    eg_types::msgpack::decode_property_object(blob).ok()
+    medulla_types::msgpack::decode_property_object(blob).ok()
 }
 
 /// Judge one write against the stored row.

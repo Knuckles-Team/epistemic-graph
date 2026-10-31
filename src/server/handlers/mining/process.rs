@@ -1,11 +1,11 @@
 use super::writeback::*;
 use super::*;
-use eg_compute::mining::{causal_impact, process_mining, root_cause};
-use eg_types::compute_result::mining::{
+use medulla_compute::mining::{causal_impact, process_mining, root_cause};
+use medulla_types::compute_result::mining::{
     CausalImpactMiningResult, CausalRelationRow, DirectlyFollowsRow, ParallelRelationRow,
     ProcessMiningResult,
 };
-use eg_types::result_contract::compute as results;
+use medulla_types::result_contract::compute as results;
 
 // ─────────────────────────── Causal impact (ITS / DiD) ───────────────────────────
 
@@ -63,7 +63,7 @@ fn causal_method_name(control: &[f64]) -> &'static str {
     }
 }
 
-/// Materialize the estimate as a typed `:CausalEffect` node (CONCEPT:EG-KG.mining.causal-impact),
+/// Materialize the estimate as a typed `:CausalEffect` node (CONCEPT:MEDULLA-KG.mining.causal-impact),
 /// id = a deterministic digest of `method` + `series_id` (or the input series
 /// when empty, so identical explicit input reproduces the same id on WAL replay).
 /// Linked to a resident node named `series_id` via a `CAUSAL_EFFECT_OF` edge
@@ -210,7 +210,7 @@ pub(in crate::server::handlers) fn handle_process(
     )
 }
 
-/// Materialize the footprint as a typed `:ProcessModel` node (CONCEPT:EG-KG.mining.process-mining),
+/// Materialize the footprint as a typed `:ProcessModel` node (CONCEPT:MEDULLA-KG.mining.process-mining),
 /// linked to every activity that IS a resident node via `PROCESS_MEMBER` edges.
 pub(super) fn materialize_process_model(
     core: &GraphCore,

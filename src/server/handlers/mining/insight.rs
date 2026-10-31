@@ -5,17 +5,17 @@ use super::{
     vector::link_writeback_source,
     writeback::*,
 };
-use eg_compute::graph_algos::AdjacencyGraph;
-use eg_compute::mining::{
+use medulla_compute::graph_algos::AdjacencyGraph;
+use medulla_compute::mining::{
     community, ontology_gap, retrieval_quality, risk_propagation, root_cause,
 };
-use eg_types::compute_result::mining::ImpactOptions;
-use eg_types::compute_result::mining::{
+use medulla_types::compute_result::mining::ImpactOptions;
+use medulla_types::compute_result::mining::{
     CommunityMiningResult, CommunityRow, OntologyGapMiningResult, OntologyGapRow,
     RetrievalQualityMiningResult, RiskModel, RiskPropagationMiningResult, RiskScoreRow,
     RootCauseCandidateRow, RootCauseMiningResult,
 };
-use eg_types::result_contract::compute as results;
+use medulla_types::result_contract::compute as results;
 
 use super::impact::{handle_impact, ImpactInputs, ImpactKind};
 
@@ -87,7 +87,7 @@ pub(in crate::server::handlers) fn handle_root_cause(
     )
 }
 
-/// Materialize the TOP candidate as a typed `:RootCause` node (CONCEPT:EG-KG.mining.root-cause),
+/// Materialize the TOP candidate as a typed `:RootCause` node (CONCEPT:MEDULLA-KG.mining.root-cause),
 /// linked to the symptom (`ROOT_CAUSE_OF`) and the candidate itself
 /// (`ROOT_CAUSE_CANDIDATE`) when resident.
 pub(super) fn materialize_root_cause(
@@ -264,7 +264,7 @@ pub(in crate::server::handlers) fn handle_risk_propagation(
 }
 
 /// Materialize every node with a NON-ZERO propagated score as a typed
-/// `:RiskScore` node (CONCEPT:EG-KG.mining.risk-propagation), linked via
+/// `:RiskScore` node (CONCEPT:MEDULLA-KG.mining.risk-propagation), linked via
 /// `RISK_SCORE_OF` when resident.
 pub(super) fn materialize_risk_scores(
     core: &GraphCore,
@@ -318,7 +318,7 @@ pub(super) fn materialize_risk_score_claims(
 // ─────────────────────────── Ontology-gap detection ───────────────────────────
 
 /// Project the resident graph's class nodes into [`ontology_gap::ClassNode`]s
-/// (CONCEPT:EG-KG.mining.ontology-gap, GRAPH-NATIVE). A node is a "class" when
+/// (CONCEPT:MEDULLA-KG.mining.ontology-gap, GRAPH-NATIVE). A node is a "class" when
 /// `label` names its exact type, or (when `label` is `None`) its
 /// `type`/`node_type` is `Class` or `OwlClass`. `HAS_PROPERTY` edges count
 /// declared properties; a `SUBCLASS_OF` edge names a declared parent (resolved
@@ -447,7 +447,7 @@ pub(crate) fn handle_ontology_gap(
     )
 }
 
-/// Materialize each gap as a typed `:OntologyGap` node (CONCEPT:EG-KG.mining.ontology-gap),
+/// Materialize each gap as a typed `:OntologyGap` node (CONCEPT:MEDULLA-KG.mining.ontology-gap),
 /// linked to its class via a `GAP_OF` edge.
 pub(super) fn materialize_ontology_gaps(
     core: &GraphCore,
@@ -564,7 +564,7 @@ pub(in crate::server::handlers) fn handle_retrieval_quality(
 }
 
 /// Materialize the aggregate report as a typed `:RetrievalQuality` node
-/// (CONCEPT:EG-KG.mining.retrieval-quality), linked to a resident node named
+/// (CONCEPT:MEDULLA-KG.mining.retrieval-quality), linked to a resident node named
 /// `query_id` via `RETRIEVAL_QUALITY_OF` when one exists.
 pub(super) fn materialize_retrieval_quality(
     core: &GraphCore,
@@ -637,7 +637,7 @@ pub(super) fn materialize_retrieval_quality_claim(
 /// Project the resident graph (optionally restricted to one `label`) into a
 /// dense `AdjacencyGraph<usize>` for [`community::detect`], mirroring
 /// `build_host_graph`'s node/edge projection but over dense usize indices
-/// (what `eg_compute::graph_algos` operates on) instead of [`HostGraph`].
+/// (what `medulla_compute::graph_algos` operates on) instead of [`HostGraph`].
 pub(super) fn build_id_graph(
     core: &GraphCore,
     label: &Option<String>,
@@ -743,7 +743,7 @@ fn member_ids(members: &[usize], ids: &[String]) -> Vec<String> {
 }
 
 /// Materialize each MULTI-MEMBER community as a typed `:Community` node
-/// (CONCEPT:EG-KG.mining.community-writeback) — a singleton community carries
+/// (CONCEPT:MEDULLA-KG.mining.community-writeback) — a singleton community carries
 /// no relational signal worth writing back — linked to its members via
 /// `COMMUNITY_MEMBER` edges when resident.
 pub(super) fn materialize_communities(

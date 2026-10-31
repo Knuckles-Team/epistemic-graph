@@ -25,7 +25,7 @@ def _script():
 
 
 def _plant_protocol(root: Path, *, declare_chunk: bool, chunk: str) -> None:
-    source = root / "crates" / "eg-types" / "src"
+    source = root / "crates" / "medulla-types" / "src"
     method = source / "protocol" / "method"
     method.mkdir(parents=True)
     (source / "protocol.rs").write_text("mod method;\n", encoding="utf-8")
@@ -49,7 +49,7 @@ def _plant_protocol(root: Path, *, declare_chunk: bool, chunk: str) -> None:
     )
 
 
-@pytest.mark.spec("EG-CONTRACT-R044")
+@pytest.mark.spec("MEDULLA-CONTRACT-R044")
 def test_method_variants_include_declared_children_and_ignore_comment_spoof(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -77,7 +77,7 @@ def test_method_variants_include_declared_children_and_ignore_comment_spoof(
     assert gate.protocol_variants() == {"Alpha"}
 
 
-@pytest.mark.spec("EG-CONTRACT-R044")
+@pytest.mark.spec("MEDULLA-CONTRACT-R044")
 def test_omitted_declared_child_fails_closed(tmp_path: Path, monkeypatch) -> None:
     gate = _script()
     _plant_protocol(

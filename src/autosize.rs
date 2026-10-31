@@ -1,13 +1,13 @@
 //! Cgroup-aware hardware capacity (CONCEPT:AU-KG.backend.b-auto-size).
 //!
-//! The implementation lives in the dependency-free `eg-resource` workspace
+//! The implementation lives in the dependency-free `medulla-resource` workspace
 //! leaf. Keeping this facade preserves the engine's existing public module path
-//! while allowing lower crates such as `eg-asr-whisper` to use the exact same
+//! while allowing lower crates such as `medulla-asr-whisper` to use the exact same
 //! v1/v2 CPU and memory parser. Automatic consumers use the effective host /
 //! cgroup minimum and reserve 10% CPU plus 20% RAM headroom. Explicit values
 //! are upper bounds only and must be clamped to these automatic values.
 
-pub use eg_resource::{
+pub use medulla_resource::{
     bound_explicit, default_node_cap, detect_capacity, parse_cgroup_v1_cpu_quota,
     parse_cgroup_v1_memory_limit, parse_cgroup_v2_cpu_max, parse_cgroup_v2_memory_max,
     parse_mem_total, reserve_cpu, reserve_ram, resolve_cgroup_file, resolve_cgroup_files,

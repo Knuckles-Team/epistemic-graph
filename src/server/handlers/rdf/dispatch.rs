@@ -136,7 +136,7 @@ async fn try_handle_sparql(
                 req_id,
                 core,
                 query.clone(),
-                eg_rdf::sparql::Projection::from_wire(base_iri, type_convention),
+                medulla_rdf::sparql::Projection::from_wire(base_iri, type_convention),
                 super::sparql::SparqlProofMode::of(*explain),
                 #[cfg(feature = "security")]
                 caller,

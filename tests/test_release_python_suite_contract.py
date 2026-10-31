@@ -1,4 +1,4 @@
-"""EG-CONTRACT-R009: the release workflow runs the full root Python suite.
+"""MEDULLA-CONTRACT-R009: the release workflow runs the full root Python suite.
 
 ``release.yml`` already ran the crate tests (``gates``) and the duplication
 census (``scanner-quality``), but historically had no step that ran the
@@ -90,7 +90,7 @@ def test_capability_dependencies_bootstrap_uv_for_the_test_interpreter(
     assert "if" not in python_setup
 
 
-@pytest.mark.spec("EG-CONTRACT-R009")
+@pytest.mark.spec("MEDULLA-CONTRACT-R009")
 def test_python_suite_job_runs_the_full_root_tests_directory() -> None:
     step = _test_step(_python_suite_job())
     run = step["run"]
@@ -101,7 +101,7 @@ def test_python_suite_job_runs_the_full_root_tests_directory() -> None:
     assert "--timeout=900" in run
 
 
-@pytest.mark.spec("EG-CONTRACT-R009")
+@pytest.mark.spec("MEDULLA-CONTRACT-R009")
 def test_python_suite_job_builds_the_real_artifacts_before_testing() -> None:
     job: dict = {
         "steps": sum(
@@ -118,7 +118,7 @@ def test_python_suite_job_builds_the_real_artifacts_before_testing() -> None:
     assert any("engine binary" in name for name in step_names)
 
 
-@pytest.mark.spec("EG-CONTRACT-R009")
+@pytest.mark.spec("MEDULLA-CONTRACT-R009")
 def test_pre_merge_gate_replica_runs_the_identical_suite() -> None:
     """The same job is the pre-merge gate on a PR and the release gate on push:
     one `timeout-minutes` expression, gated on `github.event_name ==
@@ -129,7 +129,7 @@ def test_pre_merge_gate_replica_runs_the_identical_suite() -> None:
     assert job["steps"].count(_test_step(job)) == 1
 
 
-@pytest.mark.spec("EG-CONTRACT-R009")
+@pytest.mark.spec("MEDULLA-CONTRACT-R009")
 def test_crate_jobs_still_run_alongside_it() -> None:
     """R009 adds the root suite ALONGSIDE the existing crate tests (`gates`,
     `gates-crates`), not instead of them. The dupehound adapter tests are part
@@ -184,7 +184,7 @@ def test_parallel_preparation_is_exact_revision_and_same_run() -> None:
     runs = "\n".join(s.get("run", "") for s in consumer["steps"])
     assert "cargo build" not in runs
     assert "unpack kernels" in runs and "unpack server" in runs
-    assert "assert e.__engine__ == 'eg-pyengine'" in runs
+    assert "assert e.__engine__ == 'medulla-pyengine'" in runs
     assert "maturin pep517 write-dist-info" in runs
     assert "if" not in _test_step(consumer)
 
@@ -209,7 +209,7 @@ def test_validation_profile_is_warmed_without_affecting_release_wheels() -> None
     builds = [
         s["run"] for s in workflow["jobs"]["python-server"]["steps"] if "run" in s
     ]
-    assert "cargo build --locked --features full --bin epistemic-graph-server" in builds
+    assert "cargo build --locked --features full --bin medulla-server" in builds
 
 
 def _cache_step(steps: list[dict], name: str) -> dict:
@@ -354,7 +354,7 @@ def _assert_facade_upload_contract(upload: dict) -> None:
     }
 
 
-@pytest.mark.spec("EG-CONTRACT-R009")
+@pytest.mark.spec("MEDULLA-CONTRACT-R009")
 def test_facade_timings_are_current_run_evidence_without_replacing_tests() -> None:
     workflow = _workflow()
     job = workflow["jobs"]["gates-facade"]
@@ -373,11 +373,11 @@ def test_facade_timings_are_current_run_evidence_without_replacing_tests() -> No
     _assert_facade_upload_contract(upload)
 
 
-@pytest.mark.spec("EG-CONTRACT-R009")
+@pytest.mark.spec("MEDULLA-CONTRACT-R009")
 def test_offline_tools_are_subcommands_not_separate_executables() -> None:
     manifest = tomllib.loads((REPO / "Cargo.toml").read_text())
     names = {target["name"] for target in manifest["bin"]}
-    assert names == {"epistemic-graph-server", "nemesis"}
+    assert names == {"medulla-server", "nemesis"}
     assert manifest["package"].get("autotests", True) is True
     assert manifest.get("lib", {}).get("test", True) is True
     assert all(target.get("test", True) for target in manifest.get("test", []))
@@ -441,9 +441,9 @@ def test_native_artifact_roundtrip_fails_closed(
     sha = _init_fixture_checkout(root)
     env = {**os.environ, "RUNNER_TEMP": str(tmp_path / "artifacts"), "GITHUB_SHA": sha}
     paths = (
-        ["epistemic_graph/numeric.test.so", "epistemic_graph/engine.test.so"]
+        ["medulla/numeric.test.so", "medulla/engine.test.so"]
         if kind == "kernels"
-        else ["target-isolated/debug/epistemic-graph-server"]
+        else ["target-isolated/debug/medulla-server"]
     )
     for name in paths:
         path = root / name
@@ -467,8 +467,8 @@ def test_native_artifact_roundtrip_fails_closed(
 @pytest.mark.parametrize(
     ("module", "crate", "features"),
     [
-        ("numeric", "eg-numeric", ("python",)),
-        ("engine", "eg-pyengine", ("python", "security")),
+        ("numeric", "medulla-numeric", ("python",)),
+        ("engine", "medulla-pyengine", ("python", "security")),
     ],
 )
 @pytest.mark.parametrize("fast_codegen", [True, False])
@@ -547,13 +547,13 @@ def test_python_suite_installs_native_scorer_tracing_before_full_suite() -> None
 COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
     "python-server": {
         ("Build the full-featured engine binary once"): (
-            ("cargo build --locked --features full --bin epistemic-graph-server"),
+            ("cargo build --locked --features full --bin medulla-server"),
         ),
     },
     "gates-facade": {
         ("Test (facade full)"): (
             (
-                "python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph "
+                "python3 scripts/cargo_test_rescue.py cargo test -p medulla-engine "
                 "--features full --no-fail-fast --timings"
             ),
         ),
@@ -561,35 +561,35 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
     "gates": {
         ("Test (lower crates, all features)"): (
             (
-                "python3 scripts/cargo_test_rescue.py cargo test -p eg-types -p "
-                "eg-core -p eg-compute --all-features --no-fail-fast"
+                "python3 scripts/cargo_test_rescue.py cargo test -p medulla-types -p "
+                "medulla-core -p medulla-compute --all-features --no-fail-fast"
             ),
         ),
         ("Test (canonical capability policy and generated ledger)"): (
             (
                 "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
-                "eg-capabilities --features contract --no-fail-fast"
+                "medulla-capabilities --features contract --no-fail-fast"
             ),
         ),
         ("Test (SQLite format differential conformance)"): (
             (
                 "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
-                "eg-sqlite-format --test differential --no-fail-fast"
+                "medulla-sqlite-format --test differential --no-fail-fast"
             ),
         ),
         (
-            "Test (replay-determinism — eg-jobs/eg-statechart crash-replay proofs, DE7)"
+            "Test (replay-determinism — medulla-jobs/medulla-statechart crash-replay proofs, DE7)"
         ): (
             (
-                "python3 scripts/cargo_test_rescue.py cargo test -p eg-jobs -p "
-                "eg-statechart --test replay_determinism --no-fail-fast"
+                "python3 scripts/cargo_test_rescue.py cargo test -p medulla-jobs -p "
+                "medulla-statechart --test replay_determinism --no-fail-fast"
             ),
         ),
     },
     "gates-plan-fuzz": {
-        ("Query-pipeline fuzz + chaos (eg-plan)"): (
+        ("Query-pipeline fuzz + chaos (medulla-plan)"): (
             (
-                "python3 scripts/cargo_test_rescue.py cargo test -p eg-plan "
+                "python3 scripts/cargo_test_rescue.py cargo test -p medulla-plan "
                 '--features "query,owl,text,timeseries,federation" --test '
                 "fuzz_pipelines --no-fail-fast"
             ),
@@ -599,14 +599,14 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
         ("Test (storage crate, isolated crash-process lifecycle)"): (
             (
                 "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
-                "eg-storage --all-features --no-fail-fast -- --test-threads=1"
+                "medulla-storage --all-features --no-fail-fast -- --test-threads=1"
             ),
         ),
     },
     "gates-ontology": {
         ("Test (ontology composition)"): (
             (
-                "python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph "
+                "python3 scripts/cargo_test_rescue.py cargo test -p medulla-engine "
                 "--features full --lib --no-fail-fast server::graph_schema::compose"
             ),
         ),
@@ -618,9 +618,9 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
         ): (
             (
                 "python3 scripts/cargo_test_rescue.py cargo test --locked "
-                "--workspace --exclude epistemic-graph --exclude eg-types --exclude "
-                "eg-core --exclude eg-compute --exclude eg-storage --exclude "
-                "eg-tts-piper --exclude eg-numeric --exclude eg-pyengine "
+                "--workspace --exclude medulla-engine --exclude medulla-types --exclude "
+                "medulla-core --exclude medulla-compute --exclude medulla-storage --exclude "
+                "medulla-tts-piper --exclude medulla-numeric --exclude medulla-pyengine "
                 "--all-features --no-fail-fast"
             ),
         ),
@@ -635,13 +635,13 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
         ("Test (pyo3 crates, every feature except python)"): (
             (
                 "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
-                "eg-numeric -p eg-pyengine --features eg-numeric/analytics,"
-                "eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,"
-                "eg-numeric/motif,eg-pyengine/security,eg-pyengine/ml-pipeline,"
-                "eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,"
-                "eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,"
-                "eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,"
-                "eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast"
+                "medulla-numeric -p medulla-pyengine --features medulla-numeric/analytics,"
+                "medulla-numeric/contract,medulla-numeric/complex,medulla-numeric/decision,"
+                "medulla-numeric/motif,medulla-pyengine/security,medulla-pyengine/ml-pipeline,"
+                "medulla-pyengine/reasoning,medulla-pyengine/query,medulla-pyengine/cypher,"
+                "medulla-pyengine/tsdb,medulla-pyengine/streaming,medulla-pyengine/wasm-udf,"
+                "medulla-pyengine/rdf,medulla-pyengine/blob,medulla-pyengine/jobs,"
+                "medulla-pyengine/statechart,medulla-pyengine/finance --no-fail-fast"
             ),
         ),
     },
@@ -651,7 +651,7 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
 # from the ordinary native-test commands and their final cache-statistics step.
 CONTRACT_CACHE_COMMANDS = {
     "Engine contract parity (registry ⇄ Method enum ⇄ generated client)": (
-        "cargo run -q --locked -p eg-capabilities --features contract "
+        "cargo run -q --locked -p medulla-capabilities --features contract "
         "--bin gen_contract -- --check",
         "${{ !cancelled() }}",
     ),
@@ -666,7 +666,7 @@ CONTRACT_CACHE_COMMANDS = {
 CACHE_BACKEND = {
     "SCCACHE_IDLE_TIMEOUT": "7200",
     "SCCACHE_GHA_ENABLED": "true",
-    "SCCACHE_GHA_VERSION": "eg-ci-ubuntu-24.04-v1",
+    "SCCACHE_GHA_VERSION": "medulla-ci-ubuntu-24.04-v1",
     "SCCACHE_GHA_RW_MODE": (
         "${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}"
     ),
@@ -770,7 +770,7 @@ def _step_by_name(steps: list[dict], name: str) -> dict:
 # `gates-whisper`, which carries no compiler-cache env of its own and is
 # therefore pinned here. Both jobs are required gates, and the release
 # consumer waits on both, so neither target can drop out of the matrix.
-@pytest.mark.spec("EG-CONTRACT-R028")
+@pytest.mark.spec("MEDULLA-CONTRACT-R028")
 def test_sqlite_and_whisper_differential_commands_are_pinned_in_ci() -> None:
     workflow = _workflow()
     sqlite = _step_by_name(
@@ -779,7 +779,7 @@ def test_sqlite_and_whisper_differential_commands_are_pinned_in_ci() -> None:
     )
     assert sqlite["run"] == (
         "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
-        "eg-sqlite-format --test differential --no-fail-fast"
+        "medulla-sqlite-format --test differential --no-fail-fast"
     )
     whisper = _step_by_name(
         workflow["jobs"]["gates-whisper"]["steps"],
@@ -787,7 +787,7 @@ def test_sqlite_and_whisper_differential_commands_are_pinned_in_ci() -> None:
     )
     assert whisper["run"] == (
         "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
-        "eg-asr-whisper --test real_transcription --no-fail-fast"
+        "medulla-asr-whisper --test real_transcription --no-fail-fast"
     )
     for job_name in ("gates", "gates-whisper"):
         job = workflow["jobs"][job_name]
@@ -824,12 +824,12 @@ def test_compiler_cache_keeps_global_settings_and_server_artifact_boundary() -> 
         (
             "python-server",
             "Build the full-featured engine binary once",
-            "cargo build --locked --features full --bin epistemic-graph-server",
+            "cargo build --locked --features full --bin medulla-server",
         ),
         (
             "gates-facade",
             "Test (facade full)",
-            "python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph "
+            "python3 scripts/cargo_test_rescue.py cargo test -p medulla-engine "
             "--features full --no-fail-fast --timings",
         ),
     ],
@@ -844,7 +844,7 @@ def test_workspace_cache_is_main_written_and_build_remains_required(
     )
     assert cache["with"] == {
         "workspaces": ". -> target-isolated",
-        "shared-key": "eg-ci-gates-ubuntu-24.04-v1",
+        "shared-key": "medulla-ci-gates-ubuntu-24.04-v1",
         "cache-workspace-crates": True,
         "save-if": "${{ github.ref == 'refs/heads/main' }}",
     }
@@ -858,13 +858,13 @@ def test_plan_fuzz_remains_independent_required_acceptance() -> None:
     jobs = _workflow()["jobs"]
     job = jobs["gates-plan-fuzz"]
     assert job["needs"] == "changes"
-    # Main pushes, the nightly schedule and dispatch (EG-CONTRACT-R053.7).
+    # Main pushes, the nightly schedule and dispatch (MEDULLA-CONTRACT-R053.7).
     assert job["if"] == (
         "needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'"
     )
     assert "continue-on-error" not in job
     command = COMPILER_CACHE_COMMANDS["gates-plan-fuzz"][
-        "Query-pipeline fuzz + chaos (eg-plan)"
+        "Query-pipeline fuzz + chaos (medulla-plan)"
     ][0]
     matches = [
         (name, step)

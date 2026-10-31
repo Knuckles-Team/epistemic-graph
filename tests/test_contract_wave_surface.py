@@ -95,8 +95,8 @@ def test_every_wave_method_is_internal_with_no_consumer() -> None:
 
 
 def test_no_wave_method_is_reachable_from_the_python_client() -> None:
-    ids = (ROOT / "epistemic_graph/generated/_ids.py").read_text(encoding="utf-8")
-    dispatch = (ROOT / "epistemic_graph/generated/__init__.py").read_text(
+    ids = (ROOT / "medulla/generated/_ids.py").read_text(encoding="utf-8")
+    dispatch = (ROOT / "medulla/generated/__init__.py").read_text(
         encoding="utf-8"
     )
     for name in INTERNAL_WAVE_METHODS:
@@ -161,7 +161,7 @@ def test_the_receipt_counts_match_the_wave() -> None:
         )
         classification[kind] += 1
     assert classification["unclassified"] == 0
-    for prefix in ("contract", "epistemic_graph/contract"):
+    for prefix in ("contract", "medulla/contract"):
         receipt = _json(f"{prefix}/receipt.json")
         catalog = _json(f"{prefix}/methods.json")
         assert catalog["methods"] == list(methods.values()), prefix

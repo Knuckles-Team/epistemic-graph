@@ -11,7 +11,7 @@ from _client_send_stub import CapturingEngine
 from test_work_item_read_client import VIEW
 from test_work_item_retry_identity import _submit_request
 
-from epistemic_graph.client import EpistemicGraphClient, WorkItemClient
+from medulla.client import MedullaClient, WorkItemClient
 
 pytestmark = pytest.mark.no_engine
 
@@ -27,7 +27,7 @@ def admission() -> dict[str, Any]:
 
 
 def read(engine: CapturingEngine) -> dict[str, Any] | None:
-    client = WorkItemClient(cast(EpistemicGraphClient, engine))
+    client = WorkItemClient(cast(MedullaClient, engine))
     return asyncio.run(client.get_run(tenant="tenant-fixture", run_id="run"))
 
 

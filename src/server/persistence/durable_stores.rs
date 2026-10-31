@@ -1,5 +1,5 @@
 //! The canonical registry of every durable redb store the engine opens directly under
-//! a persist dir, and each store's BACKUP SCOPE (CONCEPT:EG-KG.sharding.reshard-on-restore).
+//! a persist dir, and each store's BACKUP SCOPE (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore).
 //!
 //! ## Why this exists
 //!
@@ -157,44 +157,44 @@ pub const DURABLE_STORES: &[DurableStore] = &[
 /// with and an ordinary open fails closed
 /// (SEC-FINDING-V1-INCARNATION-BREAKS-RESTORE-20260903). Staged adoption is the
 /// kernel's explicit substitution path, and it requires the caller to DECLARE
-/// what it expects the file to be — `eg_storage` no longer infers it. This
+/// what it expects the file to be — `medulla_storage` no longer infers it. This
 /// registry already owns the bundled file-name list, so the declaration belongs
 /// here rather than being re-derived at the restore site.
 ///
-/// `rbac.redb`'s identity string is `eg-core`'s (`RBAC_PHYSICAL_STORE`, a
-/// private const in `crates/eg-core/src/rbac_persist.rs`); it is restated here
+/// `rbac.redb`'s identity string is `medulla-core`'s (`RBAC_PHYSICAL_STORE`, a
+/// private const in `crates/medulla-core/src/rbac_persist.rs`); it is restated here
 /// because that crate exports no accessor for it. The guard against the two
 /// drifting is `backup.rs`'s `backup_restore_carries_non_shard_durable_stores`,
 /// which reopens the restored `rbac.redb` through `RbacStore::open` — a
 /// mismatched identity fails that adoption closed.
 pub(crate) fn bundled_store_authority(
     file_name: &str,
-) -> Option<(&'static str, eg_storage::OwnerLayout)> {
+) -> Option<(&'static str, medulla_storage::OwnerLayout)> {
     match file_name {
         "admin-mutations.redb" => Some((
             super::redb_backend::ADMIN_MUTATIONS_STORE,
-            eg_storage::OwnerLayout::LedgerOnly,
+            medulla_storage::OwnerLayout::LedgerOnly,
         )),
         "catalog.redb" => Some((
             super::tenant_catalog::CATALOG_PHYSICAL_STORE,
-            eg_storage::OwnerLayout::TenantCatalog,
+            medulla_storage::OwnerLayout::TenantCatalog,
         )),
         #[cfg(feature = "kv")]
         "kv.redb" => Some((
             crate::server::kv::KV_PHYSICAL_STORE,
-            eg_storage::OwnerLayout::Kv,
+            medulla_storage::OwnerLayout::Kv,
         )),
         "node_info.redb" => Some((
             super::node_info_store::NODE_INFO_PHYSICAL_STORE,
-            eg_storage::OwnerLayout::NodeInfo,
+            medulla_storage::OwnerLayout::NodeInfo,
         )),
         "agent_library.redb" => Some((
             super::agent_library::AGENT_LIBRARY_PHYSICAL_STORE,
-            eg_storage::OwnerLayout::AgentLibrary,
+            medulla_storage::OwnerLayout::AgentLibrary,
         )),
         "rbac.redb" => Some((
             "eg-core:rbac-security-control",
-            eg_storage::OwnerLayout::Rbac,
+            medulla_storage::OwnerLayout::Rbac,
         )),
         _ => None,
     }
@@ -224,7 +224,7 @@ pub fn excluded_store_reasons() -> BTreeMap<String, String> {
 /// A durable store that can copy its own committed image into a fresh bundle file.
 ///
 /// Implemented next to each store's own identity, because the copy is the STORAGE
-/// KERNEL's whole-image backup (`eg_storage::backup_recovery_store`): it carries the
+/// KERNEL's whole-image backup (`medulla_storage::backup_recovery_store`): it carries the
 /// ledger and every declared owner table, and it derives a fresh destination root and
 /// rebinds each scope to it, which is what makes the bundled file adoptable at
 /// restore. The hand-rolled table-by-table stream this replaced produced a plain redb
@@ -254,7 +254,7 @@ pub trait BundledStoreSource: Send + Sync {
 /// grants or registered identities, so a restored engine came up default-deny with an
 /// already-`Consumed` bootstrap — unrecoverable through the normal admission path.
 #[cfg(feature = "security")]
-pub struct RbacBundledStore(pub std::sync::Arc<dyn eg_core::rbac_persist::RbacPolicyStore>);
+pub struct RbacBundledStore(pub std::sync::Arc<dyn medulla_core::rbac_persist::RbacPolicyStore>);
 
 #[cfg(feature = "security")]
 impl BundledStoreSource for RbacBundledStore {
@@ -307,64 +307,64 @@ mod tests {
         ),
         (
             "control-plane.redb",
-            "eg-transaction outbox lease unit-test fixture (tempdir)",
+            "medulla-transaction outbox lease unit-test fixture (tempdir)",
         ),
         (
             "dest.redb",
-            "eg-transaction graft destination unit-test fixture (tempdir)",
+            "medulla-transaction graft destination unit-test fixture (tempdir)",
         ),
         (
             "durability-admission.redb",
-            "eg-storage physical-store durability admission unit-test fixture (tempdir)",
+            "medulla-storage physical-store durability admission unit-test fixture (tempdir)",
         ),
         (
             "loser.redb",
-            "eg-transaction competing graft loser unit-test fixture (tempdir)",
+            "medulla-transaction competing graft loser unit-test fixture (tempdir)",
         ),
         (
             "native-current.redb",
-            "eg-transaction mixed current/scoped group unit-test fixture (tempdir)",
+            "medulla-transaction mixed current/scoped group unit-test fixture (tempdir)",
         ),
         (
             "nonce-only.redb",
-            "eg-transaction replay unit-test fixture (tempdir): a batch whose only difference \
+            "medulla-transaction replay unit-test fixture (tempdir): a batch whose only difference \
              from its predecessor is a fresh attempt nonce",
         ),
         (
             "outbox-key.redb",
-            "eg-transaction replay unit-test fixture (tempdir): outbox idempotency-key reuse",
+            "medulla-transaction replay unit-test fixture (tempdir): outbox idempotency-key reuse",
         ),
         (
             "replay-concurrent.redb",
-            "eg-transaction replay unit-test fixture (tempdir): two concurrent replays of one \
+            "medulla-transaction replay unit-test fixture (tempdir): two concurrent replays of one \
              admitted batch",
         ),
         (
             "replay-finalize.redb",
-            "eg-transaction replay unit-test fixture (tempdir): replay sealed by the commit \
+            "medulla-transaction replay unit-test fixture (tempdir): replay sealed by the commit \
              finalizer without reapplying owner rows",
         ),
         (
             "same.redb",
-            "eg-transaction same-root graft refusal unit-test fixture (tempdir)",
+            "medulla-transaction same-root graft refusal unit-test fixture (tempdir)",
         ),
         (
             "scope.redb",
-            "eg-transaction graft scope-fence unit-test fixture (tempdir)",
+            "medulla-transaction graft scope-fence unit-test fixture (tempdir)",
         ),
         (
             "typed-replay.redb",
-            "eg-transaction fault/restart unit-test fixture (tempdir): a typed result survives \
+            "medulla-transaction fault/restart unit-test fixture (tempdir): a typed result survives \
              restart and replays once",
         ),
         (
             "typed-replay-missing-result.redb",
-            "eg-transaction fault/restart unit-test fixture (tempdir): replay of a typed batch \
+            "medulla-transaction fault/restart unit-test fixture (tempdir): replay of a typed batch \
              whose stored result is absent",
         ),
         (
             "winner.redb",
-            "eg-transaction competing graft winner unit-test fixture (tempdir)",
+            "medulla-transaction competing graft winner unit-test fixture (tempdir)",
         ),
         (
             "native.redb",
@@ -387,207 +387,207 @@ mod tests {
         ),
         ("coordinator.redb", "dispatch unit-test fixture (tempdir)"),
         ("compensation.redb", "dispatch unit-test fixture (tempdir)"),
-        ("ts.redb", "eg-tsdb unit-test fixture (tempdir)"),
-        ("persist.redb", "eg-tsdb unit-test fixture (tempdir)"),
-        ("ann.redb", "eg-ann unit-test fixture (tempdir)"),
+        ("ts.redb", "medulla-tsdb unit-test fixture (tempdir)"),
+        ("persist.redb", "medulla-tsdb unit-test fixture (tempdir)"),
+        ("ann.redb", "medulla-ann unit-test fixture (tempdir)"),
         (
             "not-in-the-registry.redb",
             "backup.rs's negative fixture proving an unregistered store is refused",
         ),
         (
             "absent.redb",
-            "eg-storage owner-manifest layout-predecessor unit-test fixture (tempdir): a path \
+            "medulla-storage owner-manifest layout-predecessor unit-test fixture (tempdir): a path \
              that is never created, used to prove a missing file is left to the normal open",
         ),
         (
             "copied.redb",
-            "eg-storage sql_checkpoint_upgrade unit-test fixture (tempdir): a byte-for-byte \
+            "medulla-storage sql_checkpoint_upgrade unit-test fixture (tempdir): a byte-for-byte \
              copy of a wrong-owner source, used to prove the copy is refused identically",
         ),
         (
             "copy.redb",
-            "eg-storage sql_checkpoint_upgrade unit-test fixture (tempdir): the live copy in \
+            "medulla-storage sql_checkpoint_upgrade unit-test fixture (tempdir): the live copy in \
              opened_copy_cannot_borrow_restored_original_path_authority's path-swap proof",
         ),
         (
             "current.redb",
-            "eg-storage owner-manifest layout-predecessor unit-test fixture (tempdir): a \
+            "medulla-storage owner-manifest layout-predecessor unit-test fixture (tempdir): a \
              freshly created current-layout owner file, used to prove it is left to the \
              normal open",
         ),
         (
             "original.redb",
-            "eg-storage sql_checkpoint_upgrade unit-test fixture (tempdir): the renamed-aside \
+            "medulla-storage sql_checkpoint_upgrade unit-test fixture (tempdir): the renamed-aside \
              source in opened_copy_cannot_borrow_restored_original_path_authority's path-swap \
              proof",
         ),
         (
             "preview.redb",
-            "eg-storage sql_checkpoint_upgrade BoundedPreviewBackend unit-test fixture \
+            "medulla-storage sql_checkpoint_upgrade BoundedPreviewBackend unit-test fixture \
              (tempdir): caps I/O during preview writes",
         ),
         (
             "replacement.redb",
-            "eg-storage sql_checkpoint_upgrade unit-test fixture (tempdir): a swapped-in copy \
+            "medulla-storage sql_checkpoint_upgrade unit-test fixture (tempdir): a swapped-in copy \
              used to prove a replaced inode is refused before creating a checkpoint",
         ),
         (
             "sql.redb",
-            "eg-storage sql_checkpoint_upgrade unit-test fixture (tempdir), and the same \
-             tempdir-local name reused by eg-query's source_batch table-store test fixture \
-             (crates/eg-query/src/tables/store/source_batch/tests/support.rs)",
+            "medulla-storage sql_checkpoint_upgrade unit-test fixture (tempdir), and the same \
+             tempdir-local name reused by medulla-query's source_batch table-store test fixture \
+             (crates/medulla-query/src/tables/store/source_batch/tests/support.rs)",
         ),
         (
             "changed-after-inspection.redb",
-            "eg-storage physical-backup unit-test fixture (tempdir)",
+            "medulla-storage physical-backup unit-test fixture (tempdir)",
         ),
         (
             "closed-world.redb",
-            "eg-storage owner-adoption unit-test fixture (tempdir)",
+            "medulla-storage owner-adoption unit-test fixture (tempdir)",
         ),
         (
             "decide-then-write.redb",
-            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+            "medulla-transaction atomic-commit unit-test fixture (tempdir)",
         ),
         (
             "destination-kv-epoch-two.redb",
-            "eg-storage physical-backup unit-test fixture (tempdir)",
+            "medulla-storage physical-backup unit-test fixture (tempdir)",
         ),
         (
             "destination-kv.redb",
-            "eg-storage physical-backup unit-test fixture (tempdir)",
+            "medulla-storage physical-backup unit-test fixture (tempdir)",
         ),
         (
             "destination-many-bindings.redb",
-            "eg-storage physical-backup unit-test fixture (tempdir)",
+            "medulla-storage physical-backup unit-test fixture (tempdir)",
         ),
         (
             "destination.redb",
-            "eg-storage physical-backup unit-test fixture (tempdir)",
+            "medulla-storage physical-backup unit-test fixture (tempdir)",
         ),
         (
             "empty-private-source.redb",
-            "eg-storage physical-backup unit-test fixture (tempdir)",
+            "medulla-storage physical-backup unit-test fixture (tempdir)",
         ),
         (
             "empty-private-target.redb",
-            "eg-storage physical-backup unit-test fixture (tempdir)",
+            "medulla-storage physical-backup unit-test fixture (tempdir)",
         ),
         (
             "ledger.redb",
-            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+            "medulla-transaction atomic-commit unit-test fixture (tempdir)",
         ),
         (
             "missing-owner.redb",
-            "eg-storage physical-backup negative unit-test fixture (tempdir)",
+            "medulla-storage physical-backup negative unit-test fixture (tempdir)",
         ),
         (
             "other.redb",
-            "eg-storage owner/blob-sharing unit-test fixture (tempdir)",
+            "medulla-storage owner/blob-sharing unit-test fixture (tempdir)",
         ),
         (
             "owner-backup.redb",
-            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+            "medulla-transaction atomic-commit unit-test fixture (tempdir)",
         ),
         (
             "owner-rows.redb",
-            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+            "medulla-transaction atomic-commit unit-test fixture (tempdir)",
         ),
         (
             "owner-source.redb",
-            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+            "medulla-transaction atomic-commit unit-test fixture (tempdir)",
         ),
         (
             "replay.redb",
-            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+            "medulla-transaction atomic-commit unit-test fixture (tempdir)",
         ),
         (
             "semantic.redb",
-            "eg-storage owner-adoption unit-test fixture (tempdir)",
+            "medulla-storage owner-adoption unit-test fixture (tempdir)",
         ),
         (
             "shared-read-tamper.redb",
-            "eg-storage physical-backup negative unit-test fixture (tempdir)",
+            "medulla-storage physical-backup negative unit-test fixture (tempdir)",
         ),
         (
             "shared.redb",
-            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+            "medulla-transaction atomic-commit unit-test fixture (tempdir)",
         ),
         (
             "source-kv.redb",
-            "eg-storage physical-backup unit-test fixture (tempdir)",
+            "medulla-storage physical-backup unit-test fixture (tempdir)",
         ),
         (
             "source-many-bindings.redb",
-            "eg-storage physical-backup unit-test fixture (tempdir)",
+            "medulla-storage physical-backup unit-test fixture (tempdir)",
         ),
         (
             "staged-source.redb",
-            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+            "medulla-transaction atomic-commit unit-test fixture (tempdir)",
         ),
         (
             "staged-target.redb",
-            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+            "medulla-transaction atomic-commit unit-test fixture (tempdir)",
         ),
         (
             "stale-manifest.redb",
-            "eg-storage physical-backup negative unit-test fixture (tempdir)",
+            "medulla-storage physical-backup negative unit-test fixture (tempdir)",
         ),
         (
             "statechart-staged.redb",
-            "eg-storage physical-backup unit-test fixture (tempdir)",
+            "medulla-storage physical-backup unit-test fixture (tempdir)",
         ),
         (
             "strict.redb",
-            "eg-storage/eg-transaction strict-authority unit-test fixture (tempdir)",
+            "medulla-storage/medulla-transaction strict-authority unit-test fixture (tempdir)",
         ),
         (
             "wrong-table.redb",
-            "eg-storage owner-adoption negative unit-test fixture (tempdir)",
+            "medulla-storage owner-adoption negative unit-test fixture (tempdir)",
         ),
         (
             "aborted.redb",
-            "eg-storage clean-shutdown marker unit-test fixture (tempdir): an aborted write keeps the marker",
+            "medulla-storage clean-shutdown marker unit-test fixture (tempdir): an aborted write keeps the marker",
         ),
         (
             "bound.redb",
-            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a reopened bound store writes nothing",
+            "medulla-storage clean-shutdown marker unit-test fixture (tempdir): a reopened bound store writes nothing",
         ),
         (
             "clean.redb",
-            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a graceful close skips the next scan",
+            "medulla-storage clean-shutdown marker unit-test fixture (tempdir): a graceful close skips the next scan",
         ),
         (
             "cleared.redb",
-            "eg-storage clean-shutdown marker unit-test fixture (tempdir): the first write removes the marker",
+            "medulla-storage clean-shutdown marker unit-test fixture (tempdir): the first write removes the marker",
         ),
         (
             "fence.redb",
-            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a skipped scan still refuses a foreign fence",
+            "medulla-storage clean-shutdown marker unit-test fixture (tempdir): a skipped scan still refuses a foreign fence",
         ),
         (
             "killed.redb",
-            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a kill after a write leaves no marker",
+            "medulla-storage clean-shutdown marker unit-test fixture (tempdir): a kill after a write leaves no marker",
         ),
         (
             "killed-ro.redb",
-            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a kill before any write keeps the marker",
+            "medulla-storage clean-shutdown marker unit-test fixture (tempdir): a kill before any write keeps the marker",
         ),
         (
             "nomarker.redb",
-            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a missing marker runs the full scan",
+            "medulla-storage clean-shutdown marker unit-test fixture (tempdir): a missing marker runs the full scan",
         ),
         (
             "orig.redb",
-            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a copied marker is rejected",
+            "medulla-storage clean-shutdown marker unit-test fixture (tempdir): a copied marker is rejected",
         ),
         (
             "outside.redb",
-            "eg-storage clean-shutdown marker unit-test fixture (tempdir): an outside commit invalidates the marker",
+            "medulla-storage clean-shutdown marker unit-test fixture (tempdir): an outside commit invalidates the marker",
         ),
         (
             "torn.redb",
-            "eg-storage clean-shutdown marker unit-test fixture (tempdir): a torn marker is rejected",
+            "medulla-storage clean-shutdown marker unit-test fixture (tempdir): a torn marker is rejected",
         ),
     ];
 
@@ -600,8 +600,8 @@ mod tests {
     /// deliberately excluded (with a reason), retired, or explicitly not a persist-dir
     /// store. The scan is workspace-wide, not crate-local: this package's
     /// `CARGO_MANIFEST_DIR` is the workspace root, so `crates/` is a sibling of `src/`
-    /// under it, and a store opened by any workspace crate (e.g. `eg-storage`,
-    /// `eg-query`) is just as reachable here as one opened by this package itself. An
+    /// under it, and a store opened by any workspace crate (e.g. `medulla-storage`,
+    /// `medulla-query`) is just as reachable here as one opened by this package itself. An
     /// unclassified name fails here, at the point the store is introduced, instead of
     /// at a restore years later.
     /// Extract `*.redb` filename literals from one source file's text into `names`
@@ -625,7 +625,7 @@ mod tests {
                 continue;
             }
             // Only a bare file name is a candidate. This filters interpolated
-            // temp names (`format!("eg-tsdb-{}.redb", ...)`) and prose that
+            // temp names (`format!("medulla-tsdb-{}.redb", ...)`) and prose that
             // happens to end a string literal with a store name.
             if !name
                 .chars()
@@ -672,7 +672,7 @@ mod tests {
         names
     }
 
-    // spec: EG-DURABLE-KERNEL-R055
+    // spec: MEDULLA-DURABLE-KERNEL-R055
     #[test]
     fn registry_covers_every_redb_store() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));

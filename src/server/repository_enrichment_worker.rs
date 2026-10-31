@@ -66,12 +66,12 @@ mod worker {
     use crate::server::persistence::PersistenceBackend;
     #[cfg(feature = "security")]
     use crate::server::repository_enrichment_worker::grant;
-    use eg_types::epistemic_operations::{
+    use medulla_types::epistemic_operations::{
         RequestContext, RequestContextAuthenticationMethod, RequestContextSchemaVersion,
     };
-    use eg_types::native_control::SubmitWorkItemsRequest;
+    use medulla_types::native_control::SubmitWorkItemsRequest;
     #[cfg(not(feature = "raft"))]
-    use eg_types::protocol::Method;
+    use medulla_types::protocol::Method;
 
     const IDLE: Duration = Duration::from_millis(500);
     const MAX_GRAPHS_PER_SWEEP: usize = 16;
@@ -253,7 +253,7 @@ mod worker {
             VerifiedRequestContext::from_verified_claims_with_nonce(
                 service.claims().clone(),
                 page_key.to_string(),
-                Some(eg_types::contract::Nonce::minted()),
+                Some(medulla_types::contract::Nonce::minted()),
             )
         };
         if verified.tenant() != tenant {

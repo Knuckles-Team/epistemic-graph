@@ -9,7 +9,7 @@ pub(super) fn mutation_version(
 ) -> Result<u64, String> {
     let identity = blob_scope_identity(ScopeTenantId::new(tenant.to_string())?, graph)?;
     let owner = store.scope_handle(&identity)?;
-    eg_transaction::version(&store.kernel.read_scope(&owner)?)
+    medulla_transaction::version(&store.kernel.read_scope(&owner)?)
 }
 
 pub(super) fn sweep_batch(

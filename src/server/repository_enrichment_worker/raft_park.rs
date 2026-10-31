@@ -6,8 +6,8 @@
 
 use std::sync::Arc;
 
-use eg_types::mutation_batch::MutationOutboxLease;
-use eg_types::native_control::EnrichmentBudgetPark;
+use medulla_types::mutation_batch::MutationOutboxLease;
+use medulla_types::native_control::EnrichmentBudgetPark;
 use tokio::sync::RwLock;
 
 use crate::server::auth::VerifiedRequestContext;

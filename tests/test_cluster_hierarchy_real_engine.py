@@ -1,5 +1,5 @@
 """End-to-end proof of the VIZ-1 hierarchical cluster-tree RPCs against the REAL
-engine (CONCEPT:EG-KG.compute.leiden-hierarchy) — server-side clustering for
+engine (CONCEPT:MEDULLA-KG.compute.leiden-hierarchy) — server-side clustering for
 million-node
 graph visualization: build a small graph, refresh its cluster hierarchy, list
 the cached level, and expand a cluster down to its real member nodes.
@@ -9,8 +9,8 @@ checks), this exercises the WHOLE path: engine handler
 (``src/server/handlers/graph_ops.rs``'s ``ClusterHierarchyRefresh``/
 ``Clusters``/``Expand`` arms) -> the durable cache
 (``server::persistence::cluster_hierarchy_store``) -> back out through the
-Python client -- against the real compiled `epistemic-graph-server`, via the
-session-scoped ``start_epistemic_graph_server`` fixture.
+Python client -- against the real compiled `medulla-server`, via the
+session-scoped ``start_medulla_server`` fixture.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import os
 import pytest
 from conftest import request_context
 
-from epistemic_graph.client import EpistemicGraphClient
+from medulla.client import MedullaClient
 
 TENANT = "viz1_cluster_hierarchy_e2e"
 
@@ -29,10 +29,10 @@ TENANT = "viz1_cluster_hierarchy_e2e"
 @pytest.mark.asyncio
 async def test_refresh_list_and_expand_round_trip() -> None:
     socket_path = os.environ.get(
-        "GRAPH_SERVICE_SOCKET", "/tmp/test_epistemic_graph_local.sock"
+        "GRAPH_SERVICE_SOCKET", "/tmp/test_medulla_local.sock"
     )
-    secret = os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "test-epistemic-graph-secret")
-    client = await EpistemicGraphClient.connect(
+    secret = os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "test-medulla-secret")
+    client = await MedullaClient.connect(
         socket_path=socket_path,
         auth_secret=secret,
         verified_context=request_context(),

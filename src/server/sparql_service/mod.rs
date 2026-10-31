@@ -9,7 +9,7 @@
 //! (`DEC-CA-06`: `"Publish | applied pack | Fuseki named graph <pack-iri> | new — CA-12"`).
 //!
 //! That reading conflicts with **this lane's own governing lane file**
-//! (`plans/company-architecture/lanes/CA-12-eg-sparql-service-fuseki.md`), whose Non-goals
+//! (`plans/company-architecture/lanes/CA-12-medulla-sparql-service-fuseki.md`), whose Non-goals
 //! section explicitly assigns "Writing to Fuseki (publish path)" to CA-23/CA-45, and whose
 //! Design section scopes this module to "a Fuseki-specific bootstrap/health-check at
 //! startup and the qualification test harness" for the *inbound* `SERVICE`-query direction
@@ -35,11 +35,11 @@
 //! ## What this module does
 //!
 //! `SERVICE <endpoint> { … }` federation is already fully implemented and was already
-//! reachable BEFORE this lane: `crates/eg-rdf/src/sparql.rs::eval_service` dispatches to an
+//! reachable BEFORE this lane: `crates/medulla-rdf/src/sparql.rs::eval_service` dispatches to an
 //! injected `ctx.service: Option<&dyn RemoteSparql>`, and `server::sparql_http::ServiceClient`
 //! (feature `sparql-service`) is a complete, SSRF-guarded `ureq` implementation of that
 //! trait, bound in `run_dataset_query` whenever the allowlist env var
-//! (`sparql_http::SERVICE_ALLOW_ENV`, `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW`) is non-empty.
+//! (`sparql_http::SERVICE_ALLOW_ENV`, `MEDULLA_SPARQL_SERVICE_ALLOW`) is non-empty.
 //! Pointing that client at Fuseki needs **zero code change** — only the allowlist env value
 //! (a `services/graph-os` deploy-manifest change this lane documents, per its Design
 //! section, but does not itself edit).
@@ -49,7 +49,7 @@
 //!     server boot (wired in `src/main.rs`) that confirms the configured Fuseki endpoint
 //!     answers a real SPARQL query through the SAME guarded client the live `SERVICE`
 //!     dispatch path uses. It never blocks startup and never disables `SERVICE` — only
-//!     `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW` (unset ⇒ fail-closed) does that.
+//!     `MEDULLA_SPARQL_SERVICE_ALLOW` (unset ⇒ fail-closed) does that.
 //!   * The qualification test (`tests/e2e_ca12_sparql_fuseki.rs`) — proves a live,
 //!     end-to-end `SERVICE` query against the real Fuseki instance returns real rows for a
 //!     `GRAPH <urn:source:…>`-scoped pattern (au's named-graph partition convention,
@@ -59,7 +59,7 @@
 //!     endpoint fails/empties the `SERVICE` leg only (SILENT semantics) without breaking the
 //!     rest of the query — see that file for the concrete evidence.
 //!
-//! `crates/eg-rdf/src/sparql.rs::build_service_query` was verified (not modified) to
+//! `crates/medulla-rdf/src/sparql.rs::build_service_query` was verified (not modified) to
 //! preserve an inner `GRAPH <urn:source:…> {…}` clause unchanged when wrapping it in the
 //! projected `SELECT` sent to the remote endpoint — it clones `inner` verbatim and only adds
 //! an outer `Project`, rendered through spargebra's own `Display`. No `sparql.rs` change was
@@ -71,12 +71,12 @@
 /// not invent a default host (Fuseki's live hostname is deploy-environment knowledge,
 /// resolved once at W01 and set by the deploy manifest, not hardcoded here).
 ///
-/// This is deliberately a SEPARATE env var from `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW`
+/// This is deliberately a SEPARATE env var from `MEDULLA_SPARQL_SERVICE_ALLOW`
 /// (the allowlist `sparql_http::ServiceClient` reads): the allowlist says which hosts
 /// `SERVICE` MAY reach; this var says which ONE of those (if any) the startup probe should
 /// proactively check, so operators can allowlist several federation targets without every
 /// one of them being probed at boot.
-pub const FUSEKI_HEALTH_CHECK_ENDPOINT_ENV: &str = "EPISTEMIC_GRAPH_FUSEKI_HEALTH_CHECK_ENDPOINT";
+pub const FUSEKI_HEALTH_CHECK_ENDPOINT_ENV: &str = "MEDULLA_FUSEKI_HEALTH_CHECK_ENDPOINT";
 
 /// Outcome of [`startup_health_check`], for the caller to log. Never causes startup to
 /// fail — this is observability, not a gate (matches the lane file's W03: "Startup log
@@ -85,7 +85,7 @@ pub const FUSEKI_HEALTH_CHECK_ENDPOINT_ENV: &str = "EPISTEMIC_GRAPH_FUSEKI_HEALT
 pub enum HealthCheckOutcome {
     /// [`FUSEKI_HEALTH_CHECK_ENDPOINT_ENV`] is unset: nothing to check.
     NotConfigured,
-    /// An endpoint is configured but `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW` is empty/unset,
+    /// An endpoint is configured but `MEDULLA_SPARQL_SERVICE_ALLOW` is empty/unset,
     /// so `SERVICE` is fail-closed and the endpoint could not be reached through it anyway
     /// — reported so an operator sees WHY nothing else runs, not just silence.
     AllowlistEmpty { endpoint: String },
@@ -107,7 +107,7 @@ impl HealthCheckOutcome {
             ),
             Self::AllowlistEmpty { endpoint } => format!(
                 "Fuseki health-check: {endpoint} configured but SERVICE allowlist \
-                 (EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW) is empty -- SERVICE stays fail-closed, \
+                 (MEDULLA_SPARQL_SERVICE_ALLOW) is empty -- SERVICE stays fail-closed, \
                  skipping probe"
             ),
             Self::Reachable {
@@ -131,7 +131,7 @@ impl HealthCheckOutcome {
 mod probe {
     use super::{HealthCheckOutcome, FUSEKI_HEALTH_CHECK_ENDPOINT_ENV};
     use crate::server::sparql_http::ServiceClient;
-    use eg_rdf::sparql::RemoteSparql;
+    use medulla_rdf::sparql::RemoteSparql;
 
     /// A trivial, dataset-agnostic probe: valid SPARQL 1.1 against ANY endpoint regardless
     /// of what data (if any) it holds, so the health-check never depends on fixture content.

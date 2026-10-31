@@ -120,7 +120,7 @@ func TestVectorsCoverEveryPublishedMethod(t *testing.T) {
 	}
 }
 
-// spec: EG-CONTRACT-R004
+// spec: MEDULLA-CONTRACT-R004
 func TestSignerMatchesTheEngineForEveryMethodBodyVector(t *testing.T) {
 	file := loadBodyVectors(t)
 	envelope := file.Envelope

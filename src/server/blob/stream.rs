@@ -1,4 +1,4 @@
-//! Bounded-memory streaming facade over the CAS — CONCEPT:EG-KG.sharding.m3-r4 (M3 R4 extension).
+//! Bounded-memory streaming facade over the CAS — CONCEPT:MEDULLA-KG.sharding.m3-r4 (M3 R4 extension).
 //!
 //! The KG-2.206 substrate already streams a blob over the WIRE chunk-by-chunk (the
 //! `BlobBegin`/`BlobChunkPut`/`BlobCommit` upload cursor + `BlobFetchBegin`/
@@ -24,7 +24,7 @@ use super::store::{
 const READ_BLOCK: usize = 256 * 1024;
 
 /// Stream `reader` into the CAS, cutting it into VARIABLE content-defined chunks with
-/// the Gear/FastCDC chunker (CONCEPT:EG-KG.storage.backward-manifest-read), and commit the manifest — returning the
+/// the Gear/FastCDC chunker (CONCEPT:MEDULLA-KG.storage.backward-manifest-read), and commit the manifest — returning the
 /// content-addressed [`CommittedBlob`]. `chunk_size` is the TARGET AVERAGE chunk size
 /// (min/max derive from it, see [`Chunker::from_avg`]); `chunk_size == 0` uses the
 /// chunker default. Bounded memory: at most one boundary-search window (≈ the
@@ -75,7 +75,7 @@ pub fn stream_blob_put<R: Read>(
         chunks,
         chunk_lens,
         len,
-        chunk_size: 0, // 0 ⇒ content-defined (EG-071); lengths live in chunk_lens.
+        chunk_size: 0, // 0 ⇒ content-defined (MEDULLA-071); lengths live in chunk_lens.
     };
     let manifest_bytes = rmp_serde::to_vec_named(&manifest).map_err(|e| e.to_string())?;
     let digest = hex_digest(&manifest_bytes);
@@ -175,7 +175,7 @@ mod tests {
         out
     }
 
-    /// CONCEPT:EG-KG.storage.backward-manifest-read (a) end-to-end: a blob streamed through the content-defined
+    /// CONCEPT:MEDULLA-KG.storage.backward-manifest-read (a) end-to-end: a blob streamed through the content-defined
     /// splitter into the CAS and back out is byte-for-byte identical, the manifest is
     /// content-defined (variable lengths, `chunk_size == 0`), and the recorded
     /// `chunk_lens` cover the blob exactly.
@@ -207,7 +207,7 @@ mod tests {
         assert_eq!(out, data, "byte-for-byte round trip through CDC");
     }
 
-    /// CONCEPT:EG-KG.storage.backward-manifest-read (b) dedup / shift-resistance end-to-end: two blobs differing
+    /// CONCEPT:MEDULLA-KG.storage.backward-manifest-read (b) dedup / shift-resistance end-to-end: two blobs differing
     /// only by a few bytes inserted near the START share the VAST majority of their
     /// chunk digests in the CAS, because the rolling hash re-synchronises past the
     /// edit. A fixed-stride splitter would share almost no chunks.
@@ -329,7 +329,7 @@ mod tests {
     /// reader and back OUT to a hashing sink, retaining NEITHER the whole blob NOR all
     /// chunks. Peak RSS growth must stay bounded by the capped redb page cache + a
     /// chunk, INDEPENDENT of the blob size — a regression that buffered the whole blob
-    /// would track the file size and trip the assert. Default 256 MB; `EG_BLOB_RSS_MB`
+    /// would track the file size and trip the assert. Default 256 MB; `MEDULLA_BLOB_RSS_MB`
     /// runs 1 GB+.
     // Measures WHOLE-PROCESS RSS — meaningful only in isolation (a concurrent
     // 256MB-blob sibling inflates the shared RSS past the bound: ~348MB vs 320).
@@ -337,7 +337,7 @@ mod tests {
     #[test]
     #[ignore = "process-global RSS; run isolated via `--ignored --test-threads=1`"]
     fn bounded_memory_streams_large_blob() {
-        let total_mb: u64 = std::env::var("EG_BLOB_RSS_MB")
+        let total_mb: u64 = std::env::var("MEDULLA_BLOB_RSS_MB")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(256);

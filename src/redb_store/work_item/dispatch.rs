@@ -179,7 +179,7 @@ pub(crate) fn apply_work_item_rows(
         Method::RetireSealedRecord { request } => {
             apply_retire_sealed_record_row(graph, request, nodes, crypto)
         }
-        // graph-os EG-2 control-lease and EH-348 work-market writes share this
+        // graph-os MEDULLA-2 control-lease and EH-348 work-market writes share this
         // kernel; EH-346 policy-evolution records are its other row writer;
         // anything else is not a WorkItem-family row transition and answers `None`.
         other => match apply_policy_record_rows(graph, other, nodes, crypto)? {

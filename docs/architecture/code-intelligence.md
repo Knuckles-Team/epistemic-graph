@@ -1,4 +1,4 @@
-# Code Intelligence — type/scope-resolved call graph (CONCEPT:EG-KG.compute.type-scope-resolved-call)
+# Code Intelligence — type/scope-resolved call graph (CONCEPT:MEDULLA-KG.compute.type-scope-resolved-call)
 
 The Knowledge Graph models code as `:Code` symbols linked by `:calls`, `:inherits`,
 `:realizes`, `:dependsOn`, `:covers`. The accuracy of those links is set by **how
@@ -14,7 +14,7 @@ scope-aware**, computed in the Rust engine and shipped already-resolved.
   over the whole batch, returning one merged graph. The Python pipeline calls it
   once instead of doing a separate parse pass plus a per-symbol Python resolution
   loop.
-- **A resolution ladder, most-specific first** (`crates/eg-compute/src/parser/resolve.rs`):
+- **A resolution ladder, most-specific first** (`crates/medulla-compute/src/parser/resolve.rs`):
   1. `same_file` — a definition in the caller's own file.
   2. `scoped` — a `self`/`this`/`super` (or implicit-this) call, or an explicit
      receiver naming a class, binds to that class's method or an **inherited** one.
@@ -68,15 +68,15 @@ Knowledge Graph's `:Code` symbols. OWL reasoning over those symbols
 
 | Layer | File |
 |---|---|
-| Rust extraction | `medulla/crates/eg-compute/src/parser/tree_sitter.rs` |
-| Rust resolution | `medulla/crates/eg-compute/src/parser/resolve.rs` |
+| Rust extraction | `medulla/crates/medulla-compute/src/parser/tree_sitter.rs` |
+| Rust resolution | `medulla/crates/medulla-compute/src/parser/resolve.rs` |
 | Pipeline consumer | `agent_utilities/knowledge_graph/enrichment/pipeline.py`, `enrichment/extractors/code_test.py` |
 | GitLab consumer | `agent_utilities/knowledge_graph/core/gitlab_indexer.py` |
 | Ontology | `agent_utilities/knowledge_graph/ontology_software.ttl` (`:inherits`, `:realizes`) |
 | Reasoning | `agent_utilities/knowledge_graph/core/owl_bridge.py` |
 | Surfaces | `agent_utilities/mcp/tools/analysis_tools.py`, `agent_utilities/mcp/kg_server.py` |
 
-## Model-free similarity (CONCEPT:EG-KG.compute.model-free-similar-code)
+## Model-free similarity (CONCEPT:MEDULLA-KG.compute.model-free-similar-code)
 
 Code search and clone detection must keep working when the embedder is offline (the
 recurring embedding-endpoint 502s). So similarity is **model-free**, computed in the same Rust
@@ -117,7 +117,7 @@ The graph spans past the code itself:
 - **Git change-coupling → FILE_CHANGES_WITH (AU-KG.ingest.mine-git-history-files).** Files that keep changing
   together get a symmetric weighted edge — the hidden blast radius the AST can't
   see. `graph_analyze(action="change_coupling", target=<repo>)`.
-- **Near-clones** are the `similar_to` edges from EG-KG.compute.model-free-similar-code (MinHash) — no separate
+- **Near-clones** are the `similar_to` edges from MEDULLA-KG.compute.model-free-similar-code (MinHash) — no separate
   pass needed.
 - **ADRs (AU-KG.compute.adr-crud).** `graph_analyze(action="adr")` creates/lists
   `ArchitectureDecisionRecord` nodes so design decisions live in the same KG.

@@ -1,4 +1,4 @@
-# EG-SRC-AUTH — Test specification
+# MEDULLA-SRC-AUTH — Test specification
 
 Governing spec: [spec.md](spec.md). No live credential is part of the PR gate; all fixtures are disposable and recorded.
 
@@ -16,20 +16,20 @@ Governing spec: [spec.md](spec.md). No live credential is part of the PR gate; a
 
 Negative cases that must exist: an origin-approved rank-1 declaration with a connected, approved rank-2 alternate must abstain when rank 1 is unconnected or its mapping is unapproved and `allowFallback` is false; the same fixtures may select rank 2 only when rank 1 explicitly enables fallback, with `FallbackFrom` recorded. Also test a caller who cannot see the registered source; a connector self-claim; an equal-rank tie; a copy served for a virtual row.
 
-### EG-SRC-AUTH-R010 tests
+### MEDULLA-SRC-AUTH-R010 tests
 
-- `EG-SRC-AUTH-R010.1`: `crates/eg-rdf/src/source_selection.rs::tests::source_role_round_trips`.
-- `EG-SRC-AUTH-R010.2`: `crates/eg-rdf/src/source_selection.rs::tests::live_truth_beats_historical_on_conflict`.
-- `EG-SRC-AUTH-R010.3`: `crates/eg-plan/src/federation.rs::tests::plan_applies_source_role`.
-- `EG-SRC-AUTH-R010.4`: `crates/eg-rdf/src/source_selection.rs::tests::inspiration_only_abstains_role_insufficient`.
-- `EG-SRC-AUTH-R010.5`: `crates/eg-rdf/src/source_selection.rs::tests::role_premise_names_both_sources`.
-- `EG-SRC-AUTH-R010.6`: `tests/federated/test_source_role_served.py::test_live_truth_wins_conflict`.
+- `MEDULLA-SRC-AUTH-R010.1`: `crates/medulla-rdf/src/source_selection.rs::tests::source_role_round_trips`.
+- `MEDULLA-SRC-AUTH-R010.2`: `crates/medulla-rdf/src/source_selection.rs::tests::live_truth_beats_historical_on_conflict`.
+- `MEDULLA-SRC-AUTH-R010.3`: `crates/medulla-plan/src/federation.rs::tests::plan_applies_source_role`.
+- `MEDULLA-SRC-AUTH-R010.4`: `crates/medulla-rdf/src/source_selection.rs::tests::inspiration_only_abstains_role_insufficient`.
+- `MEDULLA-SRC-AUTH-R010.5`: `crates/medulla-rdf/src/source_selection.rs::tests::role_premise_names_both_sources`.
+- `MEDULLA-SRC-AUTH-R010.6`: `tests/federated/test_source_role_served.py::test_live_truth_wins_conflict`.
 
-### EG-SRC-AUTH-R011 tests
+### MEDULLA-SRC-AUTH-R011 tests
 
-- `EG-SRC-AUTH-R011.1`: `crates/eg-rdf/src/source_selection.rs::tests::trust_mark_round_trips`.
-- `EG-SRC-AUTH-R011.2`: `crates/eg-rdf/src/source_selection.rs::tests::derived_content_inherits_untrusted`.
-- `EG-SRC-AUTH-R011.3`: `src/server/handlers/graph_ops/gateway_graph.rs::tests::add_node_stamps_trust_mark`.
-- `EG-SRC-AUTH-R011.4`: `crates/eg-rdf/src/source_selection.rs::tests::downgrade_without_approval_refused`.
-- `EG-SRC-AUTH-R011.5`: `crates/eg-rdf/src/source_selection.rs::tests::mark_carries_rule_and_generation`.
-- `EG-SRC-AUTH-R011.6`: `tests/federated/test_trust_mark_served.py::test_tool_result_is_untrusted_and_sticky`.
+- `MEDULLA-SRC-AUTH-R011.1`: `crates/medulla-rdf/src/source_selection.rs::tests::trust_mark_round_trips`.
+- `MEDULLA-SRC-AUTH-R011.2`: `crates/medulla-rdf/src/source_selection.rs::tests::derived_content_inherits_untrusted`.
+- `MEDULLA-SRC-AUTH-R011.3`: `src/server/handlers/graph_ops/gateway_graph.rs::tests::add_node_stamps_trust_mark`.
+- `MEDULLA-SRC-AUTH-R011.4`: `crates/medulla-rdf/src/source_selection.rs::tests::downgrade_without_approval_refused`.
+- `MEDULLA-SRC-AUTH-R011.5`: `crates/medulla-rdf/src/source_selection.rs::tests::mark_carries_rule_and_generation`.
+- `MEDULLA-SRC-AUTH-R011.6`: `tests/federated/test_trust_mark_served.py::test_tool_result_is_untrusted_and_sticky`.

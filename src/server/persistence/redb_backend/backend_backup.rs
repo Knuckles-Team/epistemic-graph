@@ -12,7 +12,7 @@ struct BackupBoundaries {
 }
 
 fn backup_boundaries(backend: &RedbBackend) -> Result<BackupBoundaries, String> {
-    let admin = eg_storage::recovery_store_fingerprint(backend.admin_mutations.kernel())?;
+    let admin = medulla_storage::recovery_store_fingerprint(backend.admin_mutations.kernel())?;
     let shard = backend
         .shard0()
         .shard
@@ -76,7 +76,7 @@ fn copy_owned_stores(
     extra_stores: &[&dyn super::super::durable_stores::BundledStoreSource],
     report: &mut BackupReport,
 ) -> Result<(), String> {
-    report.admin_mutations = eg_storage::backup_recovery_store(
+    report.admin_mutations = medulla_storage::backup_recovery_store(
         backend.admin_mutations.kernel(),
         &dst_dir.join(super::super::backup::ADMIN_MUTATIONS_FILE),
     )?;
@@ -120,7 +120,7 @@ fn copy_store(
 }
 
 fn ensure_backup_stable(backend: &RedbBackend, before: &BackupBoundaries) -> Result<(), String> {
-    let admin_after = eg_storage::recovery_store_fingerprint(backend.admin_mutations.kernel())?;
+    let admin_after = medulla_storage::recovery_store_fingerprint(backend.admin_mutations.kernel())?;
     let xshard_after = super::super::backup::xshard_recovery_fingerprint(&before.shard0)?;
     if before.admin != admin_after || before.xshard != xshard_after {
         return Err(
@@ -132,13 +132,13 @@ fn ensure_backup_stable(backend: &RedbBackend, before: &BackupBoundaries) -> Res
 
 impl RedbBackend {
     /// Take an ONLINE consistent backup of the whole durable store into `dst_dir`
-    /// (CONCEPT:EG-KG.sharding.reshard-on-restore), while the engine keeps serving. Per shard, opens an
-    /// MVCC snapshot (CONCEPT:EG-KG.storage.snapshot-read-off-writer) on the LIVE writer's shared
+    /// (CONCEPT:MEDULLA-KG.sharding.reshard-on-restore), while the engine keeps serving. Per shard, opens an
+    /// MVCC snapshot (CONCEPT:MEDULLA-KG.storage.snapshot-read-off-writer) on the LIVE writer's shared
     /// `Shard` and streams every table verbatim into a bundle shard file named by
-    /// the EG-026 [`shard_filename`] scheme, then writes a `MANIFEST.json`
+    /// the MEDULLA-026 [`shard_filename`] scheme, then writes a `MANIFEST.json`
     /// ([`super::super::backup::BackupManifest`]). No quiesce: MVCC lets the snapshot read the
     /// shard's latest committed state concurrently with the writer, and commit-before-ack
-    /// (CONCEPT:EG-KG.backend.authoritative-dispatch) makes each per-shard snapshot a self-consistent committed prefix.
+    /// (CONCEPT:MEDULLA-KG.backend.authoritative-dispatch) makes each per-shard snapshot a self-consistent committed prefix.
     ///
     /// `engine_version` / `timestamp_secs` / `label` are CALLER-SUPPLIED — this library
     /// never reads the wall clock. `dst_dir` is created if absent and must not already
@@ -186,19 +186,19 @@ impl RedbBackend {
         Ok(report)
     }
 
-    /// Group-commit batch-size / linger counters (CONCEPT:EG-KG.backend.adaptive-linger-coalesce). Returns shard 0's
+    /// Group-commit batch-size / linger counters (CONCEPT:MEDULLA-KG.backend.adaptive-linger-coalesce). Returns shard 0's
     /// LIVE counter Arc (the only shard under K=1; observability callers are K=1). Use
     /// [`commit_stats_all`] for the per-shard view under K>1.
     pub fn commit_stats(&self) -> Arc<RedbCommitStats> {
         self.shard0().stats.clone()
     }
 
-    /// Per-shard group-commit counters (CONCEPT:EG-KG.backend.sharded-k-way-durable observability).
+    /// Per-shard group-commit counters (CONCEPT:MEDULLA-KG.backend.sharded-k-way-durable observability).
     pub fn commit_stats_all(&self) -> Vec<Arc<RedbCommitStats>> {
         self.shards.iter().map(|s| s.stats.clone()).collect()
     }
 
-    /// On-disk file path of each shard's redb database (CONCEPT:EG-KG.backend.sharded-k-way-durable diagnostics).
+    /// On-disk file path of each shard's redb database (CONCEPT:MEDULLA-KG.backend.sharded-k-way-durable diagnostics).
     pub fn shard_db_paths(&self) -> Vec<String> {
         self.shards.iter().map(|s| s.db_path.clone()).collect()
     }
